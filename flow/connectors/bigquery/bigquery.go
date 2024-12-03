@@ -636,11 +636,24 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	// check if the table exists
 	existingMetadata, err := table.Metadata(ctx)
 	if err == nil {
-		// table exists, go to next table
-		c.logger.Info("[bigquery] table already exists, skipping",
-			slog.String("table", tableIdentifier),
-			slog.Any("existingMetadata", existingMetadata))
-		return true, nil
+		if config.IsResync {
+			c.logger.Info("[bigquery] deleting existing resync table",
+				slog.String("table", tableIdentifier))
+			deleteErr := table.Delete(ctx)
+			if deleteErr != nil {
+				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
+			}
+		} else {
+			// table exists, go to next table
+			c.logger.Info("[bigquery] table already exists, skipping",
+				slog.String("table", tableIdentifier),
+				slog.Any("existingMetadata", existingMetadata))
+			return true, nil
+		}
+	}
+	if !strings.Contains(err.Error(), "notFound") {
+		return false, fmt.Errorf("error while checking metadata for BigQuery table existence %s: %w",
+			tableIdentifier, err)
 	}
 
 	// convert the column names and types to bigquery types
@@ -697,21 +710,6 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		Name:             datasetTable.table,
 		Clustering:       clustering,
 		TimePartitioning: timePartitioning,
-	}
-
-	if config.IsResync {
-		_, existsErr := table.Metadata(ctx)
-		if existsErr == nil {
-			c.logger.Info("[bigquery] deleting existing resync table",
-				slog.String("table", tableIdentifier))
-			deleteErr := table.Delete(ctx)
-			if deleteErr != nil {
-				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
-			}
-		} else if !strings.Contains(existsErr.Error(), "notFound") {
-			return false, fmt.Errorf("error while checking metadata for BigQuery resynced table %s: %w",
-				tableIdentifier, existsErr)
-		}
 	}
 
 	c.logger.Info("[bigquery] creating table",
