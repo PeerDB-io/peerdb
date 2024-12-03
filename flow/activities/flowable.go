@@ -760,6 +760,8 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 			slotMetricGauges := otel_metrics.SlotMetricGauges{}
 			if a.OtelManager != nil {
+				// TODO remove this post testing
+				logger.Info("Setting up slot metric gauges for otel")
 				slotLagGauge, err := a.OtelManager.GetOrInitFloat64Gauge(
 					otel_metrics.BuildMetricName(otel_metrics.SlotLagGaugeName),
 					metric.WithUnit("MiBy"),

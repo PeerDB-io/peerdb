@@ -158,6 +158,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
+		slog.Info("Setting up OpenTelemetry metrics provider")
 		otelManager, err = otel_metrics.NewOtelManager()
 		if err != nil {
 			return nil, fmt.Errorf("unable to create otel manager: %w", err)
