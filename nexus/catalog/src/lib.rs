@@ -51,7 +51,7 @@ pub struct CatalogConfig<'a> {
     pub database: &'a str,
 }
 
-impl<'a> CatalogConfig<'a> {
+impl CatalogConfig<'_> {
     // convert catalog config to PostgresConfig
     pub fn to_postgres_config(&self) -> pt::peerdb_peers::PostgresConfig {
         PostgresConfig {

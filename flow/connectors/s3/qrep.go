@@ -20,7 +20,7 @@ func (c *S3Connector) SyncQRepRecords(
 	schema := stream.Schema()
 
 	dstTableName := config.DestinationTableIdentifier
-	avroSchema, err := getAvroSchema(dstTableName, schema)
+	avroSchema, err := getAvroSchema(ctx, config.Env, dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}
@@ -34,10 +34,12 @@ func (c *S3Connector) SyncQRepRecords(
 }
 
 func getAvroSchema(
+	ctx context.Context,
+	env map[string]string,
 	dstTableName string,
 	schema qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_S3)
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_S3)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}

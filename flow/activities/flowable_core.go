@@ -225,7 +225,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
 
-		if err := dstConn.ReplayTableSchemaDeltas(ctx, flowName, recordBatchSync.SchemaDeltas); err != nil {
+		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, recordBatchSync.SchemaDeltas); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
@@ -440,6 +440,7 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	})
 
 	errGroup.Go(func() error {
+		var err error
 		rowsSynced, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)

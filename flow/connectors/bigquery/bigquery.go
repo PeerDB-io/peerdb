@@ -203,6 +203,7 @@ func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable 
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
+	env map[string]string,
 	flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
