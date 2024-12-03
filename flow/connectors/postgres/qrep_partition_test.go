@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"testing"
 	"time"
 
@@ -84,11 +85,8 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 	defer conn.Close(context.Background())
 
-	// Generate a random schema name
-	rndUint, err := shared.RandomUInt64()
-	if err != nil {
-		t.Fatalf("Failed to generate random uint: %v", err)
-	}
+	//nolint:gosec // Generate a random schema name, number has no cryptographic significance
+	rndUint := rand.Uint64()
 	schemaName := fmt.Sprintf("test_%d", rndUint)
 
 	// Create the schema

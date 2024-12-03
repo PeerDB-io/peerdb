@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 
 	"github.com/jackc/pgx/v5"
 
@@ -35,20 +36,15 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		}
 	}
 
-	randomUint, err := shared.RandomUInt64()
-	if err != nil {
-		qe.logger.Error("[pg_query_executor] failed to generate random uint", slog.Any("error", err))
-		err = fmt.Errorf("[pg_query_executor] failed to generate random uint: %w", err)
-		stream.Close(err)
-		return 0, err
-	}
+	//nolint:gosec // number has no cryptographic significance
+	randomUint := rand.Uint64()
 
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
 	fetchSize := shared.FetchAndChannelSize
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] executing cursor declaration for %v with args %v", cursorQuery, args))
-	_, err = tx.Exec(ctx, cursorQuery, args...)
-	if err != nil {
+
+	if _, err := tx.Exec(ctx, cursorQuery, args...); err != nil {
 		qe.logger.Info("[pg_query_executor] failed to declare cursor",
 			slog.String("cursorQuery", cursorQuery), slog.Any("error", err))
 		err = fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)

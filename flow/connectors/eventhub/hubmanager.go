@@ -14,8 +14,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
 	cmap "github.com/orcaman/concurrent-map/v2"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -186,10 +186,10 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 
 func (m *EventHubManager) getEventHubMgmtClient(subID string) (*armeventhub.EventHubsClient, error) {
 	if subID == "" {
-		envSubID, err := utils.GetAzureSubscriptionID()
-		if err != nil {
-			slog.Error("failed to get azure subscription id", slog.Any("error", err))
-			return nil, err
+		envSubID := peerdbenv.GetEnvString("AZURE_SUBSCRIPTION_ID", "")
+		if envSubID == "" {
+			slog.Error("couldn't find AZURE_SUBSCRIPTION_ID in environment")
+			return nil, errors.New("couldn't find AZURE_SUBSCRIPTION_ID in environment")
 		}
 		subID = envSubID
 	}
