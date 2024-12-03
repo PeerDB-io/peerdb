@@ -266,6 +266,19 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		return nil, fmt.Errorf("failed to ping to ClickHouse peer: %w", err)
 	}
 
+	if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
+		// this is to indicate ClickHouse Cloud service is now creating tables with Shared* by default
+		var cloudModeEngine bool
+		if err := conn.QueryRow(ctx, "SELECT value='2' AND changed='1' AND readonly='1' FROM system.settings WHERE name = 'cloud_mode_engine'").Scan(&cloudModeEngine); err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("failed to validate cloud_mode_engine setting: %w", err)
+		}
+		if !cloudModeEngine {
+			conn.Close()
+			return nil, errors.New("ClickHouse service is not migrated to use SharedMergeTree tables, please contact support.")
+		}
+	}
+
 	return conn, nil
 }
 
@@ -395,6 +408,9 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 		if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
 			c.logger.Warn("[clickhouse] table engine not explicitly supported",
 				slog.String("table", tableName), slog.String("engine", engine))
+		}
+		if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) && !strings.HasPrefix(engine, "Shared") {
+			return fmt.Errorf("table %s exists and does not use SharedMergeTree engine", tableName)
 		}
 	}
 	if err := rows.Err(); err != nil {

@@ -41,7 +41,7 @@ func PeerDBCDCIdleTimeoutSeconds(providedValue int) time.Duration {
 	if providedValue > 0 {
 		x = providedValue
 	} else {
-		x = getEnvInt("", 10)
+		x = getEnvConvert("", 10, strconv.Atoi)
 	}
 	return time.Duration(x) * time.Second
 }
@@ -170,5 +170,5 @@ func PeerDBRAPIRequestLoggingEnabled() bool {
 // PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS tells how long to wait before alerting that peerdb has been stuck in maintenance mode
 // for too long
 func PeerDBMaintenanceModeWaitAlertSeconds() int {
-	return getEnvInt("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600)
+	return getEnvConvert("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600, strconv.Atoi)
 }
