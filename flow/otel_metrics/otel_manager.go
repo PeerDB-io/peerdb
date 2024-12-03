@@ -107,13 +107,15 @@ func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*reso
 		semconv.ServiceNameKey.String(otelServiceName),
 		attribute.String(DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
 	}, attrs...)
-	return resource.Merge(
+	res, err := resource.Merge(
 		resource.Default(),
 		resource.NewWithAttributes(
 			semconv.SchemaURL,
 			allAttrs...,
 		),
 	)
+	slog.Info("Created OpenTelemetry resource", slog.Any("resource", res), slog.Any("attrs", res.Attributes()))
+	return res, err
 }
 
 func temporalMetricsFilteringView() sdkmetric.View {
