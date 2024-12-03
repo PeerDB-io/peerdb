@@ -37,6 +37,7 @@ type BigQueryTestHelper struct {
 func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
 	t.Helper()
 	// random 64 bit int to namespace stateful schemas.
+	//nolint:gosec // number has no cryptographic significance
 	runID := rand.Uint64()
 
 	jsonPath := os.Getenv("TEST_BQ_CREDS")

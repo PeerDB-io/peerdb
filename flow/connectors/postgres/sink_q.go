@@ -36,6 +36,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		}
 	}
 
+	//nolint:gosec // number has no cryptographic significance
 	randomUint := rand.Uint64()
 
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)

@@ -214,6 +214,7 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 
 // handleUpsertMode handles the upsert mode
 func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) error {
+	//nolint:gosec // number has no cryptographic significance
 	runID := rand.Uint64()
 
 	tempTableName := fmt.Sprintf("%s_temp_%d", s.dstTableName, runID)

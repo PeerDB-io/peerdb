@@ -47,6 +47,7 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
 
+	//nolint:gosec // number has no cryptographic significance
 	runID := rand.Uint64()
 	testDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
 

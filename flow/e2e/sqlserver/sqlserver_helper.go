@@ -45,6 +45,7 @@ func NewSQLServerHelper() (*SQLServerHelper, error) {
 		return nil, fmt.Errorf("invalid connection configs: %v", connErr)
 	}
 
+	//nolint:gosec // number has no cryptographic significance
 	rndNum := rand.Uint64()
 	testSchema := fmt.Sprintf("e2e_test_%d", rndNum)
 	if err := connector.CreateSchema(context.Background(), testSchema); err != nil {
