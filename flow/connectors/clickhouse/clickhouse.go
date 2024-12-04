@@ -82,7 +82,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
 			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName), slog.Any("error", err))
@@ -396,6 +396,9 @@ func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tab
 			c.logger.Warn("[clickhouse] table engine not explicitly supported",
 				slog.String("table", tableName), slog.String("engine", engine))
 		}
+		if peerdbenv.PeerDBOnlyClickHouseAllowed() && !strings.HasPrefix(engine, "Shared") {
+			return fmt.Errorf("table %s exists and does not use SharedMergeTree engine", tableName)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("failed to read rows: %w", err)
@@ -476,6 +479,19 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
+	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
+		// this is to indicate ClickHouse Cloud service is now creating tables with Shared* by default
+		var cloudModeEngine bool
+		if err := c.queryRow(ctx,
+			"SELECT value='2' AND changed='1' AND readonly='1' FROM system.settings WHERE name = 'cloud_mode_engine'").
+			Scan(&cloudModeEngine); err != nil {
+			return fmt.Errorf("failed to validate cloud_mode_engine setting: %w", err)
+		}
+		if !cloudModeEngine {
+			return errors.New("ClickHouse service is not migrated to use SharedMergeTree tables, please contact support")
+		}
+	}
+
 	peerDBColumns := []string{signColName, versionColName}
 	if req.SyncedAtColName != "" {
 		peerDBColumns = append(peerDBColumns, strings.ToLower(req.SyncedAtColName))
