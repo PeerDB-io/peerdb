@@ -34,7 +34,7 @@ jobs:
           git fetch || true
           git push -u origin "${PR_BRANCH}" --force-with-lease
 
-          PR_ID=$(gh pr list "${PR_LABEL}" --head "${PR_BRANCH}" --json number | jq -r '.[0].number // ""')
+          PR_ID=$(gh pr list --label "${PR_LABEL}" --head "${PR_BRANCH}" --json number | jq -r '.[0].number // ""')
           if [ "$PR_ID" == "" ]; then
             PR_ID=$(gh pr create -l "$PR_LABEL" -t "$PR_TITLE" --body "")
           fi
