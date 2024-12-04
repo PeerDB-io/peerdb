@@ -1,0 +1,43 @@
+name: Update docker-compose.yaml tags
+
+on:
+  schedule:
+    - cron: '0 15 * * 1'
+  workflow_dispatch:
+    inputs: {}
+permissions:
+  issues: write
+  pull-requests: write
+  contents: write
+
+
+env:
+  PR_BRANCH: automated/docker-compose-image-tags-upgrade
+  PR_LABEL: dependencies
+  PR_TITLE: "feat: upgrade `docker-compose.yml` stable image tags"
+
+jobs:
+  update-docker-compose-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: create-PR
+        shell: bash
+        run: |
+          set -eou pipefail
+          latest_tag="$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /repos/${{ github.repository }}/releases/latest | jq '.tag_name')"
+          sed -i -E 's|(image: ghcr\.io)'
+          git checkout -b "${PR_BRANCH}"
+          git fetch || true
+          git push -u origin "${PR_BRANCH}" --force-with-lease
+
+          PR_ID=$(gh pr list "${PR_LABEL}" --head "${PR_BRANCH}" --json number | jq -r '.[0].number // ""')
+          if [ "$PR_ID" == "" ]; then
+            PR_ID=$(gh pr create -l "$PR_LABEL" -t "$PR_TITLE" --body "")
+          fi
+
+          git commit -m 'chore(automated): upgrade docker-compose.yml stable tags'
+          gh pr merge --auto --squash
