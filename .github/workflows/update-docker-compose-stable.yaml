@@ -34,9 +34,10 @@ jobs:
           sed -i -E 's|(image: ghcr\.io/peerdb\-io/.*?:stable-)(.*$)|\1'"${latest_tag}"'|g' docker-compose.yml
           git config --global user.name "${GITHUB_ACTOR}"
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
-
           git checkout -b "${PR_BRANCH}"
           git fetch || true
+          git add -u
+          git commit -m 'chore(automated): upgrade docker-compose.yml stable tags'
           git push -u origin "${PR_BRANCH}" --force-with-lease
 
           PR_ID=$(gh pr list --label "${PR_LABEL}" --head "${PR_BRANCH}" --json number | jq -r '.[0].number // ""')
@@ -44,7 +45,7 @@ jobs:
             PR_ID=$(gh pr create -l "$PR_LABEL" -t "$PR_TITLE" --body "")
           fi
 
-          git commit -m 'chore(automated): upgrade docker-compose.yml stable tags'
+          
           gh pr merge --auto --squash
         env:
           GH_TOKEN: ${{ github.token }}
