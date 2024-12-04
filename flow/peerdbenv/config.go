@@ -135,7 +135,7 @@ func PeerDBAllowedTargets() string {
 }
 
 func PeerDBOnlyClickHouseAllowed() bool {
-	return PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String())
+	return strings.EqualFold(PeerDBAllowedTargets(), protos.DBType_CLICKHOUSE.String())
 }
 
 func PeerDBClickHouseAllowedDomains() string {
