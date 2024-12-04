@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"testing"
 
@@ -13,7 +14,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SnowflakeTestHelper struct {
@@ -47,11 +47,8 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
 
-	runID, err := shared.RandomUInt64()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
-	}
-
+	//nolint:gosec // number has no cryptographic significance
+	runID := rand.Uint64()
 	testDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
 
 	adminClient, err := connsnowflake.NewSnowflakeClient(context.Background(), config)
