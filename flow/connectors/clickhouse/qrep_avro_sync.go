@@ -71,7 +71,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	s.logger.Info("sync function called and schema acquired",
 		slog.String("dstTable", dstTableName))
 
-	avroSchema, err := s.getAvroSchema(dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(ctx, env, dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}
@@ -106,7 +106,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	stagingPath := s.credsProvider.BucketPath
 	startTime := time.Now()
 
-	avroSchema, err := s.getAvroSchema(dstTableName, stream.Schema())
+	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, stream.Schema())
 	if err != nil {
 		return 0, err
 	}
@@ -165,10 +165,12 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 }
 
 func (s *ClickHouseAvroSyncMethod) getAvroSchema(
+	ctx context.Context,
+	env map[string]string,
 	dstTableName string,
 	schema qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(dstTableName, schema, protos.DBType_CLICKHOUSE)
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_CLICKHOUSE)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}

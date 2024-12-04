@@ -1,10 +1,13 @@
 package qvalue
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type QValueKind string
@@ -68,7 +71,6 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindInt64:       "INTEGER",
 	QValueKindFloat32:     "FLOAT",
 	QValueKindFloat64:     "FLOAT",
-	QValueKindNumeric:     "NUMBER(38, 9)",
 	QValueKindQChar:       "CHAR",
 	QValueKindString:      "STRING",
 	QValueKindJSON:        "VARIANT",
@@ -110,7 +112,6 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindInt64:       "Int64",
 	QValueKindFloat32:     "Float32",
 	QValueKindFloat64:     "Float64",
-	QValueKindNumeric:     "Decimal128(9)",
 	QValueKindQChar:       "FixedString(1)",
 	QValueKindString:      "String",
 	QValueKindJSON:        "String",
@@ -140,16 +141,39 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindArrayJSONB:       "String",
 }
 
-func (kind QValueKind) ToDWHColumnType(dwhType protos.DBType) (string, error) {
+func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, column *protos.FieldDescription) (string, error) {
+	if column.TypeModifier == -1 {
+		numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+		if err != nil {
+			return "", err
+		}
+		if numericAsStringEnabled {
+			return "String", nil
+		}
+	} else if rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier); rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
+		return "String", nil
+	}
+	precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+	return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
+}
+
+// SEE ALSO: QField ToDWHColumnType
+func (kind QValueKind) ToDWHColumnType(ctx context.Context, env map[string]string, dwhType protos.DBType, column *protos.FieldDescription,
+) (string, error) {
 	switch dwhType {
 	case protos.DBType_SNOWFLAKE:
-		if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
+		if kind == QValueKindNumeric {
+			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.SnowflakeNumericCompatibility{})
+			return fmt.Sprintf("NUMERIC(%d,%d)", precision, scale), nil
+		} else if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
 			return val, nil
 		} else {
 			return "STRING", nil
 		}
 	case protos.DBType_CLICKHOUSE:
-		if val, ok := QValueKindToClickHouseTypeMap[kind]; ok {
+		if kind == QValueKindNumeric {
+			return getClickHouseTypeForNumericColumn(ctx, env, column)
+		} else if val, ok := QValueKindToClickHouseTypeMap[kind]; ok {
 			return val, nil
 		} else {
 			return "String", nil
