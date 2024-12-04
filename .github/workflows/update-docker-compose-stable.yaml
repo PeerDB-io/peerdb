@@ -41,3 +41,5 @@ jobs:
 
           git commit -m 'chore(automated): upgrade docker-compose.yml stable tags'
           gh pr merge --auto --squash
+        env:
+          GH_TOKEN: ${{ github.token }}
