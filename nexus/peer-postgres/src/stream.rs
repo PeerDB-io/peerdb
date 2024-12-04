@@ -186,6 +186,12 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                     let uuid: Option<Uuid> = row.get(i);
                     uuid.map(Value::Uuid).unwrap_or(Value::Null)
                 }
+                &Type::UUID_ARRAY => {
+                    let uuid: Option<Vec<Uuid>> = row.get(i);
+                    uuid.map(ArrayValue::Uuid)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
+                }
                 &Type::INET | &Type::CIDR => {
                     let s: Option<MaskedIpAddr> = row.get(i);
                     s.map(Value::IpAddr).unwrap_or(Value::Null)

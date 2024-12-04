@@ -19,7 +19,6 @@ import (
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	numeric "github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -246,6 +245,7 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	batchId int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
@@ -262,7 +262,11 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 		if err := rows.Scan(&result); err != nil {
 			return nil, fmt.Errorf("failed to read row: %w", err)
 		}
-		destinationTableNames = append(destinationTableNames, result.String)
+		if _, ok := tableToSchema[result.String]; ok {
+			destinationTableNames = append(destinationTableNames, result.String)
+		} else {
+			c.logger.Warn("table not found in table to schema mapping", "table", result.String)
+		}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -338,7 +342,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 		return true, nil
 	}
 
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, normalizedSchemaTable, tableSchema)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(ctx, config, normalizedSchemaTable, tableSchema)
 	if _, err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
 		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 	}
@@ -349,6 +353,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 // This could involve adding or dropping multiple columns.
 func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
+	env map[string]string,
 	flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
@@ -374,15 +379,10 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			sfColtype, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(protos.DBType_SNOWFLAKE)
+			sfColtype, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE, addedColumn)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 					addedColumn.Type, err)
-			}
-
-			if addedColumn.Type == string(qvalue.QValueKindNumeric) {
-				precision, scale := numeric.GetNumericTypeForWarehouse(addedColumn.TypeModifier, numeric.SnowflakeNumericCompatibility{})
-				sfColtype = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 			}
 
 			_, err = tableSchemaModifyTx.ExecContext(ctx,
@@ -460,7 +460,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	err = c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
+	err = c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas)
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
@@ -525,7 +525,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	tableToSchema map[string]*protos.TableSchema,
 	peerdbCols *protos.PeerDBColumns,
 ) error {
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId)
+	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId, tableToSchema)
 	if err != nil {
 		return err
 	}
@@ -557,7 +557,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 		}
 
 		g.Go(func() error {
-			mergeStatement, err := mergeGen.generateMergeStmt(tableName)
+			mergeStatement, err := mergeGen.generateMergeStmt(gCtx, env, tableName)
 			if err != nil {
 				return err
 			}
@@ -666,6 +666,7 @@ func (c *SnowflakeConnector) checkIfTableExists(
 }
 
 func generateCreateTableSQLForNormalizedTable(
+	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 	dstSchemaTable *utils.SchemaTable,
 	tableSchema *protos.TableSchema,
@@ -674,16 +675,11 @@ func generateCreateTableSQLForNormalizedTable(
 	for _, column := range tableSchema.Columns {
 		genericColumnType := column.Type
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
-		sfColType, err := qvalue.QValueKind(genericColumnType).ToDWHColumnType(protos.DBType_SNOWFLAKE)
+		sfColType, err := qvalue.QValueKind(genericColumnType).ToDWHColumnType(ctx, config.Env, protos.DBType_SNOWFLAKE, column)
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
 				slog.Any("error", err))
 			continue
-		}
-
-		if genericColumnType == "numeric" {
-			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
-			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		}
 
 		var notNull string

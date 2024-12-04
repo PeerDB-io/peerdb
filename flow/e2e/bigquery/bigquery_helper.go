@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"math/rand/v2"
 	"os"
 	"strings"
 	"testing"
@@ -21,7 +22,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type BigQueryTestHelper struct {
@@ -37,10 +37,8 @@ type BigQueryTestHelper struct {
 func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
 	t.Helper()
 	// random 64 bit int to namespace stateful schemas.
-	runID, err := shared.RandomUInt64()
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate random uint64: %w", err)
-	}
+	//nolint:gosec // number has no cryptographic significance
+	runID := rand.Uint64()
 
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {

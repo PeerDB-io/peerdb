@@ -15,7 +15,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -81,16 +80,6 @@ func getColName(overrides map[string]string, name string) string {
 	return name
 }
 
-func getClickhouseTypeForNumericColumn(column *protos.FieldDescription) string {
-	rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier)
-	if rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
-		return "String"
-	} else {
-		precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-		return fmt.Sprintf("Decimal(%d, %d)", precision, scale)
-	}
-}
-
 func generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
@@ -142,14 +131,10 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if clickHouseType == "" {
-			if colType == qvalue.QValueKindNumeric {
-				clickHouseType = getClickhouseTypeForNumericColumn(column)
-			} else {
-				var err error
-				clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-				if err != nil {
-					return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
-				}
+			var err error
+			clickHouseType, err = colType.ToDWHColumnType(ctx, config.Env, protos.DBType_CLICKHOUSE, column)
+			if err != nil {
+				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
 			}
 		}
 		if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
@@ -368,16 +353,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 			colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
 			if clickHouseType == "" {
-				if colType == qvalue.QValueKindNumeric {
-					clickHouseType = getClickhouseTypeForNumericColumn(column)
-				} else {
-					var err error
-					clickHouseType, err = colType.ToDWHColumnType(protos.DBType_CLICKHOUSE)
-					if err != nil {
-						close(queries)
-						return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
-					}
+				var err error
+				clickHouseType, err = colType.ToDWHColumnType(ctx, req.Env, protos.DBType_CLICKHOUSE, column)
+				if err != nil {
+					close(queries)
+					return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 				}
+
 				if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
 					clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 				}
