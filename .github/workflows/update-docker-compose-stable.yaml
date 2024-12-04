@@ -31,7 +31,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             /repos/${{ github.repository }}/releases/latest | jq '.tag_name')"
-          sed -i -E 's|(image: ghcr\.io/peerdb\-io/.*?:stable-)(.*$)|\1'"${latest_tag}"'|g' docker-compose.yml
+          sed -i -E 's|(image: ghcr\.io/peerdb\-io/.*?:stable-)(.*$)|\1'${latest_tag}'|g' docker-compose.yml
           git config --global user.name "${GITHUB_ACTOR}"
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git checkout -b "${PR_BRANCH}"
