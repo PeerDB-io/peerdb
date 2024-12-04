@@ -89,7 +89,10 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 }
 
 func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor := conn.NewQRepQueryExecutor("testflow", "testpart")
+	pgQueryExecutor, err := conn.NewQRepQueryExecutor(context.Background(), "testflow", "testpart")
+	if err != nil {
+		return nil, err
+	}
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		context.Background(),
@@ -218,7 +221,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 			var status protos.FlowStatus
 			if err := response.Get(&status); err != nil {
 				t.Fatal(err)
-			} else if status == protos.FlowStatus_STATUS_RUNNING {
+			} else if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
 			} else if counter > 30 {
 				env.Cancel()

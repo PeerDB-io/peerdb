@@ -550,7 +550,14 @@ func (c *PostgresConnector) jobMetadataExists(ctx context.Context, jobName strin
 }
 
 func (c *PostgresConnector) MajorVersion(ctx context.Context) (shared.PGVersion, error) {
-	return shared.GetMajorVersion(ctx, c.conn)
+	if c.pgVersion == 0 {
+		pgVersion, err := shared.GetMajorVersion(ctx, c.conn)
+		if err != nil {
+			return 0, err
+		}
+		c.pgVersion = pgVersion
+	}
+	return c.pgVersion, nil
 }
 
 func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName string, lastCP int64, syncBatchID int64,

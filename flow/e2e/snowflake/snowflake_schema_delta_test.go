@@ -53,7 +53,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	err := s.sfTestHelper.RunCommand(fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
-	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: []*protos.FieldDescription{
@@ -167,7 +167,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
@@ -246,7 +246,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
@@ -301,7 +301,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(context.Background(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,

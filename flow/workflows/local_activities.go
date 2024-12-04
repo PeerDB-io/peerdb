@@ -29,6 +29,20 @@ func getParallelSyncNormalize(wCtx workflow.Context, logger log.Logger, env map[
 	return parallel
 }
 
+func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
+	checkCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	getFullRefreshFuture := workflow.ExecuteLocalActivity(checkCtx, peerdbenv.PeerDBFullRefreshOverwriteMode, env)
+	var fullRefreshEnabled bool
+	if err := getFullRefreshFuture.Get(checkCtx, &fullRefreshEnabled); err != nil {
+		logger.Warn("Failed to check if full refresh mode is enabled", slog.Any("error", err))
+		return false
+	}
+	return fullRefreshEnabled
+}
+
 func localPeerType(ctx context.Context, name string) (protos.DBType, error) {
 	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {

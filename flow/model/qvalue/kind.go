@@ -1,10 +1,13 @@
 package qvalue
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
+	"github.com/PeerDB-io/peer-flow/datatypes"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 )
 
 type QValueKind string
@@ -26,10 +29,12 @@ const (
 	QValueKindTime        QValueKind = "time"
 	QValueKindTimeTZ      QValueKind = "timetz"
 	QValueKindInterval    QValueKind = "interval"
+	QValueKindTSTZRange   QValueKind = "tstzrange"
 	QValueKindNumeric     QValueKind = "numeric"
 	QValueKindBytes       QValueKind = "bytes"
 	QValueKindUUID        QValueKind = "uuid"
 	QValueKindJSON        QValueKind = "json"
+	QValueKindJSONB       QValueKind = "jsonb"
 	QValueKindHStore      QValueKind = "hstore"
 	QValueKindGeography   QValueKind = "geography"
 	QValueKindGeometry    QValueKind = "geometry"
@@ -51,6 +56,8 @@ const (
 	QValueKindArrayTimestamp   QValueKind = "array_timestamp"
 	QValueKindArrayTimestampTZ QValueKind = "array_timestamptz"
 	QValueKindArrayBoolean     QValueKind = "array_bool"
+	QValueKindArrayJSON        QValueKind = "array_json"
+	QValueKindArrayJSONB       QValueKind = "array_jsonb"
 )
 
 func (kind QValueKind) IsArray() bool {
@@ -64,10 +71,10 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindInt64:       "INTEGER",
 	QValueKindFloat32:     "FLOAT",
 	QValueKindFloat64:     "FLOAT",
-	QValueKindNumeric:     "NUMBER(38, 9)",
 	QValueKindQChar:       "CHAR",
 	QValueKindString:      "STRING",
 	QValueKindJSON:        "VARIANT",
+	QValueKindJSONB:       "VARIANT",
 	QValueKindTimestamp:   "TIMESTAMP_NTZ",
 	QValueKindTimestampTZ: "TIMESTAMP_TZ",
 	QValueKindInterval:    "VARIANT",
@@ -94,6 +101,8 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindArrayTimestamp:   "VARIANT",
 	QValueKindArrayTimestampTZ: "VARIANT",
 	QValueKindArrayBoolean:     "VARIANT",
+	QValueKindArrayJSON:        "VARIANT",
+	QValueKindArrayJSONB:       "VARIANT",
 }
 
 var QValueKindToClickHouseTypeMap = map[QValueKind]string{
@@ -103,12 +112,12 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindInt64:       "Int64",
 	QValueKindFloat32:     "Float32",
 	QValueKindFloat64:     "Float64",
-	QValueKindNumeric:     "Decimal128(9)",
 	QValueKindQChar:       "FixedString(1)",
 	QValueKindString:      "String",
 	QValueKindJSON:        "String",
 	QValueKindTimestamp:   "DateTime64(6)",
 	QValueKindTimestampTZ: "DateTime64(6)",
+	QValueKindTSTZRange:   "String",
 	QValueKindTime:        "DateTime64(6)",
 	QValueKindTimeTZ:      "DateTime64(6)",
 	QValueKindDate:        "Date32",
@@ -118,7 +127,6 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindInvalid:     "String",
 	QValueKindHStore:      "String",
 
-	// array types will be mapped to VARIANT
 	QValueKindArrayFloat32:     "Array(Float32)",
 	QValueKindArrayFloat64:     "Array(Float64)",
 	QValueKindArrayInt32:       "Array(Int32)",
@@ -129,18 +137,43 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindArrayDate:        "Array(Date)",
 	QValueKindArrayTimestamp:   "Array(DateTime64(6))",
 	QValueKindArrayTimestampTZ: "Array(DateTime64(6))",
+	QValueKindArrayJSON:        "String",
+	QValueKindArrayJSONB:       "String",
 }
 
-func (kind QValueKind) ToDWHColumnType(dwhType protos.DBType) (string, error) {
+func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, column *protos.FieldDescription) (string, error) {
+	if column.TypeModifier == -1 {
+		numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+		if err != nil {
+			return "", err
+		}
+		if numericAsStringEnabled {
+			return "String", nil
+		}
+	} else if rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier); rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
+		return "String", nil
+	}
+	precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
+	return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
+}
+
+// SEE ALSO: QField ToDWHColumnType
+func (kind QValueKind) ToDWHColumnType(ctx context.Context, env map[string]string, dwhType protos.DBType, column *protos.FieldDescription,
+) (string, error) {
 	switch dwhType {
 	case protos.DBType_SNOWFLAKE:
-		if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
+		if kind == QValueKindNumeric {
+			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.SnowflakeNumericCompatibility{})
+			return fmt.Sprintf("NUMERIC(%d,%d)", precision, scale), nil
+		} else if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
 			return val, nil
 		} else {
 			return "STRING", nil
 		}
 	case protos.DBType_CLICKHOUSE:
-		if val, ok := QValueKindToClickHouseTypeMap[kind]; ok {
+		if kind == QValueKindNumeric {
+			return getClickHouseTypeForNumericColumn(ctx, env, column)
+		} else if val, ok := QValueKindToClickHouseTypeMap[kind]; ok {
 			return val, nil
 		} else {
 			return "String", nil

@@ -166,7 +166,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		numWorkers = s.config.SnapshotMaxParallelWorkers
 	}
 
-	numRowsPerPartition := uint32(500000)
+	numRowsPerPartition := uint32(250000)
 	if s.config.SnapshotNumRowsPerPartition > 0 {
 		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
 	}
@@ -208,6 +208,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		WriteMode:                  snapshotWriteMode,
 		System:                     s.config.System,
 		Script:                     s.config.Script,
+		Env:                        s.config.Env,
 		ParentMirrorName:           flowName,
 	}
 
@@ -274,6 +275,13 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
+	defer func() {
+		dCtx, cancel := workflow.NewDisconnectedContext(sessionCtx)
+		defer cancel()
+		if err := s.closeSlotKeepAlive(dCtx); err != nil {
+			s.logger.Error("failed to close slot keep alive", slog.Any("error", err))
+		}
+	}()
 
 	s.logger.Info(fmt.Sprintf("cloning %d tables in parallel", numTablesInParallel))
 	if err := s.cloneTables(ctx,
@@ -283,11 +291,8 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		slotInfo.SupportsTidScans,
 		numTablesInParallel,
 	); err != nil {
+		s.logger.Error("failed to clone tables", slog.Any("error", err))
 		return fmt.Errorf("failed to clone tables: %w", err)
-	}
-
-	if err := s.closeSlotKeepAlive(sessionCtx); err != nil {
-		return fmt.Errorf("failed to close slot keep alive: %w", err)
 	}
 
 	return nil

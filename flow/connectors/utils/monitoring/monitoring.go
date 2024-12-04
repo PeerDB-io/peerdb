@@ -96,8 +96,10 @@ func UpdateEndTimeForCDCBatch(
 	batchID int64,
 ) error {
 	_, err := pool.Exec(ctx,
-		"UPDATE peerdb_stats.cdc_batches SET end_time=$1 WHERE flow_name=$2 AND batch_id=$3",
-		time.Now(), flowJobName, batchID)
+		`UPDATE peerdb_stats.cdc_batches
+		SET end_time = COALESCE(end_time, NOW())
+		WHERE flow_name = $1 AND batch_id <= $2`,
+		flowJobName, batchID)
 	if err != nil {
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
 	}

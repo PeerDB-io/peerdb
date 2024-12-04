@@ -128,7 +128,7 @@ func NewClickHouseConnector(
 	config *protos.ClickhouseConfig,
 ) (*ClickHouseConnector, error) {
 	logger := shared.LoggerFromCtx(ctx)
-	database, err := Connect(ctx, config)
+	database, err := Connect(ctx, env, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)
 	}
@@ -205,7 +205,7 @@ func NewClickHouseConnector(
 	return connector, nil
 }
 
-func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
+func Connect(ctx context.Context, env map[string]string, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
@@ -228,6 +228,14 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 		tlsSetting.RootCAs = caPool
 	}
 
+	// See: https://clickhouse.com/docs/en/cloud/reference/shared-merge-tree#consistency
+	settings := clickhouse.Settings{"select_sequential_consistency": uint64(1)}
+	if maxInsertThreads, err := peerdbenv.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
+		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
+	} else if maxInsertThreads != 0 {
+		settings["max_insert_threads"] = maxInsertThreads
+	}
+
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
 		Auth: clickhouse.Auth{
@@ -245,6 +253,7 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 				{Name: "peerdb"},
 			},
 		},
+		Settings:    settings,
 		DialTimeout: 3600 * time.Second,
 		ReadTimeout: 3600 * time.Second,
 	})

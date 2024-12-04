@@ -385,6 +385,7 @@ enum FlowStatus {
   STATUS_SNAPSHOT = 5;
   STATUS_TERMINATING = 6;
   STATUS_TERMINATED = 7;
+  STATUS_COMPLETED = 8;
 }
 
 message CDCFlowConfigUpdate {
@@ -466,3 +467,28 @@ message DropFlowActivityInput {
   string peer_name = 2;
 }
 
+message StartMaintenanceFlowInput {
+}
+
+message StartMaintenanceFlowOutput {
+  string version = 1;
+}
+
+message EndMaintenanceFlowInput {
+}
+
+message EndMaintenanceFlowOutput {
+  string version = 1;
+}
+
+message MaintenanceMirror {
+  int64 mirror_id = 1;
+  string mirror_name = 2;
+  string workflow_id = 3;
+  bool is_cdc = 4;
+  google.protobuf.Timestamp mirror_created_at = 5;
+}
+
+message MaintenanceMirrors {
+  repeated MaintenanceMirror mirrors = 1;
+}

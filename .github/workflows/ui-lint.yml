@@ -20,7 +20,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
@@ -30,7 +30,7 @@ jobs:
         run: npm ci
 
       - name: lint
-        uses: wearerequired/lint-action@v2
+        uses: wearerequired/lint-action@548d8a7c4b04d3553d32ed5b6e91eb171e10e7bb # v2
         with:
           eslint: true
           prettier: true

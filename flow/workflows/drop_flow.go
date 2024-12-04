@@ -92,6 +92,15 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		}
 	}
 
+	if input.FlowConnectionConfigs != nil {
+		err := executeCDCDropActivities(ctx, input)
+		if err != nil {
+			workflow.GetLogger(ctx).Error("failed to drop CDC flow", slog.Any("error", err))
+			return err
+		}
+		workflow.GetLogger(ctx).Info("CDC flow dropped successfully")
+	}
+
 	removeFlowEntriesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
@@ -101,15 +110,6 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	if err != nil {
 		workflow.GetLogger(ctx).Error("failed to remove flow entries from catalog", slog.Any("error", err))
 		return err
-	}
-
-	if input.FlowConnectionConfigs != nil {
-		err := executeCDCDropActivities(ctx, input)
-		if err != nil {
-			workflow.GetLogger(ctx).Error("failed to drop CDC flow", slog.Any("error", err))
-			return err
-		}
-		workflow.GetLogger(ctx).Info("CDC flow dropped successfully")
 	}
 
 	return nil

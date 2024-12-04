@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1.11@sha256:10c699f1b6c8bdc8f6b4ce8974855dd8542f1768c26eb240237b8f1c9c6c9976
+# syntax=docker/dockerfile:1.12@sha256:db1ff77fb637a5955317c7a3a62540196396d565f3dd5742e76dddbb6d75c4c5
 
-FROM golang:1.23-alpine@sha256:9f68de83bef9e75cda99597d51778f4f5776ab8d9374e1094a3cd724401094c3 AS builder
+FROM golang:1.23-alpine@sha256:c694a4d291a13a9f9d94933395673494fc2cc9d4777b85df3a7e70b3492d3574 AS builder
 RUN apk add --no-cache gcc geos-dev musl-dev
 WORKDIR /root/flow
 
@@ -45,6 +45,8 @@ FROM flow-base AS flow-worker
 # Sane defaults for OpenTelemetry
 ENV OTEL_METRIC_EXPORT_INTERVAL=10000
 ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
 ENTRYPOINT [\
   "./peer-flow",\
@@ -52,7 +54,20 @@ ENTRYPOINT [\
   ]
 
 FROM flow-base AS flow-snapshot-worker
+
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 ENTRYPOINT [\
   "./peer-flow",\
   "snapshot-worker"\
+  ]
+
+
+FROM flow-base AS flow-maintenance
+
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+ENTRYPOINT [\
+  "./peer-flow",\
+  "maintenance"\
   ]

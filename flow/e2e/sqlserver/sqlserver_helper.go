@@ -3,6 +3,7 @@ package e2e_sqlserver
 import (
 	"context"
 	"fmt"
+	"math/rand/v2"
 	"os"
 	"strconv"
 
@@ -10,7 +11,6 @@ import (
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SQLServerHelper struct {
@@ -45,11 +45,8 @@ func NewSQLServerHelper() (*SQLServerHelper, error) {
 		return nil, fmt.Errorf("invalid connection configs: %v", connErr)
 	}
 
-	rndNum, err := shared.RandomUInt64()
-	if err != nil {
-		return nil, err
-	}
-
+	//nolint:gosec // number has no cryptographic significance
+	rndNum := rand.Uint64()
 	testSchema := fmt.Sprintf("e2e_test_%d", rndNum)
 	if err := connector.CreateSchema(context.Background(), testSchema); err != nil {
 		return nil, err

@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
 	"time"
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type SnowflakeAvroConsolidateHandler struct {
@@ -214,10 +214,8 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 
 // handleUpsertMode handles the upsert mode
 func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) error {
-	runID, err := shared.RandomUInt64()
-	if err != nil {
-		return fmt.Errorf("failed to generate run ID: %w", err)
-	}
+	//nolint:gosec // number has no cryptographic significance
+	runID := rand.Uint64()
 
 	tempTableName := fmt.Sprintf("%s_temp_%d", s.dstTableName, runID)
 
@@ -230,8 +228,8 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) 
 	s.connector.logger.Info("created temp table " + tempTableName)
 
 	copyCmd := s.getCopyTransformation(tempTableName)
-	_, err = s.connector.database.ExecContext(ctx, copyCmd)
-	if err != nil {
+
+	if _, err := s.connector.database.ExecContext(ctx, copyCmd); err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
 	s.connector.logger.Info("copied file from stage " + s.stage + " to temp table " + tempTableName)

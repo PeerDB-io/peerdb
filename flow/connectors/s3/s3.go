@@ -118,7 +118,9 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	}, nil
 }
 
-func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
+	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	c.logger.Info("ReplayTableSchemaDeltas for S3 is a no-op")
 	return nil
 }

@@ -22,12 +22,12 @@ export const cdcSettings: MirrorSetting[] = [
       setter(
         (curr: CDCConfig): CDCConfig => ({
           ...curr,
-          maxBatchSize: (value as number) || 1000000,
+          maxBatchSize: (value as number) || 250000,
         })
       ),
-    tips: 'The number of rows PeerDB will pull from source at a time. If left empty, the default value is 1,000,000 rows.',
+    tips: 'The number of rows PeerDB will pull from source at a time. If left empty, the default value is 250,000 rows.',
     type: 'number',
-    default: '1000000',
+    default: '250000',
     advanced: AdvancedSettingType.ALL,
   },
   {
@@ -78,11 +78,11 @@ export const cdcSettings: MirrorSetting[] = [
       setter(
         (curr: CDCConfig): CDCConfig => ({
           ...curr,
-          snapshotNumRowsPerPartition: parseInt(value as string, 10) || 1000000,
+          snapshotNumRowsPerPartition: parseInt(value as string, 10) || 250000,
         })
       ),
-    tips: 'PeerDB splits up table data into partitions for increased performance. This setting controls the number of rows per partition. The default value is 1000000.',
-    default: '1000000',
+    tips: 'PeerDB splits up table data into partitions for increased performance. This setting controls the number of rows per partition. The default value is 250000.',
+    default: '250000',
     type: 'number',
     advanced: AdvancedSettingType.ALL,
   },

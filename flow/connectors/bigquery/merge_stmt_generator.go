@@ -34,7 +34,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 		var castStmt string
 		shortCol := m.shortColumn[column.Name]
 		switch qvalue.QValueKind(colType) {
-		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
+		case qvalue.QValueKindJSON, qvalue.QValueKindJSONB, qvalue.QValueKindHStore:
 			// if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)

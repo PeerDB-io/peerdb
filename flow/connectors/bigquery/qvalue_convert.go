@@ -34,7 +34,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 	case qvalue.QValueKindString:
 		bqField.Type = bigquery.StringFieldType
 	// json also is stored as string for now
-	case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
+	case qvalue.QValueKindJSON, qvalue.QValueKindJSONB, qvalue.QValueKindHStore:
 		bqField.Type = bigquery.JSONFieldType
 	// time related
 	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ:

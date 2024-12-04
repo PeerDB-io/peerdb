@@ -215,8 +215,8 @@ func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequ
 	}
 	rows, err := h.pool.Query(ctx, `select tm, coalesce(sum(rows_in_batch), 0)
 	from generate_series(date_trunc($2, now() - $1::INTERVAL * 30), now(), $1::INTERVAL) tm
-	left join peerdb_stats.cdc_batches on start_time >= tm and start_time < tm + $1::INTERVAL
-	group by 1 order by 1`, req.AggregateType, truncField)
+	left join peerdb_stats.cdc_batches on start_time >= tm and start_time < tm + $1::INTERVAL and flow_name = $3
+	group by 1 order by 1`, req.AggregateType, truncField, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
@@ -447,20 +447,7 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 }
 
 func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
-	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.FlowStatusQuery)
-	if err != nil {
-		slog.Error(fmt.Sprintf("failed to get status in workflow with ID %s: %s", workflowID, err.Error()))
-		return protos.FlowStatus_STATUS_UNKNOWN,
-			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
-	}
-	var state protos.FlowStatus
-	err = res.Get(&state)
-	if err != nil {
-		slog.Error(fmt.Sprintf("failed to get status in workflow with ID %s: %s", workflowID, err.Error()))
-		return protos.FlowStatus_STATUS_UNKNOWN,
-			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
-	}
-	return state, nil
+	return shared.GetWorkflowStatus(ctx, h.temporalClient, workflowID)
 }
 
 func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,

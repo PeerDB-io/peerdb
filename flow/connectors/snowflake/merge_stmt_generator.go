@@ -1,6 +1,7 @@
 package connsnowflake
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -24,7 +25,7 @@ type mergeStmtGenerator struct {
 	mergeBatchId int64
 }
 
-func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) {
+func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[string]string, dstTable string) (string, error) {
 	parsedDstTable, _ := utils.ParseSchemaTable(dstTable)
 	normalizedTableSchema := m.tableSchemaMapping[dstTable]
 	unchangedToastColumns := m.unchangedToastColumnsMap[dstTable]
@@ -34,7 +35,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) 
 	for _, column := range columns {
 		genericColumnType := column.Type
 		qvKind := qvalue.QValueKind(genericColumnType)
-		sfType, err := qvKind.ToDWHColumnType(protos.DBType_SNOWFLAKE)
+		sfType, err := qvKind.ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE, column)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}
@@ -52,7 +53,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(dstTable string) (string, error) 
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s",
 					toVariantColumnName, column.Name, targetColumnName))
-		case qvalue.QValueKindJSON, qvalue.QValueKindHStore, qvalue.QValueKindInterval:
+		case qvalue.QValueKindJSON, qvalue.QValueKindJSONB, qvalue.QValueKindHStore, qvalue.QValueKindInterval:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s",
 					toVariantColumnName, column.Name, targetColumnName))

@@ -23,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -126,16 +127,21 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 	return ocfWriter, nil
 }
 
-func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter *goavro.OCFWriter) (int64, error) {
+func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *goavro.OCFWriter) (int64, error) {
 	logger := shared.LoggerFromCtx(ctx)
 	schema := p.stream.Schema()
 
-	avroConverter := model.NewQRecordAvroConverter(
+	avroConverter, err := model.NewQRecordAvroConverter(
+		ctx,
+		env,
 		p.avroSchema,
 		p.targetDWH,
 		schema.GetColumnNames(),
 		logger,
 	)
+	if err != nil {
+		return 0, err
+	}
 
 	numRows := atomic.Int64{}
 
@@ -146,7 +152,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 
 	for qrecord := range p.stream.Records {
 		if err := ctx.Err(); err != nil {
-			return numRows.Load(), ctx.Err()
+			return numRows.Load(), err
 		} else {
 			avroMap, err := avroConverter.Convert(qrecord)
 			if err != nil {
@@ -171,7 +177,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, ocfWriter
 	return numRows.Load(), nil
 }
 
-func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error) {
+func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, env map[string]string, w io.Writer) (int, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
@@ -179,7 +185,7 @@ func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error
 	// we have to keep a reference to the underlying writer as goavro doesn't provide any access to it
 	defer p.writer.Close()
 
-	numRows, err := p.writeRecordsToOCFWriter(ctx, ocfWriter)
+	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
 	}
@@ -187,7 +193,11 @@ func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, w io.Writer) (int, error
 }
 
 func (p *peerDBOCFWriter) WriteRecordsToS3(
-	ctx context.Context, bucketName, key string, s3Creds utils.AWSCredentialsProvider,
+	ctx context.Context,
+	env map[string]string,
+	bucketName string,
+	key string,
+	s3Creds utils.AWSCredentialsProvider,
 ) (*AvroFile, error) {
 	logger := shared.LoggerFromCtx(ctx)
 	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
@@ -212,15 +222,26 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			}
 			w.Close()
 		}()
-		numRows, writeOcfError = p.WriteOCF(ctx, w)
+		numRows, writeOcfError = p.WriteOCF(ctx, env, w)
 	}()
 
-	_, err = manager.NewUploader(s3svc).Upload(ctx, &s3.PutObjectInput{
+	partSize, err := peerdbenv.PeerDBS3PartSize(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("could not get s3 part size config: %w", err)
+	}
+
+	// Create the uploader using the AWS SDK v2 manager
+	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
+		if partSize > 0 {
+			u.PartSize = partSize
+		}
+	})
+
+	if _, err := uploader.Upload(ctx, &s3.PutObjectInput{
 		Bucket: aws.String(bucketName),
 		Key:    aws.String(key),
 		Body:   r,
-	})
-	if err != nil {
+	}); err != nil {
 		s3Path := "s3://" + bucketName + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
 		return nil, fmt.Errorf("failed to upload file: %w", err)
@@ -238,7 +259,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, filePath string) (*AvroFile, error) {
+func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[string]string, filePath string) (*AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temporary Avro file: %w", err)
@@ -259,7 +280,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, filePath s
 	bufferedWriter := bufio.NewWriterSize(file, buffSizeBytes)
 	defer bufferedWriter.Flush()
 
-	numRecords, err := p.WriteOCF(ctx, bufferedWriter)
+	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}

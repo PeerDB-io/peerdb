@@ -3,10 +3,10 @@ description: 'Install buf with local plugins, generate protos and cache'
 runs:
   using: "composite"
   steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: check cache
       id: cache
-      uses: ubicloud/cache@v4
+      uses: ubicloud/cache@0a97811d53629b143a56b3c2b1f729fd11719ef7 # v4
       with:
         path: |
           ./flow/generated/protos
@@ -15,7 +15,7 @@ runs:
         key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
 
     - if: steps.cache.outputs.cache-hit != 'true'
-      uses: bufbuild/buf-action@v1
+      uses: bufbuild/buf-action@3fb70352251376e958c4c2c92c3818de82a71c2b # v1
       with:
         setup_only: true
         github_token: ${{ github.token }}

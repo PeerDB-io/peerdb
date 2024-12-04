@@ -149,7 +149,9 @@ func (c *KafkaConnector) SetupMetadataTables(_ context.Context) error {
 	return nil
 }
 
-func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
+	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	return nil
 }
 

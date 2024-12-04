@@ -14,6 +14,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared/telemetry"
 )
 
@@ -25,6 +26,17 @@ var (
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
+	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	if err != nil {
+		slog.Error("unable to check maintenance mode", slog.Any("error", err))
+		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
+	}
+
+	if underMaintenance {
+		slog.Warn("Validate request denied due to maintenance", "flowName", req.ConnectionConfigs.FlowJobName)
+		return nil, errors.New("PeerDB is under maintenance")
+	}
+
 	if !req.ConnectionConfigs.Resync {
 		mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {
