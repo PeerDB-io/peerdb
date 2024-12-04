@@ -264,6 +264,8 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 		}
 		if _, ok := tableToSchema[result.String]; ok {
 			destinationTableNames = append(destinationTableNames, result.String)
+		} else {
+			c.logger.Warn("table not found in table to schema mapping", "table", result.String)
 		}
 	}
 
