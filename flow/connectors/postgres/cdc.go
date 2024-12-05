@@ -85,16 +85,18 @@ func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *
 	}
 }
 
-func GetChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]uint32, error) {
+func GetChildToParentRelIDMap(ctx context.Context,
+	conn *pgx.Conn, parentTableOIDs []uint32,
+) (map[uint32]uint32, error) {
 	query := `
 		SELECT parent.oid AS parentrelid, child.oid AS childrelid
 		FROM pg_inherits
 		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
 		JOIN pg_class child ON pg_inherits.inhrelid = child.oid
-		WHERE parent.relkind IN ('p','r');
+		WHERE parent.relkind IN ('p','r') AND parent.oid=ANY($1);
 	`
 
-	rows, err := conn.Query(ctx, query)
+	rows, err := conn.Query(ctx, query, parentTableOIDs)
 	if err != nil {
 		return nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
 	}
