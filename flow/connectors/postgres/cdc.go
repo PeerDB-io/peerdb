@@ -682,7 +682,7 @@ func processMessage[Items model.Items](
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
 		// treat all relation messages as corresponding to parent if partitioned.
-		msg.RelationID, err = p.checkIfUnknownTableInherits(msg.RelationID)
+		msg.RelationID, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
 		if err != nil {
 			return nil, err
 		}
@@ -986,12 +986,14 @@ func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 // since we generate the child to parent mapping at the beginning of the CDC stream,
 // some tables could be created after the CDC stream starts,
 // and we need to check if they inherit from a known table
-func (p *PostgresCDCSource) checkIfUnknownTableInherits(relID uint32) (uint32, error) {
+func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
+	relID uint32,
+) (uint32, error) {
 	relID = p.getParentRelIDIfPartitioned(relID)
 
 	if _, ok := p.srcTableIDNameMapping[relID]; !ok {
 		var parentRelID uint32
-		err := p.conn.QueryRow(context.Background(),
+		err := p.conn.QueryRow(ctx,
 			`SELECT inhparent FROM pg_inherits WHERE inhrelid=$1`, relID).Scan(&parentRelID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
