@@ -620,7 +620,6 @@ func CDCFlowWorkflow(
 				}
 			}
 		}
-		workflow.GetInfo(ctx).GetCurrentHistorySize()
 
 		if restart {
 			if state.ActiveSignal == model.PauseSignal {
