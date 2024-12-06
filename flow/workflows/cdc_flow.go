@@ -331,7 +331,6 @@ func CDCFlowWorkflow(
 
 	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
 
-	var syncCountLimit int
 	if state.ActiveSignal == model.PauseSignal {
 		selector := workflow.NewNamedSelector(ctx, "PauseLoop")
 		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
@@ -356,7 +355,6 @@ func CDCFlowWorkflow(
 				if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
 					return state, err
 				}
-				syncCountLimit = int(state.SyncFlowOptions.NumberOfSyncs)
 				logger.Info("wiping flow state after state update processing")
 				// finished processing, wipe it
 				state.FlowConfigUpdate = nil
@@ -492,10 +490,8 @@ func CDCFlowWorkflow(
 	}
 
 	syncFlowID := GetChildWorkflowID("sync-flow", cfg.FlowJobName, originalRunID)
-	normalizeFlowID := GetChildWorkflowID("normalize-flow", cfg.FlowJobName, originalRunID)
 
 	var restart, finished bool
-	syncCount := 0
 	syncFlowOpts := workflow.ChildWorkflowOptions{
 		WorkflowID:        syncFlowID,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -506,17 +502,6 @@ func CDCFlowWorkflow(
 		WaitForCancellation:   true,
 	}
 	syncCtx := workflow.WithChildOptions(ctx, syncFlowOpts)
-
-	normalizeFlowOpts := workflow.ChildWorkflowOptions{
-		WorkflowID:        normalizeFlowID,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
-		TypedSearchAttributes: mirrorNameSearch,
-		WaitForCancellation:   true,
-	}
-	normCtx := workflow.WithChildOptions(ctx, normalizeFlowOpts)
 
 	handleError := func(name string, err error) {
 		var panicErr *temporal.PanicError
@@ -533,7 +518,6 @@ func CDCFlowWorkflow(
 	}
 
 	syncFlowFuture := workflow.ExecuteChildWorkflow(syncCtx, SyncFlowWorkflow, cfg, state.SyncFlowOptions)
-	normFlowFuture := workflow.ExecuteChildWorkflow(normCtx, NormalizeFlowWorkflow, cfg, nil)
 
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
@@ -545,57 +529,11 @@ func CDCFlowWorkflow(
 		logger.Info("sync finished, finishing normalize")
 		syncFlowFuture = nil
 		restart = true
-		if normFlowFuture != nil {
-			err := model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, model.NormalizePayload{
-				Done:        true,
-				SyncBatchID: -1,
-			}).Get(ctx, nil)
-			if err != nil {
-				logger.Warn("failed to signal normalize done, finishing", slog.Any("error", err))
-				finished = true
-			}
-		}
-	})
-	mainLoopSelector.AddFuture(normFlowFuture, func(f workflow.Future) {
-		err := f.Get(ctx, nil)
-		if err != nil {
-			handleError("normalize", err)
-		}
-
-		logger.Info("normalize finished, finishing")
-		normFlowFuture = nil
-		restart = true
-		finished = true
 	})
 
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 	})
-
-	normChan := model.NormalizeSignal.GetSignalChannel(ctx)
-	normChan.AddToSelector(mainLoopSelector, func(payload model.NormalizePayload, _ bool) {
-		if normFlowFuture != nil {
-			_ = model.NormalizeSignal.SignalChildWorkflow(ctx, normFlowFuture, payload).Get(ctx, nil)
-		}
-	})
-
-	parallel := getParallelSyncNormalize(ctx, logger, cfg.Env)
-	if !parallel {
-		normDoneChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
-		normDoneChan.Drain()
-		normDoneChan.AddToSelector(mainLoopSelector, func(x struct{}, _ bool) {
-			syncCount += 1
-			if syncCount == syncCountLimit {
-				logger.Info("sync count limit reached, pausing",
-					slog.Int("limit", syncCountLimit),
-					slog.Int("count", syncCount))
-				state.ActiveSignal = model.PauseSignal
-			}
-			if syncFlowFuture != nil {
-				_ = model.NormalizeDoneSignal.SignalChildWorkflow(ctx, syncFlowFuture, x).Get(ctx, nil)
-			}
-		})
-	}
 
 	addCdcPropertiesSignalListener(ctx, logger, mainLoopSelector, state)
 
