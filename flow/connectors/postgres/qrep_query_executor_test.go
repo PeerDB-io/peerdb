@@ -132,7 +132,7 @@ func TestAllDataTypes(t *testing.T) {
 		"text",             // col_text
 		[]byte("bytea"),    // col_bytea
 		`{"key": "value"}`, // col_json
-		savedUUID.String(), // col_uuid
+		savedUUID,          // col_uuid
 		savedTime,          // col_timestamp
 		"123.456",          // col_numeric
 		savedTime,          // col_tz
@@ -189,7 +189,7 @@ func TestAllDataTypes(t *testing.T) {
 	expectedJSON := `{"key":"value"}`
 	require.Equal(t, expectedJSON, record[7].Value(), "expected '{\"key\":\"value\"}'")
 
-	actualUUID := record[8].Value().([16]uint8)
+	actualUUID := record[8].Value().(uuid.UUID)
 	require.Equal(t, savedUUID[:], actualUUID[:], "expected savedUUID: %v", savedUUID)
 	actualTime := record[9].Value().(time.Time)
 	require.Equal(t, savedTime.Truncate(time.Second),

@@ -241,7 +241,7 @@ func LuaRowNewIndex(ls *lua.LState) int {
 	case qvalue.QValueKindUUID:
 		if ud, ok := val.(*lua.LUserData); ok {
 			if id, ok := ud.Value.(uuid.UUID); ok {
-				newqv = qvalue.QValueUUID{Val: [16]byte(id)}
+				newqv = qvalue.QValueUUID{Val: id}
 			}
 		}
 	case qvalue.QValueKindArrayUUID:

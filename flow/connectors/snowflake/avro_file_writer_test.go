@@ -49,7 +49,7 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeholder int) qvalue.
 	case qvalue.QValueKindNumeric:
 		return qvalue.QValueNumeric{Val: decimal.New(int64(placeholder), 1)}
 	case qvalue.QValueKindUUID:
-		return qvalue.QValueUUID{Val: [16]byte(uuid.New())} // assuming you have the github.com/google/uuid package
+		return qvalue.QValueUUID{Val: uuid.New()} // assuming you have the github.com/google/uuid package
 	case qvalue.QValueKindQChar:
 		return qvalue.QValueQChar{Val: uint8(48 + placeholder%10)} // assuming you have the github.com/google/uuid package
 		// case qvalue.QValueKindArray:
