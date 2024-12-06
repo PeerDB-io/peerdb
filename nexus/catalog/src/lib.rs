@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context};
+use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
+use aws_sdk_kms::{primitives::Blob, Client as KmsClient};
 use base64::prelude::*;
 use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
@@ -25,6 +28,32 @@ mod embedded {
 
 pub struct Catalog {
     pg: Client,
+    kms_key_id: Option<Arc<String>>,
+}
+
+pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
+    let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
+    let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
+        .region(region_provider)
+        .load()
+        .await;
+    let client = KmsClient::new(&config);
+
+    let decoded = BASE64_STANDARD
+        .decode(encrypted_payload)
+        .expect("Input does not contain valid base64 characters.");
+
+    let resp = client
+        .decrypt()
+        .key_id(kms_key_id)
+        .ciphertext_blob(Blob::new(decoded))
+        .send()
+        .await?;
+
+    let inner = resp.plaintext.unwrap();
+    let bytes = inner.as_ref();
+
+    Ok(String::from_utf8(bytes.to_vec()).expect("Could not convert decrypted data to UTF-8"))
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
@@ -34,7 +63,7 @@ async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
         .context("Failed to run migrations")?;
     for migration in migration_report.applied_migrations() {
         tracing::info!(
-            "Migration Applied -  Name: {}, Version: {}",
+            "Migration Applied - Name: {}, Version: {}",
             migration.name(),
             migration.version()
         );
@@ -71,17 +100,27 @@ impl CatalogConfig<'_> {
 }
 
 impl Catalog {
-    pub async fn new(pt_config: pt::peerdb_peers::PostgresConfig) -> anyhow::Result<Self> {
+    pub async fn new(
+        pt_config: pt::peerdb_peers::PostgresConfig,
+        kms_key_id: &Option<Arc<String>>,
+    ) -> anyhow::Result<Self> {
         let (pg, _) = connect_postgres(&pt_config).await?;
-        Ok(Self { pg })
+        Ok(Self {
+            pg,
+            kms_key_id: kms_key_id.clone(),
+        })
     }
 
     pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
         run_migrations(&mut self.pg).await
     }
 
-    fn env_enc_key(enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
-        let enc_keys = env::var("PEERDB_ENC_KEYS")?;
+    async fn env_enc_key(&self, enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
+        let mut enc_keys = env::var("PEERDB_ENC_KEYS")?;
+
+        if let Some(kms_key_id) = &self.kms_key_id {
+            enc_keys = kms_decrypt(&enc_keys, kms_key_id.as_ref()).await?;
+        }
 
         // TODO use serde derive
         let Value::Array(keys) = serde_json::from_str(&enc_keys)? else {
@@ -108,13 +147,13 @@ impl Catalog {
         Err(anyhow!("failed to find default encryption key"))
     }
 
-    pub fn decrypt(payload: &[u8], enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
+    pub async fn decrypt(&self, payload: &[u8], enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
         if enc_key_id.is_empty() {
             return Ok(payload.to_vec());
         }
 
         const NONCE_SIZE: usize = 24;
-        let key = Self::env_enc_key(enc_key_id)?;
+        let key = self.env_enc_key(enc_key_id).await?;
         if payload.len() < NONCE_SIZE {
             return Err(anyhow!("ciphertext too short"));
         }
@@ -280,7 +319,7 @@ impl Catalog {
         options: &[u8],
         enc_key_id: &str,
     ) -> anyhow::Result<Option<Config>> {
-        let options = Self::decrypt(options, enc_key_id)?;
+        let options = self.decrypt(options, enc_key_id).await?;
         Ok(if let Some(db_type) = db_type {
             let err = || {
                 format!(

@@ -60,8 +60,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = "1.0"
 cargo-deb = "2.0"
 aws-config = "1.5.5"
-aws-sdk-kms = "1.40.0"
-base64 = "0.22.1"
 
 [dev-dependencies]
 postgres = "0.19.4"
