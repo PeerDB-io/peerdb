@@ -552,7 +552,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
+		if shared.ShouldWorkflowContinueAsNew(ctx) {
 			restart = true
 			if syncFlowFuture != nil {
 				if err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil); err != nil {
@@ -561,6 +561,7 @@ func CDCFlowWorkflow(
 				}
 			}
 		}
+		workflow.GetInfo(ctx).GetCurrentHistorySize()
 
 		if restart || finished {
 			for ctx.Err() == nil && (!finished || mainLoopSelector.HasPending()) {
