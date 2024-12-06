@@ -89,7 +89,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 
 		switch v := qv.(type) {
 		case qvalue.QValueUUID:
-			jsonStruct[col] = uuid.UUID(v.Val)
+			jsonStruct[col] = v.Val
 		case qvalue.QValueQChar:
 			jsonStruct[col] = string(v.Val)
 		case qvalue.QValueString:
