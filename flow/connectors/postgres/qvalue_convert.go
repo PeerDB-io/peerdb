@@ -248,6 +248,8 @@ func parseUUID(value interface{}) (qvalue.QValue, error) {
 			return nil, fmt.Errorf("invalid UUID string: %w", err)
 		}
 		return qvalue.QValueUUID{Val: id}, nil
+	case [16]byte:
+		return qvalue.QValueUUID{Val: uuid.UUID(v)}, nil
 	case uuid.UUID:
 		return qvalue.QValueUUID{Val: v}, nil
 	default:
@@ -265,6 +267,12 @@ func parseUUIDArray(value interface{}) (qvalue.QValue, error) {
 				return nil, fmt.Errorf("invalid UUID in array: %w", err)
 			}
 			uuids = append(uuids, id)
+		}
+		return qvalue.QValueArrayUUID{Val: uuids}, nil
+	case [][16]byte:
+		uuids := make([]uuid.UUID, 0, len(v))
+		for _, v := range v {
+			uuids = append(uuids, uuid.UUID(v))
 		}
 		return qvalue.QValueArrayUUID{Val: uuids}, nil
 	case []uuid.UUID:

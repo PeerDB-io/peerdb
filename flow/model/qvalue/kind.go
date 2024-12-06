@@ -141,7 +141,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindArrayTimestampTZ: "Array(DateTime64(6))",
 	QValueKindArrayJSON:        "String",
 	QValueKindArrayJSONB:       "String",
-	QValueKindArrayUUID:        "Array(String)",
+	QValueKindArrayUUID:        "Array(UUID)",
 }
 
 func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, column *protos.FieldDescription) (string, error) {
