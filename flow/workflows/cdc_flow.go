@@ -561,7 +561,6 @@ func CDCFlowWorkflow(
 				}
 			}
 		}
-		workflow.GetInfo(ctx).GetCurrentHistorySize()
 
 		if restart || finished {
 			for ctx.Err() == nil && (!finished || mainLoopSelector.HasPending()) {
