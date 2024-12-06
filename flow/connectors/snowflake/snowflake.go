@@ -475,16 +475,16 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 }
 
 // NormalizeRecords normalizes raw table to destination table.
-func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, req.FlowJobName)
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
-		return &model.NormalizeResponse{
+		return model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
@@ -501,16 +501,16 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 			},
 		)
 		if mergeErr != nil {
-			return nil, mergeErr
+			return model.NormalizeResponse{}, mergeErr
 		}
 
 		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
 		if err != nil {
-			return nil, err
+			return model.NormalizeResponse{}, err
 		}
 	}
 
-	return &model.NormalizeResponse{
+	return model.NormalizeResponse{
 		Done:         true,
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,

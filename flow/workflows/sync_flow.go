@@ -18,7 +18,6 @@ func SyncFlowWorkflow(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 ) error {
-	parent := workflow.GetInfo(ctx).ParentWorkflowExecution
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	sessionOptions := &workflow.SessionOptions{
@@ -70,9 +69,6 @@ func SyncFlowWorkflow(
 	if !parallel {
 		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
 		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-		waitChan := model.NormalizeDoneSignal.GetSignalChannel(ctx)
-		waitChan.Drain()
-		waitChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {})
 		stopChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {
 			stop = true
 		})
@@ -99,19 +95,19 @@ func SyncFlowWorkflow(
 		selector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 			syncDone = true
 
-			var childSyncFlowRes *model.SyncCompositeResponse
+			var childSyncFlowRes *model.SyncResponse
 			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
 				logger.Error("failed to execute sync flow", slog.Any("error", err))
 				syncErr = true
 			} else if childSyncFlowRes != nil {
-				totalRecordsSynced += childSyncFlowRes.SyncResponse.NumRecordsSynced
+				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
 				logger.Info("Total records synced", slog.Int64("totalRecordsSynced", totalRecordsSynced))
 
 				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-				tableSchemaDeltasCount := len(childSyncFlowRes.SyncResponse.TableSchemaDeltas)
+				tableSchemaDeltasCount := len(childSyncFlowRes.TableSchemaDeltas)
 				if tableSchemaDeltasCount > 0 {
 					modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
-					for _, tableSchemaDelta := range childSyncFlowRes.SyncResponse.TableSchemaDeltas {
+					for _, tableSchemaDelta := range childSyncFlowRes.TableSchemaDeltas {
 						modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
 					}
 
@@ -132,23 +128,7 @@ func SyncFlowWorkflow(
 					}
 				}
 
-				if childSyncFlowRes.NeedsNormalize {
-					err := model.NormalizeSignal.SignalExternalWorkflow(
-						ctx,
-						parent.ID,
-						"",
-						model.NormalizePayload{
-							Done:        false,
-							SyncBatchID: childSyncFlowRes.SyncResponse.CurrentSyncBatchID,
-						},
-					).Get(ctx, nil)
-					if err != nil {
-						logger.Error("failed to trigger normalize, so skip wait", slog.Any("error", err))
-						mustWait = false
-					}
-				} else {
-					mustWait = false
-				}
+				mustWait = false
 			} else {
 				mustWait = false
 			}

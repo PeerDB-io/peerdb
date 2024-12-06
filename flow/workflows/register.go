@@ -7,7 +7,6 @@ import (
 func RegisterFlowWorkerWorkflows(w worker.WorkflowRegistry) {
 	w.RegisterWorkflow(CDCFlowWorkflow)
 	w.RegisterWorkflow(DropFlowWorkflow)
-	w.RegisterWorkflow(NormalizeFlowWorkflow)
 	w.RegisterWorkflow(SetupFlowWorkflow)
 	w.RegisterWorkflow(SyncFlowWorkflow)
 	w.RegisterWorkflow(QRepFlowWorkflow)
