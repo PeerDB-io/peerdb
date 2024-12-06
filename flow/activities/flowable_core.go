@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -50,7 +51,9 @@ func heartbeatRoutine(
 	)
 }
 
-func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context, a *FlowableActivity, sessionID string) (TPull, error) {
+func waitForCdcCache[TPull connectors.CDCPullConnectorCore](
+	ctx context.Context, a *FlowableActivity, sessionID string,
+) (TPull, chan NormalizeBatchRequest, error) {
 	var none TPull
 	logger := activity.GetLogger(ctx)
 	attempt := 0
@@ -63,9 +66,9 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 		a.CdcCacheRw.RUnlock()
 		if ok {
 			if conn, ok := entry.connector.(TPull); ok {
-				return conn, nil
+				return conn, entry.normalize, nil
 			}
-			return none, fmt.Errorf("expected %s, cache held %T", reflect.TypeFor[TPull]().Name(), entry.connector)
+			return none, nil, fmt.Errorf("expected %s, cache held %T", reflect.TypeFor[TPull]().Name(), entry.connector)
 		}
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("wait %s for source connector", waitInterval))
 		attempt += 1
@@ -74,7 +77,7 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 				slog.Int("attempt", attempt), slog.String("sessionID", sessionID))
 		}
 		if err := ctx.Err(); err != nil {
-			return none, err
+			return none, nil, err
 		}
 		time.Sleep(waitInterval)
 		if attempt == 300 {
@@ -116,7 +119,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, *pgxpool.Pool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
-) (*model.SyncCompositeResponse, error) {
+) (*model.SyncResponse, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
@@ -130,7 +133,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	srcConn, err := waitForCdcCache[TPull](ctx, a, sessionID)
+	srcConn, normChan, err := waitForCdcCache[TPull](ctx, a, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -229,12 +232,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return &model.SyncCompositeResponse{
-			SyncResponse: &model.SyncResponse{
-				CurrentSyncBatchID: -1,
-				TableSchemaDeltas:  recordBatchSync.SchemaDeltas,
-			},
-			NeedsNormalize: false,
+		return &model.SyncResponse{
+			CurrentSyncBatchID: -1,
+			TableSchemaDeltas:  recordBatchSync.SchemaDeltas,
 		}, nil
 	}
 
@@ -326,10 +326,29 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
-	return &model.SyncCompositeResponse{
-		SyncResponse:   res,
-		NeedsNormalize: recordBatchSync.NeedsNormalize(),
-	}, nil
+	if recordBatchSync.NeedsNormalize() {
+		parallel, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
+		if err != nil {
+			return nil, err
+		}
+		var done chan model.NormalizeResponse
+		if !parallel {
+			done = make(chan model.NormalizeResponse)
+		}
+		normChan <- NormalizeBatchRequest{
+			BatchID: res.CurrentSyncBatchID,
+			Done:    done,
+		}
+		if done != nil {
+			if normRes, ok := <-done; !ok {
+				return nil, errors.New("failed to normalize")
+			} else {
+				a.Alerter.LogFlowInfo(ctx, flowName, fmt.Sprintf("normalized from %d to %d", normRes.StartBatchID, normRes.EndBatchID))
+			}
+		}
+	}
+
+	return res, nil
 }
 
 func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {

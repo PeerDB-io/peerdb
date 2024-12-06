@@ -388,17 +388,17 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 
 // NormalizeRecords normalizes raw table to destination table,
 // one batch at a time from the previous normalized batch to the currently synced batch.
-func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
+		return model.NormalizeResponse{}, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
-		return &model.NormalizeResponse{
+		return model.NormalizeResponse{
 			Done:         false,
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
@@ -413,16 +413,16 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 				SyncedAtColName:   req.SyncedAtColName,
 			})
 		if mergeErr != nil {
-			return nil, mergeErr
+			return model.NormalizeResponse{}, mergeErr
 		}
 
 		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
 		if err != nil {
-			return nil, err
+			return model.NormalizeResponse{}, err
 		}
 	}
 
-	return &model.NormalizeResponse{
+	return model.NormalizeResponse{
 		Done:         true,
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
