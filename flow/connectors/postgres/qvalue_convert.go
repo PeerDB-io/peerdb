@@ -68,6 +68,8 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindJSONB
 	case pgtype.UUIDOID:
 		return qvalue.QValueKindUUID
+	case pgtype.UUIDArrayOID:
+		return qvalue.QValueKindArrayUUID
 	case pgtype.TimeOID:
 		return qvalue.QValueKindTime
 	case pgtype.DateOID:
@@ -175,6 +177,8 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "HSTORE"
 	case qvalue.QValueKindUUID:
 		return "UUID"
+	case qvalue.QValueKindArrayUUID:
+		return "UUID[]"
 	case qvalue.QValueKindTime:
 		return "TIME"
 	case qvalue.QValueKindTimeTZ:
@@ -234,6 +238,40 @@ func parseJSON(value interface{}, isArray bool) (qvalue.QValue, error) {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	return qvalue.QValueJSON{Val: string(jsonVal), IsArray: isArray}, nil
+}
+
+func parseUUID(value interface{}) (qvalue.QValue, error) {
+	switch v := value.(type) {
+	case string:
+		id, err := uuid.Parse(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid UUID string: %w", err)
+		}
+		return qvalue.QValueUUID{Val: id}, nil
+	case uuid.UUID:
+		return qvalue.QValueUUID{Val: v}, nil
+	default:
+		return nil, fmt.Errorf("unsupported type for UUID: %T", value)
+	}
+}
+
+func parseUUIDArray(value interface{}) (qvalue.QValue, error) {
+	switch v := value.(type) {
+	case []string:
+		uuids := make([]uuid.UUID, 0, len(v))
+		for _, s := range v {
+			id, err := uuid.Parse(s)
+			if err != nil {
+				return nil, fmt.Errorf("invalid UUID in array: %w", err)
+			}
+			uuids = append(uuids, id)
+		}
+		return qvalue.QValueArrayUUID{Val: uuids}, nil
+	case []uuid.UUID:
+		return qvalue.QValueArrayUUID{Val: v}, nil
+	default:
+		return nil, fmt.Errorf("unsupported type for UUID array: %T", value)
+	}
 }
 
 func convertToArray[T any](kind qvalue.QValueKind, value interface{}) ([]T, error) {
@@ -378,18 +416,17 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		// handling all unsupported types with strings as well for now.
 		return qvalue.QValueString{Val: fmt.Sprint(value)}, nil
 	case qvalue.QValueKindUUID:
-		switch v := value.(type) {
-		case string:
-			id, err := uuid.Parse(v)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse UUID: %w", err)
-			}
-			return qvalue.QValueUUID{Val: [16]byte(id)}, nil
-		case [16]byte:
-			return qvalue.QValueUUID{Val: v}, nil
-		default:
-			return nil, fmt.Errorf("failed to parse UUID: %v", value)
+		tmp, err := parseUUID(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse UUID: %w", err)
 		}
+		return tmp, nil
+	case qvalue.QValueKindArrayUUID:
+		tmp, err := parseUUIDArray(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse UUID array: %w", err)
+		}
+		return tmp, nil
 	case qvalue.QValueKindINET:
 		switch v := value.(type) {
 		case string:

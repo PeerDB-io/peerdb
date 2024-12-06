@@ -91,6 +91,12 @@ func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = pgtype.Timestamptz{Time: v.Val, Valid: true}
 		case qvalue.QValueUUID:
 			values[i] = uuid.UUID(v.Val)
+		case qvalue.QValueArrayUUID:
+			a, err := constructArray[uuid.UUID](qValue, "ArrayUUID")
+			if err != nil {
+				return nil, err
+			}
+			values[i] = a
 		case qvalue.QValueNumeric:
 			values[i] = v.Val
 		case qvalue.QValueBytes:

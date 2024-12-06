@@ -96,6 +96,14 @@ func GetAvroSchemaFromQValueKind(
 			Type:        "string",
 			LogicalType: "uuid",
 		}, nil
+	case QValueKindArrayUUID:
+		return AvroSchemaComplexArray{
+			Type: "array",
+			Items: AvroSchemaField{
+				Type:        "string",
+				LogicalType: "uuid",
+			},
+		}, nil
 	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
 		return "string", nil
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:

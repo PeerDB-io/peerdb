@@ -343,7 +343,7 @@ func (v QValueBytes) LValue(ls *lua.LState) lua.LValue {
 }
 
 type QValueUUID struct {
-	Val [16]byte
+	Val uuid.UUID
 }
 
 func (QValueUUID) Kind() QValueKind {
@@ -356,6 +356,24 @@ func (v QValueUUID) Value() any {
 
 func (v QValueUUID) LValue(ls *lua.LState) lua.LValue {
 	return shared.LuaUuid.New(ls, uuid.UUID(v.Val))
+}
+
+type QValueArrayUUID struct {
+	Val []uuid.UUID
+}
+
+func (QValueArrayUUID) Kind() QValueKind {
+	return QValueKindArrayUUID
+}
+
+func (v QValueArrayUUID) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayUUID) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x uuid.UUID) lua.LValue {
+		return shared.LuaUuid.New(ls, x)
+	})
 }
 
 type QValueJSON struct {
