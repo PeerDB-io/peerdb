@@ -90,7 +90,7 @@ func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
 		case qvalue.QValueTimestampTZ:
 			values[i] = pgtype.Timestamptz{Time: v.Val, Valid: true}
 		case qvalue.QValueUUID:
-			values[i] = uuid.UUID(v.Val)
+			values[i] = v.Val
 		case qvalue.QValueArrayUUID:
 			a, err := constructArray[uuid.UUID](qValue, "ArrayUUID")
 			if err != nil {

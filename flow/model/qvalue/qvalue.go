@@ -355,7 +355,7 @@ func (v QValueUUID) Value() any {
 }
 
 func (v QValueUUID) LValue(ls *lua.LState) lua.LValue {
-	return shared.LuaUuid.New(ls, uuid.UUID(v.Val))
+	return shared.LuaUuid.New(ls, v.Val)
 }
 
 type QValueArrayUUID struct {
