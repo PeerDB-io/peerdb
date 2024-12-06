@@ -96,6 +96,14 @@ func GetAvroSchemaFromQValueKind(
 			Type:        "string",
 			LogicalType: "uuid",
 		}, nil
+	case QValueKindArrayUUID:
+		return AvroSchemaComplexArray{
+			Type: "array",
+			Items: AvroSchemaField{
+				Type:        "string",
+				LogicalType: "uuid",
+			},
+		}, nil
 	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
 		return "string", nil
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
@@ -598,8 +606,8 @@ func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) 
 	return jsonString, nil
 }
 
-func (c *QValueAvroConverter) processUUID(byteData [16]byte) interface{} {
-	uuidString := uuid.UUID(byteData).String()
+func (c *QValueAvroConverter) processUUID(byteData uuid.UUID) interface{} {
+	uuidString := byteData.String()
 	if c.Nullable {
 		return goavro.Union("string", uuidString)
 	}
