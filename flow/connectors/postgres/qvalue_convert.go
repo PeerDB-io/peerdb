@@ -240,20 +240,16 @@ func parseJSON(value interface{}, isArray bool) (qvalue.QValue, error) {
 	return qvalue.QValueJSON{Val: string(jsonVal), IsArray: isArray}, nil
 }
 
-func parseUUID(value interface{}) (qvalue.QValue, error) {
+func parseUUID(value interface{}) (uuid.UUID, error) {
 	switch v := value.(type) {
 	case string:
-		id, err := uuid.Parse(v)
-		if err != nil {
-			return nil, fmt.Errorf("invalid UUID string: %w", err)
-		}
-		return qvalue.QValueUUID{Val: id}, nil
+		return uuid.Parse(v)
 	case [16]byte:
-		return qvalue.QValueUUID{Val: uuid.UUID(v)}, nil
+		return uuid.UUID(v), nil
 	case uuid.UUID:
-		return qvalue.QValueUUID{Val: v}, nil
+		return v, nil
 	default:
-		return nil, fmt.Errorf("unsupported type for UUID: %T", value)
+		return uuid.UUID{}, fmt.Errorf("unsupported type for UUID: %T", value)
 	}
 }
 
@@ -277,6 +273,16 @@ func parseUUIDArray(value interface{}) (qvalue.QValue, error) {
 		return qvalue.QValueArrayUUID{Val: uuids}, nil
 	case []uuid.UUID:
 		return qvalue.QValueArrayUUID{Val: v}, nil
+	case []interface{}:
+		uuids := make([]uuid.UUID, 0, len(v))
+		for _, v := range v {
+			id, err := parseUUID(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid UUID interface{} value in array: %w", err)
+			}
+			uuids = append(uuids, id)
+		}
+		return qvalue.QValueArrayUUID{Val: uuids}, nil
 	default:
 		return nil, fmt.Errorf("unsupported type for UUID array: %T", value)
 	}
@@ -428,7 +434,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse UUID: %w", err)
 		}
-		return tmp, nil
+		return qvalue.QValueUUID{Val: tmp}, nil
 	case qvalue.QValueKindArrayUUID:
 		tmp, err := parseUUIDArray(value)
 		if err != nil {
