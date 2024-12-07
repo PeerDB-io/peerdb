@@ -84,13 +84,14 @@ func SyncFlowWorkflow(
 		selector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 			syncDone = true
 
-			var childSyncFlowRes *model.SyncResponse
-			if err := f.Get(ctx, &childSyncFlowRes); err != nil {
+			var numRecordsSynced int64
+			if err := f.Get(ctx, &numRecordsSynced); err != nil {
 				logger.Error("failed to execute sync flow", slog.Any("error", err))
 				syncErr = true
-			} else if childSyncFlowRes != nil {
-				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
-				logger.Info("Total records synced", slog.Int64("totalRecordsSynced", totalRecordsSynced))
+			} else {
+				totalRecordsSynced += numRecordsSynced
+				logger.Info("Total records synced",
+					slog.Int64("numRecordsSynced", numRecordsSynced), slog.Int64("totalRecordsSynced", totalRecordsSynced))
 			}
 		})
 
