@@ -53,17 +53,18 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 ) (int, error) {
 	defer shared.RollbackTx(tx, qe.logger)
 
-	if qe.snapshot != "" {
-		_, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot))
-		if err != nil {
-			qe.logger.Error("[pg_query_executor] failed to set snapshot",
-				slog.Any("error", err), slog.String("query", query))
-			err := fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
-			p.Close(err)
-			return 0, err
-		}
-	}
-
+	// if qe.snapshot != "" {
+	// 	_, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot))
+	// 	if err != nil {
+	// 		qe.logger.Error("[pg_query_executor] failed to set snapshot",
+	// 			slog.Any("error", err), slog.String("query", query))
+	// 		err := fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
+	// 		p.Close(err)
+	// 		return 0, err
+	// 	}
+	// }
+	// log that we are ignoring snapshot for customer-orange
+	qe.logger.Info("[pg_query_executor] ignoring snapshot for customer-orange")
 	norows, err := tx.Query(ctx, query+" limit 0", args...)
 	if err != nil {
 		return 0, err
