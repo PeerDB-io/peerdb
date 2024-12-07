@@ -717,3 +717,21 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 		return false
 	})
 }
+
+func EnvGetWorkflowState(t *testing.T, env WorkflowRun) peerflow.CDCFlowWorkflowState {
+	t.Helper()
+	var state peerflow.CDCFlowWorkflowState
+	val, err := env.Query(shared.CDCFlowStateQuery)
+	EnvNoError(t, env, err)
+	EnvNoError(t, env, val.Get(&state))
+	return state
+}
+
+func EnvGetFlowStatus(t *testing.T, env WorkflowRun) protos.FlowStatus {
+	t.Helper()
+	var flowStatus protos.FlowStatus
+	val, err := env.Query(shared.FlowStatusQuery)
+	EnvNoError(t, env, err)
+	EnvNoError(t, env, val.Get(&flowStatus))
+	return flowStatus
+}
