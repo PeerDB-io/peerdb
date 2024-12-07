@@ -64,16 +64,6 @@ func SyncFlowWorkflow(
 		stop = true
 	})
 
-	var waitSelector workflow.Selector
-	parallel := getParallelSyncNormalize(ctx, logger, config.Env)
-	if !parallel {
-		waitSelector = workflow.NewNamedSelector(ctx, "NormalizeWait")
-		waitSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-		stopChan.AddToSelector(waitSelector, func(_ struct{}, _ bool) {
-			stop = true
-		})
-	}
-
 	syncFlowCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
 		StartToCloseTimeout: 7 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
@@ -81,7 +71,6 @@ func SyncFlowWorkflow(
 	})
 	for !stop && ctx.Err() == nil {
 		var syncDone bool
-		mustWait := waitSelector != nil
 
 		currentSyncFlowNum += 1
 		logger.Info("executing sync flow", slog.Int("count", currentSyncFlowNum))
@@ -102,46 +91,12 @@ func SyncFlowWorkflow(
 			} else if childSyncFlowRes != nil {
 				totalRecordsSynced += childSyncFlowRes.NumRecordsSynced
 				logger.Info("Total records synced", slog.Int64("totalRecordsSynced", totalRecordsSynced))
-
-				// slightly hacky: table schema mapping is cached, so we need to manually update it if schema changes.
-				tableSchemaDeltasCount := len(childSyncFlowRes.TableSchemaDeltas)
-				if tableSchemaDeltasCount > 0 {
-					modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
-					for _, tableSchemaDelta := range childSyncFlowRes.TableSchemaDeltas {
-						modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
-					}
-
-					getModifiedSchemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-						StartToCloseTimeout: 5 * time.Minute,
-					})
-					getModifiedSchemaFuture := workflow.ExecuteActivity(getModifiedSchemaCtx, flowable.SetupTableSchema,
-						&protos.SetupTableSchemaBatchInput{
-							PeerName:         config.SourceName,
-							TableIdentifiers: modifiedSrcTables,
-							TableMappings:    options.TableMappings,
-							FlowName:         config.FlowJobName,
-							System:           config.System,
-						})
-
-					if err := getModifiedSchemaFuture.Get(ctx, nil); err != nil {
-						logger.Error("failed to execute schema update at source", slog.Any("error", err))
-					}
-				}
-
-				mustWait = false
-			} else {
-				mustWait = false
 			}
 		})
 
 		for ctx.Err() == nil && ((!syncDone && !syncErr) || selector.HasPending()) {
 			selector.Select(ctx)
 		}
-		if ctx.Err() != nil {
-			break
-		}
-
-		restart := syncErr || workflow.GetInfo(ctx).GetContinueAsNewSuggested()
 
 		if syncErr {
 			logger.Info("sync flow error, sleeping for 30 seconds...")
@@ -151,16 +106,7 @@ func SyncFlowWorkflow(
 			}
 		}
 
-		if !stop && !syncErr && mustWait {
-			waitSelector.Select(ctx)
-			if restart {
-				// must flush selector for signals received while waiting
-				for ctx.Err() == nil && selector.HasPending() {
-					selector.Select(ctx)
-				}
-				break
-			}
-		} else if restart {
+		if syncErr || ctx.Err() != nil || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
 			break
 		}
 	}

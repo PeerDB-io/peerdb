@@ -326,6 +326,26 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
+	tableSchemaDeltasCount := len(res.TableSchemaDeltas)
+	if tableSchemaDeltasCount > 0 {
+		modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
+		for _, tableSchemaDelta := range res.TableSchemaDeltas {
+			modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
+		}
+
+		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
+			PeerName:         config.SourceName,
+			TableIdentifiers: modifiedSrcTables,
+			TableMappings:    options.TableMappings,
+			FlowName:         config.FlowJobName,
+			System:           config.System,
+		}); err != nil {
+			err = fmt.Errorf("failed to execute schema update at source: %w", err)
+			a.Alerter.LogFlowError(ctx, flowName, err)
+			return nil, err
+		}
+	}
+
 	if recordBatchSync.NeedsNormalize() {
 		parallel, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
 		if err != nil {

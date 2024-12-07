@@ -333,8 +333,10 @@ func (a *FlowableActivity) MaintainPull(
 		}
 		close(normDone)
 	}()
-	defer func() { <-normDone }()
-	defer close(normalize) // TODO race, this will cause sync to panic if it tries to send to normalize after maintainpull ends
+	defer func() {
+		close(normalize) // TODO race, this will cause sync to panic if it tries to send to normalize after maintainpull ends
+		<-normDone
+	}()
 
 	for {
 		select {
