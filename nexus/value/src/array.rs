@@ -4,7 +4,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use pgwire::types::ToSqlText;
 use postgres_types::{IsNull, ToSql, Type};
-use uuid::{Uuid, fmt::Hyphenated};
+use uuid::{fmt::Hyphenated, Uuid};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ArrayValue {
