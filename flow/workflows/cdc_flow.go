@@ -526,9 +526,12 @@ func CDCFlowWorkflow(
 			handleError("sync", err)
 		}
 
-		logger.Info("sync finished, finishing normalize")
+		logger.Info("sync finished")
 		syncFlowFuture = nil
 		restart = true
+		if state.SyncFlowOptions.NumberOfSyncs > 0 {
+			state.ActiveSignal = model.PauseSignal
+		}
 	})
 
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {

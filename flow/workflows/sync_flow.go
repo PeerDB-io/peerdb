@@ -47,7 +47,7 @@ func SyncFlowWorkflow(
 	)
 
 	var stop, syncErr bool
-	currentSyncFlowNum := 0
+	currentSyncFlowNum := int32(0)
 	totalRecordsSynced := int64(0)
 
 	selector := workflow.NewNamedSelector(ctx, "SyncLoop")
@@ -73,7 +73,7 @@ func SyncFlowWorkflow(
 		var syncDone bool
 
 		currentSyncFlowNum += 1
-		logger.Info("executing sync flow", slog.Int("count", currentSyncFlowNum))
+		logger.Info("executing sync flow", slog.Int("count", int(currentSyncFlowNum)))
 
 		var syncFlowFuture workflow.Future
 		if config.System == protos.TypeSystem_Q {
@@ -107,7 +107,8 @@ func SyncFlowWorkflow(
 			}
 		}
 
-		if syncErr || ctx.Err() != nil || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
+		if (options.NumberOfSyncs > 0 && currentSyncFlowNum >= options.NumberOfSyncs) ||
+			syncErr || ctx.Err() != nil || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
 			break
 		}
 	}
@@ -131,7 +132,7 @@ func SyncFlowWorkflow(
 		logger.Warn("UnmaintainPull failed", slog.Any("error", err))
 	}
 
-	if stop {
+	if stop || currentSyncFlowNum >= options.NumberOfSyncs {
 		return nil
 	} else if _, stop := stopChan.ReceiveAsync(); stop {
 		// if sync flow erroring may outrace receiving stop
