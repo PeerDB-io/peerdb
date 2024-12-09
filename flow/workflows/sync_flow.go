@@ -161,7 +161,7 @@ func SyncFlowWorkflow(
 			break
 		}
 
-		restart := syncErr || workflow.GetInfo(ctx).GetContinueAsNewSuggested()
+		restart := syncErr || shared.ShouldWorkflowContinueAsNew(ctx)
 		if !stop && !syncErr && mustWait {
 			waitSelector.Select(ctx)
 			if restart {

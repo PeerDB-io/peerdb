@@ -610,7 +610,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if state.ActiveSignal == model.PauseSignal || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
+		if state.ActiveSignal == model.PauseSignal || shared.ShouldWorkflowContinueAsNew(ctx) {
 			restart = true
 			if syncFlowFuture != nil {
 				err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)
