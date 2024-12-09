@@ -739,6 +739,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "waiting on cdc", func() bool {
 		rows, err := s.GetRows(dstTableName, "id")
 		require.NoError(s.t, err)
+		fmt.Println(rows.Records)
 		return len(rows.Records) == 2
 	})
 
