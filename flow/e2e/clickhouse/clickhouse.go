@@ -96,6 +96,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	if err != nil {
 		return nil, err
 	}
+	defer ch.Close()
 
 	rows, err := ch.Query(
 		context.Background(),
@@ -104,36 +105,25 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	batch := &model.QRecordBatch{}
 	types := rows.ColumnTypes()
 	row := make([]interface{}, 0, len(types))
-	for _, ty := range types {
-		nullable := ty.Nullable()
+	tableSchema, err := connclickhouse.GetTableSchemaForTable(table, types)
+	if err != nil {
+		return nil, err
+	}
+
+	for idx, ty := range types {
+		fieldDesc := tableSchema.Columns[idx]
 		row = append(row, reflect.New(ty.ScanType()).Interface())
-		var qkind qvalue.QValueKind
-		switch ty.DatabaseTypeName() {
-		case "String", "Nullable(String)":
-			qkind = qvalue.QValueKindString
-		case "Int32", "Nullable(Int32)":
-			qkind = qvalue.QValueKindInt32
-		case "DateTime64(6)", "Nullable(DateTime64(6))":
-			qkind = qvalue.QValueKindTimestamp
-		case "Date32", "Nullable(Date32)":
-			qkind = qvalue.QValueKindDate
-		default:
-			if strings.Contains(ty.DatabaseTypeName(), "Decimal") {
-				qkind = qvalue.QValueKindNumeric
-			} else {
-				return nil, fmt.Errorf("failed to resolve QValueKind for %s", ty.DatabaseTypeName())
-			}
-		}
 		batch.Schema.Fields = append(batch.Schema.Fields, qvalue.QField{
 			Name:      ty.Name(),
-			Type:      qkind,
+			Type:      qvalue.QValueKind(fieldDesc.Type),
 			Precision: 0,
 			Scale:     0,
-			Nullable:  nullable,
+			Nullable:  fieldDesc.Nullable,
 		})
 	}
 
