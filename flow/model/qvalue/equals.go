@@ -90,6 +90,8 @@ func Equals(qv QValue, other QValue) bool {
 		return compareTimeArrays(qvValue, otherValue)
 	case QValueArrayBoolean:
 		return compareBoolArrays(q.Val, otherValue)
+	case QValueArrayUUID:
+		return compareUuidArrays(q.Val, otherValue)
 	case QValueArrayString:
 		return compareArrayString(q.Val, otherValue)
 	default:
@@ -308,6 +310,22 @@ func compareDateArrays(value1, value2 interface{}) bool {
 func compareBoolArrays(value1, value2 interface{}) bool {
 	array1, ok1 := value1.([]bool)
 	array2, ok2 := value2.([]bool)
+
+	if !ok1 || !ok2 || len(array1) != len(array2) {
+		return false
+	}
+
+	for i := range array1 {
+		if array1[i] != array2[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func compareUuidArrays(value1, value2 interface{}) bool {
+	array1, ok1 := value1.([]uuid.UUID)
+	array2, ok2 := value2.([]uuid.UUID)
 
 	if !ok1 || !ok2 || len(array1) != len(array2) {
 		return false
