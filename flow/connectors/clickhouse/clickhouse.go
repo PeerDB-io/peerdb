@@ -551,8 +551,16 @@ func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*pro
 		switch column.DatabaseTypeName() {
 		case "String", "Nullable(String)":
 			qkind = qvalue.QValueKindString
+		case "Bool", "Nullable(Bool)":
+			qkind = qvalue.QValueKindBoolean
+		case "Int16", "Nullable(Int16)":
+			qkind = qvalue.QValueKindInt16
 		case "Int32", "Nullable(Int32)":
 			qkind = qvalue.QValueKindInt32
+		case "Int64", "Nullable(Int64)":
+			qkind = qvalue.QValueKindInt64
+		case "UUID", "Nullable(UUID)":
+			qkind = qvalue.QValueKindUUID
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
 			qkind = qvalue.QValueKindTimestamp
 		case "Date32", "Nullable(Date32)":
