@@ -544,14 +544,7 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	return clickhouseVersion.Version.String(), nil
 }
 
-func (c *ClickHouseConnector) getTableSchemaForTable(ctx context.Context, tableName string) (*protos.TableSchema, error) {
-	// TODO sanitize
-	q, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tableName))
-	if err != nil {
-		return nil, err
-	}
-
-	columns := q.ColumnTypes()
+func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*protos.TableSchema, error) {
 	colFields := make([]*protos.FieldDescription, 0, len(columns))
 	for _, column := range columns {
 		var qkind qvalue.QValueKind
@@ -576,6 +569,7 @@ func (c *ClickHouseConnector) getTableSchemaForTable(ctx context.Context, tableN
 			Name:         column.Name(),
 			Type:         string(qkind),
 			TypeModifier: -1,
+			Nullable:     column.Nullable(),
 		})
 	}
 
@@ -594,7 +588,13 @@ func (c *ClickHouseConnector) GetTableSchema(
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
 	for _, tableName := range tableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tableName)
+		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tableName))
+		if err != nil {
+			return nil, err
+		}
+
+		tableSchema, err := GetTableSchemaForTable(tableName, rows.ColumnTypes())
+		rows.Close()
 		if err != nil {
 			return nil, err
 		}
