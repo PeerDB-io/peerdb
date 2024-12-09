@@ -58,13 +58,13 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		}
 	}
 
-	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s (
+	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %[1]s (
 		_peerdb_uid UUID,
 		_peerdb_timestamp Int64,
 		_peerdb_destination_table_name String,
-		_peerdb_data %s,
+		_peerdb_data %[2]s,
 		_peerdb_record_type Int,
-		_peerdb_match_data String,
+		_peerdb_match_data %[2]s,
 		_peerdb_batch_id Int64,
 		_peerdb_unchanged_toast_columns String
 	) ENGINE = MergeTree() ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name);`

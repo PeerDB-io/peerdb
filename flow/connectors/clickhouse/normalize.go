@@ -261,12 +261,17 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return nil, err
 	}
 
-	useJSON, err := c.peerdbDataTypeIsJSON(ctx, req.FlowJobName)
+	useJSONForData, err := c.columnIsJSON(ctx, req.FlowJobName, "_peerdb_data")
 	if err != nil {
 		c.logger.Error("[clickhouse] error while checking data type of _peerdb_data", "error", err)
 		return nil, err
 	}
-	if useJSON {
+	useJSONForMatchData, err := c.columnIsJSON(ctx, req.FlowJobName, "_peerdb_match_data")
+	if err != nil {
+		c.logger.Error("[clickhouse] error while checking data type of _peerdb_match_data", "error", err)
+		return nil, err
+	}
+	if useJSONForData || useJSONForMatchData {
 		if err := c.enableExperimentalJSONType(ctx); err != nil {
 			return nil, err
 		}
@@ -375,10 +380,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			jsonExtractStringMatchData := "JSONExtractString(_peerdb_match_data, '%s')"
 			jsonExtractData := "JSONExtract(_peerdb_data, '%s', '%s')"
 			jsonExtractMatchData := "JSONExtract(_peerdb_match_data, '%s', '%s')"
-			if useJSON {
+			if useJSONForData {
 				jsonExtractStringData = "_peerdb_data.`%s`"
-				jsonExtractStringMatchData = "_peerdb_match_data.`%s`"
 				jsonExtractData = "_peerdb_data.`%s`::%s"
+			}
+			if useJSONForMatchData {
+				jsonExtractStringMatchData = "_peerdb_match_data.`%s`"
 				jsonExtractMatchData = "_peerdb_match_data.`%s`::%s"
 			}
 
@@ -534,16 +541,17 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	return tableNames, nil
 }
 
-func (c *ClickHouseConnector) peerdbDataTypeIsJSON(
+func (c *ClickHouseConnector) columnIsJSON(
 	ctx context.Context,
 	flowJobName string,
+	columnName string,
 ) (bool, error) {
 	rawTable := c.getRawTableName(flowJobName)
 
 	var isJSON bool
 	if err := c.queryRow(ctx,
 		`SELECT type='JSON' FROM system.columns
-		WHERE database=currentDatabase() AND table=? AND name='_peerdb_data'`, rawTable).Scan(&isJSON); err != nil {
+		WHERE database=currentDatabase() AND table=? AND name=?`, rawTable, columnName).Scan(&isJSON); err != nil {
 		return false, fmt.Errorf("error while querying raw table for data type: %w", err)
 	}
 	return isJSON, nil
