@@ -33,7 +33,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2024.11.7@sha256:9f2d9c45006a2ada1bc485e1393291ce7d54ae1a46260dd491381a4eb8b2fd47
+        image: bitnami/minio:2024.11.7@sha256:81cd091fb9f14b2e9e9bfa6dbc2bf2d46fdd5eafa6c5e7c9213baf4256ff13d6
         ports:
           - 9999:9999
         env:
@@ -49,7 +49,7 @@ jobs:
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: ubicloud/setup-go@35680fe0723d4a9309d4b1ac1c67e0d46eac5f24 # v5
+      - uses: ubicloud/setup-go@6ea6c4fb36acc657571a53f4a7471e75f5fa80ad # v5
         with:
           go-version: '1.23.0'
           cache-dependency-path: flow/go.sum
@@ -114,7 +114,7 @@ jobs:
         with:
           version: "latest"
 
-      - uses: ubicloud/cache@0a97811d53629b143a56b3c2b1f729fd11719ef7 # v4
+      - uses: ubicloud/cache@92361f338d82d2c58a98875f1b5c95cd14cd6b2a # v4
         id: cache-clickhouse
         with:
           path: ./clickhouse
