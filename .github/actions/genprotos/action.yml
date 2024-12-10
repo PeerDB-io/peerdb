@@ -6,7 +6,7 @@ runs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: check cache
       id: cache
-      uses: ubicloud/cache@0a97811d53629b143a56b3c2b1f729fd11719ef7 # v4
+      uses: ubicloud/cache@92361f338d82d2c58a98875f1b5c95cd14cd6b2a # v4
       with:
         path: |
           ./flow/generated/protos
