@@ -24,6 +24,11 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+      redpanda:
+        image: redpandadata/redpanda
+        ports:
+          - 9092:9092
+          - 9644:9644
       elasticsearch:
         image: elasticsearch:8.16.1@sha256:e5ee5f8dacbf18fa3ab59a098cc7d4d69f73e61637eb45f1c029e74b1cb200a1
         ports:
@@ -108,11 +113,6 @@ jobs:
           docker restart "${{ job.services.catalog.id }}"
         env:
           PGPASSWORD: postgres
-
-      - name: start redpanda
-        uses: redpanda-data/github-action@c68af8edc420b987e871615ca40b3a5dd70eb5b1 # v0.1.4
-        with:
-          version: "latest"
 
       - uses: ubicloud/cache@92361f338d82d2c58a98875f1b5c95cd14cd6b2a # v4
         id: cache-clickhouse
