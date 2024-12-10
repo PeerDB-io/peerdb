@@ -166,6 +166,30 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *decimal.Decimal:
 				qrow = append(qrow, qvalue.QValueNumeric{Val: *v})
+			case **bool:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindBoolean))
+				} else {
+					qrow = append(qrow, qvalue.QValueBoolean{Val: **v})
+				}
+			case *bool:
+				qrow = append(qrow, qvalue.QValueBoolean{Val: *v})
+			case **float32:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindFloat32))
+				} else {
+					qrow = append(qrow, qvalue.QValueFloat32{Val: **v})
+				}
+			case *float32:
+				qrow = append(qrow, qvalue.QValueFloat32{Val: *v})
+			case **float64:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindFloat64))
+				} else {
+					qrow = append(qrow, qvalue.QValueFloat64{Val: **v})
+				}
+			case *float64:
+				qrow = append(qrow, qvalue.QValueFloat64{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}
