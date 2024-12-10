@@ -715,6 +715,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 3,2,b'1',b'101',
@@ -736,14 +737,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{true, false}'::boolean[],
 		'{1, 2}'::smallint[];`, srcFullName))
 	require.NoError(s.t, err)
-
-	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "waiting on cdc", func() bool {
-		rows, err := s.GetRows(dstTableName, "id")
-		fmt.Println("errsor", err)
-		require.NoError(s.t, err)
-		fmt.Println("reccord", rows.Records)
-		return len(rows.Records) == 2
-	})
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
