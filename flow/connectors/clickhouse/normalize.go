@@ -3,8 +3,6 @@ package connclickhouse
 import (
 	"cmp"
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -12,7 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/ch-go"
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -285,7 +284,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	group, errCtx := errgroup.WithContext(ctx)
 	for i := range parallelNormalize {
 		group.Go(func() error {
-			var chConn clickhouse.Conn
+			var chConn *ch.Client
 			if i == 0 {
 				chConn = c.database
 			} else {
@@ -299,7 +298,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 			for query := range queries {
 				c.logger.Info("normalizing batch", slog.String("query", query))
-				if err := chConn.Exec(errCtx, query); err != nil {
+				if err := chConn.Do(errCtx, ch.Query{Body: query}); err != nil {
 					return fmt.Errorf("error while inserting into normalized table: %w", err)
 				}
 			}
@@ -487,33 +486,25 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 ) ([]string, error) {
 	rawTbl := c.getRawTableName(flowJobName)
 
-	q := fmt.Sprintf(
-		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d`,
-		rawTbl, normalizeBatchID, syncBatchID)
-
-	rows, err := c.query(ctx, q)
-	if err != nil {
+	var tableNames []string
+	var tableNameC chproto.ColStr
+	if err := c.query(ctx, ch.Query{
+		Body: fmt.Sprintf(
+			`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d`,
+			rawTbl, normalizeBatchID, syncBatchID),
+		Result: chproto.Results{
+			{Name: "_peerdb_destination_table_name", Data: &tableNameC},
+		},
+		OnResult: func(ctx context.Context, block chproto.Block) error {
+			tableNames := slices.Grow(tableNames, block.Rows)
+			return tableNameC.ForEach(func(i int, s string) error {
+				tableNames = append(tableNames, s)
+				return nil
+			})
+		},
+	}); err != nil {
 		return nil, fmt.Errorf("error while querying raw table for distinct table names in batch: %w", err)
 	}
-	defer rows.Close()
-	var tableNames []string
-	for rows.Next() {
-		var tableName sql.NullString
-		if err := rows.Scan(&tableName); err != nil {
-			return nil, fmt.Errorf("error while scanning table name: %w", err)
-		}
-
-		if !tableName.Valid {
-			return nil, errors.New("table name is not valid")
-		}
-
-		tableNames = append(tableNames, tableName.String)
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read rows: %w", err)
-	}
-
 	return tableNames, nil
 }
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	chgo "github.com/ClickHouse/ch-go"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
@@ -508,7 +509,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	// now test weird names with rename based resync
 	ch, err := connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
-	require.NoError(s.t, ch.Exec(context.Background(), fmt.Sprintf("DROP TABLE `%s`", dstTableName)))
+	require.NoError(s.t, ch.Do(context.Background(), chgo.Query{Body: fmt.Sprintf("DROP TABLE `%s`", dstTableName)}))
 	require.NoError(s.t, ch.Close())
 	flowConnConfig.Resync = true
 	env = e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -526,7 +527,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	// now test weird names with exchange based resync
 	ch, err = connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
-	require.NoError(s.t, ch.Exec(context.Background(), fmt.Sprintf("TRUNCATE TABLE `%s`", dstTableName)))
+	require.NoError(s.t, ch.Do(context.Background(), chgo.Query{Body: fmt.Sprintf("TRUNCATE TABLE `%s`", dstTableName)}))
 	require.NoError(s.t, ch.Close())
 	env = e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
