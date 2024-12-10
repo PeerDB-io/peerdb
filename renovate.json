@@ -29,6 +29,12 @@
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "matchPackageNames": ["ghcr.io/peerdb-io/*"],
+      "matchManagers": ["docker-compose"],
+      "matchUpdateTypes": ["pinDigest"],
+      "matchFileNames": ["docker-compose.yml"]
     }
   ],
   "vulnerabilityAlerts": {
