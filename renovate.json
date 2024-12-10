@@ -34,7 +34,8 @@
       "matchPackageNames": ["ghcr.io/peerdb-io/**"],
       "matchManagers": ["docker-compose"],
       "matchUpdateTypes": ["pinDigest"],
-      "matchFileNames": ["docker-compose.yml"]
+      "matchFileNames": ["docker-compose.yml"],
+      "enabled": false
     }
   ],
   "vulnerabilityAlerts": {
