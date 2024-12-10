@@ -25,7 +25,7 @@
       "enabled": false
     },
     {
-      "matchPackageNames": ["next", "react", "eslint", "eslint-config-next"],
+      "matchPackageNames": ["next", "react", "react-dom", "@types/react", "@types/react-dom", "eslint", "eslint-config-next"],
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["major"],
       "enabled": false
