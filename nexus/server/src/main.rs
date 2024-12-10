@@ -26,13 +26,14 @@ use pgwire::{
             AuthSource, LoginInfo, Password, ServerParameterProvider,
         },
         copy::NoopCopyHandler,
+        NoopErrorHandler,
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler},
         results::{
             DescribePortalResponse, DescribeResponse, DescribeStatementResponse, Response, Tag,
         },
         stmt::StoredStatement,
-        ClientInfo, PgWireHandlerFactory, Type,
+        ClientInfo, PgWireServerHandlers, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
@@ -1048,12 +1049,13 @@ pub struct Handlers {
     nexus: Arc<NexusBackend>,
 }
 
-impl PgWireHandlerFactory for Handlers {
+impl PgWireServerHandlers for Handlers {
     type StartupHandler =
         SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>;
     type SimpleQueryHandler = NexusBackend;
     type ExtendedQueryHandler = NexusBackend;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.nexus.clone()
@@ -1072,6 +1074,10 @@ impl PgWireHandlerFactory for Handlers {
 
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
+    }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
     }
 }
 
