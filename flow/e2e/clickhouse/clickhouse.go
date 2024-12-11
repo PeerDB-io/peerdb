@@ -198,6 +198,14 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *int64:
 				qrow = append(qrow, qvalue.QValueInt64{Val: *v})
+			case **int16:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt16))
+				} else {
+					qrow = append(qrow, qvalue.QValueInt16{Val: **v})
+				}
+			case *int16:
+				qrow = append(qrow, qvalue.QValueInt16{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}
