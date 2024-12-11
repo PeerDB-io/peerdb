@@ -229,6 +229,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
+		numberOfSchemaChanges := len(recordBatchSync.SchemaDeltas)
+		if numberOfSchemaChanges > 0 {
+			a.Alerter.LogFlowInfo(ctx, flowName, fmt.Sprintf("synced %d schema changes from source to destination", numberOfSchemaChanges))
+		}
+
 		return &model.SyncCompositeResponse{
 			SyncResponse: &model.SyncResponse{
 				CurrentSyncBatchID: -1,
@@ -322,7 +327,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 	}
 
-	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
+	pushedRecordsWithCount := fmt.Sprintf("pushed %d records into intermediate storage", numRecords)
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
