@@ -49,6 +49,7 @@ type PostgresCDCSource struct {
 	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected map[uint32]struct{}
 	flowJobName                  string
+	syncBatchID                  int64
 }
 
 type PostgresCDCConfig struct {
@@ -62,6 +63,7 @@ type PostgresCDCConfig struct {
 	FlowJobName            string
 	Slot                   string
 	Publication            string
+	SyncBatchID            int64
 }
 
 // Create a new PostgresCDCSource
@@ -82,6 +84,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *
 		hushWarnUnhandledMessageType: make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected: make(map[uint32]struct{}),
 		flowJobName:                  cdcConfig.FlowJobName,
+		syncBatchID:                  cdcConfig.SyncBatchID,
 	}
 }
 
@@ -861,9 +864,9 @@ func auditSchemaDelta[Items model.Items](ctx context.Context, p *PostgresCDCSour
 
 	_, err := p.catalogPool.Exec(ctx,
 		`INSERT INTO
-		 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info)
-		 VALUES($1,$2,$3,$4)`,
-		p.flowJobName, workflowID, runID, rec)
+		 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info,batch_id)
+		 VALUES($1,$2,$3,$4,$5)`,
+		p.flowJobName, workflowID, runID, rec, p.syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to insert row into table: %w", err)
 	}
