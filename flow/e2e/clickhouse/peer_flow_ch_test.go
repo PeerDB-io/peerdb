@@ -718,6 +718,8 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName,
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36")
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 3,2,b'1',b'101',
@@ -741,7 +743,34 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{1, 2}'::smallint[];`, srcFullName))
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types", srcTableName, dstTableName,
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName,
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36")
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		UPDATE %[1]s SET c1=3,c32='testery' WHERE id=2;
+		UPDATE %[1]s SET c33=now(),c34=now(),c35=now()::TIME,c36=now()::TIMETZ WHERE id=3;
+		INSERT INTO %[1]s SELECT 4,2,b'1',b'101',
+		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
+		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
+		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
+		1.2,123456789012345678901234567890.123456789012345678901234567890,
+		4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
+		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
+		txid_current_snapshot(),
+		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,
+		ARRAY[10299301,2579827],
+		ARRAY[0.0003, 8902.0092],
+		ARRAY['hello','bye'],'happy',
+		'key1=>value1, key2=>NULL'::hstore,
+		'{2020-01-01, 2020-01-02}'::date[],
+		'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
+		'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
+		'{true, false}'::boolean[],
+		'{1, 2}'::smallint[];`, srcFullName))
+	require.NoError(s.t, err)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 3", srcTableName, dstTableName,
 		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36")
 
 	env.Cancel()
