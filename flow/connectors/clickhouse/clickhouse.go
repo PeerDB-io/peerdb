@@ -425,6 +425,10 @@ func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*pro
 			qkind = qvalue.QValueKindTimestamp
 		case "Date32", "Nullable(Date32)":
 			qkind = qvalue.QValueKindDate
+		case "Float32", "Nullable(Float32)":
+			qkind = qvalue.QValueKindFloat32
+		case "Float64", "Nullable(Float64)":
+			qkind = qvalue.QValueKindFloat64
 		default:
 			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
 				qkind = qvalue.QValueKindNumeric
