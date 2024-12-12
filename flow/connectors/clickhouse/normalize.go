@@ -28,8 +28,6 @@ const (
 	versionColType = "Int64"
 )
 
-var acceptableTableEngines = []string{"ReplacingMergeTree", "MergeTree"}
-
 func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
 	return nil, nil
 }
