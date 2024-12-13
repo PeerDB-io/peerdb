@@ -44,7 +44,7 @@ type ValidationConnector interface {
 type GetTableSchemaConnector interface {
 	Connector
 
-	// GetTableSchema returns the schema of a table in terms of QValueKind.
+	// GetTableSchema returns the schema of a table in terms of type system.
 	GetTableSchema(
 		ctx context.Context,
 		env map[string]string,
@@ -404,7 +404,7 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 	case *protos.Peer_SqlserverConfig:
 		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
 	case *protos.Peer_MysqlConfig:
-		return connmysql.MySqlConnector{}, nil
+		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickHouseConnector(ctx, env, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
@@ -450,6 +450,7 @@ func CloseConnector(ctx context.Context, conn Connector) {
 // create type assertions to cause compile time error if connector interface not implemented
 var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
+	_ CDCPullConnector = &connmysql.MySqlConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 

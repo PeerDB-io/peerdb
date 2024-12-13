@@ -124,7 +124,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 }
 
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
-	// create a separate connection pool for non-replication queries as replication connections cannot
+	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	replConfig, err := pgx.ParseConfig(c.connStr)
 	if err != nil {
