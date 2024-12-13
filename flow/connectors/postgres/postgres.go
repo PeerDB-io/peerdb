@@ -643,7 +643,7 @@ func (c *PostgresConnector) NormalizeRecords(
 	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
-		ctx, req.FlowJobName, req.SyncBatchID, normBatchID)
+		ctx, req.FlowJobName, req.SyncBatchID, normBatchID, req.TableNameSchemaMapping)
 	if err != nil {
 		return nil, err
 	}
