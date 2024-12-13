@@ -38,9 +38,20 @@ func (c *MySqlConnector) SetupReplConn(context.Context) error {
 	return nil
 }
 
-func (c *MySqlConnector) startCdcStreaming(lastOffsetName string, lastOffsetPos uint32) error {
+func (c *MySqlConnector) startCdcStreamingFilePos(lastOffsetName string, lastOffsetPos uint32) error {
 	// TODO prefer GTID
 	streamer, err := c.syncer.StartSync(mysql.Position{Name: lastOffsetName, Pos: lastOffsetPos})
+	if err != nil {
+		return err
+	}
+	c.streamer = streamer
+	return nil
+}
+
+func (c *MySqlConnector) startCdcStreamingGtid(lastOffsetName string, lastOffsetPos uint32) error {
+	// https: //hevodata.com/learn/mysql-gtids-and-replication-set-up
+	// TODO prefer GTID
+	streamer, err := c.syncer.StartSyncGTID(mysql.Position{Name: lastOffsetName, Pos: lastOffsetPos})
 	if err != nil {
 		return err
 	}
@@ -96,5 +107,6 @@ func (c *MySqlConnector) PullRecords(
 		req.RecordStream.Close()
 		// update replState Offset
 	}()
+	c.startCdcStreaming(req.LastOffset)
 	return nil
 }
