@@ -147,7 +147,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	if len(mapping.Exclude) != 0 || shared.TableSchemaHasColumnsWithSubstr(tableSchema, "-") {
 		quotedColumns := make([]string, 0, len(tableSchema.Columns))
 		for _, col := range tableSchema.Columns {
-			if !slices.Contains(mapping.Exclude, col.Name) {
+			if !slices.Contains(mapping.Exclude, col.Name) && !strings.Contains(col.Name, "-") {
 				quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
 			}
 		}
