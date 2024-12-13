@@ -140,19 +140,16 @@ func (s *SnapshotFlowExecution) cloneTable(
 		s.logger.Error("unable to parse source table", slog.Any("error", err), cloneLog)
 		return fmt.Errorf("unable to parse source table: %w", err)
 	}
-	from := "*"
 	if err := initTableSchema(); err != nil {
 		return err
 	}
-	if len(mapping.Exclude) != 0 || shared.TableSchemaHasColumnsWithSubstr(tableSchema, "-") {
-		quotedColumns := make([]string, 0, len(tableSchema.Columns))
-		for _, col := range tableSchema.Columns {
-			if !slices.Contains(mapping.Exclude, col.Name) && !strings.Contains(col.Name, "-") {
-				quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
-			}
+	quotedColumns := make([]string, 0, len(tableSchema.Columns))
+	for _, col := range tableSchema.Columns {
+		if !slices.Contains(mapping.Exclude, col.Name) && !strings.Contains(col.Name, "-") {
+			quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
 		}
-		from = strings.Join(quotedColumns, ",")
 	}
+	from := strings.Join(quotedColumns, ",")
 	var query string
 	if mapping.PartitionKey == "" {
 		query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())
