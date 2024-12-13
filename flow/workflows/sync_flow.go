@@ -79,7 +79,7 @@ func SyncFlowWorkflow(
 	}
 
 	syncFlowCtx := workflow.WithActivityOptions(syncSessionCtx, workflow.ActivityOptions{
-		StartToCloseTimeout: 72 * time.Hour,
+		StartToCloseTimeout: 7 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 		WaitForCancellation: true,
 	})
@@ -162,6 +162,15 @@ func SyncFlowWorkflow(
 		}
 
 		restart := syncErr || workflow.GetInfo(ctx).GetContinueAsNewSuggested()
+
+		if syncErr {
+			logger.Info("sync flow error, sleeping for 30 seconds...")
+			err := workflow.Sleep(ctx, 30*time.Second)
+			if err != nil {
+				logger.Error("failed to sleep", slog.Any("error", err))
+			}
+		}
+
 		if !stop && !syncErr && mustWait {
 			waitSelector.Select(ctx)
 			if restart {
