@@ -49,24 +49,26 @@ func BuildProcessedSchemaMapping(
 		for _, mapping := range tableMappings {
 			if mapping.SourceTableIdentifier == srcTableName {
 				dstTableName = mapping.DestinationTableIdentifier
-				columns := make([]*protos.FieldDescription, 0, len(tableSchema.Columns))
-				pkeyColumns := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
-				for _, column := range tableSchema.Columns {
-					if !slices.Contains(mapping.Exclude, column.Name) && !strings.Contains(column.Name, "-") {
-						columns = append(columns, column)
+				if len(mapping.Exclude) != 0 || TableSchemaHasColumnsWithSubstr(tableSchema, "-") {
+					columns := make([]*protos.FieldDescription, 0, len(tableSchema.Columns))
+					pkeyColumns := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+					for _, column := range tableSchema.Columns {
+						if !slices.Contains(mapping.Exclude, column.Name) && !strings.Contains(column.Name, "-") {
+							columns = append(columns, column)
+						}
+						if slices.Contains(tableSchema.PrimaryKeyColumns, column.Name) &&
+							!slices.Contains(mapping.Exclude, column.Name) {
+							pkeyColumns = append(pkeyColumns, column.Name)
+						}
 					}
-					if slices.Contains(tableSchema.PrimaryKeyColumns, column.Name) &&
-						!slices.Contains(mapping.Exclude, column.Name) {
-						pkeyColumns = append(pkeyColumns, column.Name)
+					tableSchema = &protos.TableSchema{
+						TableIdentifier:       tableSchema.TableIdentifier,
+						PrimaryKeyColumns:     pkeyColumns,
+						IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
+						NullableEnabled:       tableSchema.NullableEnabled,
+						System:                tableSchema.System,
+						Columns:               columns,
 					}
-				}
-				tableSchema = &protos.TableSchema{
-					TableIdentifier:       tableSchema.TableIdentifier,
-					PrimaryKeyColumns:     pkeyColumns,
-					IsReplicaIdentityFull: tableSchema.IsReplicaIdentityFull,
-					NullableEnabled:       tableSchema.NullableEnabled,
-					System:                tableSchema.System,
-					Columns:               columns,
 				}
 				break
 			}
@@ -78,4 +80,13 @@ func BuildProcessedSchemaMapping(
 			slog.Any("schema", tableSchema))
 	}
 	return processedSchemaMapping
+}
+
+func TableSchemaHasColumnsWithSubstr(tableSchema *protos.TableSchema, substr string) bool {
+	for _, column := range tableSchema.Columns {
+		if strings.Contains(column.Name, substr) {
+			return true
+		}
+	}
+	return false
 }

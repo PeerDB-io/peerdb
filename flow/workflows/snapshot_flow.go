@@ -141,10 +141,10 @@ func (s *SnapshotFlowExecution) cloneTable(
 		return fmt.Errorf("unable to parse source table: %w", err)
 	}
 	from := "*"
-	if len(mapping.Exclude) != 0 {
-		if err := initTableSchema(); err != nil {
-			return err
-		}
+	if err := initTableSchema(); err != nil {
+		return err
+	}
+	if len(mapping.Exclude) != 0 || shared.TableSchemaHasColumnsWithSubstr(tableSchema, "-") {
 		quotedColumns := make([]string, 0, len(tableSchema.Columns))
 		for _, col := range tableSchema.Columns {
 			if !slices.Contains(mapping.Exclude, col.Name) {
