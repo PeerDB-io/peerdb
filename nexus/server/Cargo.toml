@@ -52,8 +52,11 @@ pt = { path = "../pt" }
 sqlparser = { workspace = true, features = ["visitor"] }
 serde_json = "1.0"
 rand = "0.8"
+rustls-pemfile = "2.0"
+rustls-pki-types = "1.0"
 time = "0.3"
 tokio.workspace = true
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12"]}
 tracing.workspace = true
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
