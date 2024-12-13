@@ -142,6 +142,7 @@ message MySqlConfig {
   repeated string setup = 6;
   uint32 compression = 7;
   bool disable_tls = 8;
+  string flavor = 9;
 }
 
 message KafkaConfig {

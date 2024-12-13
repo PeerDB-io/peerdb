@@ -979,6 +979,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 .get("disable_tls")
                 .and_then(|s| s.parse::<bool>().ok())
                 .unwrap_or_default(),
+            flavor: opts.get("flavor").unwrap_or(&"mysql").to_string(),
         }),
     }))
 }

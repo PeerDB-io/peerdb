@@ -20,6 +20,10 @@ func (t *SchemaTable) String() string {
 	return fmt.Sprintf(`"%s"."%s"`, t.Schema, t.Table)
 }
 
+func (t *SchemaTable) MySQL() string {
+	return fmt.Sprintf("`%s`.`%s`", t.Schema, t.Table)
+}
+
 // ParseSchemaTable parses a table name into schema and table name.
 func ParseSchemaTable(tableName string) (*SchemaTable, error) {
 	schema, table, hasDot := strings.Cut(tableName, ".")
