@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strings"
 
 	"go.temporal.io/sdk/log"
 
@@ -52,7 +53,7 @@ func BuildProcessedSchemaMapping(
 					columns := make([]*protos.FieldDescription, 0, len(tableSchema.Columns))
 					pkeyColumns := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
 					for _, column := range tableSchema.Columns {
-						if !slices.Contains(mapping.Exclude, column.Name) {
+						if !slices.Contains(mapping.Exclude, column.Name) && !strings.Contains(column.Name, "-") {
 							columns = append(columns, column)
 						}
 						if slices.Contains(tableSchema.PrimaryKeyColumns, column.Name) &&
