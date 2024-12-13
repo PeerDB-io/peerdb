@@ -48,9 +48,8 @@ func NewPostgresMetadataFromCatalog(logger log.Logger, pool *pgxpool.Pool) *Post
 }
 
 func (p *PostgresMetadata) Ping(ctx context.Context) error {
-	pingErr := p.pool.Ping(ctx)
-	if pingErr != nil {
-		return fmt.Errorf("metadata db ping failed: %w", pingErr)
+	if err := p.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("metadata db ping failed: %w", err)
 	}
 
 	return nil
@@ -72,13 +71,11 @@ func (p *PostgresMetadata) SetupMetadataTables(_ context.Context) error {
 }
 
 func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	row := p.pool.QueryRow(ctx,
-		`SELECT last_offset FROM `+
-			lastSyncStateTableName+
-			` WHERE job_name = $1`, jobName)
 	var offset pgtype.Int8
-	err := row.Scan(&offset)
-	if err != nil {
+	if err := p.pool.QueryRow(ctx,
+		`SELECT last_offset FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&offset); err != nil {
 		if err == pgx.ErrNoRows {
 			return 0, nil
 		}
@@ -93,12 +90,11 @@ func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (i
 }
 
 func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
-	row := p.pool.QueryRow(ctx,
-		`SELECT sync_batch_id FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName)
-
 	var syncBatchID pgtype.Int8
-	err := row.Scan(&syncBatchID)
-	if err != nil {
+	if err := p.pool.QueryRow(ctx,
+		`SELECT sync_batch_id FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&syncBatchID); err != nil {
 		// if the job doesn't exist, return 0
 		if err == pgx.ErrNoRows {
 			return 0, nil
@@ -113,14 +109,11 @@ func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName strin
 }
 
 func (p *PostgresMetadata) GetLastNormalizeBatchID(ctx context.Context, jobName string) (int64, error) {
-	rows := p.pool.QueryRow(ctx,
-		`SELECT normalize_batch_id FROM `+
-			lastSyncStateTableName+
-			` WHERE job_name = $1`, jobName)
-
 	var normalizeBatchID pgtype.Int8
-	err := rows.Scan(&normalizeBatchID)
-	if err != nil {
+	if err := p.pool.QueryRow(ctx,
+		`SELECT normalize_batch_id FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&normalizeBatchID); err != nil {
 		// if the job doesn't exist, return 0
 		if err.Error() == "no rows in result set" {
 			return 0, nil
@@ -136,14 +129,13 @@ func (p *PostgresMetadata) GetLastNormalizeBatchID(ctx context.Context, jobName 
 
 func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
 	p.logger.Info("updating last offset", "offset", offset)
-	_, err := p.pool.Exec(ctx, `
+	if _, err := p.pool.Exec(ctx, `
 		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
 		DO UPDATE SET last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
 			updated_at = NOW()
-	`, jobName, offset, 0)
-	if err != nil {
+	`, jobName, offset, 0); err != nil {
 		p.logger.Error("failed to update last offset", "error", err)
 		return err
 	}
@@ -153,7 +145,7 @@ func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, of
 
 func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, syncBatchID int64, offset int64) error {
 	p.logger.Info("finishing batch", "SyncBatchID", syncBatchID, "offset", offset)
-	_, err := p.pool.Exec(ctx, `
+	if _, err := p.pool.Exec(ctx, `
 		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
 		ON CONFLICT (job_name)
@@ -161,8 +153,7 @@ func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, sync
 			last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
 			sync_batch_id = GREATEST(`+lastSyncStateTableName+`.sync_batch_id, excluded.sync_batch_id),
 			updated_at = NOW()
-	`, jobName, offset, syncBatchID)
-	if err != nil {
+	`, jobName, offset, syncBatchID); err != nil {
 		p.logger.Error("failed to finish batch", slog.Any("error", err))
 		return err
 	}
@@ -220,14 +211,13 @@ func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *proto
 }
 
 func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	_, err := p.pool.Exec(ctx,
-		`DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName)
-	if err != nil {
+	if _, err := p.pool.Exec(ctx,
+		`DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName,
+	); err != nil {
 		return err
 	}
 
-	_, err = p.pool.Exec(ctx, `DELETE FROM `+qrepTableName+` WHERE job_name = $1`, jobName)
-	if err != nil {
+	if _, err := p.pool.Exec(ctx, `DELETE FROM `+qrepTableName+` WHERE job_name = $1`, jobName); err != nil {
 		return err
 	}
 
