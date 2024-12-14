@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
@@ -764,14 +765,34 @@ func (c *PostgresConnector) GetTableSchema(
 	tableIdentifiers []string,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
+	var mu sync.Mutex
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(8)
+
 	for _, tableName := range tableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)
-		if err != nil {
-			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
-			return nil, err
-		}
-		res[tableName] = tableSchema
-		c.logger.Info("fetched schema for table " + tableName)
+		g.Go(func() error {
+			c.logger.Info("fetching schema for table " + tableName)
+
+			tableSchema, err := c.getTableSchemaForTable(gctx, env, tableName, system)
+			if err != nil {
+				c.logger.Error("failed to fetch schema",
+					slog.String("table", tableName),
+					slog.Any("error", err))
+				return err
+			}
+
+			mu.Lock()
+			res[tableName] = tableSchema
+			mu.Unlock()
+
+			c.logger.Info("fetched schema for table " + tableName)
+			return nil
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
 	return res, nil
