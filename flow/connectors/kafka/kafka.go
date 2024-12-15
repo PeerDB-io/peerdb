@@ -313,7 +313,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 					c.logger.Warn("[kafka] flush error", slog.Any("error", err))
 					continue
 				} else if lastSeen > req.ConsumedOffset.Load() {
-					if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
+					if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeen}); err != nil {
 						c.logger.Warn("[kafka] SetLastOffset error", slog.Any("error", err))
 					} else {
 						shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
@@ -392,10 +392,10 @@ Loop:
 	}
 
 	return &model.SyncResponse{
-		CurrentSyncBatchID:     req.SyncBatchID,
-		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       numRecords.Load(),
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		CurrentSyncBatchID:   req.SyncBatchID,
+		LastSyncedCheckpoint: lastCheckpoint,
+		NumRecordsSynced:     numRecords.Load(),
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }

@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
@@ -70,23 +71,23 @@ func (p *PostgresMetadata) SetupMetadataTables(_ context.Context) error {
 	return nil
 }
 
-func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	var offset pgtype.Int8
+func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error) {
+	var offset model.CdcCheckpoint
 	if err := p.pool.QueryRow(ctx,
-		`SELECT last_offset FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		`SELECT last_offset, last_text FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
 		jobName,
-	).Scan(&offset); err != nil {
+	).Scan(&offset.ID, &offset.Text); err != nil {
 		if err == pgx.ErrNoRows {
-			return 0, nil
+			return offset, nil
 		}
 
 		p.logger.Error("failed to get last offset", "error", err)
-		return 0, err
+		return offset, err
 	}
 
-	p.logger.Info("got last offset for job", "offset", offset.Int64)
+	p.logger.Info("got last offset for job", "offset", offset)
 
-	return offset.Int64, nil
+	return offset, nil
 }
 
 func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
@@ -127,15 +128,17 @@ func (p *PostgresMetadata) GetLastNormalizeBatchID(ctx context.Context, jobName 
 	return normalizeBatchID.Int64, nil
 }
 
-func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
+func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, offset model.CdcCheckpoint) error {
 	p.logger.Info("updating last offset", "offset", offset)
 	if _, err := p.pool.Exec(ctx, `
-		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
-		VALUES ($1, $2, $3)
+		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, last_text, sync_batch_id)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (job_name)
-		DO UPDATE SET last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+		DO UPDATE SET
+			last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+			last_text = excluded.last_text,
 			updated_at = NOW()
-	`, jobName, offset, 0); err != nil {
+	`, jobName, offset.ID, offset.Text, 0); err != nil {
 		p.logger.Error("failed to update last offset", "error", err)
 		return err
 	}
@@ -143,17 +146,18 @@ func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, of
 	return nil
 }
 
-func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, syncBatchID int64, offset int64) error {
+func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, syncBatchID int64, offset model.CdcCheckpoint) error {
 	p.logger.Info("finishing batch", "SyncBatchID", syncBatchID, "offset", offset)
 	if _, err := p.pool.Exec(ctx, `
-		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
-		VALUES ($1, $2, $3)
+		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, last_text, sync_batch_id)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (job_name)
 		DO UPDATE SET
 			last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+			last_text = excluded.last_text,
 			sync_batch_id = GREATEST(`+lastSyncStateTableName+`.sync_batch_id, excluded.sync_batch_id),
 			updated_at = NOW()
-	`, jobName, offset, syncBatchID); err != nil {
+	`, jobName, offset.ID, offset.Text, syncBatchID); err != nil {
 		p.logger.Error("failed to finish batch", slog.Any("error", err))
 		return err
 	}
