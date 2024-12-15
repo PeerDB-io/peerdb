@@ -18,20 +18,20 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config   *protos.MySqlConfig
-	conn     *client.Conn
-	syncer   *replication.BinlogSyncer
-	streamer *replication.BinlogStreamer
+	config *protos.MySqlConfig
+	conn   *client.Conn
+	syncer *replication.BinlogSyncer
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
 	syncer := replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
-		ServerID: 1729,    // TODO put in config
-		Flavor:   "mysql", // TODO put in config
-		Host:     config.Host,
-		Port:     uint16(config.Port),
-		User:     config.User,
-		Password: config.Password,
+		ServerID:   1729, // TODO put in config
+		Flavor:     config.Flavor,
+		Host:       config.Host,
+		Port:       uint16(config.Port),
+		User:       config.User,
+		Password:   config.Password,
+		UseDecimal: true,
 	})
 	return &MySqlConnector{
 		config: config,

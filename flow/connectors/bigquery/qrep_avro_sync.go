@@ -103,11 +103,11 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: lastCP,
-		NumRecordsSynced:       int64(numRecords),
-		CurrentSyncBatchID:     syncBatchID,
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		LastSyncedCheckpoint: lastCP,
+		NumRecordsSynced:     int64(numRecords),
+		CurrentSyncBatchID:   syncBatchID,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 

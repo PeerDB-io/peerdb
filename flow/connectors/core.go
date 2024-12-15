@@ -74,7 +74,7 @@ type CDCPullConnectorCore interface {
 	ReplPing(context.Context) error
 
 	// Called when offset has been confirmed to destination
-	UpdateReplStateLastOffset(lastOffset int64)
+	UpdateReplStateLastOffset(lastOffset model.CdcCheckpoint)
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
@@ -156,10 +156,10 @@ type CDCSyncConnectorCore interface {
 	SetupMetadataTables(ctx context.Context) error
 
 	// GetLastOffset gets the last offset from the metadata table on the destination
-	GetLastOffset(ctx context.Context, jobName string) (int64, error)
+	GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error)
 
 	// SetLastOffset updates the last offset on the metadata table on the destination
-	SetLastOffset(ctx context.Context, jobName string, lastOffset int64) error
+	SetLastOffset(ctx context.Context, jobName string, lastOffset model.CdcCheckpoint) error
 
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error)

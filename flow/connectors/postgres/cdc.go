@@ -388,7 +388,7 @@ func PullCdcRecords[Items model.Items](
 		if pkmRequiresResponse {
 			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
 				metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-				if err := metadata.SetLastOffset(ctx, req.FlowJobName, int64(clientXLogPos)); err != nil {
+				if err := metadata.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)}); err != nil {
 					return err
 				}
 				req.ConsumedOffset.Store(int64(clientXLogPos))
@@ -622,7 +622,7 @@ func PullCdcRecords[Items model.Items](
 					if cdcRecordsStorage.IsEmpty() {
 						if int64(clientXLogPos) > req.ConsumedOffset.Load() {
 							metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-							if err := metadata.SetLastOffset(ctx, req.FlowJobName, int64(clientXLogPos)); err != nil {
+							if err := metadata.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)}); err != nil {
 								return err
 							}
 							req.ConsumedOffset.Store(int64(clientXLogPos))
@@ -678,7 +678,7 @@ func processMessage[Items model.Items](
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
 		logger.Debug("CommitMessage", slog.Any("CommitLSN", msg.CommitLSN), slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
-		batch.UpdateLatestCheckpoint(int64(msg.CommitLSN))
+		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
 		// treat all relation messages as corresponding to parent if partitioned.
@@ -704,7 +704,7 @@ func processMessage[Items model.Items](
 			slog.String("Prefix", msg.Prefix),
 			slog.String("LSN", msg.LSN.String()))
 		if !msg.Transactional {
-			batch.UpdateLatestCheckpoint(int64(msg.LSN))
+			batch.UpdateLatestCheckpointID(int64(msg.LSN))
 		}
 		return &model.MessageRecord[Items]{
 			BaseRecord: p.baseRecord(msg.LSN),

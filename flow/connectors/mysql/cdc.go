@@ -4,11 +4,13 @@ import (
 	"context"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
 )
 
@@ -38,37 +40,20 @@ func (c *MySqlConnector) SetupReplConn(context.Context) error {
 	return nil
 }
 
-func (c *MySqlConnector) startCdcStreamingFilePos(lastOffsetName string, lastOffsetPos uint32) error {
-	// TODO prefer GTID
-	streamer, err := c.syncer.StartSync(mysql.Position{Name: lastOffsetName, Pos: lastOffsetPos})
-	if err != nil {
-		return err
-	}
-	c.streamer = streamer
-	return nil
+func (c *MySqlConnector) startCdcStreamingFilePos(lastOffsetName string, lastOffsetPos uint32) (*replication.BinlogStreamer, error) {
+	return c.syncer.StartSync(mysql.Position{Name: lastOffsetName, Pos: lastOffsetPos})
 }
 
-func (c *MySqlConnector) startCdcStreamingGtid(lastOffsetName string, lastOffsetPos uint32) error {
-	// https: //hevodata.com/learn/mysql-gtids-and-replication-set-up
-	// TODO prefer GTID
-	streamer, err := c.syncer.StartSyncGTID(mysql.Position{Name: lastOffsetName, Pos: lastOffsetPos})
-	if err != nil {
-		return err
-	}
-	c.streamer = streamer
-	return nil
+func (c *MySqlConnector) startCdcStreamingGtid(gset mysql.GTIDSet) (*replication.BinlogStreamer, error) {
+	// https://hevodata.com/learn/mysql-gtids-and-replication-set-up
+	return c.syncer.StartSyncGTID(gset)
 }
 
 func (c *MySqlConnector) ReplPing(context.Context) error {
 	return nil
 }
 
-func (c *MySqlConnector) UpdateReplStateLastOffset(lastOffset int64) {
-	/*
-		if c.replState != nil {
-			c.replState.LastOffset.Store(lastOffset)
-		}
-	*/
+func (c *MySqlConnector) UpdateReplStateLastOffset(lastOffset model.CdcCheckpoint) {
 }
 
 func (c *MySqlConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
@@ -90,11 +75,16 @@ func (c *MySqlConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*p
 }
 
 func (c *MySqlConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
-	panic("TODO")
+	return nil
 }
 
 func (c *MySqlConnector) RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error {
-	panic("TODO")
+	return nil
+}
+
+func qvalueFromMysql(typ byte, val any) qvalue.QValue {
+	// TODO
+	return nil
 }
 
 func (c *MySqlConnector) PullRecords(
@@ -107,6 +97,61 @@ func (c *MySqlConnector) PullRecords(
 		req.RecordStream.Close()
 		// update replState Offset
 	}()
-	c.startCdcStreaming(req.LastOffset)
+	gset, err := mysql.ParseGTIDSet(c.config.Flavor, req.LastOffset.Text)
+	if err != nil {
+		return err
+	}
+	mystream, err := c.startCdcStreamingGtid(gset)
+	if err != nil {
+		return err
+	}
+	for {
+		event, err := mystream.GetEvent(ctx)
+		if err != nil {
+			return err
+		}
+		switch ev := event.Event.(type) {
+		case *replication.RowsEvent:
+			for _, row := range ev.Rows {
+				var record model.Record[model.RecordItems]
+				//TODO need tableNameMapping[source] -> destination
+				//TODO need mapping of column index to column name
+				var items model.RecordItems
+				switch event.Header.EventType {
+				case replication.WRITE_ROWS_EVENTv0, replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2:
+					for idx, val := range row {
+						// TODO
+						items.AddColumn("ColumnName", qvalueFromMysql(ev.Table.ColumnType[idx], val))
+					}
+					record = &model.InsertRecord[model.RecordItems]{
+						BaseRecord:      model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
+						Items:           items,
+						SourceTableName: string(ev.Table.Table),
+					}
+				case replication.UPDATE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
+					// TODO no OldItems / NewItems. How does primary key update work?
+					record = &model.UpdateRecord[model.RecordItems]{
+						BaseRecord:      model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
+						NewItems:        items,
+						SourceTableName: string(ev.Table.Table),
+					}
+				case replication.DELETE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2:
+					record = &model.DeleteRecord[model.RecordItems]{
+						BaseRecord:      model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
+						Items:           items,
+						SourceTableName: string(ev.Table.Table),
+					}
+				default:
+					continue
+				}
+				err := req.RecordStream.AddRecord(ctx, record)
+				if err != nil {
+					return err
+				}
+			}
+			break
+		}
+		break // TODO when batch ready
+	}
 	return nil
 }
