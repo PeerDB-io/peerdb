@@ -300,27 +300,27 @@ func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
 }
 
 // GetLastOffset returns the last synced offset for a job.
-func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	var result pgtype.Int8
-	err := c.conn.QueryRow(ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
+func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error) {
+	var result model.CdcCheckpoint
+	err := c.conn.QueryRow(ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result.ID, &result.Text)
 	if err != nil {
 		if err == pgx.ErrNoRows {
 			c.logger.Info("No row found, returning nil")
-			return 0, nil
+			return result, nil
 		}
-		return 0, fmt.Errorf("error while reading result row: %w", err)
+		return result, fmt.Errorf("error while reading result row: %w", err)
 	}
 
-	if result.Int64 == 0 {
+	if result.ID == 0 && result.Text == "" {
 		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
-	return result.Int64, nil
+	return result, nil
 }
 
 // SetLastOffset updates the last synced offset for a job.
-func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, lastOffset int64) error {
+func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, lastOffset model.CdcCheckpoint) error {
 	_, err := c.conn.
-		Exec(ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
+		Exec(ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), lastOffset.ID, lastOffset.Text, jobName)
 	if err != nil {
 		return fmt.Errorf("error setting last offset for job %s: %w", jobName, err)
 	}
@@ -358,7 +358,7 @@ func pullCore[Items model.Items](
 	defer func() {
 		req.RecordStream.Close()
 		if c.replState != nil {
-			c.replState.Offset = req.RecordStream.GetLastCheckpoint()
+			c.replState.Offset = req.RecordStream.GetLastCheckpoint().ID
 		}
 	}()
 
@@ -444,9 +444,9 @@ func pullCore[Items model.Items](
 	return nil
 }
 
-func (c *PostgresConnector) UpdateReplStateLastOffset(lastOffset int64) {
+func (c *PostgresConnector) UpdateReplStateLastOffset(lastOffset model.CdcCheckpoint) {
 	if c.replState != nil {
-		c.replState.LastOffset.Store(lastOffset)
+		c.replState.LastOffset.Store(lastOffset.ID)
 	}
 }
 
@@ -580,27 +580,24 @@ func syncRecordsCore[Items model.Items](
 
 	// updating metadata with new offset and syncBatchID
 	lastCP := req.Records.GetLastCheckpoint()
-	err = c.updateSyncMetadata(ctx, req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx)
-	if err != nil {
+	if err := c.updateSyncMetadata(ctx, req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx); err != nil {
 		return nil, err
 	}
 	// transaction commits
-	err = syncRecordsTx.Commit(ctx)
-	if err != nil {
+	if err := syncRecordsTx.Commit(ctx); err != nil {
 		return nil, err
 	}
 
-	err = c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas)
-	if err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: lastCP,
-		NumRecordsSynced:       numRecords,
-		CurrentSyncBatchID:     req.SyncBatchID,
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		LastSyncedCheckpoint: lastCP,
+		NumRecordsSynced:     numRecords,
+		CurrentSyncBatchID:   req.SyncBatchID,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 

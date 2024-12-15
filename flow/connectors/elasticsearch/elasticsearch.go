@@ -163,7 +163,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 			case <-ticker.C:
 				lastSeen := lastSeenLSN.Load()
 				if lastSeen > req.ConsumedOffset.Load() {
-					if err := esc.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
+					if err := esc.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeen}); err != nil {
 						esc.logger.Warn("[es] SetLastOffset error", slog.Any("error", err))
 					} else {
 						shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
@@ -297,10 +297,10 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	}
 
 	return &model.SyncResponse{
-		CurrentSyncBatchID:     req.SyncBatchID,
-		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       numRecords,
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		CurrentSyncBatchID:   req.SyncBatchID,
+		LastSyncedCheckpoint: lastCheckpoint,
+		NumRecordsSynced:     numRecords,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
