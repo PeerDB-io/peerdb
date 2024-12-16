@@ -495,7 +495,8 @@ func PullCdcRecords[Items model.Items](
 				return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
-			logger.Info("Primary Keepalive Message", slog.Any("data", pkm))
+			logger.Debug("Primary Keepalive Message", slog.Bool("replyRequested", pkm.ReplyRequested),
+				slog.String("ServerWALEnd", pkm.ServerWALEnd.String()), slog.String("ServerTime", pkm.ServerTime.String()))
 
 			if pkm.ServerWALEnd > clientXLogPos {
 				clientXLogPos = pkm.ServerWALEnd
