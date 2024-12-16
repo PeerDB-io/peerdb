@@ -650,11 +650,9 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 				slog.Any("existingMetadata", existingMetadata))
 			return true, nil
 		}
-	} else {
-		if !strings.Contains(err.Error(), "notFound") {
-			return false, fmt.Errorf("error while checking metadata for BigQuery table existence %s: %w",
-				tableIdentifier, err)
-		}
+	} else if !strings.Contains(err.Error(), "notFound") {
+		return false, fmt.Errorf("error while checking metadata for BigQuery table existence %s: %w",
+			tableIdentifier, err)
 	}
 
 	// convert the column names and types to bigquery types
