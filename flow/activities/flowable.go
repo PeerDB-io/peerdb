@@ -467,6 +467,7 @@ func (a *FlowableActivity) StartNormalize(
 		return model.NormalizeResponse{}, fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
+	logger.Info("Normalizing batch", slog.Int64("SyncBatchID", input.SyncBatchID))
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
 		Env:                    input.FlowConnectionConfigs.Env,
@@ -480,11 +481,7 @@ func (a *FlowableActivity) StartNormalize(
 		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)
 		return model.NormalizeResponse{}, fmt.Errorf("failed to normalized records: %w", err)
 	}
-	dstType, err := connectors.LoadPeerType(ctx, a.CatalogPool, input.FlowConnectionConfigs.DestinationName)
-	if err != nil {
-		return model.NormalizeResponse{}, fmt.Errorf("failed to get peer type: %w", err)
-	}
-	if dstType == protos.DBType_POSTGRES {
+	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
 		if err := monitoring.UpdateEndTimeForCDCBatch(
 			ctx,
 			a.CatalogPool,
@@ -495,9 +492,7 @@ func (a *FlowableActivity) StartNormalize(
 		}
 	}
 
-	// log the number of batches normalized
-	logger.Info(fmt.Sprintf("normalized records from batch %d to batch %d",
-		res.StartBatchID, res.EndBatchID))
+	logger.Info("normalized batches", slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID))
 
 	return res, nil
 }

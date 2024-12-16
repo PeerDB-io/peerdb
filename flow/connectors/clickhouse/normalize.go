@@ -274,9 +274,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
-	if parallelNormalize > 1 {
-		c.logger.Info("normalizing in parallel", slog.Int("connections", parallelNormalize))
-	}
+	c.logger.Info("[clickhouse] normalizing batch",
+		slog.Int64("StartBatchID", normBatchID), slog.Int64("EndBatchID", req.SyncBatchID), slog.Int("connections", parallelNormalize))
 
 	queries := make(chan string)
 	rawTbl := c.getRawTableName(req.FlowJobName)

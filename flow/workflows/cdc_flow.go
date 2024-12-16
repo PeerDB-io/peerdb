@@ -503,27 +503,22 @@ func CDCFlowWorkflow(
 	}
 	syncCtx := workflow.WithChildOptions(ctx, syncFlowOpts)
 
-	handleError := func(name string, err error) {
-		var panicErr *temporal.PanicError
-		if errors.As(err, &panicErr) {
-			logger.Error(
-				"panic in flow",
-				slog.String("name", name),
-				slog.Any("error", panicErr.Error()),
-				slog.String("stack", panicErr.StackTrace()),
-			)
-		} else {
-			logger.Error("error in flow", slog.String("name", name), slog.Any("error", err))
-		}
-	}
-
 	syncFlowFuture := workflow.ExecuteChildWorkflow(syncCtx, SyncFlowWorkflow, cfg, state.SyncFlowOptions)
 
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 		if err := f.Get(ctx, nil); err != nil {
-			handleError("sync", err)
+			var panicErr *temporal.PanicError
+			if errors.As(err, &panicErr) {
+				logger.Error(
+					"panic in sync flow",
+					slog.Any("error", panicErr.Error()),
+					slog.String("stack", panicErr.StackTrace()),
+				)
+			} else {
+				logger.Error("error in sync flow", slog.Any("error", err))
+			}
 		}
 
 		logger.Info("sync finished")
@@ -554,8 +549,7 @@ func CDCFlowWorkflow(
 		if state.ActiveSignal == model.PauseSignal || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
 			restart = true
 			if syncFlowFuture != nil {
-				err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil)
-				if err != nil {
+				if err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil); err != nil {
 					logger.Warn("failed to send sync-stop, finishing", slog.Any("error", err))
 					finished = true
 				}
