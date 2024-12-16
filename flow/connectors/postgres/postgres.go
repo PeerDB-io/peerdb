@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -398,7 +400,7 @@ func pullCore[Items model.Items](
 	var childToParentRelIDMap map[uint32]uint32
 	// only initialize the map if needed, escape hatch because custom publications may not have the right setting
 	if req.OverridePublicationName != "" || pgVersion < shared.POSTGRES_13 {
-		childToParentRelIDMap, err = GetChildToParentRelIDMap(ctx, c.conn)
+		childToParentRelIDMap, err = GetChildToParentRelIDMap(ctx, c.conn, slices.Collect(maps.Keys(req.SrcTableIDNameMapping)))
 		if err != nil {
 			return fmt.Errorf("error getting child to parent relid map: %w", err)
 		}
@@ -641,7 +643,7 @@ func (c *PostgresConnector) NormalizeRecords(
 	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
-		ctx, req.FlowJobName, req.SyncBatchID, normBatchID)
+		ctx, req.FlowJobName, req.SyncBatchID, normBatchID, req.TableNameSchemaMapping)
 	if err != nil {
 		return nil, err
 	}

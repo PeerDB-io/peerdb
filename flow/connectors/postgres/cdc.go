@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -46,6 +47,7 @@ type PostgresCDCSource struct {
 	catalogPool                  *pgxpool.Pool
 	otelManager                  *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
+	hushWarnUnknownTableDetected map[uint32]struct{}
 	flowJobName                  string
 }
 
@@ -77,21 +79,24 @@ func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *
 		childToParentRelIDMapping:    cdcConfig.ChildToParentRelIDMap,
 		catalogPool:                  cdcConfig.CatalogPool,
 		otelManager:                  cdcConfig.OtelManager,
-		flowJobName:                  cdcConfig.FlowJobName,
 		hushWarnUnhandledMessageType: make(map[pglogrepl.MessageType]struct{}),
+		hushWarnUnknownTableDetected: make(map[uint32]struct{}),
+		flowJobName:                  cdcConfig.FlowJobName,
 	}
 }
 
-func GetChildToParentRelIDMap(ctx context.Context, conn *pgx.Conn) (map[uint32]uint32, error) {
+func GetChildToParentRelIDMap(ctx context.Context,
+	conn *pgx.Conn, parentTableOIDs []uint32,
+) (map[uint32]uint32, error) {
 	query := `
 		SELECT parent.oid AS parentrelid, child.oid AS childrelid
 		FROM pg_inherits
 		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
 		JOIN pg_class child ON pg_inherits.inhrelid = child.oid
-		WHERE parent.relkind='p';
+		WHERE parent.relkind IN ('p','r') AND parent.oid=ANY($1);
 	`
 
-	rows, err := conn.Query(ctx, query)
+	rows, err := conn.Query(ctx, query, parentTableOIDs)
 	if err != nil {
 		return nil, fmt.Errorf("error querying for child to parent relid map: %w", err)
 	}
@@ -679,7 +684,10 @@ func processMessage[Items model.Items](
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
 		// treat all relation messages as corresponding to parent if partitioned.
-		msg.RelationID = p.getParentRelIDIfPartitioned(msg.RelationID)
+		msg.RelationID, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
+		if err != nil {
+			return nil, err
+		}
 
 		if _, exists := p.srcTableIDNameMapping[msg.RelationID]; !exists {
 			return nil, nil
@@ -964,8 +972,45 @@ func processRelationMessage[Items model.Items](
 func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 	parentRelID, ok := p.childToParentRelIDMapping[relID]
 	if ok {
+		if _, ok := p.hushWarnUnknownTableDetected[relID]; !ok {
+			p.logger.Info("Detected child table in CDC stream, remapping to parent table",
+				slog.Uint64("childRelID", uint64(relID)),
+				slog.Uint64("parentRelID", uint64(parentRelID)),
+				slog.String("parentTableName", p.srcTableIDNameMapping[parentRelID]))
+			p.hushWarnUnknownTableDetected[relID] = struct{}{}
+		}
 		return parentRelID
 	}
 
 	return relID
+}
+
+// since we generate the child to parent mapping at the beginning of the CDC stream,
+// some tables could be created after the CDC stream starts,
+// and we need to check if they inherit from a known table
+func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
+	relID uint32,
+) (uint32, error) {
+	relID = p.getParentRelIDIfPartitioned(relID)
+
+	if _, ok := p.srcTableIDNameMapping[relID]; !ok {
+		var parentRelID uint32
+		err := p.conn.QueryRow(ctx,
+			`SELECT inhparent FROM pg_inherits WHERE inhrelid=$1`, relID).Scan(&parentRelID)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return relID, nil
+			}
+			return 0, fmt.Errorf("failed to query pg_inherits: %w", err)
+		}
+		p.childToParentRelIDMapping[relID] = parentRelID
+		p.hushWarnUnknownTableDetected[relID] = struct{}{}
+		p.logger.Info("Detected new child table in CDC stream, remapping to parent table",
+			slog.Uint64("childRelID", uint64(relID)),
+			slog.Uint64("parentRelID", uint64(parentRelID)),
+			slog.String("parentTableName", p.srcTableIDNameMapping[parentRelID]))
+		return parentRelID, nil
+	}
+
+	return relID, nil
 }

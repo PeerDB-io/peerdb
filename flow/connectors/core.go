@@ -470,6 +470,7 @@ var (
 
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
+	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}

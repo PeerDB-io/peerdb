@@ -253,6 +253,7 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	batchId int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
@@ -283,7 +284,11 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 		}
 		if len(row) > 0 {
 			value := row[0].(string)
-			distinctTableNames = append(distinctTableNames, value)
+			if _, ok := tableToSchema[value]; ok {
+				distinctTableNames = append(distinctTableNames, value)
+			} else {
+				c.logger.Warn("table not found in table to schema mapping", "table", value)
+			}
 		}
 	}
 
@@ -446,6 +451,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 		ctx,
 		flowName,
 		batchId,
+		tableToSchema,
 	)
 	if err != nil {
 		return fmt.Errorf("couldn't get distinct table names to normalize: %w", err)

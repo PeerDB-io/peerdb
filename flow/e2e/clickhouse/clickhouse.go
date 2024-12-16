@@ -96,6 +96,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	if err != nil {
 		return nil, err
 	}
+	defer ch.Close()
 
 	rows, err := ch.Query(
 		context.Background(),
@@ -104,36 +105,25 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	batch := &model.QRecordBatch{}
 	types := rows.ColumnTypes()
 	row := make([]interface{}, 0, len(types))
-	for _, ty := range types {
-		nullable := ty.Nullable()
+	tableSchema, err := connclickhouse.GetTableSchemaForTable(table, types)
+	if err != nil {
+		return nil, err
+	}
+
+	for idx, ty := range types {
+		fieldDesc := tableSchema.Columns[idx]
 		row = append(row, reflect.New(ty.ScanType()).Interface())
-		var qkind qvalue.QValueKind
-		switch ty.DatabaseTypeName() {
-		case "String", "Nullable(String)":
-			qkind = qvalue.QValueKindString
-		case "Int32", "Nullable(Int32)":
-			qkind = qvalue.QValueKindInt32
-		case "DateTime64(6)", "Nullable(DateTime64(6))":
-			qkind = qvalue.QValueKindTimestamp
-		case "Date32", "Nullable(Date32)":
-			qkind = qvalue.QValueKindDate
-		default:
-			if strings.Contains(ty.DatabaseTypeName(), "Decimal") {
-				qkind = qvalue.QValueKindNumeric
-			} else {
-				return nil, fmt.Errorf("failed to resolve QValueKind for %s", ty.DatabaseTypeName())
-			}
-		}
 		batch.Schema.Fields = append(batch.Schema.Fields, qvalue.QField{
 			Name:      ty.Name(),
-			Type:      qkind,
+			Type:      qvalue.QValueKind(fieldDesc.Type),
 			Precision: 0,
 			Scale:     0,
-			Nullable:  nullable,
+			Nullable:  fieldDesc.Nullable,
 		})
 	}
 
@@ -176,6 +166,46 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *decimal.Decimal:
 				qrow = append(qrow, qvalue.QValueNumeric{Val: *v})
+			case **bool:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindBoolean))
+				} else {
+					qrow = append(qrow, qvalue.QValueBoolean{Val: **v})
+				}
+			case *bool:
+				qrow = append(qrow, qvalue.QValueBoolean{Val: *v})
+			case **float32:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindFloat32))
+				} else {
+					qrow = append(qrow, qvalue.QValueFloat32{Val: **v})
+				}
+			case *float32:
+				qrow = append(qrow, qvalue.QValueFloat32{Val: *v})
+			case **float64:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindFloat64))
+				} else {
+					qrow = append(qrow, qvalue.QValueFloat64{Val: **v})
+				}
+			case *float64:
+				qrow = append(qrow, qvalue.QValueFloat64{Val: *v})
+			case **int64:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt64))
+				} else {
+					qrow = append(qrow, qvalue.QValueInt64{Val: **v})
+				}
+			case *int64:
+				qrow = append(qrow, qvalue.QValueInt64{Val: *v})
+			case **int16:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt16))
+				} else {
+					qrow = append(qrow, qvalue.QValueInt16{Val: **v})
+				}
+			case *int16:
+				qrow = append(qrow, qvalue.QValueInt16{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}

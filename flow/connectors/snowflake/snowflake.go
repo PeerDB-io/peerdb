@@ -245,6 +245,7 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	batchId int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
@@ -261,7 +262,11 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 		if err := rows.Scan(&result); err != nil {
 			return nil, fmt.Errorf("failed to read row: %w", err)
 		}
-		destinationTableNames = append(destinationTableNames, result.String)
+		if _, ok := tableToSchema[result.String]; ok {
+			destinationTableNames = append(destinationTableNames, result.String)
+		} else {
+			c.logger.Warn("table not found in table to schema mapping", "table", result.String)
+		}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -520,7 +525,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	tableToSchema map[string]*protos.TableSchema,
 	peerdbCols *protos.PeerDBColumns,
 ) error {
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId)
+	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId, tableToSchema)
 	if err != nil {
 		return err
 	}

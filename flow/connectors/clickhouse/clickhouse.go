@@ -6,7 +6,6 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"maps"
 	"net/url"
@@ -23,8 +22,10 @@ import (
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/connectors/utils"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
+	chvalidate "github.com/PeerDB-io/peer-flow/shared/clickhouse"
 )
 
 type ClickHouseConnector struct {
@@ -82,7 +83,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
 			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName), slog.Any("error", err))
@@ -269,84 +270,17 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	return conn, nil
 }
 
-// https://github.com/ClickHouse/clickhouse-kafka-connect/blob/2e0c17e2f900d29c00482b9d0a1f55cb678244e5/src/main/java/com/clickhouse/kafka/connect/util/Utils.java#L78-L93
-//
-//nolint:lll
-var retryableExceptions = map[int32]struct{}{
-	3:   {}, // UNEXPECTED_END_OF_FILE
-	107: {}, // FILE_DOESNT_EXIST
-	159: {}, // TIMEOUT_EXCEEDED
-	164: {}, // READONLY
-	202: {}, // TOO_MANY_SIMULTANEOUS_QUERIES
-	203: {}, // NO_FREE_CONNECTION
-	209: {}, // SOCKET_TIMEOUT
-	210: {}, // NETWORK_ERROR
-	241: {}, // MEMORY_LIMIT_EXCEEDED
-	242: {}, // TABLE_IS_READ_ONLY
-	252: {}, // TOO_MANY_PARTS
-	285: {}, // TOO_FEW_LIVE_REPLICAS
-	319: {}, // UNKNOWN_STATUS_OF_INSERT
-	425: {}, // SYSTEM_ERROR
-	999: {}, // KEEPER_EXCEPTION
-}
-
-func isRetryableException(err error) bool {
-	if ex, ok := err.(*clickhouse.Exception); ok {
-		if ex == nil {
-			return false
-		}
-		_, yes := retryableExceptions[ex.Code]
-		return yes
-	}
-	return errors.Is(err, io.EOF)
-}
-
 //nolint:unparam
 func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
-	var err error
-	for i := range 5 {
-		err = c.database.Exec(ctx, query, args...)
-		if !isRetryableException(err) {
-			break
-		}
-		c.logger.Info("[exec] retryable error", slog.Any("error", err), slog.Any("query", query), slog.Int64("i", int64(i)))
-		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
-		}
-	}
-	return err
+	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
 }
 
 func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
-	var rows driver.Rows
-	var err error
-	for i := range 5 {
-		rows, err = c.database.Query(ctx, query, args...)
-		if !isRetryableException(err) {
-			break
-		}
-		c.logger.Info("[query] retryable error", slog.Any("error", err), slog.Any("query", query), slog.Int64("i", int64(i)))
-		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
-		}
-	}
-	return rows, err
+	return chvalidate.Query(ctx, c.logger, c.database, query, args...)
 }
 
 func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args ...any) driver.Row {
-	var row driver.Row
-	for i := range 5 {
-		row = c.database.QueryRow(ctx, query, args...)
-		err := row.Err()
-		if !isRetryableException(err) {
-			break
-		}
-		c.logger.Info("[queryRow] retryable error", slog.Any("error", row.Err()), slog.Any("query", query), slog.Int64("i", int64(i)))
-		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
-		}
-	}
-	return row
+	return chvalidate.QueryRow(ctx, c.logger, c.database, query, args...)
 }
 
 func (c *ClickHouseConnector) Close() error {
@@ -366,75 +300,11 @@ func (c *ClickHouseConnector) ConnectionActive(ctx context.Context) error {
 
 func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string) error {
 	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
-	return c.database.Exec(ctx, query)
-}
-
-func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string, optedForInitialLoad bool) error {
-	queryInput := make([]interface{}, 0, len(tables)+1)
-	queryInput = append(queryInput, c.config.Database)
-	for _, table := range tables {
-		queryInput = append(queryInput, table)
-	}
-	rows, err := c.query(ctx,
-		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=? AND name IN (%s)",
-			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
-	if err != nil {
-		return fmt.Errorf("failed to get information for destination tables: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var tableName, engine string
-		var totalRows uint64
-		if err := rows.Scan(&tableName, &engine, &totalRows); err != nil {
-			return fmt.Errorf("failed to scan information for tables: %w", err)
-		}
-		if totalRows != 0 && optedForInitialLoad {
-			return fmt.Errorf("table %s exists and is not empty", tableName)
-		}
-		if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
-			c.logger.Warn("[clickhouse] table engine not explicitly supported",
-				slog.String("table", tableName), slog.String("engine", engine))
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to read rows: %w", err)
-	}
-	return nil
-}
-
-func (c *ClickHouseConnector) getTableColumnsMapping(ctx context.Context,
-	tables []string,
-) (map[string][]*protos.FieldDescription, error) {
-	tableColumnsMapping := make(map[string][]*protos.FieldDescription, len(tables))
-	queryInput := make([]interface{}, 0, len(tables)+1)
-	queryInput = append(queryInput, c.config.Database)
-	for _, table := range tables {
-		queryInput = append(queryInput, table)
-	}
-	rows, err := c.query(ctx,
-		fmt.Sprintf("SELECT name,type,table FROM system.columns WHERE database=? AND table IN (%s)",
-			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get columns for destination tables: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var tableName string
-		var fieldDescription protos.FieldDescription
-		if err := rows.Scan(&fieldDescription.Name, &fieldDescription.Type, &tableName); err != nil {
-			return nil, fmt.Errorf("failed to scan columns for tables: %w", err)
-		}
-		tableColumnsMapping[tableName] = append(tableColumnsMapping[tableName], &fieldDescription)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read rows: %w", err)
-	}
-	return tableColumnsMapping, nil
+	return c.exec(ctx, query)
 }
 
 func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
-	dstSchema []*protos.FieldDescription, peerDBColumns []string, tableMapping *protos.TableMapping,
+	dstSchema []chvalidate.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
 		colName := srcField.Name
@@ -476,6 +346,13 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
+	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
+		err := chvalidate.CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx, c.logger, c.database)
+		if err != nil {
+			return err
+		}
+	}
+
 	peerDBColumns := []string{signColName, versionColName}
 	if req.SyncedAtColName != "" {
 		peerDBColumns = append(peerDBColumns, strings.ToLower(req.SyncedAtColName))
@@ -487,13 +364,13 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 	// In the case of resync, we don't need to check the content or structure of the original tables;
 	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
 	if !req.Resync {
-		err := c.checkTablesEmptyAndEngine(ctx, dstTableNames, req.DoInitialSnapshot)
-		if err != nil {
+		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
+			dstTableNames, req.DoInitialSnapshot, peerdbenv.PeerDBOnlyClickHouseAllowed()); err != nil {
 			return err
 		}
 	}
 	// optimization: fetching columns for all tables at once
-	chTableColumnsMapping, err := c.getTableColumnsMapping(ctx, dstTableNames)
+	chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
 	if err != nil {
 		return err
 	}
@@ -525,4 +402,76 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	}
 	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
 	return clickhouseVersion.Version.String(), nil
+}
+
+func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*protos.TableSchema, error) {
+	colFields := make([]*protos.FieldDescription, 0, len(columns))
+	for _, column := range columns {
+		var qkind qvalue.QValueKind
+		switch column.DatabaseTypeName() {
+		case "String", "Nullable(String)":
+			qkind = qvalue.QValueKindString
+		case "Bool", "Nullable(Bool)":
+			qkind = qvalue.QValueKindBoolean
+		case "Int16", "Nullable(Int16)":
+			qkind = qvalue.QValueKindInt16
+		case "Int32", "Nullable(Int32)":
+			qkind = qvalue.QValueKindInt32
+		case "Int64", "Nullable(Int64)":
+			qkind = qvalue.QValueKindInt64
+		case "UUID", "Nullable(UUID)":
+			qkind = qvalue.QValueKindUUID
+		case "DateTime64(6)", "Nullable(DateTime64(6))":
+			qkind = qvalue.QValueKindTimestamp
+		case "Date32", "Nullable(Date32)":
+			qkind = qvalue.QValueKindDate
+		case "Float32", "Nullable(Float32)":
+			qkind = qvalue.QValueKindFloat32
+		case "Float64", "Nullable(Float64)":
+			qkind = qvalue.QValueKindFloat64
+		default:
+			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
+				qkind = qvalue.QValueKindNumeric
+			} else {
+				return nil, fmt.Errorf("failed to resolve QValueKind for %s", column.DatabaseTypeName())
+			}
+		}
+
+		colFields = append(colFields, &protos.FieldDescription{
+			Name:         column.Name(),
+			Type:         string(qkind),
+			TypeModifier: -1,
+			Nullable:     column.Nullable(),
+		})
+	}
+
+	return &protos.TableSchema{
+		TableIdentifier: tableName,
+		Columns:         colFields,
+		System:          protos.TypeSystem_Q,
+	}, nil
+}
+
+func (c *ClickHouseConnector) GetTableSchema(
+	ctx context.Context,
+	_env map[string]string,
+	_system protos.TypeSystem,
+	tableIdentifiers []string,
+) (map[string]*protos.TableSchema, error) {
+	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
+	for _, tableName := range tableIdentifiers {
+		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tableName))
+		if err != nil {
+			return nil, err
+		}
+
+		tableSchema, err := GetTableSchemaForTable(tableName, rows.ColumnTypes())
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		res[tableName] = tableSchema
+	}
+
+	return res, nil
 }
