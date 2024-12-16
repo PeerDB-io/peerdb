@@ -32,6 +32,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		User:       config.User,
 		Password:   config.Password,
 		UseDecimal: true,
+		ParseTime:  true,
 	})
 	return &MySqlConnector{
 		config: config,
@@ -121,11 +122,11 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 	}
 	rr, err := c.Execute(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to SELECT @@GLOBAL.GTID_EXECUTED", err)
+		return nil, fmt.Errorf("failed to SELECT @@GLOBAL.GTID_EXECUTED: %w", err)
 	}
 	gx, err := rr.GetString(0, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to GetString for GTID_EXECUTED", err)
+		return nil, fmt.Errorf("failed to GetString for GTID_EXECUTED: %w", err)
 	}
 	gset, err := mysql.ParseGTIDSet(c.config.Flavor, gx)
 	if err != nil {
