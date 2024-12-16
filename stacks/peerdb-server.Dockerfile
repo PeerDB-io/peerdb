@@ -1,14 +1,14 @@
 # syntax=docker/dockerfile:1@sha256:db1ff77fb637a5955317c7a3a62540196396d565f3dd5742e76dddbb6d75c4c5
 
-FROM lukemathwalker/cargo-chef:latest-rust-alpine3.20@sha256:a21bea8193af20b977fe2061c068a8c6d557a47b8f20fddf84667b98c4446ab8 as chef
+FROM lukemathwalker/cargo-chef:latest-rust-alpine3.20@sha256:a21bea8193af20b977fe2061c068a8c6d557a47b8f20fddf84667b98c4446ab8 AS chef
 WORKDIR /root
 
-FROM chef as planner
+FROM chef AS planner
 COPY nexus nexus
 WORKDIR /root/nexus
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM chef as builder
+FROM chef AS builder
 ENV OPENSSL_STATIC=1
 RUN apk add --no-cache build-base pkgconfig curl unzip openssl-dev openssl-libs-static
 WORKDIR /root/nexus

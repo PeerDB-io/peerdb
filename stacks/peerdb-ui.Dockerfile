@@ -6,7 +6,7 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 RUN apk add --no-cache openssl && \
   mkdir /app && \
   chown -R node:node /app
-ENV NEXT_TELEMETRY_DISABLED 1
+ENV NEXT_TELEMETRY_DISABLED=1
 USER node
 WORKDIR /app
 
@@ -19,7 +19,7 @@ RUN npm run build
 
 # Builder stage
 FROM base AS runner
-ENV NODE_ENV production
+ENV NODE_ENV=production
 
 COPY --from=builder /app/public ./public
 
@@ -31,9 +31,9 @@ COPY --chown=node:node stacks/ui/ui-entrypoint.sh /app/entrypoint.sh
 
 EXPOSE 3000
 
-ENV PORT 3000
+ENV PORT=3000
 # set hostname to localhost
-ENV HOSTNAME "0.0.0.0"
+ENV HOSTNAME=0.0.0.0
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
