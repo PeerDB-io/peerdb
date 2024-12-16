@@ -259,6 +259,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		req.FlowJobName,
 		req.SyncBatchID,
 		normBatchID,
+		req.TableNameSchemaMapping,
 	)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting distinct table names in batch", "error", err)
@@ -484,6 +485,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	flowJobName string,
 	syncBatchID int64,
 	normalizeBatchID int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTbl := c.getRawTableName(flowJobName)
 
@@ -507,7 +509,11 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 			return nil, errors.New("table name is not valid")
 		}
 
-		tableNames = append(tableNames, tableName.String)
+		if _, ok := tableToSchema[tableName.String]; ok {
+			tableNames = append(tableNames, tableName.String)
+		} else {
+			c.logger.Warn("table not found in table to schema mapping", "table", tableName.String)
+		}
 	}
 
 	if err := rows.Err(); err != nil {
