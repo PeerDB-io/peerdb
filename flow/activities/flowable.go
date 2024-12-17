@@ -411,10 +411,11 @@ func (a *FlowableActivity) SyncPg(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	sessionID string,
-) (int64, error) {
-	return syncCore(ctx, a, config, options, sessionID, nil,
+) (model.SyncRecordsResult, error) {
+	numRecords, err := syncCore(ctx, a, config, options, sessionID, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
+	return model.SyncRecordsResult{NumRecordsSynced: numRecords}, err
 }
 
 func (a *FlowableActivity) StartNormalize(
