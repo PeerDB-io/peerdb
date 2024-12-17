@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -135,7 +136,7 @@ func (p *PostgresMetadata) GetLastNormalizeBatchID(ctx context.Context, jobName 
 }
 
 func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	p.logger.Info("updating last offset", "offset", offset)
+	p.logger.Debug("updating last offset", slog.String("offset", pglogrepl.LSN(offset).String()))
 	_, err := p.pool.Exec(ctx, `
 		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
 		VALUES ($1, $2, $3)
