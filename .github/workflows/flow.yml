@@ -25,7 +25,7 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
       redpanda:
-        image: redpandadata/redpanda
+        image: redpandadata/redpanda@sha256:f2f8bb89f1a0747cc6f86440cb3a0916e981e136e1d72392bab179f73492fb0f
         ports:
           - 9092:9092
           - 9644:9644
@@ -38,7 +38,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2024.11.7@sha256:81cd091fb9f14b2e9e9bfa6dbc2bf2d46fdd5eafa6c5e7c9213baf4256ff13d6
+        image: bitnami/minio:2024.12.13@sha256:2a258ab6876f6ed3cd5609836d065f20927955a2ae721fd9edde8ca388b52135
         ports:
           - 9999:9999
         env:

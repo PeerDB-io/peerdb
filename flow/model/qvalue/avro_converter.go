@@ -402,6 +402,8 @@ func QValueToAvro(
 		return c.processArrayDate(v.Val), nil
 	case QValueUUID:
 		return c.processUUID(v.Val), nil
+	case QValueArrayUUID:
+		return c.processArrayUUID(v.Val), nil
 	case QValueGeography, QValueGeometry, QValuePoint:
 		return c.processGeospatial(v.Value().(string)), nil
 	default:
@@ -612,6 +614,19 @@ func (c *QValueAvroConverter) processUUID(byteData uuid.UUID) interface{} {
 		return goavro.Union("string", uuidString)
 	}
 	return uuidString
+}
+
+func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) interface{} {
+	UUIDData := make([]string, 0, len(arrayData))
+	for _, uuid := range arrayData {
+		UUIDData = append(UUIDData, uuid.String())
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", UUIDData)
+	}
+
+	return UUIDData
 }
 
 func (c *QValueAvroConverter) processGeospatial(geoString string) interface{} {
