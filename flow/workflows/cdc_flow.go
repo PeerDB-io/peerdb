@@ -506,7 +506,9 @@ func CDCFlowWorkflow(
 	syncFlowFuture := workflow.ExecuteChildWorkflow(syncCtx, SyncFlowWorkflow, cfg, state.SyncFlowOptions)
 
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
-	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
+		finished = true
+	})
 	mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 		if err := f.Get(ctx, nil); err != nil {
 			var panicErr *temporal.PanicError
@@ -519,11 +521,12 @@ func CDCFlowWorkflow(
 			} else {
 				logger.Error("error in sync flow", slog.Any("error", err))
 			}
+		} else {
+			logger.Info("sync finished")
 		}
-
-		logger.Info("sync finished")
 		syncFlowFuture = nil
 		restart = true
+		finished = true
 		if state.SyncFlowOptions.NumberOfSyncs > 0 {
 			state.ActiveSignal = model.PauseSignal
 		}
@@ -531,6 +534,9 @@ func CDCFlowWorkflow(
 
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
+		if state.ActiveSignal == model.PauseSignal {
+			finished = true
+		}
 	})
 
 	addCdcPropertiesSignalListener(ctx, logger, mainLoopSelector, state)
@@ -546,7 +552,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if state.ActiveSignal == model.PauseSignal || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
+		if workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
 			restart = true
 			if syncFlowFuture != nil {
 				if err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil); err != nil {
@@ -556,11 +562,7 @@ func CDCFlowWorkflow(
 			}
 		}
 
-		if restart {
-			if state.ActiveSignal == model.PauseSignal {
-				finished = true
-			}
-
+		if restart || finished {
 			for ctx.Err() == nil && (!finished || mainLoopSelector.HasPending()) {
 				mainLoopSelector.Select(ctx)
 			}
