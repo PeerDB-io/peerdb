@@ -195,7 +195,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if err != nil {
 		return 0, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
-	recordBatchPull := model.NewCDCStream[Items](int(channelBufferSize))
+	recordBatchPull := model.NewCDCStream[Items](channelBufferSize)
 	recordBatchSync := recordBatchPull
 	if adaptStream != nil {
 		var err error

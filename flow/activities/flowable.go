@@ -303,11 +303,17 @@ func (a *FlowableActivity) MaintainPull(
 		return err
 	}
 
+	normalizeBufferSize, err := peerdbenv.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return err
+	}
+
 	// syncDone will be closed by UnmaintainPull,
 	// whereas normalizeDone will be closed by the normalize goroutine
 	// Wait on normalizeDone at end to not interrupt final normalize
 	syncDone := make(chan struct{})
-	normalize := make(chan NormalizeBatchRequest)
+	normalize := make(chan NormalizeBatchRequest, normalizeBufferSize)
 	normalizeDone := make(chan struct{})
 	a.CdcCacheRw.Lock()
 	a.CdcCache[sessionID] = CdcCacheEntry{
