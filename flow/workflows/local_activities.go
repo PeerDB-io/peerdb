@@ -15,20 +15,6 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-func getParallelSyncNormalize(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
-	checkCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
-		StartToCloseTimeout: time.Minute,
-	})
-
-	getParallelFuture := workflow.ExecuteLocalActivity(checkCtx, peerdbenv.PeerDBEnableParallelSyncNormalize, env)
-	var parallel bool
-	if err := getParallelFuture.Get(checkCtx, &parallel); err != nil {
-		logger.Warn("Failed to get status of parallel sync-normalize", slog.Any("error", err))
-		return false
-	}
-	return parallel
-}
-
 func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
 	checkCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: time.Minute,

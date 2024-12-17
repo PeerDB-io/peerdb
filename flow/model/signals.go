@@ -138,11 +138,3 @@ var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
 var SyncStopSignal = TypedSignal[struct{}]{
 	Name: "sync-stop",
 }
-
-var NormalizeSignal = TypedSignal[NormalizePayload]{
-	Name: "normalize",
-}
-
-var NormalizeDoneSignal = TypedSignal[struct{}]{
-	Name: "normalize-done",
-}
