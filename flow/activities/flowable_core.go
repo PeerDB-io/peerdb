@@ -629,3 +629,51 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 
 	return currentSnapshotXmin, nil
 }
+
+// Suitable to be run as goroutine
+func (a *FlowableActivity) normalizeLoop(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigs,
+	syncDone <-chan struct{},
+	normalize <-chan NormalizeBatchRequest,
+	normalizeDone chan struct{},
+) {
+	defer close(normalizeDone)
+	logger := activity.GetLogger(ctx)
+
+	for {
+		select {
+		case req := <-normalize:
+		retryLoop:
+			for {
+				if err := a.StartNormalize(ctx, config, req.BatchID); err != nil {
+					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+					for {
+						// update req to latest normalize request & retry
+						select {
+						case req = <-normalize:
+						case <-syncDone:
+							logger.Info("[normalize-loop] syncDone closed before retry")
+							return
+						case <-ctx.Done():
+							logger.Info("[normalize-loop] context closed before retry")
+							return
+						default:
+							time.Sleep(30 * time.Second)
+							continue retryLoop
+						}
+					}
+				} else if req.Done != nil {
+					close(req.Done)
+				}
+				break
+			}
+		case <-syncDone:
+			logger.Info("[normalize-loop] syncDone closed")
+			return
+		case <-ctx.Done():
+			logger.Info("[normalize-loop] context closed")
+			return
+		}
+	}
+}
