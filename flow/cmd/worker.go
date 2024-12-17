@@ -167,7 +167,6 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
 		Alerter:     alerting.NewAlerter(context.Background(), conn),
-		CdcCache:    make(map[string]activities.CdcCacheEntry),
 		OtelManager: otelManager,
 	})
 

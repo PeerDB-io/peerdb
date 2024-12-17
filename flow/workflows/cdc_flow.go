@@ -489,21 +489,13 @@ func CDCFlowWorkflow(
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 	}
 
-	syncFlowID := GetChildWorkflowID("sync-flow", cfg.FlowJobName, originalRunID)
-
-	var restart, finished bool
-	syncFlowOpts := workflow.ChildWorkflowOptions{
-		WorkflowID:        syncFlowID,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
-		TypedSearchAttributes: mirrorNameSearch,
-		WaitForCancellation:   true,
-	}
-	syncCtx := workflow.WithChildOptions(ctx, syncFlowOpts)
-
-	syncFlowFuture := workflow.ExecuteChildWorkflow(syncCtx, SyncFlowWorkflow, cfg, state.SyncFlowOptions)
+	var finished bool
+	syncCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 365 * 24 * time.Hour,
+		HeartbeatTimeout:    time.Minute,
+		WaitForCancellation: true,
+	})
+	syncFlowFuture := workflow.ExecuteActivity(syncCtx, flowable.SyncFlow, cfg, state.SyncFlowOptions)
 
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
 	mainLoopSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
@@ -525,7 +517,6 @@ func CDCFlowWorkflow(
 			logger.Info("sync finished")
 		}
 		syncFlowFuture = nil
-		restart = true
 		finished = true
 		if state.SyncFlowOptions.NumberOfSyncs > 0 {
 			state.ActiveSignal = model.PauseSignal
@@ -553,16 +544,10 @@ func CDCFlowWorkflow(
 		}
 
 		if shared.ShouldWorkflowContinueAsNew(ctx) {
-			restart = true
-			if syncFlowFuture != nil {
-				if err := model.SyncStopSignal.SignalChildWorkflow(ctx, syncFlowFuture, struct{}{}).Get(ctx, nil); err != nil {
-					logger.Warn("failed to send sync-stop, finishing", slog.Any("error", err))
-					finished = true
-				}
-			}
+			finished = true
 		}
 
-		if restart || finished {
+		if finished {
 			for ctx.Err() == nil && (!finished || mainLoopSelector.HasPending()) {
 				mainLoopSelector.Select(ctx)
 			}
