@@ -169,6 +169,10 @@ type SyncResponse struct {
 	CurrentSyncBatchID int64
 }
 
+type SyncRecordsResult struct {
+	NumRecordsSynced int64
+}
+
 type NormalizeResponse struct {
 	StartBatchID int64
 	EndBatchID   int64

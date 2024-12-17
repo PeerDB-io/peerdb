@@ -369,7 +369,7 @@ func (a *FlowableActivity) SyncRecords(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	sessionID string,
-) (int64, error) {
+) (model.SyncRecordsResult, error) {
 	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
 	if config.Script != "" {
 		var onErr context.CancelCauseFunc
@@ -400,9 +400,10 @@ func (a *FlowableActivity) SyncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, sessionID, adaptStream,
+	numRecords, err := syncCore(ctx, a, config, options, sessionID, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
+	return model.SyncRecordsResult{NumRecordsSynced: numRecords}, err
 }
 
 func (a *FlowableActivity) SyncPg(
