@@ -702,7 +702,7 @@ func processMessage[Items model.Items](
 		logger.Info("LogicalDecodingMessage",
 			slog.Bool("Transactional", msg.Transactional),
 			slog.String("Prefix", msg.Prefix),
-			slog.Int64("LSN", int64(msg.LSN)))
+			slog.String("LSN", pglogrepl.LSN(msg.LSN).String()))
 		if !msg.Transactional {
 			batch.UpdateLatestCheckpoint(int64(msg.LSN))
 		}
