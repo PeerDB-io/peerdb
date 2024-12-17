@@ -621,9 +621,7 @@ func (c *PostgresConnector) NormalizeRecords(
 	// no SyncFlow has run, chill until more records are loaded.
 	if !jobMetadataExists {
 		c.logger.Info("no metadata found for mirror")
-		return model.NormalizeResponse{
-			Done: false,
-		}, nil
+		return model.NormalizeResponse{}, nil
 	}
 
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
@@ -636,7 +634,6 @@ func (c *PostgresConnector) NormalizeRecords(
 		c.logger.Info(fmt.Sprintf("no records to normalize: syncBatchID %d, normalizeBatchID %d",
 			req.SyncBatchID, normBatchID))
 		return model.NormalizeResponse{
-			Done:         false,
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
 		}, nil
@@ -708,7 +705,6 @@ func (c *PostgresConnector) NormalizeRecords(
 	}
 
 	return model.NormalizeResponse{
-		Done:         true,
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil

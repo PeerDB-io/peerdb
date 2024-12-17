@@ -39,7 +39,7 @@ type CheckConnectionResult struct {
 }
 
 type NormalizeBatchRequest struct {
-	Done    chan model.NormalizeResponse
+	Done    chan struct{}
 	BatchID int64
 }
 
@@ -326,13 +326,23 @@ func (a *FlowableActivity) MaintainPull(
 				if !ok {
 					break loop
 				}
-				res, err := a.StartNormalize(ctx, config, req.BatchID)
-				if err != nil {
+			retry:
+				if err := a.StartNormalize(ctx, config, req.BatchID); err != nil {
 					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+					for {
+						// update req to latest normalize request & retry
+						select {
+						case req = <-normalize:
+						case <-done:
+							break loop
+						case <-ctx.Done():
+							break loop
+						default:
+							time.Sleep(time.Second)
+							goto retry
+						}
+					}
 				} else if req.Done != nil {
-					req.Done <- res
-				}
-				if req.Done != nil {
 					close(req.Done)
 				}
 			case <-done:
@@ -436,7 +446,7 @@ func (a *FlowableActivity) StartNormalize(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
 	batchID int64,
-) (model.NormalizeResponse, error) {
+) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := activity.GetLogger(ctx)
 
@@ -447,10 +457,9 @@ func (a *FlowableActivity) StartNormalize(
 		config.DestinationName,
 	)
 	if errors.Is(err, errors.ErrUnsupported) {
-		return model.NormalizeResponse{},
-			monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID)
+		return monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID)
 	} else if err != nil {
-		return model.NormalizeResponse{}, fmt.Errorf("failed to get normalize connector: %w", err)
+		return fmt.Errorf("failed to get normalize connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
@@ -461,7 +470,7 @@ func (a *FlowableActivity) StartNormalize(
 
 	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, config.FlowJobName)
 	if err != nil {
-		return model.NormalizeResponse{}, fmt.Errorf("failed to get table name schema mapping: %w", err)
+		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
 	logger.Info("Normalizing batch", slog.Int64("SyncBatchID", batchID))
@@ -476,17 +485,17 @@ func (a *FlowableActivity) StartNormalize(
 	})
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return model.NormalizeResponse{}, fmt.Errorf("failed to normalized records: %w", err)
+		return fmt.Errorf("failed to normalized records: %w", err)
 	}
 	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
 		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
-			return model.NormalizeResponse{}, fmt.Errorf("failed to update end time for cdc batch: %w", err)
+			return fmt.Errorf("failed to update end time for cdc batch: %w", err)
 		}
 	}
 
 	logger.Info("normalized batches", slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID))
 
-	return res, nil
+	return nil
 }
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.

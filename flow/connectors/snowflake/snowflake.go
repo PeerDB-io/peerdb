@@ -485,7 +485,6 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
 		return model.NormalizeResponse{
-			Done:         false,
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
 		}, nil
@@ -511,7 +510,6 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 	}
 
 	return model.NormalizeResponse{
-		Done:         true,
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil

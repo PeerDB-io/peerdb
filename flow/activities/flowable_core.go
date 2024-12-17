@@ -3,7 +3,6 @@ package activities
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -360,19 +359,20 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		if err != nil {
 			return 0, err
 		}
-		var done chan model.NormalizeResponse
+		var done chan struct{}
 		if !parallel {
-			done = make(chan model.NormalizeResponse)
+			done = make(chan struct{})
 		}
-		normChan <- NormalizeBatchRequest{
-			BatchID: res.CurrentSyncBatchID,
-			Done:    done,
+		select {
+		case normChan <- NormalizeBatchRequest{BatchID: res.CurrentSyncBatchID, Done: done}:
+		case <-ctx.Done():
+			return 0, nil
 		}
 		if done != nil {
-			if normRes, ok := <-done; !ok {
-				return 0, errors.New("failed to normalize")
-			} else {
-				a.Alerter.LogFlowInfo(ctx, flowName, fmt.Sprintf("normalized from %d to %d", normRes.StartBatchID, normRes.EndBatchID))
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return 0, nil
 			}
 		}
 	}

@@ -169,15 +169,7 @@ type SyncResponse struct {
 	CurrentSyncBatchID int64
 }
 
-type NormalizePayload struct {
-	TableNameSchemaMapping map[string]*protos.TableSchema
-	Done                   bool
-	SyncBatchID            int64
-}
-
 type NormalizeResponse struct {
-	// Flag to depict if normalization is done
-	Done         bool
 	StartBatchID int64
 	EndBatchID   int64
 }

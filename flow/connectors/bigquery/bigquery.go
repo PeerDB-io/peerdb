@@ -399,7 +399,6 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
 		return model.NormalizeResponse{
-			Done:         false,
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
 		}, nil
@@ -423,7 +422,6 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	}
 
 	return model.NormalizeResponse{
-		Done:         true,
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
