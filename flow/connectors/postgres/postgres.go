@@ -611,32 +611,29 @@ func syncRecordsCore[Items model.Items](
 func (c *PostgresConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
-) (*model.NormalizeResponse, error) {
+) (model.NormalizeResponse, error) {
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
 
 	jobMetadataExists, err := c.jobMetadataExists(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 	// no SyncFlow has run, chill until more records are loaded.
 	if !jobMetadataExists {
 		c.logger.Info("no metadata found for mirror")
-		return &model.NormalizeResponse{
-			Done: false,
-		}, nil
+		return model.NormalizeResponse{}, nil
 	}
 
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
+		return model.NormalizeResponse{}, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
 		c.logger.Info(fmt.Sprintf("no records to normalize: syncBatchID %d, normalizeBatchID %d",
 			req.SyncBatchID, normBatchID))
-		return &model.NormalizeResponse{
-			Done:         false,
+		return model.NormalizeResponse{
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
 		}, nil
@@ -645,23 +642,23 @@ func (c *PostgresConnector) NormalizeRecords(
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
 		ctx, req.FlowJobName, req.SyncBatchID, normBatchID, req.TableNameSchemaMapping)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 	unchangedToastColumnsMap, err := c.getTableNametoUnchangedCols(ctx, req.FlowJobName,
 		req.SyncBatchID, normBatchID)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
 	normalizeRecordsTx, err := c.conn.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("error starting transaction for normalizing records: %w", err)
+		return model.NormalizeResponse{}, fmt.Errorf("error starting transaction for normalizing records: %w", err)
 	}
 	defer shared.RollbackTx(normalizeRecordsTx, c.logger)
 
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 	totalRowsAffected := 0
 	normalizeStmtGen := normalizeStmtGenerator{
@@ -689,7 +686,7 @@ func (c *PostgresConnector) NormalizeRecords(
 					slog.String("destinationTableName", destinationTableName),
 					slog.Any("error", err),
 				)
-				return nil, fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
+				return model.NormalizeResponse{}, fmt.Errorf("error executing normalize statement for table %s: %w", destinationTableName, err)
 			}
 			totalRowsAffected += int(ct.RowsAffected())
 		}
@@ -699,16 +696,15 @@ func (c *PostgresConnector) NormalizeRecords(
 	// updating metadata with new normalizeBatchID
 	err = c.updateNormalizeMetadata(ctx, req.FlowJobName, req.SyncBatchID, normalizeRecordsTx)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 	// transaction commits
 	err = normalizeRecordsTx.Commit(ctx)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
-	return &model.NormalizeResponse{
-		Done:         true,
+	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
