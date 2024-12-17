@@ -404,6 +404,8 @@ func pullCore[Items model.Items](
 		if err != nil {
 			return fmt.Errorf("error getting child to parent relid map: %w", err)
 		}
+	} else {
+		childToParentRelIDMap = make(map[uint32]uint32)
 	}
 
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset, pgVersion); err != nil {
