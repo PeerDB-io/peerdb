@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 )
@@ -24,4 +25,10 @@ func GetWorkflowStatus(ctx context.Context, temporalClient client.Client, workfl
 			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
 	}
 	return state, nil
+}
+
+func ShouldWorkflowContinueAsNew(ctx workflow.Context) bool {
+	info := workflow.GetInfo(ctx)
+	return info.GetContinueAsNewSuggested() &&
+		(info.GetCurrentHistoryLength() > 40960 || info.GetCurrentHistorySize() > 40*1024*1024)
 }

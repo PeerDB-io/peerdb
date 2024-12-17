@@ -108,7 +108,7 @@ func SyncFlowWorkflow(
 		}
 
 		if (options.NumberOfSyncs > 0 && currentSyncFlowNum >= options.NumberOfSyncs) ||
-			syncErr || ctx.Err() != nil || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
+			syncErr || ctx.Err() != nil || shared.ShouldWorkflowContinueAsNew(ctx) {
 			break
 		}
 	}
