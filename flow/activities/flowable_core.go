@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"reflect"
 	"sync/atomic"
 	"time"
 
@@ -48,43 +47,6 @@ func heartbeatRoutine(
 			activity.RecordHeartbeat(ctx, fmt.Sprintf("heartbeat #%d: %s", counter, message()))
 		},
 	)
-}
-
-func waitForCdcCache[TPull connectors.CDCPullConnectorCore](
-	ctx context.Context, a *FlowableActivity, sessionID string,
-) (TPull, chan NormalizeBatchRequest, error) {
-	var none TPull
-	logger := activity.GetLogger(ctx)
-	attempt := 0
-	waitInterval := time.Second
-	// try for 5 minutes, once per second
-	// after that, try indefinitely every minute
-	for {
-		a.CdcCacheRw.RLock()
-		entry, ok := a.CdcCache[sessionID]
-		a.CdcCacheRw.RUnlock()
-		if ok {
-			if conn, ok := entry.connector.(TPull); ok {
-				return conn, entry.normalize, nil
-			}
-			return none, nil, fmt.Errorf("expected %s, cache held %T", reflect.TypeFor[TPull]().Name(), entry.connector)
-		}
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("wait %s for source connector", waitInterval))
-		attempt += 1
-		if attempt > 2 {
-			logger.Info("waiting on source connector setup",
-				slog.Int("attempt", attempt), slog.String("sessionID", sessionID))
-		}
-		if err := ctx.Err(); err != nil {
-			return none, nil, err
-		}
-		time.Sleep(waitInterval)
-		if attempt == 300 {
-			logger.Info("source connector not setup in time, transition to slow wait",
-				slog.String("sessionID", sessionID))
-			waitInterval = time.Minute
-		}
-	}
 }
 
 func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowName string) (map[string]*protos.TableSchema, error) {
@@ -142,7 +104,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a *FlowableActivity,
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
-	sessionID string,
+	cdcState CdcState,
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, *pgxpool.Pool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
@@ -160,10 +122,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	srcConn, normChan, err := waitForCdcCache[TPull](ctx, a, sessionID)
-	if err != nil {
-		return 0, err
-	}
+	srcConn := cdcState.connector.(TPull)
+	normChan := cdcState.normalize
 	if err := srcConn.ConnectionActive(ctx); err != nil {
 		return 0, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
 	}
@@ -640,15 +600,35 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	return currentSnapshotXmin, nil
 }
 
+func (a *FlowableActivity) maintainReplConn(
+	ctx context.Context, flowName string, srcConn connectors.CDCPullConnector, syncDone <-chan struct{},
+) error {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			activity.RecordHeartbeat(ctx, "keep session alive")
+			if err := srcConn.ReplPing(ctx); err != nil {
+				a.Alerter.LogFlowError(ctx, flowName, err)
+				return fmt.Errorf("connection to source down: %w", err)
+			}
+		case <-syncDone:
+			return nil
+		case <-ctx.Done():
+			return nil
+		}
+	}
+}
+
 // Suitable to be run as goroutine
 func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
 	syncDone <-chan struct{},
 	normalize <-chan NormalizeBatchRequest,
-	normalizeDone chan struct{},
 ) {
-	defer close(normalizeDone)
 	logger := activity.GetLogger(ctx)
 
 	for {
