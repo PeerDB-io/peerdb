@@ -649,12 +649,16 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, e
 	var result pgtype.Text
 	err := row.Scan(&result)
 	if err != nil {
-		return 0, fmt.Errorf("error while running query: %w", err)
+		return 0, fmt.Errorf("error while running query for current LSN: %w", err)
 	}
 	if !result.Valid || result.String == "" {
 		return 0, fmt.Errorf("error while getting current LSN: query result is not valid text: %s", result.String)
 	}
-	return pglogrepl.ParseLSN(result.String)
+	lsn, err := pglogrepl.ParseLSN(result.String)
+	if err != nil {
+		return 0, fmt.Errorf("error while parsing LSN %s: %w", result.String, err)
+	}
+	return lsn, nil
 }
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
