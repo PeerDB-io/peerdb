@@ -117,11 +117,6 @@ message SyncFlowOptions {
   int32 number_of_syncs = 7;
 }
 
-message StartNormalizeInput {
-  FlowConnectionConfigs flow_connection_configs = 1;
-  int64 SyncBatchID = 3;
-}
-
 message EnsurePullabilityBatchInput {
   string flow_job_name = 2;
   repeated string source_table_identifiers = 3;

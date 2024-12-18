@@ -198,7 +198,7 @@ type CDCNormalizeConnector interface {
 
 	// NormalizeRecords merges records pushed earlier into the destination table.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error)
+	NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error)
 }
 
 type CreateTablesFromExistingConnector interface {

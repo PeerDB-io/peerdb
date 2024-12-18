@@ -38,9 +38,16 @@ type CheckConnectionResult struct {
 	NeedsSetupMetadataTables bool
 }
 
+type NormalizeBatchRequest struct {
+	Done    chan struct{}
+	BatchID int64
+}
+
 type CdcCacheEntry struct {
-	connector connectors.CDCPullConnectorCore
-	done      chan struct{}
+	connector     connectors.CDCPullConnectorCore
+	syncDone      chan struct{}
+	normalize     chan NormalizeBatchRequest
+	normalizeDone chan struct{}
 }
 
 type FlowableActivity struct {
@@ -296,16 +303,31 @@ func (a *FlowableActivity) MaintainPull(
 		return err
 	}
 
-	done := make(chan struct{})
+	normalizeBufferSize, err := peerdbenv.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return err
+	}
+
+	// syncDone will be closed by UnmaintainPull,
+	// whereas normalizeDone will be closed by the normalize goroutine
+	// Wait on normalizeDone at end to not interrupt final normalize
+	syncDone := make(chan struct{})
+	normalize := make(chan NormalizeBatchRequest, normalizeBufferSize)
+	normalizeDone := make(chan struct{})
 	a.CdcCacheRw.Lock()
 	a.CdcCache[sessionID] = CdcCacheEntry{
-		connector: srcConn,
-		done:      done,
+		connector:     srcConn,
+		syncDone:      syncDone,
+		normalize:     normalize,
+		normalizeDone: normalizeDone,
 	}
 	a.CdcCacheRw.Unlock()
 
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+
+	go a.normalizeLoop(ctx, config, syncDone, normalize, normalizeDone)
 
 	for {
 		select {
@@ -318,7 +340,7 @@ func (a *FlowableActivity) MaintainPull(
 				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 				return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
 			}
-		case <-done:
+		case <-syncDone:
 			return nil
 		case <-ctx.Done():
 			a.CdcCacheRw.Lock()
@@ -330,12 +352,15 @@ func (a *FlowableActivity) MaintainPull(
 }
 
 func (a *FlowableActivity) UnmaintainPull(ctx context.Context, sessionID string) error {
+	var normalizeDone chan struct{}
 	a.CdcCacheRw.Lock()
 	if entry, ok := a.CdcCache[sessionID]; ok {
-		close(entry.done)
+		close(entry.syncDone)
 		delete(a.CdcCache, sessionID)
+		normalizeDone = entry.normalizeDone
 	}
 	a.CdcCacheRw.Unlock()
+	<-normalizeDone
 	return nil
 }
 
@@ -344,7 +369,7 @@ func (a *FlowableActivity) SyncRecords(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	sessionID string,
-) (*model.SyncCompositeResponse, error) {
+) (model.SyncRecordsResult, error) {
 	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
 	if config.Script != "" {
 		var onErr context.CancelCauseFunc
@@ -375,9 +400,10 @@ func (a *FlowableActivity) SyncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, sessionID, adaptStream,
+	numRecords, err := syncCore(ctx, a, config, options, sessionID, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
+	return model.SyncRecordsResult{NumRecordsSynced: numRecords}, err
 }
 
 func (a *FlowableActivity) SyncPg(
@@ -385,30 +411,31 @@ func (a *FlowableActivity) SyncPg(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	sessionID string,
-) (*model.SyncCompositeResponse, error) {
-	return syncCore(ctx, a, config, options, sessionID, nil,
+) (model.SyncRecordsResult, error) {
+	numRecords, err := syncCore(ctx, a, config, options, sessionID, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
+	return model.SyncRecordsResult{NumRecordsSynced: numRecords}, err
 }
 
 func (a *FlowableActivity) StartNormalize(
 	ctx context.Context,
-	input *protos.StartNormalizeInput,
-) (*model.NormalizeResponse, error) {
-	conn := input.FlowConnectionConfigs
-	ctx = context.WithValue(ctx, shared.FlowNameKey, conn.FlowJobName)
+	config *protos.FlowConnectionConfigs,
+	batchID int64,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := activity.GetLogger(ctx)
 
 	dstConn, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
 		ctx,
-		input.FlowConnectionConfigs.Env,
+		config.Env,
 		a.CatalogPool,
-		conn.DestinationName,
+		config.DestinationName,
 	)
 	if errors.Is(err, errors.ErrUnsupported) {
-		return nil, monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName, input.SyncBatchID)
+		return monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID)
 	} else if err != nil {
-		return nil, fmt.Errorf("failed to get normalize connector: %w", err)
+		return fmt.Errorf("failed to get normalize connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
@@ -417,41 +444,34 @@ func (a *FlowableActivity) StartNormalize(
 	})
 	defer shutdown()
 
-	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, input.FlowConnectionConfigs.FlowJobName)
+	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, config.FlowJobName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get table name schema mapping: %w", err)
+		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
+	logger.Info("Normalizing batch", slog.Int64("SyncBatchID", batchID))
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
-		FlowJobName:            input.FlowConnectionConfigs.FlowJobName,
-		Env:                    input.FlowConnectionConfigs.Env,
+		FlowJobName:            config.FlowJobName,
+		Env:                    config.Env,
 		TableNameSchemaMapping: tableNameSchemaMapping,
-		TableMappings:          input.FlowConnectionConfigs.TableMappings,
-		SyncBatchID:            input.SyncBatchID,
-		SoftDeleteColName:      input.FlowConnectionConfigs.SoftDeleteColName,
-		SyncedAtColName:        input.FlowConnectionConfigs.SyncedAtColName,
+		TableMappings:          config.TableMappings,
+		SoftDeleteColName:      config.SoftDeleteColName,
+		SyncedAtColName:        config.SyncedAtColName,
+		SyncBatchID:            batchID,
 	})
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, input.FlowConnectionConfigs.FlowJobName, err)
-		return nil, fmt.Errorf("failed to normalized records: %w", err)
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return fmt.Errorf("failed to normalized records: %w", err)
 	}
-	dstType, err := connectors.LoadPeerType(ctx, a.CatalogPool, input.FlowConnectionConfigs.DestinationName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get peer type: %w", err)
-	}
-	if dstType == protos.DBType_POSTGRES {
-		err = monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, input.FlowConnectionConfigs.FlowJobName,
-			input.SyncBatchID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to update end time for cdc batch: %w", err)
+	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
+		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
+			return fmt.Errorf("failed to update end time for cdc batch: %w", err)
 		}
 	}
 
-	// log the number of batches normalized
-	logger.Info(fmt.Sprintf("normalized records from batch %d to batch %d",
-		res.StartBatchID, res.EndBatchID))
+	logger.Info("normalized batches", slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID))
 
-	return res, nil
+	return nil
 }
 
 // SetupQRepMetadataTables sets up the metadata tables for QReplication.

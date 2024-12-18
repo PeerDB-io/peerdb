@@ -495,15 +495,13 @@ func PullCdcRecords[Items model.Items](
 				return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
 			}
 
-			logger.Debug("Primary Keepalive Message", slog.Any("data", pkm))
+			logger.Debug("Primary Keepalive Message", slog.Bool("replyRequested", pkm.ReplyRequested),
+				slog.String("ServerWALEnd", pkm.ServerWALEnd.String()), slog.String("ServerTime", pkm.ServerTime.String()))
 
 			if pkm.ServerWALEnd > clientXLogPos {
 				clientXLogPos = pkm.ServerWALEnd
 			}
-
-			if pkm.ReplyRequested {
-				pkmRequiresResponse = true
-			}
+			pkmRequiresResponse = true
 
 		case pglogrepl.XLogDataByteID:
 			xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
@@ -704,7 +702,7 @@ func processMessage[Items model.Items](
 		logger.Info("LogicalDecodingMessage",
 			slog.Bool("Transactional", msg.Transactional),
 			slog.String("Prefix", msg.Prefix),
-			slog.Int64("LSN", int64(msg.LSN)))
+			slog.String("LSN", msg.LSN.String()))
 		if !msg.Transactional {
 			batch.UpdateLatestCheckpoint(int64(msg.LSN))
 		}
