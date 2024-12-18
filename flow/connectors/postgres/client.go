@@ -651,6 +651,9 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, e
 	if err != nil {
 		return 0, fmt.Errorf("error while running query: %w", err)
 	}
+	if !result.Valid || result.String == "" {
+		return 0, fmt.Errorf("error while getting current LSN: query result is not valid text: %s", result.String)
+	}
 	return pglogrepl.ParseLSN(result.String)
 }
 
