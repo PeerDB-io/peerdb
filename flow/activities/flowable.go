@@ -137,38 +137,6 @@ func (a *FlowableActivity) CreateRawTable(
 	return res, nil
 }
 
-func (a *FlowableActivity) MigrateTableSchema(
-	ctx context.Context,
-	flowName string,
-	schemas map[string]*protos.TableSchema,
-) error {
-	logger := activity.GetLogger(ctx)
-	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
-	if err != nil {
-		return err
-	}
-	defer shared.RollbackTx(tx, logger)
-
-	for k, v := range schemas {
-		processedBytes, err := proto.Marshal(v)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(
-			ctx,
-			"insert into table_schema_mapping(flow_name, table_name, table_schema) values ($1, $2, $3) "+
-				"on conflict (flow_name, table_name) do update set table_schema = $3",
-			flowName,
-			k,
-			processedBytes,
-		); err != nil {
-			return err
-		}
-	}
-
-	return tx.Commit(ctx)
-}
-
 // SetupTableSchema populates table_schema_mapping
 func (a *FlowableActivity) SetupTableSchema(
 	ctx context.Context,
