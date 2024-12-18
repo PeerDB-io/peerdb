@@ -142,7 +142,7 @@ func (c *PostgresConnector) CheckReplicationConnectivity(ctx context.Context) er
 	defer conn.Close(ctx)
 
 	if _, err := conn.Exec(ctx, "IDENTIFY_SYSTEM"); err != nil {
-		return fmt.Errorf("failed to execute IDENTIFY_SYSTEM on replication connection: %v", err)
+		return fmt.Errorf("failed to execute IDENTIFY_SYSTEM on replication connection: %w", err)
 	}
 
 	return conn.Close(ctx)
