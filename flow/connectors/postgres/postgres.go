@@ -1153,7 +1153,9 @@ func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string)
 	}
 
 	if publicationExists {
-		if _, err := c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS "+publicationName); err != nil {
+		if _, err := c.conn.Exec(
+			ctx, "DROP PUBLICATION IF EXISTS "+publicationName,
+		); err != nil && !shared.IsSQLStateError(err, pgerrcode.ReadOnlySQLTransaction) {
 			return fmt.Errorf("error dropping publication: %w", err)
 		}
 	}
