@@ -349,6 +349,16 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
+	if a.OtelManager != nil {
+		currentBatchID, err := a.OtelManager.GetOrInitInt64Gauge(
+			otel_metrics.BuildMetricName(otel_metrics.CurrentBatchIdGaugeName))
+		if err != nil {
+			logger.Error("Failed to get current batch id gauge", slog.Any("error", err))
+		} else {
+			currentBatchID.Record(ctx, res.CurrentSyncBatchID)
+		}
+	}
+
 	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
 		return 0, err
 	}
@@ -665,6 +675,15 @@ func (a *FlowableActivity) normalizeLoop(
 					}
 				} else if req.Done != nil {
 					close(req.Done)
+				}
+				if a.OtelManager != nil {
+					lastNormalizedBatchID, err := a.OtelManager.GetOrInitInt64Gauge(
+						otel_metrics.BuildMetricName(otel_metrics.LastNormalizedBatchIdGaugeName))
+					if err != nil {
+						logger.Error("Failed to get normalized batch id gauge", slog.Any("error", err))
+					} else {
+						lastNormalizedBatchID.Record(ctx, req.BatchID)
+					}
 				}
 				break
 			}
