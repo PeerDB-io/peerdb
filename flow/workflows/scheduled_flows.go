@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -14,6 +15,7 @@ func RecordSlotSizeWorkflow(ctx workflow.Context) error {
 	}
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Hour,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 	slotSizeFuture := workflow.ExecuteActivity(ctx, flowable.RecordSlotSizes)
 	return slotSizeFuture.Get(ctx, nil)
@@ -26,6 +28,7 @@ func HeartbeatFlowWorkflow(ctx workflow.Context) error {
 	}
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Hour,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 	heartbeatFuture := workflow.ExecuteActivity(ctx, flowable.SendWALHeartbeat)
 	return heartbeatFuture.Get(ctx, nil)
