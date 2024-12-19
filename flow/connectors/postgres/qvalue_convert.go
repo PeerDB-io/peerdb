@@ -594,7 +594,7 @@ func convertTimeRangeBound(timeBound interface{}) (string, error) {
 		if timeBound != nil {
 			lowerParsed, err := time.Parse(layout, fmt.Sprint(timeBound))
 			if err != nil {
-				return "", fmt.Errorf("unexpected lower bound value in tstzrange. Error: %v", err)
+				return "", fmt.Errorf("unexpected bound value in tstzrange. Error: %v", err)
 			}
 			convertedTime = lowerParsed.Format(postgresFormat)
 		} else {
