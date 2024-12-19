@@ -584,18 +584,18 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 // in tstzrange.
 // convertTimeRangeBound removes the +0000 UTC part
 func convertTimeRangeBound(timeBound interface{}) (string, error) {
+	if timeBound, isInfinite := timeBound.(pgtype.InfinityModifier); isInfinite {
+		return timeBound.String(), nil
+	}
+
 	layout := "2006-01-02 15:04:05 -0700 MST"
 	postgresFormat := "2006-01-02 15:04:05"
-	var convertedTime string
 	if timeBound != nil {
 		lowerParsed, err := time.Parse(layout, fmt.Sprint(timeBound))
 		if err != nil {
-			return "", fmt.Errorf("unexpected lower bound value in tstzrange. Error: %v", err)
+			return "", fmt.Errorf("unexpected bound value in tstzrange. Error: %v", err)
 		}
-		convertedTime = lowerParsed.Format(postgresFormat)
-	} else {
-		convertedTime = ""
+		return lowerParsed.Format(postgresFormat), nil
 	}
-
-	return convertedTime, nil
+	return "", nil
 }
