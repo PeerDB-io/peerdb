@@ -618,9 +618,7 @@ func (a *FlowableActivity) normalizeLoop(
 	config *protos.FlowConnectionConfigs,
 	syncDone <-chan struct{},
 	normalize <-chan NormalizeBatchRequest,
-	normalizeDone chan struct{},
 ) {
-	defer close(normalizeDone)
 	logger := activity.GetLogger(ctx)
 
 	for {
