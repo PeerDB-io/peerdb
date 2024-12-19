@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"strings"
@@ -292,7 +293,9 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 
 		return qvalue.QValueString{Val: string(intervalJSON)}, nil
 	case qvalue.QValueKindTSTZRange:
+		slog.Info("tstzrangeValue", slog.Any("value", value))
 		tstzrangeObject := value.(pgtype.Range[interface{}])
+		slog.Info("tstzrangeObject", slog.Any("object", tstzrangeObject))
 		lowerBoundType := tstzrangeObject.LowerType
 		upperBoundType := tstzrangeObject.UpperType
 		lowerTime, err := convertTimeRangeBound(tstzrangeObject.Lower)
@@ -533,18 +536,22 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 // in tstzrange.
 // convertTimeRangeBound removes the +0000 UTC part
 func convertTimeRangeBound(timeBound interface{}) (string, error) {
-	layout := "2006-01-02 15:04:05 -0700 MST"
-	postgresFormat := "2006-01-02 15:04:05"
 	var convertedTime string
-	if timeBound != nil {
-		lowerParsed, err := time.Parse(layout, fmt.Sprint(timeBound))
-		if err != nil {
-			return "", fmt.Errorf("unexpected lower bound value in tstzrange. Error: %v", err)
+	switch timeBound := timeBound.(type) {
+	case pgtype.InfinityModifier:
+		return timeBound.String(), nil
+	default:
+		layout := "2006-01-02 15:04:05 -0700 MST"
+		postgresFormat := "2006-01-02 15:04:05"
+		if timeBound != nil {
+			lowerParsed, err := time.Parse(layout, fmt.Sprint(timeBound))
+			if err != nil {
+				return "", fmt.Errorf("unexpected lower bound value in tstzrange. Error: %v", err)
+			}
+			convertedTime = lowerParsed.Format(postgresFormat)
+		} else {
+			convertedTime = ""
 		}
-		convertedTime = lowerParsed.Format(postgresFormat)
-	} else {
-		convertedTime = ""
 	}
-
 	return convertedTime, nil
 }
