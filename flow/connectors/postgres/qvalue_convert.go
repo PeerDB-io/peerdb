@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net"
 	"net/netip"
 	"strings"
@@ -345,9 +344,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 
 		return qvalue.QValueString{Val: string(intervalJSON)}, nil
 	case qvalue.QValueKindTSTZRange:
-		slog.Info("tstzrangeValue", slog.Any("value", value))
 		tstzrangeObject := value.(pgtype.Range[interface{}])
-		slog.Info("tstzrangeObject", slog.Any("object", tstzrangeObject))
 		lowerBoundType := tstzrangeObject.LowerType
 		upperBoundType := tstzrangeObject.UpperType
 		lowerTime, err := convertTimeRangeBound(tstzrangeObject.Lower)
