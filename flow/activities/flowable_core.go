@@ -50,7 +50,9 @@ func heartbeatRoutine(
 	)
 }
 
-func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context, a *FlowableActivity, sessionID string) (TPull, error) {
+func waitForCdcCache[TPull connectors.CDCPullConnectorCore](
+	ctx context.Context, a *FlowableActivity, sessionID string,
+) (TPull, chan NormalizeBatchRequest, error) {
 	var none TPull
 	logger := activity.GetLogger(ctx)
 	attempt := 0
@@ -63,9 +65,9 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 		a.CdcCacheRw.RUnlock()
 		if ok {
 			if conn, ok := entry.connector.(TPull); ok {
-				return conn, nil
+				return conn, entry.normalize, nil
 			}
-			return none, fmt.Errorf("expected %s, cache held %T", reflect.TypeFor[TPull]().Name(), entry.connector)
+			return none, nil, fmt.Errorf("expected %s, cache held %T", reflect.TypeFor[TPull]().Name(), entry.connector)
 		}
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("wait %s for source connector", waitInterval))
 		attempt += 1
@@ -74,7 +76,7 @@ func waitForCdcCache[TPull connectors.CDCPullConnectorCore](ctx context.Context,
 				slog.Int("attempt", attempt), slog.String("sessionID", sessionID))
 		}
 		if err := ctx.Err(); err != nil {
-			return none, err
+			return none, nil, err
 		}
 		time.Sleep(waitInterval)
 		if attempt == 300 {
@@ -107,6 +109,34 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 	return tableNameSchemaMapping, nil
 }
 
+func (a *FlowableActivity) applySchemaDeltas(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigs,
+	options *protos.SyncFlowOptions,
+	schemaDeltas []*protos.TableSchemaDelta,
+) error {
+	tableSchemaDeltasCount := len(schemaDeltas)
+	if tableSchemaDeltasCount > 0 {
+		modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
+		for _, tableSchemaDelta := range schemaDeltas {
+			modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
+		}
+
+		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
+			PeerName:         config.SourceName,
+			TableIdentifiers: modifiedSrcTables,
+			TableMappings:    options.TableMappings,
+			FlowName:         config.FlowJobName,
+			System:           config.System,
+		}); err != nil {
+			err = fmt.Errorf("failed to execute schema update at source: %w", err)
+			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			return err
+		}
+	}
+	return nil
+}
+
 func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
 	ctx context.Context,
 	a *FlowableActivity,
@@ -116,7 +146,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, *pgxpool.Pool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
-) (*model.SyncCompositeResponse, error) {
+) (int64, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
@@ -130,12 +160,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	srcConn, err := waitForCdcCache[TPull](ctx, a, sessionID)
+	srcConn, normChan, err := waitForCdcCache[TPull](ctx, a, sessionID)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+		return 0, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
 	}
 
 	batchSize := options.BatchSize
@@ -154,7 +184,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}()
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, err
+		return 0, err
 	}
 
 	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
@@ -163,20 +193,20 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx, config.Env)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
+		return 0, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
-	recordBatchPull := model.NewCDCStream[Items](int(channelBufferSize))
+	recordBatchPull := model.NewCDCStream[Items](channelBufferSize)
 	recordBatchSync := recordBatchPull
 	if adaptStream != nil {
 		var err error
 		if recordBatchSync, err = adaptStream(recordBatchPull); err != nil {
-			return nil, err
+			return 0, err
 		}
 	}
 
 	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, flowName)
 	if err != nil {
-		return nil, err
+		return 0, err
 	}
 
 	startTime := time.Now()
@@ -212,30 +242,24 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 				a.Alerter.LogFlowError(ctx, flowName, err)
 			}
 			if temporal.IsApplicationError(err) {
-				return nil, err
+				return 0, err
 			} else {
-				return nil, fmt.Errorf("failed in pull records when: %w", err)
+				return 0, fmt.Errorf("failed in pull records when: %w", err)
 			}
 		}
 		logger.Info("no records to push")
 
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
+			return 0, fmt.Errorf("failed to recreate destination connector: %w", err)
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
 
 		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, recordBatchSync.SchemaDeltas); err != nil {
-			return nil, fmt.Errorf("failed to sync schema: %w", err)
+			return 0, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return &model.SyncCompositeResponse{
-			SyncResponse: &model.SyncResponse{
-				CurrentSyncBatchID: -1,
-				TableSchemaDeltas:  recordBatchSync.SchemaDeltas,
-			},
-			NeedsNormalize: false,
-		}, nil
+		return -1, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
 	}
 
 	var syncStartTime time.Time
@@ -252,6 +276,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return err
 		}
 		syncBatchID += 1
+		logger.Info("begin pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
 
 		if err := monitoring.AddCDCBatchForFlow(errCtx, a.CatalogPool, flowName, monitoring.CDCBatchInfo{
 			BatchID:     syncBatchID,
@@ -279,6 +304,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return fmt.Errorf("failed to push records: %w", err)
 		}
 
+		logger.Info("finished pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
 		return nil
 	})
 
@@ -289,47 +315,68 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		if temporal.IsApplicationError(err) {
-			return nil, err
+			return 0, err
 		} else {
-			return nil, fmt.Errorf("failed to pull records: %w", err)
+			return 0, fmt.Errorf("failed to pull records: %w", err)
 		}
 	}
 
-	numRecords := res.NumRecordsSynced
 	syncDuration := time.Since(syncStartTime)
-
-	logger.Info(fmt.Sprintf("pushed %d records in %d seconds", numRecords, int(syncDuration.Seconds())))
-
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
 	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
 
 	if err := monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
-		ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, uint32(numRecords), lastCheckpoint,
+		ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, uint32(res.NumRecordsSynced), lastCheckpoint,
 	); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, err
+		return 0, err
 	}
 
 	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, err
+		return 0, err
 	}
 	if res.TableNameRowsMapping != nil {
 		if err := monitoring.AddCDCBatchTablesForFlow(
 			ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, res.TableNameRowsMapping,
 		); err != nil {
-			return nil, err
+			return 0, err
 		}
 	}
 
-	pushedRecordsWithCount := fmt.Sprintf("pushed %d records", numRecords)
+	pushedRecordsWithCount := fmt.Sprintf("pushed %d records for batch %d in %v",
+		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second))
 	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
-	return &model.SyncCompositeResponse{
-		SyncResponse:   res,
-		NeedsNormalize: recordBatchSync.NeedsNormalize(),
-	}, nil
+	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
+		return 0, err
+	}
+
+	if recordBatchSync.NeedsNormalize() {
+		parallel, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
+		if err != nil {
+			return 0, err
+		}
+		var done chan struct{}
+		if !parallel {
+			done = make(chan struct{})
+		}
+		select {
+		case normChan <- NormalizeBatchRequest{BatchID: res.CurrentSyncBatchID, Done: done}:
+		case <-ctx.Done():
+			return 0, nil
+		}
+		if done != nil {
+			select {
+			case <-done:
+			case <-ctx.Done():
+				return 0, nil
+			}
+		}
+	}
+
+	return res.NumRecordsSynced, nil
 }
 
 func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
@@ -581,4 +628,52 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	}
 
 	return currentSnapshotXmin, nil
+}
+
+// Suitable to be run as goroutine
+func (a *FlowableActivity) normalizeLoop(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigs,
+	syncDone <-chan struct{},
+	normalize <-chan NormalizeBatchRequest,
+	normalizeDone chan struct{},
+) {
+	defer close(normalizeDone)
+	logger := activity.GetLogger(ctx)
+
+	for {
+		select {
+		case req := <-normalize:
+		retryLoop:
+			for {
+				if err := a.StartNormalize(ctx, config, req.BatchID); err != nil {
+					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+					for {
+						// update req to latest normalize request & retry
+						select {
+						case req = <-normalize:
+						case <-syncDone:
+							logger.Info("[normalize-loop] syncDone closed before retry")
+							return
+						case <-ctx.Done():
+							logger.Info("[normalize-loop] context closed before retry")
+							return
+						default:
+							time.Sleep(30 * time.Second)
+							continue retryLoop
+						}
+					}
+				} else if req.Done != nil {
+					close(req.Done)
+				}
+				break
+			}
+		case <-syncDone:
+			logger.Info("[normalize-loop] syncDone closed")
+			return
+		case <-ctx.Done():
+			logger.Info("[normalize-loop] context closed")
+			return
+		}
+	}
 }

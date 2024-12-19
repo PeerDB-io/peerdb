@@ -253,6 +253,7 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	batchId int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
@@ -283,7 +284,11 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 		}
 		if len(row) > 0 {
 			value := row[0].(string)
-			distinctTableNames = append(distinctTableNames, value)
+			if _, ok := tableToSchema[value]; ok {
+				distinctTableNames = append(distinctTableNames, value)
+			} else {
+				c.logger.Warn("table not found in table to schema mapping", "table", value)
+			}
 		}
 	}
 
@@ -383,18 +388,17 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 
 // NormalizeRecords normalizes raw table to destination table,
 // one batch at a time from the previous normalized batch to the currently synced batch.
-func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
+		return model.NormalizeResponse{}, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
-		return &model.NormalizeResponse{
-			Done:         false,
+		return model.NormalizeResponse{
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
 		}, nil
@@ -408,17 +412,16 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 				SyncedAtColName:   req.SyncedAtColName,
 			})
 		if mergeErr != nil {
-			return nil, mergeErr
+			return model.NormalizeResponse{}, mergeErr
 		}
 
 		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
 		if err != nil {
-			return nil, err
+			return model.NormalizeResponse{}, err
 		}
 	}
 
-	return &model.NormalizeResponse{
-		Done:         true,
+	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
@@ -446,6 +449,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 		ctx,
 		flowName,
 		batchId,
+		tableToSchema,
 	)
 	if err != nil {
 		return fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
@@ -636,11 +640,23 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	// check if the table exists
 	existingMetadata, err := table.Metadata(ctx)
 	if err == nil {
-		// table exists, go to next table
-		c.logger.Info("[bigquery] table already exists, skipping",
-			slog.String("table", tableIdentifier),
-			slog.Any("existingMetadata", existingMetadata))
-		return true, nil
+		if config.IsResync {
+			c.logger.Info("[bigquery] deleting existing resync table",
+				slog.String("table", tableIdentifier))
+			deleteErr := table.Delete(ctx)
+			if deleteErr != nil {
+				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
+			}
+		} else {
+			// table exists, go to next table
+			c.logger.Info("[bigquery] table already exists, skipping",
+				slog.String("table", tableIdentifier),
+				slog.Any("existingMetadata", existingMetadata))
+			return true, nil
+		}
+	} else if !strings.Contains(err.Error(), "notFound") {
+		return false, fmt.Errorf("error while checking metadata for BigQuery table existence %s: %w",
+			tableIdentifier, err)
 	}
 
 	// convert the column names and types to bigquery types
@@ -697,21 +713,6 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		Name:             datasetTable.table,
 		Clustering:       clustering,
 		TimePartitioning: timePartitioning,
-	}
-
-	if config.IsResync {
-		_, existsErr := table.Metadata(ctx)
-		if existsErr == nil {
-			c.logger.Info("[bigquery] deleting existing resync table",
-				slog.String("table", tableIdentifier))
-			deleteErr := table.Delete(ctx)
-			if deleteErr != nil {
-				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
-			}
-		} else if !strings.Contains(existsErr.Error(), "notFound") {
-			return false, fmt.Errorf("error while checking metadata for BigQuery resynced table %s: %w",
-				tableIdentifier, existsErr)
-		}
 	}
 
 	c.logger.Info("[bigquery] creating table",

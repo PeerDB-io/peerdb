@@ -28,6 +28,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name: "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
+		Description: "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalizing, " +
+			"use with PEERDB_PARALLEL_SYNC_NORMALIZE",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_QUEUE_FLUSH_TIMEOUT_SECONDS",
 		Description:      "Frequency of flushing to queue, applicable for PeerDB Streams mirrors only",
 		DefaultValue:     "10",
@@ -341,8 +350,12 @@ func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context, env map[strin
 	return dynamicConfBool(ctx, env, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS")
 }
 
-func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
+func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
+}
+
+func PeerDBNormalizeChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE")
 }
 
 func PeerDBQueueFlushTimeoutSeconds(ctx context.Context, env map[string]string) (time.Duration, error) {
