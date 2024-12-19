@@ -80,6 +80,7 @@ type PullRecordsRequest[T Items] struct {
 	MaxBatchSize uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
+	SyncBatchID int64
 }
 
 type ToJSONOptions struct {
