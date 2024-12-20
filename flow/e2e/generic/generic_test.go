@@ -3,6 +3,7 @@ package e2e_generic
 import (
 	"context"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -341,7 +342,7 @@ func (s Generic) Test_Partitioned_Table() {
 		testName := fmt.Sprintf("test_name_%d", i)
 		_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s(name, created_at) VALUES ($1, '2024-%d-01')
-		`, srcSchemaTable, i), testName)
+		`, srcSchemaTable, math.Max(1, i)), testName)
 		e2e.EnvNoError(t, env, err)
 	}
 	t.Log("Inserted 10 rows into the source table")
