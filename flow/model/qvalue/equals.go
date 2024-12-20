@@ -65,8 +65,12 @@ func Equals(qv QValue, other QValue) bool {
 	case QValueMacaddr:
 		return compareString(q.Val, otherValue)
 	// all internally represented as a Golang time.Time
-	case QValueDate, QValueTimestamp, QValueTimestampTZ, QValueTime, QValueTimeTZ:
+	case QValueTimestamp, QValueTimestampTZ:
+		return compareGoTimestamp(qvValue, otherValue)
+	case QValueTime, QValueTimeTZ:
 		return compareGoTime(qvValue, otherValue)
+	case QValueDate:
+		return compareGoDate(qvValue, otherValue)
 	case QValueNumeric:
 		return compareNumeric(q.Val, otherValue)
 	case QValueBytes:
@@ -90,6 +94,8 @@ func Equals(qv QValue, other QValue) bool {
 		return compareTimeArrays(qvValue, otherValue)
 	case QValueArrayBoolean:
 		return compareBoolArrays(q.Val, otherValue)
+	case QValueArrayUUID:
+		return compareUuidArrays(q.Val, otherValue)
 	case QValueArrayString:
 		return compareArrayString(q.Val, otherValue)
 	default:
@@ -127,7 +133,7 @@ func compareString(s1 string, value2 interface{}) bool {
 	return ok && s1 == s2
 }
 
-func compareGoTime(value1, value2 interface{}) bool {
+func compareGoTimestamp(value1, value2 interface{}) bool {
 	et1, ok1 := value1.(time.Time)
 	et2, ok2 := value2.(time.Time)
 
@@ -141,6 +147,32 @@ func compareGoTime(value1, value2 interface{}) bool {
 	t2 := et2.UnixMicro()
 
 	return t1 == t2
+}
+
+func compareGoTime(value1, value2 interface{}) bool {
+	t1, ok1 := value1.(time.Time)
+	t2, ok2 := value2.(time.Time)
+
+	if !ok1 || !ok2 {
+		return false
+	}
+
+	h1, m1, s1 := t1.Clock()
+	h2, m2, s2 := t2.Clock()
+	return h1 == h2 && m1 == m2 && s1 == s2
+}
+
+func compareGoDate(value1, value2 interface{}) bool {
+	t1, ok1 := value1.(time.Time)
+	t2, ok2 := value2.(time.Time)
+
+	if !ok1 || !ok2 {
+		return false
+	}
+
+	y1, m1, d1 := t1.Date()
+	y2, m2, d2 := t2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
 func compareUUID(value1, value2 interface{}) bool {
@@ -308,6 +340,22 @@ func compareDateArrays(value1, value2 interface{}) bool {
 func compareBoolArrays(value1, value2 interface{}) bool {
 	array1, ok1 := value1.([]bool)
 	array2, ok2 := value2.([]bool)
+
+	if !ok1 || !ok2 || len(array1) != len(array2) {
+		return false
+	}
+
+	for i := range array1 {
+		if array1[i] != array2[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func compareUuidArrays(value1, value2 interface{}) bool {
+	array1, ok1 := value1.([]uuid.UUID)
+	array2, ok2 := value2.([]uuid.UUID)
 
 	if !ok1 || !ok2 || len(array1) != len(array2) {
 		return false

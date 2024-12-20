@@ -3,6 +3,7 @@ package e2e_snowflake
 import (
 	"context"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -17,6 +18,10 @@ import (
 )
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
+	if val, ok := os.LookupEnv("CI_PG_VERSION"); ok && val != "17" {
+		t.Skip("Only running in PG17 to reduce flakiness from high concurrency")
+	}
+
 	e2eshared.RunSuite(t, SetupSuite)
 }
 

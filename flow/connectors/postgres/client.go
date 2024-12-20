@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgerrcode"
@@ -594,6 +595,7 @@ func (c *PostgresConnector) getDistinctTableNamesInBatch(
 	flowJobName string,
 	syncBatchID int64,
 	normalizeBatchID int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
@@ -607,7 +609,13 @@ func (c *PostgresConnector) getDistinctTableNamesInBatch(
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
-	return destinationTableNames, nil
+	return slices.DeleteFunc(destinationTableNames, func(name string) bool {
+		if _, ok := tableToSchema[name]; !ok {
+			c.logger.Warn("table not found in table to schema mapping", "table", name)
+			return true
+		}
+		return false
+	}), nil
 }
 
 func (c *PostgresConnector) getTableNametoUnchangedCols(
@@ -649,9 +657,16 @@ func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, e
 	var result pgtype.Text
 	err := row.Scan(&result)
 	if err != nil {
-		return 0, fmt.Errorf("error while running query: %w", err)
+		return 0, fmt.Errorf("error while running query for current LSN: %w", err)
 	}
-	return pglogrepl.ParseLSN(result.String)
+	if !result.Valid || result.String == "" {
+		return 0, errors.New("error while getting current LSN: no LSN available")
+	}
+	lsn, err := pglogrepl.ParseLSN(result.String)
+	if err != nil {
+		return 0, fmt.Errorf("error while parsing LSN %s: %w", result.String, err)
+	}
+	return lsn, nil
 }
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {

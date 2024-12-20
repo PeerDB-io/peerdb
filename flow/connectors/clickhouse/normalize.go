@@ -28,8 +28,6 @@ const (
 	versionColType = "Int64"
 )
 
-var acceptableTableEngines = []string{"ReplacingMergeTree", "MergeTree"}
-
 func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
 	return nil, nil
 }
@@ -231,27 +229,26 @@ func getOrderedOrderByColumns(
 func (c *ClickHouseConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
-) (*model.NormalizeResponse, error) {
+) (model.NormalizeResponse, error) {
 	// fix for potential consistency issues
 	time.Sleep(3 * time.Second)
 
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", "error", err)
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
-		return &model.NormalizeResponse{
-			Done:         false,
+		return model.NormalizeResponse{
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
 		}, nil
 	}
 
 	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID); err != nil {
-		return nil, fmt.Errorf("failed to copy avro stages to destination: %w", err)
+		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
@@ -259,25 +256,25 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		req.FlowJobName,
 		req.SyncBatchID,
 		normBatchID,
+		req.TableNameSchemaMapping,
 	)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting distinct table names in batch", "error", err)
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
 	enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
 	parallelNormalize, err := peerdbenv.PeerDBClickHouseParallelNormalize(ctx, req.Env)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
-	if parallelNormalize > 1 {
-		c.logger.Info("normalizing in parallel", slog.Int("connections", parallelNormalize))
-	}
+	c.logger.Info("[clickhouse] normalizing batch",
+		slog.Int64("StartBatchID", normBatchID), slog.Int64("EndBatchID", req.SyncBatchID), slog.Int("connections", parallelNormalize))
 
 	queries := make(chan string)
 	rawTbl := c.getRawTableName(req.FlowJobName)
@@ -357,7 +354,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				clickHouseType, err = colType.ToDWHColumnType(ctx, req.Env, protos.DBType_CLICKHOUSE, column)
 				if err != nil {
 					close(queries)
-					return nil, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
+					return model.NormalizeResponse{}, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
 				}
 
 				if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
@@ -459,21 +456,20 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			c.logger.Error("[clickhouse] context canceled while normalizing",
 				slog.Any("error", errCtx.Err()),
 				slog.Any("cause", context.Cause(errCtx)))
-			return nil, context.Cause(errCtx)
+			return model.NormalizeResponse{}, context.Cause(errCtx)
 		}
 	}
 	close(queries)
 	if err := group.Wait(); err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
 	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID); err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id", slog.Int64("BatchID", req.SyncBatchID), slog.Any("error", err))
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
-	return &model.NormalizeResponse{
-		Done:         true,
+	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
@@ -484,6 +480,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	flowJobName string,
 	syncBatchID int64,
 	normalizeBatchID int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTbl := c.getRawTableName(flowJobName)
 
@@ -507,7 +504,11 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 			return nil, errors.New("table name is not valid")
 		}
 
-		tableNames = append(tableNames, tableName.String)
+		if _, ok := tableToSchema[tableName.String]; ok {
+			tableNames = append(tableNames, tableName.String)
+		} else {
+			c.logger.Warn("table not found in table to schema mapping", "table", tableName.String)
+		}
 	}
 
 	if err := rows.Err(); err != nil {

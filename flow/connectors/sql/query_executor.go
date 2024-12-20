@@ -443,7 +443,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse uuid: %v", *v)
 			}
-			return qvalue.QValueUUID{Val: [16]byte(uuidVal)}, nil
+			return qvalue.QValueUUID{Val: uuidVal}, nil
 		}
 
 	case qvalue.QValueKindJSON:

@@ -10,7 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
-	"github.com/yuin/gopher-lua"
+	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/glua64"
 	"github.com/PeerDB-io/gluabit32"
@@ -241,7 +241,15 @@ func LuaRowNewIndex(ls *lua.LState) int {
 	case qvalue.QValueKindUUID:
 		if ud, ok := val.(*lua.LUserData); ok {
 			if id, ok := ud.Value.(uuid.UUID); ok {
-				newqv = qvalue.QValueUUID{Val: [16]byte(id)}
+				newqv = qvalue.QValueUUID{Val: id}
+			}
+		}
+	case qvalue.QValueKindArrayUUID:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayUUID{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) uuid.UUID {
+					return uuid.MustParse(lua.LVAsString(v))
+				}),
 			}
 		}
 	case qvalue.QValueKindJSON:

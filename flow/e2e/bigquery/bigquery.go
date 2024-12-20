@@ -103,8 +103,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 		t.Fatalf("Failed to create helper: %v", err)
 	}
 
-	err = bqHelper.RecreateDataset()
-	if err != nil {
+	if err := bqHelper.RecreateDataset(); err != nil {
 		t.Fatalf("Failed to recreate dataset: %v", err)
 	}
 

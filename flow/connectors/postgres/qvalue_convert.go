@@ -68,6 +68,8 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindJSONB
 	case pgtype.UUIDOID:
 		return qvalue.QValueKindUUID
+	case pgtype.UUIDArrayOID:
+		return qvalue.QValueKindArrayUUID
 	case pgtype.TimeOID:
 		return qvalue.QValueKindTime
 	case pgtype.DateOID:
@@ -175,6 +177,8 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "HSTORE"
 	case qvalue.QValueKindUUID:
 		return "UUID"
+	case qvalue.QValueKindArrayUUID:
+		return "UUID[]"
 	case qvalue.QValueKindTime:
 		return "TIME"
 	case qvalue.QValueKindTimeTZ:
@@ -234,6 +238,54 @@ func parseJSON(value interface{}, isArray bool) (qvalue.QValue, error) {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	return qvalue.QValueJSON{Val: string(jsonVal), IsArray: isArray}, nil
+}
+
+func parseUUID(value interface{}) (uuid.UUID, error) {
+	switch v := value.(type) {
+	case string:
+		return uuid.Parse(v)
+	case [16]byte:
+		return uuid.UUID(v), nil
+	case uuid.UUID:
+		return v, nil
+	default:
+		return uuid.UUID{}, fmt.Errorf("unsupported type for UUID: %T", value)
+	}
+}
+
+func parseUUIDArray(value interface{}) (qvalue.QValue, error) {
+	switch v := value.(type) {
+	case []string:
+		uuids := make([]uuid.UUID, 0, len(v))
+		for _, s := range v {
+			id, err := uuid.Parse(s)
+			if err != nil {
+				return nil, fmt.Errorf("invalid UUID in array: %w", err)
+			}
+			uuids = append(uuids, id)
+		}
+		return qvalue.QValueArrayUUID{Val: uuids}, nil
+	case [][16]byte:
+		uuids := make([]uuid.UUID, 0, len(v))
+		for _, v := range v {
+			uuids = append(uuids, uuid.UUID(v))
+		}
+		return qvalue.QValueArrayUUID{Val: uuids}, nil
+	case []uuid.UUID:
+		return qvalue.QValueArrayUUID{Val: v}, nil
+	case []interface{}:
+		uuids := make([]uuid.UUID, 0, len(v))
+		for _, v := range v {
+			id, err := parseUUID(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid UUID interface{} value in array: %w", err)
+			}
+			uuids = append(uuids, id)
+		}
+		return qvalue.QValueArrayUUID{Val: uuids}, nil
+	default:
+		return nil, fmt.Errorf("unsupported type for UUID array: %T", value)
+	}
 }
 
 func convertToArray[T any](kind qvalue.QValueKind, value interface{}) ([]T, error) {
@@ -378,18 +430,17 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		// handling all unsupported types with strings as well for now.
 		return qvalue.QValueString{Val: fmt.Sprint(value)}, nil
 	case qvalue.QValueKindUUID:
-		switch v := value.(type) {
-		case string:
-			id, err := uuid.Parse(v)
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse UUID: %w", err)
-			}
-			return qvalue.QValueUUID{Val: [16]byte(id)}, nil
-		case [16]byte:
-			return qvalue.QValueUUID{Val: v}, nil
-		default:
-			return nil, fmt.Errorf("failed to parse UUID: %v", value)
+		tmp, err := parseUUID(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse UUID: %w", err)
 		}
+		return qvalue.QValueUUID{Val: tmp}, nil
+	case qvalue.QValueKindArrayUUID:
+		tmp, err := parseUUIDArray(value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse UUID array: %w", err)
+		}
+		return tmp, nil
 	case qvalue.QValueKindINET:
 		switch v := value.(type) {
 		case string:
@@ -533,18 +584,18 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 // in tstzrange.
 // convertTimeRangeBound removes the +0000 UTC part
 func convertTimeRangeBound(timeBound interface{}) (string, error) {
+	if timeBound, isInfinite := timeBound.(pgtype.InfinityModifier); isInfinite {
+		return timeBound.String(), nil
+	}
+
 	layout := "2006-01-02 15:04:05 -0700 MST"
 	postgresFormat := "2006-01-02 15:04:05"
-	var convertedTime string
 	if timeBound != nil {
 		lowerParsed, err := time.Parse(layout, fmt.Sprint(timeBound))
 		if err != nil {
-			return "", fmt.Errorf("unexpected lower bound value in tstzrange. Error: %v", err)
+			return "", fmt.Errorf("unexpected bound value in tstzrange. Error: %v", err)
 		}
-		convertedTime = lowerParsed.Format(postgresFormat)
-	} else {
-		convertedTime = ""
+		return lowerParsed.Format(postgresFormat), nil
 	}
-
-	return convertedTime, nil
+	return "", nil
 }

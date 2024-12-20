@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -120,7 +119,7 @@ func (h *FlowRequestHandler) ListPeers(
 	req *protos.ListPeersRequest,
 ) (*protos.ListPeersResponse, error) {
 	query := "SELECT name, type FROM peers"
-	if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
+	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
 		// only postgres and clickhouse peers
 		query += " WHERE type IN (3, 8)"
 	}
@@ -148,7 +147,7 @@ func (h *FlowRequestHandler) ListPeers(
 	}
 
 	destinationItems := peers
-	if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
+	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
 		destinationItems = make([]*protos.PeerListItem, 0, len(peers))
 		for _, peer := range peers {
 			// only clickhouse peers

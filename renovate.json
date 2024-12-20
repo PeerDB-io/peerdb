@@ -19,15 +19,22 @@
       "separateMajorMinor": false,
       "automerge": true
     },
-    { 
+    {
       "matchPackageNames": ["mysql_async"],
       "matchManagers": ["cargo"],
       "enabled": false
     },
     {
-      "matchPackageNames": ["next", "eslint", "eslint-config-next"],
+      "matchPackageNames": ["next", "react", "react-*", "@types/react", "@types/react-*", "eslint", "eslint-config-next"],
       "matchManagers": ["npm"],
       "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
+      "matchPackageNames": ["ghcr.io/peerdb-io/**"],
+      "matchManagers": ["docker-compose"],
+      "matchUpdateTypes": ["pinDigest"],
+      "matchFileNames": ["docker-compose.yml"],
       "enabled": false
     }
   ],

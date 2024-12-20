@@ -96,6 +96,14 @@ func GetAvroSchemaFromQValueKind(
 			Type:        "string",
 			LogicalType: "uuid",
 		}, nil
+	case QValueKindArrayUUID:
+		return AvroSchemaComplexArray{
+			Type: "array",
+			Items: AvroSchemaField{
+				Type:        "string",
+				LogicalType: "uuid",
+			},
+		}, nil
 	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
 		return "string", nil
 	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
@@ -394,6 +402,8 @@ func QValueToAvro(
 		return c.processArrayDate(v.Val), nil
 	case QValueUUID:
 		return c.processUUID(v.Val), nil
+	case QValueArrayUUID:
+		return c.processArrayUUID(v.Val), nil
 	case QValueGeography, QValueGeometry, QValuePoint:
 		return c.processGeospatial(v.Value().(string)), nil
 	default:
@@ -598,12 +608,25 @@ func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) 
 	return jsonString, nil
 }
 
-func (c *QValueAvroConverter) processUUID(byteData [16]byte) interface{} {
-	uuidString := uuid.UUID(byteData).String()
+func (c *QValueAvroConverter) processUUID(byteData uuid.UUID) interface{} {
+	uuidString := byteData.String()
 	if c.Nullable {
 		return goavro.Union("string", uuidString)
 	}
 	return uuidString
+}
+
+func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) interface{} {
+	UUIDData := make([]string, 0, len(arrayData))
+	for _, uuid := range arrayData {
+		UUIDData = append(UUIDData, uuid.String())
+	}
+
+	if c.Nullable {
+		return goavro.Union("array", UUIDData)
+	}
+
+	return UUIDData
 }
 
 func (c *QValueAvroConverter) processGeospatial(geoString string) interface{} {

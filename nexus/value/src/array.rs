@@ -4,6 +4,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use pgwire::types::ToSqlText;
 use postgres_types::{IsNull, ToSql, Type};
+use uuid::{fmt::Hyphenated, Uuid};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ArrayValue {
@@ -21,6 +22,7 @@ pub enum ArrayValue {
     Text(Vec<String>),
     Binary(Vec<Bytes>),
     VarBinary(Vec<Bytes>),
+    Uuid(Vec<Uuid>),
     Date(Vec<NaiveDate>),
     Time(Vec<NaiveTime>),
     TimeWithTimeZone(Vec<NaiveTime>),
@@ -94,6 +96,11 @@ impl ArrayValue {
                     .map(|v| serde_json::Value::String(hex::encode(v)))
                     .collect(),
             ),
+            ArrayValue::Uuid(arr) => serde_json::Value::Array(
+                arr.iter()
+                    .map(|v| serde_json::Value::String(v.to_string()))
+                    .collect(),
+            ),
             ArrayValue::Date(arr) => serde_json::Value::Array(
                 arr.iter()
                     .map(|&v| serde_json::Value::String(v.to_string()))
@@ -151,6 +158,7 @@ impl ToSql for ArrayValue {
             ArrayValue::Text(arr) => arr.to_sql(ty, out)?,
             ArrayValue::Binary(_arr) => todo!("support encoding array of binary"),
             ArrayValue::VarBinary(_arr) => todo!("support encoding array of varbinary"),
+            ArrayValue::Uuid(arr) => arr.to_sql(ty, out)?,
             ArrayValue::Date(arr) => arr.to_sql(ty, out)?,
             ArrayValue::Time(arr) => arr.to_sql(ty, out)?,
             ArrayValue::TimeWithTimeZone(arr) => arr.to_sql(ty, out)?,
@@ -229,6 +237,14 @@ impl ToSqlText for ArrayValue {
             ArrayValue::Text(arr) => array_to_sql_text!(arr, ty, out),
             ArrayValue::Binary(_arr) => todo!("implement encoding array of binary"),
             ArrayValue::VarBinary(_arr) => todo!("implement encoding array of varbinary"),
+            ArrayValue::Uuid(arr) => {
+                let mut buf = [0u8; Hyphenated::LENGTH];
+                for v in arr {
+                    out.put_slice(b"'");
+                    out.put_slice(v.hyphenated().encode_lower(&mut buf).as_bytes());
+                    out.put_slice(b"',");
+                }
+            }
             ArrayValue::Date(arr) => array_to_sql_text!(arr, ty, out),
             ArrayValue::Time(arr) => array_to_sql_text!(arr, ty, out),
             ArrayValue::TimeWithTimeZone(arr) => array_to_sql_text!(arr, ty, out),

@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"slices"
-	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -37,7 +36,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		return nil, err
 	}
 
-	if peerdbenv.PeerDBAllowedTargets() == strings.ToLower(protos.DBType_CLICKHOUSE.String()) {
+	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
 		filteredSettings := make([]*protos.DynamicSetting, 0)
 		for _, setting := range settings {
 			if setting.TargetForSetting == protos.DynconfTarget_ALL ||

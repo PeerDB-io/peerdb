@@ -245,6 +245,7 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	batchId int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
@@ -261,7 +262,11 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 		if err := rows.Scan(&result); err != nil {
 			return nil, fmt.Errorf("failed to read row: %w", err)
 		}
-		destinationTableNames = append(destinationTableNames, result.String)
+		if _, ok := tableToSchema[result.String]; ok {
+			destinationTableNames = append(destinationTableNames, result.String)
+		} else {
+			c.logger.Warn("table not found in table to schema mapping", "table", result.String)
+		}
 	}
 
 	if err := rows.Err(); err != nil {
@@ -470,17 +475,16 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 }
 
 // NormalizeRecords normalizes raw table to destination table.
-func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, req.FlowJobName)
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
-		return &model.NormalizeResponse{
-			Done:         false,
+		return model.NormalizeResponse{
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
 		}, nil
@@ -496,17 +500,16 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 			},
 		)
 		if mergeErr != nil {
-			return nil, mergeErr
+			return model.NormalizeResponse{}, mergeErr
 		}
 
 		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
 		if err != nil {
-			return nil, err
+			return model.NormalizeResponse{}, err
 		}
 	}
 
-	return &model.NormalizeResponse{
-		Done:         true,
+	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
@@ -520,7 +523,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	tableToSchema map[string]*protos.TableSchema,
 	peerdbCols *protos.PeerDBColumns,
 ) error {
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId)
+	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId, tableToSchema)
 	if err != nil {
 		return err
 	}
