@@ -68,6 +68,9 @@ func SyncFlowWorkflow(
 		StartToCloseTimeout: 7 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 		WaitForCancellation: true,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 30 * time.Second,
+		},
 	})
 	for !stop && ctx.Err() == nil {
 		var syncDone bool
