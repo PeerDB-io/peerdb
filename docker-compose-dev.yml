@@ -83,7 +83,7 @@ services:
 
   pyroscope:
     container_name: pyroscope
-    image: grafana/pyroscope:latest@sha256:319bf32ae06b67c1b9795c06ae6c3ba67e9b43382896df7a9df54cdb47a5c535
+    image: grafana/pyroscope:latest@sha256:5f780f01ef6c83261db7ab939c8cdc48b6aca0567555636ad561de09f4aaafa0
     ports:
       - 4040:4040
 
@@ -116,7 +116,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.32.0@sha256:82bf98dbe005a831b6bc5dc12ccd7bffd606af2032dae4821ae133caaa943d3d
+    image: temporalio/ui:2.33.0@sha256:5c586a3c8ec52ade33dfe270e64242be557867ef42a16697c5521b50f1e5cc15
     ports:
       - 8085:8080
 
