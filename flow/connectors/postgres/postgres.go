@@ -397,13 +397,9 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return err
 	}
-	var childToParentRelIDMap map[uint32]uint32
-	// only initialize the map if needed, escape hatch because custom publications may not have the right setting
-	if req.OverridePublicationName != "" || pgVersion < shared.POSTGRES_13 {
-		childToParentRelIDMap, err = GetChildToParentRelIDMap(ctx, c.conn, slices.Collect(maps.Keys(req.SrcTableIDNameMapping)))
-		if err != nil {
-			return fmt.Errorf("error getting child to parent relid map: %w", err)
-		}
+	childToParentRelIDMap, err := GetChildToParentRelIDMap(ctx, c.conn, slices.Collect(maps.Keys(req.SrcTableIDNameMapping)))
+	if err != nil {
+		return fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset, pgVersion); err != nil {
@@ -1153,7 +1149,9 @@ func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string)
 	}
 
 	if publicationExists {
-		if _, err := c.conn.Exec(ctx, "DROP PUBLICATION IF EXISTS "+publicationName); err != nil {
+		if _, err := c.conn.Exec(
+			ctx, "DROP PUBLICATION IF EXISTS "+publicationName,
+		); err != nil && !shared.IsSQLStateError(err, pgerrcode.ReadOnlySQLTransaction) {
 			return fmt.Errorf("error dropping publication: %w", err)
 		}
 	}
