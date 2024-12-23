@@ -82,6 +82,8 @@ func (h *FlowRequestHandler) GetPeerInfo(
 	ctx context.Context,
 	req *protos.PeerInfoRequest,
 ) (*protos.PeerInfoResponse, error) {
+	ctx, cancelCtx := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelCtx()
 	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
