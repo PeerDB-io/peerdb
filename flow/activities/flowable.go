@@ -338,10 +338,10 @@ func (a *FlowableActivity) SyncFlow(
 			}
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
 			close(cdcState.syncDone)
-			return syncErr
+			return errors.Join(syncErr, cdcState.errGroup.Wait())
 		} else {
 			totalRecordsSynced += numRecordsSynced
-			logger.Info("Total records synced",
+			logger.Info("synced records",
 				slog.Int64("numRecordsSynced", numRecordsSynced), slog.Int64("totalRecordsSynced", totalRecordsSynced))
 
 			if options.NumberOfSyncs > 0 && currentSyncFlowNum >= options.NumberOfSyncs {
