@@ -55,7 +55,7 @@ func (s PeerFlowE2ETestSuiteBQ) attachSuffix(input string) string {
 	return fmt.Sprintf("%s_%s", input, s.bqSuffix)
 }
 
-func (s *PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDelete bool) error {
+func (s PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDelete bool) error {
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, dstQualified)
 	selector := "`_PEERDB_SYNCED_AT`"
 	if softDelete {

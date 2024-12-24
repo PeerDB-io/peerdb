@@ -16,7 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestIncidentIoMessageSenderImpl_SendMessage(t *testing.T) {
+func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 	tests := []struct {
 		serverResponse     IncidentIoResponse
 		name               string
@@ -168,7 +168,7 @@ func TestIncidentIoMessageSenderImpl_SendMessage(t *testing.T) {
 				URL:   fakeIncidentIoServer.URL,
 				Token: "test-token",
 			}
-			sender := &IncidentIoMessageSenderImpl{
+			sender := &IncidentIoMessageSender{
 				http:   &http.Client{Timeout: time.Second * 5},
 				config: config,
 			}

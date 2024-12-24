@@ -463,6 +463,8 @@ var (
 	_ CDCSyncConnector = &connclickhouse.ClickHouseConnector{}
 	_ CDCSyncConnector = &connelasticsearch.ElasticsearchConnector{}
 
+	_ CDCSyncPgConnector = &connpostgres.PostgresConnector{}
+
 	_ CDCNormalizeConnector = &connpostgres.PostgresConnector{}
 	_ CDCNormalizeConnector = &connbigquery.BigQueryConnector{}
 	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}

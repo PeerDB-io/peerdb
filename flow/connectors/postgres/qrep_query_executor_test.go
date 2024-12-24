@@ -186,8 +186,7 @@ func TestAllDataTypes(t *testing.T) {
 	expectedBytea := []byte("bytea")
 	require.Equal(t, expectedBytea, record[6].Value(), "expected 'bytea'")
 
-	expectedJSON := `{"key":"value"}`
-	require.Equal(t, expectedJSON, record[7].Value(), "expected '{\"key\":\"value\"}'")
+	require.JSONEq(t, `{"key":"value"}`, record[7].Value().(string), "expected '{\"key\":\"value\"}'")
 
 	actualUUID := record[8].Value().(uuid.UUID)
 	require.Equal(t, savedUUID[:], actualUUID[:], "expected savedUUID: %v", savedUUID)

@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
+//nolint:iface
 type SQLQueryExecutor interface {
 	ConnectionActive(context.Context) error
 	Close() error

@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 
-	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
 	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
@@ -16,7 +15,7 @@ import (
 type SQLServerHelper struct {
 	config *protos.SqlServerConfig
 
-	E          peersql.SQLQueryExecutor
+	E          *connsqlserver.SQLServerConnector
 	SchemaName string
 	tables     []string
 }
