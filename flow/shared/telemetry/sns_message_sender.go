@@ -15,11 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared/aws_common"
 )
 
-type SNSMessageSender interface {
-	Sender
-}
-
-type SNSMessageSenderImpl struct {
+type SNSMessageSender struct {
 	client *sns.Client
 	topic  string
 }
@@ -28,7 +24,7 @@ type SNSMessageSenderConfig struct {
 	Topic string `json:"topic"`
 }
 
-func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (string, error) {
+func (s *SNSMessageSender) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (string, error) {
 	activityInfo := activity.Info{}
 	if activity.IsActivity(ctx) {
 		activityInfo = activity.GetInfo(ctx)
@@ -92,14 +88,14 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 	return *publish.MessageId, nil
 }
 
-func NewSNSMessageSenderWithNewClient(ctx context.Context, config *SNSMessageSenderConfig) (SNSMessageSender, error) {
+func NewSNSMessageSenderWithNewClient(ctx context.Context, config *SNSMessageSenderConfig) (*SNSMessageSender, error) {
 	// Topic Region must match client region
 	region := strings.Split(strings.TrimPrefix(config.Topic, "arn:aws:sns:"), ":")[0]
 	client, err := newSnsClient(ctx, &region)
 	if err != nil {
 		return nil, err
 	}
-	return &SNSMessageSenderImpl{
+	return &SNSMessageSender{
 		client: client,
 		topic:  config.Topic,
 	}, nil
