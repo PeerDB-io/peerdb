@@ -100,6 +100,8 @@ func processCDCFlowConfigUpdate(
 	}
 	if flowConfigUpdate.NumberOfSyncs > 0 {
 		state.SyncFlowOptions.NumberOfSyncs = flowConfigUpdate.NumberOfSyncs
+	} else if flowConfigUpdate.NumberOfSyncs < 0 {
+		state.SyncFlowOptions.NumberOfSyncs = 0
 	}
 	if flowConfigUpdate.UpdatedEnv != nil {
 		maps.Copy(cfg.Env, flowConfigUpdate.UpdatedEnv)
@@ -478,9 +480,7 @@ func CDCFlowWorkflow(
 		StartToCloseTimeout: 365 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 		WaitForCancellation: true,
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: 30 * time.Second,
-		},
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 	syncFlowFuture := workflow.ExecuteActivity(syncCtx, flowable.SyncFlow, cfg, state.SyncFlowOptions)
 
@@ -500,6 +500,7 @@ func CDCFlowWorkflow(
 			} else {
 				logger.Error("error in sync flow", slog.Any("error", err))
 			}
+			_ = workflow.Sleep(ctx, 30*time.Second)
 		} else {
 			logger.Info("sync finished")
 		}
