@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -16,7 +14,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
-	"go.temporal.io/sdk/temporal"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
@@ -43,19 +41,17 @@ type NormalizeBatchRequest struct {
 	BatchID int64
 }
 
-type CdcCacheEntry struct {
-	connector     connectors.CDCPullConnectorCore
-	syncDone      chan struct{}
-	normalize     chan NormalizeBatchRequest
-	normalizeDone chan struct{}
+type CdcState struct {
+	connector connectors.CDCPullConnectorCore
+	syncDone  chan struct{}
+	normalize chan NormalizeBatchRequest
+	errGroup  *errgroup.Group
 }
 
 type FlowableActivity struct {
 	CatalogPool *pgxpool.Pool
 	Alerter     *alerting.Alerter
-	CdcCache    map[string]CdcCacheEntry
 	OtelManager *otel_metrics.OtelManager
-	CdcCacheRw  sync.RWMutex
 }
 
 func (a *FlowableActivity) CheckConnection(
@@ -253,82 +249,116 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}, nil
 }
 
-func (a *FlowableActivity) MaintainPull(
+func (a *FlowableActivity) maintainPull(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
-	sessionID string,
-) error {
+) (CdcState, context.Context, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return err
+		return CdcState{}, nil, err
 	}
-	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.SetupReplConn(ctx); err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return err
+		connectors.CloseConnector(ctx, srcConn)
+		return CdcState{}, nil, err
 	}
 
 	normalizeBufferSize, err := peerdbenv.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return err
+		connectors.CloseConnector(ctx, srcConn)
+		return CdcState{}, nil, err
 	}
 
-	// syncDone will be closed by UnmaintainPull,
-	// whereas normalizeDone will be closed by the normalize goroutine
+	// syncDone will be closed by SyncFlow,
+	// whereas normalizeDone will be closed by normalizing goroutine
 	// Wait on normalizeDone at end to not interrupt final normalize
 	syncDone := make(chan struct{})
 	normalize := make(chan NormalizeBatchRequest, normalizeBufferSize)
-	normalizeDone := make(chan struct{})
-	a.CdcCacheRw.Lock()
-	a.CdcCache[sessionID] = CdcCacheEntry{
-		connector:     srcConn,
-		syncDone:      syncDone,
-		normalize:     normalize,
-		normalizeDone: normalizeDone,
-	}
-	a.CdcCacheRw.Unlock()
 
-	ticker := time.NewTicker(15 * time.Second)
-	defer ticker.Stop()
-
-	go a.normalizeLoop(ctx, config, syncDone, normalize, normalizeDone)
-
-	for {
-		select {
-		case <-ticker.C:
-			activity.RecordHeartbeat(ctx, "keep session alive")
-			if err := srcConn.ReplPing(ctx); err != nil {
-				a.CdcCacheRw.Lock()
-				delete(a.CdcCache, sessionID)
-				a.CdcCacheRw.Unlock()
-				a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				return temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", err)
-			}
-		case <-syncDone:
-			return nil
-		case <-ctx.Done():
-			a.CdcCacheRw.Lock()
-			delete(a.CdcCache, sessionID)
-			a.CdcCacheRw.Unlock()
-			return nil
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.Go(func() error {
+		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
+		a.normalizeLoop(groupCtx, config, syncDone, normalize)
+		return nil
+	})
+	group.Go(func() error {
+		defer connectors.CloseConnector(groupCtx, srcConn)
+		if err := a.maintainReplConn(groupCtx, config.FlowJobName, srcConn, syncDone); err != nil {
+			a.Alerter.LogFlowError(groupCtx, config.FlowJobName, err)
+			return err
 		}
-	}
+		return nil
+	})
+
+	return CdcState{
+		connector: srcConn,
+		syncDone:  syncDone,
+		normalize: normalize,
+		errGroup:  group,
+	}, groupCtx, nil
 }
 
-func (a *FlowableActivity) UnmaintainPull(ctx context.Context, sessionID string) error {
-	var normalizeDone chan struct{}
-	a.CdcCacheRw.Lock()
-	if entry, ok := a.CdcCache[sessionID]; ok {
-		close(entry.syncDone)
-		delete(a.CdcCache, sessionID)
-		normalizeDone = entry.normalizeDone
+func (a *FlowableActivity) SyncFlow(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigs,
+	options *protos.SyncFlowOptions,
+) error {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	logger := activity.GetLogger(ctx)
+
+	cdcState, groupCtx, err := a.maintainPull(ctx, config)
+	if err != nil {
+		logger.Error("MaintainPull failed", slog.Any("error", err))
+		return err
 	}
-	a.CdcCacheRw.Unlock()
-	<-normalizeDone
+
+	currentSyncFlowNum := int32(0)
+	totalRecordsSynced := int64(0)
+
+	for groupCtx.Err() == nil {
+		currentSyncFlowNum += 1
+		logger.Info("executing sync flow", slog.Int("count", int(currentSyncFlowNum)))
+
+		var numRecordsSynced int64
+		var syncErr error
+		if config.System == protos.TypeSystem_Q {
+			numRecordsSynced, syncErr = a.SyncRecords(groupCtx, config, options, cdcState)
+		} else {
+			numRecordsSynced, syncErr = a.SyncPg(groupCtx, config, options, cdcState)
+		}
+
+		if syncErr != nil {
+			if groupCtx.Err() != nil {
+				// need to return ctx.Err(), avoid returning syncErr that's wrapped context canceled
+				break
+			}
+			logger.Error("failed to sync records", slog.Any("error", syncErr))
+			close(cdcState.syncDone)
+			return errors.Join(syncErr, cdcState.errGroup.Wait())
+		} else {
+			totalRecordsSynced += numRecordsSynced
+			logger.Info("synced records",
+				slog.Int64("numRecordsSynced", numRecordsSynced), slog.Int64("totalRecordsSynced", totalRecordsSynced))
+
+			if options.NumberOfSyncs > 0 && currentSyncFlowNum >= options.NumberOfSyncs {
+				break
+			}
+		}
+	}
+
+	close(cdcState.syncDone)
+	waitErr := cdcState.errGroup.Wait()
+	if err := ctx.Err(); err != nil {
+		logger.Info("sync canceled", slog.Any("error", err))
+		return err
+	} else if waitErr != nil {
+		logger.Error("sync failed", slog.Any("error", waitErr))
+		return waitErr
+	}
 	return nil
 }
 
@@ -336,8 +366,8 @@ func (a *FlowableActivity) SyncRecords(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
-	sessionID string,
-) (model.SyncRecordsResult, error) {
+	cdcState CdcState,
+) (int64, error) {
 	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
 	if config.Script != "" {
 		var onErr context.CancelCauseFunc
@@ -368,22 +398,20 @@ func (a *FlowableActivity) SyncRecords(
 			return stream, nil
 		}
 	}
-	numRecords, err := syncCore(ctx, a, config, options, sessionID, adaptStream,
+	return syncCore(ctx, a, config, options, cdcState, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
-	return model.SyncRecordsResult{NumRecordsSynced: numRecords}, err
 }
 
 func (a *FlowableActivity) SyncPg(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
-	sessionID string,
-) (model.SyncRecordsResult, error) {
-	numRecords, err := syncCore(ctx, a, config, options, sessionID, nil,
+	cdcState CdcState,
+) (int64, error) {
+	return syncCore(ctx, a, config, options, cdcState, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
-	return model.SyncRecordsResult{NumRecordsSynced: numRecords}, err
 }
 
 func (a *FlowableActivity) StartNormalize(

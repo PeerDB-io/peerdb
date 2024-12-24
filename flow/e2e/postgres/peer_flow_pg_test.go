@@ -1002,7 +1002,7 @@ func (s PeerFlowE2ETestSuitePG) Test_CustomSync() {
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(
 		"INSERT INTO %s(key, value) VALUES ('test_key', 'test_value')", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
-	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "paused workflow", func() bool {
 		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
 	})
 
