@@ -264,11 +264,11 @@ func (c *PostgresConnector) getMinMaxValues(
 	return minValue, maxValue, nil
 }
 
-func (c *PostgresConnector) CheckForUpdatedMaxValue(
+func (c *PostgresConnector) GetMaxValue(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
-) (bool, error) {
+) (any, error) {
 	checkTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
@@ -276,28 +276,7 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(
 	defer shared.RollbackTx(checkTx, c.logger)
 
 	_, maxValue, err := c.getMinMaxValues(ctx, checkTx, config, last)
-	if err != nil {
-		return false, fmt.Errorf("error while getting min and max values: %w", err)
-	}
-
-	if maxValue == nil || last == nil || last.Range == nil {
-		return maxValue != nil, nil
-	}
-
-	switch x := last.Range.Range.(type) {
-	case *protos.PartitionRange_IntRange:
-		if maxValue.(int64) > x.IntRange.End {
-			return true, nil
-		}
-	case *protos.PartitionRange_TimestampRange:
-		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
-			return true, nil
-		}
-	default:
-		return false, fmt.Errorf("unknown range type: %v", x)
-	}
-
-	return false, nil
+	return maxValue, err
 }
 
 func (c *PostgresConnector) PullQRepRecords(
