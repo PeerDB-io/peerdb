@@ -6,14 +6,17 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type MySqlConnector struct {
@@ -21,6 +24,7 @@ type MySqlConnector struct {
 	config *protos.MySqlConfig
 	conn   *client.Conn
 	syncer *replication.BinlogSyncer
+	logger log.Logger
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -37,6 +41,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	return &MySqlConnector{
 		config: config,
 		syncer: syncer,
+		logger: shared.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -116,21 +121,32 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 	var query string
 	switch c.config.Flavor {
 	case mysql.MariaDBFlavor:
-		query = "SELECT @@GLOBAL.gtid_current_pos"
+		query = "select @@global.gtid_current_pos"
 	default:
-		query = "SELECT @@GLOBAL.GTID_EXECUTED"
+		query = "select @@global.gtid_executed"
 	}
 	rr, err := c.Execute(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to SELECT @@GLOBAL.GTID_EXECUTED: %w", err)
+		return nil, fmt.Errorf("failed to select @@global.gtid_executed: %w", err)
 	}
 	gx, err := rr.GetString(0, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to GetString for GTID_EXECUTED: %w", err)
+		return nil, fmt.Errorf("failed to GetString for gtid_executed: %w", err)
 	}
 	gset, err := mysql.ParseGTIDSet(c.config.Flavor, gx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse GTID from GTID_EXECUTED: %w", err)
+		return nil, fmt.Errorf("failed to parse GTID from gtid_executed: %w", err)
 	}
 	return gset, nil
+}
+
+func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
+	rr, err := c.Execute(ctx, "select @@version")
+	if err != nil {
+		return "", err
+	}
+	version, _ := rr.GetString(0, 0)
+	c.logger.Info("[mysql] version", slog.String("version", version))
+	return version, nil
+
 }

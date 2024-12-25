@@ -518,6 +518,5 @@ var (
 
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
-
-	_ Connector = &connmysql.MySqlConnector{}
+	_ GetVersionConnector = &connmysql.MySqlConnector{}
 )
