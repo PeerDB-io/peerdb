@@ -302,8 +302,9 @@ func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
 // GetLastOffset returns the last synced offset for a job.
 func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error) {
 	var result model.CdcCheckpoint
-	err := c.conn.QueryRow(ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result.ID, &result.Text)
-	if err != nil {
+	if err := c.conn.QueryRow(
+		ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
+	).Scan(&result.ID, &result.Text); err != nil {
 		if err == pgx.ErrNoRows {
 			c.logger.Info("No row found, returning nil")
 			return result, nil
@@ -402,7 +403,7 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
-	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset, pgVersion); err != nil {
+	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion); err != nil {
 		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
 		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
 			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {

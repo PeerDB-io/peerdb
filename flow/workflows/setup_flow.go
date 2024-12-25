@@ -112,15 +112,12 @@ func (s *SetupFlowExecution) ensurePullability(
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 4 * time.Hour,
 	})
-	srcTableIdNameMapping := make(map[uint32]string)
-
-	srcTblIdentifiers := slices.Sorted(maps.Keys(s.tableNameMapping))
 
 	// create EnsurePullabilityInput for the srcTableName
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
 		PeerName:               config.SourceName,
 		FlowJobName:            s.cdcFlowName,
-		SourceTableIdentifiers: srcTblIdentifiers,
+		SourceTableIdentifiers: slices.Sorted(maps.Keys(s.tableNameMapping)),
 		CheckConstraints:       checkConstraints,
 	}
 
@@ -131,8 +128,13 @@ func (s *SetupFlowExecution) ensurePullability(
 		return nil, fmt.Errorf("failed to ensure pullability for tables: %w", err)
 	}
 
+	if ensurePullabilityOutput == nil {
+		return nil, nil
+	}
+
 	sortedTableNames := slices.Sorted(maps.Keys(ensurePullabilityOutput.TableIdentifierMapping))
 
+	srcTableIdNameMapping := make(map[uint32]string, len(sortedTableNames))
 	for _, tableName := range sortedTableNames {
 		tableIdentifier := ensurePullabilityOutput.TableIdentifierMapping[tableName]
 		srcTableIdNameMapping[tableIdentifier.RelId] = tableName

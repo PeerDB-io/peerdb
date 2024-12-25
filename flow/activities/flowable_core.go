@@ -133,10 +133,10 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		batchSize = 250_000
 	}
 
-	lastOffset, err := func() (int64, error) {
+	lastOffset, err := func() (model.CdcCheckpoint, error) {
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
-			return 0, fmt.Errorf("failed to get destination connector: %w", err)
+			return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector: %w", err)
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
 
@@ -147,9 +147,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return 0, err
 	}
 
-	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
+	logger.Info("pulling records...", slog.Any("LastOffset", lastOffset))
 	consumedOffset := atomic.Int64{}
-	consumedOffset.Store(lastOffset)
+	consumedOffset.Store(lastOffset.ID)
 
 	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx, config.Env)
 	if err != nil {
@@ -292,7 +292,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return 0, err
 	}
 
-	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint); err != nil {
+	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint.ID); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return 0, err
 	}

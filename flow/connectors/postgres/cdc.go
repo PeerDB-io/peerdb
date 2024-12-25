@@ -325,8 +325,8 @@ func PullCdcRecords[Items model.Items](
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	var clientXLogPos pglogrepl.LSN
-	if req.LastOffset > 0 {
-		clientXLogPos = pglogrepl.LSN(req.LastOffset)
+	if req.LastOffset.ID > 0 {
+		clientXLogPos = pglogrepl.LSN(req.LastOffset.ID)
 		if err := sendStandbyAfterReplLock("initial-flush"); err != nil {
 			return err
 		}

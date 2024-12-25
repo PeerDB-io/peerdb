@@ -13,10 +13,10 @@ type CDCStream[T Items] struct {
 	// empty signal to indicate if the records are going to be empty or not.
 	emptySignal chan bool
 	records     chan Record[T]
-	// Schema changes from slot
-	SchemaDeltas []*protos.TableSchemaDelta
 	// lastCheckpointText is used for mysql GTID
 	lastCheckpointText string
+	// Schema changes from slot
+	SchemaDeltas []*protos.TableSchemaDelta
 	// lastCheckpointID is the last ID of the commit that corresponds to this batch.
 	lastCheckpointID  int64
 	lastCheckpointSet bool

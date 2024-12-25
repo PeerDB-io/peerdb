@@ -42,7 +42,8 @@ const (
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	checkTableExistsSQL         = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
 	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s (mirror_job_name, lsn_offset, lsn_text, sync_batch_id) AS j VALUES ($1,$2,$3,$4)
-	 ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset), lsn_text = EXCLUDED.lsn_text, sync_batch_id=EXCLUDED.sync_batch_id`
+	 ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset),
+		lsn_text = EXCLUDED.lsn_text, sync_batch_id=EXCLUDED.sync_batch_id`
 	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 

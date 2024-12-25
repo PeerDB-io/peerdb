@@ -113,7 +113,7 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 }
 
 func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, error) {
-	query := ""
+	var query string
 	switch c.config.Flavor {
 	case mysql.MariaDBFlavor:
 		query = "SELECT @@GLOBAL.gtid_current_pos"

@@ -27,8 +27,11 @@ func (c *MySqlConnector) GetTableSchema(
 	panic("TODO")
 }
 
-func (c *MySqlConnector) EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (
-	*protos.EnsurePullabilityBatchOutput, error)
+func (c *MySqlConnector) EnsurePullability(
+	ctx context.Context, req *protos.EnsurePullabilityBatchInput,
+) (*protos.EnsurePullabilityBatchOutput, error) {
+	return nil, nil
+}
 
 func (c *MySqlConnector) ExportTxSnapshot(context.Context) (*protos.ExportTxSnapshotOutput, any, error) {
 	// https://dev.mysql.com/doc/refman/8.4/en/replication-howto-masterstatus.html
@@ -44,6 +47,7 @@ func (c *MySqlConnector) SetupReplConn(context.Context) error {
 	return nil
 }
 
+//nolint:unused
 func (c *MySqlConnector) startCdcStreamingFilePos(lastOffsetName string, lastOffsetPos uint32) (*replication.BinlogStreamer, error) {
 	return c.syncer.StartSync(mysql.Position{Name: lastOffsetName, Pos: lastOffsetPos})
 }
@@ -166,14 +170,13 @@ func (c *MySqlConnector) PullRecords(
 		if err != nil {
 			return err
 		}
-		switch ev := event.Event.(type) {
-		case *replication.RowsEvent:
+		if ev, ok := event.Event.(*replication.RowsEvent); ok {
 			sourceTableName := string(ev.Table.Table) // TODO need ev.Table.Schema?
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			for _, row := range ev.Rows {
 				var record model.Record[model.RecordItems]
-				//TODO need mapping of column index to column name
+				// TODO need mapping of column index to column name
 				var items model.RecordItems
 				switch event.Header.EventType {
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
@@ -221,12 +224,10 @@ func (c *MySqlConnector) PullRecords(
 				default:
 					continue
 				}
-				err := req.RecordStream.AddRecord(ctx, record)
-				if err != nil {
+				if err := req.RecordStream.AddRecord(ctx, record); err != nil {
 					return err
 				}
 			}
-			break
 		}
 		break // TODO when batch ready
 	}
