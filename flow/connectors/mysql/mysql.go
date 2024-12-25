@@ -29,7 +29,7 @@ type MySqlConnector struct {
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
 	syncer := replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
-		ServerID:   1729, // TODO put in config
+		ServerID:   1729, // TODO put in config (or generate randomly, which is what go-mysql-org does)
 		Flavor:     config.Flavor,
 		Host:       config.Host,
 		Port:       uint16(config.Port),
@@ -110,7 +110,6 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 		return mysql.Position{}, fmt.Errorf("failed to SHOW BINARY LOG STATUS: %w", err)
 	}
 
-	// TODO: check error?
 	name, _ := rr.GetString(0, 0)
 	pos, _ := rr.GetInt(0, 1)
 

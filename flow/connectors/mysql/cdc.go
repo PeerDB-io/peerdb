@@ -10,6 +10,8 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 
 	"github.com/PeerDB-io/peer-flow/alerting"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
@@ -165,11 +167,31 @@ func (c *MySqlConnector) PullRecords(
 	if err != nil {
 		return err
 	}
+
+	var fetchedBytesCounter metric.Int64Counter
+	if otelManager != nil {
+		var err error
+		fetchedBytesCounter, err = otelManager.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.FetchedBytesCounterName),
+			metric.WithUnit("By"), metric.WithDescription("Bytes received of CopyData over replication slot"))
+		if err != nil {
+			return fmt.Errorf("could not get FetchedBytesCounter: %w", err)
+		}
+	}
+
+	var recordCount uint32
 	for {
+		// TODO put req.IdleTimeout timer on this
 		event, err := mystream.GetEvent(ctx)
 		if err != nil {
 			return err
 		}
+
+		if fetchedBytesCounter != nil {
+			fetchedBytesCounter.Add(ctx, int64(len(event.RawData)), metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, req.FlowJobName),
+			)))
+		}
+
 		if ev, ok := event.Event.(*replication.RowsEvent); ok {
 			sourceTableName := string(ev.Table.Table) // TODO need ev.Table.Schema?
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
@@ -224,12 +246,15 @@ func (c *MySqlConnector) PullRecords(
 				default:
 					continue
 				}
+				recordCount += 1
 				if err := req.RecordStream.AddRecord(ctx, record); err != nil {
 					return err
 				}
 			}
 		}
-		break // TODO when batch ready
+
+		if recordCount >= 0 && recordCount >= req.MaxBatchSize {
+			return nil
+		}
 	}
-	return nil
 }
