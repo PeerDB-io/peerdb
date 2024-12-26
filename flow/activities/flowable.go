@@ -514,15 +514,14 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
 	}
 	if len(partitions) > 0 {
-		err = monitoring.InitializeQRepRun(
+		if err := monitoring.InitializeQRepRun(
 			ctx,
 			a.CatalogPool,
 			config,
 			runUUID,
 			partitions,
 			config.ParentMirrorName,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 	}
@@ -997,15 +996,15 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	err = srcConn.AddTablesToPublication(ctx, &protos.AddTablesToPublicationInput{
+	if err := srcConn.AddTablesToPublication(ctx, &protos.AddTablesToPublicationInput{
 		FlowJobName:      cfg.FlowJobName,
 		PublicationName:  cfg.PublicationName,
 		AdditionalTables: additionalTableMappings,
-	})
-	if err != nil {
+	}); err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (a *FlowableActivity) RemoveTablesFromPublication(
@@ -1020,15 +1019,15 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	err = srcConn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{
+	if err := srcConn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{
 		FlowJobName:     cfg.FlowJobName,
 		PublicationName: cfg.PublicationName,
 		TablesToRemove:  removedTablesMapping,
-	})
-	if err != nil {
+	}); err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (a *FlowableActivity) RemoveTablesFromRawTable(
@@ -1066,16 +1065,16 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	for _, table := range tablesToRemove {
 		tableNames = append(tableNames, table.DestinationTableIdentifier)
 	}
-	err = dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
+	if err := dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
 		FlowJobName:           cfg.FlowJobName,
 		DestinationTableNames: tableNames,
 		SyncBatchId:           syncBatchID,
 		NormalizeBatchId:      normBatchID,
-	})
-	if err != nil {
+	}); err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (a *FlowableActivity) RemoveTablesFromCatalog(

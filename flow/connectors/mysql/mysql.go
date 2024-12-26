@@ -21,10 +21,11 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config *protos.MySqlConfig
-	conn   *client.Conn
-	syncer *replication.BinlogSyncer
-	logger log.Logger
+	config    *protos.MySqlConfig
+	conn      *client.Conn
+	syncer    *replication.BinlogSyncer
+	logger    log.Logger
+	replState mysql.GTIDSet
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -85,7 +86,7 @@ func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...interf
 			}
 		}
 
-		rr, err := c.conn.Execute(cmd, args...)
+		rs, err := c.conn.Execute(cmd, args...)
 		if err != nil {
 			if reconnects > 0 && mysql.ErrorEqual(err, mysql.ErrBadConn) {
 				reconnects -= 1
@@ -95,7 +96,7 @@ func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...interf
 			}
 			return nil, err
 		}
-		return rr, nil
+		return rs, nil
 	}
 }
 

@@ -74,7 +74,7 @@ type CDCPullConnectorCore interface {
 	ReplPing(context.Context) error
 
 	// Called when offset has been confirmed to destination
-	UpdateReplStateLastOffset(lastOffset model.CdcCheckpoint)
+	UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error

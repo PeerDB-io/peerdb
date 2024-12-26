@@ -445,10 +445,11 @@ func pullCore[Items model.Items](
 	return nil
 }
 
-func (c *PostgresConnector) UpdateReplStateLastOffset(lastOffset model.CdcCheckpoint) {
+func (c *PostgresConnector) UpdateReplStateLastOffset(_ context.Context, lastOffset model.CdcCheckpoint) error {
 	if c.replState != nil {
 		c.replState.LastOffset.Store(lastOffset.ID)
 	}
+	return nil
 }
 
 func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {

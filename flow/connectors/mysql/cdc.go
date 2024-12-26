@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/otel_metrics"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 func (c *MySqlConnector) GetTableSchema(
@@ -141,7 +142,6 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		}
 		if (field.Flag & mysql.PRI_KEY_FLAG) != 0 {
 			primary = append(primary, column.Name)
-
 		}
 		columns = append(columns, column)
 	}
@@ -171,8 +171,24 @@ func (c *MySqlConnector) FinishExport(any) error {
 	return nil
 }
 
-func (c *MySqlConnector) SetupReplConn(context.Context) error {
+func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
 	// mysql code will spin up new connection for each normalize for now
+	flowName := ctx.Value(shared.FlowNameKey).(string)
+	offset, err := c.GetLastOffset(ctx, flowName)
+	if err != nil {
+		return fmt.Errorf("[mysql] SetupReplConn failed to GetLastOffset: %w", err)
+	}
+	if offset.Text == "" {
+		set, err := c.GetMasterGTIDSet(ctx)
+		if err != nil {
+			return fmt.Errorf("[mysql] SetupReplConn failed to GetMasterGTIDSet: %w", err)
+		}
+		if err := c.SetLastOffset(
+			ctx, flowName, model.CdcCheckpoint{Text: set.String()},
+		); err != nil {
+			return fmt.Errorf("[mysql] SetupReplConn failed to SetLastOffset: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -190,7 +206,10 @@ func (c *MySqlConnector) ReplPing(context.Context) error {
 	return nil
 }
 
-func (c *MySqlConnector) UpdateReplStateLastOffset(lastOffset model.CdcCheckpoint) {
+func (c *MySqlConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error {
+	// TODO assert c.replState == lastOffset
+	flowName := ctx.Value(shared.FlowNameKey).(string)
+	return c.SetLastOffset(ctx, flowName, lastOffset)
 }
 
 func (c *MySqlConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
@@ -284,7 +303,6 @@ func (c *MySqlConnector) PullRecords(
 ) error {
 	defer func() {
 		req.RecordStream.Close()
-		// update replState Offset
 	}()
 	gset, err := mysql.ParseGTIDSet(c.config.Flavor, req.LastOffset.Text)
 	if err != nil {
@@ -319,7 +337,24 @@ func (c *MySqlConnector) PullRecords(
 			)))
 		}
 
-		if ev, ok := event.Event.(*replication.RowsEvent); ok {
+		switch ev := event.Event.(type) {
+		case *replication.MariadbGTIDEvent:
+			var err error
+			newset, err := ev.GTIDNext()
+			if err != nil {
+				// TODO could ignore, but then we might get stuck rereading same batch each time
+				return err
+			}
+			c.replState = newset
+		case *replication.GTIDEvent:
+			var err error
+			newset, err := ev.GTIDNext()
+			if err != nil {
+				// TODO could ignore, but then we might get stuck rereading same batch each time
+				return err
+			}
+			c.replState = newset
+		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Table) // TODO need ev.Table.Schema?
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			schema := req.TableNameSchemaMapping[destinationTableName]
