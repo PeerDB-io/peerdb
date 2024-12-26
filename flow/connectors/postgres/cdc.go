@@ -178,7 +178,8 @@ func (qProcessor) Process(
 		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.TextFormatCode, customTypeMapping)
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
-				slog.String("columnName", col.Name), slog.Int64("dataType", int64(col.DataType)))
+				slog.String("columnName", col.Name), slog.Int64("dataType", int64(col.DataType)),
+				slog.String("data", string(tuple.Data)))
 			return fmt.Errorf("error decoding text column data: %w", err)
 		}
 		items.AddColumn(col.Name, data)
