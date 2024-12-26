@@ -472,6 +472,7 @@ var (
 	_ CDCNormalizeConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
 	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
 

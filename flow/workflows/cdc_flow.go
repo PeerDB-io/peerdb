@@ -58,8 +58,7 @@ func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
 	})
 
 	var result T
-	err := sideEffect.Get(&result)
-	if err != nil {
+	if err := sideEffect.Get(&result); err != nil {
 		panic(err)
 	}
 	return result
