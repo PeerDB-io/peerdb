@@ -531,6 +531,9 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		var err error
 		switch config.System {
 		case protos.TypeSystem_Q:
+			if config.DestinationTableIdentifier == "messages" {
+				return nil
+			}
 			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
 			outstream := stream
 			if config.Script != "" {
