@@ -147,5 +147,4 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 	version, _ := rr.GetString(0, 0)
 	c.logger.Info("[mysql] version", slog.String("version", version))
 	return version, nil
-
 }

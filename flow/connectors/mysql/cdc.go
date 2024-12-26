@@ -253,7 +253,7 @@ func (c *MySqlConnector) PullRecords(
 			}
 		}
 
-		if recordCount >= 0 && recordCount >= req.MaxBatchSize {
+		if recordCount >= req.MaxBatchSize {
 			return nil
 		}
 	}

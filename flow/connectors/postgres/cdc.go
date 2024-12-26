@@ -406,8 +406,7 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if p.commitLock == nil {
-			cdclen := cdcRecordsStorage.Len()
-			if cdclen >= 0 && uint32(cdclen) >= req.MaxBatchSize {
+			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
 				return nil
 			}
 
@@ -616,7 +615,9 @@ func PullCdcRecords[Items model.Items](
 						if cdcRecordsStorage.IsEmpty() {
 							if int64(clientXLogPos) > req.ConsumedOffset.Load() {
 								metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-								if err := metadata.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)}); err != nil {
+								if err := metadata.SetLastOffset(
+									ctx, req.FlowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)},
+								); err != nil {
 									return err
 								}
 								req.ConsumedOffset.Store(int64(clientXLogPos))
