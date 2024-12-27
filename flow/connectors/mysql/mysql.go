@@ -29,6 +29,10 @@ type MySqlConnector struct {
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
+	if err != nil {
+		return nil, err
+	}
 	syncer := replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:   1729, // TODO put in config (or generate randomly, which is what go-mysql-org does)
 		Flavor:     config.Flavor,
@@ -40,9 +44,10 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		ParseTime:  true,
 	})
 	return &MySqlConnector{
-		config: config,
-		syncer: syncer,
-		logger: shared.LoggerFromCtx(ctx),
+		PostgresMetadata: pgMetadata,
+		config:           config,
+		syncer:           syncer,
+		logger:           shared.LoggerFromCtx(ctx),
 	}, nil
 }
 
