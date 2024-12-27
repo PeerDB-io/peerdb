@@ -141,14 +141,6 @@ func (c *KafkaConnector) CreateRawTable(ctx context.Context, req *protos.CreateR
 	return &protos.CreateRawTableOutput{TableIdentifier: "n/a"}, nil
 }
 
-func (c *KafkaConnector) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
-}
-
-func (c *KafkaConnector) SetupMetadataTables(_ context.Context) error {
-	return nil
-}
-
 func (c *KafkaConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
 	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
 ) error {

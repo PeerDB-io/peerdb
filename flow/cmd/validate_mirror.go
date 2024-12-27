@@ -63,6 +63,11 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 	sourcePeerConfig := sourcePeer.GetPostgresConfig()
 	if sourcePeerConfig == nil {
+		if sourcePeer.GetMysqlConfig() != nil {
+			// TODO mysql validation
+			// eg disable json diff, only row based replication supported, ...
+			return &protos.ValidateCDCMirrorResponse{}, nil
+		}
 		slog.Error("/validatecdc source peer config is not postgres", slog.String("peer", req.ConnectionConfigs.SourceName))
 		return nil, errors.New("source peer config is not postgres")
 	}

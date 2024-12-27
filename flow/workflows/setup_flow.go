@@ -65,20 +65,18 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 		PeerName: config.SourceName,
 		FlowName: config.FlowJobName,
 	})
-	var srcConnStatus activities.CheckConnectionResult
-	if err := srcConnStatusFuture.Get(checkCtx, &srcConnStatus); err != nil {
-		return fmt.Errorf("failed to check source peer connection: %w", err)
-	}
-
 	dstSetupInput := &protos.SetupInput{
 		Env:      config.Env,
 		PeerName: config.DestinationName,
 		FlowName: config.FlowJobName,
 	}
+	destConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckMetadataTables, dstSetupInput)
+	if err := srcConnStatusFuture.Get(checkCtx, nil); err != nil {
+		return fmt.Errorf("failed to check source peer connection: %w", err)
+	}
 
 	// then check the destination peer connection
-	destConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckConnection, dstSetupInput)
-	var destConnStatus activities.CheckConnectionResult
+	var destConnStatus activities.CheckMetadataTablesResult
 	if err := destConnStatusFuture.Get(checkCtx, &destConnStatus); err != nil {
 		return fmt.Errorf("failed to check destination peer connection: %w", err)
 	}
@@ -90,8 +88,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 		setupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 2 * time.Minute,
 		})
-		fDst := workflow.ExecuteActivity(setupCtx, flowable.SetupMetadataTables, dstSetupInput)
-		if err := fDst.Get(setupCtx, nil); err != nil {
+		if err := workflow.ExecuteActivity(setupCtx, flowable.SetupMetadataTables, dstSetupInput).Get(setupCtx, nil); err != nil {
 			return fmt.Errorf("failed to setup destination peer metadata tables: %w", err)
 		}
 	} else {

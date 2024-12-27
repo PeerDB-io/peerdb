@@ -64,8 +64,8 @@ func (p *PostgresMetadata) LogFlowInfo(ctx context.Context, flowName string, inf
 	return err
 }
 
-func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
+func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) (bool, error) {
+	return false, nil
 }
 
 func (p *PostgresMetadata) SetupMetadataTables(_ context.Context) error {

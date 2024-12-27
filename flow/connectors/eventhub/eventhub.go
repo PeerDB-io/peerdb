@@ -75,14 +75,6 @@ func (c *EventHubConnector) ConnectionActive(ctx context.Context) error {
 	return nil
 }
 
-func (c *EventHubConnector) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
-}
-
-func (c *EventHubConnector) SetupMetadataTables(_ context.Context) error {
-	return nil
-}
-
 func lvalueToEventData(ls *lua.LState, value lua.LValue) (ScopedEventhubData, error) {
 	var scoped ScopedEventhubData
 	switch v := value.(type) {

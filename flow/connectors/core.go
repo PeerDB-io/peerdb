@@ -150,7 +150,7 @@ type CDCSyncConnectorCore interface {
 	Connector
 
 	// NeedsSetupMetadataTables checks if the metadata table [PEERDB_MIRROR_JOBS] needs to be created.
-	NeedsSetupMetadataTables(ctx context.Context) bool
+	NeedsSetupMetadataTables(ctx context.Context) (bool, error)
 
 	// SetupMetadataTables creates the metadata table [PEERDB_MIRROR_JOBS] if necessary.
 	SetupMetadataTables(ctx context.Context) error

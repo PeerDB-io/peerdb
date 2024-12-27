@@ -32,8 +32,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-// CheckConnectionResult is the result of a CheckConnection call.
-type CheckConnectionResult struct {
+type CheckMetadataTablesResult struct {
 	NeedsSetupMetadataTables bool
 }
 
@@ -58,18 +57,39 @@ type FlowableActivity struct {
 func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
 	config *protos.SetupInput,
-) (*CheckConnectionResult, error) {
+) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		a.Alerter.LogFlowError(ctx, config.FlowName, err)
+		return fmt.Errorf("failed to get connector: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, conn)
+
+	return conn.ConnectionActive(ctx)
+}
+
+func (a *FlowableActivity) CheckMetadataTables(
+	ctx context.Context,
+	config *protos.SetupInput,
+) (*CheckMetadataTablesResult, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
+	conn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(ctx, dstConn)
+	defer connectors.CloseConnector(ctx, conn)
 
-	needsSetup := dstConn.NeedsSetupMetadataTables(ctx)
+	needsSetup, err := conn.NeedsSetupMetadataTables(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	return &CheckConnectionResult{
+	return &CheckMetadataTablesResult{
 		NeedsSetupMetadataTables: needsSetup,
 	}, nil
 }

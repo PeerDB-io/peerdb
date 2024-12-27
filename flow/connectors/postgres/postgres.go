@@ -272,15 +272,12 @@ func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 }
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
-func (c *PostgresConnector) NeedsSetupMetadataTables(ctx context.Context) bool {
+func (c *PostgresConnector) NeedsSetupMetadataTables(ctx context.Context) (bool, error) {
 	result, err := c.tableExists(ctx, &utils.SchemaTable{
 		Schema: c.metadataSchema,
 		Table:  mirrorJobsTableIdentifier,
 	})
-	if err != nil {
-		return true
-	}
-	return !result
+	return !result, err
 }
 
 // SetupMetadataTables sets up the metadata tables.

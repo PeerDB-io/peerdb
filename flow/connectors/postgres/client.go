@@ -216,7 +216,7 @@ func (c *PostgresConnector) getNullableColumns(ctx context.Context, relID uint32
 
 func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.SchemaTable) (bool, error) {
 	var exists pgtype.Bool
-	err := c.conn.QueryRow(ctx,
+	if err := c.conn.QueryRow(ctx,
 		`SELECT EXISTS (
 			SELECT FROM pg_tables
 			WHERE schemaname = $1
@@ -224,8 +224,7 @@ func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.
 		)`,
 		schemaTable.Schema,
 		schemaTable.Table,
-	).Scan(&exists)
-	if err != nil {
+	).Scan(&exists); err != nil {
 		return false, fmt.Errorf("error checking if table exists: %w", err)
 	}
 
