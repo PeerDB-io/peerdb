@@ -29,9 +29,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
-			err := fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
-			stream.Close(err)
-			return 0, err
+			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
 
@@ -46,9 +44,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	if _, err := tx.Exec(ctx, cursorQuery, args...); err != nil {
 		qe.logger.Info("[pg_query_executor] failed to declare cursor",
 			slog.String("cursorQuery", cursorQuery), slog.Any("error", err))
-		err = fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
-		stream.Close(err)
-		return 0, err
+		return 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
 	}
 
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query))
@@ -72,9 +68,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	qe.logger.Info("Committing transaction")
 	if err := tx.Commit(ctx); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to commit transaction", slog.Any("error", err))
-		err = fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
-		stream.Close(err)
-		return 0, err
+		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] committed transaction for query '%s', rows = %d",
