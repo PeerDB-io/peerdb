@@ -26,8 +26,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	defer shared.RollbackTx(tx, qe.logger)
 
 	if qe.snapshot != "" {
-		_, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot))
-		if err != nil {
+		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
 			err := fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
