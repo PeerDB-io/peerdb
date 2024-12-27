@@ -13,8 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/shared"
 	"go.temporal.io/sdk/activity"
+
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type IncidentIoAlert struct {
