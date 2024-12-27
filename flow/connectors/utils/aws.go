@@ -103,7 +103,7 @@ func (r *ConfigBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCr
 	}, nil
 }
 
-func NewConfigBasedAWSCredentialsProvider(config aws.Config) AWSCredentialsProvider {
+func NewConfigBasedAWSCredentialsProvider(config aws.Config) *ConfigBasedAWSCredentialsProvider {
 	return &ConfigBasedAWSCredentialsProvider{config: config}
 }
 
@@ -132,7 +132,7 @@ func (s *StaticAWSCredentialsProvider) GetEndpointURL() string {
 	return ""
 }
 
-func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) AWSCredentialsProvider {
+func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) *StaticAWSCredentialsProvider {
 	return &StaticAWSCredentialsProvider{
 		credentials: credentials,
 		region:      region,

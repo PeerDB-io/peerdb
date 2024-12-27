@@ -29,6 +29,6 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@971e284b6050e8a5849b72094c50ab08da042db8 # v6
         with:
-          version: v1.61
+          version: v1.62
           working-directory: ./flow
           args: --timeout=10m

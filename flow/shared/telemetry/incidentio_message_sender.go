@@ -30,10 +30,6 @@ type IncidentIoResponse struct {
 }
 
 type IncidentIoMessageSender struct {
-	Sender
-}
-
-type IncidentIoMessageSenderImpl struct {
 	http   *http.Client
 	config IncidentIoMessageSenderConfig
 }
@@ -43,7 +39,7 @@ type IncidentIoMessageSenderConfig struct {
 	Token string
 }
 
-func (i *IncidentIoMessageSenderImpl) SendMessage(
+func (i *IncidentIoMessageSender) SendMessage(
 	ctx context.Context,
 	subject string,
 	body string,
@@ -117,12 +113,12 @@ func (i *IncidentIoMessageSenderImpl) SendMessage(
 	return incidentResponse.Status, nil
 }
 
-func NewIncidentIoMessageSender(_ context.Context, config IncidentIoMessageSenderConfig) (Sender, error) {
+func NewIncidentIoMessageSender(_ context.Context, config IncidentIoMessageSenderConfig) (*IncidentIoMessageSender, error) {
 	client := &http.Client{
 		Timeout: time.Second * 5,
 	}
 
-	return &IncidentIoMessageSenderImpl{
+	return &IncidentIoMessageSender{
 		config: config,
 		http:   client,
 	}, nil
