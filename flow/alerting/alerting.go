@@ -440,13 +440,13 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	}
 	var tags []string
 	if errors.Is(err, context.Canceled) {
-		tags = append(tags, "err:Canceled")
+		tags = append(tags, string(shared.ErrTypeCanceled))
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		tags = append(tags, "err:EOF")
+		tags = append(tags, string(shared.ErrTypeEOF))
 	}
 	if errors.Is(err, net.ErrClosed) {
-		tags = append(tags, "err:Closed")
+		tags = append(tags, string(shared.ErrTypeClosed))
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -454,7 +454,7 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	}
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {
-		tags = append(tags, "err:Net")
+		tags = append(tags, string(shared.ErrTypeNet))
 	}
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 }
