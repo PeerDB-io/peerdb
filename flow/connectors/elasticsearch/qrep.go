@@ -43,6 +43,9 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	startTime := time.Now()
 
 	schema := stream.Schema()
+	if schema.Fields == nil {
+		return 0, stream.Err()
+	}
 
 	var bulkIndexFatalError error
 	var bulkIndexErrors []error

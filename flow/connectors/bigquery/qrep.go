@@ -24,6 +24,9 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	srcSchema := stream.Schema()
+	if srcSchema.Fields == nil {
+		return 0, stream.Err()
+	}
 
 	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, config, partition, srcSchema)
 	if err != nil {

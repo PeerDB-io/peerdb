@@ -194,7 +194,6 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 			slog.Any("error", err), slog.String("query", query))
 		return 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
 	}
-
 	defer rows.Close()
 
 	fieldDescriptions := rows.FieldDescriptions()

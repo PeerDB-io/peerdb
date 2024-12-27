@@ -55,4 +55,7 @@ func (s *QRecordStream) Close(err error) {
 		s.err = err
 		close(s.Records)
 	}
+	if !s.schemaSet {
+		s.SetSchema(qvalue.QRecordSchema{})
+	}
 }

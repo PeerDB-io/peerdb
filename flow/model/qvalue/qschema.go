@@ -34,10 +34,7 @@ func (q QRecordSchema) EqualNames(other QRecordSchema) bool {
 	}
 
 	for i, field := range q.Fields {
-		// ignore the case of the field name convert to lower case
-		f1 := strings.ToLower(field.Name)
-		f2 := strings.ToLower(other.Fields[i].Name)
-		if f1 != f2 {
+		if !strings.EqualFold(field.Name, other.Fields[i].Name) {
 			return false
 		}
 	}

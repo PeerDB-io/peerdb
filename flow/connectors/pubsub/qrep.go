@@ -25,11 +25,14 @@ func (c *PubSubConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int, error) {
 	startTime := time.Now()
-	numRecords := atomic.Int64{}
 	schema := stream.Schema()
+	if schema.Fields == nil {
+		return 0, stream.Err()
+	}
 	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
 	publish := make(chan publishResult, 32)
 	waitChan := make(chan struct{})
+	numRecords := atomic.Int64{}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, &topiccache, publish, queueErr)

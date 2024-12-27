@@ -18,6 +18,9 @@ func (c *S3Connector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int, error) {
 	schema := stream.Schema()
+	if schema.Fields == nil {
+		return 0, stream.Err()
+	}
 
 	dstTableName := config.DestinationTableIdentifier
 	avroSchema, err := getAvroSchema(ctx, config.Env, dstTableName, schema)

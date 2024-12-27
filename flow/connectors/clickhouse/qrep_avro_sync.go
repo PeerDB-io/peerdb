@@ -68,6 +68,9 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	dstTableName := s.config.DestinationTableIdentifier
 
 	schema := stream.Schema()
+	if schema.Fields == nil {
+		return 0, stream.Err()
+	}
 	s.logger.Info("sync function called and schema acquired",
 		slog.String("dstTable", dstTableName))
 
