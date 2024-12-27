@@ -67,9 +67,9 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 ) (int, error) {
 	dstTableName := s.config.DestinationTableIdentifier
 
-	schema := stream.Schema()
-	if schema.Fields == nil {
-		return 0, stream.Err()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
 	}
 	s.logger.Info("sync function called and schema acquired",
 		slog.String("dstTable", dstTableName))
@@ -109,7 +109,12 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	stagingPath := s.credsProvider.BucketPath
 	startTime := time.Now()
 
-	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, stream.Schema())
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
+
+	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema)
 	if err != nil {
 		return 0, err
 	}

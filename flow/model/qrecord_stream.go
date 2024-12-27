@@ -22,9 +22,9 @@ func NewQRecordStream(buffer int) *QRecordStream {
 	}
 }
 
-func (s *QRecordStream) Schema() qvalue.QRecordSchema {
+func (s *QRecordStream) Schema() (qvalue.QRecordSchema, error) {
 	<-s.schemaLatch
-	return s.schema
+	return s.schema, s.Err()
 }
 
 func (s *QRecordStream) SetSchema(schema qvalue.QRecordSchema) {

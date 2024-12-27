@@ -129,9 +129,9 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *goavro.OCFWriter) (int64, error) {
 	logger := shared.LoggerFromCtx(ctx)
-	schema := p.stream.Schema()
-	if schema.Fields == nil {
-		return 0, p.stream.Err()
+	schema, err := p.stream.Schema()
+	if err != nil {
+		return 0, err
 	}
 
 	avroConverter, err := model.NewQRecordAvroConverter(

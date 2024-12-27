@@ -224,7 +224,8 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	args ...interface{},
 ) (*model.QRecordBatch, error) {
 	stream := model.NewQRecordStream(1024)
-	errors := make(chan error, 1)
+	errors := make(chan struct{})
+	var errorsError error
 	qe.logger.Info("Executing and processing query", slog.String("query", query))
 
 	// must wait on errors to close before returning to maintain qe.conn exclusion
@@ -233,23 +234,28 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 		_, err := qe.ExecuteAndProcessQueryStream(ctx, stream, query, args...)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
-			errors <- err
+			errorsError = err
 		}
 	}()
 
 	select {
-	case err := <-errors:
-		return nil, err
+	case <-errors:
+		return nil, errorsError
 	case <-stream.SchemaChan():
+		schema, err := stream.Schema()
+		if err != nil {
+			return nil, err
+		}
 		batch := &model.QRecordBatch{
-			Schema:  stream.Schema(),
+			Schema:  schema,
 			Records: nil,
 		}
 		for record := range stream.Records {
 			batch.Records = append(batch.Records, record)
 		}
-		if err := <-errors; err != nil {
-			return nil, err
+		<-errors
+		if errorsError != nil {
+			return nil, errorsError
 		}
 		if err := stream.Err(); err != nil {
 			return nil, fmt.Errorf("[pg] failed to get record from stream: %w", err)

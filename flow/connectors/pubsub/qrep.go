@@ -25,9 +25,9 @@ func (c *PubSubConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int, error) {
 	startTime := time.Now()
-	schema := stream.Schema()
-	if schema.Fields == nil {
-		return 0, stream.Err()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
 	}
 	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
 	publish := make(chan publishResult, 32)

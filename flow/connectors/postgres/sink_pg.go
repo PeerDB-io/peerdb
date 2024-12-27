@@ -15,6 +15,7 @@ import (
 
 type PgCopyShared struct {
 	schemaLatch chan struct{}
+	err         error
 	schema      []string
 	schemaSet   bool
 }
@@ -109,15 +110,20 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 
 func (p PgCopyWriter) Close(err error) {
 	p.PipeWriter.CloseWithError(err)
+	p.schema.err = err
+	p.SetSchema(nil)
 }
 
-func (p PgCopyReader) GetColumnNames() []string {
+func (p PgCopyReader) GetColumnNames() ([]string, error) {
 	<-p.schema.schemaLatch
-	return p.schema.schema
+	return p.schema.schema, p.schema.err
 }
 
 func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
-	cols := p.GetColumnNames()
+	cols, err := p.GetColumnNames()
+	if err != nil {
+		return 0, err
+	}
 	quotedCols := make([]string, 0, len(cols))
 	for _, col := range cols {
 		quotedCols = append(quotedCols, QuoteIdentifier(col))

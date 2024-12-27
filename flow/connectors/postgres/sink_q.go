@@ -84,9 +84,17 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 }
 
 func (stream RecordStreamSink) CopyInto(ctx context.Context, _ *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
-	return tx.CopyFrom(ctx, table, stream.GetColumnNames(), model.NewQRecordCopyFromSource(stream.QRecordStream))
+	columnNames, err := stream.GetColumnNames()
+	if err != nil {
+		return 0, err
+	}
+	return tx.CopyFrom(ctx, table, columnNames, model.NewQRecordCopyFromSource(stream.QRecordStream))
 }
 
-func (stream RecordStreamSink) GetColumnNames() []string {
-	return stream.Schema().GetColumnNames()
+func (stream RecordStreamSink) GetColumnNames() ([]string, error) {
+	schema, err := stream.Schema()
+	if err != nil {
+		return nil, err
+	}
+	return schema.GetColumnNames(), nil
 }

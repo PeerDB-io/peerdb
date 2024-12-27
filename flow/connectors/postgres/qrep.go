@@ -32,7 +32,7 @@ type QRepPullSink interface {
 }
 
 type QRepSyncSink interface {
-	GetColumnNames() []string
+	GetColumnNames() ([]string, error)
 	CopyInto(context.Context, *PostgresConnector, pgx.Tx, pgx.Identifier) (int64, error)
 }
 
@@ -550,7 +550,10 @@ func syncQRepRecords(
 			upsertMatchCols[col] = struct{}{}
 		}
 
-		columnNames := sink.GetColumnNames()
+		columnNames, err := sink.GetColumnNames()
+		if err != nil {
+			return -1, fmt.Errorf("faild to get column names: %w", err)
+		}
 		setClauseArray := make([]string, 0, len(upsertMatchColsList)+1)
 		selectStrArray := make([]string, 0, len(columnNames))
 		for _, col := range columnNames {
@@ -578,8 +581,7 @@ func syncQRepRecords(
 			setClause,
 		)
 		c.logger.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
-		_, err := tx.Exec(ctx, upsertStmt)
-		if err != nil {
+		if _, err := tx.Exec(ctx, upsertStmt); err != nil {
 			return -1, fmt.Errorf("failed to perform upsert operation: %w", err)
 		}
 	}

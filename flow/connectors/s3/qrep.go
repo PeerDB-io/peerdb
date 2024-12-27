@@ -17,9 +17,9 @@ func (c *S3Connector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	schema := stream.Schema()
-	if schema.Fields == nil {
-		return 0, stream.Err()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
 	}
 
 	dstTableName := config.DestinationTableIdentifier
