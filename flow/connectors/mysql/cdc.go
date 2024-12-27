@@ -60,7 +60,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	rs, err := c.Execute(ctx, fmt.Sprintf("select * from %s limit 0", schemaTable.String()))
+	rs, err := c.Execute(ctx, fmt.Sprintf("select * from %s limit 0", schemaTable.MySQL()))
 	if err != nil {
 		return nil, err
 	}
