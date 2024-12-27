@@ -301,9 +301,7 @@ func (c *MySqlConnector) PullRecords(
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
-	defer func() {
-		req.RecordStream.Close()
-	}()
+	defer req.RecordStream.Close()
 	gset, err := mysql.ParseGTIDSet(c.config.Flavor, req.LastOffset.Text)
 	if err != nil {
 		return err
@@ -323,11 +321,16 @@ func (c *MySqlConnector) PullRecords(
 		}
 	}
 
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, req.IdleTimeout)
+	defer cancelTimeout()
+
 	var recordCount uint32
 	for {
-		// TODO put req.IdleTimeout timer on this
-		event, err := mystream.GetEvent(ctx)
+		event, err := mystream.GetEvent(timeoutCtx)
 		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
 			return err
 		}
 
@@ -355,13 +358,12 @@ func (c *MySqlConnector) PullRecords(
 			}
 			c.replState = newset
 		case *replication.RowsEvent:
-			sourceTableName := string(ev.Table.Table) // TODO need ev.Table.Schema?
+			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			for _, row := range ev.Rows {
 				var record model.Record[model.RecordItems]
-				// TODO need mapping of column index to column name
-				var items model.RecordItems
+				items := model.NewRecordItems(len(row))
 				switch event.Header.EventType {
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return errors.New("mysql v0 replication protocol not supported")
@@ -377,10 +379,10 @@ func (c *MySqlConnector) PullRecords(
 						DestinationTableName: destinationTableName,
 					}
 				case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2:
-					var oldItems model.RecordItems
+					oldItems := model.NewRecordItems(len(row) / 2)
 					for idx, val := range row {
 						fd := schema.Columns[idx>>1]
-						qv := qvalueFromMysql(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
+						qv := qvalueFromMysql(ev.Table.ColumnType[idx>>1], qvalue.QValueKind(fd.Type), val)
 						if (idx & 1) == 0 { // TODO test that it isn't other way around
 							oldItems.AddColumn(fd.Name, qv)
 						} else {
