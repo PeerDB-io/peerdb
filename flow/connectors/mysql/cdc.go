@@ -202,6 +202,10 @@ func (c *MySqlConnector) startCdcStreamingGtid(gset mysql.GTIDSet) (*replication
 	return c.syncer.StartSyncGTID(gset)
 }
 
+func (c *MySqlConnector) closeSyncer() {
+	c.syncer.Close()
+}
+
 func (c *MySqlConnector) ReplPing(context.Context) error {
 	return nil
 }
@@ -308,6 +312,7 @@ func (c *MySqlConnector) PullRecords(
 	if err != nil {
 		return err
 	}
+	defer c.closeSyncer()
 
 	var fetchedBytesCounter metric.Int64Counter
 	if otelManager != nil {
@@ -359,59 +364,74 @@ func (c *MySqlConnector) PullRecords(
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			schema := req.TableNameSchemaMapping[destinationTableName]
-			for _, row := range ev.Rows {
-				var record model.Record[model.RecordItems]
-				items := model.NewRecordItems(len(row))
-				switch event.Header.EventType {
-				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
-					return errors.New("mysql v0 replication protocol not supported")
-				case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2, replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1:
+			switch event.Header.EventType {
+			case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
+				return errors.New("mysql v0 replication protocol not supported")
+			case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2, replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1:
+				for _, row := range ev.Rows {
+					items := model.NewRecordItems(len(row))
 					for idx, val := range row {
 						fd := schema.Columns[idx]
 						items.AddColumn(fd.Name, qvalueFromMysql(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
 					}
-					record = &model.InsertRecord[model.RecordItems]{
+
+					recordCount += 1
+					if err := req.RecordStream.AddRecord(ctx, &model.InsertRecord[model.RecordItems]{
 						BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 						Items:                items,
 						SourceTableName:      sourceTableName,
 						DestinationTableName: destinationTableName,
+					}); err != nil {
+						return err
 					}
-				case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2, replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
-					oldItems := model.NewRecordItems(len(row) / 2)
-					for idx, val := range row {
-						fd := schema.Columns[idx>>1]
-						qv := qvalueFromMysql(ev.Table.ColumnType[idx>>1], qvalue.QValueKind(fd.Type), val)
-						if (idx & 1) == 0 { // TODO test that it isn't other way around
-							oldItems.AddColumn(fd.Name, qv)
-						} else {
-							items.AddColumn(fd.Name, qv)
-						}
+				}
+			case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2, replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
+				// TODO populate UnchangedToastColumns with ev.SkippedColumns
+				for idx := 0; idx < len(ev.Rows); idx += 2 {
+					oldRow := ev.Rows[idx]
+					oldItems := model.NewRecordItems(len(oldRow))
+					for idx, val := range oldRow {
+						fd := schema.Columns[idx]
+						oldItems.AddColumn(fd.Name, qvalueFromMysql(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
 					}
-					record = &model.UpdateRecord[model.RecordItems]{
+					newRow := ev.Rows[idx+1]
+					newItems := model.NewRecordItems(len(newRow))
+					for idx, val := range ev.Rows[idx+1] {
+						fd := schema.Columns[idx]
+						newItems.AddColumn(fd.Name, qvalueFromMysql(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
+					}
+
+					recordCount += 1
+					if err := req.RecordStream.AddRecord(ctx, &model.UpdateRecord[model.RecordItems]{
 						BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 						OldItems:             oldItems,
-						NewItems:             items,
+						NewItems:             newItems,
 						SourceTableName:      sourceTableName,
 						DestinationTableName: destinationTableName,
+					}); err != nil {
+						return err
 					}
-				case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
+				}
+			case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
+				for _, row := range ev.Rows {
+					items := model.NewRecordItems(len(row))
 					for idx, val := range row {
 						fd := schema.Columns[idx]
 						items.AddColumn(fd.Name, qvalueFromMysql(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
 					}
-					record = &model.DeleteRecord[model.RecordItems]{
+
+					recordCount += 1
+					if err := req.RecordStream.AddRecord(ctx, &model.DeleteRecord[model.RecordItems]{
 						BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 						Items:                items,
 						SourceTableName:      sourceTableName,
 						DestinationTableName: destinationTableName,
+					}); err != nil {
+						return err
 					}
-				default:
-					continue
 				}
-				recordCount += 1
-				if err := req.RecordStream.AddRecord(ctx, record); err != nil {
-					return err
-				}
+			default:
+				continue
 			}
 		}
 
