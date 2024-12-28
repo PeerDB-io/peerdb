@@ -4,7 +4,6 @@ import LogsTable from '@/components/LogsTable';
 import { Label } from '@/lib/Label';
 import { useParams } from 'next/navigation';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 
 export default function MirrorError() {
   const params = useParams<{ mirrorName: string }>();

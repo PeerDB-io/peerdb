@@ -12,7 +12,6 @@ import { SearchField } from '@/lib/SearchField';
 import { TextField } from '@/lib/TextField';
 import { useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import { notifyErr } from '../utils/notify';
 
 const ROWS_PER_PAGE = 7;

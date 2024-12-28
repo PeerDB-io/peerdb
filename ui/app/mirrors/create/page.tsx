@@ -20,7 +20,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import ReactSelect, { SingleValue } from 'react-select';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import { InfoPopover } from '../../../components/InfoPopover';
 import PeerDBCodeEditor from '../../../components/PeerDBEditor';
 import { CDCConfig, MirrorType, TableMapRow } from '../../dto/MirrorsDTO';
