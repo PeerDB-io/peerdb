@@ -43,7 +43,7 @@
     "react-dom": "^18.3.1",
     "react-select": "^5.8.1",
     "react-spinners": "^0.15.0",
-    "react-toastify": "^10.0.5",
+    "react-toastify": "^11.0.2",
     "styled-components": "^6.1.13",
     "swr": "^2.2.5",
     "usehooks-ts": "^3.1.0",
