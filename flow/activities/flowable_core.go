@@ -112,10 +112,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
-	shutdown := heartbeatRoutine(ctx, func() string {
-		return "transferring records for job"
-	})
-	defer shutdown()
 
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
@@ -306,7 +302,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	pushedRecordsWithCount := fmt.Sprintf("pushed %d records for batch %d in %v",
 		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second))
-	activity.RecordHeartbeat(ctx, pushedRecordsWithCount)
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
 	if a.OtelManager != nil {
@@ -609,7 +604,6 @@ func (a *FlowableActivity) maintainReplConn(
 	for {
 		select {
 		case <-ticker.C:
-			activity.RecordHeartbeat(ctx, "keep session alive")
 			if err := srcConn.ReplPing(ctx); err != nil {
 				a.Alerter.LogFlowError(ctx, flowName, err)
 				return fmt.Errorf("connection to source down: %w", err)
@@ -636,7 +630,7 @@ func (a *FlowableActivity) normalizeLoop(
 		case req := <-normalize:
 		retryLoop:
 			for {
-				if err := a.StartNormalize(ctx, config, req.BatchID); err != nil {
+				if err := a.startNormalize(ctx, config, req.BatchID); err != nil {
 					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					for {
 						// update req to latest normalize request & retry
