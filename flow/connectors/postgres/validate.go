@@ -14,6 +14,7 @@ import (
 
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 	tableNames []*utils.SchemaTable, pubName string, noCDC bool,
+	excludedColumnsMap map[string][]string,
 ) error {
 	if c.conn == nil {
 		return errors.New("check tables: conn is nil")
@@ -25,10 +26,19 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
 			QuoteLiteral(parsedTable.Schema), QuoteLiteral(parsedTable.Table)))
+
+		selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumnsMap[parsedTable.Schema+"."+parsedTable.Table])
+		if err != nil {
+			return fmt.Errorf("failed to get selected columns for SELECT check: %w", err)
+		}
+		selectedColumnsStr := strings.Join(selectedColumns, ", ")
+		if selectedColumnsStr == "" {
+			selectedColumnsStr = "*"
+		}
 		if err := c.conn.QueryRow(ctx,
-			fmt.Sprintf("SELECT * FROM %s.%s LIMIT 0", QuoteIdentifier(parsedTable.Schema), QuoteIdentifier(parsedTable.Table)),
+			fmt.Sprintf("SELECT %s FROM %s.%s LIMIT 0", selectedColumnsStr, QuoteIdentifier(parsedTable.Schema), QuoteIdentifier(parsedTable.Table)),
 		).Scan(&row); err != nil && err != pgx.ErrNoRows {
-			return err
+			return fmt.Errorf("failed to select from table %s.%s: %w", parsedTable.Schema, parsedTable.Table, err)
 		}
 	}
 

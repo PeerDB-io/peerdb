@@ -801,7 +801,7 @@ func (c *PostgresConnector) GetSelectedColumns(
 			if columnName == excludedColumn {
 				continue
 			}
-			columns = append(columns, columnName)
+			columns = append(columns, QuoteIdentifier(columnName))
 		}
 	}
 
