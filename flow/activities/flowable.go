@@ -143,7 +143,8 @@ func (a *FlowableActivity) SetupTableSchema(
 		return "getting table schema"
 	})
 
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableIdentifiers)
+	excludedColumns := shared.ConstructExcludedColumnsMap(config.TableMappings)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableIdentifiers, excludedColumns)
 	if err != nil {
 		return fmt.Errorf("failed to get GetTableSchemaConnector: %w", err)
 	}

@@ -53,6 +53,31 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	return nil
 }
 
+func RevokePermissionForTableColumns(conn *pgx.Conn,
+	tableIdentifier string,
+	selectedColumns []string) error {
+	schemaTable, err := utils.ParseSchemaTable(tableIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to parse table identifier %s: %w", tableIdentifier, err)
+	}
+
+	// 1. Revoke all permissions on the table
+	if _, err := conn.Exec(context.Background(),
+		fmt.Sprintf("REVOKE ALL ON TABLE %s.%s FROM public", schemaTable.Schema, schemaTable.Table)); err != nil {
+		return fmt.Errorf("failed to revoke permissions on table %s: %w", schemaTable.String(), err)
+	}
+
+	// 2. Grant SELECT permission on the columns
+	for _, col := range selectedColumns {
+		if _, err := conn.Exec(context.Background(),
+			fmt.Sprintf("GRANT SELECT ON %s.%s (%s) TO public", schemaTable.Schema, schemaTable.Table, col)); err != nil {
+			return fmt.Errorf("failed to grant SELECT permission on column %s.%s: %w", schemaTable.String(), col, err)
+		}
+	}
+
+	return nil
+}
+
 func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 	t.Helper()
 

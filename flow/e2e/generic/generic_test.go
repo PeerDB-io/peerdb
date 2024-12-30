@@ -155,7 +155,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err := destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err := destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName}, nil)
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 
@@ -196,7 +196,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName}, nil)
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c2")
@@ -243,7 +243,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName}, nil)
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c3")
@@ -290,7 +290,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName}, nil)
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")
