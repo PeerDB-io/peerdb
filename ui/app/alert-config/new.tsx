@@ -8,7 +8,6 @@ import { Dispatch, SetStateAction, useState } from 'react';
 import ReactSelect from 'react-select';
 import { PulseLoader } from 'react-spinners';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import SelectTheme from '../styles/select';
 import { notifyErr } from '../utils/notify';
 import {

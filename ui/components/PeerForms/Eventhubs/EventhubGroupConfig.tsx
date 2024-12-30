@@ -7,7 +7,6 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { useEffect, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import EventhubsConfig from './EventhubConfig';
 interface EventhubsProps {
   groupConfig: EventHubGroupConfig;

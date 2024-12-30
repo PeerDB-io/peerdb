@@ -4,7 +4,6 @@ import LogsTable from '@/components/LogsTable';
 import { ListMirrorNamesResponse } from '@/grpc_generated/route';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import ReactSelect from 'react-select';
-import 'react-toastify/dist/ReactToastify.css';
 import useSWR from 'swr';
 import { useLocalStorage } from 'usehooks-ts';
 import { fetcher } from '../utils/swr';
