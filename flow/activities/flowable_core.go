@@ -104,11 +104,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a *FlowableActivity,
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
-	cdcState CdcState,
+	srcConn TPull,
+	normRequests chan<- NormalizeBatchRequest,
+	syncingBatchID *atomic.Int64,
+	syncWaiting *atomic.Bool,
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, *pgxpool.Pool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
-) (int64, error) {
+) (*model.SyncResponse, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := activity.GetLogger(ctx)
@@ -118,10 +121,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
-	srcConn := cdcState.connector.(TPull)
-	normChan := cdcState.normalize
 	if err := srcConn.ConnectionActive(ctx); err != nil {
-		return 0, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
+		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
 	}
 
 	batchSize := options.BatchSize
@@ -140,7 +141,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}()
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
-		return 0, err
+		return nil, err
 	}
 
 	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
@@ -149,23 +150,24 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx, config.Env)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
+		return nil, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
 	recordBatchPull := model.NewCDCStream[Items](channelBufferSize)
 	recordBatchSync := recordBatchPull
 	if adaptStream != nil {
 		var err error
 		if recordBatchSync, err = adaptStream(recordBatchPull); err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 
 	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, flowName)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	startTime := time.Now()
+	syncWaiting.Store(false)
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		return pull(srcConn, errCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
@@ -198,24 +200,25 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 				a.Alerter.LogFlowError(ctx, flowName, err)
 			}
 			if temporal.IsApplicationError(err) {
-				return 0, err
+				return nil, err
 			} else {
-				return 0, fmt.Errorf("failed in pull records when: %w", err)
+				return nil, fmt.Errorf("failed in pull records when: %w", err)
 			}
 		}
 		logger.Info("no records to push")
+		syncWaiting.Store(true)
 
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
-			return 0, fmt.Errorf("failed to recreate destination connector: %w", err)
+			return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
 
 		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, recordBatchSync.SchemaDeltas); err != nil {
-			return 0, fmt.Errorf("failed to sync schema: %w", err)
+			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return -1, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
+		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
 	}
 
 	var syncStartTime time.Time
@@ -232,6 +235,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return err
 		}
 		syncBatchID += 1
+		syncingBatchID.Store(syncBatchID)
 		logger.Info("begin pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
 
 		if err := monitoring.AddCDCBatchForFlow(errCtx, a.CatalogPool, flowName, monitoring.CDCBatchInfo{
@@ -271,11 +275,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		if temporal.IsApplicationError(err) {
-			return 0, err
+			return nil, err
 		} else {
-			return 0, fmt.Errorf("failed to pull records: %w", err)
+			return nil, fmt.Errorf("failed to pull records: %w", err)
 		}
 	}
+	syncWaiting.Store(true)
 
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
@@ -285,18 +290,18 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, uint32(res.NumRecordsSynced), lastCheckpoint,
 	); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
-		return 0, err
+		return nil, err
 	}
 
 	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
-		return 0, err
+		return nil, err
 	}
 	if res.TableNameRowsMapping != nil {
 		if err := monitoring.AddCDCBatchTablesForFlow(
 			ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, res.TableNameRowsMapping,
 		); err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 
@@ -315,33 +320,33 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	if recordBatchSync.NeedsNormalize() {
 		parallel, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		var done chan struct{}
 		if !parallel {
 			done = make(chan struct{})
 		}
 		select {
-		case normChan <- NormalizeBatchRequest{BatchID: res.CurrentSyncBatchID, Done: done}:
+		case normRequests <- NormalizeBatchRequest{BatchID: res.CurrentSyncBatchID, Done: done}:
 		case <-ctx.Done():
-			return 0, nil
+			return res, nil
 		}
 		if done != nil {
 			select {
 			case <-done:
 			case <-ctx.Done():
-				return 0, nil
+				return res, nil
 			}
 		}
 	}
 
-	return res.NumRecordsSynced, nil
+	return res, nil
 }
 
 func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*protos.Peer, error) {
@@ -596,7 +601,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 }
 
 func (a *FlowableActivity) maintainReplConn(
-	ctx context.Context, flowName string, srcConn connectors.CDCPullConnector, syncDone <-chan struct{},
+	ctx context.Context, flowName string, srcConn connectors.CDCPullConnectorCore, syncDone <-chan struct{},
 ) error {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
@@ -621,21 +626,26 @@ func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
 	syncDone <-chan struct{},
-	normalize <-chan NormalizeBatchRequest,
+	normalizeRequests <-chan NormalizeBatchRequest,
+	normalizingBatchID *atomic.Int64,
+	normalizeWaiting *atomic.Bool,
 ) {
 	logger := activity.GetLogger(ctx)
 
 	for {
+		normalizeWaiting.Store(true)
 		select {
-		case req := <-normalize:
+		case req := <-normalizeRequests:
+			normalizeWaiting.Store(false)
 		retryLoop:
 			for {
+				normalizingBatchID.Store(req.BatchID)
 				if err := a.startNormalize(ctx, config, req.BatchID); err != nil {
 					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					for {
 						// update req to latest normalize request & retry
 						select {
-						case req = <-normalize:
+						case req = <-normalizeRequests:
 						case <-syncDone:
 							logger.Info("[normalize-loop] syncDone closed before retry")
 							return
@@ -662,9 +672,11 @@ func (a *FlowableActivity) normalizeLoop(
 				break
 			}
 		case <-syncDone:
+			normalizeWaiting.Store(false)
 			logger.Info("[normalize-loop] syncDone closed")
 			return
 		case <-ctx.Done():
+			normalizeWaiting.Store(false)
 			logger.Info("[normalize-loop] context closed")
 			return
 		}
