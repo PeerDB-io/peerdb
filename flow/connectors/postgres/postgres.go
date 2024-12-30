@@ -756,7 +756,7 @@ func (c *PostgresConnector) GetTableSchema(
 	env map[string]string,
 	system protos.TypeSystem,
 	tableIdentifiers []string,
-	excludedColumnsMap map[string][]string,
+	excludedColumnsMap map[string]map[string]struct{},
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
 	for _, tableName := range tableIdentifiers {
@@ -775,14 +775,14 @@ func (c *PostgresConnector) GetTableSchema(
 func (c *PostgresConnector) GetSelectedColumns(
 	ctx context.Context,
 	sourceTable *utils.SchemaTable,
-	excludedColumns []string,
+	excludedColumns map[string]struct{},
 ) ([]string, error) {
 	// Given the list of excluded columns,
 	// we need to get the list of columns that are not excluded
 	getColumnsSQL := "SELECT attname AS column_name, format_type(atttypid, atttypmod) AS data_type, attnotnull AS is_nullable FROM pg_attribute WHERE attrelid = '%s.%s'::regclass AND attnum > 0 AND NOT attisdropped"
 	rows, err := c.conn.Query(ctx, fmt.Sprintf(getColumnsSQL, sourceTable.Schema, sourceTable.Table))
 	if err != nil {
-		slog.Error("error getting selected columns",
+		c.logger.Error("error getting selected columns",
 			slog.Any("error", err),
 			slog.String("table", sourceTable.String()),
 			slog.Any("excludedColumns", excludedColumns))
@@ -797,11 +797,8 @@ func (c *PostgresConnector) GetSelectedColumns(
 			return nil, fmt.Errorf("error scanning column while getting selected columns: %w", err)
 		}
 
-		for _, excludedColumn := range excludedColumns {
-			if columnName == excludedColumn {
-				continue
-			}
-			columns = append(columns, QuoteIdentifier(columnName))
+		if _, ok := excludedColumns[columnName]; !ok {
+			columns = append(columns, columnName)
 		}
 	}
 
@@ -813,7 +810,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	env map[string]string,
 	tableName string,
 	system protos.TypeSystem,
-	excludedColumns []string,
+	excludedColumns map[string]struct{},
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {
@@ -850,14 +847,23 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	selectedColumns, err := c.GetSelectedColumns(ctx, schemaTable, excludedColumns)
-	if err != nil {
-		return nil, err
+	selectedColumnsStr := "*"
+	if len(excludedColumns) > 0 {
+		selectedColumns, err := c.GetSelectedColumns(ctx, schemaTable, excludedColumns)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(selectedColumns) == 0 {
+			return nil, fmt.Errorf("no columns selected for table %s", schemaTable)
+		}
+
+		for i, col := range selectedColumns {
+			selectedColumns[i] = QuoteIdentifier(col)
+		}
+		selectedColumnsStr = strings.Join(selectedColumns, ", ")
 	}
-	selectedColumnsStr := strings.Join(selectedColumns, ",")
-	if selectedColumnsStr == "" {
-		selectedColumnsStr = "*"
-	}
+
 	// Get the column names and types
 	rows, err := c.conn.Query(ctx,
 		fmt.Sprintf(`SELECT %s FROM %s LIMIT 0`, selectedColumnsStr, schemaTable.String()),

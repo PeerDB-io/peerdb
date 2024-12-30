@@ -50,7 +50,7 @@ type GetTableSchemaConnector interface {
 		env map[string]string,
 		system protos.TypeSystem,
 		tableIdentifiers []string,
-		excludedColumnsMap map[string][]string,
+		excludedColumnsMap map[string]map[string]struct{},
 	) (map[string]*protos.TableSchema, error)
 }
 

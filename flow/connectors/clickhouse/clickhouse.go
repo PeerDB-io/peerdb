@@ -461,7 +461,7 @@ func (c *ClickHouseConnector) GetTableSchema(
 	_env map[string]string,
 	_system protos.TypeSystem,
 	tableIdentifiers []string,
-	excludedColumnsMap map[string][]string,
+	excludedColumnsMap map[string]map[string]struct{},
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
 	for _, tableName := range tableIdentifiers {

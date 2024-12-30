@@ -151,10 +151,13 @@ func IsSQLStateError(err error, sqlStates ...string) bool {
 	return errors.As(err, &pgErr) && slices.Contains(sqlStates, pgErr.Code)
 }
 
-func ConstructExcludedColumnsMap(tableMappings []*protos.TableMapping) map[string][]string {
-	excludedColumns := make(map[string][]string, len(tableMappings))
+func ConstructExcludedColumnsMap(tableMappings []*protos.TableMapping) map[string]map[string]struct{} {
+	excludedColumns := make(map[string]map[string]struct{})
 	for _, tm := range tableMappings {
-		excludedColumns[tm.SourceTableIdentifier] = slices.Clone(tm.Exclude)
+		excludedColumns[tm.SourceTableIdentifier] = make(map[string]struct{})
+		for _, excludedCol := range tm.Exclude {
+			excludedColumns[tm.SourceTableIdentifier][excludedCol] = struct{}{}
+		}
 	}
 	return excludedColumns
 }

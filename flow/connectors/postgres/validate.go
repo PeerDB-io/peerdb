@@ -14,7 +14,7 @@ import (
 
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 	tableNames []*utils.SchemaTable, pubName string, noCDC bool,
-	excludedColumnsMap map[string][]string,
+	excludedColumnsMap map[string]map[string]struct{},
 ) error {
 	if c.conn == nil {
 		return errors.New("check tables: conn is nil")
@@ -27,13 +27,18 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
 			QuoteLiteral(parsedTable.Schema), QuoteLiteral(parsedTable.Table)))
 
-		selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumnsMap[parsedTable.Schema+"."+parsedTable.Table])
-		if err != nil {
-			return fmt.Errorf("failed to get selected columns for SELECT check: %w", err)
-		}
-		selectedColumnsStr := strings.Join(selectedColumns, ", ")
-		if selectedColumnsStr == "" {
-			selectedColumnsStr = "*"
+		selectedColumnsStr := "*"
+		if _, ok := excludedColumnsMap[parsedTable.Schema+"."+parsedTable.Table]; ok {
+			selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumnsMap[parsedTable.Schema+"."+parsedTable.Table])
+			if err != nil {
+				return fmt.Errorf("failed to get selected columns for SELECT check: %w", err)
+			}
+
+			for i, col := range selectedColumns {
+				selectedColumns[i] = QuoteIdentifier(col)
+			}
+
+			selectedColumnsStr = strings.Join(selectedColumns, ", ")
 		}
 		if err := c.conn.QueryRow(ctx,
 			fmt.Sprintf("SELECT %s FROM %s.%s LIMIT 0", selectedColumnsStr, QuoteIdentifier(parsedTable.Schema), QuoteIdentifier(parsedTable.Table)),
