@@ -302,7 +302,7 @@ func (a *FlowableActivity) SyncFlow(
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(groupCtx, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(groupCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {

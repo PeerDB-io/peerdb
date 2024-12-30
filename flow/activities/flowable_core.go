@@ -626,13 +626,14 @@ func (a *FlowableActivity) maintainReplConn(
 // Suitable to be run as goroutine
 func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
+	logger log.Logger,
 	config *protos.FlowConnectionConfigs,
 	syncDone <-chan struct{},
 	normalizeRequests <-chan NormalizeBatchRequest,
 	normalizingBatchID *atomic.Int64,
 	normalizeWaiting *atomic.Bool,
 ) {
-	logger := activity.GetLogger(ctx)
+	defer normalizeWaiting.Store(false)
 
 	for {
 		normalizeWaiting.Store(true)
@@ -674,11 +675,9 @@ func (a *FlowableActivity) normalizeLoop(
 				break
 			}
 		case <-syncDone:
-			normalizeWaiting.Store(false)
 			logger.Info("[normalize-loop] syncDone closed")
 			return
 		case <-ctx.Done():
-			normalizeWaiting.Store(false)
 			logger.Info("[normalize-loop] context closed")
 			return
 		}
