@@ -107,7 +107,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	srcConn TPull,
 	normRequests chan<- NormalizeBatchRequest,
 	syncingBatchID *atomic.Int64,
-	syncWaiting *atomic.Bool,
+	syncState *atomic.Pointer[string],
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
 	pull func(TPull, context.Context, *pgxpool.Pool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
@@ -167,7 +167,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	startTime := time.Now()
-	syncWaiting.Store(false)
+	syncState.Store(shared.Ptr("syncing"))
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		return pull(srcConn, errCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
@@ -206,7 +206,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			}
 		}
 		logger.Info("no records to push")
-		syncWaiting.Store(true)
 
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
@@ -214,6 +213,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
 
+		syncState.Store(shared.Ptr("updating schema"))
 		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, recordBatchSync.SchemaDeltas); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
@@ -280,7 +280,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to pull records: %w", err)
 		}
 	}
-	syncWaiting.Store(true)
+	syncState.Store(shared.Ptr("bookkeeping"))
 
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
@@ -319,6 +319,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 	}
 
+	syncState.Store(shared.Ptr("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
@@ -332,6 +333,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		if !parallel {
 			done = make(chan struct{})
 		}
+		syncState.Store(shared.Ptr("normalizing"))
 		select {
 		case normRequests <- NormalizeBatchRequest{BatchID: res.CurrentSyncBatchID, Done: done}:
 		case <-ctx.Done():

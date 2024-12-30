@@ -250,28 +250,26 @@ func (a *FlowableActivity) SyncFlow(
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := activity.GetLogger(ctx)
 
-	currentSyncFlowNum := atomic.Int32{}
-	totalRecordsSynced := atomic.Int64{}
-	normalizingBatchID := atomic.Int64{}
-	normalizeWaiting := atomic.Bool{}
-	syncingBatchID := atomic.Int64{}
-	syncWaiting := atomic.Bool{}
+	var currentSyncFlowNum atomic.Int32
+	var totalRecordsSynced atomic.Int64
+	var normalizingBatchID atomic.Int64
+	var normalizeWaiting atomic.Bool
+	var syncingBatchID atomic.Int64
+	var syncState atomic.Pointer[string]
+	syncState.Store(shared.Ptr("setup"))
 
 	shutdown := heartbeatRoutine(ctx, func() string {
 		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
 		sBatchID := syncingBatchID.Load()
 		nBatchID := normalizingBatchID.Load()
-		var sWaiting, nWaiting string
-		if syncWaiting.Load() {
-			sWaiting = " (W)"
-		}
+		var nWaiting string
 		if normalizeWaiting.Load() {
 			nWaiting = " (W)"
 		}
 		return fmt.Sprintf(
-			"currentSyncFlowNum:%d, totalRecordsSynced:%d, syncingBatchID:%d%s, normalizingBatchID:%d%s",
+			"currentSyncFlowNum:%d, totalRecordsSynced:%d, syncingBatchID:%d (%s), normalizingBatchID:%d%s",
 			currentSyncFlowNum.Load(), totalRecordsSynced.Load(),
-			sBatchID, sWaiting, nBatchID, nWaiting,
+			sBatchID, *syncState.Load(), nBatchID, nWaiting,
 		)
 	})
 	defer shutdown()
@@ -323,12 +321,11 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, &syncingBatchID, &syncWaiting)
+				normRequests, &syncingBatchID, &syncState)
 		} else {
 			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, &syncingBatchID, &syncWaiting)
+				normRequests, &syncingBatchID, &syncState)
 		}
-		syncWaiting.Store(true)
 
 		if syncErr != nil {
 			if groupCtx.Err() != nil {
@@ -336,6 +333,7 @@ func (a *FlowableActivity) SyncFlow(
 				break
 			}
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
+			syncState.Store(shared.Ptr("cleanup"))
 			close(syncDone)
 			return errors.Join(syncErr, group.Wait())
 		} else {
@@ -349,6 +347,7 @@ func (a *FlowableActivity) SyncFlow(
 		}
 	}
 
+	syncState.Store(shared.Ptr("cleanup"))
 	close(syncDone)
 	waitErr := group.Wait()
 	if err := ctx.Err(); err != nil {
@@ -368,7 +367,7 @@ func (a *FlowableActivity) syncRecords(
 	srcConn connectors.CDCPullConnector,
 	normRequests chan<- NormalizeBatchRequest,
 	syncingBatchID *atomic.Int64,
-	syncWaiting *atomic.Bool,
+	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
 	var adaptStream func(stream *model.CDCStream[model.RecordItems]) (*model.CDCStream[model.RecordItems], error)
 	if config.Script != "" {
@@ -413,7 +412,7 @@ func (a *FlowableActivity) syncPg(
 	srcConn connectors.CDCPullPgConnector,
 	normRequests chan<- NormalizeBatchRequest,
 	syncingBatchID *atomic.Int64,
-	syncWaiting *atomic.Bool,
+	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
 	return syncCore(ctx, a, config, options, srcConn, normRequests,
 		syncingBatchID, syncWaiting, nil,
