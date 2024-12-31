@@ -794,7 +794,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	INSERT INTO %s (key, secret) VALUES
-	('init', 'secret');
+	('init_initial_load', 'secret');
 	`, srcFullName))
 	require.NoError(s.t, err)
 
@@ -817,6 +817,12 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO %s (key, secret) VALUES
+	('init_cdc', 'secret');
+	`, srcFullName))
+	require.NoError(s.t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key")
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }

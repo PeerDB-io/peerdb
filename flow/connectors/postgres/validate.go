@@ -14,7 +14,7 @@ import (
 
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 	tableNames []*utils.SchemaTable, pubName string, noCDC bool,
-	excludedColumnsMap map[string]map[string]struct{},
+	excludedColumnsMap map[string][]string,
 ) error {
 	if c.conn == nil {
 		return errors.New("check tables: conn is nil")

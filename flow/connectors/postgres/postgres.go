@@ -756,7 +756,7 @@ func (c *PostgresConnector) GetTableSchema(
 	env map[string]string,
 	system protos.TypeSystem,
 	tableIdentifiers []string,
-	excludedColumnsMap map[string]map[string]struct{},
+	excludedColumnsMap map[string][]string,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
 	for _, tableName := range tableIdentifiers {
@@ -775,11 +775,25 @@ func (c *PostgresConnector) GetTableSchema(
 func (c *PostgresConnector) GetSelectedColumns(
 	ctx context.Context,
 	sourceTable *utils.SchemaTable,
-	excludedColumns map[string]struct{},
+	excludedColumns []string,
 ) ([]string, error) {
-	// Given the list of excluded columns,
-	// we need to get the list of columns that are not excluded
-	getColumnsSQL := "SELECT attname AS column_name, format_type(atttypid, atttypmod) AS data_type, attnotnull AS is_nullable FROM pg_attribute WHERE attrelid = '%s.%s'::regclass AND attnum > 0 AND NOT attisdropped"
+	quotedExcludedColumns := make([]string, 0, len(excludedColumns))
+	for _, col := range excludedColumns {
+		quotedExcludedColumns = append(quotedExcludedColumns, QuoteLiteral(col))
+	}
+	excludedColumnsSQL := ""
+	if len(excludedColumns) > 0 {
+		excludedColumnsSQL = "AND attname NOT IN (" + strings.Join(quotedExcludedColumns, ", ") + ")"
+	}
+
+	getColumnsSQL := `
+		SELECT attname AS column_name
+		FROM pg_attribute
+		WHERE attrelid = '%s.%s'::regclass
+		AND attnum > 0
+		AND NOT attisdropped
+		` + excludedColumnsSQL
+
 	rows, err := c.conn.Query(ctx, fmt.Sprintf(getColumnsSQL, sourceTable.Schema, sourceTable.Table))
 	if err != nil {
 		c.logger.Error("error getting selected columns",
@@ -791,15 +805,11 @@ func (c *PostgresConnector) GetSelectedColumns(
 
 	columns := make([]string, 0)
 	for rows.Next() {
-		var columnName, dataType string
-		var isNullable bool
-		if err := rows.Scan(&columnName, &dataType, &isNullable); err != nil {
+		var columnName string
+		if err := rows.Scan(&columnName); err != nil {
 			return nil, fmt.Errorf("error scanning column while getting selected columns: %w", err)
 		}
-
-		if _, ok := excludedColumns[columnName]; !ok {
-			columns = append(columns, columnName)
-		}
+		columns = append(columns, columnName)
 	}
 
 	return columns, nil
@@ -810,7 +820,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	env map[string]string,
 	tableName string,
 	system protos.TypeSystem,
-	excludedColumns map[string]struct{},
+	excludedColumns []string,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tableName)
 	if err != nil {

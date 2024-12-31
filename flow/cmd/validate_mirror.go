@@ -127,8 +127,8 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 	}
 
-	excludedColumnsMap := shared.ConstructExcludedColumnsMap(req.ConnectionConfigs.TableMappings)
-	if err := pgPeer.CheckSourceTables(ctx, sourceTables, pubName, noCDC, excludedColumnsMap); err != nil {
+	excludedColumnsList := shared.ConstructExcludedColumnsList(req.ConnectionConfigs.TableMappings)
+	if err := pgPeer.CheckSourceTables(ctx, sourceTables, pubName, noCDC, excludedColumnsList); err != nil {
 		displayErr := fmt.Errorf("provided source tables invalidated: %v", err)
 		slog.Error(displayErr.Error())
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
@@ -162,7 +162,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 		defer chPeer.Close()
 
-		res, err := pgPeer.GetTableSchema(ctx, nil, req.ConnectionConfigs.System, srcTableNames, excludedColumnsMap)
+		res, err := pgPeer.GetTableSchema(ctx, nil, req.ConnectionConfigs.System, srcTableNames, excludedColumnsList)
 		if err != nil {
 			displayErr := fmt.Errorf("failed to get source table schema: %v", err)
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
