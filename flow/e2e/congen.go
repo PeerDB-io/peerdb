@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -63,16 +64,20 @@ func RevokePermissionForTableColumns(conn *pgx.Conn,
 
 	// 1. Revoke all permissions on the table
 	if _, err := conn.Exec(context.Background(),
-		fmt.Sprintf("REVOKE ALL ON TABLE %s.%s FROM public", schemaTable.Schema, schemaTable.Table)); err != nil {
+		fmt.Sprintf("REVOKE ALL ON TABLE %s.%s FROM postgres", schemaTable.Schema, schemaTable.Table)); err != nil {
 		return fmt.Errorf("failed to revoke permissions on table %s: %w", schemaTable.String(), err)
 	}
 
+	columns := make([]string, len(selectedColumns))
+	for i, col := range selectedColumns {
+		columns[i] = connpostgres.QuoteIdentifier(col)
+	}
+	columnStr := strings.Join(columns, ", ")
+
 	// 2. Grant SELECT permission on the columns
-	for _, col := range selectedColumns {
-		if _, err := conn.Exec(context.Background(),
-			fmt.Sprintf("GRANT SELECT ON %s.%s (%s) TO public", schemaTable.Schema, schemaTable.Table, col)); err != nil {
-			return fmt.Errorf("failed to grant SELECT permission on column %s.%s: %w", schemaTable.String(), col, err)
-		}
+	if _, err := conn.Exec(context.Background(),
+		fmt.Sprintf("GRANT SELECT (%s) ON %s.%s TO postgres", columnStr, schemaTable.Schema, schemaTable.Table)); err != nil {
+		return fmt.Errorf("failed to grant SELECT permission on columns %s: %w", schemaTable.String(), err)
 	}
 
 	return nil
