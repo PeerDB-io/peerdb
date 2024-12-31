@@ -41,7 +41,9 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 			selectedColumnsStr = strings.Join(selectedColumns, ", ")
 		}
 		if err := c.conn.QueryRow(ctx,
-			fmt.Sprintf("SELECT %s FROM %s.%s LIMIT 0", selectedColumnsStr, QuoteIdentifier(parsedTable.Schema), QuoteIdentifier(parsedTable.Table)),
+			fmt.Sprintf("SELECT %s FROM %s.%s LIMIT 0",
+				selectedColumnsStr, QuoteIdentifier(parsedTable.Schema),
+				QuoteIdentifier(parsedTable.Table)),
 		).Scan(&row); err != nil && err != pgx.ErrNoRows {
 			return fmt.Errorf("failed to select from table %s.%s: %w", parsedTable.Schema, parsedTable.Table, err)
 		}
