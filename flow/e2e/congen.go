@@ -56,7 +56,8 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 
 func RevokePermissionForTableColumns(conn *pgx.Conn,
 	tableIdentifier string,
-	selectedColumns []string) error {
+	selectedColumns []string,
+) error {
 	schemaTable, err := utils.ParseSchemaTable(tableIdentifier)
 	if err != nil {
 		return fmt.Errorf("failed to parse table identifier %s: %w", tableIdentifier, err)
@@ -76,7 +77,8 @@ func RevokePermissionForTableColumns(conn *pgx.Conn,
 
 	// 2. Grant SELECT permission on the columns
 	if _, err := conn.Exec(context.Background(),
-		fmt.Sprintf("GRANT SELECT (%s) ON %s.%s TO postgres", columnStr, schemaTable.Schema, schemaTable.Table)); err != nil {
+		fmt.Sprintf("GRANT SELECT (%s) ON %s.%s TO postgres",
+			columnStr, schemaTable.Schema, schemaTable.Table)); err != nil {
 		return fmt.Errorf("failed to grant SELECT permission on columns %s: %w", schemaTable.String(), err)
 	}
 
