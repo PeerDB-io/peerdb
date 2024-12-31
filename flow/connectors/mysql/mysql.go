@@ -5,6 +5,7 @@ package connmysql
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -16,6 +17,7 @@ import (
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -76,6 +78,7 @@ func (c *MySqlConnector) connect(ctx context.Context, options ...client.Option) 
 func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...interface{}) (*mysql.Result, error) {
 	reconnects := 3
 	for {
+		// TODO need new connection if ctx changes between calls, or make upstream PR
 		if c.conn == nil {
 			var err error
 			var argF []client.Option
@@ -153,4 +156,117 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 	version, _ := rr.GetString(0, 0)
 	c.logger.Info("[mysql] version", slog.String("version", version))
 	return version, nil
+}
+
+func qkindFromMysql(ty uint8) (qvalue.QValueKind, error) {
+	switch ty {
+	case mysql.MYSQL_TYPE_DECIMAL:
+		return qvalue.QValueKindNumeric, nil
+	case mysql.MYSQL_TYPE_TINY:
+		return qvalue.QValueKindInt16, nil // TODO qvalue.QValueKindInt8
+	case mysql.MYSQL_TYPE_SHORT:
+		return qvalue.QValueKindInt16, nil
+	case mysql.MYSQL_TYPE_LONG:
+		return qvalue.QValueKindInt32, nil
+	case mysql.MYSQL_TYPE_FLOAT:
+		return qvalue.QValueKindFloat32, nil
+	case mysql.MYSQL_TYPE_DOUBLE:
+		return qvalue.QValueKindFloat64, nil
+	case mysql.MYSQL_TYPE_NULL:
+		return qvalue.QValueKindInvalid, nil // TODO qvalue.QValueKindNothing
+	case mysql.MYSQL_TYPE_TIMESTAMP:
+		return qvalue.QValueKindTimestamp, nil
+	case mysql.MYSQL_TYPE_LONGLONG:
+		return qvalue.QValueKindInt64, nil
+	case mysql.MYSQL_TYPE_INT24:
+		return qvalue.QValueKindInt32, nil
+	case mysql.MYSQL_TYPE_DATE:
+		return qvalue.QValueKindDate, nil
+	case mysql.MYSQL_TYPE_TIME:
+		return qvalue.QValueKindTime, nil
+	case mysql.MYSQL_TYPE_DATETIME:
+		return qvalue.QValueKindTimestamp, nil
+	case mysql.MYSQL_TYPE_YEAR:
+		return qvalue.QValueKindInt16, nil
+	case mysql.MYSQL_TYPE_NEWDATE:
+		return qvalue.QValueKindDate, nil
+	case mysql.MYSQL_TYPE_VARCHAR:
+		return qvalue.QValueKindString, nil
+	case mysql.MYSQL_TYPE_BIT:
+		return qvalue.QValueKindInt64, nil
+	case mysql.MYSQL_TYPE_TIMESTAMP2:
+		return qvalue.QValueKindTimestamp, nil
+	case mysql.MYSQL_TYPE_DATETIME2:
+		return qvalue.QValueKindTimestamp, nil
+	case mysql.MYSQL_TYPE_TIME2:
+		return qvalue.QValueKindTime, nil
+	case mysql.MYSQL_TYPE_JSON:
+		return qvalue.QValueKindJSON, nil
+	case mysql.MYSQL_TYPE_NEWDECIMAL:
+		return qvalue.QValueKindNumeric, nil
+	case mysql.MYSQL_TYPE_ENUM:
+		return qvalue.QValueKindInt64, nil
+	case mysql.MYSQL_TYPE_SET:
+		return qvalue.QValueKindInt64, nil
+	case mysql.MYSQL_TYPE_TINY_BLOB:
+		return qvalue.QValueKindBytes, nil
+	case mysql.MYSQL_TYPE_MEDIUM_BLOB:
+		return qvalue.QValueKindBytes, nil
+	case mysql.MYSQL_TYPE_LONG_BLOB:
+		return qvalue.QValueKindBytes, nil
+	case mysql.MYSQL_TYPE_BLOB:
+		return qvalue.QValueKindBytes, nil
+	case mysql.MYSQL_TYPE_VAR_STRING:
+		return qvalue.QValueKindString, nil
+	case mysql.MYSQL_TYPE_STRING:
+		return qvalue.QValueKindString, nil
+	case mysql.MYSQL_TYPE_GEOMETRY:
+		return qvalue.QValueKindGeometry, nil
+	default:
+		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %d", ty)
+	}
+}
+
+func qvalueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
+	// TODO fill this in, maybe contribute upstream, figvure out how numeric etc fit in
+	switch v := fv.Value().(type) {
+	case nil:
+		return qvalue.QValueNull(qkind), nil
+	case uint64:
+		// TODO unsigned integers
+		return nil, errors.New("mysql unsigned integers not supported")
+	case int64:
+		switch qkind {
+		case qvalue.QValueKindInt16:
+			return qvalue.QValueInt16{Val: int16(v)}, nil
+		case qvalue.QValueKindInt32:
+			return qvalue.QValueInt32{Val: int32(v)}, nil
+		case qvalue.QValueKindInt64:
+			return qvalue.QValueInt64{Val: v}, nil
+		default:
+			return nil, fmt.Errorf("cannot convert int to %s", qkind)
+		}
+	case float64:
+		switch qkind {
+		case qvalue.QValueKindFloat32:
+			return qvalue.QValueFloat32{Val: float32(v)}, nil
+		case qvalue.QValueKindFloat64:
+			return qvalue.QValueFloat64{Val: float64(v)}, nil
+		default:
+			return nil, fmt.Errorf("cannot convert float to %s", qkind)
+		}
+	case string:
+		switch qkind {
+		case qvalue.QValueKindString:
+			return qvalue.QValueString{Val: v}, nil
+		case qvalue.QValueKindBytes:
+			return qvalue.QValueBytes{Val: []byte(v)}, nil
+		case qvalue.QValueKindJSON:
+			return qvalue.QValueJSON{Val: v}, nil
+		default:
+			return nil, fmt.Errorf("cannot convert string to %s", qkind)
+		}
+	default:
+		return nil, fmt.Errorf("unexpected mysql type %T", v)
+	}
 }

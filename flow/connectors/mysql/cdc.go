@@ -66,74 +66,13 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	}
 	columns := make([]*protos.FieldDescription, 0, len(rs.Values))
 	primary := make([]string, 0)
+
 	for _, field := range rs.Fields {
-		var qkind qvalue.QValueKind
-		switch field.Type {
-		case mysql.MYSQL_TYPE_DECIMAL:
-			qkind = qvalue.QValueKindNumeric
-		case mysql.MYSQL_TYPE_TINY:
-			qkind = qvalue.QValueKindInt16 // TODO qvalue.QValueKindInt8
-		case mysql.MYSQL_TYPE_SHORT:
-			qkind = qvalue.QValueKindInt16
-		case mysql.MYSQL_TYPE_LONG:
-			qkind = qvalue.QValueKindInt32
-		case mysql.MYSQL_TYPE_FLOAT:
-			qkind = qvalue.QValueKindFloat32
-		case mysql.MYSQL_TYPE_DOUBLE:
-			qkind = qvalue.QValueKindFloat64
-		case mysql.MYSQL_TYPE_NULL:
-			qkind = qvalue.QValueKindInvalid // TODO qvalue.QValueKindNothing
-		case mysql.MYSQL_TYPE_TIMESTAMP:
-			qkind = qvalue.QValueKindTimestamp
-		case mysql.MYSQL_TYPE_LONGLONG:
-			qkind = qvalue.QValueKindInt64
-		case mysql.MYSQL_TYPE_INT24:
-			qkind = qvalue.QValueKindInt32
-		case mysql.MYSQL_TYPE_DATE:
-			qkind = qvalue.QValueKindDate
-		case mysql.MYSQL_TYPE_TIME:
-			qkind = qvalue.QValueKindTime
-		case mysql.MYSQL_TYPE_DATETIME:
-			qkind = qvalue.QValueKindTimestamp
-		case mysql.MYSQL_TYPE_YEAR:
-			qkind = qvalue.QValueKindInt16
-		case mysql.MYSQL_TYPE_NEWDATE:
-			qkind = qvalue.QValueKindDate
-		case mysql.MYSQL_TYPE_VARCHAR:
-			qkind = qvalue.QValueKindString
-		case mysql.MYSQL_TYPE_BIT:
-			qkind = qvalue.QValueKindInt64
-		case mysql.MYSQL_TYPE_TIMESTAMP2:
-			qkind = qvalue.QValueKindTimestamp
-		case mysql.MYSQL_TYPE_DATETIME2:
-			qkind = qvalue.QValueKindTimestamp
-		case mysql.MYSQL_TYPE_TIME2:
-			qkind = qvalue.QValueKindTime
-		case mysql.MYSQL_TYPE_JSON:
-			qkind = qvalue.QValueKindJSON
-		case mysql.MYSQL_TYPE_NEWDECIMAL:
-			qkind = qvalue.QValueKindNumeric
-		case mysql.MYSQL_TYPE_ENUM:
-			qkind = qvalue.QValueKindInt64
-		case mysql.MYSQL_TYPE_SET:
-			qkind = qvalue.QValueKindInt64
-		case mysql.MYSQL_TYPE_TINY_BLOB:
-			qkind = qvalue.QValueKindBytes
-		case mysql.MYSQL_TYPE_MEDIUM_BLOB:
-			qkind = qvalue.QValueKindBytes
-		case mysql.MYSQL_TYPE_LONG_BLOB:
-			qkind = qvalue.QValueKindBytes
-		case mysql.MYSQL_TYPE_BLOB:
-			qkind = qvalue.QValueKindBytes
-		case mysql.MYSQL_TYPE_VAR_STRING:
-			qkind = qvalue.QValueKindString
-		case mysql.MYSQL_TYPE_STRING:
-			qkind = qvalue.QValueKindString
-		case mysql.MYSQL_TYPE_GEOMETRY:
-			qkind = qvalue.QValueKindGeometry
-		default:
-			return nil, fmt.Errorf("unknown mysql type %d", field.Type)
+		qkind, err := qkindFromMysql(field.Type)
+		if err != nil {
+			return nil, err
 		}
+
 		column := &protos.FieldDescription{
 			Name:         string(field.Name),
 			Type:         string(qkind),
@@ -242,61 +181,6 @@ func (c *MySqlConnector) RemoveTablesFromPublication(ctx context.Context, req *p
 	return nil
 }
 
-func qvalueFromMysql(mytype byte, qkind qvalue.QValueKind, val any) qvalue.QValue {
-	// TODO signedness, in ev.Table, need to extend QValue system
-	// See go-mysql row_event.go for mapping
-	switch val := val.(type) {
-	case nil:
-		return qvalue.QValueNull(qkind)
-	case int8: // TODO qvalue.Int8
-		return qvalue.QValueInt16{Val: int16(val)}
-	case int16:
-		return qvalue.QValueInt16{Val: val}
-	case int32:
-		return qvalue.QValueInt32{Val: val}
-	case int64:
-		return qvalue.QValueInt64{Val: val}
-	case float32:
-		return qvalue.QValueFloat32{Val: val}
-	case float64:
-		return qvalue.QValueFloat64{Val: val}
-	case decimal.Decimal:
-		return qvalue.QValueNumeric{Val: val}
-	case int:
-		// YEAR: https://dev.mysql.com/doc/refman/8.4/en/year.html
-		return qvalue.QValueInt16{Val: int16(val)}
-	case time.Time:
-		return qvalue.QValueTimestamp{Val: val}
-	case *replication.JsonDiff:
-		// TODO support somehow??
-		return qvalue.QValueNull(qvalue.QValueKindJSON)
-	case []byte:
-		switch mytype {
-		case mysql.MYSQL_TYPE_BLOB:
-			return qvalue.QValueBytes{Val: val}
-		case mysql.MYSQL_TYPE_JSON:
-			return qvalue.QValueJSON{Val: string(val)}
-		case mysql.MYSQL_TYPE_GEOMETRY:
-			// TODO figure out mysql geo encoding
-			return qvalue.QValueGeometry{Val: string(val)}
-		}
-	case string:
-		switch mytype {
-		case mysql.MYSQL_TYPE_TIME:
-			// TODO parse
-		case mysql.MYSQL_TYPE_TIME2:
-			// TODO parse
-		case mysql.MYSQL_TYPE_DATE:
-			// TODO parse
-		case mysql.MYSQL_TYPE_VARCHAR,
-			mysql.MYSQL_TYPE_VAR_STRING,
-			mysql.MYSQL_TYPE_STRING:
-			return qvalue.QValueString{Val: val}
-		}
-	}
-	panic(fmt.Sprintf("unexpected type %T for mysql type %d", val, mytype))
-}
-
 func (c *MySqlConnector) PullRecords(
 	ctx context.Context,
 	catalogPool *pgxpool.Pool,
@@ -372,7 +256,7 @@ func (c *MySqlConnector) PullRecords(
 					items := model.NewRecordItems(len(row))
 					for idx, val := range row {
 						fd := schema.Columns[idx]
-						items.AddColumn(fd.Name, qvalueFromMysql(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
+						items.AddColumn(fd.Name, qvalueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
 					}
 
 					recordCount += 1
@@ -392,13 +276,13 @@ func (c *MySqlConnector) PullRecords(
 					oldItems := model.NewRecordItems(len(oldRow))
 					for idx, val := range oldRow {
 						fd := schema.Columns[idx]
-						oldItems.AddColumn(fd.Name, qvalueFromMysql(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
+						oldItems.AddColumn(fd.Name, qvalueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
 					}
 					newRow := ev.Rows[idx+1]
 					newItems := model.NewRecordItems(len(newRow))
 					for idx, val := range ev.Rows[idx+1] {
 						fd := schema.Columns[idx]
-						newItems.AddColumn(fd.Name, qvalueFromMysql(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
+						newItems.AddColumn(fd.Name, qvalueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
 					}
 
 					recordCount += 1
@@ -417,7 +301,7 @@ func (c *MySqlConnector) PullRecords(
 					items := model.NewRecordItems(len(row))
 					for idx, val := range row {
 						fd := schema.Columns[idx]
-						items.AddColumn(fd.Name, qvalueFromMysql(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
+						items.AddColumn(fd.Name, qvalueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val))
 					}
 
 					recordCount += 1
@@ -439,4 +323,59 @@ func (c *MySqlConnector) PullRecords(
 			return nil
 		}
 	}
+}
+
+func qvalueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) qvalue.QValue {
+	// TODO signedness, in ev.Table, need to extend QValue system
+	// See go-mysql row_event.go for mapping
+	switch val := val.(type) {
+	case nil:
+		return qvalue.QValueNull(qkind)
+	case int8: // TODO qvalue.Int8
+		return qvalue.QValueInt16{Val: int16(val)}
+	case int16:
+		return qvalue.QValueInt16{Val: val}
+	case int32:
+		return qvalue.QValueInt32{Val: val}
+	case int64:
+		return qvalue.QValueInt64{Val: val}
+	case float32:
+		return qvalue.QValueFloat32{Val: val}
+	case float64:
+		return qvalue.QValueFloat64{Val: val}
+	case decimal.Decimal:
+		return qvalue.QValueNumeric{Val: val}
+	case int:
+		// YEAR: https://dev.mysql.com/doc/refman/8.4/en/year.html
+		return qvalue.QValueInt16{Val: int16(val)}
+	case time.Time:
+		return qvalue.QValueTimestamp{Val: val}
+	case *replication.JsonDiff:
+		// TODO support somehow??
+		return qvalue.QValueNull(qvalue.QValueKindJSON)
+	case []byte:
+		switch mytype {
+		case mysql.MYSQL_TYPE_BLOB:
+			return qvalue.QValueBytes{Val: val}
+		case mysql.MYSQL_TYPE_JSON:
+			return qvalue.QValueJSON{Val: string(val)}
+		case mysql.MYSQL_TYPE_GEOMETRY:
+			// TODO figure out mysql geo encoding
+			return qvalue.QValueGeometry{Val: string(val)}
+		}
+	case string:
+		switch mytype {
+		case mysql.MYSQL_TYPE_TIME:
+			// TODO parse
+		case mysql.MYSQL_TYPE_TIME2:
+			// TODO parse
+		case mysql.MYSQL_TYPE_DATE:
+			// TODO parse
+		case mysql.MYSQL_TYPE_VARCHAR,
+			mysql.MYSQL_TYPE_VAR_STRING,
+			mysql.MYSQL_TYPE_STRING:
+			return qvalue.QValueString{Val: val}
+		}
+	}
+	panic(fmt.Sprintf("unexpected type %T for mysql type %d", val, mytype))
 }

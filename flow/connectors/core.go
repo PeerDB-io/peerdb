@@ -485,6 +485,7 @@ var (
 	_ CreateTablesFromExistingConnector = &connsnowflake.SnowflakeConnector{}
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
+	_ QRepPullConnector = &connmysql.MySqlConnector{}
 	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
 
 	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}

@@ -1,4 +1,4 @@
-package connsqlserver
+package connmysql
 
 import (
 	"bytes"
@@ -8,18 +8,20 @@ import (
 	"log/slog"
 	"text/template"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jmoiron/sqlx"
 	"go.temporal.io/sdk/log"
 
 	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
-func (c *SQLServerConnector) GetQRepPartitions(
-	ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition,
+func (c *MySqlConnector) GetQRepPartitions(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkTable == "" {
 		c.logger.Info("watermark table is empty, doing full table refresh")
@@ -41,13 +43,13 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
-		whereClause = fmt.Sprintf(`WHERE %s > :minVal`, quotedWatermarkColumn)
+		whereClause = fmt.Sprintf("WHERE %s > $1", quotedWatermarkColumn)
 	}
 
 	// Query to get the total number of rows in the table
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
 	var minVal interface{}
-	var totalRows pgtype.Int8
+	var totalRows int64
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -56,52 +58,48 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
 		c.logger.Info(fmt.Sprintf("count query: %s - minVal: %v", countQuery, minVal))
-		params := map[string]interface{}{
-			"minVal": minVal,
+
+		rs, err := c.Execute(ctx, countQuery, minVal)
+		if err != nil {
+			return nil, err
 		}
 
-		err := func() error {
-			//nolint:sqlclosecheck
-			rows, err := c.db.NamedQuery(countQuery, params)
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
-
-			if rows.Next() {
-				if err := rows.Scan(&totalRows); err != nil {
-					return err
-				}
-			}
-			return rows.Err()
-		}()
+		totalRows, err = rs.GetInt(0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
 		}
-	} else if err := c.db.QueryRowContext(ctx, countQuery).Scan(&totalRows); err != nil {
-		return nil, fmt.Errorf("failed to query for total rows: %w", err)
+	} else {
+		rs, err := c.Execute(ctx, countQuery)
+		if err != nil {
+			return nil, err
+		}
+
+		totalRows, err = rs.GetInt(0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query for total rows: %w", err)
+		}
 	}
 
-	if totalRows.Int64 == 0 {
+	if totalRows == 0 {
 		c.logger.Warn("no records to replicate, returning")
 		return make([]*protos.QRepPartition, 0), nil
 	}
 
 	// Calculate the number of partitions
-	numPartitions := totalRows.Int64 / numRowsPerPartition
-	if totalRows.Int64%numRowsPerPartition != 0 {
+	numPartitions := totalRows / numRowsPerPartition
+	if totalRows%numRowsPerPartition != 0 {
 		numPartitions++
 	}
 	c.logger.Info(fmt.Sprintf("total rows: %d, num partitions: %d, num rows per partition: %d",
-		totalRows.Int64, numPartitions, numRowsPerPartition))
-	var rows *sqlx.Rows
+		totalRows, numPartitions, numRowsPerPartition))
+	var rs *mysql.Result
 	if minVal != nil {
 		// Query to get partitions using window functions
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
 					FROM (
 						SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket_v, %s as v_from
-						FROM %s WHERE %s > :minVal
+						FROM %s WHERE %s > $1
 					) AS subquery
 					GROUP BY bucket_v
 					ORDER BY start_v`,
@@ -112,10 +110,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			quotedWatermarkColumn,
 		)
 		c.logger.Info(fmt.Sprintf("partitions query: %s - minVal: %v", partitionsQuery, minVal))
-		params := map[string]interface{}{
-			"minVal": minVal,
-		}
-		rows, err = c.db.NamedQuery(partitionsQuery, params)
+		rs, err = c.Execute(ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
@@ -131,23 +126,15 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			config.WatermarkTable,
 		)
 		c.logger.Info("partitions query: " + partitionsQuery)
-		rows, err = c.db.Queryx(partitionsQuery)
+		rs, err = c.Execute(ctx, partitionsQuery)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
-	defer rows.Close()
-
 	partitionHelper := utils.NewPartitionHelper()
-	for rows.Next() {
-		var bucket pgtype.Int8
-		var start, end interface{}
-		if err := rows.Scan(&bucket, &start, &end); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
-		}
-
-		if err := partitionHelper.AddPartition(start, end); err != nil {
+	for _, row := range rs.Values {
+		if err := partitionHelper.AddPartition(row[1].Value(), row[2].Value()); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
 	}
@@ -155,7 +142,8 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	return partitionHelper.GetPartitions(), nil
 }
 
-func (c *SQLServerConnector) PullQRepRecords(
+// TODO use ExecuteStreamingSelect
+func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
@@ -168,11 +156,11 @@ func (c *SQLServerConnector) PullQRepRecords(
 		return 0, err
 	}
 
-	var qbatch *model.QRecordBatch
+	var rs *mysql.Result
 	if last.FullTablePartition {
-		// this is a full table partition, so just run the query
 		var err error
-		qbatch, err = c.ExecuteAndProcessQuery(ctx, query)
+		// this is a full table partition, so just run the query
+		rs, err = c.Execute(ctx, query)
 		if err != nil {
 			return 0, err
 		}
@@ -193,17 +181,40 @@ func (c *SQLServerConnector) PullQRepRecords(
 		}
 
 		var err error
-		qbatch, err = c.NamedExecuteAndProcessQuery(ctx, query, map[string]interface{}{
-			"startRange": rangeStart,
-			"endRange":   rangeEnd,
-		})
+		rs, err = c.Execute(ctx, query, rangeStart, rangeEnd)
 		if err != nil {
 			return 0, err
 		}
 	}
 
-	qbatch.FeedToQRecordStream(stream)
-	return len(qbatch.Records), nil
+	schema := make([]qvalue.QField, 0, len(rs.Fields))
+	for _, field := range rs.Fields {
+		qkind, err := qkindFromMysql(field.Type)
+		if err != nil {
+			return 0, err
+		}
+
+		schema = append(schema, qvalue.QField{
+			Name:      string(field.Name),
+			Type:      qkind,
+			Precision: 0, // TODO numerics
+			Scale:     0, // TODO numerics
+			Nullable:  (field.Flag & mysql.NOT_NULL_FLAG) == 0,
+		})
+	}
+	stream.SetSchema(qvalue.QRecordSchema{Fields: schema})
+	for _, row := range rs.Values {
+		record := make([]qvalue.QValue, 0, len(row))
+		for idx, val := range row {
+			qv, err := qvalueFromMysqlFieldValue(schema[idx].Type, val)
+			if err != nil {
+				return 0, err
+			}
+			record = append(record, qv)
+		}
+		stream.Records <- record
+	}
+	return len(rs.Values), nil
 }
 
 func BuildQuery(logger log.Logger, query string) (string, error) {
@@ -213,8 +224,8 @@ func BuildQuery(logger log.Logger, query string) (string, error) {
 	}
 
 	data := map[string]interface{}{
-		"start": ":startRange",
-		"end":   ":endRange",
+		"start": "$1",
+		"end":   "$2",
 	}
 
 	buf := new(bytes.Buffer)
@@ -223,6 +234,6 @@ func BuildQuery(logger log.Logger, query string) (string, error) {
 	}
 	res := buf.String()
 
-	logger.Info("[ss] templated query", slog.String("query", res))
+	logger.Info("[mysql] templated query", slog.String("query", res))
 	return res, nil
 }
