@@ -457,7 +457,8 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		tags = append(tags, string(shared.ErrTypeNet))
 	}
 	// For SSH connection errors, we currently tag them as "err:Net"
-	if strings.Contains(errorWithStack, "ssh: rejected") || strings.Contains(errorWithStack, "dial error") {
+	var sshErr *ssh.OpenChannelError
+	if errors.Is(err, sshErr) {
 		tags = append(tags, "err:Net")
 	}
 
