@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/peerdbenv"
@@ -456,6 +457,12 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	if errors.As(err, &netErr) {
 		tags = append(tags, string(shared.ErrTypeNet))
 	}
+	// For SSH connection errors, we currently tag them as "err:Net"
+	var sshErr *ssh.OpenChannelError
+	if errors.As(err, &sshErr) {
+		tags = append(tags, string(shared.ErrTypeNet))
+	}
+
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 }
 
