@@ -3,6 +3,7 @@ package qvalue
 import (
 	"context"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -115,7 +116,11 @@ func GetAvroSchemaFromQValueKind(
 	case QValueKindBoolean:
 		return "boolean", nil
 	case QValueKindBytes:
-		if targetDWH == protos.DBType_CLICKHOUSE {
+		format, err := peerdbenv.PeerDBBinaryFormat(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		if targetDWH == protos.DBType_CLICKHOUSE && format != peerdbenv.BinaryFormatRaw {
 			return "string", nil
 		}
 		return "bytes", nil
@@ -245,6 +250,7 @@ type QValueAvroConverter struct {
 }
 
 func QValueToAvro(
+	ctx context.Context, env map[string]string,
 	value QValue, field *QField, targetDWH protos.DBType, logger log.Logger,
 	unboundedNumericAsString bool,
 ) (any, error) {
@@ -377,7 +383,11 @@ func QValueToAvro(
 	case QValueNumeric:
 		return c.processNumeric(v.Val), nil
 	case QValueBytes:
-		return c.processBytes(v.Val), nil
+		format, err := peerdbenv.PeerDBBinaryFormat(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		return c.processBytes(v.Val, format), nil
 	case QValueJSON:
 		return c.processJSON(v.Val), nil
 	case QValueHStore:
@@ -509,9 +519,17 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 	return rat
 }
 
-func (c *QValueAvroConverter) processBytes(byteData []byte) interface{} {
-	if c.TargetDWH == protos.DBType_CLICKHOUSE {
-		encoded := base64.StdEncoding.EncodeToString(byteData)
+func (c *QValueAvroConverter) processBytes(byteData []byte, format peerdbenv.BinaryFormat) interface{} {
+	if c.TargetDWH == protos.DBType_CLICKHOUSE && format != peerdbenv.BinaryFormatRaw {
+		var encoded string
+		switch format {
+		case peerdbenv.BinaryFormatBase64:
+			encoded = base64.StdEncoding.EncodeToString(byteData)
+		case peerdbenv.BinaryFormatHex:
+			encoded = hex.EncodeToString(byteData)
+		default:
+			panic(fmt.Sprintf("unhandled binary format: %d", format))
+		}
 		if c.Nullable {
 			return goavro.Union("string", encoded)
 		}
