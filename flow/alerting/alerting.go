@@ -459,8 +459,8 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	}
 	// For SSH connection errors, we currently tag them as "err:Net"
 	var sshErr *ssh.OpenChannelError
-	if errors.Is(err, sshErr) {
-		tags = append(tags, "err:Net")
+	if errors.As(err, &sshErr) {
+		tags = append(tags, string(shared.ErrTypeNet))
 	}
 
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
