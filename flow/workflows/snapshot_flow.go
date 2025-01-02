@@ -61,8 +61,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	}
 
 	res := &protos.SetupReplicationOutput{}
-	setupReplicationFuture := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput)
-	if err := setupReplicationFuture.Get(ctx, &res); err != nil {
+	if err := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput).Get(ctx, &res); err != nil {
 		return nil, fmt.Errorf("failed to setup replication on source peer: %w", err)
 	}
 
@@ -250,8 +249,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 		if v.PartitionKey == "" {
 			v.PartitionKey = defaultPartitionCol
 		}
-		err := s.cloneTable(ctx, boundSelector, snapshotName, v)
-		if err != nil {
+		if err := s.cloneTable(ctx, boundSelector, snapshotName, v); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
 			continue
 		}
