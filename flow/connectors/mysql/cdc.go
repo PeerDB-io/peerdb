@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -39,7 +41,7 @@ func (c *MySqlConnector) GetTableSchema(
 			return nil, err
 		}
 		res[tableName] = tableSchema
-		c.logger.Info("fetched schema for table " + tableName)
+		c.logger.Info("fetched schema for table", slog.String("table", tableName))
 	}
 
 	return res, nil
@@ -146,12 +148,34 @@ func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
 	})
 }
 
-//nolint:unused
+func (c *MySqlConnector) startStreaming(pos string) (*replication.BinlogSyncer, *replication.BinlogStreamer, error) {
+	if rest, isFile := strings.CutPrefix(pos, "!f:"); isFile {
+		comma := strings.LastIndexByte(rest, ',')
+		if comma == -1 {
+			return nil, nil, fmt.Errorf("no comma in file/pos offset %s", pos)
+		}
+		offset, err := strconv.ParseUint(rest[comma+1:], 16, 32)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid offset in file<D-o>pos offset %s: %w", pos, err)
+		}
+		return c.startCdcStreamingFilePos(rest[:comma], uint32(offset))
+	} else {
+		gset, err := mysql.ParseGTIDSet(c.config.Flavor, pos)
+		if err != nil {
+			return nil, nil, err
+		}
+		return c.startCdcStreamingGtid(gset)
+	}
+}
+
 func (c *MySqlConnector) startCdcStreamingFilePos(
 	lastOffsetName string, lastOffsetPos uint32,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, error) {
 	syncer := c.startSyncer()
 	stream, err := syncer.StartSync(mysql.Position{Name: lastOffsetName, Pos: lastOffsetPos})
+	if err != nil {
+		syncer.Close()
+	}
 	return syncer, stream, err
 }
 
@@ -159,6 +183,9 @@ func (c *MySqlConnector) startCdcStreamingGtid(gset mysql.GTIDSet) (*replication
 	// https://hevodata.com/learn/mysql-gtids-and-replication-set-up
 	syncer := c.startSyncer()
 	stream, err := syncer.StartSyncGTID(gset)
+	if err != nil {
+		syncer.Close()
+	}
 	return syncer, stream, err
 }
 
@@ -167,7 +194,6 @@ func (c *MySqlConnector) ReplPing(context.Context) error {
 }
 
 func (c *MySqlConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error {
-	// TODO assert c.replState == lastOffset
 	flowName := ctx.Value(shared.FlowNameKey).(string)
 	return c.SetLastOffset(ctx, flowName, lastOffset)
 }
@@ -205,12 +231,8 @@ func (c *MySqlConnector) PullRecords(
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
 	defer req.RecordStream.Close()
-	gset, err := mysql.ParseGTIDSet(c.config.Flavor, req.LastOffset.Text)
-	if err != nil {
-		return err
-	}
 
-	syncer, mystream, err := c.startCdcStreamingGtid(gset)
+	syncer, mystream, err := c.startStreaming(req.LastOffset.Text)
 	if err != nil {
 		return err
 	}
@@ -230,7 +252,7 @@ func (c *MySqlConnector) PullRecords(
 	defer cancelTimeout()
 
 	var recordCount uint32
-	for {
+	for recordCount < req.MaxBatchSize {
 		event, err := mystream.GetEvent(timeoutCtx)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
@@ -246,6 +268,8 @@ func (c *MySqlConnector) PullRecords(
 		}
 
 		switch ev := event.Event.(type) {
+		case *replication.RotateEvent:
+			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%d", string(ev.NextLogName), ev.Position))
 		case *replication.MariadbGTIDEvent:
 			var err error
 			newset, err := ev.GTIDNext()
@@ -253,7 +277,7 @@ func (c *MySqlConnector) PullRecords(
 				// TODO could ignore, but then we might get stuck rereading same batch each time
 				return err
 			}
-			c.replState = newset
+			req.RecordStream.UpdateLatestCheckpointText(newset.String())
 		case *replication.GTIDEvent:
 			var err error
 			newset, err := ev.GTIDNext()
@@ -261,7 +285,10 @@ func (c *MySqlConnector) PullRecords(
 				// TODO could ignore, but then we might get stuck rereading same batch each time
 				return err
 			}
-			c.replState = newset
+			req.RecordStream.UpdateLatestCheckpointText(newset.String())
+		case *replication.PreviousGTIDsEvent:
+			// TODO is this the correct way to handle this event?
+			req.RecordStream.UpdateLatestCheckpointText(ev.GTIDSets)
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
@@ -333,14 +360,10 @@ func (c *MySqlConnector) PullRecords(
 					}
 				}
 			default:
-				continue
 			}
 		}
-
-		if recordCount >= req.MaxBatchSize {
-			return nil
-		}
 	}
+	return nil
 }
 
 func qvalueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) qvalue.QValue {

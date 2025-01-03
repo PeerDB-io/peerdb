@@ -22,10 +22,9 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config    *protos.MySqlConfig
-	conn      *client.Conn
-	logger    log.Logger
-	replState mysql.GTIDSet
+	config *protos.MySqlConfig
+	conn   *client.Conn
+	logger log.Logger
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {

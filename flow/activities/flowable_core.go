@@ -282,6 +282,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
+	logger.Info("batch synced", slog.Any("checkpoint", lastCheckpoint))
 	if err := srcConn.UpdateReplStateLastOffset(ctx, lastCheckpoint); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return 0, err
