@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -526,7 +527,7 @@ func (c *QValueAvroConverter) processBytes(byteData []byte, format peerdbenv.Bin
 		case peerdbenv.BinaryFormatBase64:
 			encoded = base64.StdEncoding.EncodeToString(byteData)
 		case peerdbenv.BinaryFormatHex:
-			encoded = hex.EncodeToString(byteData)
+			encoded = strings.ToUpper(hex.EncodeToString(byteData))
 		default:
 			panic(fmt.Sprintf("unhandled binary format: %d", format))
 		}
