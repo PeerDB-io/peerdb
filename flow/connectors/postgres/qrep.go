@@ -43,12 +43,13 @@ func (c *PostgresConnector) GetQRepPartitions(
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkColumn == "" {
 		// if no watermark column is specified, return a single partition
-		partition := &protos.QRepPartition{
-			PartitionId:        uuid.New().String(),
-			FullTablePartition: true,
-			Range:              nil,
-		}
-		return []*protos.QRepPartition{partition}, nil
+		return []*protos.QRepPartition{
+			{
+				PartitionId:        uuid.New().String(),
+				FullTablePartition: true,
+				Range:              nil,
+			},
+		}, nil
 	}
 
 	// begin a transaction
@@ -135,32 +136,30 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
-					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
-					FROM %[3]s WHERE %[2]s > $1
+				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
+				FROM %[3]s WHERE %[2]s > $1
 			) subquery
 			GROUP BY bucket
-			ORDER BY start
-			`,
+			ORDER BY start`,
 			numPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		c.logger.Info("[row_based_next] partitions query: " + partitionsQuery)
+		c.logger.Info("[row_based_next] partitions query", slog.String("query", partitionsQuery))
 		rows, err = tx.Query(ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
-					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
+				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
 			) subquery
 			GROUP BY bucket
-			ORDER BY start
-			`,
+			ORDER BY start`,
 			numPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		c.logger.Info("[row_based] partitions query: " + partitionsQuery)
+		c.logger.Info("[row_based] partitions query", slog.String("query", partitionsQuery))
 		rows, err = tx.Query(ctx, partitionsQuery)
 	}
 	if err != nil {

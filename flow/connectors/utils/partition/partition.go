@@ -132,7 +132,7 @@ func NewPartitionHelper() *PartitionHelper {
 }
 
 func (p *PartitionHelper) AddPartition(start interface{}, end interface{}) error {
-	slog.Debug(fmt.Sprintf("adding partition - start: %v, end: %v", start, end))
+	slog.Info(fmt.Sprintf("adding partition - start: %v, end: %v", start, end))
 
 	// Skip partition if it's fully contained within the previous one
 	// If it's not fully contained but overlaps, adjust the start

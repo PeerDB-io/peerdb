@@ -23,8 +23,8 @@ func (c *MySqlConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	if config.WatermarkTable == "" {
-		c.logger.Info("watermark table is empty, doing full table refresh")
+	if config.WatermarkColumn == "" {
+		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
 				PartitionId:        uuid.New().String(),
@@ -39,7 +39,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 
 	var err error
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	quotedWatermarkColumn := fmt.Sprintf("\"%s\"", config.WatermarkColumn)
+	quotedWatermarkColumn := fmt.Sprintf("`%s`", config.WatermarkColumn)
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
@@ -96,36 +96,32 @@ func (c *MySqlConnector) GetQRepPartitions(
 	if minVal != nil {
 		// Query to get partitions using window functions
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
-					FROM (
-						SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket_v, %s as v_from
-						FROM %s WHERE %s > $1
-					) AS subquery
-					GROUP BY bucket_v
-					ORDER BY start_v`,
+			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
+			FROM (
+				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
+				FROM %[3]s WHERE %[2]s > $1
+			) AS subquery
+			GROUP BY bucket
+			ORDER BY start`,
 			numPartitions,
 			quotedWatermarkColumn,
-			quotedWatermarkColumn,
 			config.WatermarkTable,
-			quotedWatermarkColumn,
 		)
-		c.logger.Info(fmt.Sprintf("partitions query: %s - minVal: %v", partitionsQuery, minVal))
+		c.logger.Info("partitions query", slog.String("query", partitionsQuery), slog.Any("minVal", minVal))
 		rs, err = c.Execute(ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
-					FROM (
-						SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket_v, %s as v_from
-						FROM %s
-					) AS subquery
-					GROUP BY bucket_v
-					ORDER BY start_v`,
+			`SELECT bucket_v, MIN(%[2]s) AS start, MAX(%[2]s) AS end
+			FROM (
+				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
+			) AS subquery
+			GROUP BY bucket
+			ORDER BY start`,
 			numPartitions,
-			quotedWatermarkColumn,
 			quotedWatermarkColumn,
 			config.WatermarkTable,
 		)
-		c.logger.Info("partitions query: " + partitionsQuery)
+		c.logger.Info("partitions query", slog.String("query", partitionsQuery))
 		rs, err = c.Execute(ctx, partitionsQuery)
 	}
 	if err != nil {
