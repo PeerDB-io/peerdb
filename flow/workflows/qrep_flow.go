@@ -187,9 +187,8 @@ func (q *QRepFlowExecution) getPartitions(
 		},
 	})
 
-	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID)
 	var partitions *protos.QRepParitionResult
-	if err := partitionsFuture.Get(ctx, &partitions); err != nil {
+	if err := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID).Get(ctx, &partitions); err != nil {
 		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
 	}
 
@@ -213,8 +212,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 		},
 	})
 
-	msg := fmt.Sprintf("replicating partition batch - %d", partitions.BatchId)
-	q.logger.Info(msg)
+	q.logger.Info("replicating partition batch", slog.Int64("BatchID", int64(partitions.BatchId)))
 	if err := workflow.ExecuteActivity(ctx,
 		flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to replicate partition: %w", err)
@@ -225,8 +223,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 
 // getPartitionWorkflowID returns the child workflow ID for a new sync flow.
 func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) string {
-	id := GetUUID(ctx)
-	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, id)
+	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, GetUUID(ctx))
 }
 
 // startChildWorkflow starts a single child workflow.
@@ -268,11 +265,10 @@ func (q *QRepFlowExecution) processPartitions(
 
 	partitionWorkflows := make([]workflow.Future, 0, len(batches))
 	for i, parts := range batches {
-		batch := &protos.QRepPartitionBatch{
+		future := q.startChildWorkflow(ctx, &protos.QRepPartitionBatch{
 			Partitions: parts,
 			BatchId:    int32(i + 1),
-		}
-		future := q.startChildWorkflow(ctx, batch)
+		})
 		partitionWorkflows = append(partitionWorkflows, future)
 	}
 
@@ -424,18 +420,16 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 
 func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error {
 	// Support a Query for the current state of the qrep flow.
-	err := workflow.SetQueryHandler(ctx, shared.QRepFlowStateQuery, func() (*protos.QRepFlowState, error) {
+	if err := workflow.SetQueryHandler(ctx, shared.QRepFlowStateQuery, func() (*protos.QRepFlowState, error) {
 		return state, nil
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.QRepFlowStateQuery, err)
 	}
 
 	// Support a Query for the current status of the qrep flow.
-	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
 		return state.CurrentFlowStatus, nil
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
 

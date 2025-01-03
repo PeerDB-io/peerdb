@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -31,8 +32,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
-// CheckConnectionResult is the result of a CheckConnection call.
-type CheckConnectionResult struct {
+type CheckMetadataTablesResult struct {
 	NeedsSetupMetadataTables bool
 }
 
@@ -50,18 +50,39 @@ type FlowableActivity struct {
 func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
 	config *protos.SetupInput,
-) (*CheckConnectionResult, error) {
+) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
+	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
+		a.Alerter.LogFlowError(ctx, config.FlowName, err)
+		return fmt.Errorf("failed to get connector: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, conn)
+
+	return conn.ConnectionActive(ctx)
+}
+
+func (a *FlowableActivity) CheckMetadataTables(
+	ctx context.Context,
+	config *protos.SetupInput,
+) (*CheckMetadataTablesResult, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
+	conn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowName, err)
 		return nil, fmt.Errorf("failed to get connector: %w", err)
 	}
-	defer connectors.CloseConnector(ctx, dstConn)
+	defer connectors.CloseConnector(ctx, conn)
 
-	needsSetup := dstConn.NeedsSetupMetadataTables(ctx)
+	needsSetup, err := conn.NeedsSetupMetadataTables(ctx)
+	if err != nil {
+		return nil, err
+	}
 
-	return &CheckConnectionResult{
+	return &CheckMetadataTablesResult{
 		NeedsSetupMetadataTables: needsSetup,
 	}, nil
 }
@@ -514,15 +535,14 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		return nil, fmt.Errorf("failed to get partitions from source: %w", err)
 	}
 	if len(partitions) > 0 {
-		err = monitoring.InitializeQRepRun(
+		if err := monitoring.InitializeQRepRun(
 			ctx,
 			a.CatalogPool,
 			config,
 			runUUID,
 			partitions,
 			config.ParentMirrorName,
-		)
-		if err != nil {
+		); err != nil {
 			return nil, err
 		}
 	}
@@ -853,12 +873,30 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 
 	logger.Info(fmt.Sprintf("current last partition value is %v", last))
 
-	result, err := srcConn.CheckForUpdatedMaxValue(ctx, config, last)
+	maxValue, err := srcConn.GetMaxValue(ctx, config, last)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return false, fmt.Errorf("failed to check for new rows: %w", err)
 	}
-	return result, nil
+
+	if maxValue == nil || last == nil || last.Range == nil {
+		return maxValue != nil, nil
+	}
+
+	switch x := last.Range.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		if maxValue.(int64) > x.IntRange.End {
+			return true, nil
+		}
+	case *protos.PartitionRange_TimestampRange:
+		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
+			return true, nil
+		}
+	default:
+		return false, fmt.Errorf("unknown range type: %v", x)
+	}
+
+	return false, nil
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
@@ -979,15 +1017,15 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	err = srcConn.AddTablesToPublication(ctx, &protos.AddTablesToPublicationInput{
+	if err := srcConn.AddTablesToPublication(ctx, &protos.AddTablesToPublicationInput{
 		FlowJobName:      cfg.FlowJobName,
 		PublicationName:  cfg.PublicationName,
 		AdditionalTables: additionalTableMappings,
-	})
-	if err != nil {
+	}); err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (a *FlowableActivity) RemoveTablesFromPublication(
@@ -1002,15 +1040,15 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	err = srcConn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{
+	if err := srcConn.RemoveTablesFromPublication(ctx, &protos.RemoveTablesFromPublicationInput{
 		FlowJobName:     cfg.FlowJobName,
 		PublicationName: cfg.PublicationName,
 		TablesToRemove:  removedTablesMapping,
-	})
-	if err != nil {
+	}); err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (a *FlowableActivity) RemoveTablesFromRawTable(
@@ -1048,16 +1086,16 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	for _, table := range tablesToRemove {
 		tableNames = append(tableNames, table.DestinationTableIdentifier)
 	}
-	err = dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
+	if err := dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
 		FlowJobName:           cfg.FlowJobName,
 		DestinationTableNames: tableNames,
 		SyncBatchId:           syncBatchID,
 		NormalizeBatchId:      normBatchID,
-	})
-	if err != nil {
+	}); err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (a *FlowableActivity) RemoveTablesFromCatalog(
