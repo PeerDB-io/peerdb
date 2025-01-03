@@ -15,6 +15,7 @@ import (
 
 type PgCopyShared struct {
 	schemaLatch chan struct{}
+	err         error
 	schema      []string
 	schemaSet   bool
 }
@@ -54,13 +55,10 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	defer shared.RollbackTx(tx, qe.logger)
 
 	if qe.snapshot != "" {
-		_, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot))
-		if err != nil {
+		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
-			err := fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
-			p.Close(err)
-			return 0, err
+			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
 
@@ -88,17 +86,13 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	if err != nil {
 		qe.logger.Info("[pg_query_executor] failed to copy",
 			slog.String("copyQuery", copyQuery), slog.Any("error", err))
-		err = fmt.Errorf("[pg_query_executor] failed to copy: %w", err)
-		p.Close(err)
-		return 0, err
+		return 0, fmt.Errorf("[pg_query_executor] failed to copy: %w", err)
 	}
 
 	qe.logger.Info("Committing transaction")
 	if err := tx.Commit(ctx); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to commit transaction", slog.Any("error", err))
-		err = fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
-		p.Close(err)
-		return 0, err
+		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
 	totalRecordsFetched := ct.RowsAffected()
@@ -109,15 +103,20 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 
 func (p PgCopyWriter) Close(err error) {
 	p.PipeWriter.CloseWithError(err)
+	p.schema.err = err
+	p.SetSchema(nil)
 }
 
-func (p PgCopyReader) GetColumnNames() []string {
+func (p PgCopyReader) GetColumnNames() ([]string, error) {
 	<-p.schema.schemaLatch
-	return p.schema.schema
+	return p.schema.schema, p.schema.err
 }
 
 func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
-	cols := p.GetColumnNames()
+	cols, err := p.GetColumnNames()
+	if err != nil {
+		return 0, err
+	}
 	quotedCols := make([]string, 0, len(cols))
 	for _, col := range cols {
 		quotedCols = append(quotedCols, QuoteIdentifier(col))

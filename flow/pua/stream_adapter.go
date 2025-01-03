@@ -11,7 +11,11 @@ import (
 func AttachToStream(ls *lua.LState, lfn *lua.LFunction, stream *model.QRecordStream) *model.QRecordStream {
 	output := model.NewQRecordStream(0)
 	go func() {
-		schema := stream.Schema()
+		schema, err := stream.Schema()
+		if err != nil {
+			output.Close(err)
+			return
+		}
 		output.SetSchema(schema)
 		for record := range stream.Records {
 			row := model.NewRecordItems(len(record))

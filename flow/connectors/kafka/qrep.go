@@ -27,7 +27,10 @@ func (c *KafkaConnector) SyncQRepRecords(
 ) (int, error) {
 	startTime := time.Now()
 	numRecords := atomic.Int64{}
-	schema := stream.Schema()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, nil, queueErr)

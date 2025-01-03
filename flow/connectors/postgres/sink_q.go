@@ -26,13 +26,10 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	defer shared.RollbackTx(tx, qe.logger)
 
 	if qe.snapshot != "" {
-		_, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot))
-		if err != nil {
+		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
-			err := fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
-			stream.Close(err)
-			return 0, err
+			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
 
@@ -47,9 +44,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	if _, err := tx.Exec(ctx, cursorQuery, args...); err != nil {
 		qe.logger.Info("[pg_query_executor] failed to declare cursor",
 			slog.String("cursorQuery", cursorQuery), slog.Any("error", err))
-		err = fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
-		stream.Close(err)
-		return 0, err
+		return 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
 	}
 
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query))
@@ -73,9 +68,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	qe.logger.Info("Committing transaction")
 	if err := tx.Commit(ctx); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to commit transaction", slog.Any("error", err))
-		err = fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
-		stream.Close(err)
-		return 0, err
+		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] committed transaction for query '%s', rows = %d",
@@ -84,9 +77,17 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 }
 
 func (stream RecordStreamSink) CopyInto(ctx context.Context, _ *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
-	return tx.CopyFrom(ctx, table, stream.GetColumnNames(), model.NewQRecordCopyFromSource(stream.QRecordStream))
+	columnNames, err := stream.GetColumnNames()
+	if err != nil {
+		return 0, err
+	}
+	return tx.CopyFrom(ctx, table, columnNames, model.NewQRecordCopyFromSource(stream.QRecordStream))
 }
 
-func (stream RecordStreamSink) GetColumnNames() []string {
-	return stream.Schema().GetColumnNames()
+func (stream RecordStreamSink) GetColumnNames() ([]string, error) {
+	schema, err := stream.Schema()
+	if err != nil {
+		return nil, err
+	}
+	return schema.GetColumnNames(), nil
 }

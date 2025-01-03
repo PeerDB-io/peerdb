@@ -44,7 +44,10 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
-	schema := stream.Schema()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, stream.Err()
+	}
 
 	s.logger.Info("sync function called and schema acquired", tableLog)
 
@@ -95,11 +98,13 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 
-	schema := stream.Schema()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 	s.logger.Info("sync function called and schema acquired", partitionLog)
 
-	err := s.addMissingColumns(ctx, config.Env, schema, dstTableSchema, dstTableName, partition)
-	if err != nil {
+	if err := s.addMissingColumns(ctx, config.Env, schema, dstTableSchema, dstTableName, partition); err != nil {
 		return 0, err
 	}
 
