@@ -8,11 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
+
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type IncidentIoAlert struct {
@@ -48,6 +51,15 @@ func (i *IncidentIoMessageSender) SendMessage(
 	activityInfo := activity.Info{}
 	if activity.IsActivity(ctx) {
 		activityInfo = activity.GetInfo(ctx)
+	}
+
+	if shared.SkipSendingToIncidentIo(attributes.Tags) {
+		logger := shared.LoggerFromCtx(ctx)
+		logger.Info("skipping incident.io alert",
+			slog.Any("attributes", attributes),
+			slog.String("subject", subject),
+			slog.String("body", body))
+		return "", nil
 	}
 
 	deduplicationString := strings.Join([]string{
