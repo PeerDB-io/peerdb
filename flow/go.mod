@@ -49,7 +49,7 @@ require (
 	github.com/twmb/franz-go v1.18.0
 	github.com/twmb/franz-go/pkg/kadm v1.14.0
 	github.com/twmb/franz-go/plugin/kslog v1.0.0
-	github.com/twpayne/go-geos v0.19.0
+	github.com/twpayne/go-geos v0.19.2
 	github.com/urfave/cli/v3 v3.0.0-beta1
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	github.com/yuin/gopher-lua v1.1.1
@@ -66,7 +66,7 @@ require (
 	golang.org/x/crypto v0.31.0
 	golang.org/x/sync v0.10.0
 	google.golang.org/api v0.214.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20241223144023-3abc09e42ca8
+	google.golang.org/genproto/googleapis/api 26aa7a208def
 	google.golang.org/grpc v1.69.2
 	google.golang.org/protobuf v1.36.1
 	k8s.io/apimachinery v0.32.0
