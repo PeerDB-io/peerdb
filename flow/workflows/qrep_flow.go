@@ -223,8 +223,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 
 // getPartitionWorkflowID returns the child workflow ID for a new sync flow.
 func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) string {
-	id := GetUUID(ctx)
-	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, id)
+	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, GetUUID(ctx))
 }
 
 // startChildWorkflow starts a single child workflow.
@@ -266,11 +265,10 @@ func (q *QRepFlowExecution) processPartitions(
 
 	partitionWorkflows := make([]workflow.Future, 0, len(batches))
 	for i, parts := range batches {
-		batch := &protos.QRepPartitionBatch{
+		future := q.startChildWorkflow(ctx, &protos.QRepPartitionBatch{
 			Partitions: parts,
 			BatchId:    int32(i + 1),
-		}
-		future := q.startChildWorkflow(ctx, batch)
+		})
 		partitionWorkflows = append(partitionWorkflows, future)
 	}
 

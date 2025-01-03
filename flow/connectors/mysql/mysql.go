@@ -92,6 +92,7 @@ func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...interf
 			if err != nil {
 				return nil, fmt.Errorf("failed to connect to mysql server: %w", err)
 			}
+			c.conn.Execute("SET sql_mode = ANSI")
 		}
 
 		rs, err := c.conn.Execute(cmd, args...)
