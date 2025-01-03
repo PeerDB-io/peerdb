@@ -276,7 +276,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		if temporal.IsApplicationError(err) {
 			return 0, err
 		} else {
-			return 0, fmt.Errorf("failed to pull records: %w", err)
+			return 0, fmt.Errorf("[cdc] failed to pull records: %w", err)
 		}
 	}
 
@@ -447,7 +447,7 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		tmp, err := pullRecords(srcConn, errCtx, config, partition, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to pull records: %w", err)
+			return fmt.Errorf("[qrep] failed to pull records: %w", err)
 		}
 		numRecords := int64(tmp)
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(

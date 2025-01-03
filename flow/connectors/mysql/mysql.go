@@ -12,7 +12,6 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
-	"github.com/go-mysql-org/go-mysql/replication"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
@@ -25,7 +24,6 @@ type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
 	config    *protos.MySqlConfig
 	conn      *client.Conn
-	syncer    *replication.BinlogSyncer
 	logger    log.Logger
 	replState mysql.GTIDSet
 }
@@ -35,28 +33,14 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	if err != nil {
 		return nil, err
 	}
-	syncer := replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
-		ServerID:   1729, // TODO put in config (or generate randomly, which is what go-mysql-org does)
-		Flavor:     config.Flavor,
-		Host:       config.Host,
-		Port:       uint16(config.Port),
-		User:       config.User,
-		Password:   config.Password,
-		UseDecimal: true,
-		ParseTime:  true,
-	})
 	return &MySqlConnector{
 		PostgresMetadata: pgMetadata,
 		config:           config,
-		syncer:           syncer,
 		logger:           shared.LoggerFromCtx(ctx),
 	}, nil
 }
 
 func (c *MySqlConnector) Close() error {
-	if c.syncer != nil {
-		c.syncer.Close()
-	}
 	if c.conn != nil {
 		return c.conn.Close()
 	}
@@ -92,7 +76,9 @@ func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...interf
 			if err != nil {
 				return nil, fmt.Errorf("failed to connect to mysql server: %w", err)
 			}
-			c.conn.Execute("SET sql_mode = ANSI")
+			if _, err := c.conn.Execute("SET sql_mode = ANSI"); err != nil {
+				return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
+			}
 		}
 
 		rs, err := c.conn.Execute(cmd, args...)

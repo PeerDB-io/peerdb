@@ -86,8 +86,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	defer conn.Close(context.Background())
 
 	//nolint:gosec // Generate a random schema name, number has no cryptographic significance
-	rndUint := rand.Uint64()
-	schemaName := fmt.Sprintf("test_%d", rndUint)
+	schemaName := fmt.Sprintf("test_%d", rand.Uint64())
 
 	// Create the schema
 	_, err = conn.Exec(context.Background(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))

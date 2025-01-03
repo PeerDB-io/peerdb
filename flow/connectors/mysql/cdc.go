@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -131,18 +132,34 @@ func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
 	return nil
 }
 
+func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
+	//nolint:gosec
+	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
+		ServerID:   rand.Uint32(),
+		Flavor:     c.config.Flavor,
+		Host:       c.config.Host,
+		Port:       uint16(c.config.Port),
+		User:       c.config.User,
+		Password:   c.config.Password,
+		UseDecimal: true,
+		ParseTime:  true,
+	})
+}
+
 //nolint:unused
-func (c *MySqlConnector) startCdcStreamingFilePos(lastOffsetName string, lastOffsetPos uint32) (*replication.BinlogStreamer, error) {
-	return c.syncer.StartSync(mysql.Position{Name: lastOffsetName, Pos: lastOffsetPos})
+func (c *MySqlConnector) startCdcStreamingFilePos(
+	lastOffsetName string, lastOffsetPos uint32,
+) (*replication.BinlogSyncer, *replication.BinlogStreamer, error) {
+	syncer := c.startSyncer()
+	stream, err := syncer.StartSync(mysql.Position{Name: lastOffsetName, Pos: lastOffsetPos})
+	return syncer, stream, err
 }
 
-func (c *MySqlConnector) startCdcStreamingGtid(gset mysql.GTIDSet) (*replication.BinlogStreamer, error) {
+func (c *MySqlConnector) startCdcStreamingGtid(gset mysql.GTIDSet) (*replication.BinlogSyncer, *replication.BinlogStreamer, error) {
 	// https://hevodata.com/learn/mysql-gtids-and-replication-set-up
-	return c.syncer.StartSyncGTID(gset)
-}
-
-func (c *MySqlConnector) closeSyncer() {
-	c.syncer.Close()
+	syncer := c.startSyncer()
+	stream, err := syncer.StartSyncGTID(gset)
+	return syncer, stream, err
 }
 
 func (c *MySqlConnector) ReplPing(context.Context) error {
@@ -192,11 +209,12 @@ func (c *MySqlConnector) PullRecords(
 	if err != nil {
 		return err
 	}
-	mystream, err := c.startCdcStreamingGtid(gset)
+
+	syncer, mystream, err := c.startCdcStreamingGtid(gset)
 	if err != nil {
 		return err
 	}
-	defer c.closeSyncer()
+	defer syncer.Close()
 
 	var fetchedBytesCounter metric.Int64Counter
 	if otelManager != nil {
