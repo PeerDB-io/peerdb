@@ -76,7 +76,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	s.logger.Info("closing slot keep alive for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 5 * time.Minute,
 	})
 
 	if err := workflow.ExecuteActivity(ctx, snapshot.CloseSlotKeepAlive, s.config.FlowJobName).Get(ctx, nil); err != nil {
@@ -309,30 +309,29 @@ func SnapshotFlowWorkflow(
 
 	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel, 1))
 
-	if !config.DoInitialSnapshot {
-		_, err := se.setupReplication(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to setup replication: %w", err)
-		}
-
-		if err := se.closeSlotKeepAlive(ctx); err != nil {
-			return fmt.Errorf("failed to close slot keep alive: %w", err)
-		}
-
-		return nil
-	}
-
 	sessionOpts := &workflow.SessionOptions{
 		CreationTimeout:  5 * time.Minute,
 		ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
 		HeartbeatTimeout: time.Hour,
 	}
-
 	sessionCtx, err := workflow.CreateSession(ctx, sessionOpts)
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 	defer workflow.CompleteSession(sessionCtx)
+
+	if !config.DoInitialSnapshot {
+		_, err := se.setupReplication(sessionCtx)
+		if err != nil {
+			return fmt.Errorf("failed to setup replication: %w", err)
+		}
+
+		if err := se.closeSlotKeepAlive(sessionCtx); err != nil {
+			return fmt.Errorf("failed to close slot keep alive: %w", err)
+		}
+
+		return nil
+	}
 
 	if config.InitialSnapshotOnly {
 		sessionInfo := workflow.GetSessionInfo(sessionCtx)

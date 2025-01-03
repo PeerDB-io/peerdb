@@ -210,6 +210,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 		stream.Records <- record
 	}
+	close(stream.Records)
 	return len(rs.Values), nil
 }
 

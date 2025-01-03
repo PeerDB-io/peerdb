@@ -256,14 +256,14 @@ func qvalueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		default:
 			return nil, fmt.Errorf("cannot convert float to %s", qkind)
 		}
-	case string:
+	case []byte:
 		switch qkind {
 		case qvalue.QValueKindString:
-			return qvalue.QValueString{Val: v}, nil
+			return qvalue.QValueString{Val: string(v)}, nil
 		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: []byte(v)}, nil
+			return qvalue.QValueBytes{Val: v}, nil
 		case qvalue.QValueKindJSON:
-			return qvalue.QValueJSON{Val: v}, nil
+			return qvalue.QValueJSON{Val: string(v)}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert string to %s", qkind)
 		}
