@@ -126,7 +126,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	logger := activity.GetLogger(ctx)
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "transferring records for job"
-	})
+	}, logger)
 	defer shutdown()
 
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
