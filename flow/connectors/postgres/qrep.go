@@ -85,6 +85,10 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
+	c.logger.Info("original numRowsPerPartition", slog.Int64("numRowsPerPartition", numRowsPerPartition))
+	numRowsPerPartition = 100 * numRowsPerPartition
+	c.logger.Info("updated numRowsPerPartition", slog.Int64("numRowsPerPartition", numRowsPerPartition))
+
 	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
 
 	whereClause := ""
