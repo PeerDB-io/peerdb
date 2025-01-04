@@ -366,38 +366,62 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			case "Date32", "Nullable(Date32)":
 				projection.WriteString(fmt.Sprintf(
 					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6)) AS `%s`,",
-					colName,
-					dstColName,
+					colName, dstColName,
 				))
 				if enablePrimaryUpdate {
 					projectionUpdate.WriteString(fmt.Sprintf(
 						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6)) AS `%s`,",
-						colName,
-						dstColName,
+						colName, dstColName,
 					))
 				}
 			case "DateTime64(6)", "Nullable(DateTime64(6))":
 				projection.WriteString(fmt.Sprintf(
 					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6) AS `%s`,",
-					colName,
-					dstColName,
+					colName, dstColName,
 				))
 				if enablePrimaryUpdate {
 					projectionUpdate.WriteString(fmt.Sprintf(
 						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6) AS `%s`,",
-						colName,
-						dstColName,
+						colName, dstColName,
 					))
 				}
 			default:
-				projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", colName, clickHouseType, dstColName))
-				if enablePrimaryUpdate {
-					projectionUpdate.WriteString(fmt.Sprintf(
-						"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
-						colName,
-						clickHouseType,
-						dstColName,
-					))
+				projLen := projection.Len()
+				if colType == qvalue.QValueKindBytes {
+					format, err := peerdbenv.PeerDBBinaryFormat(ctx, req.Env)
+					if err != nil {
+						return model.NormalizeResponse{}, err
+					}
+					switch format {
+					case peerdbenv.BinaryFormatRaw:
+						projection.WriteString(fmt.Sprintf("base64Decode(JSONExtractString(_peerdb_data, '%s')) AS `%s`,", colName, dstColName))
+						if enablePrimaryUpdate {
+							projectionUpdate.WriteString(fmt.Sprintf(
+								"base64Decode(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
+								colName, dstColName,
+							))
+						}
+					case peerdbenv.BinaryFormatHex:
+						projection.WriteString(fmt.Sprintf("hex(base64Decode(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
+							colName, dstColName))
+						if enablePrimaryUpdate {
+							projectionUpdate.WriteString(fmt.Sprintf(
+								"hex(base64Decode(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
+								colName, dstColName,
+							))
+						}
+					}
+				}
+
+				// proceed with default logic if logic above didn't add any sql
+				if projection.Len() == projLen {
+					projection.WriteString(fmt.Sprintf("JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,", colName, clickHouseType, dstColName))
+					if enablePrimaryUpdate {
+						projectionUpdate.WriteString(fmt.Sprintf(
+							"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
+							colName, clickHouseType, dstColName,
+						))
+					}
 				}
 			}
 		}

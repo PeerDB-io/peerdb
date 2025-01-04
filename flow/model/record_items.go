@@ -102,9 +102,8 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 			if len(v.Val) > 15*1024*1024 {
 				jsonStruct[col] = "{}"
 			} else if _, ok := opts.UnnestColumns[col]; ok {
-				var unnestStruct map[string]interface{}
-				err := json.Unmarshal([]byte(v.Val), &unnestStruct)
-				if err != nil {
+				var unnestStruct map[string]any
+				if err := json.Unmarshal([]byte(v.Val), &unnestStruct); err != nil {
 					return nil, err
 				}
 
@@ -185,7 +184,6 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 				}
 			}
 			jsonStruct[col] = nullableFloatArr
-
 		default:
 			jsonStruct[col] = v.Value()
 		}
