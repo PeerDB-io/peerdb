@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/smithy-go/ptr"
@@ -108,8 +109,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_BINARY_FORMAT",
-		Description:      "Binary field encoding; either raw, hex, or base64",
+		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
+		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
 		DefaultValue:     "base64",
 		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
@@ -249,7 +250,8 @@ var DynamicIndex = func() map[string]int {
 type BinaryFormat int
 
 const (
-	BinaryFormatRaw = iota
+	BinaryFormatInvalid = iota
+	BinaryFormatRaw
 	BinaryFormatBase64
 	BinaryFormatHex
 )
@@ -429,11 +431,11 @@ func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 }
 
 func PeerDBBinaryFormat(ctx context.Context, env map[string]string) (BinaryFormat, error) {
-	format, err := dynLookup(ctx, env, "PEERDB_BINARY_FORMAT")
+	format, err := dynLookup(ctx, env, "PEERDB_CLICKHOUSE_BINARY_FORMAT")
 	if err != nil {
 		return 0, err
 	}
-	switch format {
+	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "raw":
 		return BinaryFormatRaw, nil
 	case "hex":

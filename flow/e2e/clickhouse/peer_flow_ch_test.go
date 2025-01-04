@@ -665,9 +665,9 @@ func (s ClickHouseSuite) Test_Unbounded_Numeric_Without_FF() {
 	s.testNumericFF(false)
 }
 
-const rawBinaryFormatTestcase = "\x00\x010123\x7f\xff"
+const binaryFormatTestcase = "\x00\x010123\x7f\xff"
 
-// PEERDB_BINARY_FORMAT
+// PEERDB_CLICKHOUSE_BINARY_FORMAT
 func (s ClickHouseSuite) testBinaryFormat(format string, expected string) {
 	dstTableName := "binary_format_" + format
 	srcFullName := s.attachSchemaSuffix(dstTableName)
@@ -680,7 +680,7 @@ func (s ClickHouseSuite) testBinaryFormat(format string, expected string) {
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s(val) VALUES($1)", srcFullName), []byte(rawBinaryFormatTestcase))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s(val) VALUES($1)", srcFullName), []byte(binaryFormatTestcase))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -690,14 +690,14 @@ func (s ClickHouseSuite) testBinaryFormat(format string, expected string) {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_BINARY_FORMAT": format}
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_BINARY_FORMAT": format}
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,val", 1)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s(val) VALUES($1)", srcFullName), []byte(rawBinaryFormatTestcase))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf("INSERT INTO %s(val) VALUES($1)", srcFullName), []byte(binaryFormatTestcase))
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,val", 2)
 
@@ -714,7 +714,7 @@ func (s ClickHouseSuite) testBinaryFormat(format string, expected string) {
 }
 
 func (s ClickHouseSuite) Test_Binary_Format_Raw() {
-	s.testBinaryFormat("raw", rawBinaryFormatTestcase)
+	s.testBinaryFormat("raw", binaryFormatTestcase)
 }
 
 func (s ClickHouseSuite) Test_Binary_Format_Hex() {
