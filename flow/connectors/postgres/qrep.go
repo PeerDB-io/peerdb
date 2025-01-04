@@ -147,6 +147,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		)
 		c.logger.Info("[row_based_next] partitions query: " + partitionsQuery)
 		rows, err = tx.Query(ctx, partitionsQuery, minVal)
+		c.logger.Info("got partitions for row based next")
 	} else {
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
@@ -162,8 +163,10 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		)
 		c.logger.Info("[row_based] partitions query: " + partitionsQuery)
 		rows, err = tx.Query(ctx, partitionsQuery)
+		c.logger.Info("got partitions for row based")
 	}
 	if err != nil {
+		c.logger.Error("failed to query for partitions", slog.Any("error", err))
 		return nil, shared.LogError(c.logger, fmt.Errorf("failed to query for partitions: %w", err))
 	}
 	defer rows.Close()
@@ -173,22 +176,27 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		var bucket pgtype.Int8
 		var start, end interface{}
 		if err := rows.Scan(&bucket, &start, &end); err != nil {
+			c.logger.Error("failed to scan row", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
 		if err := partitionHelper.AddPartition(start, end); err != nil {
+			c.logger.Error("failed to add partition", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
 	}
 
 	if err := rows.Err(); err != nil {
+		c.logger.Error("failed to read rows", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
+		c.logger.Error("failed to commit transaction", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	c.logger.Info("got partitions", slog.Any("numPartitions", len(partitionHelper.GetPartitions())))
 	return partitionHelper.GetPartitions(), nil
 }
 

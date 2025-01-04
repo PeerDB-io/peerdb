@@ -38,15 +38,19 @@ const (
 func heartbeatRoutine(
 	ctx context.Context,
 	message func() string,
+	logger log.Logger,
 ) func() {
 	counter := 0
-	return shared.Interval(
+	return shared.IntervalWithLogger(
 		ctx,
 		15*time.Second,
 		func() {
 			counter += 1
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("heartbeat #%d: %s", counter, message()))
+			msg := fmt.Sprintf("heartbeat #%d: %s", counter, message())
+			logger.Info(msg)
+			activity.RecordHeartbeat(ctx, msg)
 		},
+		logger,
 	)
 }
 
@@ -490,7 +494,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	logger.Info("replicating xmin")
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "syncing xmin"
-	})
+	}, logger)
 	defer shutdown()
 
 	errGroup, errCtx := errgroup.WithContext(ctx)
