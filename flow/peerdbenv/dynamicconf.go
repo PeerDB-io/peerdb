@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/smithy-go/ptr"
@@ -106,6 +107,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
+		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
+		DefaultValue:     "base64",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_SNOWFLAKE_MERGE_PARALLELISM",
@@ -238,6 +247,15 @@ var DynamicIndex = func() map[string]int {
 	return defaults
 }()
 
+type BinaryFormat int
+
+const (
+	BinaryFormatInvalid = iota
+	BinaryFormatRaw
+	BinaryFormatBase64
+	BinaryFormatHex
+)
+
 func dynLookup(ctx context.Context, env map[string]string, key string) (string, error) {
 	if val, ok := env[key]; ok {
 		return val, nil
@@ -249,6 +267,11 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 		return "", fmt.Errorf("failed to get catalog connection pool: %w", err)
 	}
 
+	var setting *protos.DynamicSetting
+	if idx, ok := DynamicIndex[key]; ok {
+		setting = DynamicSettings[idx]
+	}
+
 	var value pgtype.Text
 	query := "SELECT config_value FROM dynamic_settings WHERE config_name=$1"
 	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && err != pgx.ErrNoRows {
@@ -257,11 +280,20 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 	}
 	if !value.Valid {
 		if val, ok := os.LookupEnv(key); ok {
+			if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
+				env[key] = val
+			}
 			return val, nil
 		}
-		if idx, ok := DynamicIndex[key]; ok {
-			return DynamicSettings[idx].DefaultValue, nil
+		if setting != nil {
+			if env != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
+				env[key] = setting.DefaultValue
+			}
+			return setting.DefaultValue, nil
 		}
+	}
+	if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
+		env[key] = value.String
 	}
 	return value.String, nil
 }
@@ -396,6 +428,23 @@ func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) 
 
 func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
+}
+
+func PeerDBBinaryFormat(ctx context.Context, env map[string]string) (BinaryFormat, error) {
+	format, err := dynLookup(ctx, env, "PEERDB_CLICKHOUSE_BINARY_FORMAT")
+	if err != nil {
+		return 0, err
+	}
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "raw":
+		return BinaryFormatRaw, nil
+	case "hex":
+		return BinaryFormatHex, nil
+	case "base64":
+		return BinaryFormatBase64, nil
+	default:
+		return 0, fmt.Errorf("unknown binary format %s", format)
+	}
 }
 
 func PeerDBEnableClickHousePrimaryUpdate(ctx context.Context, env map[string]string) (bool, error) {
