@@ -177,7 +177,7 @@ func (a *FlowableActivity) SetupTableSchema(
 
 	heartbeatRoutine(ctx, func() string {
 		return "getting table schema"
-	})
+	}, logger)
 
 	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableIdentifiers)
 	if err != nil {
@@ -243,7 +243,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("setting up normalized tables - %d of %d done",
 			numTablesSetup.Load(), len(tableNameSchemaMapping))
-	})
+	}, logger)
 	defer shutdown()
 
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
@@ -414,7 +414,7 @@ func (a *FlowableActivity) StartNormalize(
 
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "normalizing records from batch for job"
-	})
+	}, logger)
 	defer shutdown()
 
 	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, input.FlowConnectionConfigs.FlowJobName)
@@ -487,9 +487,11 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
+	logger := activity.GetLogger(ctx)
+
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "getting partitions for job"
-	})
+	}, logger)
 	defer shutdown()
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
@@ -521,13 +523,13 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	partitions *protos.QRepPartitionBatch,
 	runUUID string,
 ) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
-		return "replicating partitions for job"
-	})
-	defer shutdown()
-
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "replicating partitions for job"
+	}, logger)
+	defer shutdown()
+
 	err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	if err != nil {
 		return fmt.Errorf("failed to update start time for qrep run: %w", err)
@@ -583,6 +585,8 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config *protos.QRepConfig,
 	runUUID string,
 ) error {
+	logger := activity.GetLogger(ctx)
+
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	dstConn, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if errors.Is(err, errors.ErrUnsupported) {
@@ -594,7 +598,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "consolidating partitions for job"
-	})
+	}, logger)
 	defer shutdown()
 
 	if err := dstConn.ConsolidateQRepPartitions(ctx, config); err != nil {
@@ -831,7 +835,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "scanning for new rows"
-	})
+	}, logger)
 	defer shutdown()
 
 	logger.Info(fmt.Sprintf("current last partition value is %v", last))
@@ -846,6 +850,7 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 	conn, err := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -855,7 +860,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "renaming tables for job"
-	})
+	}, logger)
 	defer shutdown()
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema, len(config.RenameTableOptions))
@@ -882,7 +887,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin updating table_schema_mapping: %w", err)
 	}
-	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
 	defer shared.RollbackTx(tx, logger)
 
 	for _, option := range config.RenameTableOptions {
@@ -905,7 +910,7 @@ func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName strin
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName))
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "deleting mirror stats"
-	})
+	}, logger)
 	defer shutdown()
 	err := monitoring.DeleteMirrorStats(ctx, a.CatalogPool, flowName)
 	if err != nil {
