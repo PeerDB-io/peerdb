@@ -47,6 +47,10 @@ type FlowableActivity struct {
 	OtelManager *otel_metrics.OtelManager
 }
 
+type StreamCloser interface {
+	Close(error)
+}
+
 func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
 	config *protos.SetupInput,
