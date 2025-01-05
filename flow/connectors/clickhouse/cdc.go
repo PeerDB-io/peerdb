@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peer-flow/generated/protos"
 	"github.com/PeerDB-io/peer-flow/model"
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peer-flow/peerdbenv"
 	"github.com/PeerDB-io/peer-flow/shared"
 )
 
@@ -45,20 +46,29 @@ func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseNa
 func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
-	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s (
+	peerdbDataType := "String"
+	useJSON, err := peerdbenv.PeerDBClickHouseUseJSONType(ctx, req.Env)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get fetch status of setting PEERDB_CLICKHOUSE_USE_JSON_TYPE: %w", err)
+	}
+	if useJSON {
+		if err := c.enableExperimentalJSONType(ctx); err != nil {
+			return nil, err
+		}
+		peerdbDataType = "JSON"
+	}
+
+	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %[1]s (
 		_peerdb_uid UUID,
 		_peerdb_timestamp Int64,
 		_peerdb_destination_table_name String,
-		_peerdb_data String,
+		_peerdb_data %[2]s,
 		_peerdb_record_type Int,
-		_peerdb_match_data String,
+		_peerdb_match_data %[2]s,
 		_peerdb_batch_id Int64,
 		_peerdb_unchanged_toast_columns String
 	) ENGINE = MergeTree() ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name);`
-
-	err := c.execWithLogging(ctx,
-		fmt.Sprintf(createRawTableSQL, rawTableName))
-	if err != nil {
+	if err := c.execWithLogging(ctx, fmt.Sprintf(createRawTableSQL, rawTableName, peerdbDataType)); err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
 	return &protos.CreateRawTableOutput{
@@ -265,5 +275,13 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
 	}
 
+	return nil
+}
+
+func (c *ClickHouseConnector) enableExperimentalJSONType(ctx context.Context) error {
+	if err := c.exec(ctx, "SET allow_experimental_json_type = 1"); err != nil {
+		return fmt.Errorf("unable to enable experimental JSON type: %w", err)
+	}
+	c.logger.Info("[clickhouse] enabled experimental JSON type")
 	return nil
 }

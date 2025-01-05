@@ -237,6 +237,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name: "PEERDB_CLICKHOUSE_USE_JSON_TYPE",
+		Description: "Use ClickHouse's experimental JSON type for _peerdb_data in raw table " +
+			"https://clickhouse.com/docs/en/sql-reference/data-types/newjson",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -469,6 +478,10 @@ func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string)
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+}
+
+func PeerDBClickHouseUseJSONType(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_USE_JSON_TYPE")
 }
 
 func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
