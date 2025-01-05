@@ -387,7 +387,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 }
 
 // replicateQRepPartition replicates a QRepPartition from the source to the destination.
-func replicateQRepPartition[TRead any, TWrite model.StreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
+func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.QRepConfig,
