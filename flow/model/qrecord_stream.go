@@ -4,6 +4,10 @@ import (
 	"github.com/PeerDB-io/peer-flow/model/qvalue"
 )
 
+type StreamCloser interface {
+	Close(error)
+}
+
 type QRecordStream struct {
 	schemaLatch chan struct{}
 	Records     chan []qvalue.QValue
