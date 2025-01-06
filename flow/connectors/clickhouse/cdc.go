@@ -187,7 +187,7 @@ func (c *ClickHouseConnector) RenameTables(
 			allCols := strings.Join(columnNames, ",")
 			c.logger.Info("handling soft-deletes for table before rename", slog.String("NewName", renameRequest.NewName))
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf("INSERT INTO `%s`(%s,%s) SELECT %s,true FROM `%s` WHERE %s = 1",
+				fmt.Sprintf("INSERT INTO `%s`(%s,%s) SELECT %s,true FROM `%s` FINAL WHERE %s = 1",
 					renameRequest.CurrentName, allCols, signColName, allCols, renameRequest.NewName, signColName),
 			); err != nil {
 				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)
