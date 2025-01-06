@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -178,21 +177,6 @@ func (c *ClickHouseConnector) RenameTables(
 		}
 
 		if originalTableExists {
-			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
-			columnNames := make([]string, 0, len(tableSchema.Columns))
-			for _, col := range tableSchema.Columns {
-				columnNames = append(columnNames, col.Name)
-			}
-
-			allCols := strings.Join(columnNames, ",")
-			c.logger.Info("handling soft-deletes for table before rename", slog.String("NewName", renameRequest.NewName))
-			if err := c.execWithLogging(ctx,
-				fmt.Sprintf("INSERT INTO `%s`(%s,%s) SELECT %s,true FROM `%s` WHERE %s = 1",
-					renameRequest.CurrentName, allCols, signColName, allCols, renameRequest.NewName, signColName),
-			); err != nil {
-				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)
-			}
-
 			// target table exists, so we can attempt to swap. In most cases, we will have Atomic engine,
 			// which supports a special query to exchange two tables, allowing dependent (materialized) views and dictionaries on these tables
 			c.logger.Info("attempting atomic exchange",
