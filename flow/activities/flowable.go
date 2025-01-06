@@ -450,7 +450,8 @@ func (a *FlowableActivity) startNormalize(
 		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
-	logger.Info("Normalizing batch", slog.Int64("SyncBatchID", batchID))
+	logger.Info("Normalizing batch",
+		slog.Int64("SyncBatchID", batchID))
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            config.FlowJobName,
 		Env:                    config.Env,
