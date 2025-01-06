@@ -9,7 +9,6 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useCallback, useEffect, useState } from 'react';
-import 'react-toastify/dist/ReactToastify.css';
 
 const colorForErrorType = (errorType: string) => {
   const errorUpper = errorType.toUpperCase();

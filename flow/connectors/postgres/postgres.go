@@ -77,6 +77,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	runtimeParams := connConfig.Config.RuntimeParams
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
+	runtimeParams["DateStyle"] = "ISO, DMY"
 
 	tunnel, err := NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
@@ -138,6 +139,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
+	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
 	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, replConfig)

@@ -34,3 +34,7 @@ const (
 )
 
 const FetchAndChannelSize = 256 * 1024
+
+func Ptr[T any](x T) *T {
+	return &x
+}

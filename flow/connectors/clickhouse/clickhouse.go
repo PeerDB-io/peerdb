@@ -229,8 +229,12 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		tlsSetting.RootCAs = caPool
 	}
 
-	// See: https://clickhouse.com/docs/en/cloud/reference/shared-merge-tree#consistency
-	settings := clickhouse.Settings{"select_sequential_consistency": uint64(1)}
+	settings := clickhouse.Settings{
+		// See: https://clickhouse.com/docs/en/cloud/reference/shared-merge-tree#consistency
+		"select_sequential_consistency": uint64(1),
+		// broken downstream views should not interrupt ingestion
+		"ignore_materialized_views_with_dropped_target_table": true,
+	}
 	if maxInsertThreads, err := peerdbenv.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
 		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
 	} else if maxInsertThreads != 0 {

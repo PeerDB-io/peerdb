@@ -8,6 +8,11 @@ type Sender interface {
 	SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (string, error)
 }
 
+var (
+	_ Sender = &IncidentIoMessageSender{}
+	_ Sender = &SNSMessageSender{}
+)
+
 type Attributes struct {
 	DeploymentUID string
 	Type          string

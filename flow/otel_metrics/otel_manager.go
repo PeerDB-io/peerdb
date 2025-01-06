@@ -18,15 +18,19 @@ import (
 )
 
 const (
-	SlotLagGaugeName                    string = "cdc_slot_lag"
-	OpenConnectionsGaugeName            string = "open_connections"
-	OpenReplicationConnectionsGaugeName string = "open_replication_connections"
-	IntervalSinceLastNormalizeGaugeName string = "interval_since_last_normalize"
-	FetchedBytesCounterName             string = "fetched_bytes"
+	SlotLagGaugeName                    = "cdc_slot_lag"
+	CurrentBatchIdGaugeName             = "current_batch_id"
+	LastNormalizedBatchIdGaugeName      = "last_normalized_batch_id"
+	OpenConnectionsGaugeName            = "open_connections"
+	OpenReplicationConnectionsGaugeName = "open_replication_connections"
+	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
+	FetchedBytesCounterName             = "fetched_bytes"
 )
 
 type SlotMetricGauges struct {
 	SlotLagGauge                    metric.Float64Gauge
+	CurrentBatchIdGauge             metric.Int64Gauge
+	LastNormalizedBatchIdGauge      metric.Int64Gauge
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge

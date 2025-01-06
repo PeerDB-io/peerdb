@@ -17,7 +17,6 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import {
   engineOptionStyles,
   sortingKeyPillContainerStyle,

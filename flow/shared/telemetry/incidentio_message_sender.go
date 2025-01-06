@@ -8,11 +8,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"go.temporal.io/sdk/activity"
+
+	"github.com/PeerDB-io/peer-flow/shared"
 )
 
 type IncidentIoAlert struct {
@@ -30,10 +33,6 @@ type IncidentIoResponse struct {
 }
 
 type IncidentIoMessageSender struct {
-	Sender
-}
-
-type IncidentIoMessageSenderImpl struct {
 	http   *http.Client
 	config IncidentIoMessageSenderConfig
 }
@@ -43,7 +42,7 @@ type IncidentIoMessageSenderConfig struct {
 	Token string
 }
 
-func (i *IncidentIoMessageSenderImpl) SendMessage(
+func (i *IncidentIoMessageSender) SendMessage(
 	ctx context.Context,
 	subject string,
 	body string,
@@ -52,6 +51,15 @@ func (i *IncidentIoMessageSenderImpl) SendMessage(
 	activityInfo := activity.Info{}
 	if activity.IsActivity(ctx) {
 		activityInfo = activity.GetInfo(ctx)
+	}
+
+	if shared.SkipSendingToIncidentIo(attributes.Tags) {
+		logger := shared.LoggerFromCtx(ctx)
+		logger.Info("skipping incident.io alert",
+			slog.Any("attributes", attributes),
+			slog.String("subject", subject),
+			slog.String("body", body))
+		return "", nil
 	}
 
 	deduplicationString := strings.Join([]string{
@@ -117,12 +125,12 @@ func (i *IncidentIoMessageSenderImpl) SendMessage(
 	return incidentResponse.Status, nil
 }
 
-func NewIncidentIoMessageSender(_ context.Context, config IncidentIoMessageSenderConfig) (Sender, error) {
+func NewIncidentIoMessageSender(_ context.Context, config IncidentIoMessageSenderConfig) (*IncidentIoMessageSender, error) {
 	client := &http.Client{
 		Timeout: time.Second * 5,
 	}
 
-	return &IncidentIoMessageSenderImpl{
+	return &IncidentIoMessageSender{
 		config: config,
 		http:   client,
 	}, nil

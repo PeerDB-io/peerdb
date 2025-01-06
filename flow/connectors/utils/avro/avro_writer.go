@@ -129,7 +129,10 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *goavro.OCFWriter) (int64, error) {
 	logger := shared.LoggerFromCtx(ctx)
-	schema := p.stream.Schema()
+	schema, err := p.stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 
 	avroConverter, err := model.NewQRecordAvroConverter(
 		ctx,
@@ -154,7 +157,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[s
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err
 		} else {
-			avroMap, err := avroConverter.Convert(qrecord)
+			avroMap, err := avroConverter.Convert(ctx, env, qrecord)
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)

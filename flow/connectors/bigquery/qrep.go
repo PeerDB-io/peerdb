@@ -23,7 +23,10 @@ func (c *BigQueryConnector) SyncQRepRecords(
 ) (int, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
-	srcSchema := stream.Schema()
+	srcSchema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 
 	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, config, partition, srcSchema)
 	if err != nil {
@@ -80,8 +83,9 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 		}
 	}
 
-	err = c.ReplayTableSchemaDeltas(ctx, config.Env, config.FlowJobName, []*protos.TableSchemaDelta{tableSchemaDelta})
-	if err != nil {
+	if err := c.ReplayTableSchemaDeltas(
+		ctx, config.Env, config.FlowJobName, []*protos.TableSchemaDelta{tableSchemaDelta},
+	); err != nil {
 		return nil, fmt.Errorf("failed to add columns to destination table: %w", err)
 	}
 	dstTableMetadata, err = bqTable.Metadata(ctx)
