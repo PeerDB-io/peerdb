@@ -425,6 +425,7 @@ func pullCore[Items model.Items](
 		FlowJobName:            req.FlowJobName,
 		Slot:                   slotName,
 		Publication:            publicationName,
+		SyncBatchID:            req.SyncBatchID,
 	})
 
 	if err := PullCdcRecords(ctx, cdc, req, processor, &c.replLock); err != nil {

@@ -92,10 +92,6 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
-		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
-	}
-
 	return &model.SyncResponse{
 		LastSyncedCheckpointID: req.Records.GetLastCheckpoint(),
 		NumRecordsSynced:       int64(numRecords),
@@ -105,7 +101,9 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}, nil
 }
 
-func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
+func (c *ClickHouseConnector) SyncRecords(ctx context.Context,
+	req *model.SyncRecordsRequest[model.RecordItems],
+) (*model.SyncResponse, error) {
 	res, err := c.syncRecordsViaAvro(ctx, req, req.SyncBatchID)
 	if err != nil {
 		return nil, err
@@ -119,7 +117,18 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 	return res, nil
 }
 
+// For CH specifically, we don't want to replay during sync, but rather during the normalization phase.
+// This a no-op for CH, private variant to be called during normalize.
 func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
+	ctx context.Context,
+	env map[string]string,
+	flowJobName string,
+	schemaDeltas []*protos.TableSchemaDelta,
+) error {
+	return nil
+}
+
+func (c *ClickHouseConnector) replayTableSchemaDeltas(
 	ctx context.Context,
 	env map[string]string,
 	flowJobName string,
