@@ -1,4 +1,4 @@
-module github.com/PeerDB-io/peer-flow-cleanup
+module github.com/PeerDB-io/peerdb/e2e_cleanup
 
 go 1.23.0
 
