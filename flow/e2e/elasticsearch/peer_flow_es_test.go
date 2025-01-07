@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/e2e"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {

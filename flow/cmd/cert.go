@@ -5,7 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
 func parseTemporalCertAndKey(ctx context.Context) ([]tls.Certificate, error) {

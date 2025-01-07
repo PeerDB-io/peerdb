@@ -7,7 +7,7 @@ import (
 
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,

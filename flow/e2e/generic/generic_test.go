@@ -7,16 +7,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	e2e_bigquery "github.com/PeerDB-io/peer-flow/e2e/bigquery"
-	e2e_clickhouse "github.com/PeerDB-io/peer-flow/e2e/clickhouse"
-	e2e_postgres "github.com/PeerDB-io/peer-flow/e2e/postgres"
-	e2e_snowflake "github.com/PeerDB-io/peer-flow/e2e/snowflake"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	e2e_bigquery "github.com/PeerDB-io/peerdb/flow/e2e/bigquery"
+	e2e_clickhouse "github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
+	e2e_postgres "github.com/PeerDB-io/peerdb/flow/e2e/postgres"
+	e2e_snowflake "github.com/PeerDB-io/peerdb/flow/e2e/snowflake"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 func TestGenericPG(t *testing.T) {

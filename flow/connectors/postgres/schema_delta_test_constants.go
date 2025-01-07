@@ -1,8 +1,8 @@
 package connpostgres
 
 import (
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 var AddAllColumnTypesFields = []*protos.FieldDescription{

@@ -16,7 +16,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 type PGVersion int32

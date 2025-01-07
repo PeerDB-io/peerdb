@@ -1,6 +1,6 @@
 package peerflow
 
-import "github.com/PeerDB-io/peer-flow/activities"
+import "github.com/PeerDB-io/peerdb/flow/activities"
 
 var (
 	flowable    *activities.FlowableActivity

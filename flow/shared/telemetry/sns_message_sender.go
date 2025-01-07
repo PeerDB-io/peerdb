@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"go.temporal.io/sdk/activity"
 
-	"github.com/PeerDB-io/peer-flow/shared/aws_common"
+	"github.com/PeerDB-io/peerdb/flow/shared/aws_common"
 )
 
 type SNSMessageSender struct {

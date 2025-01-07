@@ -3,7 +3,7 @@ package connbigquery
 import (
 	"cloud.google.com/go/bigquery"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 // Columns in BigQuery which are supported for clustering of tables

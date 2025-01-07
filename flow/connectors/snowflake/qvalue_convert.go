@@ -3,7 +3,7 @@ package connsnowflake
 import (
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 var snowflakeTypeToQValueKindMap = map[string]qvalue.QValueKind{

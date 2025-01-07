@@ -13,9 +13,9 @@ import (
 	"github.com/jmoiron/sqlx"
 	"go.temporal.io/sdk/log"
 
-	utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
+	utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
 func (c *SQLServerConnector) GetQRepPartitions(

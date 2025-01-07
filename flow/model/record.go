@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 type Record[T Items] interface {
