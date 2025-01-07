@@ -8,8 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
 func CreatePeerNoValidate(

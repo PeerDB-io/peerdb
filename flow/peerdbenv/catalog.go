@@ -7,8 +7,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 var (

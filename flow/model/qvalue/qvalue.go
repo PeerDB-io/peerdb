@@ -9,7 +9,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/glua64"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // if new types are added, register them in gob - cdc_store.go

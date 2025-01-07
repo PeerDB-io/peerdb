@@ -9,10 +9,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/pua"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pua"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (*KafkaConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {

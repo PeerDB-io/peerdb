@@ -14,14 +14,14 @@ import (
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peer-flow/alerting"
-	"github.com/PeerDB-io/peer-flow/connectors"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 // grpc server implementation

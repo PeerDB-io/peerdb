@@ -19,7 +19,7 @@ import (
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
 	"github.com/google/uuid"
 
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (

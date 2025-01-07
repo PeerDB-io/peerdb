@@ -8,8 +8,8 @@ import (
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput) error {

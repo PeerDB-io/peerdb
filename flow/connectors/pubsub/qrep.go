@@ -9,9 +9,9 @@ import (
 	"cloud.google.com/go/pubsub"
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/pua"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pua"
 )
 
 func (*PubSubConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {

@@ -8,9 +8,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func Test_Elasticsearch(t *testing.T) {

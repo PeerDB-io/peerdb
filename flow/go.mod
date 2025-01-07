@@ -1,4 +1,4 @@
-module github.com/PeerDB-io/peer-flow
+module github.com/PeerDB-io/peerdb/flow
 
 go 1.23.1
 

@@ -14,11 +14,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func redactProto(message proto.Message) {

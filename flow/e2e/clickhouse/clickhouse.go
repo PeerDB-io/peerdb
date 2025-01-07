@@ -12,15 +12,15 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	e2e_s3 "github.com/PeerDB-io/peer-flow/e2e/s3"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	e2e_s3 "github.com/PeerDB-io/peerdb/flow/e2e/s3"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type ClickHouseSuite struct {

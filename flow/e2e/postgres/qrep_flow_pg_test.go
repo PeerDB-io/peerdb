@@ -12,12 +12,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {

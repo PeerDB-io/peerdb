@@ -10,10 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type QRepQueryExecutor struct {

@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
 //nolint:lll

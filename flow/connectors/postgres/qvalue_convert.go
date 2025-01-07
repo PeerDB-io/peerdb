@@ -14,9 +14,9 @@ import (
 	"github.com/lib/pq/oid"
 	"github.com/shopspring/decimal"
 
-	datatypes "github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	datatypes "github.com/PeerDB-io/peerdb/flow/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (c *PostgresConnector) postgresOIDToName(recvOID uint32) string {

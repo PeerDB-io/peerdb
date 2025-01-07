@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/tags"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/tags"
 )
 
 func (h *FlowRequestHandler) flowExists(ctx context.Context, flowName string) (bool, error) {

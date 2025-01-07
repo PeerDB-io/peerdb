@@ -6,11 +6,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/PeerDB-io/peer-flow/shared/telemetry"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
 func (h *FlowRequestHandler) ValidatePeer(

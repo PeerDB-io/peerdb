@@ -9,7 +9,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 // consume all messages from the eventhub with the given name“.

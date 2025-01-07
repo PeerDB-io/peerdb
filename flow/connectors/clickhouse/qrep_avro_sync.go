@@ -9,12 +9,12 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type ClickHouseAvroSyncMethod struct {

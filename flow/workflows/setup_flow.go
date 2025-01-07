@@ -10,9 +10,9 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/activities"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/activities"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // SetupFlow is the workflow that is responsible for ensuring all the

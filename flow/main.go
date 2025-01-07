@@ -13,8 +13,8 @@ import (
 	"go.temporal.io/sdk/worker"
 	_ "go.uber.org/automaxprocs"
 
-	"github.com/PeerDB-io/peer-flow/cmd"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/cmd"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func main() {

@@ -14,14 +14,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	peer_bq "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 type PubSubSuite struct {

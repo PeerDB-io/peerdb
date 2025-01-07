@@ -8,9 +8,9 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	"go.temporal.io/sdk/log"
 
-	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	peersql "github.com/PeerDB-io/peerdb/flow/connectors/sql"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type SQLServerConnector struct {

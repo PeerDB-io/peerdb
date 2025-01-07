@@ -7,9 +7,9 @@ import (
 	"os"
 	"strconv"
 
-	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	connsqlserver "github.com/PeerDB-io/peerdb/flow/connectors/sqlserver"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 type SQLServerHelper struct {
