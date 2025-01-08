@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -73,6 +74,9 @@ func XminFlowWorkflow(
 	replicateXminPartitionCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 	if err := workflow.ExecuteActivity(
 		replicateXminPartitionCtx,

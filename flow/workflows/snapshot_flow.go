@@ -42,6 +42,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 4 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
 			MaximumAttempts: 20,
 		},
 	})
@@ -78,6 +79,9 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 
 	if err := workflow.ExecuteActivity(ctx, snapshot.CloseSlotKeepAlive, s.config.FlowJobName).Get(ctx, nil); err != nil {
@@ -126,6 +130,9 @@ func (s *SnapshotFlowExecution) cloneTable(
 		schemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: time.Minute,
 			WaitForCancellation: true,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval: 1 * time.Minute,
+			},
 		})
 		return workflow.ExecuteActivity(
 			schemaCtx,
@@ -343,6 +350,9 @@ func SnapshotFlowWorkflow(
 			StartToCloseTimeout: sessionOpts.ExecutionTimeout,
 			HeartbeatTimeout:    10 * time.Minute,
 			WaitForCancellation: true,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval: 1 * time.Minute,
+			},
 		})
 
 		fMaintain := workflow.ExecuteActivity(
