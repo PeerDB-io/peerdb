@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 type QRecordStream struct {

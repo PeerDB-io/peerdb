@@ -6,15 +6,19 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 	ctx = workflow.WithDataConverter(ctx, converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
 
@@ -80,8 +84,11 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 
 	if input.FlowConnectionConfigs != nil && input.DropFlowStats {
 		dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 1 * time.Minute,
+			StartToCloseTimeout: 2 * time.Minute,
 			HeartbeatTimeout:    1 * time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval: 1 * time.Minute,
+			},
 		})
 		dropStatsFuture := workflow.ExecuteActivity(dropStatsCtx,
 			flowable.DeleteMirrorStats, input.FlowJobName)
@@ -102,7 +109,10 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	}
 
 	removeFlowEntriesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 	removeFromCatalogFuture := workflow.ExecuteActivity(removeFlowEntriesCtx,
 		flowable.RemoveFlowEntryFromCatalog, input.FlowJobName)

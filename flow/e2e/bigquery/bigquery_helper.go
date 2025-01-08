@@ -17,11 +17,11 @@ import (
 	"github.com/shopspring/decimal"
 	"google.golang.org/api/iterator"
 
-	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	peer_bq "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 type BigQueryTestHelper struct {

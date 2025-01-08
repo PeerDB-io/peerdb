@@ -15,10 +15,10 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type CDCFlowWorkflowState struct {
@@ -214,6 +214,9 @@ func processTableRemovals(
 	logger.Info("altering publication for removed tables")
 	removeTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 	alterPublicationRemovedTablesFuture := workflow.ExecuteActivity(
 		removeTablesCtx,
@@ -457,6 +460,9 @@ func CDCFlowWorkflow(
 			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: 12 * time.Hour,
 				HeartbeatTimeout:    time.Minute,
+				RetryPolicy: &temporal.RetryPolicy{
+					InitialInterval: 1 * time.Minute,
+				},
 			})
 			renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
 			if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
@@ -500,7 +506,8 @@ func CDCFlowWorkflow(
 			} else {
 				logger.Error("error in sync flow", slog.Any("error", err))
 			}
-			_ = workflow.Sleep(ctx, 30*time.Second)
+			logger.Info("sync flow errored, sleeping for 10 minutes before retrying")
+			_ = workflow.Sleep(ctx, 10*time.Minute)
 		} else {
 			logger.Info("sync finished")
 		}

@@ -10,7 +10,7 @@ import (
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // multimap from ScopedEventhub to *azeventhubs.EventDataBatch

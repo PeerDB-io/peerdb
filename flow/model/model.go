@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pglogrepl"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 type NameAndExclude struct {

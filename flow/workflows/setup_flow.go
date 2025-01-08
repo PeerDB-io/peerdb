@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/activities"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/activities"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // SetupFlow is the workflow that is responsible for ensuring all the
@@ -89,6 +90,9 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 	if destConnStatus.NeedsSetupMetadataTables {
 		setupCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 2 * time.Minute,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval: 1 * time.Minute,
+			},
 		})
 		fDst := workflow.ExecuteActivity(setupCtx, flowable.SetupMetadataTables, dstSetupInput)
 		if err := fDst.Get(setupCtx, nil); err != nil {
@@ -111,6 +115,9 @@ func (s *SetupFlowExecution) ensurePullability(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 4 * time.Hour,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 	srcTableIdNameMapping := make(map[uint32]string)
 
@@ -149,6 +156,9 @@ func (s *SetupFlowExecution) createRawTable(
 	s.Info("creating raw table on destination")
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 
 	// attempt to create the tables.
@@ -176,6 +186,9 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 
 	sourceTables := slices.Sorted(maps.Keys(s.tableNameMapping))

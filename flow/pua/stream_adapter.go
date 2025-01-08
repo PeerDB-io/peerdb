@@ -5,7 +5,7 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
 func AttachToStream(ls *lua.LState, lfn *lua.LFunction, stream *model.QRecordStream) *model.QRecordStream {

@@ -17,11 +17,11 @@ import (
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	partition_utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"

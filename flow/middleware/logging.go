@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
 func RequestLoggingMiddleWare() grpc.UnaryServerInterceptor {

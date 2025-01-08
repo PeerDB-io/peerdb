@@ -10,11 +10,11 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/snowflakedb/gosnowflake"
 
-	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	peersql "github.com/PeerDB-io/peerdb/flow/connectors/sql"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type SnowflakeClient struct {

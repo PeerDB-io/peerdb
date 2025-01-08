@@ -1,6 +1,6 @@
 package connsqlserver
 
-import "github.com/PeerDB-io/peer-flow/model/qvalue"
+import "github.com/PeerDB-io/peerdb/flow/model/qvalue"
 
 var qValueKindToSQLServerTypeMap = map[qvalue.QValueKind]string{
 	qvalue.QValueKindBoolean:     "BIT",

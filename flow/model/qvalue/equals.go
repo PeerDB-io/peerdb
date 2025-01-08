@@ -13,7 +13,7 @@ import (
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 
-	"github.com/PeerDB-io/peer-flow/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/datatypes"
 )
 
 func valueEmpty(value any) bool {

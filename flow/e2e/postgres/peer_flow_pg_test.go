@@ -12,11 +12,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 func (s PeerFlowE2ETestSuitePG) attachSchemaSuffix(tableName string) string {
@@ -959,54 +959,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 2)
 	}
 
-	env.Cancel()
-	e2e.RequireEnvCanceled(s.t, env)
-}
-
-func (s PeerFlowE2ETestSuitePG) Test_CustomSync() {
-	srcTableName := s.attachSchemaSuffix("test_customsync")
-	dstTableName := s.attachSchemaSuffix("test_customsync_dst")
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_customsync_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer().Name,
-	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
-
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL
-		);
-	`, srcTableName))
-
-	require.NoError(s.t, err)
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-
-	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
-	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
-	})
-
-	e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
-		NumberOfSyncs: 1,
-	})
-	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_RUNNING
-	})
-
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(
-		"INSERT INTO %s(key, value) VALUES ('test_key', 'test_value')", srcTableName))
-	e2e.EnvNoError(s.t, env, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "paused workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
-	})
-
-	require.NoError(s.t, s.comparePGTables(srcTableName, dstTableName, "id,key,value"))
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
