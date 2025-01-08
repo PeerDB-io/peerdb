@@ -84,7 +84,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 
 	if input.FlowConnectionConfigs != nil && input.DropFlowStats {
 		dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 1 * time.Minute,
+			StartToCloseTimeout: 2 * time.Minute,
 			HeartbeatTimeout:    1 * time.Minute,
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval: 1 * time.Minute,
@@ -109,7 +109,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	}
 
 	removeFlowEntriesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
+		StartToCloseTimeout: 2 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
