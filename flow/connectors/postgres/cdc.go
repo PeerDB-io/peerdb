@@ -386,7 +386,8 @@ func PullCdcRecords[Items model.Items](
 
 	for {
 		if pkmRequiresResponse {
-			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
+			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() &&
+				time.Since(standByLastLogged) >= 1*time.Minute {
 				metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
 				if err := metadata.SetLastOffset(ctx, req.FlowJobName, int64(clientXLogPos)); err != nil {
 					return err
