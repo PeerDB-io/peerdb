@@ -369,6 +369,7 @@ func CDCFlowWorkflow(
 
 		logger.Info(fmt.Sprintf("mirror has been resumed after %s", time.Since(startTime).Round(time.Second)))
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
@@ -479,6 +480,7 @@ func CDCFlowWorkflow(
 		}
 
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
 
 	var finished bool
