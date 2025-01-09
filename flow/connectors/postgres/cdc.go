@@ -383,16 +383,17 @@ func PullCdcRecords[Items model.Items](
 
 	pkmRequiresResponse := false
 	waitingForCommit := false
-
+	lastEmptyBatchPkmSentTime := time.Now()
 	for {
 		if pkmRequiresResponse {
 			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() &&
-				time.Since(standByLastLogged) >= 1*time.Minute {
+				time.Since(lastEmptyBatchPkmSentTime) >= 1*time.Minute {
 				metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
 				if err := metadata.SetLastOffset(ctx, req.FlowJobName, int64(clientXLogPos)); err != nil {
 					return err
 				}
 				req.ConsumedOffset.Store(int64(clientXLogPos))
+				lastEmptyBatchPkmSentTime = time.Now()
 			}
 
 			if err := sendStandbyAfterReplLock("pkm-response"); err != nil {
