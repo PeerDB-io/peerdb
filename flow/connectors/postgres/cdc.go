@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -383,6 +384,11 @@ func PullCdcRecords[Items model.Items](
 
 	pkmRequiresResponse := false
 	waitingForCommit := false
+	pkmEmptyBatchThrottleEnabled, err := peerdbenv.PeerDBPKMEmptyBatchThrottleEnabled(ctx, nil)
+	if err != nil {
+		logger.Error("failed to get PeerDBPKMEmptyBatchThrottleEnabled", slog.Any("error", err))
+		// No need to fail here, just continue without throttling
+	}
 	lastEmptyBatchPkmSentTime := time.Now()
 	for {
 		if pkmRequiresResponse {
@@ -502,7 +508,11 @@ func PullCdcRecords[Items model.Items](
 			if pkm.ServerWALEnd > clientXLogPos {
 				clientXLogPos = pkm.ServerWALEnd
 			}
-			if pkm.ReplyRequested || time.Since(lastEmptyBatchPkmSentTime) >= 1*time.Minute {
+			if pkmEmptyBatchThrottleEnabled {
+				if pkm.ReplyRequested || time.Since(lastEmptyBatchPkmSentTime) >= 1*time.Minute {
+					pkmRequiresResponse = true
+				}
+			} else {
 				pkmRequiresResponse = true
 			}
 
