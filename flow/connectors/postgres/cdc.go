@@ -384,7 +384,7 @@ func PullCdcRecords[Items model.Items](
 
 	pkmRequiresResponse := false
 	waitingForCommit := false
-	pkmEmptyBatchThrottleEnabled, err := peerdbenv.PeerDBPKMEmptyBatchThrottleEnabled(ctx, nil)
+	pkmEmptyBatchThrottleEnabled, err := peerdbenv.PeerDBPKMEmptyBatchThrottleEnabled(ctx, req.Env)
 	if err != nil {
 		logger.Error("failed to get PeerDBPKMEmptyBatchThrottleEnabled", slog.Any("error", err))
 		// No need to fail here, just continue without throttling
