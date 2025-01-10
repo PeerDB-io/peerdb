@@ -509,7 +509,8 @@ func PullCdcRecords[Items model.Items](
 				clientXLogPos = pkm.ServerWALEnd
 			}
 
-			if pkm.ReplyRequested || time.Since(lastEmptyBatchPkmSentTime) >= time.Duration(pkmEmptyBatchThrottleThresholdSeconds)*time.Second {
+			if pkm.ReplyRequested || (pkmEmptyBatchThrottleThresholdSeconds != -1 &&
+				time.Since(lastEmptyBatchPkmSentTime) >= time.Duration(pkmEmptyBatchThrottleThresholdSeconds)*time.Second) {
 				pkmRequiresResponse = true
 			}
 

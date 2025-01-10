@@ -238,8 +238,9 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS",
-		Description:      "Throttle threshold seconds for sending KeepAlive response when no records are processed",
+		Name: "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS",
+		Description: "Throttle threshold seconds for always sending KeepAlive response when no records are processed, " +
+			"-1 disables always sending responses when no records are processed.",
 		DefaultValue:     "60",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
