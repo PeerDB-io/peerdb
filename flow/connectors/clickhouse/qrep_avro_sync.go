@@ -163,17 +163,17 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s SETTINGS throw_on_max_partitions_per_insert_block = 0",
 			config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
-		s.connector.logger.Info("running query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts))
+		s.logger.Info("running query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts))
 		err := s.database.Exec(ctx, query)
 		if err != nil {
 			s.logger.Error("failed to execute query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts), slog.Any("error", err))
 			return 0, err
 		}
+	}
 
-		if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-			s.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
-			return 0, err
-		}
+	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
+		s.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
+		return 0, err
 	}
 
 	return avroFile.NumRecords, nil
