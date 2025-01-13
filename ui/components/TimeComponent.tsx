@@ -1,9 +1,9 @@
 'use client';
+import useLocalStorage from '@/app/utils/useLocalStorage';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import moment from 'moment-timezone';
 import { useEffect, useState } from 'react';
-import { useLocalStorage } from 'usehooks-ts';
 
 const TimeLabel = ({
   timeVal,

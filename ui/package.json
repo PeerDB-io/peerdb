@@ -46,7 +46,6 @@
     "react-toastify": "^11.0.2",
     "styled-components": "^6.1.13",
     "swr": "^2.2.5",
-    "usehooks-ts": "^3.1.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
