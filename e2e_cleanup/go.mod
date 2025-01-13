@@ -7,7 +7,7 @@ require (
 	cloud.google.com/go/pubsub v1.45.3
 	github.com/snowflakedb/gosnowflake v1.12.1
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
-	google.golang.org/api v0.214.0
+	google.golang.org/api v0.216.0
 )
 
 require (

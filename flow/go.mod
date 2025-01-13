@@ -6,7 +6,7 @@ require (
 	cloud.google.com/go v0.118.0
 	cloud.google.com/go/bigquery v1.65.0
 	cloud.google.com/go/pubsub v1.45.3
-	cloud.google.com/go/storage v1.49.0
+	cloud.google.com/go/storage v1.50.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.0
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.2.3
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0
@@ -17,14 +17,14 @@ require (
 	github.com/PeerDB-io/gluajson v1.0.2
 	github.com/PeerDB-io/gluamsgpack v1.0.4
 	github.com/PeerDB-io/gluautf8 v1.0.0
-	github.com/aws/aws-sdk-go-v2 v1.32.7
-	github.com/aws/aws-sdk-go-v2/config v1.28.7
-	github.com/aws/aws-sdk-go-v2/credentials v1.17.48
-	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.45
-	github.com/aws/aws-sdk-go-v2/service/kms v1.37.8
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.72.0
-	github.com/aws/aws-sdk-go-v2/service/ses v1.29.2
-	github.com/aws/aws-sdk-go-v2/service/sns v1.33.8
+	github.com/aws/aws-sdk-go-v2 v1.32.8
+	github.com/aws/aws-sdk-go-v2/config v1.28.10
+	github.com/aws/aws-sdk-go-v2/credentials v1.17.51
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.48
+	github.com/aws/aws-sdk-go-v2/service/kms v1.37.10
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.72.2
+	github.com/aws/aws-sdk-go-v2/service/ses v1.29.3
+	github.com/aws/aws-sdk-go-v2/service/sns v1.33.10
 	github.com/aws/smithy-go v1.22.1
 	github.com/cockroachdb/pebble v1.1.3
 	github.com/elastic/go-elasticsearch/v8 v8.17.0
@@ -39,7 +39,7 @@ require (
 	github.com/klauspost/compress v1.17.11
 	github.com/lestrrat-go/jwx/v2 v2.1.3
 	github.com/lib/pq v1.10.9
-	github.com/linkedin/goavro/v2 v2.13.0
+	github.com/linkedin/goavro/v2 v2.13.1
 	github.com/microsoft/go-mssqldb v1.8.0
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/shopspring/decimal v1.4.0
@@ -59,16 +59,16 @@ require (
 	go.opentelemetry.io/otel/metric v1.33.0
 	go.opentelemetry.io/otel/sdk v1.33.0
 	go.opentelemetry.io/otel/sdk/metric v1.33.0
-	go.temporal.io/api v1.43.0
+	go.temporal.io/api v1.43.1
 	go.temporal.io/sdk v1.31.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.6.0
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.32.0
 	golang.org/x/sync v0.10.0
-	google.golang.org/api v0.214.0
+	google.golang.org/api v0.216.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20250106144421-5f5ef82da422
-	google.golang.org/grpc v1.69.2
-	google.golang.org/protobuf v1.36.1
+	google.golang.org/grpc v1.69.4
+	google.golang.org/protobuf v1.36.2
 	k8s.io/apimachinery v0.32.0
 	k8s.io/client-go v0.32.0
 )
