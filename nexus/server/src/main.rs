@@ -172,7 +172,7 @@ impl NexusBackend {
         }
     }
 
-    async fn create_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
+    async fn create_peer(&self, peer: &Peer) -> anyhow::Result<()> {
         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
 
         let create_request = pt::peerdb_route::CreatePeerRequest {
@@ -1021,8 +1021,8 @@ fn setup_tracing(log_dir: Option<&str>) -> TracerGuards {
     }
 }
 
-async fn run_migrations<'a>(
-    config: &CatalogConfig<'a>,
+async fn run_migrations(
+    config: &CatalogConfig<'_>,
     kms_key_id: &Option<Arc<String>>,
 ) -> anyhow::Result<()> {
     // retry connecting to the catalog 3 times with 30 seconds delay
