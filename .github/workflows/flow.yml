@@ -25,7 +25,7 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
       redpanda:
-        image: redpandadata/redpanda@sha256:46ed8144e64aae1991cf439f96a05196425997a77abdf21941f0ff44ef7c5be0
+        image: redpandadata/redpanda@sha256:7214ddaf8426d25936459cf77c1f905566a4483a97d2b13006120dcd98a5c846
         ports:
           - 9092:9092
           - 9644:9644
