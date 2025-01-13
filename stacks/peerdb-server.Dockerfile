@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1@sha256:93bfd3b68c109427185cd78b4779fc82b484b0b7618e36d0f104d4d801e66d25
 
 
-FROM lukemathwalker/cargo-chef:latest-rust-alpine@sha256:4561709ddacae431a0150658604e112b11f6e5b112fcf1bc10b85a6bbf84e723 AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-alpine@sha256:4bc7e71be4e44e6e251894268da3b9abeb0a33e67d7dc4df5c36d7093f33a355 AS chef
 
 WORKDIR /root
 
@@ -24,7 +24,7 @@ COPY protos /root/protos
 WORKDIR /root/nexus
 RUN cargo build --release --bin peerdb-server
 
-FROM alpine:3.21@sha256:21dc6063fd678b478f57c0e13f47560d0ea4eeba26dfc947b2a4f81f686b9f45
+FROM alpine:3.21@sha256:56fa17d2a7e7f168a043a2712e63aed1f8543aeafdcee47c58dcffe38ed51099
 RUN apk add --no-cache ca-certificates postgresql-client curl iputils && \
   adduser -s /bin/sh -D peerdb && \
   install -d -m 0755 -o peerdb /var/log/peerdb
