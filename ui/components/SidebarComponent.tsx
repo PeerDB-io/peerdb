@@ -1,6 +1,7 @@
 'use client';
 
 import { fetcher } from '@/app/utils/swr';
+import useLocalStorage from '@/app/utils/useLocalStorage';
 import Logout from '@/components/Logout';
 import { PeerDBVersionResponse } from '@/grpc_generated/route';
 import { BrandLogo } from '@/lib/BrandLogo';
@@ -12,7 +13,6 @@ import { Sidebar, SidebarItem } from '@/lib/Sidebar';
 import { SessionProvider } from 'next-auth/react';
 import Link from 'next/link';
 import useSWR from 'swr';
-import { useLocalStorage } from 'usehooks-ts';
 
 const centerFlexStyle = {
   display: 'flex',
