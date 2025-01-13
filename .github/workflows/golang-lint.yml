@@ -32,4 +32,4 @@ jobs:
         with:
           version: v1.62
           working-directory: ./flow
-          args: --timeout=10m
+          args: --timeout=10m --out-format=github-actions
