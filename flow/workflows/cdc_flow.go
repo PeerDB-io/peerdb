@@ -496,21 +496,22 @@ func CDCFlowWorkflow(
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
 				logger.Error(
-					"panic in sync flow",
+					"panic in sync flow, sleeping for 10 minutes",
 					slog.Any("error", panicErr.Error()),
 					slog.String("stack", panicErr.StackTrace()),
 				)
+				_ = workflow.Sleep(ctx, 10*time.Minute)
 			} else {
 				logger.Error("error in sync flow", slog.Any("error", err))
-			}
 
-			// cannot use shared.IsSQLStateError because temporal serialize/deserialize
-			if strings.Contains(err.Error(), "(SQLSTATE 55006)") {
-				logger.Info("sync flow errored, sleeping for 1 minute before retrying")
-				_ = workflow.Sleep(ctx, time.Minute)
-			} else {
-				logger.Info("sync flow errored, sleeping for 10 minutes before retrying")
-				_ = workflow.Sleep(ctx, 10*time.Minute)
+				// cannot use shared.IsSQLStateError because temporal serialize/deserialize
+				if !temporal.IsApplicationError(err) || strings.Contains(err.Error(), "(SQLSTATE 55006)") {
+					logger.Info("sync flow errored, sleeping for 1 minute before retrying")
+					_ = workflow.Sleep(ctx, time.Minute)
+				} else {
+					logger.Info("sync flow errored, sleeping for 10 minutes before retrying")
+					_ = workflow.Sleep(ctx, 10*time.Minute)
+				}
 			}
 		} else {
 			logger.Info("sync finished")
