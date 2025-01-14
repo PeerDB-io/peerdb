@@ -199,12 +199,16 @@ export default function SchemaBox({
               ?.map((tableMap) => tableMap.sourceTableIdentifier)
               .includes(row.source)
           ) {
+            const existingRow = alreadySelectedTables?.find(
+              (tableMap) => tableMap.sourceTableIdentifier === row.source
+            );
             row.selected = true;
             row.editingDisabled = true;
-            row.destination =
-              alreadySelectedTables?.find(
-                (tableMap) => tableMap.sourceTableIdentifier === row.source
-              )?.destinationTableIdentifier ?? '';
+            row.exclude = new Set(existingRow?.exclude ?? []);
+            row.destination = existingRow?.destinationTableIdentifier ?? '';
+            alreadySelectedTables?.find(
+              (tableMap) => tableMap.sourceTableIdentifier === row.source
+            )?.destinationTableIdentifier ?? '';
             addTableColumns(row.source);
           }
         }
