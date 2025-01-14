@@ -203,6 +203,7 @@ export default function SchemaBox({
               (tableMap) => tableMap.sourceTableIdentifier === row.source
             );
             row.selected = true;
+            row.engine = existingRow?.engine ?? TableEngine.CH_ENGINE_REPLACING_MERGE_TREE;
             row.editingDisabled = true;
             row.exclude = new Set(existingRow?.exclude ?? []);
             row.destination = existingRow?.destinationTableIdentifier ?? '';
@@ -373,6 +374,7 @@ export default function SchemaBox({
                               Engine:
                             </p>
                             <ReactSelect
+                              isDisabled={row.editingDisabled}
                               styles={engineOptionStyles}
                               options={engineOptions}
                               placeholder='ReplacingMergeTree (default)'
