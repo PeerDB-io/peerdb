@@ -11,6 +11,8 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
@@ -315,7 +317,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		if err != nil {
 			logger.Error("Failed to get current batch id gauge", slog.Any("error", err))
 		} else {
-			currentBatchID.Record(ctx, res.CurrentSyncBatchID)
+			currentBatchID.Record(ctx, res.CurrentSyncBatchID, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, flowName),
+			)))
 		}
 	}
 
@@ -670,7 +674,9 @@ func (a *FlowableActivity) normalizeLoop(
 					if err != nil {
 						logger.Error("Failed to get normalized batch id gauge", slog.Any("error", err))
 					} else {
-						lastNormalizedBatchID.Record(ctx, req.BatchID)
+						lastNormalizedBatchID.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+							attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+						)))
 					}
 				}
 				break
