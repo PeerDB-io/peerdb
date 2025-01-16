@@ -164,7 +164,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                 let db_type = DbType::from(peer_type.clone());
                 let config = parse_db_options(db_type, with_options)?;
                 let peer = Peer {
-                    name: peer_name.to_string().to_lowercase(),
+                    name: peer_name.0[0].value.clone(),
                     r#type: db_type as i32,
                     config,
                 };
