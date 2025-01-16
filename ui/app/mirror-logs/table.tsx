@@ -5,15 +5,15 @@ import { ListMirrorNamesResponse } from '@/grpc_generated/route';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import ReactSelect from 'react-select';
 import useSWR from 'swr';
-import { useLocalStorage } from 'usehooks-ts';
 import { fetcher } from '../utils/swr';
+import useLocalStorage from '../utils/useLocalStorage';
 
 export default function LogsView() {
-  const [mirrorName, setMirrorName] = useLocalStorage<string>(
+  const [mirrorName, setMirrorName] = useLocalStorage(
     'peerdbMirrorNameFilterForLogs',
     ''
   );
-  const [logLevel, setLogLevel] = useLocalStorage<string>(
+  const [logLevel, setLogLevel] = useLocalStorage(
     'peerdbLogTypeFilterForLogs',
     'all'
   );

@@ -369,6 +369,7 @@ func CDCFlowWorkflow(
 
 		logger.Info(fmt.Sprintf("mirror has been resumed after %s", time.Since(startTime).Round(time.Second)))
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
@@ -479,6 +480,7 @@ func CDCFlowWorkflow(
 		}
 
 		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
 
 	var finished bool
@@ -506,8 +508,15 @@ func CDCFlowWorkflow(
 			} else {
 				logger.Error("error in sync flow", slog.Any("error", err))
 			}
-			logger.Info("sync flow errored, sleeping for 10 minutes before retrying")
-			_ = workflow.Sleep(ctx, 10*time.Minute)
+
+			// cannot use shared.IsSQLStateError because temporal serialize/deserialize
+			if strings.Contains(err.Error(), "(SQLSTATE 55006)") {
+				logger.Info("sync flow errored, sleeping for 1 minute before retrying")
+				_ = workflow.Sleep(ctx, time.Minute)
+			} else {
+				logger.Info("sync flow errored, sleeping for 10 minutes before retrying")
+				_ = workflow.Sleep(ctx, 10*time.Minute)
+			}
 		} else {
 			logger.Info("sync finished")
 		}

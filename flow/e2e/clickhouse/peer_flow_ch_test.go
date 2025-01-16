@@ -110,6 +110,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		return !rows.Next()
 	})
 
+	runID := e2e.EnvGetRunID(s.t, env)
 	e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		AdditionalTables: []*protos.TableMapping{
 			{
@@ -123,6 +124,8 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		flowStatus := getFlowStatus()
 		return flowStatus == protos.FlowStatus_STATUS_RUNNING
 	})
+	afterAddRunID := e2e.EnvGetRunID(s.t, env)
+	require.NotEqual(s.t, runID, afterAddRunID)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s (key) VALUES ('test');
@@ -163,6 +166,8 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		flowStatus := getFlowStatus()
 		return flowStatus == protos.FlowStatus_STATUS_RUNNING
 	})
+	afterRemoveRunID := e2e.EnvGetRunID(s.t, env)
+	require.NotEqual(s.t, runID, afterRemoveRunID)
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	INSERT INTO %s (key) VALUES ('test');

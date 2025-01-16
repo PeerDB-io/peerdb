@@ -47,5 +47,6 @@
   ],
   "additionalReviewers": [
     "team:eng"
-  ]
+  ],
+  "prConcurrentLimit": 8
 }

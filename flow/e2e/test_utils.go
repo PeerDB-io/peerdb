@@ -727,6 +727,13 @@ func EnvGetWorkflowState(t *testing.T, env WorkflowRun) peerflow.CDCFlowWorkflow
 	return state
 }
 
+func EnvGetRunID(t *testing.T, env WorkflowRun) string {
+	t.Helper()
+	execData, err := env.c.DescribeWorkflowExecution(context.Background(), env.GetID(), "")
+	require.NoError(t, err)
+	return execData.WorkflowExecutionInfo.Execution.RunId
+}
+
 func EnvGetFlowStatus(t *testing.T, env WorkflowRun) protos.FlowStatus {
 	t.Helper()
 	var flowStatus protos.FlowStatus

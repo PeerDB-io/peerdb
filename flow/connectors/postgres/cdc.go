@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -384,6 +385,11 @@ func PullCdcRecords[Items model.Items](
 	pkmRequiresResponse := false
 	waitingForCommit := false
 
+	pkmEmptyBatchThrottleThresholdSeconds, err := peerdbenv.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
+	if err != nil {
+		logger.Error("failed to get PeerDBPKMEmptyBatchThrottleThresholdSeconds", slog.Any("error", err))
+	}
+	lastEmptyBatchPkmSentTime := time.Now()
 	for {
 		if pkmRequiresResponse {
 			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
@@ -392,6 +398,7 @@ func PullCdcRecords[Items model.Items](
 					return err
 				}
 				req.ConsumedOffset.Store(int64(clientXLogPos))
+				lastEmptyBatchPkmSentTime = time.Now()
 			}
 
 			if err := sendStandbyAfterReplLock("pkm-response"); err != nil {
@@ -501,7 +508,11 @@ func PullCdcRecords[Items model.Items](
 			if pkm.ServerWALEnd > clientXLogPos {
 				clientXLogPos = pkm.ServerWALEnd
 			}
-			pkmRequiresResponse = true
+
+			if pkm.ReplyRequested || (pkmEmptyBatchThrottleThresholdSeconds != -1 &&
+				time.Since(lastEmptyBatchPkmSentTime) >= time.Duration(pkmEmptyBatchThrottleThresholdSeconds)*time.Second) {
+				pkmRequiresResponse = true
+			}
 
 		case pglogrepl.XLogDataByteID:
 			xld, err := pglogrepl.ParseXLogData(msg.Data[1:])

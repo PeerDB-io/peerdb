@@ -274,7 +274,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
 	c.logger.Info("[clickhouse] normalizing batch",
-		slog.Int64("StartBatchID", normBatchID), slog.Int64("EndBatchID", req.SyncBatchID), slog.Int("connections", parallelNormalize))
+		slog.Int64("StartBatchID", normBatchID),
+		slog.Int64("EndBatchID", req.SyncBatchID),
+		slog.Int("connections", parallelNormalize))
 
 	queries := make(chan string)
 	rawTbl := c.getRawTableName(req.FlowJobName)
@@ -295,7 +297,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}
 
 			for query := range queries {
-				c.logger.Info("normalizing batch", slog.String("query", query))
+				c.logger.Info("executing normalize query",
+					slog.Int64("syncBatchId", req.SyncBatchID),
+					slog.Int64("normalizeBatchId", normBatchID),
+					slog.String("query", query))
 				if err := chConn.Exec(errCtx, query); err != nil {
 					return fmt.Errorf("error while inserting into normalized table: %w", err)
 				}

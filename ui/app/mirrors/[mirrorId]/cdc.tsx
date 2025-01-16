@@ -1,10 +1,10 @@
 'use client';
+import useLocalStorage from '@/app/utils/useLocalStorage';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Tab, TabGroup, TabList, TabPanel, TabPanels } from '@tremor/react';
 import { useEffect, useState } from 'react';
-import { useLocalStorage } from 'usehooks-ts';
 import CdcDetails from './cdcDetails';
 import { SnapshotStatusTable } from './snapshot';
 
