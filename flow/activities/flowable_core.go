@@ -324,7 +324,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 
 		syncRecordsMetric, err := a.OtelManager.GetOrInitInt64Gauge(
-			otel_metrics.BuildMetricName(otel_metrics.SyncRecordsSyncedGaugeName))
+			otel_metrics.BuildMetricName(otel_metrics.RecordsSyncedGaugeName))
 		if err != nil {
 			logger.Error("Failed to get sync records gauge", slog.Any("error", err))
 		} else {

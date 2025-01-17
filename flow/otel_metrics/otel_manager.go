@@ -29,8 +29,8 @@ const (
 	ErrorEmittedGaugeName = "error_emitted"
 	// ErrorsEmittedCounterName This the actual counter for errors emitted, used for alerting based on error rate/more detailed error analysis
 	ErrorsEmittedCounterName = "errors_emitted"
-	// SyncRecordsSyncedGaugeName is the gauge name for the number of records synced for every Sync batch
-	SyncRecordsSyncedGaugeName = "sync_records_synced"
+	// RecordsSyncedGaugeName is the gauge name for the number of records synced for every Sync batch
+	RecordsSyncedGaugeName = "records_synced"
 	// SyncedTablesGaugeName is the gauge name for the number of tables being synced for a mirror
 	SyncedTablesGaugeName = "synced_tables"
 	// InstanceStatusGaugeName  used for notifying the status of the instance, like if it is healthy/under maintenance etc.
