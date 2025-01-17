@@ -44,7 +44,7 @@ type ValidationConnector interface {
 type GetTableSchemaConnector interface {
 	Connector
 
-	// GetTableSchema returns the schema of a table in terms of QValueKind.
+	// GetTableSchema returns the schema of a table in terms of type system.
 	GetTableSchema(
 		ctx context.Context,
 		env map[string]string,
@@ -66,6 +66,9 @@ type CDCPullConnectorCore interface {
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
 	FinishExport(any) error
+
+	// Setup replication in prep for initial copy
+	SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error)
 
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
 	SetupReplConn(context.Context) error

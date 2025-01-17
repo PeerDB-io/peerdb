@@ -58,8 +58,7 @@ func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
 	})
 
 	var result T
-	err := sideEffect.Get(&result)
-	if err != nil {
+	if err := sideEffect.Get(&result); err != nil {
 		panic(err)
 	}
 	return result
@@ -429,11 +428,7 @@ func CDCFlowWorkflow(
 			WaitForCancellation:   true,
 		}
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
-		snapshotFlowFuture := workflow.ExecuteChildWorkflow(
-			snapshotFlowCtx,
-			SnapshotFlowWorkflow,
-			cfg,
-		)
+		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
 		if err := snapshotFlowFuture.Get(snapshotFlowCtx, nil); err != nil {
 			logger.Error("snapshot flow failed", slog.Any("error", err))
 			return state, fmt.Errorf("failed to execute snapshot workflow: %w", err)

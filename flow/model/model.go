@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"sync/atomic"
@@ -179,4 +180,11 @@ type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage
 type SyncCompositeResponse struct {
 	SyncResponse   *SyncResponse
 	NeedsNormalize bool
+}
+
+type SetupReplicationResult struct {
+	Conn             interface{ Close(context.Context) error }
+	SlotName         string
+	SnapshotName     string
+	SupportsTIDScans bool
 }
