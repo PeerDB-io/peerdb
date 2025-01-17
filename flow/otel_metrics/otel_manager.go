@@ -29,6 +29,8 @@ const (
 	ErrorEmittedGaugeName = "error_emitted"
 	// ErrorsEmittedCounterName This the actual counter for errors emitted, used for alerting based on error rate/more detailed error analysis
 	ErrorsEmittedCounterName = "errors_emitted"
+	// SyncRecordsSyncedGaugeName is the gauge name for the number of records synced for every Sync batch
+	SyncRecordsSyncedGaugeName = "sync_records_synced"
 )
 
 type SlotMetricGauges struct {

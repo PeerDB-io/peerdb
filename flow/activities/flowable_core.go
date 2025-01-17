@@ -322,6 +322,17 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 				attribute.String(otel_metrics.FlowNameKey, flowName),
 			)))
 		}
+
+		syncRecordsMetric, err := a.OtelManager.GetOrInitInt64Gauge(
+			otel_metrics.BuildMetricName(otel_metrics.SyncRecordsSyncedGaugeName))
+		if err != nil {
+			logger.Error("Failed to get sync records gauge", slog.Any("error", err))
+		} else {
+			syncRecordsMetric.Record(ctx, res.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowNameKey, flowName),
+			)))
+		}
+
 	}
 
 	syncState.Store(shared.Ptr("updating schema"))
