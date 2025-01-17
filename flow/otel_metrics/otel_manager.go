@@ -25,6 +25,10 @@ const (
 	OpenReplicationConnectionsGaugeName = "open_replication_connections"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
 	FetchedBytesCounterName             = "fetched_bytes"
+	// ErrorEmittedGaugeName This mostly tells whether an error is emitted or not, used for hooking up event based alerting
+	ErrorEmittedGaugeName = "error_emitted"
+	// ErrorsEmittedCounterName This the actual counter for errors emitted, used for alerting based on error rate/more detailed error analysis
+	ErrorsEmittedCounterName = "errors_emitted"
 )
 
 type SlotMetricGauges struct {
@@ -34,7 +38,6 @@ type SlotMetricGauges struct {
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
-	FetchedBytesCounter             metric.Int64Counter
 }
 
 func BuildMetricName(baseName string) string {

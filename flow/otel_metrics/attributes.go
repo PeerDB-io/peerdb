@@ -5,4 +5,5 @@ const (
 	SlotNameKey      string = "slotName"
 	FlowNameKey      string = "flowName"
 	DeploymentUidKey string = "deploymentUID"
+	ErrorClassKey    string = "errorClass"
 )
