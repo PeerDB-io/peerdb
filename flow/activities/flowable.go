@@ -807,7 +807,6 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
 					attribute.String(otel_metrics.PeerNameKey, peerName),
 				)))
-
 			}
 
 			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
