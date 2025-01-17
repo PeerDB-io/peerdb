@@ -12,6 +12,7 @@ RUN go mod download
 
 # Copy all the code
 COPY flow .
+RUN rm -f go.work*
 
 # build the binary from flow folder
 WORKDIR /root/flow
