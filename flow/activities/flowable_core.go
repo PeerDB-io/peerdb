@@ -332,7 +332,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 				attribute.String(otel_metrics.FlowNameKey, flowName),
 			)))
 		}
-
 	}
 
 	syncState.Store(shared.Ptr("updating schema"))

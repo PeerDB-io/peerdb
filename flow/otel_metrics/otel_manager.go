@@ -31,6 +31,10 @@ const (
 	ErrorsEmittedCounterName = "errors_emitted"
 	// SyncRecordsSyncedGaugeName is the gauge name for the number of records synced for every Sync batch
 	SyncRecordsSyncedGaugeName = "sync_records_synced"
+	// SyncedTablesGaugeName is the gauge name for the number of tables being synced for a mirror
+	SyncedTablesGaugeName = "synced_tables"
+	// InstanceStatusGaugeName  used for notifying the status of the instance, like if it is healthy/under maintenance etc.
+	InstanceStatusGaugeName = "instance_status"
 )
 
 type SlotMetricGauges struct {
@@ -40,6 +44,7 @@ type SlotMetricGauges struct {
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
+	InstanceStatusGauge             metric.Int64Gauge
 }
 
 func BuildMetricName(baseName string) string {

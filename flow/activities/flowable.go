@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	lua "github.com/yuin/gopher-lua"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
@@ -793,6 +794,20 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 					return
 				}
 				slotMetricGauges.IntervalSinceLastNormalizeGauge = intervalSinceLastNormalizeGauge
+
+				syncedTablesGauge, err := a.OtelManager.GetOrInitInt64Gauge(
+					otel_metrics.BuildMetricName(otel_metrics.SyncedTablesGaugeName),
+					metric.WithDescription("Number of tables synced"),
+				)
+				if err != nil {
+					logger.Error("Failed to get synced tables gauge", slog.Any("error", err))
+					return
+				}
+				syncedTablesGauge.Record(ctx, int64(len(config.TableMappings)), metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+					attribute.String(otel_metrics.PeerNameKey, peerName),
+				)))
+
 			}
 
 			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
