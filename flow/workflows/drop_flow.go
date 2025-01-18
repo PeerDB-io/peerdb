@@ -167,7 +167,10 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 
 		cdcFlowFuture := workflow.ExecuteChildWorkflow(cdcFlowCtx, CDCFlowWorkflow, input.FlowConnectionConfigs, nil)
 		// This Get() call will wait for the child workflow to start.
-		return cdcFlowFuture.Get(ctx, nil)
+		if err := cdcFlowFuture.GetChildWorkflowExecution().Get(ctx, nil); err != nil {
+			workflow.GetLogger(ctx).Error("failed to start child CDCFlow workflow", slog.Any("error", err))
+			return err
+		}
 	}
 
 	return nil
