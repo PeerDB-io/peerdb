@@ -425,9 +425,10 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 		return none, err
 	}
 
-	if conn, ok := conn.(T); ok {
-		return conn, nil
+	if tconn, ok := conn.(T); ok {
+		return tconn, nil
 	} else {
+		conn.Close()
 		return none, errors.ErrUnsupported
 	}
 }
