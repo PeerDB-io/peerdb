@@ -72,14 +72,15 @@ func NewKafkaConnector(
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", config.Sasl)
 		}
 	}
-	client, err := kgo.NewClient(optionalOpts...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create kafka client: %w", err)
-	}
 
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	client, err := kgo.NewClient(optionalOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kafka client: %w", err)
 	}
 
 	return &KafkaConnector{

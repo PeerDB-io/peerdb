@@ -283,9 +283,10 @@ func GetAs[T Connector](ctx context.Context, config *protos.Peer) (T, error) {
 		return none, err
 	}
 
-	if conn, ok := conn.(T); ok {
-		return conn, nil
+	if tconn, ok := conn.(T); ok {
+		return tconn, nil
 	} else {
+		conn.Close()
 		return none, errors.ErrUnsupported
 	}
 }
