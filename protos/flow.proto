@@ -332,6 +332,8 @@ message DropFlowInput {
   string flow_job_name = 1;
   bool drop_flow_stats = 4;
   FlowConnectionConfigs flow_connection_configs = 5;
+  string workflow_id = 6;
+  bool cdc_resync = 7;
 }
 
 message TableSchemaDelta {

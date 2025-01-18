@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -13,6 +14,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
@@ -29,6 +31,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/mirrorutils"
 )
 
 // CheckConnectionResult is the result of a CheckConnection call.
@@ -42,9 +45,10 @@ type NormalizeBatchRequest struct {
 }
 
 type FlowableActivity struct {
-	CatalogPool *pgxpool.Pool
-	Alerter     *alerting.Alerter
-	OtelManager *otel_metrics.OtelManager
+	CatalogPool    *pgxpool.Pool
+	Alerter        *alerting.Alerter
+	OtelManager    *otel_metrics.OtelManager
+	TemporalClient client.Client
 }
 
 type StreamCloser interface {
@@ -1059,6 +1063,72 @@ func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowN
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction to remove flow entries from catalog: %w", err)
+	}
+
+	return nil
+}
+
+func (a *FlowableActivity) HandleCancelWorkFlow(ctx context.Context, workflowID string) error {
+	errChan := make(chan error, 1)
+	waitForCancelDuration := 1 * time.Minute
+
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, waitForCancelDuration)
+	defer cancel()
+
+	go func() {
+		err := a.TemporalClient.CancelWorkflow(ctxWithTimeout, workflowID, "")
+		errChan <- err
+	}()
+
+	select {
+	case err := <-errChan:
+		if err != nil {
+			slog.Error(fmt.Sprintf("unable to cancel workflow: %s. Attempting to terminate.", err.Error()))
+			terminationReason := fmt.Sprintf("error encountered while trying to cancel workflow %s", workflowID)
+			if err := a.TemporalClient.TerminateWorkflow(ctx, workflowID, "", terminationReason); err != nil {
+				return fmt.Errorf("unable to terminate workflow: %w", err)
+			}
+		}
+	case <-time.After(waitForCancelDuration):
+		slog.Error("Timeout reached while trying to cancel workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
+		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
+		if err := a.TemporalClient.TerminateWorkflow(ctx, workflowID, "", terminationReason); err != nil {
+			return fmt.Errorf("unable to terminate workflow: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func (a *FlowableActivity) HandleCDCResync(ctx context.Context, cfg *protos.FlowConnectionConfigs, workflowID string) error {
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
+	logger.Info("resyncing flow")
+
+	// once we add multiple source types, this can be changed to a switch based on source type
+	// can then pass protos.Peer into this function
+	if err := mirrorutils.PostgresSourceMirrorValidate(ctx, a.CatalogPool, a.Alerter, cfg); err != nil {
+		return err
+	}
+
+	dstPeer, err := connectors.LoadPeer(ctx, a.CatalogPool, cfg.DestinationName)
+	if err != nil {
+		slog.Error("failed to load destination peer", slog.String("peer", cfg.DestinationName))
+		return err
+	}
+	if dstPeer.GetClickhouseConfig() != nil {
+		if err := mirrorutils.ClickHouseDestinationMirrorValidate(ctx, a.CatalogPool, a.Alerter, cfg); err != nil {
+			return err
+		}
+	}
+
+	if err := mirrorutils.CreateCDCWorkflowEntry(ctx, a.CatalogPool, cfg, workflowID); err != nil {
+		slog.Error("unable to create flow job entry", slog.Any("error", err))
+		return fmt.Errorf("unable to create flow job entry: %w", err)
+	}
+
+	if err := shared.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, slog.Default(), cfg); err != nil {
+		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
+		return fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
 	return nil
