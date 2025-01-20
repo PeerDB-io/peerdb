@@ -236,10 +236,12 @@ func (h *FlowRequestHandler) ValidateTableAdditions(ctx context.Context, req *pr
 		srcAddedTableNames = append(srcAddedTableNames, tableMapping.SourceTableIdentifier)
 	}
 
-	publicationErr := pgPeer.CheckIfTablesAreInPublication(ctx, req.PublicationName, addedTableValues)
-	if publicationErr != nil {
-		h.alerter.LogNonFlowWarning(ctx, telemetry.EditMirror, req.FlowJobName, publicationErr.Error())
-		return nil, publicationErr
+	if req.PublicationName != "" {
+		publicationErr := pgPeer.CheckIfTablesAreInPublication(ctx, req.PublicationName, addedTableValues)
+		if publicationErr != nil {
+			h.alerter.LogNonFlowWarning(ctx, telemetry.EditMirror, req.FlowJobName, publicationErr.Error())
+			return nil, publicationErr
+		}
 	}
 
 	dstPeer, err := connectors.LoadPeer(ctx, h.pool, req.DestinationPeerName)

@@ -139,8 +139,11 @@ Requires publication name as string and table values in the form of (schema::tex
 The schema and table names should be quoted and escaped.
 */
 func (c *PostgresConnector) CheckIfTablesAreInPublication(ctx context.Context, pubName string, tableValues []string) error {
-	tableStr := strings.Join(tableValues, ",")
+	if pubName == "" {
+		return errors.New("publication name is empty")
+	}
 
+	tableStr := strings.Join(tableValues, ",")
 	rows, err := c.conn.Query(
 		ctx,
 		fmt.Sprintf(`select schemaname,tablename
