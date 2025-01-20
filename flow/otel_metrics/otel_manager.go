@@ -47,11 +47,6 @@ type Metrics struct {
 	InstanceStatusGauge             metric.Int64Gauge
 }
 
-type metricMapping struct {
-	FieldPtr any
-	Options  any
-}
-
 type SlotMetricGauges struct {
 	SlotLagGauge                    metric.Float64Gauge
 	CurrentBatchIdGauge             metric.Int64Gauge
