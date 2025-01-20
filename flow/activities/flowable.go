@@ -783,6 +783,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				syncedTablesGauge.Record(ctx, int64(len(config.TableMappings)), metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
 					attribute.String(otel_metrics.PeerNameKey, peerName),
+					attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
 				)))
 			}
 			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{

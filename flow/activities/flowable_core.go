@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -226,12 +227,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	var syncStartTime time.Time
 	var res *model.SyncResponse
+	var dstConnType string
 	errGroup.Go(func() error {
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
 			return fmt.Errorf("failed to recreate destination connector: %w", err)
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
+		dstConnType = fmt.Sprintf("%T", dstConn)
 
 		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
 		if err != nil {
@@ -315,10 +318,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if a.OtelManager != nil {
 		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, flowName),
+			attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
+			attribute.String(otel_metrics.DestinationPeerType, dstConnType),
 		)))
-
 		a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, res.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, flowName),
+			attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(res.CurrentSyncBatchID, 10)),
+			attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
+			attribute.String(otel_metrics.DestinationPeerType, dstConnType),
 		)))
 	}
 

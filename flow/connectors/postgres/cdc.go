@@ -482,6 +482,7 @@ func PullCdcRecords[Items model.Items](
 		if p.otelManager != nil {
 			p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)), metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.FlowNameKey, req.FlowJobName),
+				attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", p)),
 			)))
 		}
 
