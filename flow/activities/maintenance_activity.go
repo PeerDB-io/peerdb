@@ -251,7 +251,7 @@ func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 			slog.Warn("Maintenance Workflow is still running")
 			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "Waiting", "Maintenance mode is still running")
 			if a.OtelManager != nil {
-				a.OtelManager.Metrics.MaintenanceRunningGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+				a.OtelManager.Metrics.MaintenanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.WorkflowTypeKey, activity.GetInfo(ctx).WorkflowType.Name),
 				)))
 			}
