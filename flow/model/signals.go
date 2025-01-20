@@ -134,3 +134,7 @@ var FlowSignal = TypedSignal[CDCFlowSignal]{
 var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
 	Name: "cdc-dynamic-properties",
 }
+
+var ResyncCDCSignal = TypedSignal[bool]{
+	Name: "resync-cdc",
+}

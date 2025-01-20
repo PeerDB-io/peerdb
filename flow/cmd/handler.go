@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
@@ -21,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/mirrorutils"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -42,68 +41,18 @@ func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, tas
 	}
 }
 
-func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (int32, int32, error) {
-	var id pgtype.Int4
-	var peerType pgtype.Int4
-	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
-	if err != nil {
-		slog.Error("unable to query peer id for peer "+peerName, slog.Any("error", err))
-		return -1, -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
-	}
-	return id.Int32, peerType.Int32, nil
-}
-
-func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
-	if peerDBType != int32(protos.DBType_BIGQUERY) && !strings.ContainsRune(tableIdentifier, '.') {
-		return "public." + tableIdentifier
-	}
-	return tableIdentifier
-}
-
-func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
-	req *protos.CreateCDCFlowRequest, workflowID string,
-) error {
-	sourcePeerID, sourePeerType, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.SourceName)
-	if srcErr != nil {
-		return fmt.Errorf("unable to get peer id for source peer %s: %w",
-			req.ConnectionConfigs.SourceName, srcErr)
-	}
-
-	destinationPeerID, destinationPeerType, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.DestinationName)
-	if dstErr != nil {
-		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			req.ConnectionConfigs.DestinationName, srcErr)
-	}
-
-	for _, v := range req.ConnectionConfigs.TableMappings {
-		_, err := h.pool.Exec(ctx, `
-		INSERT INTO flows (workflow_id, name, source_peer, destination_peer, description,
-		source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID,
-			"Mirror created via GRPC",
-			schemaForTableIdentifier(v.SourceTableIdentifier, sourePeerType),
-			schemaForTableIdentifier(v.DestinationTableIdentifier, destinationPeerType))
-		if err != nil {
-			return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
-				req.ConnectionConfigs.FlowJobName, v.SourceTableIdentifier, err)
-		}
-	}
-
-	return nil
-}
-
 func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	req *protos.CreateQRepFlowRequest, workflowID string,
 ) error {
 	sourcePeerName := req.QrepConfig.SourceName
-	sourcePeerID, _, srcErr := h.getPeerID(ctx, sourcePeerName)
+	sourcePeerID, _, srcErr := mirrorutils.GetPeerID(ctx, h.pool, sourcePeerName)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
 			sourcePeerName, srcErr)
 	}
 
 	destinationPeerName := req.QrepConfig.DestinationName
-	destinationPeerID, _, dstErr := h.getPeerID(ctx, destinationPeerName)
+	destinationPeerID, _, dstErr := mirrorutils.GetPeerID(ctx, h.pool, destinationPeerName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
 			destinationPeerName, srcErr)
@@ -127,6 +76,16 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, error) {
+	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	if err != nil {
+		slog.Error("unable to check maintenance mode", slog.Any("error", err))
+		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
+	}
+	if underMaintenance {
+		slog.Warn("Validate request denied due to maintenance", "flowName", req.ConnectionConfigs.FlowJobName)
+		return nil, errors.New("PeerDB is under maintenance")
+	}
+
 	cfg := req.ConnectionConfigs
 
 	// For resync, we validate the mirror before dropping it and getting to this step.
@@ -146,20 +105,17 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
 
-	err := h.createCdcJobEntry(ctx, req, workflowID)
-	if err != nil {
+	if err := mirrorutils.CreateCDCWorkflowEntry(ctx, h.pool, req.ConnectionConfigs, workflowID); err != nil {
 		slog.Error("unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	err = h.updateFlowConfigInCatalog(ctx, cfg)
-	if err != nil {
+	if err := shared.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg); err != nil {
 		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	_, err = h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil)
-	if err != nil {
+	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
@@ -167,13 +123,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	return &protos.CreateCDCFlowResponse{
 		WorkflowId: workflowID,
 	}, nil
-}
-
-func (h *FlowRequestHandler) updateFlowConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
-) error {
-	return shared.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
 }
 
 func (h *FlowRequestHandler) CreateQRepFlow(
@@ -262,11 +211,6 @@ func (h *FlowRequestHandler) shutdownFlow(
 		slog.String("workflowId", workflowID),
 	)
 
-	if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
-		slog.Error("unable to cancel workflow", logs, slog.Any("error", err))
-		return fmt.Errorf("unable to wait for PeerFlow workflow to close: %w", err)
-	}
-
 	isCdc, err := h.isCDCFlow(ctx, flowJobName)
 	if err != nil {
 		slog.Error("unable to check if workflow is cdc", logs, slog.Any("error", err))
@@ -287,36 +231,16 @@ func (h *FlowRequestHandler) shutdownFlow(
 		TypedSearchAttributes: shared.NewSearchAttributes(flowJobName),
 	}
 
-	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,
+	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,
 		peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 			FlowJobName:           flowJobName,
 			DropFlowStats:         deleteStats,
 			FlowConnectionConfigs: cdcConfig,
-		})
-	if err != nil {
+			WorkflowId:            workflowID,
+			CdcResync:             false,
+		}); err != nil {
 		slog.Error("unable to start DropFlow workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
-	}
-
-	cancelCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-
-	errChan := make(chan error, 1)
-	go func() {
-		errChan <- dropFlowHandle.Get(cancelCtx, nil)
-	}()
-
-	select {
-	case err := <-errChan:
-		if err != nil {
-			slog.Error("DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
-			return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
-		}
-	case <-time.After(5 * time.Minute):
-		if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
-			slog.Error("unable to wait for DropFlow workflow to close", logs, slog.Any("error", err))
-			return fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
-		}
 	}
 
 	return nil
@@ -404,37 +328,6 @@ func (h *FlowRequestHandler) FlowStateChange(
 	return &protos.FlowStateChangeResponse{}, nil
 }
 
-func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowID, runID string) error {
-	errChan := make(chan error, 1)
-
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-
-	go func() {
-		err := h.temporalClient.CancelWorkflow(ctxWithTimeout, workflowID, runID)
-		errChan <- err
-	}()
-
-	select {
-	case err := <-errChan:
-		if err != nil {
-			slog.Error(fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
-			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
-			if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
-				return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
-			}
-		}
-	case <-time.After(1 * time.Minute):
-		slog.Error("Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
-		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
-		if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
-			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
-		}
-	}
-
-	return nil
-}
-
 func (h *FlowRequestHandler) CreatePeer(
 	ctx context.Context,
 	req *protos.CreatePeerRequest,
@@ -462,7 +355,7 @@ func (h *FlowRequestHandler) DropPeer(
 	}
 
 	// Check if peer name is in flows table
-	peerID, _, err := h.getPeerID(ctx, req.PeerName)
+	peerID, _, err := mirrorutils.GetPeerID(ctx, h.pool, req.PeerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to obtain peer ID for peer %s: %w", req.PeerName, err)
 	}
@@ -515,30 +408,37 @@ func (h *FlowRequestHandler) ResyncMirror(
 	if !isCDC {
 		return nil, errors.New("resync is only supported for CDC mirrors")
 	}
+
+	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+
 	// getting config before dropping the flow since the flow entry is deleted unconditionally
 	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	config.Resync = true
-	config.DoInitialSnapshot = true
-	// validate mirror first because once the mirror is dropped, there's no going back
-	if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
-		ConnectionConfigs: config,
-	}); err != nil {
-		return nil, err
+	dropFlowWorkflowID := fmt.Sprintf("%s-dropflow-%s", req.FlowJobName, uuid.New())
+	workflowOptions := client.StartWorkflowOptions{
+		ID:                    dropFlowWorkflowID,
+		TaskQueue:             h.peerflowTaskQueueID,
+		TypedSearchAttributes: shared.NewSearchAttributes(req.FlowJobName),
 	}
 
-	if err := h.shutdownFlow(ctx, req.FlowJobName, req.DropStats); err != nil {
-		return nil, err
+	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,
+		peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+			FlowJobName:           req.FlowJobName,
+			DropFlowStats:         req.DropStats,
+			FlowConnectionConfigs: config,
+			WorkflowId:            workflowID,
+			CdcResync:             true,
+		}); err != nil {
+		slog.Error("unable to start DropFlow workflow", slog.Any("error", err))
+		return nil, fmt.Errorf("unable to start DropFlow workflow: %w", err)
 	}
 
-	if _, err := h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
-		ConnectionConfigs: config,
-	}); err != nil {
-		return nil, err
-	}
 	return &protos.ResyncMirrorResponse{}, nil
 }
 
