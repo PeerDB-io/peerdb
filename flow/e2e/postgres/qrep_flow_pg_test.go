@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
-	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -159,17 +158,14 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 		},
 	}
 
-	signal := connpostgres.NewSlotSignal()
-	go s.conn.SetupReplication(context.Background(), signal, setupReplicationInput)
-
 	s.t.Log("waiting for slot creation to complete: " + flowJobName)
-	slotInfo := <-signal.SlotCreated
-	s.t.Logf("slot creation complete: %v. Signaling clone complete in 2 seconds", slotInfo)
-	time.Sleep(2 * time.Second)
-	close(signal.CloneComplete)
+	slotInfo, err := s.conn.SetupReplication(context.Background(), setupReplicationInput)
+	require.NoError(s.t, err)
 
-	require.NoError(s.t, slotInfo.Err)
-	s.t.Logf("successfully setup replication: %s", flowJobName)
+	s.t.Logf("slot creation complete: %v", slotInfo)
+	if slotInfo.Conn != nil {
+		require.NoError(s.t, slotInfo.Conn.Close(context.Background()))
+	}
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
