@@ -200,13 +200,13 @@ func (h *FlowRequestHandler) CheckIfMirrorNameExists(ctx context.Context, mirror
 func (h *FlowRequestHandler) ValidateTableAdditions(ctx context.Context, req *protos.ValidateTableAdditionsRequest) (*protos.ValidateCDCMirrorResponse, error) {
 	sourcePeer, err := connectors.LoadPeer(ctx, h.pool, req.SourcePeerName)
 	if err != nil {
-		slog.Error("/validatecdc failed to load source peer", slog.String("peer", req.SourcePeerName))
+		slog.Error("table addition validation: failed to load source peer", slog.String("peer", req.SourcePeerName))
 		return nil, err
 	}
 
 	sourcePeerConfig := sourcePeer.GetPostgresConfig()
 	if sourcePeerConfig == nil {
-		slog.Error("/validatecdc source peer config is not postgres", slog.String("peer", req.SourcePeerName))
+		slog.Error("table addition validation: source peer config is not postgres", slog.String("peer", req.SourcePeerName))
 		return nil, errors.New("source peer config is not postgres")
 	}
 
