@@ -34,12 +34,6 @@ type Alerter struct {
 	snsTelemetrySender        telemetry.Sender
 	incidentIoTelemetrySender telemetry.Sender
 	otelManager               *otel_metrics.OtelManager
-	metrics                   *alertingMetrics
-}
-
-type alertingMetrics struct {
-	ErrorEmittedGauge    metric.Int64Gauge
-	ErrorsEmittedCounter metric.Int64Counter
 }
 
 type AlertSenderConfig struct {
@@ -158,30 +152,12 @@ func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool, otelManager *ote
 			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
 		}
 	}
-	var metrics alertingMetrics
-	if otelManager != nil {
-		// TODO Currently metrics registration is all over the place. Should we move all the registration to inside the manager?
-		errorEmittedCounter, err := otelManager.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.ErrorsEmittedCounterName),
-			metric.WithDescription("Counter of errors emitted"))
-		if err != nil {
-			panic(fmt.Sprintf("could not get errorEmittedCounter: %+v", err))
-		}
-		metrics.ErrorsEmittedCounter = errorEmittedCounter
-
-		errorEmittedGauge, err := otelManager.GetOrInitInt64Gauge(otel_metrics.BuildMetricName(otel_metrics.ErrorEmittedGaugeName),
-			metric.WithDescription("Whether an error was emitted, 1 if emitted, 0 otherwise"))
-		if err != nil {
-			panic(fmt.Sprintf("could not get errorEmittedGauge: %+v", err))
-		}
-		metrics.ErrorEmittedGauge = errorEmittedGauge
-	}
 
 	return &Alerter{
 		CatalogPool:               catalogPool,
 		snsTelemetrySender:        snsMessageSender,
 		incidentIoTelemetrySender: incidentIoTelemetrySender,
 		otelManager:               otelManager,
-		metrics:                   &metrics,
 	}
 }
 
@@ -499,11 +475,11 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 	if a.otelManager != nil {
-		a.metrics.ErrorsEmittedCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, flowName),
 			attribute.String(otel_metrics.ErrorClassKey, errorClassString),
 		)))
-		a.metrics.ErrorEmittedGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, flowName),
 			attribute.String(otel_metrics.ErrorClassKey, errorClassString),
 		)))
