@@ -375,8 +375,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				"",
 				model.PauseSignal,
 			)
-		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
-			currState == protos.FlowStatus_STATUS_PAUSED {
+		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING && currState == protos.FlowStatus_STATUS_PAUSED {
 			slog.Info("[flow-state-change] received resume request", logs)
 			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
@@ -385,8 +384,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				"",
 				model.NoopSignal,
 			)
-		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
-			(currState != protos.FlowStatus_STATUS_TERMINATED) {
+		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATED {
 			slog.Info("[flow-state-change] received drop mirror request", logs)
 			err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats)
 		} else if req.RequestedFlowState != currState {

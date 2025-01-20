@@ -82,26 +82,24 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	workflow.GetLogger(ctx).Info("performing cleanup for flow",
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
 
-	if input.FlowConnectionConfigs != nil && input.DropFlowStats {
-		dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 2 * time.Minute,
-			HeartbeatTimeout:    1 * time.Minute,
-			RetryPolicy: &temporal.RetryPolicy{
-				InitialInterval: 1 * time.Minute,
-			},
-		})
-		dropStatsFuture := workflow.ExecuteActivity(dropStatsCtx,
-			flowable.DeleteMirrorStats, input.FlowJobName)
-		err := dropStatsFuture.Get(dropStatsCtx, nil)
-		if err != nil {
-			workflow.GetLogger(ctx).Error("failed to delete mirror stats", slog.Any("error", err))
-			return err
-		}
-	}
-
 	if input.FlowConnectionConfigs != nil {
-		err := executeCDCDropActivities(ctx, input)
-		if err != nil {
+		if input.DropFlowStats {
+			dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				StartToCloseTimeout: 2 * time.Minute,
+				HeartbeatTimeout:    1 * time.Minute,
+				RetryPolicy: &temporal.RetryPolicy{
+					InitialInterval: 1 * time.Minute,
+				},
+			})
+			if err := workflow.ExecuteActivity(
+				dropStatsCtx, flowable.DeleteMirrorStats, input.FlowJobName,
+			).Get(dropStatsCtx, nil); err != nil {
+				workflow.GetLogger(ctx).Error("failed to delete mirror stats", slog.Any("error", err))
+				return err
+			}
+		}
+
+		if err := executeCDCDropActivities(ctx, input); err != nil {
 			workflow.GetLogger(ctx).Error("failed to drop CDC flow", slog.Any("error", err))
 			return err
 		}
@@ -114,10 +112,9 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 			InitialInterval: 1 * time.Minute,
 		},
 	})
-	removeFromCatalogFuture := workflow.ExecuteActivity(removeFlowEntriesCtx,
-		flowable.RemoveFlowEntryFromCatalog, input.FlowJobName)
-	err := removeFromCatalogFuture.Get(ctx, nil)
-	if err != nil {
+	if err := workflow.ExecuteActivity(
+		removeFlowEntriesCtx, flowable.RemoveFlowEntryFromCatalog, input.FlowJobName,
+	).Get(ctx, nil); err != nil {
 		workflow.GetLogger(ctx).Error("failed to remove flow entries from catalog", slog.Any("error", err))
 		return err
 	}
