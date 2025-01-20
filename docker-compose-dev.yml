@@ -83,7 +83,7 @@ services:
 
   pyroscope:
     container_name: pyroscope
-    image: grafana/pyroscope:latest@sha256:5f780f01ef6c83261db7ab939c8cdc48b6aca0567555636ad561de09f4aaafa0
+    image: grafana/pyroscope:latest@sha256:0710120c873260efda93b30a70a4ff47cf16678d249d904b68cc91900efce610
     ports:
       - 4040:4040
 
