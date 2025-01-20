@@ -37,8 +37,8 @@ type ClickHouseConnector struct {
 }
 
 type ClickHouseDestinationCheckInput struct {
-	TableMappings          []*protos.TableMapping
 	TableNameSchemaMapping map[string]*protos.TableSchema
+	TableMappings          []*protos.TableMapping
 	SyncedAtColName        string
 	Resync                 bool
 	DoInitialSnapshot      bool
