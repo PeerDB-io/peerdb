@@ -100,6 +100,13 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 
+	// this should have been done by DropFlowDestination
+	// but edge case due to late context cancellation
+	if err := dstConn.SyncFlowCleanup(ctx, config.FlowName); err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowName, err)
+		return fmt.Errorf("failed to clean up destination before mirror setup: %w", err)
+	}
+
 	return nil
 }
 
@@ -464,7 +471,8 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	runUUID string,
 ) (*protos.QRepParitionResult, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	if err := monitoring.InitializeQRepRun(ctx, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName); err != nil {
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	if err := monitoring.InitializeQRepRun(ctx, logger, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName); err != nil {
 		return nil, err
 	}
 	srcConn, err := connectors.GetByNameAs[connectors.QRepPullConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -485,6 +493,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	if len(partitions) > 0 {
 		if err := monitoring.InitializeQRepRun(
 			ctx,
+			logger,
 			a.CatalogPool,
 			config,
 			runUUID,
@@ -513,6 +522,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
 	err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	if err != nil {
 		return fmt.Errorf("failed to update start time for qrep run: %w", err)
@@ -892,8 +902,7 @@ func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName strin
 		return "deleting mirror stats"
 	})
 	defer shutdown()
-	err := monitoring.DeleteMirrorStats(ctx, a.CatalogPool, flowName)
-	if err != nil {
+	if err := monitoring.DeleteMirrorStats(ctx, logger, a.CatalogPool, flowName); err != nil {
 		logger.Warn("was not able to delete mirror stats", slog.Any("error", err))
 		return err
 	}
@@ -1055,7 +1064,7 @@ func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowN
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction to remove flow entries from catalog: %w", err)
 	}
-	defer shared.RollbackTx(tx, slog.Default())
+	defer shared.RollbackTx(tx, logger)
 
 	if _, err := tx.Exec(ctx, "DELETE FROM table_schema_mapping WHERE flow_name=$1", flowName); err != nil {
 		return fmt.Errorf("unable to clear table_schema_mapping in catalog: %w", err)
