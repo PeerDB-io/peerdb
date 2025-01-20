@@ -433,13 +433,13 @@ func pullCore[Items model.Items](
 		return err
 	}
 
-	latestLSN, err := c.getCurrentLSN(ctx)
-	if err != nil {
-		// There are cases where the pg_is_in_recovery() returns null - in read replicas for instance
-		// Since this is just a monitoring metric, we can ignore the error
+	// Since this is just a monitoring metric, we can ignore errors about LSN
+	if latestLSN, err := c.getCurrentLSN(ctx); err != nil {
 		c.logger.Error("error getting current LSN", slog.Any("error", err))
-	} else if err := monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN)); err != nil {
-		c.logger.Error("error updating latest LSN at source for CDC flow", slog.Any("error", err))
+	} else if !latestLSN.Null {
+		if err := monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN.LSN)); err != nil {
+			c.logger.Error("error updating latest LSN at source for CDC flow", slog.Any("error", err))
+		}
 	}
 
 	return nil

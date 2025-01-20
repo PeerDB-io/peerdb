@@ -85,6 +85,10 @@ const (
 )
 
 type ReplicaIdentityType rune
+type NullableLSN struct {
+	pglogrepl.LSN
+	Null bool
+}
 
 const (
 	ReplicaIdentityDefault ReplicaIdentityType = 'd'
@@ -651,22 +655,21 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(
 	return resultMap, nil
 }
 
-func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, error) {
+func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (NullableLSN, error) {
 	row := c.conn.QueryRow(ctx,
 		"SELECT CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END")
 	var result pgtype.Text
-	err := row.Scan(&result)
-	if err != nil {
-		return 0, fmt.Errorf("error while running query for current LSN: %w", err)
+	if err := row.Scan(&result); err != nil {
+		return NullableLSN{}, fmt.Errorf("error while running query for current LSN: %w", err)
 	}
 	if !result.Valid || result.String == "" {
-		return 0, errors.New("error while getting current LSN: no LSN available")
+		return NullableLSN{Null: true}, nil
 	}
 	lsn, err := pglogrepl.ParseLSN(result.String)
 	if err != nil {
-		return 0, fmt.Errorf("error while parsing LSN %s: %w", result.String, err)
+		return NullableLSN{}, fmt.Errorf("error while parsing LSN %s: %w", result.String, err)
 	}
-	return lsn, nil
+	return NullableLSN{LSN: lsn}, nil
 }
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {
