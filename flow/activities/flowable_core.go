@@ -552,10 +552,10 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 				},
 			}
 		}
-		updateErr := monitoring.InitializeQRepRun(
-			ctx, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics}, config.ParentMirrorName)
-		if updateErr != nil {
-			return updateErr
+		if err := monitoring.InitializeQRepRun(
+			ctx, logger, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics}, config.ParentMirrorName,
+		); err != nil {
+			return err
 		}
 
 		if err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, startTime); err != nil {
