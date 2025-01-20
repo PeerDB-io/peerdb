@@ -40,6 +40,7 @@ type WorkerSetupResponse struct {
 }
 
 func (w *WorkerSetupResponse) Close() {
+	slog.Info("Shutting down worker")
 	w.Client.Close()
 	if w.OtelManager != nil {
 		if err := w.OtelManager.Close(context.Background()); err != nil {
