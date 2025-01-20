@@ -6,8 +6,11 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -29,6 +32,7 @@ type MaintenanceActivity struct {
 	CatalogPool    *pgxpool.Pool
 	Alerter        *alerting.Alerter
 	TemporalClient client.Client
+	OtelManager    *otel_metrics.OtelManager
 }
 
 func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.MaintenanceMirrors, error) {
@@ -234,7 +238,6 @@ func (a *MaintenanceActivity) DisableMaintenanceMode(ctx context.Context) error 
 func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 	heartbeatTicker := time.NewTicker(30 * time.Second)
 	defer heartbeatTicker.Stop()
-
 	alertTicker := time.NewTicker(time.Duration(peerdbenv.PeerDBMaintenanceModeWaitAlertSeconds()) * time.Second)
 	defer alertTicker.Stop()
 
@@ -247,6 +250,11 @@ func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 		case <-alertTicker.C:
 			slog.Warn("Maintenance Workflow is still running")
 			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "Waiting", "Maintenance mode is still running")
+			if a.OtelManager != nil {
+				a.OtelManager.Metrics.MaintenanceRunningGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.WorkflowTypeKey, activity.GetInfo(ctx).WorkflowType.Name),
+				)))
+			}
 		}
 	}
 }

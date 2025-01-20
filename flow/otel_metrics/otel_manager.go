@@ -30,6 +30,7 @@ const (
 	RecordsSyncedGaugeName              = "records_synced"
 	SyncedTablesGaugeName               = "synced_tables"
 	InstanceStatusGaugeName             = "instance_status"
+	MaintenanceRunning                  = "maintenance_running"
 )
 
 type Metrics struct {
@@ -45,6 +46,7 @@ type Metrics struct {
 	RecordsSyncedGauge              metric.Int64Gauge
 	SyncedTablesGauge               metric.Int64Gauge
 	InstanceStatusGauge             metric.Int64Gauge
+	MaintenanceRunningGauge         metric.Int64Gauge
 }
 
 type SlotMetricGauges struct {
@@ -211,6 +213,13 @@ func (om *OtelManager) setupMetrics() (*Metrics, error) {
 
 	metrics.InstanceStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(InstanceStatusGaugeName),
 		metric.WithDescription("Status of the instance, always emits a 1 metric with different attributes for different statuses"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	metrics.MaintenanceRunningGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(MaintenanceRunning),
+		metric.WithDescription("Whether maintenance is running, 1 if running with different attributes for start/end"),
 	)
 	if err != nil {
 		return nil, err

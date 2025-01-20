@@ -7,6 +7,7 @@ const (
 	DeploymentUidKey  string = "deploymentUID"
 	ErrorClassKey     string = "errorClass"
 	InstanceStatusKey string = "instanceStatus"
+	WorkflowTypeKey   string = "workflowType"
 )
 
 const (
