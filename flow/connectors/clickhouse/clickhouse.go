@@ -36,6 +36,14 @@ type ClickHouseConnector struct {
 	credsProvider *utils.ClickHouseS3Credentials
 }
 
+type ClickHouseDestinationCheckInput struct {
+	TableMappings          []*protos.TableMapping
+	SyncedAtColName        string
+	Resync                 bool
+	DoInitialSnapshot      bool
+	TableNameSchemaMapping map[string]*protos.TableSchema
+}
+
 func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
 	// for validation purposes
 	s3Client, err := utils.CreateS3Client(ctx, creds.Provider)
@@ -347,8 +355,7 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 	return nil
 }
 
-func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
+func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req ClickHouseDestinationCheckInput,
 ) error {
 	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
 		err := chvalidate.CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx, c.logger, c.database)
@@ -362,7 +369,7 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 		peerDBColumns = append(peerDBColumns, strings.ToLower(req.SyncedAtColName))
 	}
 	// this is for handling column exclusion, processed schema does that in a step
-	processedMapping := shared.BuildProcessedSchemaMapping(req.TableMappings, tableNameSchemaMapping, c.logger)
+	processedMapping := shared.BuildProcessedSchemaMapping(req.TableMappings, req.TableNameSchemaMapping, c.logger)
 	dstTableNames := slices.Collect(maps.Keys(processedMapping))
 
 	// In the case of resync, we don't need to check the content or structure of the original tables;

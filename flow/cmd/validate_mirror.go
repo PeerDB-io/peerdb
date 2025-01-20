@@ -169,7 +169,13 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			return nil, displayErr
 		}
 
-		err = chPeer.CheckDestinationTables(ctx, req.ConnectionConfigs, res)
+		err = chPeer.CheckDestinationTables(ctx, connclickhouse.ClickHouseDestinationCheckInput{
+			TableMappings:          req.ConnectionConfigs.TableMappings,
+			TableNameSchemaMapping: res,
+			SyncedAtColName:        req.ConnectionConfigs.SyncedAtColName,
+			Resync:                 req.ConnectionConfigs.Resync,
+			DoInitialSnapshot:      req.ConnectionConfigs.DoInitialSnapshot,
+		})
 		if err != nil {
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
 				err.Error(),
@@ -189,4 +195,92 @@ func (h *FlowRequestHandler) CheckIfMirrorNameExists(ctx context.Context, mirror
 	}
 
 	return nameExists.Bool, nil
+}
+
+func (h *FlowRequestHandler) ValidateTableAdditions(ctx context.Context, req *protos.ValidateTableAdditionsRequest) (*protos.ValidateCDCMirrorResponse, error) {
+	sourcePeer, err := connectors.LoadPeer(ctx, h.pool, req.SourcePeerName)
+	if err != nil {
+		slog.Error("/validatecdc failed to load source peer", slog.String("peer", req.SourcePeerName))
+		return nil, err
+	}
+
+	sourcePeerConfig := sourcePeer.GetPostgresConfig()
+	if sourcePeerConfig == nil {
+		slog.Error("/validatecdc source peer config is not postgres", slog.String("peer", req.SourcePeerName))
+		return nil, errors.New("source peer config is not postgres")
+	}
+
+	pgPeer, err := connpostgres.NewPostgresConnector(ctx, nil, sourcePeerConfig)
+	if err != nil {
+		displayErr := fmt.Errorf("failed to create postgres connector: %v", err)
+		h.alerter.LogNonFlowWarning(ctx, telemetry.EditMirror, req.FlowJobName, displayErr.Error())
+		return nil, displayErr
+	}
+	defer pgPeer.Close()
+
+	srcAddedTableNames := make([]string, 0, len(req.AddedTables))
+	addedTableValues := make([]string, 0, len(req.AddedTables))
+	for _, tableMapping := range req.AddedTables {
+		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		if parseErr != nil {
+			displayErr := fmt.Errorf("invalid source table identifier: %s", parseErr)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.EditMirror, req.FlowJobName, displayErr.Error())
+			return nil, displayErr
+		}
+
+		addedTableValues = append(addedTableValues, fmt.Sprintf(`(%s::text,%s::text)`,
+			connpostgres.QuoteLiteral(parsedTable.Schema),
+			connpostgres.QuoteLiteral(parsedTable.Table),
+		))
+
+		srcAddedTableNames = append(srcAddedTableNames, tableMapping.SourceTableIdentifier)
+	}
+
+	publicationErr := pgPeer.CheckIfTablesAreInPublication(ctx, req.PublicationName, addedTableValues)
+	if publicationErr != nil {
+		h.alerter.LogNonFlowWarning(ctx, telemetry.EditMirror, req.FlowJobName, publicationErr.Error())
+		return nil, publicationErr
+	}
+
+	dstPeer, err := connectors.LoadPeer(ctx, h.pool, req.DestinationPeerName)
+	if err != nil {
+		slog.Error("table addition validation: failed to load destination peer", slog.String("peer", req.DestinationPeerName))
+		return nil, err
+	}
+	if dstPeer.GetClickhouseConfig() != nil {
+		chPeer, err := connclickhouse.NewClickHouseConnector(ctx, nil, dstPeer.GetClickhouseConfig())
+		if err != nil {
+			displayErr := fmt.Errorf("failed to create clickhouse connector for table addition validation: %w", err)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.EditMirror, req.FlowJobName,
+				displayErr.Error(),
+			)
+			return nil, displayErr
+		}
+		defer chPeer.Close()
+
+		res, err := pgPeer.GetTableSchema(ctx, nil, protos.TypeSystem_Q, srcAddedTableNames)
+		if err != nil {
+			displayErr := fmt.Errorf("failed to get source table schema: %v", err)
+			h.alerter.LogNonFlowWarning(ctx, telemetry.EditMirror, req.FlowJobName,
+				displayErr.Error(),
+			)
+			return nil, displayErr
+		}
+
+		err = chPeer.CheckDestinationTables(ctx, connclickhouse.ClickHouseDestinationCheckInput{
+			TableMappings:          req.AddedTables,
+			TableNameSchemaMapping: res,
+			SyncedAtColName:        req.SyncedAtColName,
+			// TODO: Implement resync and cdc-only for table addition
+			Resync:            false,
+			DoInitialSnapshot: true,
+		})
+		if err != nil {
+			h.alerter.LogNonFlowWarning(ctx, telemetry.EditMirror, req.FlowJobName,
+				err.Error(),
+			)
+			return nil, err
+		}
+	}
+	return &protos.ValidateCDCMirrorResponse{}, nil
 }

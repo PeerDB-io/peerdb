@@ -10,6 +10,7 @@ import {
 import {
   FlowStateChangeRequest,
   MirrorStatusResponse,
+  ValidateTableAdditionsRequest,
 } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
@@ -108,6 +109,30 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
       return;
     }
     setLoading(true);
+
+    if (additionalTables.length) {
+      const validateReq: ValidateTableAdditionsRequest = {
+        flowJobName: mirrorId,
+        sourcePeerName: mirrorState.cdcStatus?.config?.sourceName ?? '',
+        destinationPeerName:
+          mirrorState.cdcStatus?.config?.destinationName ?? '',
+        publicationName: mirrorState.cdcStatus?.config?.publicationName ?? '',
+        syncedAtColName: mirrorState.cdcStatus?.config?.syncedAtColName ?? '',
+        addedTables: additionalTables,
+      };
+
+      const res = await fetch('/api/v1/mirrors/cdc/edit/validate', {
+        method: 'POST',
+        body: JSON.stringify(validateReq),
+        cache: 'no-store',
+      });
+
+      if (!res.ok) {
+        notifyErr(`Table addition invalidated: ${res.statusText}`);
+        setLoading(false);
+        return;
+      }
+    }
     const req: FlowStateChangeRequest = {
       flowJobName: mirrorId,
       requestedFlowState: FlowStatus.STATUS_UNKNOWN,

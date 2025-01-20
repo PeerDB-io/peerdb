@@ -43,36 +43,8 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 		}
 
 		if !alltables {
-			// Check if tables belong to publication
-			tableStr := strings.Join(tableArr, ",")
-
-			rows, err := c.conn.Query(
-				ctx,
-				fmt.Sprintf(`select schemaname,tablename
-				from (values %s) as input(schemaname,tablename)
-				where not exists (
-					select * from pg_publication_tables pub
-					where pubname=$1 and pub.schemaname=input.schemaname and pub.tablename=input.tablename
-				)`, tableStr),
-				pubName,
-			)
-			if err != nil {
+			if err := c.CheckIfTablesAreInPublication(ctx, pubName, tableArr); err != nil {
 				return err
-			}
-			missing, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
-				var schema string
-				var table string
-				if err := row.Scan(&schema, &table); err != nil {
-					return "", err
-				}
-				return fmt.Sprintf("%s.%s", QuoteIdentifier(schema), QuoteIdentifier(table)), nil
-			})
-			if err != nil {
-				return err
-			}
-
-			if len(missing) != 0 {
-				return errors.New("some tables missing from publication: " + strings.Join(missing, ", "))
 			}
 		}
 	}
@@ -157,5 +129,46 @@ func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Cont
 	if _, err := c.conn.Exec(ctx, "DROP PUBLICATION "+pubName); err != nil {
 		return fmt.Errorf("failed to drop publication: %v", err)
 	}
+	return nil
+}
+
+/*
+Check if the tables are in the publication.
+
+Requires publication name as string and table values in the form of (schema::text, table::text) pairs.
+The schema and table names should be quoted and escaped.
+*/
+func (c *PostgresConnector) CheckIfTablesAreInPublication(ctx context.Context, pubName string, tableValues []string) error {
+	tableStr := strings.Join(tableValues, ",")
+
+	rows, err := c.conn.Query(
+		ctx,
+		fmt.Sprintf(`select schemaname,tablename
+		from (values %s) as input(schemaname,tablename)
+		where not exists (
+			select * from pg_publication_tables pub
+			where pubname=$1 and pub.schemaname=input.schemaname and pub.tablename=input.tablename
+		)`, tableStr),
+		pubName,
+	)
+	if err != nil {
+		return err
+	}
+	missing, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
+		var schema string
+		var table string
+		if err := row.Scan(&schema, &table); err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%s.%s", QuoteIdentifier(schema), QuoteIdentifier(table)), nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(missing) != 0 {
+		return errors.New("some tables missing from publication: " + strings.Join(missing, ", "))
+	}
+
 	return nil
 }
