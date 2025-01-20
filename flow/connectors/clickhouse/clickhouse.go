@@ -37,11 +37,11 @@ type ClickHouseConnector struct {
 }
 
 type ClickHouseDestinationCheckInput struct {
-	TableNameSchemaMapping map[string]*protos.TableSchema
-	TableMappings          []*protos.TableMapping
-	SyncedAtColName        string
 	Resync                 bool
 	DoInitialSnapshot      bool
+	SyncedAtColName        string
+	TableNameSchemaMapping map[string]*protos.TableSchema
+	TableMappings          []*protos.TableMapping
 }
 
 func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
