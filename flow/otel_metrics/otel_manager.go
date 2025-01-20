@@ -131,6 +131,7 @@ func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64Co
 }
 
 func (om *OtelManager) setupMetrics() error {
+	slog.Info("Setting up all metrics")
 	var err error
 	om.Metrics.SlotLagGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(SlotLagGaugeName),
 		metric.WithUnit("MiBy"),
@@ -223,7 +224,7 @@ func (om *OtelManager) setupMetrics() error {
 	if err != nil {
 		return err
 	}
-
+	slog.Info("Finished setting up all metrics")
 	return nil
 }
 
