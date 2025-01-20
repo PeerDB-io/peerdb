@@ -100,7 +100,7 @@ func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string
 	)
 }
 
-func CheckIfMirrorEntriesRemoved(conn *connpostgres.PostgresConnector, flowJobName string) (bool, error) {
+func checkIfMirrorEntriesRemoved(conn *connpostgres.PostgresConnector, flowJobName string) (bool, error) {
 	pgQueryExecutor, err := conn.NewQRepQueryExecutor(context.Background(), flowJobName, "testpart")
 	if err != nil {
 		return false, err
@@ -218,7 +218,7 @@ func EnvWaitForEmptyStatsInCatalog(
 
 	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 		t.Helper()
-		catalogIsCleanedUp, err := CheckIfMirrorEntriesRemoved(suite.Connector(), flowName)
+		catalogIsCleanedUp, err := checkIfMirrorEntriesRemoved(suite.Connector(), flowName)
 		if err != nil {
 			t.Log(err)
 			return false
