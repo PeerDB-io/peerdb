@@ -7,12 +7,13 @@ import (
 	"log/slog"
 	"regexp"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (

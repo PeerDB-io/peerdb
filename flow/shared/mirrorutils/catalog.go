@@ -6,9 +6,10 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func GetPeerID(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (int32, int32, error) {

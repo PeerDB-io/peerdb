@@ -1069,28 +1069,31 @@ func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowN
 }
 
 func (a *FlowableActivity) HandleCancelWorkFlow(ctx context.Context, workflowID string) error {
-	errChan := make(chan error, 1)
+	logger := log.With(activity.GetLogger(ctx), slog.String("workflowID", workflowID))
+
+	doneChan := make(chan struct{}, 1)
 	waitForCancelDuration := 1 * time.Minute
 
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, waitForCancelDuration)
 	defer cancel()
 
+	var err error
 	go func() {
-		err := a.TemporalClient.CancelWorkflow(ctxWithTimeout, workflowID, "")
-		errChan <- err
+		err = a.TemporalClient.CancelWorkflow(ctxWithTimeout, workflowID, "")
+		doneChan <- struct{}{}
 	}()
 
 	select {
-	case err := <-errChan:
+	case <-doneChan:
 		if err != nil {
-			slog.Error(fmt.Sprintf("unable to cancel workflow: %s. Attempting to terminate.", err.Error()))
-			terminationReason := fmt.Sprintf("error encountered while trying to cancel workflow %s", workflowID)
+			logger.Error(fmt.Sprintf("unable to cancel workflow: %s. Attempting to terminate.", err.Error()))
+			terminationReason := "error encountered while trying to cancel workflow " + workflowID
 			if err := a.TemporalClient.TerminateWorkflow(ctx, workflowID, "", terminationReason); err != nil {
 				return fmt.Errorf("unable to terminate workflow: %w", err)
 			}
 		}
 	case <-time.After(waitForCancelDuration):
-		slog.Error("Timeout reached while trying to cancel workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
+		logger.Error("Timeout reached while trying to cancel workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
 		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 		if err := a.TemporalClient.TerminateWorkflow(ctx, workflowID, "", terminationReason); err != nil {
 			return fmt.Errorf("unable to terminate workflow: %w", err)
