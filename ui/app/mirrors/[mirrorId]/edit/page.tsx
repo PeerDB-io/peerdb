@@ -121,16 +121,22 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         addedTables: additionalTables,
       };
 
-      const res = await fetch('/api/v1/mirrors/cdc/edit/validate', {
-        method: 'POST',
-        body: JSON.stringify(validateReq),
-        cache: 'no-store',
-      });
+      try {
+        const res = await fetch('/api/v1/mirrors/cdc/edit/validate', {
+          method: 'POST',
+          body: JSON.stringify(validateReq),
+          cache: 'no-store',
+        });
 
-      if (!res.ok) {
-        notifyErr(`Table addition invalidated: ${res.statusText}`);
+        if (!res.ok) {
+          const errRes = await res.json();
+          notifyErr('Table addition invalidated: ' + errRes.message);
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.error(e);
         setLoading(false);
-        return;
       }
     }
     const req: FlowStateChangeRequest = {
