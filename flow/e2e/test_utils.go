@@ -107,7 +107,6 @@ func checkIfMirrorEntriesRemoved(conn *connpostgres.PostgresConnector, flowJobNa
 	}
 
 	metadataTable := "metadata_last_sync_state"
-
 	catalogTables := []string{
 		metadataTable,
 		"peerdb_stats.cdc_batches",
