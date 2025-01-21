@@ -226,12 +226,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	var syncStartTime time.Time
 	var res *model.SyncResponse
+	var dstConnType string
 	errGroup.Go(func() error {
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
 			return fmt.Errorf("failed to recreate destination connector: %w", err)
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
+		dstConnType = fmt.Sprintf("%T", dstConn)
 
 		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
 		if err != nil {
@@ -313,15 +315,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
 	if a.OtelManager != nil {
-		currentBatchID, err := a.OtelManager.GetOrInitInt64Gauge(
-			otel_metrics.BuildMetricName(otel_metrics.CurrentBatchIdGaugeName))
-		if err != nil {
-			logger.Error("Failed to get current batch id gauge", slog.Any("error", err))
-		} else {
-			currentBatchID.Record(ctx, res.CurrentSyncBatchID, metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, flowName),
-			)))
-		}
+		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, flowName),
+			attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
+			attribute.String(otel_metrics.DestinationPeerType, dstConnType),
+		)))
 	}
 
 	syncState.Store(shared.Ptr("updating schema"))
@@ -724,15 +722,9 @@ func (a *FlowableActivity) normalizeLoop(
 					close(req.Done)
 				}
 				if a.OtelManager != nil {
-					lastNormalizedBatchID, err := a.OtelManager.GetOrInitInt64Gauge(
-						otel_metrics.BuildMetricName(otel_metrics.LastNormalizedBatchIdGaugeName))
-					if err != nil {
-						logger.Error("Failed to get normalized batch id gauge", slog.Any("error", err))
-					} else {
-						lastNormalizedBatchID.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
-							attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-						)))
-					}
+					a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+					)))
 				}
 				break
 			}

@@ -33,13 +33,14 @@ type WorkerSetupOptions struct {
 	UseMaintenanceTaskQueue            bool
 }
 
-type workerSetupResponse struct {
+type WorkerSetupResponse struct {
 	Client      client.Client
 	Worker      worker.Worker
 	OtelManager *otel_metrics.OtelManager
 }
 
-func (w *workerSetupResponse) Close() {
+func (w *WorkerSetupResponse) Close() {
+	slog.Info("Shutting down worker")
 	w.Client.Close()
 	if w.OtelManager != nil {
 		if err := w.OtelManager.Close(context.Background()); err != nil {
@@ -89,7 +90,7 @@ func setupPyroscope(opts *WorkerSetupOptions) {
 	}
 }
 
-func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
+func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
@@ -166,17 +167,18 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
-		Alerter:     alerting.NewAlerter(context.Background(), conn),
+		Alerter:     alerting.NewAlerter(context.Background(), conn, otelManager),
 		OtelManager: otelManager,
 	})
 
 	w.RegisterActivity(&activities.MaintenanceActivity{
 		CatalogPool:    conn,
-		Alerter:        alerting.NewAlerter(context.Background(), conn),
+		Alerter:        alerting.NewAlerter(context.Background(), conn, otelManager),
+		OtelManager:    otelManager,
 		TemporalClient: c,
 	})
 
-	return &workerSetupResponse{
+	return &WorkerSetupResponse{
 		Client:      c,
 		Worker:      w,
 		OtelManager: otelManager,

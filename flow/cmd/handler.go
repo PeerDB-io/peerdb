@@ -38,7 +38,7 @@ func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, tas
 		temporalClient:      temporalClient,
 		pool:                pool,
 		peerflowTaskQueueID: taskQueue,
-		alerter:             alerting.NewAlerter(context.Background(), pool),
+		alerter:             alerting.NewAlerter(context.Background(), pool, nil),
 	}
 }
 

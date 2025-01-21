@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	lua "github.com/yuin/gopher-lua"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
@@ -369,7 +371,13 @@ func (a *FlowableActivity) SyncFlow(
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
-
+			if a.OtelManager != nil {
+				a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+					attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
+					attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
+				)))
+			}
 			if options.NumberOfSyncs > 0 && currentSyncFlowNum.Load() >= options.NumberOfSyncs {
 				break
 			}
@@ -732,6 +740,30 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	}
 
 	logger := activity.GetLogger(ctx)
+	slotMetricGauges := otel_metrics.SlotMetricGauges{}
+	if a.OtelManager != nil {
+		slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
+
+		slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
+
+		slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
+
+		slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
+
+		maintenanceEnabled, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+		instanceStatus := otel_metrics.InstanceStatusReady
+		if err != nil {
+			logger.Error("Failed to get maintenance mode status", slog.Any("error", err))
+			instanceStatus = otel_metrics.InstanceStatusUnknown
+		}
+		if maintenanceEnabled {
+			instanceStatus = otel_metrics.InstanceStatusMaintenance
+		}
+
+		a.OtelManager.Metrics.InstanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.InstanceStatusKey, instanceStatus),
+		)))
+	}
 	for _, config := range configs {
 		func() {
 			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, config.SourceName)
@@ -753,48 +785,13 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return
 			}
-
-			slotMetricGauges := otel_metrics.SlotMetricGauges{}
 			if a.OtelManager != nil {
-				slotLagGauge, err := a.OtelManager.GetOrInitFloat64Gauge(
-					otel_metrics.BuildMetricName(otel_metrics.SlotLagGaugeName),
-					metric.WithUnit("MiBy"),
-					metric.WithDescription("Postgres replication slot lag in MB"))
-				if err != nil {
-					logger.Error("Failed to get slot lag gauge", slog.Any("error", err))
-					return
-				}
-				slotMetricGauges.SlotLagGauge = slotLagGauge
-
-				openConnectionsGauge, err := a.OtelManager.GetOrInitInt64Gauge(
-					otel_metrics.BuildMetricName(otel_metrics.OpenConnectionsGaugeName),
-					metric.WithDescription("Current open connections for PeerDB user"))
-				if err != nil {
-					logger.Error("Failed to get open connections gauge", slog.Any("error", err))
-					return
-				}
-				slotMetricGauges.OpenConnectionsGauge = openConnectionsGauge
-
-				openReplicationConnectionsGauge, err := a.OtelManager.GetOrInitInt64Gauge(
-					otel_metrics.BuildMetricName(otel_metrics.OpenReplicationConnectionsGaugeName),
-					metric.WithDescription("Current open replication connections for PeerDB user"))
-				if err != nil {
-					logger.Error("Failed to get open replication connections gauge", slog.Any("error", err))
-					return
-				}
-				slotMetricGauges.OpenReplicationConnectionsGauge = openReplicationConnectionsGauge
-
-				intervalSinceLastNormalizeGauge, err := a.OtelManager.GetOrInitFloat64Gauge(
-					otel_metrics.BuildMetricName(otel_metrics.IntervalSinceLastNormalizeGaugeName),
-					metric.WithUnit("s"),
-					metric.WithDescription("Interval since last normalize"))
-				if err != nil {
-					logger.Error("Failed to get interval since last normalize gauge", slog.Any("error", err))
-					return
-				}
-				slotMetricGauges.IntervalSinceLastNormalizeGauge = intervalSinceLastNormalizeGauge
+				a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(config.TableMappings)), metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+					attribute.String(otel_metrics.PeerNameKey, peerName),
+					attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
+				)))
 			}
-
 			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
 				FlowName: config.FlowJobName,
 				PeerName: peerName,

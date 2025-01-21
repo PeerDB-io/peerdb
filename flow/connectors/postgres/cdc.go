@@ -372,16 +372,6 @@ func PullCdcRecords[Items model.Items](
 		return nil
 	}
 
-	var fetchedBytesCounter metric.Int64Counter
-	if p.otelManager != nil {
-		var err error
-		fetchedBytesCounter, err = p.otelManager.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.FetchedBytesCounterName),
-			metric.WithUnit("By"), metric.WithDescription("Bytes received of CopyData over replication slot"))
-		if err != nil {
-			return fmt.Errorf("could not get FetchedBytesCounter: %w", err)
-		}
-	}
-
 	pkmRequiresResponse := false
 	waitingForCommit := false
 
@@ -489,9 +479,10 @@ func PullCdcRecords[Items model.Items](
 			continue
 		}
 
-		if fetchedBytesCounter != nil {
-			fetchedBytesCounter.Add(ctx, int64(len(msg.Data)), metric.WithAttributeSet(attribute.NewSet(
+		if p.otelManager != nil {
+			p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)), metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.FlowNameKey, req.FlowJobName),
+				attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", p)),
 			)))
 		}
 

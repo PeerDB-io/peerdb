@@ -15,10 +15,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
@@ -30,6 +33,7 @@ type Alerter struct {
 	CatalogPool               *pgxpool.Pool
 	snsTelemetrySender        telemetry.Sender
 	incidentIoTelemetrySender telemetry.Sender
+	otelManager               *otel_metrics.OtelManager
 }
 
 type AlertSenderConfig struct {
@@ -117,7 +121,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 }
 
 // doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
+func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool, otelManager *otel_metrics.OtelManager) *Alerter {
 	if catalogPool == nil {
 		panic("catalog pool is nil for Alerter")
 	}
@@ -153,6 +157,7 @@ func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
 		CatalogPool:               catalogPool,
 		snsTelemetrySender:        snsMessageSender,
 		incidentIoTelemetrySender: incidentIoTelemetrySender,
+		otelManager:               otelManager,
 	}
 }
 
@@ -439,9 +444,13 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		logger.Warn("failed to insert flow error", slog.Any("error", err))
 		return
 	}
+
+	errorClassString := ""
+
 	var tags []string
 	if errors.Is(err, context.Canceled) {
 		tags = append(tags, string(shared.ErrTypeCanceled))
+		errorClassString = "context.Canceled"
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		tags = append(tags, string(shared.ErrTypeEOF))
@@ -464,6 +473,16 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	}
 
 	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
+	if a.otelManager != nil {
+		a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, flowName),
+			attribute.String(otel_metrics.ErrorClassKey, errorClassString),
+		)))
+		a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowNameKey, flowName),
+			attribute.String(otel_metrics.ErrorClassKey, errorClassString),
+		)))
+	}
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
