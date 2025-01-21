@@ -25,6 +25,9 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     case DBType.POSTGRES:
     case 'POSTGRES':
       return '/svgs/pg.svg';
+    case DBType.MYSQL:
+    case 'MYSQL':
+      return '/svgs/mysql.svg';
     case DBType.SNOWFLAKE:
     case 'SNOWFLAKE':
       return '/svgs/sf.svg';
@@ -34,11 +37,9 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     case DBType.S3:
     case 'S3':
       return '/svgs/aws.svg';
-    case 'CLICKHOUSE':
     case DBType.CLICKHOUSE:
+    case 'CLICKHOUSE':
       return '/svgs/ch.svg';
-    case DBType.EVENTHUBS:
-      return '/svgs/ms.svg';
     case DBType.KAFKA:
     case 'KAFKA':
       return '/svgs/kafka.svg';
@@ -49,6 +50,7 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     case DBType.PUBSUB:
     case 'PUBSUB':
       return '/svgs/pubsub.svg';
+    case DBType.EVENTHUBS:
     case 'EVENTHUBS':
       return '/svgs/ms.svg';
     case DBType.ELASTICSEARCH:
