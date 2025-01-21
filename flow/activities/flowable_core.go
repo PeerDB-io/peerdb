@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -400,11 +399,11 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-		TPull,
-		context.Context, *protos.QRepConfig,
-		*protos.QRepPartition,
-		TWrite,
-	) (int, error),
+	TPull,
+	context.Context, *protos.QRepConfig,
+	*protos.QRepPartition,
+	TWrite,
+) (int, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -499,11 +498,11 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-		*connpostgres.PostgresConnector,
-		context.Context, *protos.QRepConfig,
-		*protos.QRepPartition,
-		TWrite,
-	) (int, int64, error),
+	*connpostgres.PostgresConnector,
+	context.Context, *protos.QRepConfig,
+	*protos.QRepPartition,
+	TWrite,
+) (int, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
