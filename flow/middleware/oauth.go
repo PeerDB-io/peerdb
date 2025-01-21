@@ -83,7 +83,7 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) (grpc.UnaryServerInterc
 			_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
 			if err != nil {
 				slog.Debug("Failed to validate request token", slog.String("method", info.FullMethod), slog.Any("error", err))
-				return nil, status.Errorf(codes.Unauthenticated, "%s", err.Error())
+				return nil, status.Error(codes.Unauthenticated, err.Error())
 			}
 		}
 

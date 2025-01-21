@@ -84,7 +84,13 @@ const (
 	 AND application_name LIKE 'peerdb%' AND client_addr IS NOT NULL`
 )
 
-type ReplicaIdentityType rune
+type (
+	ReplicaIdentityType rune
+	NullableLSN         struct {
+		pglogrepl.LSN
+		Null bool
+	}
+)
 
 const (
 	ReplicaIdentityDefault ReplicaIdentityType = 'd'
@@ -215,7 +221,7 @@ func (c *PostgresConnector) getNullableColumns(ctx context.Context, relID uint32
 
 func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.SchemaTable) (bool, error) {
 	var exists pgtype.Bool
-	err := c.conn.QueryRow(ctx,
+	if err := c.conn.QueryRow(ctx,
 		`SELECT EXISTS (
 			SELECT FROM pg_tables
 			WHERE schemaname = $1
@@ -223,8 +229,7 @@ func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.
 		)`,
 		schemaTable.Schema,
 		schemaTable.Table,
-	).Scan(&exists)
-	if err != nil {
+	).Scan(&exists); err != nil {
 		return false, fmt.Errorf("error checking if table exists: %w", err)
 	}
 
@@ -356,13 +361,12 @@ func (c *PostgresConnector) CreatePublication(
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
 	ctx context.Context,
-	signal SlotSignal,
 	s SlotCheckResult,
 	slot string,
 	publication string,
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
-) {
+) (model.SetupReplicationResult, error) {
 	// iterate through source tables and create publication,
 	// expecting tablenames to be schema qualified
 	if !s.PublicationExists {
@@ -370,16 +374,12 @@ func (c *PostgresConnector) createSlotAndPublication(
 		for srcTableName := range tableNameMapping {
 			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
 			if err != nil {
-				signal.SlotCreated <- SlotCreationResult{
-					Err: fmt.Errorf("[publication-creation] source table identifier %s is invalid", srcTableName),
-				}
-				return
+				return model.SetupReplicationResult{}, fmt.Errorf("[publication-creation] source table identifier %s is invalid", srcTableName)
 			}
 			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 		}
 		if err := c.CreatePublication(ctx, srcTableNames, publication); err != nil {
-			signal.SlotCreated <- SlotCreationResult{Err: err}
-			return
+			return model.SetupReplicationResult{}, err
 		}
 	}
 
@@ -387,22 +387,20 @@ func (c *PostgresConnector) createSlotAndPublication(
 	if !s.SlotExists {
 		conn, err := c.CreateReplConn(ctx)
 		if err != nil {
-			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error acquiring connection: %w", err)}
-			return
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error acquiring connection: %w", err)
 		}
-		defer conn.Close(ctx)
 
 		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
 
 		// THIS IS NOT IN A TX!
 		if _, err := conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
-			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)}
-			return
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
 		}
 
 		if _, err := conn.Exec(ctx, "SET lock_timeout=0"); err != nil {
-			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error setting lock_timeout: %w", err)}
-			return
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error setting lock_timeout: %w", err)
 		}
 
 		opts := pglogrepl.CreateReplicationSlotOptions{
@@ -411,39 +409,30 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 		res, err := pglogrepl.CreateReplicationSlot(ctx, conn.PgConn(), slot, "pgoutput", opts)
 		if err != nil {
-			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error creating replication slot: %w", err)}
-			return
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error creating replication slot: %w", err)
 		}
 
 		pgversion, err := c.MajorVersion(ctx)
 		if err != nil {
-			signal.SlotCreated <- SlotCreationResult{Err: fmt.Errorf("[slot] error getting PG version: %w", err)}
-			return
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error getting PG version: %w", err)
 		}
 
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
-		slotDetails := SlotCreationResult{
+		return model.SetupReplicationResult{
+			Conn:             conn,
 			SlotName:         res.SlotName,
 			SnapshotName:     res.SnapshotName,
-			Err:              nil,
 			SupportsTIDScans: pgversion >= shared.POSTGRES_13,
-		}
-		signal.SlotCreated <- slotDetails
-		c.logger.Info("Waiting for clone to complete")
-		<-signal.CloneComplete
-		c.logger.Info("Clone complete")
+		}, nil
 	} else {
 		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
-		slotDetails := SlotCreationResult{
-			SlotName:         slot,
-			SnapshotName:     "",
-			Err:              nil,
-			SupportsTIDScans: false,
-		}
+		var err error
 		if doInitialCopy {
-			slotDetails.Err = ErrSlotAlreadyExists
+			err = ErrSlotAlreadyExists
 		}
-		signal.SlotCreated <- slotDetails
+		return model.SetupReplicationResult{SlotName: slot}, err
 	}
 }
 
@@ -651,22 +640,21 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(
 	return resultMap, nil
 }
 
-func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, error) {
+func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (NullableLSN, error) {
 	row := c.conn.QueryRow(ctx,
 		"SELECT CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END")
 	var result pgtype.Text
-	err := row.Scan(&result)
-	if err != nil {
-		return 0, fmt.Errorf("error while running query for current LSN: %w", err)
+	if err := row.Scan(&result); err != nil {
+		return NullableLSN{}, fmt.Errorf("error while running query for current LSN: %w", err)
 	}
 	if !result.Valid || result.String == "" {
-		return 0, errors.New("error while getting current LSN: no LSN available")
+		return NullableLSN{Null: true}, nil
 	}
 	lsn, err := pglogrepl.ParseLSN(result.String)
 	if err != nil {
-		return 0, fmt.Errorf("error while parsing LSN %s: %w", result.String, err)
+		return NullableLSN{}, fmt.Errorf("error while parsing LSN %s: %w", result.String, err)
 	}
-	return lsn, nil
+	return NullableLSN{LSN: lsn}, nil
 }
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {

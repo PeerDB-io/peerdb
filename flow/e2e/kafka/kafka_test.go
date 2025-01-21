@@ -33,6 +33,10 @@ func (s KafkaSuite) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
+func (s KafkaSuite) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
+}
+
 func (s KafkaSuite) Conn() *pgx.Conn {
 	return s.Connector().Conn()
 }
@@ -73,7 +77,7 @@ func SetupSuite(t *testing.T) KafkaSuite {
 
 	return KafkaSuite{
 		t:      t,
-		conn:   conn,
+		conn:   conn.PostgresConnector,
 		suffix: suffix,
 	}
 }
@@ -103,7 +107,7 @@ func (s KafkaSuite) TestSimple() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "e2e_kasimple"
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -162,7 +166,7 @@ func (s KafkaSuite) TestMessage() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "e2e_kamessage"
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -217,7 +221,7 @@ func (s KafkaSuite) TestDefault() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -272,7 +276,7 @@ func (s KafkaSuite) TestInitialLoad() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`

@@ -58,7 +58,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Flow_ReplicaIdentity_Index_No_Pkey() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -111,7 +111,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -165,7 +165,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Geo_SF_Avro_CDC() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert 10 rows into the source table
@@ -255,7 +255,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -306,7 +306,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_1_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -362,7 +362,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_2_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -413,7 +413,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Toast_Advance_3_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -471,7 +471,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -566,7 +566,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Multi_Table_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -621,7 +621,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -676,7 +676,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_1_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
@@ -738,7 +738,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Composite_PKey_Toast_2_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -1145,7 +1145,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Supported_Mixed_Case_Table_SF() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup

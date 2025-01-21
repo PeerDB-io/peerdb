@@ -25,7 +25,7 @@ import (
 
 type ClickHouseSuite struct {
 	t        *testing.T
-	conn     *connpostgres.PostgresConnector
+	source   e2e.SuiteSource
 	s3Helper *e2e_s3.S3TestHelper
 	suffix   string
 }
@@ -35,7 +35,15 @@ func (s ClickHouseSuite) T() *testing.T {
 }
 
 func (s ClickHouseSuite) Connector() *connpostgres.PostgresConnector {
-	return s.conn
+	c, ok := s.source.Connector().(*connpostgres.PostgresConnector)
+	if !ok {
+		s.t.Skipf("skipping test because it relies on PostgresConnector, while source is %T", s.source)
+	}
+	return c
+}
+
+func (s ClickHouseSuite) Source() e2e.SuiteSource {
+	return s.source
 }
 
 func (s ClickHouseSuite) DestinationConnector() connectors.Connector {
@@ -88,7 +96,7 @@ func (s ClickHouseSuite) DestinationTable(table string) string {
 
 func (s ClickHouseSuite) Teardown() {
 	require.NoError(s.t, s.s3Helper.CleanUp(context.Background()))
-	e2e.TearDownPostgres(s)
+	s.source.Teardown(s.t, s.Suffix())
 }
 
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
@@ -216,27 +224,33 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	return batch, rows.Err()
 }
 
-func SetupSuite(t *testing.T) ClickHouseSuite {
+func SetupSuite[TSource e2e.SuiteSource](
+	t *testing.T,
+	setupSource func(*testing.T, string) (TSource, error),
+) func(*testing.T) ClickHouseSuite {
 	t.Helper()
+	return func(t *testing.T) ClickHouseSuite {
+		t.Helper()
 
-	suffix := "ch_" + strings.ToLower(shared.RandomString(8))
-	conn, err := e2e.SetupPostgres(t, suffix)
-	require.NoError(t, err, "failed to setup postgres")
+		suffix := "ch_" + strings.ToLower(shared.RandomString(8))
+		source, err := setupSource(t, suffix)
+		require.NoError(t, err, "failed to setup postgres")
 
-	s3Helper, err := e2e_s3.NewS3TestHelper(e2e_s3.Minio)
-	require.NoError(t, err, "failed to setup S3")
+		s3Helper, err := e2e_s3.NewS3TestHelper(e2e_s3.Minio)
+		require.NoError(t, err, "failed to setup S3")
 
-	s := ClickHouseSuite{
-		t:        t,
-		conn:     conn,
-		suffix:   suffix,
-		s3Helper: s3Helper,
+		s := ClickHouseSuite{
+			t:        t,
+			source:   e2e.SuiteSource(source),
+			suffix:   suffix,
+			s3Helper: s3Helper,
+		}
+
+		ch, err := connclickhouse.Connect(context.Background(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
+		require.NoError(t, err, "failed to connect to clickhouse")
+		err = ch.Exec(context.Background(), "CREATE DATABASE e2e_test_"+suffix)
+		require.NoError(t, err, "failed to create clickhouse database")
+
+		return s
 	}
-
-	ch, err := connclickhouse.Connect(context.Background(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
-	require.NoError(t, err, "failed to connect to clickhouse")
-	err = ch.Exec(context.Background(), "CREATE DATABASE e2e_test_"+suffix)
-	require.NoError(t, err, "failed to create clickhouse database")
-
-	return s
 }

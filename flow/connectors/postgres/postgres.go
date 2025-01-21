@@ -125,7 +125,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 }
 
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
-	// create a separate connection pool for non-replication queries as replication connections cannot
+	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	replConfig, err := pgx.ParseConfig(c.connStr)
 	if err != nil {
@@ -433,15 +433,13 @@ func pullCore[Items model.Items](
 		return err
 	}
 
-	latestLSN, err := c.getCurrentLSN(ctx)
-	if err != nil {
+	// Since this is just a monitoring metric, we can ignore errors about LSN
+	if latestLSN, err := c.getCurrentLSN(ctx); err != nil {
 		c.logger.Error("error getting current LSN", slog.Any("error", err))
-		return fmt.Errorf("failed to get current LSN: %w", err)
-	}
-
-	if err := monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN)); err != nil {
+	} else if latestLSN.Null {
+		c.logger.Info("Current LSN null, probably read replica starting up")
+	} else if err := monitoring.UpdateLatestLSNAtSourceForCDCFlow(ctx, catalogPool, req.FlowJobName, int64(latestLSN.LSN)); err != nil {
 		c.logger.Error("error updating latest LSN at source for CDC flow", slog.Any("error", err))
-		return fmt.Errorf("failed to update latest LSN at source for CDC flow: %w", err)
 	}
 
 	return nil
@@ -1092,13 +1090,13 @@ func (c *PostgresConnector) FinishExport(tx any) error {
 	return pgtx.Commit(timeout)
 }
 
-// SetupReplication sets up replication for the source connector.
-func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSignal, req *protos.SetupReplicationInput) {
+// SetupReplication sets up replication for the source connector
+func (c *PostgresConnector) SetupReplication(
+	ctx context.Context,
+	req *protos.SetupReplicationInput,
+) (model.SetupReplicationResult, error) {
 	if !shared.IsValidReplicationName(req.FlowJobName) {
-		signal.SlotCreated <- SlotCreationResult{
-			Err: fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName),
-		}
-		return
+		return model.SetupReplicationResult{}, fmt.Errorf("invalid flow job name: `%s`, it should be ^[a-z_][a-z0-9_]*$", req.FlowJobName)
 	}
 
 	// Slotname would be the job name prefixed with "peerflow_slot_"
@@ -1115,8 +1113,7 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 	// Check if the replication slot and publication exist
 	exists, err := c.checkSlotAndPublication(ctx, slotName, publicationName)
 	if err != nil {
-		signal.SlotCreated <- SlotCreationResult{Err: err}
-		return
+		return model.SetupReplicationResult{}, err
 	}
 
 	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
@@ -1127,7 +1124,7 @@ func (c *PostgresConnector) SetupReplication(ctx context.Context, signal SlotSig
 		}
 	}
 	// Create the replication slot and publication
-	c.createSlotAndPublication(ctx, signal, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
+	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {

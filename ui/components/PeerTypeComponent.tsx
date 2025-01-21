@@ -8,6 +8,8 @@ export const DBTypeToGoodText = (ptype?: DBType) => {
   switch (dBTypeFromJSON(ptype)) {
     case DBType.POSTGRES:
       return 'PostgreSQL';
+    case DBType.MYSQL:
+      return 'MySQL';
     case DBType.SNOWFLAKE:
       return 'Snowflake';
     case DBType.EVENTHUBS:
