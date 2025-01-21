@@ -32,6 +32,10 @@ func (s PeerFlowE2ETestSuiteS3) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
+func (s PeerFlowE2ETestSuiteS3) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
+}
+
 func (s PeerFlowE2ETestSuiteS3) Suffix() string {
 	return s.suffix
 }
@@ -83,7 +87,7 @@ func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS
 
 	return PeerFlowE2ETestSuiteS3{
 		t:        t,
-		conn:     conn,
+		conn:     conn.PostgresConnector,
 		s3Helper: helper,
 		suffix:   suffix,
 	}

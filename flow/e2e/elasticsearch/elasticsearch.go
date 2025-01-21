@@ -32,6 +32,10 @@ func (s elasticsearchSuite) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
+func (s elasticsearchSuite) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
+}
+
 func (s elasticsearchSuite) Suffix() string {
 	return s.suffix
 }
@@ -54,7 +58,7 @@ func SetupSuite(t *testing.T) elasticsearchSuite {
 
 	return elasticsearchSuite{
 		t:           t,
-		conn:        conn,
+		conn:        conn.PostgresConnector,
 		esClient:    esClient,
 		esAddresses: esAddresses,
 		suffix:      suffix,

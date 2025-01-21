@@ -44,6 +44,7 @@ type Suite interface {
 	T() *testing.T
 	Connector() *connpostgres.PostgresConnector
 	Suffix() string
+	Source() SuiteSource
 }
 
 type RowSource interface {
@@ -88,46 +89,36 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 	}
 }
 
-func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := conn.NewQRepQueryExecutor(context.Background(), "testflow", "testpart")
-	if err != nil {
-		return nil, err
-	}
-
-	return pgQueryExecutor.ExecuteAndProcessQuery(
-		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, connpostgres.QuoteIdentifier(table)),
-	)
-}
-
 func RequireEqualTables(suite RowSource, table string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), table, cols)
+	sourceRows, err := suite.Source().GetRows(suite.Suffix(), table, cols)
 	require.NoError(t, err)
 
 	rows, err := suite.GetRows(table, cols)
 	require.NoError(t, err)
 
-	require.True(t, e2eshared.CheckEqualRecordBatches(t, pgRows, rows))
+	require.True(t, e2eshared.CheckEqualRecordBatches(t, sourceRows, rows))
 }
 
-func EnvEqualTables(env WorkflowRun, suite RowSource, table string, cols string) {
+func EnvEqualTables[TSource connectors.Connector](env WorkflowRun, suite RowSource, table string, cols string) {
 	EnvEqualTablesWithNames(env, suite, table, table, cols)
 }
 
-func EnvEqualTablesWithNames(env WorkflowRun, suite RowSource, srcTable string, dstTable string, cols string) {
+func EnvEqualTablesWithNames(
+	env WorkflowRun, suite RowSource, srcTable string, dstTable string, cols string,
+) {
 	t := suite.T()
 	t.Helper()
 
-	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
+	sourceRows, err := suite.Source().GetRows(suite.Suffix(), srcTable, cols)
 	EnvNoError(t, env, err)
 
 	rows, err := suite.GetRows(dstTable, cols)
 	EnvNoError(t, env, err)
 
-	EnvEqualRecordBatches(t, env, pgRows, rows)
+	EnvEqualRecordBatches(t, env, sourceRows, rows)
 }
 
 func EnvWaitForEqualTables(
@@ -155,7 +146,7 @@ func EnvWaitForEqualTablesWithNames(
 	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 		t.Helper()
 
-		pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
+		sourceRows, err := suite.Source().GetRows(suite.Suffix(), srcTable, cols)
 		if err != nil {
 			t.Log(err)
 			return false
@@ -167,7 +158,7 @@ func EnvWaitForEqualTablesWithNames(
 			return false
 		}
 
-		return e2eshared.CheckEqualRecordBatches(t, pgRows, rows)
+		return e2eshared.CheckEqualRecordBatches(t, sourceRows, rows)
 	})
 }
 

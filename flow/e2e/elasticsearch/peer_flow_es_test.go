@@ -30,7 +30,7 @@ func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
 		TableNameMapping: map[string]string{srcTableName: srcTableName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.DoInitialSnapshot = true
 
@@ -99,7 +99,7 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 		TableNameMapping: map[string]string{srcTableName: srcTableName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.DoInitialSnapshot = true
 
