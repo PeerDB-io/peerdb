@@ -100,6 +100,41 @@ func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string
 	)
 }
 
+func checkIfMirrorEntriesRemoved(conn *connpostgres.PostgresConnector, flowJobName string) (bool, error) {
+	pgQueryExecutor, err := conn.NewQRepQueryExecutor(context.Background(), flowJobName, "testpart")
+	if err != nil {
+		return false, err
+	}
+
+	metadataTable := "metadata_last_sync_state"
+	catalogTables := []string{
+		metadataTable,
+		"peerdb_stats.cdc_batches",
+		"peerdb_stats.cdc_batch_table",
+		"peerdb_stats.qrep_partitions",
+		"peerdb_stats.qrep_runs",
+	}
+
+	for _, table := range catalogTables {
+		flowNameColumn := "flow_name"
+		if table == metadataTable {
+			flowNameColumn = "job_name"
+		}
+		batch, err := pgQueryExecutor.ExecuteAndProcessQuery(
+			context.Background(),
+			fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE %s = '%s'`, table, flowNameColumn, flowJobName),
+		)
+		if err != nil {
+			return false, err
+		}
+		if batch.Records[0][0].Value() != 0 {
+			return false, nil
+		}
+	}
+
+	return true, nil
+}
+
 func RequireEqualTables(suite RowSource, table string, cols string) {
 	t := suite.T()
 	t.Helper()
@@ -168,6 +203,26 @@ func EnvWaitForEqualTablesWithNames(
 		}
 
 		return e2eshared.CheckEqualRecordBatches(t, pgRows, rows)
+	})
+}
+
+func EnvWaitForEmptyStatsInCatalog(
+	env WorkflowRun,
+	suite RowSource,
+	reason string,
+	flowName string,
+) {
+	t := suite.T()
+	t.Helper()
+
+	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+		t.Helper()
+		catalogIsCleanedUp, err := checkIfMirrorEntriesRemoved(suite.Connector(), flowName)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+		return catalogIsCleanedUp
 	})
 }
 

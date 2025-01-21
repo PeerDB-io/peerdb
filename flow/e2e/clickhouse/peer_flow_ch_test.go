@@ -840,3 +840,53 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_Drop_Mirror() {
+	srcTableName := "test_drop_mirror_ch"
+	srcFullName := s.attachSchemaSuffix("test_drop_mirror_ch")
+	dstTableName := "test_drop_mirror_ch_dst"
+
+	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			key TEXT NOT NULL
+		);
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO %s (id,key) VALUES (1,'init');
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_drop_mirror_ch"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
+
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	INSERT INTO %s (id,key) VALUES (2,'cdc');
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key")
+
+	dropEnv := e2e.ExecuteWorkflow(tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		DropFlowStats:         true,
+		FlowConnectionConfigs: flowConnConfig,
+	})
+
+	e2e.EnvWaitForEmptyStatsInCatalog(dropEnv, s, "testing drop", flowConnConfig.FlowJobName)
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
