@@ -67,7 +67,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -112,7 +112,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
@@ -179,7 +179,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -221,7 +221,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -283,7 +283,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -348,7 +348,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -406,7 +406,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 		SoftDelete:       true,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -825,7 +825,7 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 2
 	flowConnConfig.IdleTimeoutSeconds = 10
 
@@ -966,12 +966,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 func (s PeerFlowE2ETestSuitePG) Test_CustomSync() {
 	srcTableName := s.attachSchemaSuffix("test_customsync")
 	dstTableName := s.attachSchemaSuffix("test_customsync_dst")
+
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("test_customsync_flow"),
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
 	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
@@ -979,26 +981,31 @@ func (s PeerFlowE2ETestSuitePG) Test_CustomSync() {
 			value TEXT NOT NULL
 		);
 	`, srcTableName))
+
 	require.NoError(s.t, err)
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
 	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
 	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
 		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
 	})
+
 	e2e.SignalWorkflow(env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		NumberOfSyncs: 1,
 	})
 	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
 		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_RUNNING
 	})
+
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(
 		"INSERT INTO %s(key, value) VALUES ('test_key', 'test_value')", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "paused workflow", func() bool {
 		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
 	})
+
 	require.NoError(s.t, s.comparePGTables(srcTableName, dstTableName, "id,key,value"))
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
@@ -1033,7 +1040,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.System = protos.TypeSystem_PG
 	flowConnConfig.SoftDeleteColName = ""
@@ -1082,7 +1089,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "cdc_transform_record"
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -1131,7 +1138,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "cdc_transform_row"
 
 	tc := e2e.NewTemporalClient(s.t)

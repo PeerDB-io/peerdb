@@ -36,6 +36,10 @@ func (s EventhubsSuite) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
+func (s EventhubsSuite) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
+}
+
 func (s EventhubsSuite) Conn() *pgx.Conn {
 	return s.Connector().Conn()
 }
@@ -112,7 +116,7 @@ func SetupSuite(t *testing.T) EventhubsSuite {
 
 	return EventhubsSuite{
 		t:          t,
-		conn:       conn,
+		conn:       conn.PostgresConnector,
 		suffix:     suffix,
 		timeSuffix: tsSuffix,
 	}
@@ -150,7 +154,7 @@ func (s EventhubsSuite) Test_EH_Simple() {
 		TableNameMapping: map[string]string{srcTableName: scopedEventhubName},
 		Destination:      destinationPeer.Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "e2e_eh_simple_script"
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)

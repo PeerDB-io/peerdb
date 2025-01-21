@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	e2e_bigquery "github.com/PeerDB-io/peerdb/flow/e2e/bigquery"
 	e2e_clickhouse "github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
@@ -31,8 +32,8 @@ func TestGenericBQ(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_bigquery.SetupSuite))
 }
 
-func TestGenericCH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite))
+func TestGenericCH_PG(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, e2e.SetupPostgres)))
 }
 
 type Generic struct {
@@ -51,23 +52,26 @@ func (s Generic) Test_Simple_Flow() {
 	srcTable := "test_simple"
 	dstTable := "test_simple_dst"
 	srcSchemaTable := e2e.AttachSchema(s, srcTable)
+	hstoreType := "TEXT"
+	if _, isPg := s.Source().Connector().(*connpostgres.PostgresConnector); isPg {
+		hstoreType = "HSTORE"
+	}
 
-	_, err := s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	require.NoError(t, s.Source().Exec(fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
+			ky TEXT NOT NULL,
 			value TEXT NOT NULL,
-			myh HSTORE NOT NULL
+			myh %s NOT NULL
 		);
-	`, srcSchemaTable))
-	require.NoError(t, err)
+	`, srcSchemaTable, hstoreType)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, "test_simple"),
 		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -77,14 +81,13 @@ func (s Generic) Test_Simple_Flow() {
 	for i := range 10 {
 		testKey := fmt.Sprintf("test_key_%d", i)
 		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
-		INSERT INTO %s(key, value, myh) VALUES ($1, $2, '"a"=>"b"')
-		`, srcSchemaTable), testKey, testValue)
-		e2e.EnvNoError(t, env, err)
+		e2e.EnvNoError(t, env, s.Source().Exec(
+			fmt.Sprintf(`INSERT INTO %s(ky, value, myh) VALUES ('%s', '%s', '"a"=>"b"')`, srcSchemaTable, testKey, testValue),
+		))
 	}
 	t.Log("Inserted 10 rows into the source table")
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalizing 10 rows", srcTable, dstTable, `id,key,value,myh`)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalizing 10 rows", srcTable, dstTable, `id,ky,value,myh`)
 	env.Cancel()
 	e2e.RequireEnvCanceled(t, env)
 }
@@ -115,8 +118,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
@@ -330,7 +332,7 @@ func (s Generic) Test_Partitioned_Table() {
 		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)

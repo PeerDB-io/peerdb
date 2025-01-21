@@ -36,6 +36,10 @@ func (s PeerFlowE2ETestSuiteBQ) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
+func (s PeerFlowE2ETestSuiteBQ) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
+}
+
 func (s PeerFlowE2ETestSuiteBQ) DestinationConnector() connectors.Connector {
 	// TODO have BQ connector
 	return nil
@@ -110,7 +114,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 	return PeerFlowE2ETestSuiteBQ{
 		t:        t,
 		bqSuffix: bqSuffix,
-		conn:     conn,
+		conn:     conn.PostgresConnector,
 		bqHelper: bqHelper,
 	}
 }

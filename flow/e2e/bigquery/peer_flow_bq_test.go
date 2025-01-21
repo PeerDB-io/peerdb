@@ -119,7 +119,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 1
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -150,7 +150,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 1
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -182,7 +182,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -233,7 +233,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -289,7 +289,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -339,7 +339,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -395,7 +395,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -477,7 +477,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -529,7 +529,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -605,7 +605,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -659,7 +659,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -737,7 +737,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -805,7 +805,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -861,7 +861,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
@@ -921,7 +921,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -972,7 +972,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 		SoftDelete:       true,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -1022,7 +1022,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
 		Destination: s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
 	// wait for PeerFlowStatusQuery to finish setup
@@ -1103,7 +1103,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Basic() {
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE id=1`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize delete", func() bool {
-		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, srcName, "id,c1,c2,t")
+		pgRows, err := s.Source().GetRows(s.bqSuffix, srcName, "id,c1,c2,t")
 		if err != nil {
 			return false
 		}
@@ -1248,7 +1248,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_UD_Same_Batch() {
 	e2e.EnvNoError(s.t, env, insertTx.Commit(context.Background()))
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize transaction", func() bool {
-		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, srcName, "id,c1,c2,t")
+		pgRows, err := s.Source().GetRows(s.bqSuffix, srcName, "id,c1,c2,t")
 		e2e.EnvNoError(s.t, env, err)
 		rows, err := s.GetRowsWhere(dstName, "id,c1,c2,t", "NOT _PEERDB_IS_DELETED")
 		if err != nil {
@@ -1312,7 +1312,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 		"DELETE FROM %s WHERE id=1", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize delete", func() bool {
-		pgRows, err := e2e.GetPgRows(s.conn, s.bqSuffix, tableName, "id,c1,c2,t")
+		pgRows, err := s.Source().GetRows(s.bqSuffix, tableName, "id,c1,c2,t")
 		if err != nil {
 			return false
 		}
@@ -1362,7 +1362,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey_BQ() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""

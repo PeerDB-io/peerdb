@@ -39,7 +39,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		Destination:      s.Peer().Name,
 	}
 
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 5
 
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
