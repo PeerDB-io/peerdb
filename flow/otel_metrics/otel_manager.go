@@ -85,7 +85,7 @@ func NewOtelManager() (*OtelManager, error) {
 		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		Int64CountersCache: make(map[string]metric.Int64Counter),
 	}
-	if err = otelManager.setupMetrics(); err != nil {
+	if err := otelManager.setupMetrics(); err != nil {
 		return nil, err
 	}
 	return &otelManager, nil
