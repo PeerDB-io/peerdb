@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -370,7 +371,13 @@ func (a *FlowableActivity) SyncFlow(
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
-
+			if a.OtelManager != nil {
+				a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+					attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
+					attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
+				)))
+			}
 			if options.NumberOfSyncs > 0 && currentSyncFlowNum.Load() >= options.NumberOfSyncs {
 				break
 			}
@@ -779,8 +786,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				return
 			}
 			if a.OtelManager != nil {
-				syncedTablesGauge := a.OtelManager.Metrics.SyncedTablesGauge
-				syncedTablesGauge.Record(ctx, int64(len(config.TableMappings)), metric.WithAttributeSet(attribute.NewSet(
+				a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(config.TableMappings)), metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
 					attribute.String(otel_metrics.PeerNameKey, peerName),
 					attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),

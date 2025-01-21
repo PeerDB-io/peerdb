@@ -321,12 +321,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
 			attribute.String(otel_metrics.DestinationPeerType, dstConnType),
 		)))
-		a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, res.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, flowName),
-			attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(res.CurrentSyncBatchID, 10)),
-			attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
-			attribute.String(otel_metrics.DestinationPeerType, dstConnType),
-		)))
 	}
 
 	syncState.Store(shared.Ptr("updating schema"))
