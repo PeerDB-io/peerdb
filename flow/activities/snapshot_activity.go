@@ -110,9 +110,13 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	}
 
 	a.SnapshotStatesMutex.Lock()
-	a.TxSnapshotStates[sessionID] = TxSnapshotState{
-		SnapshotName:     exportSnapshotOutput.SnapshotName,
-		SupportsTIDScans: exportSnapshotOutput.SupportsTidScans,
+	if exportSnapshotOutput != nil {
+		a.TxSnapshotStates[sessionID] = TxSnapshotState{
+			SnapshotName:     exportSnapshotOutput.SnapshotName,
+			SupportsTIDScans: exportSnapshotOutput.SupportsTidScans,
+		}
+	} else {
+		a.TxSnapshotStates[sessionID] = TxSnapshotState{}
 	}
 	a.SnapshotStatesMutex.Unlock()
 

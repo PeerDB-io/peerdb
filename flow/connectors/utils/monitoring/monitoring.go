@@ -115,8 +115,7 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobNa
 		return fmt.Errorf("error while beginning transaction for inserting statistics into cdc_batch_table: %w", err)
 	}
 	defer func() {
-		err := insertBatchTablesTx.Rollback(context.Background())
-		if err != pgx.ErrTxClosed && err != nil {
+		if err := insertBatchTablesTx.Rollback(context.Background()); err != pgx.ErrTxClosed && err != nil {
 			shared.LoggerFromCtx(ctx).Error("error during transaction rollback",
 				slog.Any("error", err),
 				slog.String(string(shared.FlowNameKey), flowJobName))
@@ -127,20 +126,19 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool *pgxpool.Pool, flowJobNa
 		inserts := rowCounts.InsertCount.Load()
 		updates := rowCounts.UpdateCount.Load()
 		deletes := rowCounts.DeleteCount.Load()
-		_, err = insertBatchTablesTx.Exec(ctx,
+		if _, err := insertBatchTablesTx.Exec(ctx,
 			`INSERT INTO peerdb_stats.cdc_batch_table
 			(flow_name,batch_id,destination_table_name,num_rows,
 			insert_count,update_count,delete_count)
 			 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
 			flowJobName, batchID, destinationTableName,
-			inserts+updates+deletes, inserts, updates, deletes)
-		if err != nil {
+			inserts+updates+deletes, inserts, updates, deletes,
+		); err != nil {
 			return fmt.Errorf("error while inserting statistics into cdc_batch_table: %w", err)
 		}
 	}
 	if err := insertBatchTablesTx.Commit(ctx); err != nil {
-		return fmt.Errorf("error while committing transaction for inserting statistics into cdc_batch_table: %w",
-			err)
+		return fmt.Errorf("error while committing transaction for inserting statistics into cdc_batch_table: %w", err)
 	}
 	return nil
 }
