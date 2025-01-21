@@ -1,20 +1,20 @@
 package otel_metrics
 
 const (
-	PeerNameKey         string = "peerName"
-	SlotNameKey         string = "slotName"
-	FlowNameKey         string = "flowName"
-	DeploymentUidKey    string = "deploymentUID"
-	ErrorClassKey       string = "errorClass"
-	InstanceStatusKey   string = "instanceStatus"
-	WorkflowTypeKey     string = "workflowType"
-	BatchIdKey          string = "batchId"
-	SourcePeerType      string = "sourcePeerType"
-	DestinationPeerType string = "destinationPeerType"
+	PeerNameKey         = "peerName"
+	SlotNameKey         = "slotName"
+	FlowNameKey         = "flowName"
+	DeploymentUidKey    = "deploymentUID"
+	ErrorClassKey       = "errorClass"
+	InstanceStatusKey   = "instanceStatus"
+	WorkflowTypeKey     = "workflowType"
+	BatchIdKey          = "batchId"
+	SourcePeerType      = "sourcePeerType"
+	DestinationPeerType = "destinationPeerType"
 )
 
 const (
-	InstancestatusReady       string = "ready"
-	InstancestatusMaintenance string = "maintenance"
-	InstanceStatusUknown      string = "unknown"
+	InstanceStatusMaintenance = "maintenance"
+	InstanceStatusUnknown     = "unknown"
+	InstanceStatusReady       = "ready"
 )

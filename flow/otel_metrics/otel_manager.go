@@ -30,7 +30,7 @@ const (
 	RecordsSyncedGaugeName              = "records_synced"
 	SyncedTablesGaugeName               = "synced_tables"
 	InstanceStatusGaugeName             = "instance_status"
-	MaintenanceStatus                   = "maintenance_status"
+	MaintenanceStatusGaugeName          = "maintenance_status"
 )
 
 type Metrics struct {
@@ -85,8 +85,7 @@ func NewOtelManager() (*OtelManager, error) {
 		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		Int64CountersCache: make(map[string]metric.Int64Counter),
 	}
-	err = otelManager.setupMetrics()
-	if err != nil {
+	if err = otelManager.setupMetrics(); err != nil {
 		return nil, err
 	}
 	return &otelManager, nil
@@ -131,100 +130,87 @@ func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64Co
 }
 
 func (om *OtelManager) setupMetrics() error {
-	slog.Info("Setting up all metrics")
+	slog.Debug("Setting up all metrics")
 	var err error
-	om.Metrics.SlotLagGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(SlotLagGaugeName),
+	if om.Metrics.SlotLagGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(SlotLagGaugeName),
 		metric.WithUnit("MiBy"),
 		metric.WithDescription("Postgres replication slot lag in MB"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.CurrentBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CurrentBatchIdGaugeName))
-	if err != nil {
+	if om.Metrics.CurrentBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CurrentBatchIdGaugeName)); err != nil {
 		return err
 	}
 
-	om.Metrics.LastNormalizedBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LastNormalizedBatchIdGaugeName))
-	if err != nil {
+	if om.Metrics.LastNormalizedBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LastNormalizedBatchIdGaugeName)); err != nil {
 		return err
 	}
 
-	om.Metrics.OpenConnectionsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(OpenConnectionsGaugeName),
+	if om.Metrics.OpenConnectionsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(OpenConnectionsGaugeName),
 		metric.WithDescription("Current open connections for PeerDB user"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.OpenReplicationConnectionsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(OpenReplicationConnectionsGaugeName),
+	if om.Metrics.OpenReplicationConnectionsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(OpenReplicationConnectionsGaugeName),
 		metric.WithDescription("Current open replication connections for PeerDB user"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.IntervalSinceLastNormalizeGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(IntervalSinceLastNormalizeGaugeName),
+	if om.Metrics.IntervalSinceLastNormalizeGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(IntervalSinceLastNormalizeGaugeName),
 		metric.WithUnit("s"),
 		metric.WithDescription("Interval since last normalize"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
+	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
 		metric.WithUnit("By"),
 		metric.WithDescription("Bytes received of CopyData over replication slot"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.ErrorEmittedGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ErrorEmittedGaugeName),
+	if om.Metrics.ErrorEmittedGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ErrorEmittedGaugeName),
 		// This mostly tells whether an error is emitted or not, used for hooking up event based alerting
 		metric.WithDescription("Whether an error was emitted, 1 if emitted, 0 otherwise"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.ErrorsEmittedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ErrorsEmittedCounterName),
+	if om.Metrics.ErrorsEmittedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ErrorsEmittedCounterName),
 		// This the actual counter for errors emitted, used for alerting based on error rate/more detailed error analysis
 		metric.WithDescription("Counter of errors emitted"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.RecordsSyncedGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(RecordsSyncedGaugeName),
+	if om.Metrics.RecordsSyncedGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(RecordsSyncedGaugeName),
 		metric.WithDescription("Number of records synced for every Sync batch"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.SyncedTablesGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SyncedTablesGaugeName),
+	if om.Metrics.SyncedTablesGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SyncedTablesGaugeName),
 		metric.WithDescription("Number of tables synced"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.InstanceStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(InstanceStatusGaugeName),
+	if om.Metrics.InstanceStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(InstanceStatusGaugeName),
 		metric.WithDescription("Status of the instance, always emits a 1 metric with different attributes for different statuses"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
 
-	om.Metrics.MaintenanceStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(MaintenanceStatus),
+	if om.Metrics.MaintenanceStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(MaintenanceStatusGaugeName),
 		metric.WithDescription("Whether maintenance is running, 1 if running with different attributes for start/end"),
-	)
-	if err != nil {
+	); err != nil {
 		return err
 	}
-	slog.Info("Finished setting up all metrics")
+	slog.Debug("Finished setting up all metrics")
 	return nil
 }
 

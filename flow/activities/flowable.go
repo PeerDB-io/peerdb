@@ -751,13 +751,13 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
 
 		maintenanceEnabled, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
-		instanceStatus := otel_metrics.InstancestatusReady
+		instanceStatus := otel_metrics.InstanceStatusReady
 		if err != nil {
 			logger.Error("Failed to get maintenance mode status", slog.Any("error", err))
-			instanceStatus = otel_metrics.InstanceStatusUknown
+			instanceStatus = otel_metrics.InstanceStatusUnknown
 		}
 		if maintenanceEnabled {
-			instanceStatus = otel_metrics.InstancestatusMaintenance
+			instanceStatus = otel_metrics.InstanceStatusMaintenance
 		}
 
 		a.OtelManager.Metrics.InstanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(

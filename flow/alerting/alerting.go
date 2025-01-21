@@ -450,7 +450,6 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	var tags []string
 	if errors.Is(err, context.Canceled) {
 		tags = append(tags, string(shared.ErrTypeCanceled))
-		// TODO this is only set for context.Canceled, other types need to be added too
 		errorClassString = "context.Canceled"
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
