@@ -43,12 +43,13 @@ func (c *PostgresConnector) GetQRepPartitions(
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkColumn == "" {
 		// if no watermark column is specified, return a single partition
-		partition := &protos.QRepPartition{
-			PartitionId:        uuid.New().String(),
-			FullTablePartition: true,
-			Range:              nil,
-		}
-		return []*protos.QRepPartition{partition}, nil
+		return []*protos.QRepPartition{
+			{
+				PartitionId:        uuid.New().String(),
+				FullTablePartition: true,
+				Range:              nil,
+			},
+		}, nil
 	}
 
 	// begin a transaction
@@ -135,32 +136,30 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
-					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
-					FROM %[3]s WHERE %[2]s > $1
+				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
+				FROM %[3]s WHERE %[2]s > $1
 			) subquery
 			GROUP BY bucket
-			ORDER BY start
-			`,
+			ORDER BY start`,
 			numPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		c.logger.Info("[row_based_next] partitions query: " + partitionsQuery)
+		c.logger.Info("[row_based_next] partitions query", slog.String("query", partitionsQuery))
 		rows, err = tx.Query(ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
-					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
+				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
 			) subquery
 			GROUP BY bucket
-			ORDER BY start
-			`,
+			ORDER BY start`,
 			numPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		c.logger.Info("[row_based] partitions query: " + partitionsQuery)
+		c.logger.Info("[row_based] partitions query", slog.String("query", partitionsQuery))
 		rows, err = tx.Query(ctx, partitionsQuery)
 	}
 	if err != nil {
@@ -168,7 +167,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 	defer rows.Close()
 
-	partitionHelper := partition_utils.NewPartitionHelper()
+	partitionHelper := partition_utils.NewPartitionHelper(c.logger)
 	for rows.Next() {
 		var bucket pgtype.Int8
 		var start, end interface{}
@@ -264,11 +263,11 @@ func (c *PostgresConnector) getMinMaxValues(
 	return minValue, maxValue, nil
 }
 
-func (c *PostgresConnector) CheckForUpdatedMaxValue(
+func (c *PostgresConnector) GetMaxValue(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
-) (bool, error) {
+) (any, error) {
 	checkTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
@@ -276,28 +275,7 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(
 	defer shared.RollbackTx(checkTx, c.logger)
 
 	_, maxValue, err := c.getMinMaxValues(ctx, checkTx, config, last)
-	if err != nil {
-		return false, fmt.Errorf("error while getting min and max values: %w", err)
-	}
-
-	if maxValue == nil || last == nil || last.Range == nil {
-		return maxValue != nil, nil
-	}
-
-	switch x := last.Range.Range.(type) {
-	case *protos.PartitionRange_IntRange:
-		if maxValue.(int64) > x.IntRange.End {
-			return true, nil
-		}
-	case *protos.PartitionRange_TimestampRange:
-		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
-			return true, nil
-		}
-	default:
-		return false, fmt.Errorf("unknown range type: %v", x)
-	}
-
-	return false, nil
+	return maxValue, err
 }
 
 func (c *PostgresConnector) PullQRepRecords(

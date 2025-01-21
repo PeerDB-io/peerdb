@@ -22,7 +22,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkTable == "" {
-		c.logger.Info("watermark table is empty, doing full table refresh")
+		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
 				PartitionId:        uuid.New().String(),
@@ -46,7 +46,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 	// Query to get the total number of rows in the table
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
-	var minVal interface{} = nil
+	var minVal interface{}
 	var totalRows pgtype.Int8
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
@@ -78,11 +78,8 @@ func (c *SQLServerConnector) GetQRepPartitions(
 		if err != nil {
 			return nil, fmt.Errorf("failed to query for total rows: %w", err)
 		}
-	} else {
-		row := c.db.QueryRowContext(ctx, countQuery)
-		if err = row.Scan(&totalRows); err != nil {
-			return nil, fmt.Errorf("failed to query for total rows: %w", err)
-		}
+	} else if err := c.db.QueryRowContext(ctx, countQuery).Scan(&totalRows); err != nil {
+		return nil, fmt.Errorf("failed to query for total rows: %w", err)
 	}
 
 	if totalRows.Int64 == 0 {
@@ -101,18 +98,16 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	if minVal != nil {
 		// Query to get partitions using window functions
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
-					FROM (
-						SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket_v, %s as v_from
-						FROM %s WHERE %s > :minVal
-					) AS subquery
-					GROUP BY bucket_v
-					ORDER BY start_v`,
+			`SELECT bucket, MIN(%[2]s) AS start_v, MAX(%[2]s) AS end_v
+			FROM (
+				SELECT NTILE(%[1]d) OVER (ORDER BY %s) AS bucket, %[2]s
+				FROM %[3]s WHERE %[2]s > :minVal
+			) AS subquery
+			GROUP BY bucket
+			ORDER BY start_v`,
 			numPartitions,
 			quotedWatermarkColumn,
-			quotedWatermarkColumn,
 			config.WatermarkTable,
-			quotedWatermarkColumn,
 		)
 		c.logger.Info(fmt.Sprintf("partitions query: %s - minVal: %v", partitionsQuery, minVal))
 		params := map[string]interface{}{
@@ -121,15 +116,13 @@ func (c *SQLServerConnector) GetQRepPartitions(
 		rows, err = c.db.NamedQuery(partitionsQuery, params)
 	} else {
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket_v, MIN(v_from) AS start_v, MAX(v_from) AS end_v
-					FROM (
-						SELECT NTILE(%d) OVER (ORDER BY %s) AS bucket_v, %s as v_from
-						FROM %s
-					) AS subquery
-					GROUP BY bucket_v
-					ORDER BY start_v`,
+			`SELECT bucket, MIN(%[2]s) AS start_v, MAX(%[2]s) AS end_v
+			FROM (
+				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
+			) AS subquery
+			GROUP BY bucket
+			ORDER BY start_v`,
 			numPartitions,
-			quotedWatermarkColumn,
 			quotedWatermarkColumn,
 			config.WatermarkTable,
 		)
@@ -142,7 +135,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 	defer rows.Close()
 
-	partitionHelper := utils.NewPartitionHelper()
+	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for rows.Next() {
 		var bucket pgtype.Int8
 		var start, end interface{}
@@ -150,8 +143,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		err = partitionHelper.AddPartition(start, end)
-		if err != nil {
+		if err := partitionHelper.AddPartition(start, end); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
 	}
@@ -162,7 +154,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 func (c *SQLServerConnector) PullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
-	partition *protos.QRepPartition,
+	last *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
 	// Build the query to pull records within the range from the source table
@@ -172,40 +164,40 @@ func (c *SQLServerConnector) PullQRepRecords(
 		return 0, err
 	}
 
-	if partition.FullTablePartition {
+	var qbatch *model.QRecordBatch
+	if last.FullTablePartition {
 		// this is a full table partition, so just run the query
-		qbatch, err := c.ExecuteAndProcessQuery(ctx, query)
+		var err error
+		qbatch, err = c.ExecuteAndProcessQuery(ctx, query)
 		if err != nil {
 			return 0, err
 		}
-		qbatch.FeedToQRecordStream(stream)
-		return len(qbatch.Records), nil
+	} else {
+		var rangeStart interface{}
+		var rangeEnd interface{}
+
+		// Depending on the type of the range, convert the range into the correct type
+		switch x := last.Range.Range.(type) {
+		case *protos.PartitionRange_IntRange:
+			rangeStart = x.IntRange.Start
+			rangeEnd = x.IntRange.End
+		case *protos.PartitionRange_TimestampRange:
+			rangeStart = x.TimestampRange.Start.AsTime()
+			rangeEnd = x.TimestampRange.End.AsTime()
+		default:
+			return 0, fmt.Errorf("unknown range type: %v", x)
+		}
+
+		var err error
+		qbatch, err = c.NamedExecuteAndProcessQuery(ctx, query, map[string]interface{}{
+			"startRange": rangeStart,
+			"endRange":   rangeEnd,
+		})
+		if err != nil {
+			return 0, err
+		}
 	}
 
-	var rangeStart interface{}
-	var rangeEnd interface{}
-
-	// Depending on the type of the range, convert the range into the correct type
-	switch x := partition.Range.Range.(type) {
-	case *protos.PartitionRange_IntRange:
-		rangeStart = x.IntRange.Start
-		rangeEnd = x.IntRange.End
-	case *protos.PartitionRange_TimestampRange:
-		rangeStart = x.TimestampRange.Start.AsTime()
-		rangeEnd = x.TimestampRange.End.AsTime()
-	default:
-		return 0, fmt.Errorf("unknown range type: %v", x)
-	}
-
-	rangeParams := map[string]interface{}{
-		"startRange": rangeStart,
-		"endRange":   rangeEnd,
-	}
-
-	qbatch, err := c.NamedExecuteAndProcessQuery(ctx, query, rangeParams)
-	if err != nil {
-		return 0, err
-	}
 	qbatch.FeedToQRecordStream(stream)
 	return len(qbatch.Records), nil
 }

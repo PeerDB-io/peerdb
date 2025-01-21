@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync/atomic"
+	"time"
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -831,12 +832,30 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 
 	logger.Info(fmt.Sprintf("current last partition value is %v", last))
 
-	result, err := srcConn.CheckForUpdatedMaxValue(ctx, config, last)
+	maxValue, err := srcConn.GetMaxValue(ctx, config, last)
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return false, fmt.Errorf("failed to check for new rows: %w", err)
 	}
-	return result, nil
+
+	if maxValue == nil || last == nil || last.Range == nil {
+		return maxValue != nil, nil
+	}
+
+	switch x := last.Range.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		if maxValue.(int64) > x.IntRange.End {
+			return true, nil
+		}
+	case *protos.PartitionRange_TimestampRange:
+		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
+			return true, nil
+		}
+	default:
+		return false, fmt.Errorf("unknown range type: %v", x)
+	}
+
+	return false, nil
 }
 
 func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.RenameTablesInput) (*protos.RenameTablesOutput, error) {
@@ -1025,16 +1044,16 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	for _, table := range tablesToRemove {
 		tableNames = append(tableNames, table.DestinationTableIdentifier)
 	}
-	err = dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
+	if err := dstConn.RemoveTableEntriesFromRawTable(ctx, &protos.RemoveTablesFromRawTableInput{
 		FlowJobName:           cfg.FlowJobName,
 		DestinationTableNames: tableNames,
 		SyncBatchId:           syncBatchID,
 		NormalizeBatchId:      normBatchID,
-	})
-	if err != nil {
+	}); err != nil {
 		a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+		return err
 	}
-	return err
+	return nil
 }
 
 func (a *FlowableActivity) RemoveTablesFromCatalog(
