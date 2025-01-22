@@ -83,7 +83,10 @@ func (a *FlowableActivity) CheckMetadataTables(
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
-	needsSetup := conn.NeedsSetupMetadataTables(ctx)
+	needsSetup, err := conn.NeedsSetupMetadataTables(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	return &CheckMetadataTablesResult{
 		NeedsSetupMetadataTables: needsSetup,

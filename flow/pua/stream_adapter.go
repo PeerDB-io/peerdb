@@ -76,7 +76,9 @@ func AttachToCdcStream(
 			}
 		}
 		outstream.SchemaDeltas = stream.SchemaDeltas
-		outstream.UpdateLatestCheckpoint(stream.GetLastCheckpoint())
+		lastCP := stream.GetLastCheckpoint()
+		outstream.UpdateLatestCheckpointID(lastCP.ID)
+		outstream.UpdateLatestCheckpointText(lastCP.Text)
 		outstream.Close()
 	}()
 	return outstream

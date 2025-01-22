@@ -133,10 +133,10 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		batchSize = 250_000
 	}
 
-	lastOffset, err := func() (int64, error) {
+	lastOffset, err := func() (model.CdcCheckpoint, error) {
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
-			return 0, fmt.Errorf("failed to get destination connector: %w", err)
+			return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector: %w", err)
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
 
@@ -147,9 +147,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, err
 	}
 
-	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
+	logger.Info("pulling records...", slog.Any("LastOffset", lastOffset))
 	consumedOffset := atomic.Int64{}
-	consumedOffset.Store(lastOffset)
+	consumedOffset.Store(lastOffset.ID)
 
 	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx, config.Env)
 	if err != nil {
@@ -224,7 +224,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
 	}
 
-	var syncStartTime time.Time
 	var res *model.SyncResponse
 	var dstConnType string
 	errGroup.Go(func() error {
@@ -253,7 +252,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return err
 		}
 
-		syncStartTime = time.Now()
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
 			SyncBatchID:            syncBatchID,
 			Records:                recordBatchSync,
@@ -273,6 +271,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil
 	})
 
+	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
 		if !(temporal.IsApplicationError(err) ||
@@ -282,14 +281,18 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		if temporal.IsApplicationError(err) {
 			return nil, err
 		} else {
-			return nil, fmt.Errorf("failed to pull records: %w", err)
+			return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
 		}
 	}
 	syncState.Store(shared.Ptr("bookkeeping"))
 
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
-	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
+	logger.Info("batch synced", slog.Any("checkpoint", lastCheckpoint))
+	if err := srcConn.UpdateReplStateLastOffset(ctx, lastCheckpoint); err != nil {
+		a.Alerter.LogFlowError(ctx, flowName, err)
+		return nil, err
+	}
 
 	if err := monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, uint32(res.NumRecordsSynced), lastCheckpoint,
@@ -298,7 +301,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, err
 	}
 
-	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint); err != nil {
+	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint.ID); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
@@ -451,7 +454,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		tmp, err := pullRecords(srcConn, errCtx, config, partition, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to pull records: %w", err)
+			return fmt.Errorf("[qrep] failed to pull records: %w", err)
 		}
 		numRecords := int64(tmp)
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
