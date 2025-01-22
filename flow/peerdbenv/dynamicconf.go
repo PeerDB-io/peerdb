@@ -240,11 +240,19 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name: "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS",
 		Description: "Throttle threshold seconds for always sending KeepAlive response when no records are processed, " +
-			"-1 disables always sending responses when no records are processed.",
+			"-1 disables always sending responses when no records are processed",
 		DefaultValue:     "60",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS",
+		Description:      "Chunk normalization into N queries, can help mitigate OOM issues on ClickHouse",
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 }
 
@@ -509,4 +517,8 @@ func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool *pgxpool.Pool,
 
 func PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS")
+}
+
+func PeerDBClickHouseNormalizationChunkingParts(ctx context.Context, env map[string]string) (uint64, error) {
+	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS")
 }

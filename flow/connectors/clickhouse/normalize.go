@@ -301,7 +301,18 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Int64("syncBatchId", req.SyncBatchID),
 					slog.Int64("normalizeBatchId", normBatchID),
 					slog.String("query", query))
-				if err := chConn.Exec(errCtx, query); err != nil {
+
+				numParts, err := peerdbenv.PeerDBClickHouseNormalizationChunkingParts(ctx, req.Env)
+				if err != nil {
+					c.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
+				} else if numParts > 1 {
+					for i := range numParts {
+						partitionedQuery := fmt.Sprintf("%s AND cityHash64(_peerdb_uid) %% %d = %d", query, numParts, i)
+						if err := c.execWithLogging(ctx, partitionedQuery); err != nil {
+							return fmt.Errorf("error while inserting into normalized table: %w", err)
+						}
+					}
+				} else if err := chConn.Exec(errCtx, query); err != nil {
 					return fmt.Errorf("error while inserting into normalized table: %w", err)
 				}
 			}
