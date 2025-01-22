@@ -302,19 +302,17 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Int64("normalizeBatchId", normBatchID),
 					slog.String("query", query))
 
-				numParts := 7
-				hashColName := "_peerdb_uid"
-				for i := 0; i < numParts; i++ {
-					whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
-					partitionedQuery := query + " AND " + whereClause
-					fmtStr := "executing query (part %d/%d): %s"
-					c.logger.Info(fmt.Sprintf(fmtStr, i+1, numParts, partitionedQuery))
-
-					if err := c.execWithLogging(ctx, partitionedQuery); err != nil {
-						return fmt.Errorf("error while inserting into normalized table: %w", err)
+				numParts, err := peerdbenv.PeerDBClickHouseNormalizationChunkingParts(ctx, req.Env)
+				if err != nil {
+					c.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
+				} else if numParts > 1 {
+					for i := range numParts {
+						partitionedQuery := fmt.Sprintf("%s AND cityHash64(_peerdb_uid) %% %d = %d", query, numParts, i)
+						if err := c.execWithLogging(ctx, partitionedQuery); err != nil {
+							return fmt.Errorf("error while inserting into normalized table: %w", err)
+						}
 					}
-				}
-				if err := chConn.Exec(errCtx, query); err != nil {
+				} else if err := chConn.Exec(errCtx, query); err != nil {
 					return fmt.Errorf("error while inserting into normalized table: %w", err)
 				}
 			}
