@@ -67,6 +67,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			PeerName:    input.FlowConnectionConfigs.DestinationName,
 		})
 		selector.AddFuture(dropDestinationFuture, dropDestination)
+	} else {
+		destinationOk = true
 	}
 
 	for {
