@@ -407,7 +407,7 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 	case *protos.Peer_SqlserverConfig:
 		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
 	case *protos.Peer_MysqlConfig:
-		return connmysql.MySqlConnector{}, nil
+		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickHouseConnector(ctx, env, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
@@ -521,6 +521,5 @@ var (
 
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
-
-	_ Connector = &connmysql.MySqlConnector{}
+	_ GetVersionConnector = &connmysql.MySqlConnector{}
 )
