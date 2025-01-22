@@ -274,15 +274,12 @@ func (c *PostgresConnector) ConnectionActive(ctx context.Context) error {
 }
 
 // NeedsSetupMetadataTables returns true if the metadata tables need to be set up.
-func (c *PostgresConnector) NeedsSetupMetadataTables(ctx context.Context) bool {
+func (c *PostgresConnector) NeedsSetupMetadataTables(ctx context.Context) (bool, error) {
 	result, err := c.tableExists(ctx, &utils.SchemaTable{
 		Schema: c.metadataSchema,
 		Table:  mirrorJobsTableIdentifier,
 	})
-	if err != nil {
-		return true
-	}
-	return !result
+	return !result, err
 }
 
 // SetupMetadataTables sets up the metadata tables.
@@ -302,28 +299,30 @@ func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
 }
 
 // GetLastOffset returns the last synced offset for a job.
-func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	var result pgtype.Int8
-	err := c.conn.QueryRow(ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
-	if err != nil {
+func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error) {
+	var result model.CdcCheckpoint
+	if err := c.conn.QueryRow(
+		ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
+	).Scan(&result.ID); err != nil {
 		if err == pgx.ErrNoRows {
 			c.logger.Info("No row found, returning nil")
-			return 0, nil
+			return result, nil
 		}
-		return 0, fmt.Errorf("error while reading result row: %w", err)
+		return result, fmt.Errorf("error while reading result row: %w", err)
 	}
 
-	if result.Int64 == 0 {
+	if result.ID == 0 {
 		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
-	return result.Int64, nil
+	return result, nil
 }
 
 // SetLastOffset updates the last synced offset for a job.
-func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, lastOffset int64) error {
-	_, err := c.conn.
-		Exec(ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), lastOffset, jobName)
-	if err != nil {
+func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, lastOffset model.CdcCheckpoint) error {
+	if _, err := c.conn.Exec(ctx,
+		fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+		lastOffset.ID, jobName,
+	); err != nil {
 		return fmt.Errorf("error setting last offset for job %s: %w", jobName, err)
 	}
 
@@ -360,7 +359,7 @@ func pullCore[Items model.Items](
 	defer func() {
 		req.RecordStream.Close()
 		if c.replState != nil {
-			c.replState.Offset = req.RecordStream.GetLastCheckpoint()
+			c.replState.Offset = req.RecordStream.GetLastCheckpoint().ID
 		}
 	}()
 
@@ -405,7 +404,7 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
-	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset, pgVersion); err != nil {
+	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion); err != nil {
 		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
 		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
 			strings.Contains(err.Error(), "replication slots cannot be used on RO (Read Only) node") {
@@ -445,10 +444,11 @@ func pullCore[Items model.Items](
 	return nil
 }
 
-func (c *PostgresConnector) UpdateReplStateLastOffset(lastOffset int64) {
+func (c *PostgresConnector) UpdateReplStateLastOffset(_ context.Context, lastOffset model.CdcCheckpoint) error {
 	if c.replState != nil {
-		c.replState.LastOffset.Store(lastOffset)
+		c.replState.LastOffset.Store(lastOffset.ID)
 	}
+	return nil
 }
 
 func (c *PostgresConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
@@ -581,27 +581,24 @@ func syncRecordsCore[Items model.Items](
 
 	// updating metadata with new offset and syncBatchID
 	lastCP := req.Records.GetLastCheckpoint()
-	err = c.updateSyncMetadata(ctx, req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx)
-	if err != nil {
+	if err := c.updateSyncMetadata(ctx, req.FlowJobName, lastCP, req.SyncBatchID, syncRecordsTx); err != nil {
 		return nil, err
 	}
 	// transaction commits
-	err = syncRecordsTx.Commit(ctx)
-	if err != nil {
+	if err := syncRecordsTx.Commit(ctx); err != nil {
 		return nil, err
 	}
 
-	err = c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas)
-	if err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: lastCP,
-		NumRecordsSynced:       numRecords,
-		CurrentSyncBatchID:     req.SyncBatchID,
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		LastSyncedCheckpoint: lastCP,
+		NumRecordsSynced:     numRecords,
+		CurrentSyncBatchID:   req.SyncBatchID,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 
@@ -1177,9 +1174,9 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to check if job metadata exists: %w", err)
 	}
 	if mirrorJobsTableExists {
-		_, err = syncFlowCleanupTx.Exec(ctx,
-			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-		if err != nil {
+		if _, err := syncFlowCleanupTx.Exec(ctx,
+			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
+		); err != nil {
 			return fmt.Errorf("unable to delete job metadata: %w", err)
 		}
 	}

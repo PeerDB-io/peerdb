@@ -75,14 +75,6 @@ func (c *EventHubConnector) ConnectionActive(ctx context.Context) error {
 	return nil
 }
 
-func (c *EventHubConnector) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
-}
-
-func (c *EventHubConnector) SetupMetadataTables(_ context.Context) error {
-	return nil
-}
-
 func lvalueToEventData(ls *lua.LState, value lua.LValue) (ScopedEventhubData, error) {
 	var scoped ScopedEventhubData
 	switch v := value.(type) {
@@ -319,7 +311,7 @@ func (c *EventHubConnector) processBatch(
 			if err != nil {
 				return 0, err
 			} else if lastSeenLSN > req.ConsumedOffset.Load() {
-				if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeenLSN); err != nil {
+				if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeenLSN}); err != nil {
 					c.logger.Warn("[eventhubs] SetLastOffset error", slog.Any("error", err))
 				} else {
 					shared.AtomicInt64Max(req.ConsumedOffset, lastSeenLSN)
@@ -345,11 +337,11 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	}
 
 	return &model.SyncResponse{
-		CurrentSyncBatchID:     req.SyncBatchID,
-		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       int64(numRecords),
-		TableNameRowsMapping:   make(map[string]*model.RecordTypeCounts),
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		CurrentSyncBatchID:   req.SyncBatchID,
+		LastSyncedCheckpoint: lastCheckpoint,
+		NumRecordsSynced:     int64(numRecords),
+		TableNameRowsMapping: make(map[string]*model.RecordTypeCounts),
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 
