@@ -303,7 +303,7 @@ func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (
 	var result model.CdcCheckpoint
 	if err := c.conn.QueryRow(
 		ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
-	).Scan(&result.ID, &result.Text); err != nil {
+	).Scan(&result.ID); err != nil {
 		if err == pgx.ErrNoRows {
 			c.logger.Info("No row found, returning nil")
 			return result, nil
@@ -311,7 +311,7 @@ func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (
 		return result, fmt.Errorf("error while reading result row: %w", err)
 	}
 
-	if result.ID == 0 && result.Text == "" {
+	if result.ID == 0 {
 		c.logger.Warn("Assuming zero offset means no sync has happened")
 	}
 	return result, nil
@@ -319,9 +319,10 @@ func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (
 
 // SetLastOffset updates the last synced offset for a job.
 func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, lastOffset model.CdcCheckpoint) error {
-	_, err := c.conn.
-		Exec(ctx, fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), lastOffset.ID, lastOffset.Text, jobName)
-	if err != nil {
+	if _, err := c.conn.Exec(ctx,
+		fmt.Sprintf(setLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+		lastOffset.ID, jobName,
+	); err != nil {
 		return fmt.Errorf("error setting last offset for job %s: %w", jobName, err)
 	}
 

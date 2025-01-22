@@ -25,7 +25,7 @@ import (
 const (
 	mirrorJobsTableIdentifier = "peerdb_mirror_jobs"
 	createMirrorJobsTableSQL  = `CREATE TABLE IF NOT EXISTS %s.%s(mirror_job_name TEXT PRIMARY KEY,
-		lsn_offset BIGINT NOT NULL,lsn_text TEXT NOT NULL,sync_batch_id BIGINT NOT NULL,normalize_batch_id BIGINT NOT NULL)`
+		lsn_offset BIGINT NOT NULL,sync_batch_id BIGINT NOT NULL,normalize_batch_id BIGINT NOT NULL)`
 	rawTablePrefix    = "_peerdb_raw"
 	createSchemaSQL   = "CREATE SCHEMA IF NOT EXISTS %s"
 	createRawTableSQL = `CREATE TABLE IF NOT EXISTS %s.%s(_peerdb_uid uuid NOT NULL,
@@ -35,15 +35,15 @@ const (
 	createRawTableBatchIDIndexSQL  = "CREATE INDEX IF NOT EXISTS %s_batchid_idx ON %s.%s(_peerdb_batch_id)"
 	createRawTableDstTableIndexSQL = "CREATE INDEX IF NOT EXISTS %s_dst_table_idx ON %s.%s(_peerdb_destination_table_name)"
 
-	getLastOffsetSQL            = "SELECT lsn_offset, lsn_text FROM %s.%s WHERE mirror_job_name=$1"
-	setLastOffsetSQL            = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1), lsn_text = $2 WHERE mirror_job_name=$3"
+	getLastOffsetSQL            = "SELECT lsn_offset FROM %s.%s WHERE mirror_job_name=$1"
+	setLastOffsetSQL            = "UPDATE %s.%s SET lsn_offset=GREATEST(lsn_offset, $1) WHERE mirror_job_name=$2"
 	getLastSyncBatchID_SQL      = "SELECT sync_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	getLastNormalizeBatchID_SQL = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	checkTableExistsSQL         = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
-	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j (mirror_job_name,lsn_offset,lsn_text,sync_batch_id,normalize_batch_id)
-		VALUES ($1,$2,$3,$4,0) ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset),
-		lsn_text=EXCLUDED.lsn_text, sync_batch_id=EXCLUDED.sync_batch_id`
+	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j (mirror_job_name,lsn_offset,sync_batch_id,normalize_batch_id)
+		VALUES ($1,$2,$3,0) ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset),
+		sync_batch_id=EXCLUDED.sync_batch_id`
 	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 
@@ -554,10 +554,10 @@ func (c *PostgresConnector) MajorVersion(ctx context.Context) (shared.PGVersion,
 func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName string, lastCP model.CdcCheckpoint, syncBatchID int64,
 	syncRecordsTx pgx.Tx,
 ) error {
-	_, err := syncRecordsTx.Exec(ctx,
+	if _, err := syncRecordsTx.Exec(ctx,
 		fmt.Sprintf(upsertJobMetadataForSyncSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		flowJobName, lastCP.ID, lastCP.Text, syncBatchID)
-	if err != nil {
+		flowJobName, lastCP.ID, syncBatchID,
+	); err != nil {
 		return fmt.Errorf("failed to upsert flow job status: %w", err)
 	}
 
@@ -570,10 +570,10 @@ func (c *PostgresConnector) updateNormalizeMetadata(
 	normalizeBatchID int64,
 	normalizeRecordsTx pgx.Tx,
 ) error {
-	_, err := normalizeRecordsTx.Exec(ctx,
+	if _, err := normalizeRecordsTx.Exec(ctx,
 		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		normalizeBatchID, flowJobName)
-	if err != nil {
+		normalizeBatchID, flowJobName,
+	); err != nil {
 		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
 	}
 
