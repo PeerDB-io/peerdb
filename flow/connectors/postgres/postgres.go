@@ -1174,9 +1174,9 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to check if job metadata exists: %w", err)
 	}
 	if mirrorJobsTableExists {
-		_, err = syncFlowCleanupTx.Exec(ctx,
-			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName)
-		if err != nil {
+		if _, err := syncFlowCleanupTx.Exec(ctx,
+			fmt.Sprintf(deleteJobMetadataSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
+		); err != nil {
 			return fmt.Errorf("unable to delete job metadata: %w", err)
 		}
 	}

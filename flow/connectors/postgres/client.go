@@ -44,7 +44,7 @@ const (
 	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j (mirror_job_name,lsn_offset,sync_batch_id,normalize_batch_id)
 		VALUES ($1,$2,$3,0) ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset),
 		sync_batch_id=EXCLUDED.sync_batch_id`
-	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
+	checkIfJobMetadataExistsSQL          = "SELECT EXISTS(SELECT * FROM %s.%s WHERE mirror_job_name=$1)"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 
 	getDistinctDestinationTableNamesSQL = `SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE
@@ -532,9 +532,9 @@ func (c *PostgresConnector) GetLastNormalizeBatchID(ctx context.Context, jobName
 
 func (c *PostgresConnector) jobMetadataExists(ctx context.Context, jobName string) (bool, error) {
 	var result pgtype.Bool
-	err := c.conn.QueryRow(ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
+	).Scan(&result); err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
 	return result.Bool, nil
