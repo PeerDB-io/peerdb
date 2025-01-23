@@ -32,7 +32,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Name: "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
 		Description: "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalizing, " +
 			"use with PEERDB_PARALLEL_SYNC_NORMALIZE",
-		DefaultValue:     "0",
+		DefaultValue:     "128",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
