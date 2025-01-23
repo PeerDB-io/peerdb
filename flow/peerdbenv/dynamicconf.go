@@ -88,7 +88,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE",
 		Description:      "Enables parallel sync (moving rows to target) and normalize (updating rows in target table)",
-		DefaultValue:     "false",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
