@@ -476,7 +476,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				// could be same if deletion records were only generated when ordering updated
 				projectionUpdate.WriteString(fmt.Sprintf("_peerdb_timestamp - 1 AS `%s`", versionColName))
 
-				selectQuery.WriteString("UNION ALL SELECT ")
+				selectQuery.WriteString(" UNION ALL SELECT ")
 				selectQuery.WriteString(projectionUpdate.String())
 				selectQuery.WriteString(" FROM ")
 				selectQuery.WriteString(rawTbl)
