@@ -354,6 +354,7 @@ message FlowStateChangeRequest {
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
   bool drop_mirror_stats = 6;
+  bool skip_destination_drop = 7;
 }
 message FlowStateChangeResponse {}
 
