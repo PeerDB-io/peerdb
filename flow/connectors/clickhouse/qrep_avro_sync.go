@@ -51,11 +51,23 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
-	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
-		s.config.DestinationTableIdentifier, avroFileUrl,
-		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	return s.database.Exec(ctx, query)
+	hashColName := "_peerdb_uid"
+	numParts := 17
+	for i := 0; i < numParts; i++ {
+		whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
+		query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s SETTINGS throw_on_max_partitions_per_insert_block = 0",
+			s.config.DestinationTableIdentifier, avroFileUrl,
+			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
+		s.logger.Info("[copyStageToDestination] running query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts))
+		err := s.database.Exec(ctx, query)
+		if err != nil {
+			s.logger.Error("failed to execute query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts), slog.Any("error", err))
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
@@ -155,13 +167,20 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
-	query := fmt.Sprintf("INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')",
-		config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
-		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	if err := s.database.Exec(ctx, query); err != nil {
-		s.logger.Error("Failed to insert into select for ClickHouse", slog.Any("error", err))
-		return 0, err
+	hashColName := dstTableSchema[0].Name()
+	numParts := 7
+	for i := 0; i < numParts; i++ {
+		whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
+		query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s SETTINGS throw_on_max_partitions_per_insert_block = 0",
+			config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
+			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
+		s.logger.Info("running query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts))
+		err := s.database.Exec(ctx, query)
+		if err != nil {
+			s.logger.Error("failed to execute query", slog.String("query", query), slog.Int("part", i), slog.Int("numParts", numParts), slog.Any("error", err))
+			return 0, err
+		}
 	}
 
 	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
