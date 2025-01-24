@@ -405,7 +405,11 @@ func (s ClickHouseSuite) Test_Chunking_Normalize() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE": "true", "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS": "3"}
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE":            "true",
+		"PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION": "2",
+		"PEERDB_CLICKHOUSE_NORMALIZATION_PARTS":              "3",
+	}
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
