@@ -3,10 +3,10 @@ import { NextRequest } from 'next/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { slug: string[] } }
+  { params }: { params: Promise<{ slug: string[] }> }
 ) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
-  let url = `${flowServiceAddr}/v1/${params.slug
+  let url = `${flowServiceAddr}/v1/${(await params).slug
     .map((x) => encodeURIComponent(x))
     .join('/')}`;
   if (request.nextUrl.searchParams?.size) {
@@ -19,11 +19,11 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { slug: string[] } }
+  { params }: { params: Promise<{ slug: string[] }> }
 ) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   return fetch(
-    `${flowServiceAddr}/v1/${params.slug
+    `${flowServiceAddr}/v1/${(await params).slug
       .map((x) => encodeURIComponent(x))
       .join('/')}`,
     {
@@ -37,10 +37,10 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { slug: string[] } }
+  { params }: { params: Promise<{ slug: string[] }> }
 ) {
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
-  let url = `${flowServiceAddr}/v1/${params.slug
+  let url = `${flowServiceAddr}/v1/${(await params).slug
     .map((x) => encodeURIComponent(x))
     .join('/')}`;
   if (request.nextUrl.searchParams?.size) {

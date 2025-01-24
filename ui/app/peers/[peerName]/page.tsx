@@ -1,14 +1,16 @@
 import { PeerInfo } from '@/components/PeerInfo';
 import ReloadButton from '@/components/ReloadButton';
+import React from 'react';
 import LagGraph from './lagGraph';
 import SlotTable from './slottable';
 import StatTable from './stattable';
 
 type DataConfigProps = {
-  params: { peerName: string };
+  params: Promise<{ peerName: string }>;
 };
 
-const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
+export default function PeerData({ params }: DataConfigProps) {
+  const { peerName } = React.use(params);
   return (
     <div
       style={{
@@ -41,6 +43,4 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
       </div>
     </div>
   );
-};
-
-export default PeerData;
+}
