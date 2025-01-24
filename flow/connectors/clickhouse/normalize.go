@@ -278,7 +278,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		slog.Int64("EndBatchID", req.SyncBatchID),
 		slog.Int("connections", parallelNormalize))
 
-	numParts, err := peerdbenv.PeerDBClickHouseNormalizationChunkingParts(ctx, req.Env)
+	numParts, err := peerdbenv.PeerDBClickHouseNormalizationParts(ctx, req.Env)
 	if err != nil {
 		c.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
 		numParts = 1
@@ -577,8 +577,7 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context, fl
 	}
 	defer avroFile.Cleanup()
 
-	err = avroSyncMethod.CopyStageToDestination(ctx, avroFile)
-	if err != nil {
+	if err := avroSyncMethod.CopyStageToDestination(ctx, avroFile); err != nil {
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
 	}
 	return nil
