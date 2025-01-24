@@ -26,6 +26,7 @@ const (
 	POSTGRES_13 PGVersion = 130000
 	POSTGRES_14 PGVersion = 140000
 	POSTGRES_15 PGVersion = 150000
+	POSTGRES_16 PGVersion = 160000
 )
 
 func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) string {
