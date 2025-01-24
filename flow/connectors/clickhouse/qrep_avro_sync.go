@@ -53,7 +53,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	}
 
 	hashColName := "_peerdb_uid"
-	numParts := 17
+	numParts := 128
 	for i := 0; i < numParts; i++ {
 		whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
 		query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s SETTINGS throw_on_max_partitions_per_insert_block = 0",
@@ -169,7 +169,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	}
 
 	hashColName := dstTableSchema[0].Name()
-	numParts := 7
+	numParts := 128
 	for i := 0; i < numParts; i++ {
 		whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
 		query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro') WHERE %s SETTINGS throw_on_max_partitions_per_insert_block = 0",

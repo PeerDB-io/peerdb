@@ -302,7 +302,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Int64("normalizeBatchId", normBatchID),
 					slog.String("query", query))
 
-				numParts := 17
+				numParts := 128
 				hashColName := "_peerdb_uid"
 				for i := 0; i < numParts; i++ {
 					whereClause := fmt.Sprintf("cityHash64(%s) %% %d = %d", hashColName, numParts, i)
