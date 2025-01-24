@@ -254,6 +254,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION",
+		Description:      "Chunk partitions in initial load into N queries, can help mitigate OOM issues on ClickHouse",
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -519,6 +527,10 @@ func PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx context.Context, env map[st
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS")
 }
 
-func PeerDBClickHouseNormalizationChunkingParts(ctx context.Context, env map[string]string) (uint64, error) {
+func PeerDBClickHouseNormalizationParts(ctx context.Context, env map[string]string) (uint64, error) {
 	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS")
+}
+
+func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[string]string) (uint64, error) {
+	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION")
 }

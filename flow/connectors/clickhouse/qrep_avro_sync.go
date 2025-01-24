@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -51,6 +52,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
+
 	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
@@ -155,13 +157,36 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
-	query := fmt.Sprintf("INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')",
-		config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
-		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	if err := s.database.Exec(ctx, query); err != nil {
-		s.logger.Error("Failed to insert into select for ClickHouse", slog.Any("error", err))
-		return 0, err
+	hashColName := dstTableSchema[0].Name()
+	numParts, err := peerdbenv.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
+	if err != nil {
+		s.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
+		numParts = 1
+	}
+	numParts = max(numParts, 1)
+
+	for i := range numParts {
+		var whereClause string
+		if numParts > 1 {
+			whereClause = fmt.Sprintf(" WHERE cityHash64(`%s`) %% %d = %d", hashColName, numParts, i)
+		}
+		query := fmt.Sprintf(
+			"INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
+			config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
+			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
+		s.logger.Info("inserting part",
+			slog.String("query", query),
+			slog.Uint64("part", i),
+			slog.Uint64("numParts", numParts))
+		if err := s.database.Exec(ctx, query); err != nil {
+			s.logger.Error("failed to insert part",
+				slog.String("query", query),
+				slog.Uint64("part", i),
+				slog.Uint64("numParts", numParts),
+				slog.Any("error", err))
+			return 0, err
+		}
 	}
 
 	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
