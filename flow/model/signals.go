@@ -84,11 +84,6 @@ func (self TypedReceiveChannel[T]) ReceiveAsyncWithMoreFlag() (T, bool, bool) {
 	return result, ok, more
 }
 
-func (self TypedReceiveChannel[T]) Drain() {
-	for self.Chan.ReceiveAsync(nil) {
-	}
-}
-
 func (self TypedReceiveChannel[T]) AddToSelector(selector workflow.Selector, f func(T, bool)) workflow.Selector {
 	return selector.AddReceive(self.Chan, func(c workflow.ReceiveChannel, more bool) {
 		var result T
@@ -133,4 +128,12 @@ var FlowSignal = TypedSignal[CDCFlowSignal]{
 
 var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
 	Name: "cdc-dynamic-properties",
+}
+
+func SleepFuture(ctx workflow.Context, d time.Duration) workflow.Future {
+	f, set := workflow.NewFuture(ctx)
+	workflow.Go(ctx, func(ctx workflow.Context) {
+		set.Set(nil, workflow.Sleep(ctx, d))
+	})
+	return f
 }

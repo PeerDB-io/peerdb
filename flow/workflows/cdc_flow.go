@@ -493,32 +493,40 @@ func CDCFlowWorkflow(
 	})
 	mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 		if err := f.Get(ctx, nil); err != nil {
+			var sleepFor time.Duration
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
 				logger.Error(
-					"panic in sync flow",
+					"panic in sync flow, waiting 10 minutes",
 					slog.Any("error", panicErr.Error()),
 					slog.String("stack", panicErr.StackTrace()),
 				)
+				sleepFor = 10 * time.Minute
 			} else {
 				logger.Error("error in sync flow", slog.Any("error", err))
-			}
 
-			// cannot use shared.IsSQLStateError because temporal serialize/deserialize
-			if strings.Contains(err.Error(), "(SQLSTATE 55006)") {
-				logger.Info("sync flow errored, sleeping for 1 minute before retrying")
-				_ = workflow.Sleep(ctx, time.Minute)
-			} else {
-				logger.Info("sync flow errored, sleeping for 10 minutes before retrying")
-				_ = workflow.Sleep(ctx, 10*time.Minute)
+				// cannot use shared.IsSQLStateError because temporal serialize/deserialize
+				if !temporal.IsApplicationError(err) || strings.Contains(err.Error(), "(SQLSTATE 55006)") {
+					logger.Info("sync flow errored, waiting 1 minute before retrying")
+					sleepFor = time.Minute
+				} else {
+					logger.Info("sync flow errored, waiting 10 minutes before retrying")
+					sleepFor = 10 * time.Minute
+				}
 			}
+			mainLoopSelector.AddFuture(model.SleepFuture(ctx, sleepFor), func(_ workflow.Future) {
+				logger.Info("sync finished after waiting after error")
+				finished = true
+				if state.SyncFlowOptions.NumberOfSyncs > 0 {
+					state.ActiveSignal = model.PauseSignal
+				}
+			})
 		} else {
 			logger.Info("sync finished")
-		}
-		syncFlowFuture = nil
-		finished = true
-		if state.SyncFlowOptions.NumberOfSyncs > 0 {
-			state.ActiveSignal = model.PauseSignal
+			finished = true
+			if state.SyncFlowOptions.NumberOfSyncs > 0 {
+				state.ActiveSignal = model.PauseSignal
+			}
 		}
 	})
 
@@ -547,7 +555,7 @@ func CDCFlowWorkflow(
 		}
 
 		if finished {
-			for ctx.Err() == nil && (!finished || mainLoopSelector.HasPending()) {
+			for ctx.Err() == nil && mainLoopSelector.HasPending() {
 				mainLoopSelector.Select(ctx)
 			}
 
