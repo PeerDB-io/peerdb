@@ -213,13 +213,14 @@ impl SnowflakeRecordStream {
         let statement_handle = self.result_set.statementHandle.clone();
         let url = self.endpoint_url.clone();
         println!("Secret: {:#?}", secret);
-        let response: PartitionResult = ureq::get(&format!("{}/{}", url, statement_handle))
-            .query("partition", &partition_number.to_string())
-            .set("Authorization", &format!("Bearer {}", secret))
-            .set("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
-            .set("user-agent", "ureq")
+        let response: PartitionResult = ureq::get(format!("{}/{}", url, statement_handle))
+            .query("partition", partition_number.to_string())
+            .header("Authorization", format!("Bearer {}", secret))
+            .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
+            .header("user-agent", "ureq")
             .call()?
-            .into_json()
+            .body_mut()
+            .read_json()
             .map_err(|_| anyhow::anyhow!("get_partition failed"))?;
         println!("Response: {:#?}", response.data);
 
