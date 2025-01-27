@@ -7,6 +7,7 @@ import (
 	"go.temporal.io/sdk/log"
 )
 
+// implement interface at https://github.com/siddontang/go-log
 type BinlogLogger struct {
 	log.Logger
 }

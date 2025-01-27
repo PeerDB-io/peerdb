@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/go-mysql-org/go-mysql/mysql"
-
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/connectors/postgres"
@@ -29,7 +27,7 @@ var mysqlConfig = &protos.MySqlConfig{
 	Setup:       nil,
 	Compression: 0,
 	DisableTls:  true,
-	Flavor:      mysql.MySQLFlavor,
+	Flavor:      protos.MySqlFlavor_MYSQL_MYSQL,
 }
 
 var mariaConfig = &protos.MySqlConfig{
@@ -41,7 +39,7 @@ var mariaConfig = &protos.MySqlConfig{
 	Setup:       nil,
 	Compression: 0,
 	DisableTls:  true,
-	Flavor:      mysql.MariaDBFlavor,
+	Flavor:      protos.MySqlFlavor_MYSQL_MARIA,
 }
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
@@ -106,8 +104,13 @@ func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 		config = mariaConfig
 	}
 
+	name := "mysql"
+	if config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		name = "maria"
+	}
+
 	peer := &protos.Peer{
-		Name: config.Flavor,
+		Name: name,
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: config,

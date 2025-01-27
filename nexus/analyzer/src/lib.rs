@@ -11,7 +11,7 @@ use pt::{
     peerdb_peers::{
         peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount,
         KafkaConfig, MongoConfig, Peer, PostgresConfig, PubSubConfig, S3Config, SnowflakeConfig,
-        SqlServerConfig, SshConfig,
+        SqlServerConfig, SshConfig, MySqlFlavor,
     },
 };
 use qrep::process_options;
@@ -979,7 +979,11 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 .get("disable_tls")
                 .and_then(|s| s.parse::<bool>().ok())
                 .unwrap_or_default(),
-            flavor: opts.get("flavor").unwrap_or(&"mysql").to_string(),
+            flavor: match opts.get("flavor") {
+                Some(&"mysql") => MySqlFlavor::MysqlMysql,
+                Some(&"maria") | Some(&"mariadb") => MySqlFlavor::MysqlMaria,
+                _ => MySqlFlavor::MysqlUnknown,
+            }.into()
         }),
     }))
 }

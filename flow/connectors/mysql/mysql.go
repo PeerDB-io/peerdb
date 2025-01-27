@@ -41,6 +41,17 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	}, nil
 }
 
+func (c *MySqlConnector) Flavor() string {
+	switch c.config.Flavor {
+	case protos.MySqlFlavor_MYSQL_MYSQL:
+		return mysql.MySQLFlavor
+	case protos.MySqlFlavor_MYSQL_MARIA:
+		return mysql.MariaDBFlavor
+	default:
+		return "unknown"
+	}
+}
+
 func (c *MySqlConnector) Close() error {
 	var errs []error
 	if c.conn != nil {
@@ -161,7 +172,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
-	if c.config.Flavor == mysql.MySQLFlavor {
+	if c.Flavor() == mysql.MySQLFlavor {
 		rr, err := c.Execute(ctx, "select @@gtid_mode")
 		if err != nil {
 			return false, err
@@ -205,7 +216,7 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 
 func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, error) {
 	var query string
-	switch c.config.Flavor {
+	switch c.Flavor() {
 	case mysql.MariaDBFlavor:
 		query = "select @@gtid_current_pos"
 	default:
@@ -219,7 +230,7 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to GetString for gtid_executed: %w", err)
 	}
-	gset, err := mysql.ParseGTIDSet(c.config.Flavor, gx)
+	gset, err := mysql.ParseGTIDSet(c.Flavor(), gx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse GTID from gtid_executed: %w", err)
 	}

@@ -153,7 +153,7 @@ func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:   rand.Uint32(),
-		Flavor:     c.config.Flavor,
+		Flavor:     c.Flavor(),
 		Host:       c.config.Host,
 		Port:       uint16(c.config.Port),
 		User:       c.config.User,
@@ -178,7 +178,7 @@ func (c *MySqlConnector) startStreaming(
 		}
 		return c.startCdcStreamingFilePos(mysql.Position{Name: rest[:comma], Pos: uint32(offset)})
 	} else {
-		gset, err := mysql.ParseGTIDSet(c.config.Flavor, pos)
+		gset, err := mysql.ParseGTIDSet(c.Flavor(), pos)
 		if err != nil {
 			return nil, nil, nil, mysql.Position{}, err
 		}
