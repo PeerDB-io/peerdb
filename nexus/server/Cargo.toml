@@ -51,7 +51,7 @@ pgwire.workspace = true
 pt = { path = "../pt" }
 sqlparser = { workspace = true, features = ["visitor"] }
 serde_json = "1.0"
-rand = "0.8"
+rand = "0.9"
 rustls-pemfile = "2.0"
 rustls-pki-types = "1.0"
 time = "0.3"
