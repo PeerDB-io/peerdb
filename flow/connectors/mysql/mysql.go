@@ -200,13 +200,17 @@ func (c *MySqlConnector) CompareServerVersion(ctx context.Context, version strin
 
 func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, error) {
 	showBinlogStatus := "SHOW BINARY LOG STATUS"
-	if eq, err := c.CompareServerVersion(ctx, "8.4.0"); err == nil && eq < 0 {
+	masterReplaced := "8.4.0" // https://dev.mysql.com/doc/relnotes/mysql/8.4/en/news-8-4-0.html
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		masterReplaced = "10.5.2" // https://mariadb.com/kb/en/show-binlog-status
+	}
+	if eq, err := c.CompareServerVersion(ctx, masterReplaced); err == nil && eq < 0 {
 		showBinlogStatus = "SHOW MASTER STATUS"
 	}
 
 	rr, err := c.Execute(ctx, showBinlogStatus)
 	if err != nil {
-		return mysql.Position{}, fmt.Errorf("failed to SHOW BINARY LOG STATUS: %w", err)
+		return mysql.Position{}, fmt.Errorf("failed to %s: %w", showBinlogStatus, err)
 	}
 
 	name, _ := rr.GetString(0, 0)
@@ -224,15 +228,15 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 	}
 	rr, err := c.Execute(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to select @@gtid_executed: %w", err)
+		return nil, fmt.Errorf("failed to %s: %w", query, err)
 	}
 	gx, err := rr.GetString(0, 0)
 	if err != nil {
-		return nil, fmt.Errorf("failed to GetString for gtid_executed: %w", err)
+		return nil, fmt.Errorf("failed to GetString for %s: %w", query, err)
 	}
 	gset, err := mysql.ParseGTIDSet(c.Flavor(), gx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse GTID from gtid_executed: %w", err)
+		return nil, fmt.Errorf("failed to parse GTID from %s: %w", query, err)
 	}
 	return gset, nil
 }
