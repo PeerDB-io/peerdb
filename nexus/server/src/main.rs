@@ -72,7 +72,7 @@ impl AuthSource for FixedPasswordAuthSource {
         tracing::info!("login info: {:?}", login_info);
 
         // randomly generate a 4 byte salt
-        let salt = rand::thread_rng().gen::<[u8; 4]>();
+        let salt = rand::rng().random::<[u8; 4]>();
         let hash_password = gen_salted_password(&self.password, &salt, 4096);
         Ok(Password::new(Some(salt.to_vec()), hash_password))
     }
