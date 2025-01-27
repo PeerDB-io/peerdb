@@ -184,7 +184,7 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},

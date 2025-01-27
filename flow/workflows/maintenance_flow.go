@@ -78,7 +78,7 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 
 	snapshotWaitCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    1 * time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 	waitSnapshotsFuture := workflow.ExecuteActivity(snapshotWaitCtx,
 		maintenance.WaitForRunningSnapshots,
@@ -141,7 +141,7 @@ func pauseAndGetRunningMirrors(
 ) (*protos.MaintenanceMirrors, error) {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    1 * time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 	selector := workflow.NewSelector(ctx)
 	runningMirrors := make([]bool, len(mirrorsList.Mirrors))
@@ -206,7 +206,7 @@ func EndMaintenanceWorkflow(ctx workflow.Context, input *protos.EndMaintenanceFl
 func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMaintenanceFlowOutput, error) {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    1 * time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 
 	mirrorsList, err := resumeBackedUpMirrors(ctx, logger)
@@ -285,7 +285,7 @@ func runBackgroundAlerter(ctx workflow.Context) workflow.CancelFunc {
 	activityCtx, cancelActivity := workflow.WithCancel(ctx)
 	alerterCtx := workflow.WithActivityOptions(activityCtx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    1 * time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 	})
 	workflow.ExecuteActivity(alerterCtx, maintenance.BackgroundAlerter)
 	return cancelActivity

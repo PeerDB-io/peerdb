@@ -455,7 +455,7 @@ func CDCFlowWorkflow(
 
 			renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: 12 * time.Hour,
-				HeartbeatTimeout:    time.Minute,
+				HeartbeatTimeout:    5 * time.Minute,
 				RetryPolicy: &temporal.RetryPolicy{
 					InitialInterval: 1 * time.Minute,
 				},
@@ -481,7 +481,7 @@ func CDCFlowWorkflow(
 	var finished bool
 	syncCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 365 * 24 * time.Hour,
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 		WaitForCancellation: true,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})

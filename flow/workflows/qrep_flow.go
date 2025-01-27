@@ -177,7 +177,7 @@ func (q *QRepFlowExecution) getPartitions(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 72 * time.Hour,
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
@@ -289,7 +289,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	// only an operation for Snowflake currently.
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
@@ -353,7 +353,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 		renamedTableIdentifier := q.config.DestinationTableIdentifier + "_peerdb_resync"
 		createTablesFromExistingCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 10 * time.Minute,
-			HeartbeatTimeout:    time.Minute,
+			HeartbeatTimeout:    5 * time.Minute,
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
@@ -399,7 +399,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 
 		renameTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: 30 * time.Minute,
-			HeartbeatTimeout:    time.Minute,
+			HeartbeatTimeout:    5 * time.Minute,
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
@@ -441,7 +441,7 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
-		HeartbeatTimeout:    time.Minute,
+		HeartbeatTimeout:    5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,

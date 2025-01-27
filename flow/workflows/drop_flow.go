@@ -90,7 +90,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		if input.DropFlowStats {
 			dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 				StartToCloseTimeout: 2 * time.Minute,
-				HeartbeatTimeout:    1 * time.Minute,
+				HeartbeatTimeout:    5 * time.Minute,
 				RetryPolicy: &temporal.RetryPolicy{
 					InitialInterval: 1 * time.Minute,
 				},
