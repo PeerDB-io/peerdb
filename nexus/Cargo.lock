@@ -2770,7 +2770,6 @@ dependencies = [
  "serde_json",
  "similar",
  "sqlparser",
- "time",
  "tokio",
  "tokio-rustls 0.26.1",
  "tracing",
