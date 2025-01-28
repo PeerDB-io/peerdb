@@ -1,5 +1,6 @@
 use std::error::Error;
 
+use base64::prelude::{Engine as _, BASE64_STANDARD};
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use pgwire::types::ToSqlText;
@@ -88,12 +89,12 @@ impl ArrayValue {
             ),
             ArrayValue::Binary(arr) => serde_json::Value::Array(
                 arr.iter()
-                    .map(|v| serde_json::Value::String(hex::encode(v)))
+                    .map(|v| serde_json::Value::String(BASE64_STANDARD.encode(v)))
                     .collect(),
             ),
             ArrayValue::VarBinary(arr) => serde_json::Value::Array(
                 arr.iter()
-                    .map(|v| serde_json::Value::String(hex::encode(v)))
+                    .map(|v| serde_json::Value::String(BASE64_STANDARD.encode(v)))
                     .collect(),
             ),
             ArrayValue::Uuid(arr) => serde_json::Value::Array(
