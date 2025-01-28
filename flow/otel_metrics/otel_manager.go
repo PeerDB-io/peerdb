@@ -117,16 +117,16 @@ func getOrInitMetric[M any, O any](
 
 func (om *OtelManager) GetOrInitInt64Gauge(name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
 	// Once fixed, replace first argument below with metric.Meter.Int64Gauge
-	return getOrInitMetric(Int64Gauge, om.Meter, om.Int64GaugesCache, name, opts...)
+	return getOrInitMetric(ContextAwareInt64Gauge, om.Meter, om.Int64GaugesCache, name, opts...)
 }
 
 func (om *OtelManager) GetOrInitFloat64Gauge(name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
 	// Once fixed, replace first argument below with metric.Meter.Float64Gauge
-	return getOrInitMetric(Float64Gauge, om.Meter, om.Float64GaugesCache, name, opts...)
+	return getOrInitMetric(ContextAwareFloat64Gauge, om.Meter, om.Float64GaugesCache, name, opts...)
 }
 
 func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
-	return getOrInitMetric(metric.Meter.Int64Counter, om.Meter, om.Int64CountersCache, name, opts...)
+	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
 }
 
 func (om *OtelManager) setupMetrics() error {

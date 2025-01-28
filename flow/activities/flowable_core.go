@@ -323,11 +323,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
 	if a.OtelManager != nil {
-		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, flowName),
-			attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
-			attribute.String(otel_metrics.DestinationPeerType, dstConnType),
-		)))
+		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 	}
 
 	syncState.Store(shared.Ptr("updating schema"))

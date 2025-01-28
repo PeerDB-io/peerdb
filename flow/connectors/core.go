@@ -294,6 +294,29 @@ func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName strin
 	return dbtype, err
 }
 
+func LoadPeerTypes(ctx context.Context, catalogPool *pgxpool.Pool, peerNames []string) (map[string]protos.DBType, error) {
+	if len(peerNames) == 0 {
+		return nil, nil
+	}
+
+	rows, err := catalogPool.Query(ctx, "SELECT name, type FROM peers WHERE name = ANY($1)", peerNames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	peerTypes := make(map[string]protos.DBType)
+	for rows.Next() {
+		var peerName string
+		var dbtype protos.DBType
+		if err := rows.Scan(&peerName, &dbtype); err != nil {
+			return nil, err
+		}
+		peerTypes[peerName] = dbtype
+	}
+	return peerTypes, nil
+}
+
 func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (*protos.Peer, error) {
 	row := catalogPool.QueryRow(ctx, `
 		SELECT type, options, enc_key_id

@@ -13,6 +13,7 @@ import (
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/activities"
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -99,6 +100,9 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		ContextPropagators: []workflow.ContextPropagator{
+			shared.NewContextPropagator[*shared.FlowMetadata](shared.FlowMetadataKey),
+		},
 	}
 	if opts.EnableOtelMetrics {
 		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider("flow-worker")
