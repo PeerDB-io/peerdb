@@ -95,32 +95,32 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	var exception *clickhouse.Exception
 	if errors.As(err, &exception) {
 		switch exception.Code {
-		case 241:
+		case 241: // MEMORY_LIMIT_EXCEEDED
 			return ErrorNotifyOOM
-		case 349:
+		case 349: // CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN
 			if isClickHouseMvError(exception) {
 				return ErrorNotifyMVOrView
 			}
-		case 48:
+		case 48: // NOT_IMPLEMENTED
 			if isClickHouseMvError(exception) {
 				return ErrorNotifyMVOrView
 			}
-		case 81:
+		case 81: // UNKNOWN_DATABASE
 			return ErrorNotifyConnectivity
-		case 999:
+		case 999: // KEEPER_EXCEPTION
 			return ErrorInternalClickHouse
-		case 341:
+		case 341: // UNFINISHED
 			return ErrorInternalClickHouse
 		}
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
-		case "28P01":
+		case "28P01": // invalid_password
 			return ErrorNotifyConnectivity
-		case "57P01":
+		case "57P01": // admin_shutdown
 			return ErrorNotifyTerminate
-		case "55000":
+		case "55000": // object_not_in_prerequisite_state
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") {
 				return ErrorNotifySlotInvalid
 			}
