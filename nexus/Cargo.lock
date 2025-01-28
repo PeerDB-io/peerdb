@@ -4782,7 +4782,6 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "chrono",
- "hex",
  "pgwire",
  "postgres",
  "postgres-inet",
