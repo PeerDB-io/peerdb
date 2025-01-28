@@ -26,5 +26,4 @@ sha2 = "0.10"
 sqlparser.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-ureq = { version = "3", features = ["json", "charset"] }
 value = { path = "../value" }
