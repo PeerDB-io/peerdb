@@ -230,14 +230,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	var res *model.SyncResponse
-	var dstConnType string
 	errGroup.Go(func() error {
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
 			return fmt.Errorf("failed to recreate destination connector: %w", err)
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
-		dstConnType = fmt.Sprintf("%T", dstConn)
 
 		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
 		if err != nil {
