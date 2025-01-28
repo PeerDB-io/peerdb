@@ -192,6 +192,10 @@ message PeerInfoResponse {
   string version = 2;
 }
 
+message PeerTypeResponse {
+  string peer_type = 1;
+}
+
 message PeerListItem {
   string name = 1;
   peerdb_peers.DBType type = 2;
@@ -634,6 +638,12 @@ service FlowService {
   rpc GetPeerInfo(PeerInfoRequest) returns (PeerInfoResponse) {
     option (google.api.http) = {
       get : "/v1/peers/info/{peer_name}"
+    };
+  }
+
+  rpc GetPeerType(PeerInfoRequest) returns (PeerTypeResponse) {
+    option (google.api.http) = {
+      get : "/v1/peers/type/{peer_name}"
     };
   }
   rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {
