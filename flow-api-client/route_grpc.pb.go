@@ -53,6 +53,7 @@ const (
 	FlowService_CDCGraph_FullMethodName                = "/peerdb_route.FlowService/CDCGraph"
 	FlowService_InitialLoadSummary_FullMethodName      = "/peerdb_route.FlowService/InitialLoadSummary"
 	FlowService_GetPeerInfo_FullMethodName             = "/peerdb_route.FlowService/GetPeerInfo"
+	FlowService_GetPeerType_FullMethodName             = "/peerdb_route.FlowService/GetPeerType"
 	FlowService_ListPeers_FullMethodName               = "/peerdb_route.FlowService/ListPeers"
 	FlowService_GetVersion_FullMethodName              = "/peerdb_route.FlowService/GetVersion"
 	FlowService_ResyncMirror_FullMethodName            = "/peerdb_route.FlowService/ResyncMirror"
@@ -100,6 +101,7 @@ type FlowServiceClient interface {
 	CDCGraph(ctx context.Context, in *GraphRequest, opts ...grpc.CallOption) (*GraphResponse, error)
 	InitialLoadSummary(ctx context.Context, in *InitialLoadSummaryRequest, opts ...grpc.CallOption) (*InitialLoadSummaryResponse, error)
 	GetPeerInfo(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerInfoResponse, error)
+	GetPeerType(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerTypeResponse, error)
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
 	GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error)
 	ResyncMirror(ctx context.Context, in *ResyncMirrorRequest, opts ...grpc.CallOption) (*ResyncMirrorResponse, error)
@@ -423,6 +425,15 @@ func (c *flowServiceClient) GetPeerInfo(ctx context.Context, in *PeerInfoRequest
 	return out, nil
 }
 
+func (c *flowServiceClient) GetPeerType(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerTypeResponse, error) {
+	out := new(PeerTypeResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetPeerType_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error) {
 	out := new(ListPeersResponse)
 	err := c.cc.Invoke(ctx, FlowService_ListPeers_FullMethodName, in, out, opts...)
@@ -524,6 +535,7 @@ type FlowServiceServer interface {
 	CDCGraph(context.Context, *GraphRequest) (*GraphResponse, error)
 	InitialLoadSummary(context.Context, *InitialLoadSummaryRequest) (*InitialLoadSummaryResponse, error)
 	GetPeerInfo(context.Context, *PeerInfoRequest) (*PeerInfoResponse, error)
+	GetPeerType(context.Context, *PeerInfoRequest) (*PeerTypeResponse, error)
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
 	GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error)
 	ResyncMirror(context.Context, *ResyncMirrorRequest) (*ResyncMirrorResponse, error)
@@ -639,6 +651,9 @@ func (UnimplementedFlowServiceServer) InitialLoadSummary(context.Context, *Initi
 }
 func (UnimplementedFlowServiceServer) GetPeerInfo(context.Context, *PeerInfoRequest) (*PeerInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetPeerInfo not implemented")
+}
+func (UnimplementedFlowServiceServer) GetPeerType(context.Context, *PeerInfoRequest) (*PeerTypeResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetPeerType not implemented")
 }
 func (UnimplementedFlowServiceServer) ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListPeers not implemented")
@@ -1286,6 +1301,24 @@ func _FlowService_GetPeerInfo_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetPeerType_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PeerInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetPeerType(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetPeerType_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetPeerType(ctx, req.(*PeerInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_ListPeers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ListPeersRequest)
 	if err := dec(in); err != nil {
@@ -1554,6 +1587,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetPeerInfo",
 			Handler:    _FlowService_GetPeerInfo_Handler,
+		},
+		{
+			MethodName: "GetPeerType",
+			Handler:    _FlowService_GetPeerType_Handler,
 		},
 		{
 			MethodName: "ListPeers",
