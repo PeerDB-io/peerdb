@@ -1,5 +1,4 @@
 'use client';
-import { DBType } from '@/grpc_generated/peers';
 import { PeerInfoResponse, PeerTypeResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
@@ -34,19 +33,17 @@ export const PeerInfo = ({ peerName }: { peerName: string }) => {
   );
 };
 
-const EditPeerButton = ({
-  peerName,
-}: {
-  peerName: string;
-}) => {
-
+const EditPeerButton = ({ peerName }: { peerName: string }) => {
   const getPeerType = async (peerName: string): Promise<string> => {
-    const peerTypeRes:PeerTypeResponse = await fetch(`/api/v1/peers/type/${peerName}`, {
-      cache: 'no-store',
-    }).then((res) => res.json());
+    const peerTypeRes: PeerTypeResponse = await fetch(
+      `/api/v1/peers/type/${peerName}`,
+      {
+        cache: 'no-store',
+      }
+    ).then((res) => res.json());
     const peerType = peerTypeRes.peerType;
     return peerType;
-  }
+  };
 
   const [peerType, setPeerType] = useState<string>();
   useEffect(() => {
