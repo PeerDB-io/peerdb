@@ -15,8 +15,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -473,10 +471,7 @@ func PullCdcRecords[Items model.Items](
 			return shared.LogError(logger, fmt.Errorf("received Postgres WAL error: %+v", msg))
 		case *pgproto3.CopyData:
 			if p.otelManager != nil {
-				p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)), metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.FlowNameKey, req.FlowJobName),
-					attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", p)),
-				)))
+				p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
 			}
 			switch msg.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:

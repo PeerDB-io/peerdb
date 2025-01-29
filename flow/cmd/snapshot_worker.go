@@ -10,9 +10,11 @@ import (
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/activities"
 	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -30,6 +32,9 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		ContextPropagators: []workflow.ContextPropagator{
+			shared.NewContextPropagator[*protos.FlowContextMetadata](shared.FlowMetadataKey),
+		},
 	}
 
 	if opts.EnableOtelMetrics {

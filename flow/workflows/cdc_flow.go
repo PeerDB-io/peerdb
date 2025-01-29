@@ -52,18 +52,6 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 	}
 }
 
-func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
-	sideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return f(ctx)
-	})
-
-	var result T
-	if err := sideEffect.Get(&result); err != nil {
-		panic(err)
-	}
-	return result
-}
-
 func GetUUID(ctx workflow.Context) string {
 	return GetSideEffect(ctx, func(_ workflow.Context) string {
 		return uuid.New().String()
@@ -372,6 +360,12 @@ func CDCFlowWorkflow(
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
+
+	var err error
+	ctx, err = GetFlowMetadataContext(ctx, cfg.FlowJobName, cfg.SourceName, cfg.DestinationName)
+	if err != nil {
+		return state, fmt.Errorf("failed to get flow metadata context: %w", err)
+	}
 
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
 	// because Resync modifies TableMappings before Setup and also before Snapshot

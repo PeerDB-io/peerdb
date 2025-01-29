@@ -378,9 +378,7 @@ func (a *FlowableActivity) SyncFlow(
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
 			if a.OtelManager != nil {
 				a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
 					attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
-					attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
 				)))
 			}
 			if options.NumberOfSyncs > 0 && currentSyncFlowNum.Load() >= options.NumberOfSyncs {
@@ -1109,4 +1107,32 @@ func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowN
 	}
 
 	return nil
+}
+
+func (a *FlowableActivity) GetFlowMetadata(
+	ctx context.Context,
+	flowName string,
+	sourceName string,
+	destinationName string,
+) (*protos.FlowContextMetadata, error) {
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName))
+	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, []string{sourceName, destinationName})
+	if err != nil {
+		a.Alerter.LogFlowError(ctx, flowName, err)
+		return nil, err
+	}
+	logger.Info("loaded peer types for flow", slog.String("flowName", flowName),
+		slog.String("sourceName", sourceName), slog.String("destinationName", destinationName),
+		slog.Any("peerTypes", peerTypes))
+	return &protos.FlowContextMetadata{
+		FlowName: flowName,
+		Source: &protos.PeerContextMetadata{
+			Name: sourceName,
+			Type: peerTypes[sourceName],
+		},
+		Destination: &protos.PeerContextMetadata{
+			Name: destinationName,
+			Type: peerTypes[destinationName],
+		},
+	}, nil
 }
