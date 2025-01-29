@@ -113,7 +113,7 @@ func buildFlowMetadataAttributes(flowMetadata *protos.FlowContextMetadata) metri
 }
 
 type ContextAwareInt64SyncGauge struct {
-	Int64SyncGauge
+	metric.Int64Gauge
 }
 
 func (a *ContextAwareInt64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
@@ -121,11 +121,11 @@ func (a *ContextAwareInt64SyncGauge) Record(ctx context.Context, value int64, op
 	if flowMetadata != nil {
 		options = append(options, buildFlowMetadataAttributes(flowMetadata))
 	}
-	a.Int64SyncGauge.Record(ctx, value, options...)
+	a.Int64Gauge.Record(ctx, value, options...)
 }
 
 type ContextAwareFloat64SyncGauge struct {
-	Float64SyncGauge
+	metric.Float64Gauge
 }
 
 func (a *ContextAwareFloat64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
@@ -133,7 +133,7 @@ func (a *ContextAwareFloat64SyncGauge) Record(ctx context.Context, value float64
 	if flowMetadata != nil {
 		options = append(options, buildFlowMetadataAttributes(flowMetadata))
 	}
-	a.Float64SyncGauge.Record(ctx, value, options...)
+	a.Float64Gauge.Record(ctx, value, options...)
 }
 
 type ContextAwareInt64Counter struct {
@@ -161,7 +161,7 @@ func ContextAwareInt64Gauge(meter metric.Meter, name string, opts ...metric.Int6
 	if err != nil {
 		return nil, err
 	}
-	return &ContextAwareInt64SyncGauge{Int64SyncGauge: *gauge.(*Int64SyncGauge)}, nil
+	return &ContextAwareInt64SyncGauge{Int64Gauge: gauge}, nil
 }
 
 func Float64Gauge(meter metric.Meter, name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
@@ -177,7 +177,7 @@ func ContextAwareFloat64Gauge(meter metric.Meter, name string, opts ...metric.Fl
 	if err != nil {
 		return nil, err
 	}
-	return &ContextAwareFloat64SyncGauge{Float64SyncGauge: *gauge.(*Float64SyncGauge)}, nil
+	return &ContextAwareFloat64SyncGauge{Float64Gauge: gauge}, nil
 }
 
 func NewContextAwareInt64Counter(meter metric.Meter, name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
