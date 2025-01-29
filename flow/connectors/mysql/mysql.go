@@ -388,13 +388,13 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			}
 			return qvalue.QValueNumeric{Val: val}, nil
 		case qvalue.QValueKindTimestamp:
-			val, err := time.Parse("2006-01-02 15:04:05.000000", shared.UnsafeFastReadOnlyBytesToString(v))
+			val, err := time.Parse("2006-01-02 15:04:05.999999", shared.UnsafeFastReadOnlyBytesToString(v))
 			if err != nil {
 				return nil, err
 			}
 			return qvalue.QValueTimestamp{Val: val}, nil
 		case qvalue.QValueKindTime:
-			val, err := time.Parse("15:04:05.000000", shared.UnsafeFastReadOnlyBytesToString(v))
+			val, err := time.Parse("15:04:05.999999", shared.UnsafeFastReadOnlyBytesToString(v))
 			if err != nil {
 				return nil, err
 			}
