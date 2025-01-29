@@ -470,9 +470,9 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	}
 
 	errorClass := GetErrorClass(ctx, err)
-	tags = append(tags, errorClass.String())
+	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
 
-	if errorClass.ErrorAction() == NotifyTelemetry {
+	if !peerdbenv.PeerDBTelemetryErrorActionBasedAlertingEnabled() || errorClass.ErrorAction() == NotifyTelemetry {
 		a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 	}
 	if a.otelManager != nil {

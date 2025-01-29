@@ -49,7 +49,7 @@ var (
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
 	ErrorNotifyConnectTimeout = ErrorClass{
-		// TODO
+		// TODO(TBD)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
 	}
 	ErrorEventInternal = ErrorClass{
