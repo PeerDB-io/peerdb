@@ -40,7 +40,7 @@ type ContextPropagator[V any] struct {
 	Key TemporalContextKey
 }
 
-func NewContextPropagator[V any](key string) workflow.ContextPropagator {
+func NewContextPropagator[V any](key TemporalContextKey) workflow.ContextPropagator {
 	return &ContextPropagator[V]{Key: key}
 }
 
