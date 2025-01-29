@@ -2,6 +2,22 @@
 
 @config '../../tailwind.config.ts';
 
+.fill-blue-500 {
+  fill: #30a46c;
+}
+.stroke-rose-500 {
+  stroke: #f43f5e;
+}
+.stroke-lime-500 {
+  stroke: #84cc16;
+}
+.stroke-red-500 {
+  stroke: #ef4444;
+}
+.stroke-orange-500 {
+  stroke: #f97316;
+}
+
 /*
   The default border color has changed to `currentColor` in Tailwind CSS v4,
   so we've added these compatibility styles to make sure everything still
