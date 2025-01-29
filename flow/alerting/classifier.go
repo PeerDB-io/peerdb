@@ -77,6 +77,7 @@ var (
 func (e ErrorClass) String() string {
 	return e.Class
 }
+
 func (e ErrorClass) ErrorAction() ErrorAction {
 	if e.action != "" {
 		return e.action
