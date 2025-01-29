@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jackc/pgx/v5/pgconn"
+	"golang.org/x/crypto/ssh"
 )
 
 type ErrorAction string
@@ -49,7 +51,7 @@ var (
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
 	ErrorNotifyConnectTimeout = ErrorClass{
-		// TODO(TBD)
+		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
 	}
 	ErrorEventInternal = ErrorClass{
@@ -86,13 +88,15 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 }
 
 func GetErrorClass(ctx context.Context, err error) ErrorClass {
+	// Generally happens during workflow cancellation
 	if errors.Is(err, context.Canceled) {
 		return ErrorIgnoreContextCancelled
 	}
-
+	// Usually seen in ClickHouse cloud during instance scale-up
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return ErrorIgnoreEOF
 	}
+	// ClickHouse specific errors
 	var exception *clickhouse.Exception
 	if errors.As(err, &exception) {
 		switch exception.Code {
@@ -114,6 +118,7 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 			return ErrorInternalClickHouse
 		}
 	}
+	// Postgres specific errors
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
@@ -121,11 +126,25 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 			return ErrorNotifyConnectivity
 		case "57P01": // admin_shutdown
 			return ErrorNotifyTerminate
+		case "57P03": // cannot_connect_now
+			return ErrorNotifyConnectivity
 		case "55000": // object_not_in_prerequisite_state
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") {
 				return ErrorNotifySlotInvalid
 			}
 		}
+	}
+
+	// Network related errors
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return ErrorNotifyConnectivity
+	}
+
+	// SSH related errors
+	var sshErr *ssh.OpenChannelError
+	if errors.As(err, &sshErr) {
+		return ErrorNotifyConnectivity
 	}
 	return ErrorOther
 }
