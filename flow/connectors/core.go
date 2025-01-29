@@ -454,6 +454,7 @@ func CloseConnector(ctx context.Context, conn Connector) {
 // create type assertions to cause compile time error if connector interface not implemented
 var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
+	_ CDCPullConnector = &connmysql.MySqlConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -475,6 +476,7 @@ var (
 	_ CDCNormalizeConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
 	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
 
@@ -487,6 +489,7 @@ var (
 	_ CreateTablesFromExistingConnector = &connsnowflake.SnowflakeConnector{}
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
+	_ QRepPullConnector = &connmysql.MySqlConnector{}
 	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
 
 	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}

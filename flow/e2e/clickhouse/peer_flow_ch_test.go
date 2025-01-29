@@ -31,6 +31,14 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite(t, e2e.SetupPostgres))
 }
 
+func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, e2e.SetupMySQL))
+}
+
+func TestPeerFlowE2ETestSuiteMariaDB_CH(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, e2e.SetupMariaDB))
+}
+
 func (s ClickHouseSuite) attachSchemaSuffix(tableName string) string {
 	return fmt.Sprintf("e2e_test_%s.%s", s.suffix, tableName)
 }
