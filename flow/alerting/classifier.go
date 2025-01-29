@@ -10,6 +10,8 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type ErrorAction string
@@ -137,6 +139,12 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 				return ErrorNotifySlotInvalid
 			}
 		}
+	}
+
+	// PeerDB error types
+	var peerDBErr *exceptions.PostgresSetupError
+	if errors.As(err, &peerDBErr) {
+		return ErrorNotifyConnectivity
 	}
 
 	// Network related errors
