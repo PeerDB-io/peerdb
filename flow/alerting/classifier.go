@@ -126,6 +126,8 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 		switch pgErr.Code {
 		case "28P01": // invalid_password
 			return ErrorNotifyConnectivity
+		case "42P01": // undefined_table
+			return ErrorNotifyConnectivity
 		case "57P01": // admin_shutdown
 			return ErrorNotifyTerminate
 		case "57P03": // cannot_connect_now
