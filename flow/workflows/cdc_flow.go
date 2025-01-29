@@ -373,15 +373,11 @@ func CDCFlowWorkflow(
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
-	metadataCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
-	})
-	getMetadataFuture := workflow.ExecuteActivity(metadataCtx, flowable.GetFlowMetadata, cfg.FlowJobName, cfg.SourceName, cfg.DestinationName)
-	var metadata *shared.FlowMetadata
-	if err := getMetadataFuture.Get(metadataCtx, &metadata); err != nil {
-		return state, fmt.Errorf("failed to get flow metadata: %w", err)
+	newCtx, err := GetFlowMetadataContext(ctx, cfg.FlowJobName, cfg.SourceName, cfg.DestinationName)
+	if err != nil {
+		return state, fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
-	ctx = workflow.WithValue(ctx, shared.FlowMetadataKey, metadata)
+	ctx = newCtx
 
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
 	// because Resync modifies TableMappings before Setup and also before Snapshot
@@ -577,4 +573,16 @@ func CDCFlowWorkflow(
 			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
 	}
+}
+
+func GetFlowMetadataContext(ctx workflow.Context, flowJobName string, sourceName string, destinationName string) (workflow.Context, error) {
+	metadataCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 10 * time.Second,
+	})
+	getMetadataFuture := workflow.ExecuteLocalActivity(metadataCtx, flowable.GetFlowMetadata, flowJobName, sourceName, destinationName)
+	var metadata *protos.FlowContextMetadata
+	if err := getMetadataFuture.Get(metadataCtx, &metadata); err != nil {
+		return nil, err
+	}
+	return workflow.WithValue(ctx, shared.FlowMetadataKey, metadata), nil
 }

@@ -1114,7 +1114,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 	flowName string,
 	sourceName string,
 	destinationName string,
-) (*shared.FlowMetadata, error) {
+) (*protos.FlowContextMetadata, error) {
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName))
 	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, []string{sourceName, destinationName})
 	if err != nil {
@@ -1124,13 +1124,13 @@ func (a *FlowableActivity) GetFlowMetadata(
 	logger.Info("loaded peer types for flow", slog.String("flowName", flowName),
 		slog.String("sourceName", sourceName), slog.String("destinationName", destinationName),
 		slog.Any("peerTypes", peerTypes))
-	return &shared.FlowMetadata{
+	return &protos.FlowContextMetadata{
 		FlowName: flowName,
-		Source: shared.PeerMetadata{
+		Source: &protos.PeerContextMetadata{
 			Name: sourceName,
 			Type: peerTypes[sourceName],
 		},
-		Destination: shared.PeerMetadata{
+		Destination: &protos.PeerContextMetadata{
 			Name: destinationName,
 			Type: peerTypes[destinationName],
 		},

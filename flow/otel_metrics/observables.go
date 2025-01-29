@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/PeerDB-io/peerdb/flow/shared"
-
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/embedded"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type ObservationMapValue[V comparable] struct {
@@ -101,7 +102,7 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 	return &Float64SyncGauge{syncGauge: syncGauge}, nil
 }
 
-func buildFlowMetadataAttributes(flowMetadata *shared.FlowMetadata) metric.MeasurementOption {
+func buildFlowMetadataAttributes(flowMetadata *protos.FlowContextMetadata) metric.MeasurementOption {
 	return metric.WithAttributeSet(attribute.NewSet(
 		attribute.String(FlowNameKey, flowMetadata.FlowName),
 		attribute.String(SourcePeerType, flowMetadata.Source.Type.String()),

@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/grafana/pyroscope-go"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
@@ -101,7 +102,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 		Namespace: opts.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 		ContextPropagators: []workflow.ContextPropagator{
-			shared.NewContextPropagator[*shared.FlowMetadata](shared.FlowMetadataKey),
+			shared.NewContextPropagator[*protos.FlowContextMetadata](shared.FlowMetadataKey),
 		},
 	}
 	if opts.EnableOtelMetrics {

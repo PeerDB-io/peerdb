@@ -5,7 +5,7 @@ import (
 
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/workflow"
-	
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
@@ -19,19 +19,13 @@ const (
 	FlowMetadataKey TemporalContextKey = "x-peerdb-flow-metadata"
 )
 
-type FlowMetadata struct {
-	FlowName    string
-	Source      PeerMetadata
-	Destination PeerMetadata
-}
-
 type PeerMetadata struct {
 	Name string
 	Type protos.DBType
 }
 
-func GetFlowMetadata(ctx context.Context) *FlowMetadata {
-	if metadata, ok := ctx.Value(FlowMetadataKey).(*FlowMetadata); ok {
+func GetFlowMetadata(ctx context.Context) *protos.FlowContextMetadata {
+	if metadata, ok := ctx.Value(FlowMetadataKey).(*protos.FlowContextMetadata); ok {
 		return metadata
 	}
 	return nil

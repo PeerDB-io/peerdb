@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
@@ -32,7 +33,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		Namespace: opts.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 		ContextPropagators: []workflow.ContextPropagator{
-			shared.NewContextPropagator[*shared.FlowMetadata](shared.FlowMetadataKey),
+			shared.NewContextPropagator[*protos.FlowContextMetadata](shared.FlowMetadataKey),
 		},
 	}
 

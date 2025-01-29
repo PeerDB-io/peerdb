@@ -488,3 +488,14 @@ message MaintenanceMirror {
 message MaintenanceMirrors {
   repeated MaintenanceMirror mirrors = 1;
 }
+
+message PeerContextMetadata {
+  string name = 1;
+  peerdb_peers.DBType type = 2;
+}
+
+message FlowContextMetadata{
+  string flow_name = 1;
+  PeerContextMetadata source = 2;
+  PeerContextMetadata destination = 3;
+}
