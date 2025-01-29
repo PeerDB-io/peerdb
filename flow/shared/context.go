@@ -8,8 +8,14 @@ import (
 	"go.temporal.io/sdk/workflow"
 )
 
+type TemporalContextKey string
+
+func (k TemporalContextKey) HeaderKey() string {
+	return string(k)
+}
+
 const (
-	FlowMetadataKey = "x-peerdb-flow-metadata"
+	FlowMetadataKey TemporalContextKey = "x-peerdb-flow-metadata"
 )
 
 type FlowMetadata struct {
@@ -31,7 +37,7 @@ func GetFlowMetadata(ctx context.Context) *FlowMetadata {
 }
 
 type ContextPropagator[V any] struct {
-	Key string
+	Key TemporalContextKey
 }
 
 func NewContextPropagator[V any](key string) workflow.ContextPropagator {
@@ -44,12 +50,12 @@ func (c *ContextPropagator[V]) Inject(ctx context.Context, writer workflow.Heade
 	if err != nil {
 		return err
 	}
-	writer.Set(c.Key, payload)
+	writer.Set(c.Key.HeaderKey(), payload)
 	return nil
 }
 
 func (c *ContextPropagator[V]) Extract(ctx context.Context, reader workflow.HeaderReader) (context.Context, error) {
-	if payload, ok := reader.Get(c.Key); ok {
+	if payload, ok := reader.Get(c.Key.HeaderKey()); ok {
 		var value V
 		if err := converter.GetDefaultDataConverter().FromPayload(payload, &value); err != nil {
 			return ctx, nil
@@ -66,12 +72,12 @@ func (c *ContextPropagator[V]) InjectFromWorkflow(ctx workflow.Context, writer w
 	if err != nil {
 		return err
 	}
-	writer.Set(c.Key, payload)
+	writer.Set(c.Key.HeaderKey(), payload)
 	return nil
 }
 
 func (c *ContextPropagator[V]) ExtractToWorkflow(ctx workflow.Context, reader workflow.HeaderReader) (workflow.Context, error) {
-	if payload, ok := reader.Get(c.Key); ok {
+	if payload, ok := reader.Get(c.Key.HeaderKey()); ok {
 		var value V
 		if err := converter.GetDefaultDataConverter().FromPayload(payload, &value); err != nil {
 			return ctx, nil
