@@ -11,6 +11,8 @@ const (
 	BatchIdKey          = "batchId"
 	SourcePeerType      = "sourcePeerType"
 	DestinationPeerType = "destinationPeerType"
+	SourcePeerName      = "sourcePeerName"
+	DestinationPeerName = "destinationPeerName"
 )
 
 const (
