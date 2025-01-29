@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/embedded"

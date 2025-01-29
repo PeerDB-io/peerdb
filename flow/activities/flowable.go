@@ -1109,8 +1109,12 @@ func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowN
 	return nil
 }
 
-func (a *FlowableActivity) GetFlowMetadata(ctx context.Context, flowName string, sourceName string,
-	destinationName string) (*shared.FlowMetadata, error) {
+func (a *FlowableActivity) GetFlowMetadata(
+	ctx context.Context,
+	flowName string,
+	sourceName string,
+	destinationName string,
+) (*shared.FlowMetadata, error) {
 	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName))
 	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, []string{sourceName, destinationName})
 	if err != nil {

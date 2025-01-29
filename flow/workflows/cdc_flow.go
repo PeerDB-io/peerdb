@@ -373,12 +373,12 @@ func CDCFlowWorkflow(
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
-	getMetadataCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+	metadataCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
-	getMetadataFuture := workflow.ExecuteActivity(getMetadataCtx, flowable.GetFlowMetadata, cfg.FlowJobName, cfg.SourceName, cfg.DestinationName)
+	getMetadataFuture := workflow.ExecuteActivity(metadataCtx, flowable.GetFlowMetadata, cfg.FlowJobName, cfg.SourceName, cfg.DestinationName)
 	var metadata *shared.FlowMetadata
-	if err := getMetadataFuture.Get(getMetadataCtx, &metadata); err != nil {
+	if err := getMetadataFuture.Get(metadataCtx, &metadata); err != nil {
 		return state, fmt.Errorf("failed to get flow metadata: %w", err)
 	}
 	ctx = workflow.WithValue(ctx, shared.FlowMetadataKey, metadata)

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/workflow"
 )
