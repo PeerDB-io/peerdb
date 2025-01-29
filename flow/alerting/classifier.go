@@ -35,7 +35,7 @@ var (
 		Class: "NOTIFY_OOM", action: NotifyUser,
 	}
 	ErrorNotifyMVOrView = ErrorClass{
-		// ClickHouse Code 349 / Code 48 with "while pushing to view", TODO(242,236)
+		// ClickHouse Code 349 / Code 48 with "while pushing to view"
 		Class: "NOTIFY_MV_OR_VIEW", action: NotifyUser,
 	}
 	ErrorNotifyConnectivity = ErrorClass{
@@ -115,6 +115,8 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 		case 999: // KEEPER_EXCEPTION
 			return ErrorInternalClickHouse
 		case 341: // UNFINISHED
+			return ErrorInternalClickHouse
+		case 236: // ABORTED
 			return ErrorInternalClickHouse
 		}
 	}
