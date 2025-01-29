@@ -9,6 +9,6 @@ func (e PostgresSetupError) Error() string {
 	return "Postgres setup error: " + e.error.Error()
 }
 
-func NewPostgresSetupError(err error) PostgresSetupError {
-	return PostgresSetupError{err}
+func NewPostgresSetupError(err error) *PostgresSetupError {
+	return &PostgresSetupError{err}
 }

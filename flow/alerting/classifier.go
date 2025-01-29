@@ -90,6 +90,11 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 }
 
 func GetErrorClass(ctx context.Context, err error) ErrorClass {
+	// PeerDB error types
+	var peerDBErr *exceptions.PostgresSetupError
+	if errors.As(err, &peerDBErr) {
+		return ErrorNotifyConnectivity
+	}
 	// Generally happens during workflow cancellation
 	if errors.Is(err, context.Canceled) {
 		return ErrorIgnoreContextCancelled
@@ -139,12 +144,6 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 				return ErrorNotifySlotInvalid
 			}
 		}
-	}
-
-	// PeerDB error types
-	var peerDBErr *exceptions.PostgresSetupError
-	if errors.As(err, &peerDBErr) {
-		return ErrorNotifyConnectivity
 	}
 
 	// Network related errors
