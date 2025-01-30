@@ -513,6 +513,7 @@ var (
 	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetSchemaConnector = &connmysql.MySqlConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
