@@ -5,8 +5,12 @@ type PostgresSetupError struct {
 	error
 }
 
-func (e PostgresSetupError) Error() string {
+func (e *PostgresSetupError) Error() string {
 	return "Postgres setup error: " + e.error.Error()
+}
+
+func (e *PostgresSetupError) Unwrap() error {
+	return e.error
 }
 
 func NewPostgresSetupError(err error) *PostgresSetupError {
