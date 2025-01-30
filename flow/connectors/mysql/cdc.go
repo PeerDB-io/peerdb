@@ -272,6 +272,34 @@ func (c *MySqlConnector) PullRecords(
 		}
 	}
 
+	cdcRecordsStorage, err := utils.NewCDCStore[model.RecordItems](ctx, req.Env, req.FlowJobName)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cdcRecordsStorage.IsEmpty() {
+			req.RecordStream.SignalAsEmpty()
+		}
+		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", cdcRecordsStorage.Len()))
+		if err := cdcRecordsStorage.Close(); err != nil {
+			c.logger.Warn("failed to clean up records storage", slog.Any("error", err))
+		}
+	}()
+
+	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[model.RecordItems]) error {
+		if err := cdcRecordsStorage.Set(c.logger, key, rec); err != nil {
+			return err
+		}
+		if err := req.RecordStream.AddRecord(ctx, rec); err != nil {
+			return err
+		}
+
+		if cdcRecordsStorage.Len() == 1 {
+			req.RecordStream.SignalAsNotEmpty()
+		}
+		return nil
+	}
+
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, req.IdleTimeout)
 	defer cancelTimeout()
 
@@ -353,12 +381,17 @@ func (c *MySqlConnector) PullRecords(
 						}
 
 						recordCount += 1
-						if err := req.RecordStream.AddRecord(ctx, &model.InsertRecord[model.RecordItems]{
+						rec := &model.InsertRecord[model.RecordItems]{
 							BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							Items:                items,
 							SourceTableName:      sourceTableName,
 							DestinationTableName: destinationTableName,
-						}); err != nil {
+						}
+						key, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
+						if err != nil {
+							return err
+						}
+						if err := addRecordWithKey(key, rec); err != nil {
 							return err
 						}
 					}
@@ -394,14 +427,30 @@ func (c *MySqlConnector) PullRecords(
 						}
 
 						recordCount += 1
-						if err := req.RecordStream.AddRecord(ctx, &model.UpdateRecord[model.RecordItems]{
+						rec := &model.UpdateRecord[model.RecordItems]{
 							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							OldItems:              oldItems,
 							NewItems:              newItems,
 							SourceTableName:       sourceTableName,
 							DestinationTableName:  destinationTableName,
 							UnchangedToastColumns: unchangedToastColumns,
-						}); err != nil {
+						}
+						key, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
+						if err != nil {
+							return err
+						}
+						latestRecord, ok, err := cdcRecordsStorage.Get(key)
+						if err != nil {
+							return err
+						}
+						if ok {
+							// iterate through unchanged toast cols and set them in new record
+							updatedCols := rec.NewItems.UpdateIfNotExists(latestRecord.GetItems())
+							for _, col := range updatedCols {
+								delete(rec.UnchangedToastColumns, col)
+							}
+						}
+						if err := addRecordWithKey(key, rec); err != nil {
 							return err
 						}
 					}
@@ -426,13 +475,38 @@ func (c *MySqlConnector) PullRecords(
 						}
 
 						recordCount += 1
-						if err := req.RecordStream.AddRecord(ctx, &model.DeleteRecord[model.RecordItems]{
+						rec := &model.DeleteRecord[model.RecordItems]{
 							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							Items:                 items,
 							SourceTableName:       sourceTableName,
 							DestinationTableName:  destinationTableName,
 							UnchangedToastColumns: unchangedToastColumns,
-						}); err != nil {
+						}
+
+						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
+						if err != nil {
+							return err
+						}
+
+						latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
+						if err != nil {
+							return err
+						}
+						if ok {
+							rec.Items = latestRecord.GetItems()
+							if updateRecord, ok := latestRecord.(*model.UpdateRecord[model.RecordItems]); ok {
+								rec.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+							}
+						} else {
+							// there is nothing to backfill the items in the delete record with,
+							// so don't update the row with this record
+							// add sentinel value to prevent update statements from selecting
+							rec.UnchangedToastColumns = map[string]struct{}{
+								"_peerdb_not_backfilled_delete": {},
+							}
+						}
+
+						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 							return err
 						}
 					}
