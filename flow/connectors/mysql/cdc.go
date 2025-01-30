@@ -14,8 +14,6 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -262,16 +260,6 @@ func (c *MySqlConnector) PullRecords(
 		req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 	}
 
-	var fetchedBytesCounter metric.Int64Counter
-	if otelManager != nil {
-		var err error
-		fetchedBytesCounter, err = otelManager.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.FetchedBytesCounterName),
-			metric.WithUnit("By"), metric.WithDescription("Bytes received of CopyData over replication slot"))
-		if err != nil {
-			return fmt.Errorf("could not get FetchedBytesCounter: %w", err)
-		}
-	}
-
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, req.IdleTimeout)
 	defer cancelTimeout()
 
@@ -285,13 +273,10 @@ func (c *MySqlConnector) PullRecords(
 			return err
 		}
 
-		if fetchedBytesCounter != nil {
-			fetchedBytesCounter.Add(ctx, int64(len(event.RawData)), metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, req.FlowJobName),
-			)))
+		if otelManager != nil {
+			otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 		}
 
-		// TODO if gset == nil update pos with event.Header.LogPos
 		if gset == nil && event.Header.LogPos > 0 {
 			pos.Pos = max(pos.Pos, event.Header.LogPos)
 			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
@@ -495,7 +480,12 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 		case qvalue.QValueKindGeometry:
 			// TODO figure out mysql geo encoding
 			return qvalue.QValueGeometry{Val: val}, nil
-		// TODO more time types
+		case qvalue.QValueKindTime:
+			val, err := time.Parse("15:04:05.999999", val)
+			if err != nil {
+				return nil, err
+			}
+			return qvalue.QValueTime{Val: val}, nil
 		case qvalue.QValueKindDate:
 			val, err := time.Parse(time.DateOnly, val)
 			if err != nil {
