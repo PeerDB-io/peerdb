@@ -38,7 +38,7 @@ func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, tas
 		temporalClient:      temporalClient,
 		pool:                pool,
 		peerflowTaskQueueID: taskQueue,
-		alerter:             alerting.NewAlerter(context.Background(), pool),
+		alerter:             alerting.NewAlerter(context.Background(), pool, nil),
 	}
 }
 
@@ -251,6 +251,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 	ctx context.Context,
 	flowJobName string,
 	deleteStats bool,
+	skipDestinationDrop bool,
 ) error {
 	workflowID, err := h.getWorkflowID(ctx, flowJobName)
 	if err != nil {
@@ -292,6 +293,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 			FlowJobName:           flowJobName,
 			DropFlowStats:         deleteStats,
 			FlowConnectionConfigs: cdcConfig,
+			SkipDestinationDrop:   skipDestinationDrop,
 		})
 	if err != nil {
 		slog.Error("unable to start DropFlow workflow", logs, slog.Any("error", err))
@@ -386,7 +388,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			)
 		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATED {
 			slog.Info("[flow-state-change] received drop mirror request", logs)
-			err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats)
+			err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
 		} else if req.RequestedFlowState != currState {
 			slog.Error("illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
 				slog.Any("currState", currState))
@@ -528,7 +530,7 @@ func (h *FlowRequestHandler) ResyncMirror(
 		return nil, err
 	}
 
-	if err := h.shutdownFlow(ctx, req.FlowJobName, req.DropStats); err != nil {
+	if err := h.shutdownFlow(ctx, req.FlowJobName, req.DropStats, false); err != nil {
 		return nil, err
 	}
 

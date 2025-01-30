@@ -116,6 +116,22 @@ func (h *FlowRequestHandler) GetPeerInfo(
 	}, nil
 }
 
+func (h *FlowRequestHandler) GetPeerType(
+	ctx context.Context,
+	req *protos.PeerInfoRequest,
+) (*protos.PeerTypeResponse, error) {
+	ctx, cancelCtx := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelCtx()
+	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
+	if err != nil {
+		return nil, err
+	}
+
+	return &protos.PeerTypeResponse{
+		PeerType: peer.Type.String(),
+	}, nil
+}
+
 func (h *FlowRequestHandler) ListPeers(
 	ctx context.Context,
 	req *protos.ListPeersRequest,

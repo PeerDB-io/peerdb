@@ -423,7 +423,7 @@ func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRec
 		return nil, err
 	}
 
-	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID); err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint); err != nil {
 		return nil, err
 	}
 
@@ -466,11 +466,11 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: req.Records.GetLastCheckpoint(),
-		NumRecordsSynced:       int64(numRecords),
-		CurrentSyncBatchID:     syncBatchID,
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		LastSyncedCheckpoint: req.Records.GetLastCheckpoint(),
+		NumRecordsSynced:     int64(numRecords),
+		CurrentSyncBatchID:   syncBatchID,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 

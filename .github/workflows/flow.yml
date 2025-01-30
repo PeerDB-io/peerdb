@@ -24,13 +24,25 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+      mysql:
+        image: mysql:oracle
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: cipass
+          #mariadb:
+          #  image: mariadb:lts-ubi
+          #  ports:
+          #    - 3300:3306
+          #  env:
+          #    MARIADB_ROOT_PASSWORD: cipass
       redpanda:
         image: redpandadata/redpanda@sha256:7214ddaf8426d25936459cf77c1f905566a4483a97d2b13006120dcd98a5c846
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:8.17.0@sha256:0681af5779b516b0652df86aa1db52e225f2d4e68bb3a3099534377b7f788739
+        image: elasticsearch:8.17.1@sha256:b3c98b2b5b1c461d31bf1dec5d0907db0de22e344cb3d697cdefd4790629f5da
         ports:
           - 9200:9200
         env:

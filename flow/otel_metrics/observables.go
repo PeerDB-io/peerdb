@@ -8,6 +8,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/embedded"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type ObservationMapValue[V comparable] struct {
@@ -99,6 +102,52 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 	return &Float64SyncGauge{syncGauge: syncGauge}, nil
 }
 
+func buildFlowMetadataAttributes(flowMetadata *protos.FlowContextMetadata) metric.MeasurementOption {
+	return metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(FlowNameKey, flowMetadata.FlowName),
+		attribute.String(SourcePeerType, flowMetadata.Source.Type.String()),
+		attribute.String(DestinationPeerType, flowMetadata.Destination.Type.String()),
+		attribute.String(SourcePeerName, flowMetadata.Source.Name),
+		attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
+	))
+}
+
+type ContextAwareInt64SyncGauge struct {
+	metric.Int64Gauge
+}
+
+func (a *ContextAwareInt64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
+	flowMetadata := shared.GetFlowMetadata(ctx)
+	if flowMetadata != nil {
+		options = append(options, buildFlowMetadataAttributes(flowMetadata))
+	}
+	a.Int64Gauge.Record(ctx, value, options...)
+}
+
+type ContextAwareFloat64SyncGauge struct {
+	metric.Float64Gauge
+}
+
+func (a *ContextAwareFloat64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
+	flowMetadata := shared.GetFlowMetadata(ctx)
+	if flowMetadata != nil {
+		options = append(options, buildFlowMetadataAttributes(flowMetadata))
+	}
+	a.Float64Gauge.Record(ctx, value, options...)
+}
+
+type ContextAwareInt64Counter struct {
+	metric.Int64Counter
+}
+
+func (a *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options ...metric.AddOption) {
+	flowMetadata := shared.GetFlowMetadata(ctx)
+	if flowMetadata != nil {
+		options = append(options, buildFlowMetadataAttributes(flowMetadata))
+	}
+	a.Int64Counter.Add(ctx, value, options...)
+}
+
 func Int64Gauge(meter metric.Meter, name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
 	gaugeConfig := metric.NewInt64GaugeConfig(opts...)
 	return NewInt64SyncGauge(meter, name,
@@ -107,10 +156,39 @@ func Int64Gauge(meter metric.Meter, name string, opts ...metric.Int64GaugeOption
 	)
 }
 
+func ContextAwareInt64Gauge(meter metric.Meter, name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
+	gauge, err := Int64Gauge(meter, name, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &ContextAwareInt64SyncGauge{Int64Gauge: gauge}, nil
+}
+
 func Float64Gauge(meter metric.Meter, name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
 	gaugeConfig := metric.NewFloat64GaugeConfig(opts...)
 	return NewFloat64SyncGauge(meter, name,
 		metric.WithDescription(gaugeConfig.Description()),
 		metric.WithUnit(gaugeConfig.Unit()),
 	)
+}
+
+func ContextAwareFloat64Gauge(meter metric.Meter, name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
+	gauge, err := Float64Gauge(meter, name, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &ContextAwareFloat64SyncGauge{Float64Gauge: gauge}, nil
+}
+
+func NewContextAwareInt64Counter(meter metric.Meter, name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
+	counterConfig := metric.NewInt64CounterConfig(opts...)
+	counter, err := meter.Int64Counter(name,
+		metric.WithDescription(counterConfig.Description()),
+		metric.WithUnit(counterConfig.Unit()),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &ContextAwareInt64Counter{Int64Counter: counter}, nil
 }

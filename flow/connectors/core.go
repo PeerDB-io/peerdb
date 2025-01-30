@@ -77,7 +77,7 @@ type CDCPullConnectorCore interface {
 	ReplPing(context.Context) error
 
 	// Called when offset has been confirmed to destination
-	UpdateReplStateLastOffset(lastOffset int64)
+	UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
@@ -153,16 +153,16 @@ type CDCSyncConnectorCore interface {
 	Connector
 
 	// NeedsSetupMetadataTables checks if the metadata table [PEERDB_MIRROR_JOBS] needs to be created.
-	NeedsSetupMetadataTables(ctx context.Context) bool
+	NeedsSetupMetadataTables(ctx context.Context) (bool, error)
 
 	// SetupMetadataTables creates the metadata table [PEERDB_MIRROR_JOBS] if necessary.
 	SetupMetadataTables(ctx context.Context) error
 
 	// GetLastOffset gets the last offset from the metadata table on the destination
-	GetLastOffset(ctx context.Context, jobName string) (int64, error)
+	GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error)
 
 	// SetLastOffset updates the last offset on the metadata table on the destination
-	SetLastOffset(ctx context.Context, jobName string, lastOffset int64) error
+	SetLastOffset(ctx context.Context, jobName string, lastOffset model.CdcCheckpoint) error
 
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error)
@@ -294,6 +294,29 @@ func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName strin
 	return dbtype, err
 }
 
+func LoadPeerTypes(ctx context.Context, catalogPool *pgxpool.Pool, peerNames []string) (map[string]protos.DBType, error) {
+	if len(peerNames) == 0 {
+		return nil, nil
+	}
+
+	rows, err := catalogPool.Query(ctx, "SELECT name, type FROM peers WHERE name = ANY($1)", peerNames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	peerTypes := make(map[string]protos.DBType)
+	for rows.Next() {
+		var peerName string
+		var dbtype protos.DBType
+		if err := rows.Scan(&peerName, &dbtype); err != nil {
+			return nil, err
+		}
+		peerTypes[peerName] = dbtype
+	}
+	return peerTypes, nil
+}
+
 func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (*protos.Peer, error) {
 	row := catalogPool.QueryRow(ctx, `
 		SELECT type, options, enc_key_id
@@ -407,7 +430,7 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 	case *protos.Peer_SqlserverConfig:
 		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
 	case *protos.Peer_MysqlConfig:
-		return connmysql.MySqlConnector{}, nil
+		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickHouseConnector(ctx, env, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
@@ -454,6 +477,7 @@ func CloseConnector(ctx context.Context, conn Connector) {
 // create type assertions to cause compile time error if connector interface not implemented
 var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
+	_ CDCPullConnector = &connmysql.MySqlConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -475,6 +499,7 @@ var (
 	_ CDCNormalizeConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
 	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
 
@@ -487,6 +512,7 @@ var (
 	_ CreateTablesFromExistingConnector = &connsnowflake.SnowflakeConnector{}
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
+	_ QRepPullConnector = &connmysql.MySqlConnector{}
 	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
 
 	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}
@@ -521,6 +547,5 @@ var (
 
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
-
-	_ Connector = &connmysql.MySqlConnector{}
+	_ GetVersionConnector = &connmysql.MySqlConnector{}
 )

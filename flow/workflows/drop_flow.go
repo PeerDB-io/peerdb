@@ -2,6 +2,7 @@ package peerflow
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -42,30 +43,34 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			_ = workflow.Sleep(ctx, time.Second)
 		}
 	}
-	dropDestination = func(f workflow.Future) {
-		destinationError = f.Get(ctx, nil)
-		destinationOk = destinationError == nil
-		if !destinationOk {
-			dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
-				FlowJobName: input.FlowJobName,
-				PeerName:    input.FlowConnectionConfigs.DestinationName,
-			})
-			selector.AddFuture(dropDestinationFuture, dropDestination)
-			_ = workflow.Sleep(ctx, time.Second)
-		}
-	}
 
 	dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
 		FlowJobName: input.FlowJobName,
 		PeerName:    input.FlowConnectionConfigs.SourceName,
 	})
 	selector.AddFuture(dropSourceFuture, dropSource)
-	dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
-		FlowJobName: input.FlowJobName,
-		PeerName:    input.FlowConnectionConfigs.DestinationName,
-	})
 
-	selector.AddFuture(dropDestinationFuture, dropDestination)
+	if !input.SkipDestinationDrop {
+		dropDestination = func(f workflow.Future) {
+			destinationError = f.Get(ctx, nil)
+			destinationOk = destinationError == nil
+			if !destinationOk {
+				dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
+					FlowJobName: input.FlowJobName,
+					PeerName:    input.FlowConnectionConfigs.DestinationName,
+				})
+				selector.AddFuture(dropDestinationFuture, dropDestination)
+				_ = workflow.Sleep(ctx, time.Second)
+			}
+		}
+		dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
+			FlowJobName: input.FlowJobName,
+			PeerName:    input.FlowConnectionConfigs.DestinationName,
+		})
+		selector.AddFuture(dropDestinationFuture, dropDestination)
+	} else {
+		destinationOk = true
+	}
 
 	for {
 		selector.Select(ctx)
@@ -81,7 +86,12 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
 	workflow.GetLogger(ctx).Info("performing cleanup for flow",
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
-
+	var err error
+	ctx, err = GetFlowMetadataContext(ctx,
+		input.FlowJobName, input.FlowConnectionConfigs.SourceName, input.FlowConnectionConfigs.DestinationName)
+	if err != nil {
+		return fmt.Errorf("failed to get flow metadata context: %w", err)
+	}
 	if input.FlowConnectionConfigs != nil {
 		if input.DropFlowStats {
 			dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{

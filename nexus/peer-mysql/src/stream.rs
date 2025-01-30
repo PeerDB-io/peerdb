@@ -48,6 +48,7 @@ fn convert_field_type(field_type: ColumnType) -> Type {
         | ColumnType::MYSQL_TYPE_LONG_BLOB
         | ColumnType::MYSQL_TYPE_BLOB
         | ColumnType::MYSQL_TYPE_BIT
+        | ColumnType::MYSQL_TYPE_VECTOR
         | ColumnType::MYSQL_TYPE_GEOMETRY => Type::BYTEA,
         ColumnType::MYSQL_TYPE_DATE | ColumnType::MYSQL_TYPE_NEWDATE => Type::DATE,
         ColumnType::MYSQL_TYPE_TIME | ColumnType::MYSQL_TYPE_TIME2 => Type::TIME,
@@ -139,6 +140,7 @@ pub fn mysql_row_to_values(row: Row) -> Vec<Value> {
                     | ColumnType::MYSQL_TYPE_LONG_BLOB
                     | ColumnType::MYSQL_TYPE_BLOB
                     | ColumnType::MYSQL_TYPE_BIT
+                    | ColumnType::MYSQL_TYPE_VECTOR
                     | ColumnType::MYSQL_TYPE_GEOMETRY => {
                         Value::Binary(from_value::<Vec<u8>>(val).into())
                     }

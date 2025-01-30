@@ -21,6 +21,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -133,23 +134,27 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		batchSize = 250_000
 	}
 
-	lastOffset, err := func() (int64, error) {
-		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get destination connector: %w", err)
-		}
-		defer connectors.CloseConnector(ctx, dstConn)
+	lastOffset, err := func() (model.CdcCheckpoint, error) {
+		if myConn, isMy := any(srcConn).(*connmysql.MySqlConnector); isMy {
+			return myConn.GetLastOffset(ctx, config.FlowJobName)
+		} else {
+			dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+			if err != nil {
+				return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector: %w", err)
+			}
+			defer connectors.CloseConnector(ctx, dstConn)
 
-		return dstConn.GetLastOffset(ctx, config.FlowJobName)
+			return dstConn.GetLastOffset(ctx, config.FlowJobName)
+		}
 	}()
 	if err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
 
-	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
+	logger.Info("pulling records...", slog.Any("LastOffset", lastOffset))
 	consumedOffset := atomic.Int64{}
-	consumedOffset.Store(lastOffset)
+	consumedOffset.Store(lastOffset.ID)
 
 	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx, config.Env)
 	if err != nil {
@@ -224,7 +229,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
 	}
 
-	var syncStartTime time.Time
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
@@ -251,7 +255,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return err
 		}
 
-		syncStartTime = time.Now()
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
 			SyncBatchID:            syncBatchID,
 			Records:                recordBatchSync,
@@ -271,6 +274,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil
 	})
 
+	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
 		if !(temporal.IsApplicationError(err) ||
@@ -280,14 +284,18 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		if temporal.IsApplicationError(err) {
 			return nil, err
 		} else {
-			return nil, fmt.Errorf("failed to pull records: %w", err)
+			return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
 		}
 	}
 	syncState.Store(shared.Ptr("bookkeeping"))
 
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
-	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
+	logger.Info("batch synced", slog.Any("checkpoint", lastCheckpoint))
+	if err := srcConn.UpdateReplStateLastOffset(ctx, lastCheckpoint); err != nil {
+		a.Alerter.LogFlowError(ctx, flowName, err)
+		return nil, err
+	}
 
 	if err := monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, uint32(res.NumRecordsSynced), lastCheckpoint,
@@ -296,7 +304,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, err
 	}
 
-	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint); err != nil {
+	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint.ID); err != nil {
 		a.Alerter.LogFlowError(ctx, flowName, err)
 		return nil, err
 	}
@@ -313,15 +321,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
 	if a.OtelManager != nil {
-		currentBatchID, err := a.OtelManager.GetOrInitInt64Gauge(
-			otel_metrics.BuildMetricName(otel_metrics.CurrentBatchIdGaugeName))
-		if err != nil {
-			logger.Error("Failed to get current batch id gauge", slog.Any("error", err))
-		} else {
-			currentBatchID.Record(ctx, res.CurrentSyncBatchID, metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, flowName),
-			)))
-		}
+		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 	}
 
 	syncState.Store(shared.Ptr("updating schema"))
@@ -453,7 +453,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		tmp, err := pullRecords(srcConn, errCtx, config, partition, stream)
 		if err != nil {
 			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to pull records: %w", err)
+			return fmt.Errorf("[qrep] failed to pull records: %w", err)
 		}
 		numRecords := int64(tmp)
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
@@ -507,18 +507,16 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	) (int, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) (int64, error) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
-
-	startTime := time.Now()
-
-	logger.Info("replicating xmin")
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "syncing xmin"
 	})
 	defer shutdown()
 
+	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	logger := activity.GetLogger(ctx)
+	logger.Info("replicating xmin")
 	errGroup, errCtx := errgroup.WithContext(ctx)
+	startTime := time.Now()
 
 	var currentSnapshotXmin int64
 	var rowsSynced int
@@ -724,15 +722,9 @@ func (a *FlowableActivity) normalizeLoop(
 					close(req.Done)
 				}
 				if a.OtelManager != nil {
-					lastNormalizedBatchID, err := a.OtelManager.GetOrInitInt64Gauge(
-						otel_metrics.BuildMetricName(otel_metrics.LastNormalizedBatchIdGaugeName))
-					if err != nil {
-						logger.Error("Failed to get normalized batch id gauge", slog.Any("error", err))
-					} else {
-						lastNormalizedBatchID.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
-							attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-						)))
-					}
+					a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+					)))
 				}
 				break
 			}

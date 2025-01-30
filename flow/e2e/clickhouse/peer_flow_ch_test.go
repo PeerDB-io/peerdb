@@ -31,6 +31,14 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite(t, e2e.SetupPostgres))
 }
 
+func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, e2e.SetupMySQL))
+}
+
+func TestPeerFlowE2ETestSuiteMariaDB_CH(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, e2e.SetupMariaDB))
+}
+
 func (s ClickHouseSuite) attachSchemaSuffix(tableName string) string {
 	return fmt.Sprintf("e2e_test_%s.%s", s.suffix, tableName)
 }
@@ -377,6 +385,47 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
 	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`UPDATE %s SET id=2, "key"='update' WHERE id=1`, srcFullName)))
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Chunking_Normalize() {
+	srcTableName := "test_update_pkey_chunking_enabled"
+	srcFullName := s.attachSchemaSuffix("test_update_pkey_chunking_enabled")
+	dstTableName := "test_update_pkey_chunking_enabled_dst"
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			"key" TEXT NOT NULL
+		);
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_pkey_update_chunking_enabled"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE":            "true",
+		"PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION": "2",
+		"PEERDB_CLICKHOUSE_NORMALIZATION_PARTS":              "3",
+	}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`UPDATE %s SET id=id+10, "key"='update'||id`, srcFullName)))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
 

@@ -115,6 +115,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         cdcFlowConfigUpdate: { ...config, additionalTables, removedTables },
       },
       dropMirrorStats: false,
+      skipDestinationDrop: false,
     };
     const res = await fetch('/api/v1/mirrors/state_change', {
       method: 'POST',

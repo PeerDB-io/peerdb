@@ -52,18 +52,6 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 	}
 }
 
-func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
-	sideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
-		return f(ctx)
-	})
-
-	var result T
-	if err := sideEffect.Get(&result); err != nil {
-		panic(err)
-	}
-	return result
-}
-
 func GetUUID(ctx workflow.Context) string {
 	return GetSideEffect(ctx, func(_ workflow.Context) string {
 		return uuid.New().String()
@@ -373,6 +361,12 @@ func CDCFlowWorkflow(
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
+	var err error
+	ctx, err = GetFlowMetadataContext(ctx, cfg.FlowJobName, cfg.SourceName, cfg.DestinationName)
+	if err != nil {
+		return state, fmt.Errorf("failed to get flow metadata context: %w", err)
+	}
+
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
 	// because Resync modifies TableMappings before Setup and also before Snapshot
 	// for safety, rely on the idempotency of SetupFlow instead
@@ -493,32 +487,40 @@ func CDCFlowWorkflow(
 	})
 	mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 		if err := f.Get(ctx, nil); err != nil {
+			var sleepFor time.Duration
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
 				logger.Error(
-					"panic in sync flow",
+					"panic in sync flow, waiting 10 minutes",
 					slog.Any("error", panicErr.Error()),
 					slog.String("stack", panicErr.StackTrace()),
 				)
+				sleepFor = 10 * time.Minute
 			} else {
 				logger.Error("error in sync flow", slog.Any("error", err))
-			}
 
-			// cannot use shared.IsSQLStateError because temporal serialize/deserialize
-			if strings.Contains(err.Error(), "(SQLSTATE 55006)") {
-				logger.Info("sync flow errored, sleeping for 1 minute before retrying")
-				_ = workflow.Sleep(ctx, time.Minute)
-			} else {
-				logger.Info("sync flow errored, sleeping for 10 minutes before retrying")
-				_ = workflow.Sleep(ctx, 10*time.Minute)
+				// cannot use shared.IsSQLStateError because temporal serialize/deserialize
+				if !temporal.IsApplicationError(err) || strings.Contains(err.Error(), "(SQLSTATE 55006)") {
+					logger.Info("sync flow errored, waiting 1 minute before retrying")
+					sleepFor = time.Minute
+				} else {
+					logger.Info("sync flow errored, waiting 10 minutes before retrying")
+					sleepFor = 10 * time.Minute
+				}
 			}
+			mainLoopSelector.AddFuture(model.SleepFuture(ctx, sleepFor), func(_ workflow.Future) {
+				logger.Info("sync finished after waiting after error")
+				finished = true
+				if state.SyncFlowOptions.NumberOfSyncs > 0 {
+					state.ActiveSignal = model.PauseSignal
+				}
+			})
 		} else {
 			logger.Info("sync finished")
-		}
-		syncFlowFuture = nil
-		finished = true
-		if state.SyncFlowOptions.NumberOfSyncs > 0 {
-			state.ActiveSignal = model.PauseSignal
+			finished = true
+			if state.SyncFlowOptions.NumberOfSyncs > 0 {
+				state.ActiveSignal = model.PauseSignal
+			}
 		}
 	})
 
@@ -547,7 +549,7 @@ func CDCFlowWorkflow(
 		}
 
 		if finished {
-			for ctx.Err() == nil && (!finished || mainLoopSelector.HasPending()) {
+			for ctx.Err() == nil && mainLoopSelector.HasPending() {
 				mainLoopSelector.Select(ctx)
 			}
 

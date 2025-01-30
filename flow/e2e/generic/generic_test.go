@@ -36,6 +36,14 @@ func TestGenericCH_PG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, e2e.SetupPostgres)))
 }
 
+func TestGenericCH_MySQL(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, e2e.SetupMySQL)))
+}
+
+func TestGenericCH_MariaDB(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, e2e.SetupMariaDB)))
+}
+
 type Generic struct {
 	e2e.GenericSuite
 }

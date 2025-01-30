@@ -39,6 +39,7 @@ pub(crate) enum SnowflakeDataType {
     Variant,
 }
 
+#[derive(Clone)]
 pub struct SnowflakeSchema {
     schema: Schema,
 }
@@ -82,13 +83,17 @@ impl SnowflakeSchema {
 }
 
 pub struct SnowflakeRecordStream {
+    schema: SnowflakeSchema,
+    stream: Pin<Box<dyn Stream<Item = PgWireResult<Record>> + Send + Sync>>,
+}
+
+pub struct SnowflakeRecordStreamInner {
     result_set: ResultSet,
     partition_index: usize,
     partition_number: usize,
-    schema: SnowflakeSchema,
-    auth: SnowflakeAuth,
-
     endpoint_url: String,
+    auth: SnowflakeAuth,
+    schema: SnowflakeSchema,
 }
 
 impl SnowflakeRecordStream {
@@ -98,19 +103,26 @@ impl SnowflakeRecordStream {
         partition_number: usize,
         endpoint_url: String,
         auth: SnowflakeAuth,
-    ) -> Self {
-        let sf_schema = SnowflakeSchema::from_result_set(&result_set);
+    ) -> SnowflakeRecordStream {
+        let schema = SnowflakeSchema::from_result_set(&result_set);
 
-        Self {
+        let inner = SnowflakeRecordStreamInner {
             result_set,
-            schema: sf_schema,
             partition_index,
             partition_number,
             endpoint_url,
             auth,
-        }
-    }
+            schema: schema.clone(),
+        };
+        let stream = futures::stream::unfold(inner, |mut inner| async {
+            inner.advance().await.map(|val| (val, inner))
+        });
 
+        Self { schema, stream: Box::pin(stream) }
+    }
+}
+
+impl SnowflakeRecordStreamInner {
     pub fn convert_result_set_item(&mut self) -> anyhow::Result<Record> {
         let mut row_values = Vec::new();
 
@@ -202,7 +214,7 @@ impl SnowflakeRecordStream {
         })
     }
 
-    fn advance_partition(&mut self) -> anyhow::Result<bool> {
+    async fn advance_partition(&mut self) -> anyhow::Result<bool> {
         if (self.partition_number + 1) == self.result_set.resultSetMetaData.partitionInfo.len() {
             return Ok(false);
         }
@@ -213,13 +225,13 @@ impl SnowflakeRecordStream {
         let statement_handle = self.result_set.statementHandle.clone();
         let url = self.endpoint_url.clone();
         println!("Secret: {:#?}", secret);
-        let response: PartitionResult = ureq::get(&format!("{}/{}", url, statement_handle))
-            .query("partition", &partition_number.to_string())
-            .set("Authorization", &format!("Bearer {}", secret))
-            .set("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
-            .set("user-agent", "ureq")
-            .call()?
-            .into_json()
+        let response = reqwest::Client::new().get(format!("{}/{}", url, statement_handle))
+            .query(&[("partition", partition_number.to_string())])
+            .header("Authorization", format!("Bearer {}", secret))
+            .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
+            .header("user-agent", "ureq")
+            .send().await?
+            .json::<PartitionResult>().await
             .map_err(|_| anyhow::anyhow!("get_partition failed"))?;
         println!("Response: {:#?}", response.data);
 
@@ -227,24 +239,27 @@ impl SnowflakeRecordStream {
         Ok(true)
     }
 
-    fn advance(&mut self) -> anyhow::Result<bool> {
-        Ok((self.partition_index < self.result_set.data.len()) || self.advance_partition()?)
+    async fn advance(&mut self) -> Option<PgWireResult<Record>> {
+        let next = self.partition_index < self.result_set.data.len() || {
+            match self.advance_partition().await {
+                Ok(val) => val,
+                Err(err) => return Some(Err(PgWireError::ApiError(err.into()))),
+            }
+        };
+        if next {
+            let record = self.convert_result_set_item();
+            Some(record.map_err(|e| PgWireError::ApiError(e.into())))
+        } else {
+            None
+        }
     }
 }
 
 impl Stream for SnowflakeRecordStream {
     type Item = PgWireResult<Record>;
 
-    fn poll_next(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match self.advance() {
-            Ok(true) => {
-                let record = self.convert_result_set_item();
-                let result = record.map_err(|e| PgWireError::ApiError(e.into()));
-                Poll::Ready(Some(result))
-            }
-            Ok(false) => Poll::Ready(None),
-            Err(err) => Poll::Ready(Some(Err(PgWireError::ApiError(err.into())))),
-        }
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        Stream::poll_next(self.stream.as_mut(), ctx)
     }
 }
 

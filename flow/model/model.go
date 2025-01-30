@@ -76,7 +76,7 @@ type PullRecordsRequest[T Items] struct {
 	// override replication slot name
 	OverrideReplicationSlotName string
 	// LastOffset is the latest LSN that was synced.
-	LastOffset int64
+	LastOffset CdcCheckpoint
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
 	// IdleTimeout is the timeout to wait for new records.
@@ -163,8 +163,8 @@ type SyncResponse struct {
 	TableNameRowsMapping map[string]*RecordTypeCounts
 	// to be carried to parent workflow
 	TableSchemaDeltas []*protos.TableSchemaDelta
-	// LastSyncedCheckpointID is the last ID that was synced.
-	LastSyncedCheckpointID int64
+	// LastSyncedCheckpoint is the last state (eg LSN, GTID) that was synced.
+	LastSyncedCheckpoint CdcCheckpoint
 	// NumRecordsSynced is the number of records that were synced.
 	NumRecordsSynced   int64
 	CurrentSyncBatchID int64

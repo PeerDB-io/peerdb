@@ -13,9 +13,11 @@ import (
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
+	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/activities"
 	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -33,13 +35,14 @@ type WorkerSetupOptions struct {
 	UseMaintenanceTaskQueue            bool
 }
 
-type workerSetupResponse struct {
+type WorkerSetupResponse struct {
 	Client      client.Client
 	Worker      worker.Worker
 	OtelManager *otel_metrics.OtelManager
 }
 
-func (w *workerSetupResponse) Close() {
+func (w *WorkerSetupResponse) Close() {
+	slog.Info("Shutting down worker")
 	w.Client.Close()
 	if w.OtelManager != nil {
 		if err := w.OtelManager.Close(context.Background()); err != nil {
@@ -89,7 +92,7 @@ func setupPyroscope(opts *WorkerSetupOptions) {
 	}
 }
 
-func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
+func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
@@ -98,6 +101,9 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		ContextPropagators: []workflow.ContextPropagator{
+			shared.NewContextPropagator[*protos.FlowContextMetadata](shared.FlowMetadataKey),
+		},
 	}
 	if opts.EnableOtelMetrics {
 		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider("flow-worker")
@@ -166,17 +172,18 @@ func WorkerSetup(opts *WorkerSetupOptions) (*workerSetupResponse, error) {
 
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool: conn,
-		Alerter:     alerting.NewAlerter(context.Background(), conn),
+		Alerter:     alerting.NewAlerter(context.Background(), conn, otelManager),
 		OtelManager: otelManager,
 	})
 
 	w.RegisterActivity(&activities.MaintenanceActivity{
 		CatalogPool:    conn,
-		Alerter:        alerting.NewAlerter(context.Background(), conn),
+		Alerter:        alerting.NewAlerter(context.Background(), conn, otelManager),
+		OtelManager:    otelManager,
 		TemporalClient: c,
 	})
 
-	return &workerSetupResponse{
+	return &WorkerSetupResponse{
 		Client:      c,
 		Worker:      w,
 		OtelManager: otelManager,

@@ -332,6 +332,7 @@ message DropFlowInput {
   string flow_job_name = 1;
   bool drop_flow_stats = 4;
   FlowConnectionConfigs flow_connection_configs = 5;
+  bool skip_destination_drop = 6;
 }
 
 message TableSchemaDelta {
@@ -486,4 +487,15 @@ message MaintenanceMirror {
 
 message MaintenanceMirrors {
   repeated MaintenanceMirror mirrors = 1;
+}
+
+message PeerContextMetadata {
+  string name = 1;
+  peerdb_peers.DBType type = 2;
+}
+
+message FlowContextMetadata{
+  string flow_name = 1;
+  PeerContextMetadata source = 2;
+  PeerContextMetadata destination = 3;
 }

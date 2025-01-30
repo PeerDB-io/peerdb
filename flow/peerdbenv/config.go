@@ -177,3 +177,12 @@ func PeerDBRAPIRequestLoggingEnabled() bool {
 func PeerDBMaintenanceModeWaitAlertSeconds() int {
 	return getEnvConvert("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600, strconv.Atoi)
 }
+
+func PeerDBTelemetryErrorActionBasedAlertingEnabled() bool {
+	enabled, err := strconv.ParseBool(GetEnvString("PEERDB_TELEMETRY_ERROR_ACTION_BASED_ALERTING_ENABLED", "false"))
+	if err != nil {
+		slog.Error("failed to parse PEERDB_TELEMETRY_ERROR_ACTION_BASED_ALERTING_ENABLED to bool", "error", err)
+		return false
+	}
+	return enabled
+}

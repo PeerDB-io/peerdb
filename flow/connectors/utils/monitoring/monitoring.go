@@ -79,11 +79,11 @@ func UpdateNumRowsAndEndLSNForCDCBatch(
 	flowJobName string,
 	batchID int64,
 	numRows uint32,
-	batchEndLSN int64,
+	batchEndCheckpoint model.CdcCheckpoint,
 ) error {
 	if _, err := pool.Exec(ctx,
-		"UPDATE peerdb_stats.cdc_batches SET rows_in_batch=$1,batch_end_lsn=$2 WHERE flow_name=$3 AND batch_id=$4",
-		numRows, uint64(batchEndLSN), flowJobName, batchID,
+		"UPDATE peerdb_stats.cdc_batches SET rows_in_batch=$1,batch_end_lsn=$2,batch_end_lsn_text=$3 WHERE flow_name=$4 AND batch_id=$5",
+		numRows, uint64(batchEndCheckpoint.ID), batchEndCheckpoint.Text, flowJobName, batchID,
 	); err != nil {
 		return fmt.Errorf("error while updating batch in cdc_batch: %w", err)
 	}

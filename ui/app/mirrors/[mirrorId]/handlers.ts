@@ -33,6 +33,7 @@ export const changeFlowState = async (
     flowJobName: mirrorName,
     requestedFlowState: flowState,
     dropMirrorStats: dropStats ?? false,
+    skipDestinationDrop: false,
   };
   const res = await fetch('/api/v1/mirrors/state_change', {
     method: 'POST',

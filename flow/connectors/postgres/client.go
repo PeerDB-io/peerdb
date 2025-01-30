@@ -41,9 +41,10 @@ const (
 	getLastNormalizeBatchID_SQL = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	checkTableExistsSQL         = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
-	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j VALUES ($1,$2,$3,$4)
-	 ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset), sync_batch_id=EXCLUDED.sync_batch_id`
-	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
+	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j (mirror_job_name,lsn_offset,sync_batch_id,normalize_batch_id)
+		VALUES ($1,$2,$3,0) ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset),
+		sync_batch_id=EXCLUDED.sync_batch_id`
+	checkIfJobMetadataExistsSQL          = "SELECT EXISTS(SELECT * FROM %s.%s WHERE mirror_job_name=$1)"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 
 	getDistinctDestinationTableNamesSQL = `SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE
@@ -531,9 +532,9 @@ func (c *PostgresConnector) GetLastNormalizeBatchID(ctx context.Context, jobName
 
 func (c *PostgresConnector) jobMetadataExists(ctx context.Context, jobName string) (bool, error) {
 	var result pgtype.Bool
-	err := c.conn.QueryRow(ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
+	).Scan(&result); err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
 	return result.Bool, nil
@@ -550,13 +551,13 @@ func (c *PostgresConnector) MajorVersion(ctx context.Context) (shared.PGVersion,
 	return c.pgVersion, nil
 }
 
-func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName string, lastCP int64, syncBatchID int64,
+func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName string, lastCP model.CdcCheckpoint, syncBatchID int64,
 	syncRecordsTx pgx.Tx,
 ) error {
-	_, err := syncRecordsTx.Exec(ctx,
+	if _, err := syncRecordsTx.Exec(ctx,
 		fmt.Sprintf(upsertJobMetadataForSyncSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		flowJobName, lastCP, syncBatchID, 0)
-	if err != nil {
+		flowJobName, lastCP.ID, syncBatchID,
+	); err != nil {
 		return fmt.Errorf("failed to upsert flow job status: %w", err)
 	}
 
@@ -569,10 +570,10 @@ func (c *PostgresConnector) updateNormalizeMetadata(
 	normalizeBatchID int64,
 	normalizeRecordsTx pgx.Tx,
 ) error {
-	_, err := normalizeRecordsTx.Exec(ctx,
+	if _, err := normalizeRecordsTx.Exec(ctx,
 		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		normalizeBatchID, flowJobName)
-	if err != nil {
+		normalizeBatchID, flowJobName,
+	); err != nil {
 		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
 	}
 
