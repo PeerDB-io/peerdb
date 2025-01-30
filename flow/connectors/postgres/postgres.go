@@ -32,6 +32,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PostgresConnector struct {
@@ -1334,8 +1335,8 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		}
 		notPresentTables := shared.ArrayMinus(additionalSrcTables, tableNames)
 		if len(notPresentTables) > 0 {
-			return fmt.Errorf("some additional tables not present in custom publication: %s",
-				strings.Join(notPresentTables, ", "))
+			return exceptions.NewPostgresSetupError(fmt.Errorf("some additional tables not present in custom publication: %s",
+				strings.Join(notPresentTables, ", ")))
 		}
 	} else {
 		for _, additionalSrcTable := range additionalSrcTables {

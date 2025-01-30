@@ -6,6 +6,7 @@ const (
 	FlowNameKey         = "flowName"
 	DeploymentUidKey    = "deploymentUID"
 	ErrorClassKey       = "errorClass"
+	ErrorActionKey      = "errorAction"
 	InstanceStatusKey   = "instanceStatus"
 	WorkflowTypeKey     = "workflowType"
 	BatchIdKey          = "batchId"
