@@ -276,6 +276,13 @@ func (c *MySqlConnector) PullRecords(
 	defer cancelTimeout()
 
 	var recordCount uint32
+	defer func() {
+		if recordCount == 0 {
+			req.RecordStream.SignalAsEmpty()
+		}
+		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
+	}()
+
 	for recordCount < req.MaxBatchSize {
 		event, err := mystream.GetEvent(timeoutCtx)
 		if err != nil {
@@ -361,6 +368,9 @@ func (c *MySqlConnector) PullRecords(
 						}); err != nil {
 							return err
 						}
+						if recordCount == 1 {
+							req.RecordStream.SignalAsNotEmpty()
+						}
 					}
 				case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2, replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
 					for idx := 0; idx < len(ev.Rows); idx += 2 {
@@ -404,6 +414,9 @@ func (c *MySqlConnector) PullRecords(
 						}); err != nil {
 							return err
 						}
+						if recordCount == 1 {
+							req.RecordStream.SignalAsNotEmpty()
+						}
 					}
 				case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
 					for idx, row := range ev.Rows {
@@ -434,6 +447,9 @@ func (c *MySqlConnector) PullRecords(
 							UnchangedToastColumns: unchangedToastColumns,
 						}); err != nil {
 							return err
+						}
+						if recordCount == 1 {
+							req.RecordStream.SignalAsNotEmpty()
 						}
 					}
 				default:
