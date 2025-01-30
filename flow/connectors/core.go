@@ -53,6 +53,15 @@ type GetTableSchemaConnector interface {
 	) (map[string]*protos.TableSchema, error)
 }
 
+type GetSchemaConnector interface {
+	Connector
+
+	GetAllTables(context.Context) (*protos.AllTablesResponse, error)
+	GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error)
+	GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error)
+	GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error)
+}
+
 type CDCPullConnectorCore interface {
 	GetTableSchemaConnector
 
@@ -502,6 +511,8 @@ var (
 	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
 	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
+
+	_ GetSchemaConnector = &connpostgres.PostgresConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
