@@ -37,4 +37,3 @@ jobs:
           push: true
         env:
           SHA_SHORT: stable-${{ github.ref_name }}
-          TAG: latest-stable
