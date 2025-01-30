@@ -601,6 +601,7 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	if errors.Is(err, errors.ErrUnsupported) {
 		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	} else if err != nil {
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
@@ -610,21 +611,19 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 		return err
 	}
 
-	return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
-}
+	if err := monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID); err != nil {
+		return err
+	}
 
-func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dst, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
-	if errors.Is(err, errors.ErrUnsupported) {
-		return nil
-	} else if err != nil {
+	logger := activity.GetLogger(ctx)
+	logger.Info("partitions consolidated", slog.String(string(shared.FlowNameKey), config.FlowJobName))
+
+	if err := dstConn.CleanupQRepFlow(ctx, config); err != nil {
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		return err
 	}
-	defer connectors.CloseConnector(ctx, dst)
-
-	return dst.CleanupQRepFlow(ctx, config)
+	logger.Info("qrep flow cleaned up", slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	return nil
 }
 
 func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropFlowActivityInput) error {
