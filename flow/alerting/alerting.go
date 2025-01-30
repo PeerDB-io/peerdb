@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -458,6 +459,10 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		tags = append(tags, "pgcode:"+pgErr.Code)
+	}
+	var myErr *mysql.MyError
+	if errors.As(err, &myErr) {
+		tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
 	}
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {
