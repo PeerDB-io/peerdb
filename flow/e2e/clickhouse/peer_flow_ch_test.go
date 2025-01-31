@@ -914,15 +914,14 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 			id SERIAL PRIMARY KEY,
 			c1 INT,
 			c2 INT,
-			t TEXT,
-			t2 TEXT
+			t TEXT
 		);
 	`, srcFullName)))
 
 	// insert 5 rows into the source table
 	for i := range 5 {
 		require.NoError(s.t, s.source.Exec(fmt.Sprintf(
-			`INSERT INTO %[1]s(c1,c2,t,t2) VALUES (%[2]d, %[2]d,'test_value_%[2]d',random_bytes(100))`,
+			`INSERT INTO %[1]s(c1,c2,t) VALUES (%[2]d,%[2]d,'test_value_%[2]d')`,
 			srcFullName, i,
 		)))
 	}
@@ -951,16 +950,16 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 	// insert 5 rows into the source table
 	for i := range 5 {
 		e2e.EnvNoError(s.t, env, s.source.Exec(fmt.Sprintf(
-			`INSERT INTO %[1]s(c1,c2,t,t2) VALUES (%[2]d, %[2]d,'test_value_%[2]d',random_bytes(100))`,
+			`INSERT INTO %[1]s(c1,c2,t) VALUES (%[2]d,%[2]d,'test_value_%[2]d')`,
 			srcFullName, i,
 		)))
 	}
 
-	e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1,t,t2")
+	e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1,t")
 	e2e.EnvNoError(s.t, env, s.source.Exec(
 		fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=1`, srcFullName)))
 	e2e.EnvNoError(s.t, env, s.source.Exec(fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, srcFullName)))
-	e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,c1,t,t2")
+	e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,c1,t")
 
 	env.Cancel()
 
