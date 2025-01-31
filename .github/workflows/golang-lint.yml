@@ -30,6 +30,6 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ec5d18412c0aeab7936cb16880d708ba2a64e1ae # v6
         with:
-          version: v1.62
+          version: v1.63
           working-directory: ./flow
           args: --timeout=10m --out-format=github-actions
