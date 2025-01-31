@@ -901,3 +901,76 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_Column_Exclusion() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	tableName := "test_exclude_ch"
+	srcFullName := s.attachSchemaSuffix(tableName)
+	dstTableName := tableName
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			c1 INT,
+			c2 INT,
+			t TEXT,
+			t2 TEXT
+		);
+	`, srcFullName)))
+
+	// insert 5 rows into the source table
+	for i := range 5 {
+		require.NoError(s.t, s.source.Exec(fmt.Sprintf(
+			`INSERT INTO %[1]s(c1,c2,t,t2) VALUES (%[2]d, %[2]d,'test_value_%[2]d',random_string(100))`,
+			srcFullName, i,
+		)))
+	}
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix(tableName),
+		DestinationName: s.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcFullName,
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"c2"},
+			},
+		},
+		SourceName:        s.Source().GeneratePeer(s.t).Name,
+		SyncedAtColName:   "_PEERDB_SYNCED_AT",
+		MaxBatchSize:      100,
+		DoInitialSnapshot: true,
+	}
+
+	// wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+
+	// insert 5 rows into the source table
+	for i := range 5 {
+		e2e.EnvNoError(s.t, env, s.source.Exec(fmt.Sprintf(
+			`INSERT INTO %[1]s(c1,c2,t,t2) VALUES (%[2]d, %[2]d,'test_value_%[2]d',random_string(100))`,
+			srcFullName, i,
+		)))
+	}
+
+	e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1,t,t2")
+	e2e.EnvNoError(s.t, env, s.source.Exec(
+		fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=1`, srcFullName)))
+	e2e.EnvNoError(s.t, env, s.source.Exec(fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, srcFullName)))
+	e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,c1,t,t2")
+
+	env.Cancel()
+
+	e2e.RequireEnvCanceled(s.t, env)
+
+	rows, err := s.GetRows(tableName, "*")
+	require.NoError(s.t, err)
+
+	for _, field := range rows.Schema.Fields {
+		require.NotEqual(s.t, "c2", field.Name)
+	}
+	require.Len(s.t, rows.Schema.Fields, 5)
+}
