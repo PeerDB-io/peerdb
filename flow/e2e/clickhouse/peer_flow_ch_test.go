@@ -763,7 +763,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		c39 TXID_SNAPSHOT,c40 UUID,c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
 		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[]);
 		INSERT INTO %[1]s SELECT 2,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -800,7 +800,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 3,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -827,7 +827,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		UPDATE %[1]s SET c1=3,c32='testery' WHERE id=2;
 		UPDATE %[1]s SET c33=now(),c34=now(),c35=now()::TIME,c36=now()::TIMETZ WHERE id=3;
 		INSERT INTO %[1]s SELECT 4,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -922,7 +922,7 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 	// insert 5 rows into the source table
 	for i := range 5 {
 		require.NoError(s.t, s.source.Exec(fmt.Sprintf(
-			`INSERT INTO %[1]s(c1,c2,t,t2) VALUES (%[2]d, %[2]d,'test_value_%[2]d',random_string(100))`,
+			`INSERT INTO %[1]s(c1,c2,t,t2) VALUES (%[2]d, %[2]d,'test_value_%[2]d',random_bytes(100))`,
 			srcFullName, i,
 		)))
 	}
@@ -951,7 +951,7 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 	// insert 5 rows into the source table
 	for i := range 5 {
 		e2e.EnvNoError(s.t, env, s.source.Exec(fmt.Sprintf(
-			`INSERT INTO %[1]s(c1,c2,t,t2) VALUES (%[2]d, %[2]d,'test_value_%[2]d',random_string(100))`,
+			`INSERT INTO %[1]s(c1,c2,t,t2) VALUES (%[2]d, %[2]d,'test_value_%[2]d',random_bytes(100))`,
 			srcFullName, i,
 		)))
 	}

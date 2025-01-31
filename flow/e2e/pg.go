@@ -82,7 +82,7 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 			SELECT string_agg(substring('0123456789bcdefghijkmnpqrstvwxyz',
 			round(random() * 32)::integer, 1), '') FROM generate_series(1, $1);
 		$$ language sql;
-		CREATE OR REPLACE FUNCTION random_bytea(bytea_length integer)
+		CREATE OR REPLACE FUNCTION random_bytes(bytea_length integer)
 		RETURNS bytea AS $body$
 			SELECT decode(string_agg(lpad(to_hex(width_bucket(random(), 0, 1, 256)-1),2,'0'), ''), 'hex')
 			FROM generate_series(1, $1);

@@ -481,7 +481,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	/* test inserting various types*/
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	INSERT INTO %s SELECT 2,2,b'1',b'101',
-	true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+	true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 	CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
 	'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 	'{"sai":1}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
