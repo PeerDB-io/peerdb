@@ -2604,7 +2604,6 @@ dependencies = [
  "pt",
  "rust_decimal",
  "serde",
- "serde_bytes",
  "serde_json",
  "sqlparser",
  "tokio",
@@ -2657,7 +2656,6 @@ dependencies = [
  "pt",
  "rust_decimal",
  "serde",
- "serde_bytes",
  "serde_json",
  "sqlparser",
  "tokio",
@@ -2683,7 +2681,6 @@ dependencies = [
  "pt",
  "rust_decimal",
  "serde",
- "serde_bytes",
  "serde_json",
  "sqlparser",
  "ssh2",
@@ -3843,15 +3840,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02fc4265df13d6fa1d00ecff087228cc0a2b5f3c0e87e258d8b94a156e984c70"
 dependencies = [
  "serde_derive",
-]
-
-[[package]]
-name = "serde_bytes"
-version = "0.11.15"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "387cc504cb06bb40a96c8e04e951fe01854cf6bc921053c954e4a606d9675c6a"
-dependencies = [
- "serde",
 ]
 
 [[package]]
