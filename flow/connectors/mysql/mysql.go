@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/client"
@@ -316,9 +317,9 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 	case mysql.MYSQL_TYPE_NEWDECIMAL:
 		return qvalue.QValueKindNumeric, nil
 	case mysql.MYSQL_TYPE_ENUM:
-		return qvalue.QValueKindInt64, nil
+		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_SET:
-		return qvalue.QValueKindInt64, nil
+		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_TINY_BLOB, mysql.MYSQL_TYPE_MEDIUM_BLOB, mysql.MYSQL_TYPE_LONG_BLOB, mysql.MYSQL_TYPE_BLOB:
 		if field.Charset == 0x3f { // binary https://dev.mysql.com/doc/dev/mysql-server/8.4.3/page_protocol_basic_character_set.html
 			return qvalue.QValueKindBytes, nil
@@ -331,6 +332,59 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 		return qvalue.QValueKindGeometry, nil
 	default:
 		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %d", field.Type)
+	}
+}
+
+func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
+	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
+	ct, _, _ = strings.Cut(ct, "(")
+	switch ct {
+	case "json":
+		return qvalue.QValueKindJSON, nil
+	case "char", "varchar", "text", "enum", "set":
+		return qvalue.QValueKindString, nil
+	case "binary", "varbinary", "blob":
+		return qvalue.QValueKindBytes, nil
+	case "date":
+		return qvalue.QValueKindDate, nil
+	case "time":
+		return qvalue.QValueKindTime, nil
+	case "datetime":
+		return qvalue.QValueKindTimestamp, nil
+	case "timestamp":
+		return qvalue.QValueKindTimestamp, nil
+	case "decimal", "numeric":
+		return qvalue.QValueKindNumeric, nil
+	case "float":
+		return qvalue.QValueKindFloat32, nil
+	case "double":
+		return qvalue.QValueKindFloat64, nil
+	case "tinyint":
+		if isUnsigned {
+			return qvalue.QValueKindUInt8, nil
+		} else {
+			return qvalue.QValueKindInt8, nil
+		}
+	case "smallint", "year":
+		if isUnsigned {
+			return qvalue.QValueKindUInt16, nil
+		} else {
+			return qvalue.QValueKindInt16, nil
+		}
+	case "mediumint", "int":
+		if isUnsigned {
+			return qvalue.QValueKindUInt32, nil
+		} else {
+			return qvalue.QValueKindInt32, nil
+		}
+	case "bigint", "bit":
+		if isUnsigned {
+			return qvalue.QValueKindUInt64, nil
+		} else {
+			return qvalue.QValueKindInt64, nil
+		}
+	default:
+		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
 	}
 }
 
