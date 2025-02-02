@@ -118,7 +118,7 @@ func RecToTablePKey[T Items](
 	for _, pkeyCol := range tableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColBytes, err := rec.GetItems().GetBytesByColName(pkeyCol)
 		if err != nil {
-			return TableWithPkey{}, fmt.Errorf("error getting pkey column value: %w", err)
+			return TableWithPkey{}, fmt.Errorf("error getting primary key column '%s' value for table '%s': %w", pkeyCol, tableName, err)
 		}
 		// cannot return an error
 		_, _ = hasher.Write(pkeyColBytes)
