@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -445,12 +446,9 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		return
 	}
 
-	errorClassString := ""
-
 	var tags []string
 	if errors.Is(err, context.Canceled) {
 		tags = append(tags, string(shared.ErrTypeCanceled))
-		errorClassString = "context.Canceled"
 	}
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		tags = append(tags, string(shared.ErrTypeEOF))
@@ -462,6 +460,10 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	if errors.As(err, &pgErr) {
 		tags = append(tags, "pgcode:"+pgErr.Code)
 	}
+	var myErr *mysql.MyError
+	if errors.As(err, &myErr) {
+		tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
+	}
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {
 		tags = append(tags, string(shared.ErrTypeNet))
@@ -472,15 +474,22 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 		tags = append(tags, string(shared.ErrTypeNet))
 	}
 
-	a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
+	errorClass := GetErrorClass(ctx, err)
+	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
+
+	if !peerdbenv.PeerDBTelemetryErrorActionBasedAlertingEnabled() || errorClass.ErrorAction() == NotifyTelemetry {
+		a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
+	}
 	if a.otelManager != nil {
 		a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, flowName),
-			attribute.String(otel_metrics.ErrorClassKey, errorClassString),
+			attribute.String(otel_metrics.ErrorClassKey, errorClass.String()),
+			attribute.String(otel_metrics.ErrorActionKey, errorClass.ErrorAction().String()),
 		)))
 		a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, flowName),
-			attribute.String(otel_metrics.ErrorClassKey, errorClassString),
+			attribute.String(otel_metrics.ErrorClassKey, errorClass.String()),
+			attribute.String(otel_metrics.ErrorActionKey, errorClass.ErrorAction().String()),
 		)))
 	}
 }

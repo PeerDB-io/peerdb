@@ -15,7 +15,7 @@ runs:
         key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
 
     - if: steps.cache.outputs.cache-hit != 'true'
-      uses: bufbuild/buf-action@3fb70352251376e958c4c2c92c3818de82a71c2b # v1
+      uses: bufbuild/buf-action@b46cbc051dd8fd10a3c2213e784498790d3fe388 # v1
       with:
         setup_only: true
         github_token: ${{ github.token }}

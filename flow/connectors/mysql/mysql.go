@@ -186,7 +186,8 @@ func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
 		return gtid_mode == "ON", nil
 	} else {
 		// mariadb always enabled: https://mariadb.com/kb/en/gtid/#using-global-transaction-ids
-		return true, nil
+		// doesn't seem to work so disabling for now
+		return false, nil
 	}
 }
 
@@ -202,6 +203,7 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 	showBinlogStatus := "SHOW BINARY LOG STATUS"
 	masterReplaced := "8.4.0" // https://dev.mysql.com/doc/relnotes/mysql/8.4/en/news-8-4-0.html
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		showBinlogStatus = "SHOW BINLOG STATUS"
 		masterReplaced = "10.5.2" // https://mariadb.com/kb/en/show-binlog-status
 	}
 	if eq, err := c.CompareServerVersion(ctx, masterReplaced); err == nil && eq < 0 {

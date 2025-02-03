@@ -56,6 +56,7 @@ fn convert_field_type(field_type: &FieldType) -> Type {
         FieldType::Struct => Type::JSONB,
         FieldType::Geography => Type::POLYGON_ARRAY,
         FieldType::Json => Type::JSON,
+        FieldType::Interval => Type::TEXT,
     }
 }
 
@@ -172,6 +173,7 @@ impl BqRecordStream {
                     FieldType::Struct => todo!(),
                     FieldType::Geography => todo!(),
                     FieldType::Json => todo!(),
+                    FieldType::Interval => todo!(),
                 },
             };
             values.push(value.unwrap_or(Value::Null));

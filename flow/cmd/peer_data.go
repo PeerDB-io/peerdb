@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -18,7 +17,6 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func redactProto(message proto.Message) {
@@ -38,9 +36,9 @@ func redactProto(message proto.Message) {
 func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName string) (*protos.PostgresConfig, error) {
 	var encPeerOptions []byte
 	var encKeyID string
-	err := h.pool.QueryRow(ctx,
-		"SELECT options, enc_key_id FROM peers WHERE name=$1 AND type=3", peerName).Scan(&encPeerOptions, &encKeyID)
-	if err != nil {
+	if err := h.pool.QueryRow(
+		ctx, "SELECT options, enc_key_id FROM peers WHERE name=$1 AND type=3", peerName,
+	).Scan(&encPeerOptions, &encKeyID); err != nil {
 		return nil, err
 	}
 
@@ -53,7 +51,6 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 	if err := proto.Unmarshal(peerOptions, &pgPeerConfig); err != nil {
 		return nil, err
 	}
-
 	return &pgPeerConfig, nil
 }
 
@@ -138,8 +135,8 @@ func (h *FlowRequestHandler) ListPeers(
 ) (*protos.ListPeersResponse, error) {
 	query := "SELECT name, type FROM peers"
 	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
-		// only postgres and clickhouse peers
-		query += " WHERE type IN (3, 8)"
+		// only postgres, mysql, and clickhouse
+		query += " WHERE type IN (3, 7, 8)"
 	}
 	rows, err := h.pool.Query(ctx, query)
 	if err != nil {
@@ -148,8 +145,7 @@ func (h *FlowRequestHandler) ListPeers(
 	}
 	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.PeerListItem, error) {
 		var peer protos.PeerListItem
-		err := row.Scan(&peer.Name, &peer.Type)
-		return &peer, err
+		return &peer, row.Scan(&peer.Name, &peer.Type)
 	})
 	if err != nil {
 		slog.Error("failed to collect peers", slog.Any("error", err))
@@ -157,21 +153,13 @@ func (h *FlowRequestHandler) ListPeers(
 	}
 
 	sourceItems := make([]*protos.PeerListItem, 0, len(peers))
+	destinationItems := make([]*protos.PeerListItem, 0, len(peers))
 	for _, peer := range peers {
-		// only postgres peers
-		if peer.Type == 3 {
+		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL {
 			sourceItems = append(sourceItems, peer)
 		}
-	}
-
-	destinationItems := peers
-	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
-		destinationItems = make([]*protos.PeerListItem, 0, len(peers))
-		for _, peer := range peers {
-			// only clickhouse peers
-			if peer.Type == 8 {
-				destinationItems = append(destinationItems, peer)
-			}
+		if peer.Type != protos.DBType_MYSQL && (!peerdbenv.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
+			destinationItems = append(destinationItems, peer)
 		}
 	}
 
@@ -186,92 +174,22 @@ func (h *FlowRequestHandler) GetSchemas(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSchemasResponse, error) {
-	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
 	}
-	defer tunnel.Close()
-	defer peerConn.Close(ctx)
-
-	rows, err := peerConn.Query(ctx, "SELECT nspname"+
-		" FROM pg_namespace WHERE nspname !~ '^pg_' AND nspname <> 'information_schema';")
-	if err != nil {
-		return nil, err
-	}
-
-	schemas, err := pgx.CollectRows[string](rows, pgx.RowTo)
-	if err != nil {
-		return nil, err
-	}
-	return &protos.PeerSchemasResponse{Schemas: schemas}, nil
+	return conn.GetSchemas(ctx)
 }
 
 func (h *FlowRequestHandler) GetTablesInSchema(
 	ctx context.Context,
 	req *protos.SchemaTablesRequest,
 ) (*protos.SchemaTablesResponse, error) {
-	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
 	}
-	defer tunnel.Close()
-	defer peerConn.Close(ctx)
-
-	pgVersion, err := shared.GetMajorVersion(ctx, peerConn)
-	if err != nil {
-		slog.Error("unable to get pgversion for schema tables", slog.Any("error", err))
-		return nil, err
-	}
-
-	relKindFilterExpr := "t.relkind IN ('r', 'p')"
-	// publish_via_partition_root is only available in PG13 and above
-	if pgVersion < shared.POSTGRES_13 {
-		relKindFilterExpr = "t.relkind = 'r'"
-	}
-
-	rows, err := peerConn.Query(ctx, `SELECT DISTINCT ON (t.relname)
-		t.relname,
-		(con.contype = 'p' OR t.relreplident in ('i', 'f')) AS can_mirror,
-		pg_size_pretty(pg_total_relation_size(t.oid))::text AS table_size
-	FROM pg_class t
-	LEFT JOIN pg_namespace n ON t.relnamespace = n.oid
-	LEFT JOIN pg_constraint con ON con.conrelid = t.oid
-	WHERE n.nspname = $1 AND `+
-		relKindFilterExpr+
-		`AND t.relispartition IS NOT TRUE ORDER BY t.relname, can_mirror DESC;
-`, req.SchemaName)
-	if err != nil {
-		slog.Info("failed to fetch tables", slog.Any("error", err))
-		return nil, err
-	}
-
-	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.TableResponse, error) {
-		var table pgtype.Text
-		var hasPkeyOrReplica pgtype.Bool
-		var tableSize pgtype.Text
-		if err := rows.Scan(&table, &hasPkeyOrReplica, &tableSize); err != nil {
-			return nil, err
-		}
-		var sizeOfTable string
-		if tableSize.Valid {
-			sizeOfTable = tableSize.String
-		}
-		canMirror := false
-		if !req.CdcEnabled || (hasPkeyOrReplica.Valid && hasPkeyOrReplica.Bool) {
-			canMirror = true
-		}
-
-		return &protos.TableResponse{
-			TableName: table.String,
-			CanMirror: canMirror,
-			TableSize: sizeOfTable,
-		}, nil
-	})
-	if err != nil {
-		slog.Info("failed to fetch publications", slog.Any("error", err))
-		return nil, err
-	}
-	return &protos.SchemaTablesResponse{Tables: tables}, nil
+	return conn.GetTablesInSchema(ctx, req.SchemaName, req.CdcEnabled)
 }
 
 // Returns list of tables across schema in schema.table format
@@ -279,73 +197,22 @@ func (h *FlowRequestHandler) GetAllTables(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.AllTablesResponse, error) {
-	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
-	if err != nil {
-		return &protos.AllTablesResponse{Tables: nil}, err
-	}
-	defer tunnel.Close()
-	defer peerConn.Close(ctx)
-
-	rows, err := peerConn.Query(ctx, "SELECT n.nspname || '.' || c.relname AS schema_table "+
-		"FROM pg_class c "+
-		"JOIN pg_namespace n ON c.relnamespace = n.oid "+
-		"WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'"+
-		" AND c.relkind IN ('r', 'v', 'm', 'f', 'p')")
+	conn, err := connectors.GetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
 	}
-
-	tables, err := pgx.CollectRows[string](rows, pgx.RowTo)
-	if err != nil {
-		return nil, err
-	}
-	return &protos.AllTablesResponse{Tables: tables}, nil
+	return conn.GetAllTables(ctx)
 }
 
 func (h *FlowRequestHandler) GetColumns(
 	ctx context.Context,
 	req *protos.TableColumnsRequest,
 ) (*protos.TableColumnsResponse, error) {
-	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
 	}
-	defer tunnel.Close()
-	defer peerConn.Close(ctx)
-
-	rows, err := peerConn.Query(ctx, `SELECT
-    DISTINCT attname AS column_name,
-    format_type(atttypid, atttypmod) AS data_type,
-    (pg_constraint.contype = 'p') AS is_primary_key
-	FROM pg_attribute
-	JOIN pg_class ON pg_attribute.attrelid = pg_class.oid
-	JOIN pg_namespace ON pg_class.relnamespace = pg_namespace.oid
-	LEFT JOIN pg_constraint ON pg_attribute.attrelid = pg_constraint.conrelid
-		AND pg_attribute.attnum = ANY(pg_constraint.conkey)
-		AND pg_constraint.contype = 'p'
-	WHERE pg_namespace.nspname = $1
-		AND relname = $2
-		AND pg_attribute.attnum > 0
-		AND NOT attisdropped
-	ORDER BY column_name;`, req.SchemaName, req.TableName)
-	if err != nil {
-		return nil, err
-	}
-
-	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
-		var columnName pgtype.Text
-		var datatype pgtype.Text
-		var isPkey pgtype.Bool
-		err := rows.Scan(&columnName, &datatype, &isPkey)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("%s:%s:%v", columnName.String, datatype.String, isPkey.Bool), nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &protos.TableColumnsResponse{Columns: columns}, nil
+	return conn.GetColumns(ctx, req.SchemaName, req.TableName)
 }
 
 func (h *FlowRequestHandler) GetSlotInfo(

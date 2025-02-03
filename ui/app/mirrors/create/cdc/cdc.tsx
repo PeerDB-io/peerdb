@@ -79,9 +79,12 @@ export default function CDCConfigForm({
   const paramDisplayCondition = (setting: MirrorSetting) => {
     const label = setting.label.toLowerCase();
     if (
+      (label === 'publication name' &&
+        sourceType.toString() !== DBType[DBType.POSTGRES]) ||
       (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
       (label === 'replication slot name' &&
-        mirrorConfig.doInitialSnapshot === true) ||
+        (mirrorConfig.doInitialSnapshot === true ||
+          sourceType.toString() !== DBType[DBType.POSTGRES])) ||
       (label.includes('staging path') &&
         !(
           destinationType.toString() === DBType[DBType.BIGQUERY] ||
@@ -104,9 +107,7 @@ export default function CDCConfigForm({
         )) ||
       (!scriptingEnabled &&
         label.includes('script') &&
-        destinationType.toString() === DBType[DBType.CLICKHOUSE]) ||
-      (label.includes('system') &&
-        destinationType.toString() !== DBType[DBType.POSTGRES])
+        destinationType.toString() === DBType[DBType.CLICKHOUSE])
     ) {
       return false;
     }
@@ -115,12 +116,17 @@ export default function CDCConfigForm({
 
   useEffect(() => {
     setLoading(true);
-    fetchPublications(mirrorConfig.sourceName ?? '').then((pubs) => {
-      setPublications(pubs);
-    });
-    getScriptingEnabled();
-    setLoading(false);
-  }, [mirrorConfig.sourceName, mirrorConfig.initialSnapshotOnly]);
+    const promises = [];
+    if (sourceType.toString() === DBType[DBType.POSTGRES]) {
+      promises.push(
+        fetchPublications(mirrorConfig.sourceName ?? '').then((pubs) =>
+          setPublications(pubs)
+        )
+      );
+    }
+    promises.push(getScriptingEnabled());
+    Promise.all(promises).then(() => setLoading(false));
+  }, [sourceType, mirrorConfig.sourceName, mirrorConfig.initialSnapshotOnly]);
 
   if (loading) {
     return <ProgressCircle variant='determinate_progress_circle' />;
