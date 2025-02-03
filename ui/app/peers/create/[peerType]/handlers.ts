@@ -6,6 +6,7 @@ import {
   ElasticsearchConfig,
   EventHubGroupConfig,
   KafkaConfig,
+  MySqlConfig,
   Peer,
   PostgresConfig,
   PubSubConfig,
@@ -30,6 +31,7 @@ import {
   ehGroupSchema,
   esSchema,
   kaSchema,
+  mySchema,
   peerNameSchema,
   pgSchema,
   psSchema,
@@ -48,6 +50,12 @@ function constructPeer(
         name,
         type: DBType.POSTGRES,
         postgresConfig: config as PostgresConfig,
+      };
+    case 'MYSQL':
+      return {
+        name,
+        type: DBType.MYSQL,
+        mysqlConfig: config as MySqlConfig,
       };
     case 'SNOWFLAKE':
       return {
@@ -137,6 +145,10 @@ const validateFields = async (
     case 'POSTGRES':
       const pgConfig = pgSchema.safeParse(config);
       if (!pgConfig.success) validationErr = pgConfig.error.issues[0].message;
+      break;
+    case 'MYSQL':
+      const myConfig = mySchema.safeParse(config);
+      if (!myConfig.success) validationErr = myConfig.error.issues[0].message;
       break;
     case 'SNOWFLAKE':
       const sfConfig = sfSchema.safeParse(config);

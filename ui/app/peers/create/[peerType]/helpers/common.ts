@@ -4,6 +4,7 @@ import { blankClickHouseSetting } from './ch';
 import { blankEventHubGroupSetting } from './eh';
 import { blankElasticsearchSetting } from './es';
 import { blankKafkaSetting } from './ka';
+import { blankMySqlSetting } from './my';
 import { blankPostgresSetting } from './pg';
 import { blankPubSubSetting } from './ps';
 import { blankS3Setting } from './s3';
@@ -26,6 +27,8 @@ export const getBlankSetting = (dbType: string): PeerConfig => {
   switch (dbType) {
     case 'POSTGRES':
       return blankPostgresSetting;
+    case 'MYSQL':
+      return blankMySqlSetting;
     case 'SNOWFLAKE':
       return blankSnowflakeSetting;
     case 'BIGQUERY':
