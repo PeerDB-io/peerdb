@@ -3,6 +3,7 @@ package connmysql
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
@@ -37,7 +38,7 @@ func (c *MySqlConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasRes
 		if err != nil {
 			return nil, err
 		}
-		if val != "information_schema" && val != "performance_schema" && val != "sys" {
+		if !slices.Contains([]string{"information_schema", "performance_schema", "sys"}, val) {
 			schemas = append(schemas, val)
 		}
 	}

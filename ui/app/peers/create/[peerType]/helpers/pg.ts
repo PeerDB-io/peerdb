@@ -16,7 +16,7 @@ export const postgresSetting: PeerSetting[] = [
     field: 'port',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, port: parseInt(value as string, 10) })),
-    type: 'number', // type for textfield
+    type: 'number',
     default: 5432,
     tips: 'Specifies the TCP/IP port or local Unix domain socket file extension on which postgres is listening for connections from client applications.',
   },
