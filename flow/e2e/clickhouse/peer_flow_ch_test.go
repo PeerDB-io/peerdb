@@ -739,6 +739,10 @@ func (s ClickHouseSuite) Test_Binary_Format_Base64() {
 }
 
 func (s ClickHouseSuite) Test_Types_CH() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
 	srcTableName := "test_types"
 	srcFullName := s.attachSchemaSuffix("test_types")
 	dstTableName := "test_types"
@@ -844,6 +848,54 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 3", srcTableName, dstTableName,
 		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36")
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_UnsignedMySQL() {
+	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_unsigned"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_unsigned"
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`CREATE TABLE %s (
+		id serial primary key,
+		i8 tinyint, u8 tinyint unsigned,
+		i16 smallint, u16 smallint unsigned,
+		i24 mediumint, u24 mediumint unsigned,
+		i32 int, u32 int unsigned,
+		i64 bigint, u64 bigint unsigned
+	)`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`insert into %s
+		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64)
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, -5, 1)
+	`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      srcFullName,
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`insert into %s
+		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64)
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, -5, 1)
+	`, srcFullName)))
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
