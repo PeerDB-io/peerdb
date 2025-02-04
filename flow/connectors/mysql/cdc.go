@@ -451,14 +451,30 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 	switch val := val.(type) {
 	case nil:
 		return qvalue.QValueNull(qkind), nil
-	case int8: // TODO qvalue.Int8
-		return qvalue.QValueInt16{Val: int16(val)}, nil
+	case int8:
+		if qkind == qvalue.QValueKindUInt8 {
+			return qvalue.QValueUInt8{Val: uint8(val)}, nil
+		} else {
+			return qvalue.QValueInt8{Val: val}, nil
+		}
 	case int16:
-		return qvalue.QValueInt16{Val: val}, nil
+		if qkind == qvalue.QValueKindUInt16 {
+			return qvalue.QValueUInt16{Val: uint16(val)}, nil
+		} else {
+			return qvalue.QValueInt16{Val: val}, nil
+		}
 	case int32:
-		return qvalue.QValueInt32{Val: val}, nil
+		if qkind == qvalue.QValueKindUInt16 {
+			return qvalue.QValueUInt32{Val: uint32(val)}, nil
+		} else {
+			return qvalue.QValueInt32{Val: val}, nil
+		}
 	case int64:
-		return qvalue.QValueInt64{Val: val}, nil
+		if qkind == qvalue.QValueKindUInt16 {
+			return qvalue.QValueUInt64{Val: uint64(val)}, nil
+		} else {
+			return qvalue.QValueInt64{Val: val}, nil
+		}
 	case float32:
 		return qvalue.QValueFloat32{Val: val}, nil
 	case float64:
