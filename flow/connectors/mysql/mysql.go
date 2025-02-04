@@ -254,15 +254,34 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 }
 
 func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
+	unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
 	switch field.Type {
 	case mysql.MYSQL_TYPE_DECIMAL:
 		return qvalue.QValueKindNumeric, nil
 	case mysql.MYSQL_TYPE_TINY:
-		return qvalue.QValueKindInt16, nil // TODO qvalue.QValueKindInt8
+		if unsigned {
+			return qvalue.QValueKindUInt8, nil
+		} else {
+			return qvalue.QValueKindInt8, nil
+		}
 	case mysql.MYSQL_TYPE_SHORT:
-		return qvalue.QValueKindInt16, nil
-	case mysql.MYSQL_TYPE_LONG:
-		return qvalue.QValueKindInt32, nil
+		if unsigned {
+			return qvalue.QValueKindUInt16, nil
+		} else {
+			return qvalue.QValueKindInt16, nil
+		}
+	case mysql.MYSQL_TYPE_INT24, mysql.MYSQL_TYPE_LONG:
+		if unsigned {
+			return qvalue.QValueKindUInt32, nil
+		} else {
+			return qvalue.QValueKindInt32, nil
+		}
+	case mysql.MYSQL_TYPE_LONGLONG:
+		if unsigned {
+			return qvalue.QValueKindUInt64, nil
+		} else {
+			return qvalue.QValueKindInt64, nil
+		}
 	case mysql.MYSQL_TYPE_FLOAT:
 		return qvalue.QValueKindFloat32, nil
 	case mysql.MYSQL_TYPE_DOUBLE:
@@ -272,10 +291,6 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 		return qvalue.QValueKindInvalid, nil
 	case mysql.MYSQL_TYPE_TIMESTAMP:
 		return qvalue.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_LONGLONG:
-		return qvalue.QValueKindInt64, nil
-	case mysql.MYSQL_TYPE_INT24:
-		return qvalue.QValueKindInt32, nil
 	case mysql.MYSQL_TYPE_DATE:
 		return qvalue.QValueKindDate, nil
 	case mysql.MYSQL_TYPE_TIME:
@@ -344,25 +359,44 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 	case nil:
 		return qvalue.QValueNull(qkind), nil
 	case uint64:
-		// TODO unsigned integers
 		switch qkind {
+		case qvalue.QValueKindInt8:
+			return qvalue.QValueInt8{Val: int8(v)}, nil
 		case qvalue.QValueKindInt16:
 			return qvalue.QValueInt16{Val: int16(v)}, nil
 		case qvalue.QValueKindInt32:
 			return qvalue.QValueInt32{Val: int32(v)}, nil
 		case qvalue.QValueKindInt64:
 			return qvalue.QValueInt64{Val: int64(v)}, nil
+		case qvalue.QValueKindUInt8:
+			return qvalue.QValueUInt8{Val: uint8(v)}, nil
+		case qvalue.QValueKindUInt16:
+			return qvalue.QValueUInt16{Val: uint16(v)}, nil
+		case qvalue.QValueKindUInt32:
+			return qvalue.QValueUInt32{Val: uint32(v)}, nil
+		case qvalue.QValueKindUInt64:
+			return qvalue.QValueUInt64{Val: v}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert uint64 to %s", qkind)
 		}
 	case int64:
 		switch qkind {
+		case qvalue.QValueKindInt8:
+			return qvalue.QValueInt8{Val: int8(v)}, nil
 		case qvalue.QValueKindInt16:
 			return qvalue.QValueInt16{Val: int16(v)}, nil
 		case qvalue.QValueKindInt32:
 			return qvalue.QValueInt32{Val: int32(v)}, nil
 		case qvalue.QValueKindInt64:
 			return qvalue.QValueInt64{Val: v}, nil
+		case qvalue.QValueKindUInt8:
+			return qvalue.QValueUInt8{Val: uint8(v)}, nil
+		case qvalue.QValueKindUInt16:
+			return qvalue.QValueUInt16{Val: uint16(v)}, nil
+		case qvalue.QValueKindUInt32:
+			return qvalue.QValueUInt32{Val: uint32(v)}, nil
+		case qvalue.QValueKindUInt64:
+			return qvalue.QValueUInt64{Val: uint64(v)}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert int64 to %s", qkind)
 		}

@@ -32,15 +32,35 @@ func Equals(qv QValue, other QValue) bool {
 	case QValueInvalid:
 		return true
 	case QValueFloat32:
-		return q.compareFloat32(other)
+		float2, ok2 := getFloat32(other.Value())
+		return ok2 && q.Val == float2
 	case QValueFloat64:
-		return q.compareFloat64(other)
+		float2, ok2 := getFloat64(other.Value())
+		return ok2 && q.Val == float2
+	case QValueInt8:
+		int2, ok2 := getInt64(other.Value())
+		return ok2 && int64(q.Val) == int2
 	case QValueInt16:
-		return q.compareInt16(other)
+		int2, ok2 := getInt64(other.Value())
+		return ok2 && int64(q.Val) == int2
 	case QValueInt32:
-		return q.compareInt32(other)
+		int2, ok2 := getInt64(other.Value())
+		return ok2 && int64(q.Val) == int2
 	case QValueInt64:
-		return q.compareInt64(other)
+		int2, ok2 := getInt64(other.Value())
+		return ok2 && q.Val == int2
+	case QValueUInt8:
+		int2, ok2 := getUInt64(other.Value())
+		return ok2 && uint64(q.Val) == int2
+	case QValueUInt16:
+		int2, ok2 := getUInt64(other.Value())
+		return ok2 && uint64(q.Val) == int2
+	case QValueUInt32:
+		int2, ok2 := getUInt64(other.Value())
+		return ok2 && uint64(q.Val) == int2
+	case QValueUInt64:
+		int2, ok2 := getUInt64(other.Value())
+		return ok2 && q.Val == int2
 	case QValueBoolean:
 		if otherVal, ok := other.(QValueBoolean); ok {
 			return q.Val == otherVal.Val
@@ -101,31 +121,6 @@ func Equals(qv QValue, other QValue) bool {
 	default:
 		return false
 	}
-}
-
-func (v QValueInt16) compareInt16(value2 QValue) bool {
-	int2, ok2 := getInt16(value2.Value())
-	return ok2 && v.Val == int2
-}
-
-func (v QValueInt32) compareInt32(value2 QValue) bool {
-	int2, ok2 := getInt32(value2.Value())
-	return ok2 && v.Val == int2
-}
-
-func (v QValueInt64) compareInt64(value2 QValue) bool {
-	int2, ok2 := getInt64(value2.Value())
-	return ok2 && v.Val == int2
-}
-
-func (v QValueFloat32) compareFloat32(value2 QValue) bool {
-	float2, ok2 := getFloat32(value2.Value())
-	return ok2 && v.Val == float2
-}
-
-func (v QValueFloat64) compareFloat64(value2 QValue) bool {
-	float2, ok2 := getFloat64(value2.Value())
-	return ok2 && v.Val == float2
 }
 
 func compareString(s1 string, value2 interface{}) bool {
@@ -380,37 +375,22 @@ func compareArrayString(value1, value2 interface{}) bool {
 	return slices.Compare(array1, array2) == 0
 }
 
-func getInt16(v interface{}) (int16, bool) {
+func getUInt64(v interface{}) (uint64, bool) {
 	switch value := v.(type) {
-	case int16:
+	case uint8:
+		return uint64(value), true
+	case uint16:
+		return uint64(value), true
+	case uint32:
+		return uint64(value), true
+	case uint64:
 		return value, true
-	case int32:
-		return int16(value), true
-	case int64:
-		return int16(value), true
 	case decimal.Decimal:
-		return int16(value.IntPart()), true
+		return value.BigInt().Uint64(), true
 	case string:
-		parsed, err := strconv.ParseInt(value, 10, 16)
+		parsed, err := strconv.ParseUint(value, 10, 64)
 		if err == nil {
-			return int16(parsed), true
-		}
-	}
-	return 0, false
-}
-
-func getInt32(v interface{}) (int32, bool) {
-	switch value := v.(type) {
-	case int32:
-		return value, true
-	case int64:
-		return int32(value), true
-	case decimal.Decimal:
-		return int32(value.IntPart()), true
-	case string:
-		parsed, err := strconv.ParseInt(value, 10, 32)
-		if err == nil {
-			return int32(parsed), true
+			return parsed, true
 		}
 	}
 	return 0, false
@@ -418,10 +398,14 @@ func getInt32(v interface{}) (int32, bool) {
 
 func getInt64(v interface{}) (int64, bool) {
 	switch value := v.(type) {
-	case int64:
-		return value, true
+	case int8:
+		return int64(value), true
+	case int16:
+		return int64(value), true
 	case int32:
 		return int64(value), true
+	case int64:
+		return value, true
 	case decimal.Decimal:
 		return value.IntPart(), true
 	case string:
