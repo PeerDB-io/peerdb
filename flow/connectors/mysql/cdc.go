@@ -446,12 +446,11 @@ func (c *MySqlConnector) PullRecords(
 }
 
 func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qvalue.QValue, error) {
-	// TODO signedness, in ev.Table, need to extend QValue system
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
 	case nil:
 		return qvalue.QValueNull(qkind), nil
-	case int8:
+	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
 		if qkind == qvalue.QValueKindUInt8 {
 			return qvalue.QValueUInt8{Val: uint8(val)}, nil
 		} else {
