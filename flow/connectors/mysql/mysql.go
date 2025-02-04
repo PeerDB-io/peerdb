@@ -257,8 +257,6 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 	unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
 	switch field.Type {
-	case mysql.MYSQL_TYPE_DECIMAL:
-		return qvalue.QValueKindNumeric, nil
 	case mysql.MYSQL_TYPE_TINY:
 		if unsigned {
 			return qvalue.QValueKindUInt8, nil
@@ -314,8 +312,8 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 		return qvalue.QValueKindTime, nil
 	case mysql.MYSQL_TYPE_JSON:
 		return qvalue.QValueKindJSON, nil
-	case mysql.MYSQL_TYPE_NEWDECIMAL:
-		return qvalue.QValueKindNumeric, nil
+	case mysql.MYSQL_TYPE_DECIMAL, mysql.MYSQL_TYPE_NEWDECIMAL:
+		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_ENUM:
 		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_SET:
