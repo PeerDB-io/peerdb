@@ -164,7 +164,7 @@ func PeerDBGetIncidentIoToken() string {
 }
 
 func PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() bool {
-	return strings.EqualFold(GetEnvString("PEERDB_ENABLE_SOURCE_SCHEMA_NAME_IN_CLICKHOUSE_NORMALIZED_TABLES", "false"), "true")
+	return strings.EqualFold(GetEnvString("PEERDB_ENABLE_SOURCE_SCHEMA_NAME_IN_CLICKHOUSE_NORMALIZED_TABLES", "true"), "true")
 }
 
 func PeerDBRAPIRequestLoggingEnabled() bool {
