@@ -158,13 +158,14 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 		from = strings.Join(quotedColumns, ",")
 	}
+
+	if peerdbenv.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
+		from = fmt.Sprintf("%s, '%s' AS _peerdb_source_schema_name", from, parsedSrcTable.Schema)
+	}
+
 	var query string
 	if mapping.PartitionKey == "" {
-		if peerdbenv.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
-			query = fmt.Sprintf("SELECT %s, '%s' AS _peerdb_source_schema_name FROM %s", from, parsedSrcTable.Schema, parsedSrcTable.String())
-		} else {
-			query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())
-		}
+		query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())
 	} else {
 		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
 			from, parsedSrcTable.String(), mapping.PartitionKey)
