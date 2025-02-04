@@ -375,19 +375,21 @@ func QValueToAvro(
 	case QValueFloat64:
 		return c.processNullableUnion("double", v.Val)
 	case QValueInt8:
-		return c.processNullableUnion("long", int32(v.Val))
+		return c.processNullableUnion("long", v.Val)
 	case QValueInt16:
-		return c.processNullableUnion("long", int32(v.Val))
-	case QValueInt32, QValueInt64:
-		return c.processNullableUnion("long", v.Value())
+		return c.processNullableUnion("long", v.Val)
+	case QValueInt32:
+		return c.processNullableUnion("long", v.Val)
+	case QValueInt64:
+		return c.processNullableUnion("long", v.Val)
 	case QValueUInt8:
-		return c.processNullableUnion("long", int32(v.Val))
+		return c.processNullableUnion("long", v.Val)
 	case QValueUInt16:
-		return c.processNullableUnion("long", int32(v.Val))
+		return c.processNullableUnion("long", v.Val)
 	case QValueUInt32:
-		return c.processNullableUnion("long", int32(v.Val))
+		return c.processNullableUnion("long", v.Val)
 	case QValueUInt64:
-		return c.processNullableUnion("long", int64(v.Val))
+		return c.processNullableUnion("long", v.Val)
 	case QValueBoolean:
 		return c.processNullableUnion("boolean", v.Val)
 	case QValueStruct:
