@@ -22,10 +22,12 @@ import (
 )
 
 const (
-	signColName    = "_peerdb_is_deleted"
-	signColType    = "Int8"
-	versionColName = "_peerdb_version"
-	versionColType = "Int64"
+	signColName         = "_peerdb_is_deleted"
+	signColType         = "Int8"
+	versionColName      = "_peerdb_version"
+	versionColType      = "Int64"
+	sourceSchemaColName = "_peerdb_source_schema_name"
+	sourceSchemaColType = "String"
 )
 
 func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
@@ -145,6 +147,11 @@ func generateCreateTableSQLForNormalizedTable(
 	if config.SyncedAtColName != "" {
 		colName := strings.ToLower(config.SyncedAtColName)
 		stmtBuilder.WriteString(fmt.Sprintf("`%s` DateTime64(9) DEFAULT now64(), ", colName))
+	}
+
+	// add _peerdb_source_schema_name column
+	if peerdbenv.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", sourceSchemaColName, sourceSchemaColType))
 	}
 
 	var engine string
