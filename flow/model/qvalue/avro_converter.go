@@ -384,7 +384,7 @@ func QValueToAvro(
 	case QValueInt32:
 		return c.processNullableUnion("long", int64(v.Val))
 	case QValueInt64:
-		return c.processNullableUnion("long", int64(v.Val))
+		return c.processNullableUnion("long", v.Val)
 	case QValueUInt8:
 		return c.processNullableUnion("long", int64(v.Val))
 	case QValueUInt16:
