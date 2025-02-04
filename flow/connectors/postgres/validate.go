@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -171,5 +172,50 @@ func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Cont
 	if _, err := c.conn.Exec(ctx, "DROP PUBLICATION "+pubName); err != nil {
 		return fmt.Errorf("failed to drop publication: %v", err)
 	}
+	return nil
+}
+
+func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+	noCDC := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
+	if !noCDC {
+		// Check replication connectivity
+		if err := c.CheckReplicationConnectivity(ctx); err != nil {
+			return fmt.Errorf("unable to establish replication connectivity: %v", err)
+		}
+
+		// Check permissions of postgres peer
+		if err := c.CheckReplicationPermissions(ctx, c.config.User); err != nil {
+			return fmt.Errorf("failed to check replication permissions: %v", err)
+		}
+	}
+
+	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
+	for _, tableMapping := range cfg.TableMappings {
+		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		if parseErr != nil {
+			return fmt.Errorf("invalid source table identifier: %s", parseErr)
+		}
+
+		sourceTables = append(sourceTables, parsedTable)
+	}
+
+	pubName := cfg.PublicationName
+	if pubName == "" && !noCDC {
+		srcTableNames := make([]string, 0, len(sourceTables))
+		for _, srcTable := range sourceTables {
+			srcTableNames = append(srcTableNames, fmt.Sprintf(
+				`%s.%s`, QuoteIdentifier(srcTable.Schema), QuoteIdentifier(srcTable.Table),
+			))
+		}
+
+		if err := c.CheckPublicationCreationPermissions(ctx, srcTableNames); err != nil {
+			return fmt.Errorf("invalid publication creation permissions: %v", err)
+		}
+	}
+
+	if err := c.CheckSourceTables(ctx, sourceTables, pubName, noCDC); err != nil {
+		return fmt.Errorf("provided source tables invalidated: %v", err)
+	}
+
 	return nil
 }
