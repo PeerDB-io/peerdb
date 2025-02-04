@@ -86,7 +86,7 @@ type QValueInt8 struct {
 }
 
 func (QValueInt8) Kind() QValueKind {
-	return QValueKindInt16
+	return QValueKindInt8
 }
 
 func (v QValueInt8) Value() any {
@@ -150,7 +150,7 @@ type QValueUInt8 struct {
 }
 
 func (QValueUInt8) Kind() QValueKind {
-	return QValueKindUInt16
+	return QValueKindUInt8
 }
 
 func (v QValueUInt8) Value() any {
