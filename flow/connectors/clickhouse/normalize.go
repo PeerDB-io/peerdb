@@ -170,6 +170,10 @@ func generateCreateTableSQLForNormalizedTable(
 
 	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
 
+	if peerdbenv.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
+		orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
+	}
+
 	if len(orderByColumns) > 0 {
 		orderByStr := strings.Join(orderByColumns, ",")
 
