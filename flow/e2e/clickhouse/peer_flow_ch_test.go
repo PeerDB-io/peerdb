@@ -888,14 +888,14 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64")
 
 	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`insert into %s
 		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64)
 		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, -5, 1)
 	`, srcFullName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64")
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
