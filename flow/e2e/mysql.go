@@ -134,7 +134,13 @@ func (s *MySqlSource) GetRows(suffix string, table string, cols string) (*model.
 		return nil, err
 	}
 
-	schema, err := connmysql.QRecordSchemaFromMysqlFields(rs.Fields)
+	tableName := fmt.Sprintf("e2e_test_%s.%s", suffix, table)
+	tableSchemas, err := s.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
+	if err != nil {
+		return nil, err
+	}
+
+	schema, err := connmysql.QRecordSchemaFromMysqlFields(tableSchemas[tableName], rs.Fields)
 	if err != nil {
 		return nil, err
 	}

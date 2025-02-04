@@ -16,6 +16,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -286,7 +287,6 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 	case mysql.MYSQL_TYPE_DOUBLE:
 		return qvalue.QValueKindFloat64, nil
 	case mysql.MYSQL_TYPE_NULL:
-		// TODO qvalue.QValueKindNothing, but don't think this can actually be column type
 		return qvalue.QValueKindInvalid, nil
 	case mysql.MYSQL_TYPE_TIMESTAMP:
 		return qvalue.QValueKindTimestamp, nil
@@ -313,7 +313,7 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 	case mysql.MYSQL_TYPE_JSON:
 		return qvalue.QValueKindJSON, nil
 	case mysql.MYSQL_TYPE_DECIMAL, mysql.MYSQL_TYPE_NEWDECIMAL:
-		return qvalue.QValueKindString, nil
+		return qvalue.QValueKindNumeric, nil
 	case mysql.MYSQL_TYPE_ENUM:
 		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_SET:
@@ -386,7 +386,12 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 	}
 }
 
-func QRecordSchemaFromMysqlFields(fields []*mysql.Field) (qvalue.QRecordSchema, error) {
+func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mysql.Field) (qvalue.QRecordSchema, error) {
+	tableColumns := make(map[string]*protos.FieldDescription, len(tableSchema.Columns))
+	for _, col := range tableSchema.Columns {
+		tableColumns[col.Name] = col
+	}
+
 	schema := make([]qvalue.QField, 0, len(fields))
 	for _, field := range fields {
 		qkind, err := qkindFromMysql(field)
@@ -394,19 +399,26 @@ func QRecordSchemaFromMysqlFields(fields []*mysql.Field) (qvalue.QRecordSchema, 
 			return qvalue.QRecordSchema{}, err
 		}
 
-		schema = append(schema, qvalue.QField{
+		qf := qvalue.QField{
 			Name:      string(field.Name),
 			Type:      qkind,
 			Precision: 0,
 			Scale:     0,
 			Nullable:  (field.Flag & mysql.NOT_NULL_FLAG) == 0,
-		})
+		}
+
+		if qkind == qvalue.QValueKindNumeric {
+			if col, ok := tableColumns[qf.Name]; ok {
+				qf.Precision, qf.Scale = datatypes.ParseNumericTypmod(col.TypeModifier)
+			}
+		}
+
+		schema = append(schema, qf)
 	}
 	return qvalue.QRecordSchema{Fields: schema}, nil
 }
 
 func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
-	// TODO fill this in, maybe contribute upstream, figure out how numeric etc fit in
 	switch v := fv.Value().(type) {
 	case nil:
 		return qvalue.QValueNull(qkind), nil
