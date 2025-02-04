@@ -163,6 +163,10 @@ func PeerDBGetIncidentIoToken() string {
 	return GetEnvString("PEERDB_INCIDENTIO_TOKEN", "")
 }
 
+func PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() bool {
+	return strings.EqualFold(GetEnvString("PEERDB_ENABLE_SOURCE_SCHEMA_NAME_IN_CLICKHOUSE_NORMALIZED_TABLES", "false"), "true")
+}
+
 func PeerDBRAPIRequestLoggingEnabled() bool {
 	requestLoggingEnabled, err := strconv.ParseBool(GetEnvString("PEERDB_API_REQUEST_LOGGING_ENABLED", "false"))
 	if err != nil {

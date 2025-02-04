@@ -367,12 +367,13 @@ func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *p
 
 	// In the case of resync, we don't need to check the content or structure of the original tables;
 	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
-	if !req.Resync {
+	if !(req.Resync || peerdbenv.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables()) {
 		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
 			dstTableNames, req.DoInitialSnapshot, peerdbenv.PeerDBOnlyClickHouseAllowed()); err != nil {
 			return err
 		}
 	}
+
 	// optimization: fetching columns for all tables at once
 	chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
 	if err != nil {

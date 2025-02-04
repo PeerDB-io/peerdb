@@ -307,6 +307,13 @@ func PullCdcRecords[Items model.Items](
 	replLock *sync.Mutex,
 ) error {
 	logger := shared.LoggerFromCtx(ctx)
+
+	if peerdbenv.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
+		// this is not supported for CDC error out.
+		logger.Error("source schema name in clickhouse normalized tables is not supported for CDC")
+		return fmt.Errorf("source schema name in clickhouse normalized tables is not supported for CDC")
+	}
+
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {
