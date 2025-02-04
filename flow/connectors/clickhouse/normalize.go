@@ -399,6 +399,17 @@ func (c *ClickHouseConnector) NormalizeRecords(
 							colName, dstColName,
 						))
 					}
+				case "UInt64":
+					projection.WriteString(fmt.Sprintf(
+						"toUInt64(JSONExtractInt(_peerdb_data, '%s')) AS `%s`,",
+						colName, dstColName,
+					))
+					if enablePrimaryUpdate {
+						projectionUpdate.WriteString(fmt.Sprintf(
+							"toUInt64(JSONExtractInt(_peerdb_match_data, '%s')) AS `%s`,",
+							colName, dstColName,
+						))
+					}
 				default:
 					projLen := projection.Len()
 					if colType == qvalue.QValueKindBytes {

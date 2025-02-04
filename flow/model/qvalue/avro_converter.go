@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 
@@ -110,10 +109,8 @@ func GetAvroSchemaFromQValueKind(
 	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
 		return "string", nil
 	case QValueKindInt8, QValueKindInt16, QValueKindInt32, QValueKindInt64,
-		QValueKindUInt8, QValueKindUInt16, QValueKindUInt32:
+		QValueKindUInt8, QValueKindUInt16, QValueKindUInt32, QValueKindUInt64:
 		return "long", nil
-	case QValueKindUInt64:
-		return "string", nil
 	case QValueKindFloat32:
 		return "float", nil
 	case QValueKindFloat64:
@@ -392,7 +389,7 @@ func QValueToAvro(
 	case QValueUInt32:
 		return c.processNullableUnion("long", int64(v.Val))
 	case QValueUInt64:
-		return c.processNullableUnion("string", strconv.FormatUint(v.Val, 10))
+		return c.processNullableUnion("long", int64(v.Val))
 	case QValueBoolean:
 		return c.processNullableUnion("boolean", v.Val)
 	case QValueStruct:
