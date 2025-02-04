@@ -25,6 +25,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 
 	var sourceError, destinationError error
 	var sourceOk, destinationOk, canceled bool
+	var sourceTries, destinationTries int
 	selector := workflow.NewNamedSelector(ctx, input.FlowJobName+"-drop")
 	selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {
 		canceled = true
@@ -35,10 +36,19 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 		sourceError = f.Get(ctx, nil)
 		sourceOk = sourceError == nil
 		if !sourceOk {
-			dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
-				FlowJobName: input.FlowJobName,
-				PeerName:    input.FlowConnectionConfigs.SourceName,
-			})
+			sourceTries += 1
+			var dropSourceFuture workflow.Future
+			if sourceTries < 50 {
+				dropSourceFuture = workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
+					FlowJobName: input.FlowJobName,
+					PeerName:    input.FlowConnectionConfigs.SourceName,
+				})
+			} else {
+				dropSourceFuture = workflow.ExecuteActivity(ctx, flowable.Alert, &protos.AlertInput{
+					FlowName: input.FlowJobName,
+					Message:  "failed to drop source peer " + input.FlowConnectionConfigs.SourceName,
+				})
+			}
 			selector.AddFuture(dropSourceFuture, dropSource)
 			_ = workflow.Sleep(ctx, time.Second)
 		}
@@ -55,10 +65,19 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			destinationError = f.Get(ctx, nil)
 			destinationOk = destinationError == nil
 			if !destinationOk {
-				dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
-					FlowJobName: input.FlowJobName,
-					PeerName:    input.FlowConnectionConfigs.DestinationName,
-				})
+				destinationTries += 1
+				var dropDestinationFuture workflow.Future
+				if destinationTries < 50 {
+					dropDestinationFuture = workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
+						FlowJobName: input.FlowJobName,
+						PeerName:    input.FlowConnectionConfigs.DestinationName,
+					})
+				} else {
+					dropDestinationFuture = workflow.ExecuteActivity(ctx, flowable.Alert, &protos.AlertInput{
+						FlowName: input.FlowJobName,
+						Message:  "failed to drop destination peer " + input.FlowConnectionConfigs.DestinationName,
+					})
+				}
 				selector.AddFuture(dropDestinationFuture, dropDestination)
 				_ = workflow.Sleep(ctx, time.Second)
 			}
