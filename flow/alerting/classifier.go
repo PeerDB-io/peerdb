@@ -108,9 +108,6 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	if errors.As(err, &exception) {
 		switch exception.Code {
 		case 241: // MEMORY_LIMIT_EXCEEDED
-			if isClickHouseMvError(exception) {
-				return ErrorNotifyMVOrView
-			}
 			return ErrorNotifyOOM
 		case 349: // CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN
 			if isClickHouseMvError(exception) {
