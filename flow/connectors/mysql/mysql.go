@@ -381,6 +381,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		}
 	case int64:
 		switch qkind {
+		case qvalue.QValueKindInt8:
+			return qvalue.QValueInt8{Val: int8(v)}, nil
 		case qvalue.QValueKindInt16:
 			return qvalue.QValueInt16{Val: int16(v)}, nil
 		case qvalue.QValueKindInt32:
