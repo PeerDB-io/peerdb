@@ -464,13 +464,13 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			return qvalue.QValueInt16{Val: val}, nil
 		}
 	case int32:
-		if qkind == qvalue.QValueKindUInt16 {
+		if qkind == qvalue.QValueKindUInt32 {
 			return qvalue.QValueUInt32{Val: uint32(val)}, nil
 		} else {
 			return qvalue.QValueInt32{Val: val}, nil
 		}
 	case int64:
-		if qkind == qvalue.QValueKindUInt16 {
+		if qkind == qvalue.QValueKindUInt64 {
 			return qvalue.QValueUInt64{Val: uint64(val)}, nil
 		} else {
 			return qvalue.QValueInt64{Val: val}, nil
