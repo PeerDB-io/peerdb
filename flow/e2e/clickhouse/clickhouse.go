@@ -150,6 +150,22 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *string:
 				qrow = append(qrow, qvalue.QValueString{Val: *v})
+			case **int8:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt8))
+				} else {
+					qrow = append(qrow, qvalue.QValueInt8{Val: **v})
+				}
+			case *int8:
+				qrow = append(qrow, qvalue.QValueInt8{Val: *v})
+			case **int16:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt16))
+				} else {
+					qrow = append(qrow, qvalue.QValueInt16{Val: **v})
+				}
+			case *int16:
+				qrow = append(qrow, qvalue.QValueInt16{Val: *v})
 			case **int32:
 				if *v == nil {
 					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt32))
@@ -158,12 +174,52 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *int32:
 				qrow = append(qrow, qvalue.QValueInt32{Val: *v})
+			case **int64:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt64))
+				} else {
+					qrow = append(qrow, qvalue.QValueInt64{Val: **v})
+				}
+			case *int64:
+				qrow = append(qrow, qvalue.QValueInt64{Val: *v})
 			case **time.Time:
 				if *v == nil {
 					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindTimestamp))
 				} else {
 					qrow = append(qrow, qvalue.QValueTimestamp{Val: **v})
 				}
+			case **uint8:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindUInt8))
+				} else {
+					qrow = append(qrow, qvalue.QValueUInt8{Val: **v})
+				}
+			case *uint8:
+				qrow = append(qrow, qvalue.QValueUInt8{Val: *v})
+			case **uint16:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindUInt16))
+				} else {
+					qrow = append(qrow, qvalue.QValueUInt16{Val: **v})
+				}
+			case *uint16:
+				qrow = append(qrow, qvalue.QValueUInt16{Val: *v})
+			case **uint32:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindUInt32))
+				} else {
+					qrow = append(qrow, qvalue.QValueUInt32{Val: **v})
+				}
+			case *uint32:
+				qrow = append(qrow, qvalue.QValueUInt32{Val: *v})
+			case **uint64:
+				if *v == nil {
+					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindUInt64))
+				} else {
+					qrow = append(qrow, qvalue.QValueUInt64{Val: **v})
+				}
+			case *uint64:
+				qrow = append(qrow, qvalue.QValueUInt64{Val: *v})
 			case *time.Time:
 				qrow = append(qrow, qvalue.QValueTimestamp{Val: *v})
 			case **decimal.Decimal:
@@ -198,22 +254,6 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *float64:
 				qrow = append(qrow, qvalue.QValueFloat64{Val: *v})
-			case **int64:
-				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt64))
-				} else {
-					qrow = append(qrow, qvalue.QValueInt64{Val: **v})
-				}
-			case *int64:
-				qrow = append(qrow, qvalue.QValueInt64{Val: *v})
-			case **int16:
-				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt16))
-				} else {
-					qrow = append(qrow, qvalue.QValueInt16{Val: **v})
-				}
-			case *int16:
-				qrow = append(qrow, qvalue.QValueInt16{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}

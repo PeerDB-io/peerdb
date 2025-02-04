@@ -372,7 +372,7 @@ func (a *FlowableActivity) SyncFlow(
 			syncState.Store(shared.Ptr("cleanup"))
 			close(syncDone)
 			return errors.Join(syncErr, group.Wait())
-		} else {
+		} else if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
@@ -381,9 +381,9 @@ func (a *FlowableActivity) SyncFlow(
 					attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
 				)))
 			}
-			if options.NumberOfSyncs > 0 && currentSyncFlowNum.Load() >= options.NumberOfSyncs {
-				break
-			}
+		}
+		if options.NumberOfSyncs > 0 && currentSyncFlowNum.Load() >= options.NumberOfSyncs {
+			break
 		}
 	}
 
