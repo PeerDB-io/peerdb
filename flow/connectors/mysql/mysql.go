@@ -399,8 +399,8 @@ func QRecordSchemaFromMysqlFields(fields []*mysql.Field) (qvalue.QRecordSchema, 
 		schema = append(schema, qvalue.QField{
 			Name:      string(field.Name),
 			Type:      qkind,
-			Precision: 0, // TODO numerics
-			Scale:     0, // TODO numerics
+			Precision: 0,
+			Scale:     0,
 			Nullable:  (field.Flag & mysql.NOT_NULL_FLAG) == 0,
 		})
 	}
