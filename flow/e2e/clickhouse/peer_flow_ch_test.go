@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -873,8 +874,8 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 
 	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`insert into %s
 		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64)
-		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, -5, 1)
-	`, srcFullName)))
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, -5, %d)
+	`, srcFullName, uint64(math.MaxUint64))))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      srcFullName,
@@ -892,8 +893,8 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 
 	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`insert into %s
 		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64)
-		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, -5, 1)
-	`, srcFullName)))
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, -5, %d)
+	`, srcFullName, uint64(math.MaxUint64))))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64")
 
