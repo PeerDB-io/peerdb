@@ -1,4 +1,4 @@
-function TitleCase(input: string): string {
+export default function TitleCase(input: string): string {
   if (input == 'BIGQUERY') return 'BigQuery';
   return input
     .toLowerCase()
@@ -6,7 +6,6 @@ function TitleCase(input: string): string {
       return char.toUpperCase();
     })
     .replaceAll('Postgresql', 'PostgreSQL')
-    .replaceAll('Rds', 'RDS');
+    .replaceAll('Rds', 'RDS')
+    .replaceAll('Mysql', 'MySQL');
 }
-
-export default TitleCase;

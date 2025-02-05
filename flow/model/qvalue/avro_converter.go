@@ -108,7 +108,8 @@ func GetAvroSchemaFromQValueKind(
 		}, nil
 	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
 		return "string", nil
-	case QValueKindInt16, QValueKindInt32, QValueKindInt64:
+	case QValueKindInt8, QValueKindInt16, QValueKindInt32, QValueKindInt64,
+		QValueKindUInt8, QValueKindUInt16, QValueKindUInt32, QValueKindUInt64:
 		return "long", nil
 	case QValueKindFloat32:
 		return "float", nil
@@ -373,10 +374,22 @@ func QValueToAvro(
 		return c.processNullableUnion("float", v.Val)
 	case QValueFloat64:
 		return c.processNullableUnion("double", v.Val)
+	case QValueInt8:
+		return c.processNullableUnion("long", int64(v.Val))
 	case QValueInt16:
-		return c.processNullableUnion("long", int32(v.Val))
-	case QValueInt32, QValueInt64:
-		return c.processNullableUnion("long", v.Value())
+		return c.processNullableUnion("long", int64(v.Val))
+	case QValueInt32:
+		return c.processNullableUnion("long", int64(v.Val))
+	case QValueInt64:
+		return c.processNullableUnion("long", v.Val)
+	case QValueUInt8:
+		return c.processNullableUnion("long", int64(v.Val))
+	case QValueUInt16:
+		return c.processNullableUnion("long", int64(v.Val))
+	case QValueUInt32:
+		return c.processNullableUnion("long", int64(v.Val))
+	case QValueUInt64:
+		return c.processNullableUnion("long", int64(v.Val))
 	case QValueBoolean:
 		return c.processNullableUnion("boolean", v.Val)
 	case QValueStruct:

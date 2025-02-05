@@ -264,6 +264,13 @@ func (c *MySqlConnector) PullRecords(
 	defer cancelTimeout()
 
 	var recordCount uint32
+	defer func() {
+		if recordCount == 0 {
+			req.RecordStream.SignalAsEmpty()
+		}
+		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
+	}()
+
 	for recordCount < req.MaxBatchSize {
 		event, err := mystream.GetEvent(timeoutCtx)
 		if err != nil {
@@ -346,6 +353,9 @@ func (c *MySqlConnector) PullRecords(
 						}); err != nil {
 							return err
 						}
+						if recordCount == 1 {
+							req.RecordStream.SignalAsNotEmpty()
+						}
 					}
 				case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2, replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
 					for idx := 0; idx < len(ev.Rows); idx += 2 {
@@ -389,6 +399,9 @@ func (c *MySqlConnector) PullRecords(
 						}); err != nil {
 							return err
 						}
+						if recordCount == 1 {
+							req.RecordStream.SignalAsNotEmpty()
+						}
 					}
 				case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
 					for idx, row := range ev.Rows {
@@ -420,6 +433,9 @@ func (c *MySqlConnector) PullRecords(
 						}); err != nil {
 							return err
 						}
+						if recordCount == 1 {
+							req.RecordStream.SignalAsNotEmpty()
+						}
 					}
 				default:
 				}
@@ -430,19 +446,38 @@ func (c *MySqlConnector) PullRecords(
 }
 
 func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qvalue.QValue, error) {
-	// TODO signedness, in ev.Table, need to extend QValue system
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
 	case nil:
 		return qvalue.QValueNull(qkind), nil
-	case int8: // TODO qvalue.Int8
-		return qvalue.QValueInt16{Val: int16(val)}, nil
+	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
+		if qkind == qvalue.QValueKindUInt8 {
+			return qvalue.QValueUInt8{Val: uint8(val)}, nil
+		} else {
+			return qvalue.QValueInt8{Val: val}, nil
+		}
 	case int16:
-		return qvalue.QValueInt16{Val: val}, nil
+		if qkind == qvalue.QValueKindUInt16 {
+			return qvalue.QValueUInt16{Val: uint16(val)}, nil
+		} else {
+			return qvalue.QValueInt16{Val: val}, nil
+		}
 	case int32:
-		return qvalue.QValueInt32{Val: val}, nil
+		if qkind == qvalue.QValueKindUInt32 {
+			if mytype == mysql.MYSQL_TYPE_INT24 {
+				return qvalue.QValueUInt32{Val: uint32(val) & 0xFFFFFF}, nil
+			} else {
+				return qvalue.QValueUInt32{Val: uint32(val)}, nil
+			}
+		} else {
+			return qvalue.QValueInt32{Val: val}, nil
+		}
 	case int64:
-		return qvalue.QValueInt64{Val: val}, nil
+		if qkind == qvalue.QValueKindUInt64 {
+			return qvalue.QValueUInt64{Val: uint64(val)}, nil
+		} else {
+			return qvalue.QValueInt64{Val: val}, nil
+		}
 	case float32:
 		return qvalue.QValueFloat32{Val: val}, nil
 	case float64:

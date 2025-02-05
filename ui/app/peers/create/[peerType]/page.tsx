@@ -4,6 +4,7 @@ import GuideForDestinationSetup from '@/app/mirrors/create/cdc/guide';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
 import ClickHouseForm from '@/components/PeerForms/ClickhouseConfig';
 import KafkaForm from '@/components/PeerForms/KafkaConfig';
+import MySqlForm from '@/components/PeerForms/MySqlForm';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
 import PubSubForm from '@/components/PeerForms/PubSubConfig';
 import S3Form from '@/components/PeerForms/S3Form';
@@ -31,6 +32,7 @@ import { ToastContainer } from 'react-toastify';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
+import { mysqlSetting } from './helpers/my';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
 import { peerNameSchema } from './schema';
@@ -81,6 +83,8 @@ export default function CreateConfig({
             type={peerType}
           />
         );
+      case 'MYSQL':
+        return <MySqlForm settings={mysqlSetting} setter={setConfig} />;
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':

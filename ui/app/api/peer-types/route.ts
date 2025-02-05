@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     ...Array<string | { label: string; url: string }>,
   ] = [
     'Sources',
+    'MYSQL',
     'POSTGRESQL',
     'RDS POSTGRESQL',
     'GOOGLE CLOUD POSTGRESQL',

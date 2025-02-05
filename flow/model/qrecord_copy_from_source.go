@@ -63,11 +63,21 @@ func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = v.Val
 		case qvalue.QValueFloat64:
 			values[i] = v.Val
+		case qvalue.QValueInt8:
+			values[i] = v.Val
 		case qvalue.QValueInt16:
 			values[i] = v.Val
 		case qvalue.QValueInt32:
 			values[i] = v.Val
 		case qvalue.QValueInt64:
+			values[i] = v.Val
+		case qvalue.QValueUInt8:
+			values[i] = v.Val
+		case qvalue.QValueUInt16:
+			values[i] = v.Val
+		case qvalue.QValueUInt32:
+			values[i] = v.Val
+		case qvalue.QValueUInt64:
 			values[i] = v.Val
 		case qvalue.QValueBoolean:
 			values[i] = v.Val

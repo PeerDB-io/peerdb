@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -347,58 +346,6 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 	return nil
 }
 
-func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
-) error {
-	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
-		err := chvalidate.CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx, c.logger, c.database)
-		if err != nil {
-			return err
-		}
-	}
-
-	peerDBColumns := []string{signColName, versionColName}
-	if req.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, strings.ToLower(req.SyncedAtColName))
-	}
-	// this is for handling column exclusion, processed schema does that in a step
-	processedMapping := shared.BuildProcessedSchemaMapping(req.TableMappings, tableNameSchemaMapping, c.logger)
-	dstTableNames := slices.Collect(maps.Keys(processedMapping))
-
-	// In the case of resync, we don't need to check the content or structure of the original tables;
-	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
-	if !req.Resync {
-		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
-			dstTableNames, req.DoInitialSnapshot, peerdbenv.PeerDBOnlyClickHouseAllowed()); err != nil {
-			return err
-		}
-	}
-	// optimization: fetching columns for all tables at once
-	chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
-	if err != nil {
-		return err
-	}
-
-	for _, tableMapping := range req.TableMappings {
-		dstTableName := tableMapping.DestinationTableIdentifier
-		if _, ok := processedMapping[dstTableName]; !ok {
-			// if destination table is not a key, that means source table was not a key in the original schema mapping(?)
-			return fmt.Errorf("source table %s not found in schema mapping", tableMapping.SourceTableIdentifier)
-		}
-		// if destination table does not exist, we're good
-		if _, ok := chTableColumnsMapping[dstTableName]; !ok {
-			continue
-		}
-
-		err = c.processTableComparison(dstTableName, processedMapping[dstTableName],
-			chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	clickhouseVersion, err := c.database.ServerVersion()
 	if err != nil {
@@ -417,15 +364,25 @@ func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*pro
 			qkind = qvalue.QValueKindString
 		case "Bool", "Nullable(Bool)":
 			qkind = qvalue.QValueKindBoolean
+		case "Int8", "Nullable(Int8)":
+			qkind = qvalue.QValueKindInt8
 		case "Int16", "Nullable(Int16)":
 			qkind = qvalue.QValueKindInt16
 		case "Int32", "Nullable(Int32)":
 			qkind = qvalue.QValueKindInt32
 		case "Int64", "Nullable(Int64)":
 			qkind = qvalue.QValueKindInt64
+		case "UInt8", "Nullable(UInt8)":
+			qkind = qvalue.QValueKindUInt8
+		case "UInt16", "Nullable(UInt16)":
+			qkind = qvalue.QValueKindUInt16
+		case "UInt32", "Nullable(UInt32)":
+			qkind = qvalue.QValueKindUInt32
+		case "UInt64", "Nullable(UInt64)":
+			qkind = qvalue.QValueKindUInt64
 		case "UUID", "Nullable(UUID)":
 			qkind = qvalue.QValueKindUUID
-		case "DateTime64(6)", "Nullable(DateTime64(6))":
+		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
 			qkind = qvalue.QValueKindTimestamp
 		case "Date32", "Nullable(Date32)":
 			qkind = qvalue.QValueKindDate

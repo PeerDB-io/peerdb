@@ -41,6 +41,18 @@ type ValidationConnector interface {
 	ValidateCheck(context.Context) error
 }
 
+type MirrorSourceValidationConnector interface {
+	GetTableSchemaConnector
+
+	ValidateMirrorSource(context.Context, *protos.FlowConnectionConfigs) error
+}
+
+type MirrorDestinationValidationConnector interface {
+	Connector
+
+	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigs, map[string]*protos.TableSchema) error
+}
+
 type GetTableSchemaConnector interface {
 	Connector
 
@@ -51,6 +63,15 @@ type GetTableSchemaConnector interface {
 		system protos.TypeSystem,
 		tableIdentifiers []string,
 	) (map[string]*protos.TableSchema, error)
+}
+
+type GetSchemaConnector interface {
+	Connector
+
+	GetAllTables(context.Context) (*protos.AllTablesResponse, error)
+	GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error)
+	GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error)
+	GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error)
 }
 
 type CDCPullConnectorCore interface {
@@ -503,6 +524,9 @@ var (
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
 	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
 
+	_ GetSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetSchemaConnector = &connmysql.MySqlConnector{}
+
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
 	_ NormalizedTablesConnector = &connsnowflake.SnowflakeConnector{}
@@ -544,6 +568,11 @@ var (
 	_ ValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
+
+	_ MirrorSourceValidationConnector = &connpostgres.PostgresConnector{}
+	_ MirrorSourceValidationConnector = &connmysql.MySqlConnector{}
+
+	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
