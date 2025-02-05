@@ -10,18 +10,20 @@ import (
 )
 
 func LoggerFromCtx(ctx context.Context) log.Logger {
-	flowName, hasName := ctx.Value(FlowNameKey).(string)
+	var logger log.Logger
+
 	if activity.IsActivity(ctx) {
-		if hasName {
-			return log.With(activity.GetLogger(ctx), string(FlowNameKey), flowName)
-		} else {
-			return activity.GetLogger(ctx)
-		}
-	} else if hasName {
-		return slog.With(string(FlowNameKey), flowName)
+		logger = activity.GetLogger(ctx)
 	} else {
-		return slog.Default()
+		logger = log.NewStructuredLogger(slog.Default())
 	}
+
+	flowName, hasName := ctx.Value(FlowNameKey).(string)
+	if hasName {
+		logger = log.With(logger, string(FlowNameKey), flowName)
+	}
+
+	return logger
 }
 
 func LogError(logger log.Logger, err error) error {
