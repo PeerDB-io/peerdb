@@ -5,6 +5,11 @@ import "peers.proto";
 
 package peerdb_flow;
 
+message AlertInput {
+  string flow_name = 1;
+  string message = 2;
+}
+
 message TableNameMapping {
   string source_table_name = 1;
   string destination_table_name = 2;

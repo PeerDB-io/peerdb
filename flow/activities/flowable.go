@@ -53,6 +53,14 @@ type StreamCloser interface {
 	Close(error)
 }
 
+func (a *FlowableActivity) Alert(
+	ctx context.Context,
+	alert *protos.AlertInput,
+) error {
+	a.Alerter.LogFlowError(ctx, alert.FlowName, errors.New(alert.Message))
+	return nil
+}
+
 func (a *FlowableActivity) CheckConnection(
 	ctx context.Context,
 	config *protos.SetupInput,
