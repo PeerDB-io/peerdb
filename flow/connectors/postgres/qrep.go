@@ -126,9 +126,9 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 
 	// Calculate the number of partitions
-	numPartitions := shared.DivCeil(totalRows.Int64, numRowsPerPartition)
-	c.logger.Info(fmt.Sprintf("total rows: %d, num partitions: %d, num rows per partition: %d",
-		totalRows.Int64, numPartitions, numRowsPerPartition))
+	adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
+	c.logger.Info(fmt.Sprintf("total rows: %d, desired num rows per partition: %d, adjusted num partitions: %d, adjusted num rows per partition: %d",
+		totalRows.Int64, numRowsPerPartition, adjustedPartitions.AdjustedNumPartitions, adjustedPartitions.AdjustedNumRowsPerPartition))
 
 	// Query to get partitions using window functions
 	var rows pgx.Rows
@@ -141,7 +141,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			) subquery
 			GROUP BY bucket
 			ORDER BY start`,
-			numPartitions,
+			adjustedPartitions.AdjustedNumPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
@@ -155,7 +155,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 			) subquery
 			GROUP BY bucket
 			ORDER BY start`,
-			numPartitions,
+			adjustedPartitions.AdjustedNumPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
