@@ -22,14 +22,14 @@ interface TableMappingProps {
   initialLoadOnly: boolean;
 }
 
-const TablePicker = ({
+export default function TablePicker({
   sourcePeerName,
   rows,
   setRows,
   peerType,
   alreadySelectedTablesMapping,
   initialLoadOnly,
-}: TableMappingProps) => {
+}: TableMappingProps) {
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [schemaQuery, setSchemaQuery] = useState('');
   const [tableColumns, setTableColumns] = useState<
@@ -126,6 +126,4 @@ const TablePicker = ({
       </div>
     </div>
   );
-};
-
-export default TablePicker;
+}

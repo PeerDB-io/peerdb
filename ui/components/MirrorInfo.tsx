@@ -11,7 +11,7 @@ interface InfoPopoverProps {
   }[];
 }
 
-const MirrorInfo = ({ configs }: InfoPopoverProps) => {
+export default function MirrorInfo({ configs }: InfoPopoverProps) {
   return (
     <Dialog
       noInteract={false}
@@ -60,6 +60,4 @@ const MirrorInfo = ({ configs }: InfoPopoverProps) => {
       </div>
     </Dialog>
   );
-};
-
-export default MirrorInfo;
+}

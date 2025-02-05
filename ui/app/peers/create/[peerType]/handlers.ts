@@ -223,12 +223,12 @@ export const handleValidate = async (
   setLoading(false);
 };
 
-const S3Validation = (config: S3Config): string => {
+function S3Validation(config: S3Config): string {
   if (!config.secretAccessKey && !config.accessKeyId && !config.roleArn) {
     return 'Either both access key and secret or role ARN is required';
   }
   return '';
-};
+}
 
 // API call to create peer
 export async function handleCreate(

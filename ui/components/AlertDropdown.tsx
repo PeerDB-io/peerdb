@@ -3,7 +3,8 @@ import { Icon } from '@/lib/Icon';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useState } from 'react';
 import DropDialog from './DropDialog';
-const AlertDropdown = ({
+
+export default function AlertDropdown({
   disable,
   alertId,
   onEdit,
@@ -11,7 +12,7 @@ const AlertDropdown = ({
   disable: boolean;
   alertId: number;
   onEdit: () => void;
-}) => {
+}) {
   const [open, setOpen] = useState(false);
   const handleToggle = () => {
     setOpen((prevOpen) => !prevOpen);
@@ -50,6 +51,4 @@ const AlertDropdown = ({
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
-};
-
-export default AlertDropdown;
+}

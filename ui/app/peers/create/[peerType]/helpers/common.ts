@@ -23,7 +23,7 @@ export interface PeerSetting {
   options?: { value: string; label: string }[];
 }
 
-export const getBlankSetting = (dbType: string): PeerConfig => {
+export function getBlankSetting(dbType: string): PeerConfig {
   switch (dbType) {
     case 'POSTGRES':
       return blankPostgresSetting;
@@ -48,4 +48,4 @@ export const getBlankSetting = (dbType: string): PeerConfig => {
     default:
       return blankPostgresSetting;
   }
-};
+}

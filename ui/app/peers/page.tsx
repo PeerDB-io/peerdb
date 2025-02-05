@@ -1,11 +1,11 @@
 'use client';
 import { Button } from '@/lib/Button';
+import { Header } from '@/lib/Header';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
 import { Panel } from '@/lib/Panel';
 import Link from 'next/link';
-import { Header } from '../../lib/Header';
 import PeersTable from './peersTable';
 export const dynamic = 'force-dynamic';
 

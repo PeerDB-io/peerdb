@@ -5,13 +5,13 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import moment from 'moment-timezone';
 import { useEffect, useState } from 'react';
 
-const TimeLabel = ({
+export default function TimeLabel({
   timeVal,
   fontSize,
 }: {
   timeVal: Date | string;
   fontSize?: number;
-}) => {
+}) {
   const [timezone] = useLocalStorage('timezone-ui', 'UTC'); // ['UTC', 'Local', 'Relative']
   const [mounted, setMounted] = useState(false);
   useEffect(() => {
@@ -41,6 +41,4 @@ const TimeLabel = ({
       {formattedTimestamp(timezone)}
     </Label>
   );
-};
-
-export default TimeLabel;
+}

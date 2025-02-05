@@ -1,5 +1,5 @@
 'use client';
-import { CopyButton } from '@/components/CopyButton';
+import CopyButton from '@/components/CopyButton';
 import TimeLabel from '@/components/TimeComponent';
 import { StatInfo } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
@@ -10,7 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { DurationDisplay, getStatData } from './helpers';
 import { tableStyle } from './style';
 
-const StatTable = ({ peerName }: { peerName: string }) => {
+export default function StatTable({ peerName }: { peerName: string }) {
   const [search, setSearch] = useState('');
   const [data, setData] = useState<StatInfo[]>([]);
   const filteredData = useMemo(() => {
@@ -134,6 +134,4 @@ const StatTable = ({ peerName }: { peerName: string }) => {
       </div>
     </div>
   );
-};
-
-export default StatTable;
+}

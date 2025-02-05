@@ -13,16 +13,16 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 
-const LanguageIcon = (language: string) => {
+function LanguageIcon(language: string) {
   switch (language.toLowerCase()) {
     case 'lua':
       return '/svgs/lua.svg';
     default:
       return '/svgs/lua.svg';
   }
-};
+}
 
-const ScriptsTable = ({ scripts }: { scripts: Script[] }) => {
+export default function ScriptsTable({ scripts }: { scripts: Script[] }) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const displayedScripts = useMemo(() => {
@@ -106,6 +106,4 @@ const ScriptsTable = ({ scripts }: { scripts: Script[] }) => {
       <ToastContainer />
     </>
   );
-};
-
-export default ScriptsTable;
+}
