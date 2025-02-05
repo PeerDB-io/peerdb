@@ -91,6 +91,9 @@ func processCDCFlowConfigUpdate(
 		state.SyncFlowOptions.NumberOfSyncs = 0
 	}
 	if flowConfigUpdate.UpdatedEnv != nil {
+		if cfg.Env == nil {
+			cfg.Env = make(map[string]string)
+		}
 		maps.Copy(cfg.Env, flowConfigUpdate.UpdatedEnv)
 	}
 
