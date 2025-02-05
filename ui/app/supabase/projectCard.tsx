@@ -12,15 +12,15 @@ interface ProjectCardProps {
   project: SupabaseListProjectsResponse;
 }
 
-const formatProjectStatus = (status: string) => {
+function formatProjectStatus(status: string) {
   return status === 'ACTIVE_HEALTHY'
     ? 'Healthy'
     : status === 'INACTIVE'
       ? 'Inactive'
       : 'Unhealthy';
-};
+}
 
-const ProjectCard = ({ project }: ProjectCardProps) => {
+export default function ProjectCard({ project }: ProjectCardProps) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const peerFormLink = `/peers/create/SUPABASE?host=${encodeURIComponent(project.database.host)}&name=${encodeURIComponent(project.name.toLowerCase().replaceAll('-', '_'))}&db=postgres`;
@@ -65,6 +65,4 @@ const ProjectCard = ({ project }: ProjectCardProps) => {
       </div>
     </Button>
   );
-};
-
-export default ProjectCard;
+}

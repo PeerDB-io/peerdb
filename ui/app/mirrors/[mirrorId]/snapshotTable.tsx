@@ -15,7 +15,7 @@ import { TableCloneSummary } from './snapshot';
 
 const ROWS_PER_PAGE = 5;
 
-const getStatus = (clone: CloneTableSummary) => {
+function getStatus(clone: CloneTableSummary) {
   if (clone.consolidateCompleted) {
     return (
       <Badge type='longText' variant='positive'>
@@ -48,15 +48,15 @@ const getStatus = (clone: CloneTableSummary) => {
       <div className='font-bold'>Syncing</div>
     </Badge>
   );
-};
+}
 
-const SnapshotTable = ({
+export default function SnapshotTable({
   tableLoads,
   title,
 }: {
   tableLoads: TableCloneSummary[];
   title: string;
-}) => {
+}) {
   const [sortField, setSortField] = useState<
     'cloneStartTime' | 'avgTimePerPartition'
   >('cloneStartTime');
@@ -236,6 +236,4 @@ const SnapshotTable = ({
       ))}
     </Table>
   );
-};
-
-export default SnapshotTable;
+}

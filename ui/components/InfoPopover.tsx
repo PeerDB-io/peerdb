@@ -1,6 +1,7 @@
 import { Icon } from '@/lib/Icon';
 import * as Popover from '@radix-ui/react-popover';
-export const InfoPopover = ({
+
+export default function InfoPopover({
   tips,
   link,
   command,
@@ -8,7 +9,7 @@ export const InfoPopover = ({
   tips: string;
   link?: string;
   command?: string;
-}) => {
+}) {
   return (
     <Popover.Root modal={true}>
       <Popover.Trigger asChild>
@@ -71,4 +72,4 @@ export const InfoPopover = ({
       </Popover.Portal>
     </Popover.Root>
   );
-};
+}

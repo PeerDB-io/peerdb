@@ -13,7 +13,7 @@ interface EventhubsProps {
   setter: PeerSetter;
 }
 
-const EventhubsForm = ({ groupConfig, setter }: EventhubsProps) => {
+export default function EventhubsForm({ groupConfig, setter }: EventhubsProps) {
   const [currConfigForms, setCurrConfigForms] = useState<
     (EventHubConfig & { id: number })[]
   >([]);
@@ -78,6 +78,4 @@ const EventhubsForm = ({ groupConfig, setter }: EventhubsProps) => {
       <ToastContainer containerId={'for eventhubs'} />
     </div>
   );
-};
-
-export default EventhubsForm;
+}

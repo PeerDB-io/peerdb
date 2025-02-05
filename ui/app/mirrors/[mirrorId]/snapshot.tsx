@@ -42,7 +42,7 @@ type SnapshotStatusProps = {
   status: SnapshotStatus;
 };
 
-export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
+export function SnapshotStatusTable({ status }: SnapshotStatusProps) {
   const allTableLoads = status.clones.map(summarizeTableClone);
   const completedTableLoads = allTableLoads.filter(
     (row) => row.cloneTableSummary.consolidateCompleted === true
@@ -72,4 +72,4 @@ export const SnapshotStatusTable = ({ status }: SnapshotStatusProps) => {
       ))}
     </div>
   );
-};
+}

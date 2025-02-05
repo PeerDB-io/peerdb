@@ -2,11 +2,11 @@
 
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
+import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { InfoPopover } from '../InfoPopover';
 
 interface ConfigProps {
   settings: PeerSetting[];

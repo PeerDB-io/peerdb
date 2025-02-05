@@ -10,13 +10,13 @@ import { SetStateAction } from 'react';
 import useSWR from 'swr';
 import { MirrorCardStyle } from './styles';
 
-const MirrorCards = ({
+export default function MirrorCards({
   mirrorType,
   setMirrorType,
 }: {
   mirrorType: MirrorType;
   setMirrorType: (value: SetStateAction<MirrorType>) => void;
-}) => {
+}) {
   const { data: cards, isLoading } = useSWR<
     {
       title: MirrorType;
@@ -77,6 +77,4 @@ const MirrorCards = ({
       </div>
     </RadioButtonGroup>
   );
-};
-
-export default MirrorCards;
+}

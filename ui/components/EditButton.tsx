@@ -5,13 +5,13 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-const EditButton = ({
+export default function EditButton({
   toLink,
   disabled,
 }: {
   toLink: string;
   disabled: boolean;
-}) => {
+}) {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
@@ -36,6 +36,4 @@ const EditButton = ({
       {loading && <ProgressCircle variant='determinate_progress_circle' />}
     </Button>
   );
-};
-
-export default EditButton;
+}

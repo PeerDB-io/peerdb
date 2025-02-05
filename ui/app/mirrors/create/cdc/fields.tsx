@@ -1,12 +1,12 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
+import InfoPopover from '@/components/InfoPopover';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import ReactSelect from 'react-select';
-import { InfoPopover } from '../../../../components/InfoPopover';
 import { MirrorSetting } from '../helpers/common';
 
 interface FieldProps {

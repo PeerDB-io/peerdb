@@ -3,13 +3,13 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import SelectTheme from '@/app/styles/select';
+import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import ReactSelect from 'react-select';
-import { InfoPopover } from '../InfoPopover';
 
 interface ConfigProps {
   settings: PeerSetting[];

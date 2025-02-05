@@ -2,7 +2,7 @@
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 
-const ReloadButton = () => {
+export default function ReloadButton() {
   return (
     <Button
       style={{ backgroundColor: '#30A46C', color: 'white', fontSize: 14 }}
@@ -11,6 +11,4 @@ const ReloadButton = () => {
       Refresh <Icon name='refresh' />
     </Button>
   );
-};
-
-export default ReloadButton;
+}

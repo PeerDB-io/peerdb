@@ -18,12 +18,13 @@ interface UpsertColsProps {
   setter: Dispatch<SetStateAction<QRepConfig>>;
   setting: MirrorSetting;
 }
-const UpsertColsDisplay = ({
+
+export default function UpsertColsDisplay({
   columns,
   loading,
   setter,
   setting,
-}: UpsertColsProps) => {
+}: UpsertColsProps) {
   const [uniqueColumnsSet, setUniqueColumnsSet] = useState<Set<string>>(
     new Set<string>()
   );
@@ -92,6 +93,4 @@ const UpsertColsDisplay = ({
       </div>
     </>
   );
-};
-
-export default UpsertColsDisplay;
+}

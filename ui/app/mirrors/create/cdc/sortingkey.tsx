@@ -30,12 +30,12 @@ interface SortingKeysProps {
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
 
-const SelectSortingKeys = ({
+export default function SelectSortingKeys({
   columns,
   loading,
   tableRow,
   setRows,
-}: SortingKeysProps) => {
+}: SortingKeysProps) {
   const [sortingKeysSelections, setSortingKeysSelections] = useState<string[]>(
     []
   );
@@ -170,6 +170,4 @@ const SelectSortingKeys = ({
       )}
     </div>
   );
-};
-
-export default SelectSortingKeys;
+}
