@@ -578,6 +578,7 @@ func QRepFlowWorkflow(
 		}
 
 		if config.InitialCopyOnly {
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_COMPLETED
 			q.logger.Info("initial copy completed for peer flow")
 			return state, nil
 		}
