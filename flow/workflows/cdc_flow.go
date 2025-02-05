@@ -92,7 +92,7 @@ func processCDCFlowConfigUpdate(
 	}
 	if flowConfigUpdate.UpdatedEnv != nil {
 		if cfg.Env == nil {
-			cfg.Env = make(map[string]string)
+			cfg.Env = make(map[string]string, len(flowConfigUpdate.UpdatedEnv))
 		}
 		maps.Copy(cfg.Env, flowConfigUpdate.UpdatedEnv)
 	}
