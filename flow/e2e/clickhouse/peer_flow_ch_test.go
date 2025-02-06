@@ -903,6 +903,10 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 }
 
 func (s ClickHouseSuite) Test_Column_Exclusion() {
+	if mySource, ok := s.source.(*e2e.MySqlSource); ok && mySource.IsMaria {
+		s.t.Skip("skip maria, testing minimal row metadata on maria")
+	}
+
 	tc := e2e.NewTemporalClient(s.t)
 
 	tableName := "test_exclude_ch"
