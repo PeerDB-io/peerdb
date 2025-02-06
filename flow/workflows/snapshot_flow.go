@@ -106,7 +106,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	dstName := mapping.DestinationTableIdentifier
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
-	childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, dstName, originalRunID)
+	childWorkflowID := fmt.Sprintf("clone_%s_%s_%s", flowName, srcName, originalRunID)
 	childWorkflowID = shared.ReplaceIllegalCharactersWithUnderscores(childWorkflowID)
 
 	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",

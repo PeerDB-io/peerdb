@@ -142,8 +142,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	selector := make([]string, 0, len(dstTableSchema))
 	for _, col := range dstTableSchema {
 		colName := col.Name()
-		if strings.EqualFold(colName, config.SoftDeleteColName) ||
-			strings.EqualFold(colName, signColName) ||
+		if strings.EqualFold(colName, signColName) ||
 			strings.EqualFold(colName, config.SyncedAtColName) ||
 			strings.EqualFold(colName, versionColName) {
 			continue
