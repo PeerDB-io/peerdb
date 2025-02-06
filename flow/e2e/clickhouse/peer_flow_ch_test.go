@@ -763,7 +763,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		c39 TXID_SNAPSHOT,c40 UUID,c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
 		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[]);
 		INSERT INTO %[1]s SELECT 2,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -800,7 +800,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 3,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -827,7 +827,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		UPDATE %[1]s SET c1=3,c32='testery' WHERE id=2;
 		UPDATE %[1]s SET c33=now(),c34=now(),c35=now()::TIME,c36=now()::TIMETZ WHERE id=3;
 		INSERT INTO %[1]s SELECT 4,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -900,4 +900,80 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Column_Exclusion() {
+	if mySource, ok := s.source.(*e2e.MySqlSource); ok && mySource.IsMaria {
+		s.t.Skip("skip maria, testing minimal row metadata on maria")
+	}
+
+	tc := e2e.NewTemporalClient(s.t)
+
+	tableName := "test_exclude_ch"
+	srcFullName := s.attachSchemaSuffix(tableName)
+	dstTableName := tableName
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			c1 INT,
+			c2 INT,
+			t TEXT
+		);
+	`, srcFullName)))
+
+	// insert 5 rows into the source table
+	for i := range 5 {
+		require.NoError(s.t, s.source.Exec(fmt.Sprintf(
+			`INSERT INTO %[1]s(c1,c2,t) VALUES (%[2]d,%[2]d,'test_value_%[2]d')`,
+			srcFullName, i,
+		)))
+	}
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix(tableName),
+		DestinationName: s.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcFullName,
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"c2"},
+			},
+		},
+		SourceName:        s.Source().GeneratePeer(s.t).Name,
+		SyncedAtColName:   "_PEERDB_SYNCED_AT",
+		MaxBatchSize:      100,
+		DoInitialSnapshot: true,
+	}
+
+	// wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+
+	// insert 5 rows into the source table
+	for i := range 5 {
+		e2e.EnvNoError(s.t, env, s.source.Exec(fmt.Sprintf(
+			`INSERT INTO %[1]s(c1,c2,t) VALUES (%[2]d,%[2]d,'test_value_%[2]d')`,
+			srcFullName, i,
+		)))
+	}
+
+	e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1,t")
+	e2e.EnvNoError(s.t, env, s.source.Exec(
+		fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=1`, srcFullName)))
+	e2e.EnvNoError(s.t, env, s.source.Exec(fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, srcFullName)))
+	e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,c1,t")
+
+	env.Cancel()
+
+	e2e.RequireEnvCanceled(s.t, env)
+
+	rows, err := s.GetRows(tableName, "*")
+	require.NoError(s.t, err)
+
+	for _, field := range rows.Schema.Fields {
+		require.NotEqual(s.t, "c2", field.Name)
+	}
+	require.Len(s.t, rows.Schema.Fields, 6)
 }
