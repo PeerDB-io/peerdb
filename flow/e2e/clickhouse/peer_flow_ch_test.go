@@ -975,5 +975,5 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 	for _, field := range rows.Schema.Fields {
 		require.NotEqual(s.t, "c2", field.Name)
 	}
-	require.Len(s.t, rows.Schema.Fields, 5)
+	require.Len(s.t, rows.Schema.Fields, 6)
 }
