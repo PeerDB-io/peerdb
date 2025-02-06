@@ -2,7 +2,7 @@ import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
 import Link from 'next/link';
 
-const NoMirror = () => {
+export default function NoMirror() {
   return (
     <div
       style={{
@@ -23,6 +23,4 @@ const NoMirror = () => {
       </Link>
     </div>
   );
-};
-
-export default NoMirror;
+}

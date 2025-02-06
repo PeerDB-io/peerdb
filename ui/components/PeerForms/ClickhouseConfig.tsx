@@ -1,6 +1,7 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
+import InfoPopover from '@/components/InfoPopover';
 import { Button } from '@/lib/Button/Button';
 import { Icon } from '@/lib/Icon/Icon';
 import { Label } from '@/lib/Label';
@@ -10,7 +11,6 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useState } from 'react';
-import { InfoPopover } from '../InfoPopover';
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;

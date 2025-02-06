@@ -291,15 +291,8 @@ func runBackgroundAlerter(ctx workflow.Context) workflow.CancelFunc {
 	return cancelActivity
 }
 
-func GetPeerDBVersion(wCtx workflow.Context) (string, error) {
-	activityCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
-		StartToCloseTimeout: time.Minute,
-	})
-	getVersionActivity := func(ctx context.Context) (string, error) {
-		return peerdbenv.PeerDBVersionShaShort(), nil
-	}
-	var version string
-	future := workflow.ExecuteLocalActivity(activityCtx, getVersionActivity)
-	err := future.Get(activityCtx, &version)
-	return version, err
+func GetPeerDBVersion(ctx workflow.Context) (string, error) {
+	return GetSideEffect(ctx, func(workflow.Context) string {
+		return peerdbenv.PeerDBVersionShaShort()
+	}), nil
 }

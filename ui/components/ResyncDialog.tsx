@@ -14,7 +14,7 @@ type ResyncDialogProps = {
 
 const resyncDocLink = 'https://docs.peerdb.io/features/resync-mirror';
 
-export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
+export default function ResyncDialog({ mirrorName }: ResyncDialogProps) {
   const [syncing, setSyncing] = useState(false);
   const [msg, setMsg] = useState<{
     msg: string;
@@ -120,4 +120,4 @@ export const ResyncDialog = ({ mirrorName }: ResyncDialogProps) => {
       </div>
     </Dialog>
   );
-};
+}

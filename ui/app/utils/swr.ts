@@ -1,2 +1,4 @@
-export const fetcher = (...args: [any]) =>
-  fetch(...args).then((res) => res.json());
+export async function fetcher(...args: [any]) {
+  const res = await fetch(...args);
+  return res.json();
+}

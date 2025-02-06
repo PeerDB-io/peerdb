@@ -6,7 +6,8 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-export const DBTypeToImageMapping = (peerType: DBType | string) => {
+
+export function DBTypeToImageMapping(peerType: DBType | string) {
   switch (peerType) {
     case 'AZURE FLEXIBLE POSTGRESQL':
       return '/svgs/azurepg.svg';
@@ -59,7 +60,7 @@ export const DBTypeToImageMapping = (peerType: DBType | string) => {
     default:
       return '/svgs/pg.svg';
   }
-};
+}
 
 export default function PeerButton({
   peerName,

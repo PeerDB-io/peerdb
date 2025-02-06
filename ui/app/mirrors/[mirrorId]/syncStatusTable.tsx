@@ -45,7 +45,7 @@ function TimeWithDurationOrRunning({
 }
 
 const ROWS_PER_PAGE = 5;
-export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
+export function SyncStatusTable({ mirrorName }: SyncStatusTableProps) {
   const [totalPages, setTotalPages] = useState(1);
   const [currentPage, setCurrentPage] = useState(1);
   const [ascending, setAscending] = useState(false);
@@ -177,4 +177,4 @@ export const SyncStatusTable = ({ mirrorName }: SyncStatusTableProps) => {
       ))}
     </Table>
   );
-};
+}

@@ -41,6 +41,18 @@ type ValidationConnector interface {
 	ValidateCheck(context.Context) error
 }
 
+type MirrorSourceValidationConnector interface {
+	GetTableSchemaConnector
+
+	ValidateMirrorSource(context.Context, *protos.FlowConnectionConfigs) error
+}
+
+type MirrorDestinationValidationConnector interface {
+	Connector
+
+	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigs, map[string]*protos.TableSchema) error
+}
+
 type GetTableSchemaConnector interface {
 	Connector
 
@@ -556,6 +568,11 @@ var (
 	_ ValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
+
+	_ MirrorSourceValidationConnector = &connpostgres.PostgresConnector{}
+	_ MirrorSourceValidationConnector = &connmysql.MySqlConnector{}
+
+	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}

@@ -7,6 +7,7 @@ import {
   sshSetter,
   sshSetting,
 } from '@/app/peers/create/[peerType]/helpers/pg';
+import InfoPopover from '@/components/InfoPopover';
 import { SSHConfig } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
@@ -15,7 +16,6 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { InfoPopover } from '../InfoPopover';
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;

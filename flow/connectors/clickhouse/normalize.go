@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
@@ -230,9 +229,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
 ) (model.NormalizeResponse, error) {
-	// fix for potential consistency issues
-	time.Sleep(3 * time.Second)
-
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", "error", err)
