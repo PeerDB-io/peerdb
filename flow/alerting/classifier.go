@@ -137,6 +137,8 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 			return ErrorNotifyConnectivity
 		case "42P01": // undefined_table
 			return ErrorNotifyConnectivity
+		case "42501": // insufficient_privilege
+			return ErrorNotifyConnectivity
 		case "57P01": // admin_shutdown
 			return ErrorNotifyTerminate
 		case "57P03": // cannot_connect_now
