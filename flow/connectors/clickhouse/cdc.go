@@ -148,7 +148,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(
-				fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name, addedColumn.Type),
+				fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name, clickHouseColType),
 				"destination table name", schemaDelta.DstTableName,
 				"source table name", schemaDelta.SrcTableName)
 		}
