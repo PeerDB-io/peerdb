@@ -176,27 +176,40 @@ func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]strin
 }
 
 // SEE ALSO: QField ToDWHColumnType
-func (kind QValueKind) ToDWHColumnType(ctx context.Context, env map[string]string, dwhType protos.DBType, column *protos.FieldDescription,
+func (kind QValueKind) ToDWHColumnType(
+	ctx context.Context, env map[string]string, dwhType protos.DBType, column *protos.FieldDescription, nullableEnabled bool,
 ) (string, error) {
+	var colType string
 	switch dwhType {
 	case protos.DBType_SNOWFLAKE:
 		if kind == QValueKindNumeric {
 			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.SnowflakeNumericCompatibility{})
-			return fmt.Sprintf("NUMERIC(%d,%d)", precision, scale), nil
+			colType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		} else if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
-			return val, nil
+			colType = val
 		} else {
-			return "STRING", nil
+			colType = "STRING"
+		}
+		if nullableEnabled && !column.Nullable {
+			colType += " NOT NULL"
 		}
 	case protos.DBType_CLICKHOUSE:
 		if kind == QValueKindNumeric {
-			return getClickHouseTypeForNumericColumn(ctx, env, column)
+			var err error
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column)
+			if err != nil {
+				return "", err
+			}
 		} else if val, ok := QValueKindToClickHouseTypeMap[kind]; ok {
-			return val, nil
+			colType = val
 		} else {
-			return "String", nil
+			colType = "String"
+		}
+		if nullableEnabled && column.Nullable && !kind.IsArray() {
+			colType = fmt.Sprintf("Nullable(%s)", colType)
 		}
 	default:
 		return "", fmt.Errorf("unknown dwh type: %v", dwhType)
 	}
+	return colType, nil
 }
