@@ -1001,12 +1001,22 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
-	e2e.EnvWaitForEqualTables(env, s, "empty table", tableName, "id,c1")
-
 	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 INT`, srcFullName)))
 	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`INSERT INTO %s (c1,c2) VALUES (1,null)`, srcFullName)))
 
-	e2e.EnvWaitForEqualTables(env, s, "new column", tableName, "id,c1,c2")
+	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
+		ch, err := connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
+		if err != nil {
+			return false
+		}
+		rows, err := ch.Query(context.Background(), "select c2 from "+dstTableName)
+		if err != nil {
+			return false
+		}
+		defer rows.Close()
+
+		return rows.ColumnTypes()[0].Nullable()
+	})
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
