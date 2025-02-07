@@ -140,7 +140,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 			return nil, err
 		}
 		qrow := make([]qvalue.QValue, 0, len(row))
-		for _, val := range row {
+		for idx, val := range row {
+			s.t.Log("QQQ", batch.Schema.Fields[idx].Name, batch.Schema.Fields[idx].Nullable, fmt.Sprintf("%T", val), val)
 			switch v := val.(type) {
 			case **string:
 				if *v == nil {
