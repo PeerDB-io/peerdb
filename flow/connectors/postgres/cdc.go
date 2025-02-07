@@ -928,8 +928,7 @@ func processRelationMessage[Items model.Items](
 					Type:         currRelMap[column.Name],
 					TypeModifier: column.TypeModifier,
 					Nullable:     column.Flags == 0, // pg does not send nullable info, only whether column is part of primary key
-				},
-				)
+				})
 			}
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
