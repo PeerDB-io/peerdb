@@ -23,6 +23,10 @@ func LoggerFromCtx(ctx context.Context) log.Logger {
 		logger = log.With(logger, string(FlowNameKey), flowName)
 	}
 
+	if flowMetadata := GetFlowMetadata(ctx); flowMetadata != nil {
+		logger = log.With(logger, string(FlowMetadataKey), flowMetadata)
+	}
+
 	return logger
 }
 
