@@ -131,6 +131,8 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
+		case "28000": // invalid_authorization_specification
+			return ErrorNotifyConnectivity
 		case "28P01": // invalid_password
 			return ErrorNotifyConnectivity
 		case "42P01": // undefined_table
