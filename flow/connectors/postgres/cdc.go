@@ -912,10 +912,11 @@ func processRelationMessage[Items model.Items](
 	}
 
 	schemaDelta := &protos.TableSchemaDelta{
-		SrcTableName: p.srcTableIDNameMapping[currRel.RelationID],
-		DstTableName: p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
-		AddedColumns: nil,
-		System:       prevSchema.System,
+		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
+		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
+		AddedColumns:    nil,
+		System:          prevSchema.System,
+		NullableEnabled: prevSchema.NullableEnabled,
 	}
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
@@ -926,8 +927,8 @@ func processRelationMessage[Items model.Items](
 					Name:         column.Name,
 					Type:         currRelMap[column.Name],
 					TypeModifier: column.TypeModifier,
-				},
-				)
+					Nullable:     column.Flags == 0, // pg does not send nullable info, only whether column is part of primary key
+				})
 			}
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.

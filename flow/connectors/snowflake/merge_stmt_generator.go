@@ -35,7 +35,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[stri
 	for _, column := range columns {
 		genericColumnType := column.Type
 		qvKind := qvalue.QValueKind(genericColumnType)
-		sfType, err := qvKind.ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE, column)
+		sfType, err := qvKind.ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE, column, normalizedTableSchema.NullableEnabled)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}

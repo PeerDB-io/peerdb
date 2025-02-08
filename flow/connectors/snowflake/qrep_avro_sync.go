@@ -169,7 +169,7 @@ func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 		}
 
 		for _, column := range newColumns {
-			sfColType, err := column.ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE)
+			sfColType, err := column.ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE, false)
 			if err != nil {
 				return fmt.Errorf("failed to convert QValueKind to Snowflake column type: %w", err)
 			}

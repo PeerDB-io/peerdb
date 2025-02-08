@@ -129,13 +129,12 @@ func generateCreateTableSQLForNormalizedTable(
 
 		if clickHouseType == "" {
 			var err error
-			clickHouseType, err = colType.ToDWHColumnType(ctx, config.Env, protos.DBType_CLICKHOUSE, column)
+			clickHouseType, err = colType.ToDWHColumnType(
+				ctx, config.Env, protos.DBType_CLICKHOUSE, column, tableSchema.NullableEnabled || columnNullableEnabled,
+			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
 			}
-		}
-		if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
-			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 		}
 
 		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
@@ -361,14 +360,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
 				if clickHouseType == "" {
 					var err error
-					clickHouseType, err = colType.ToDWHColumnType(ctx, req.Env, protos.DBType_CLICKHOUSE, column)
+					clickHouseType, err = colType.ToDWHColumnType(
+						ctx, req.Env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
+					)
 					if err != nil {
 						close(queries)
 						return model.NormalizeResponse{}, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
-					}
-
-					if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
-						clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 					}
 				}
 

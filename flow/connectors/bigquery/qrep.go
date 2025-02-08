@@ -78,8 +78,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 				Name:         col.Name,
 				Type:         string(col.Type),
 				TypeModifier: datatypes.MakeNumericTypmod(int32(col.Precision), int32(col.Scale)),
-			},
-			)
+			})
 		}
 	}
 
