@@ -75,7 +75,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
-				conn.SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13})
+				conn.SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: true})
 			}
 			return nil
 		}}
