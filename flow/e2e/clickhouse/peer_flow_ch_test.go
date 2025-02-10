@@ -274,6 +274,10 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 }
 
 func (s ClickHouseSuite) Test_Date32() {
+	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
 	srcTableName := "test_date32"
 	srcFullName := s.attachSchemaSuffix("test_date32")
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
@@ -283,13 +287,16 @@ func (s ClickHouseSuite) Test_Date32() {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			"key" TEXT NOT NULL,
-			d DATE NOT NULL
+			d DATE NOT NULL,
+			dt DATETIME NOT NULL,
+			tm TIMESTAMP(6) NOT NULL,
+			t TIME NOT NULL
 		);
 	`, quotedSrcFullName)))
 
-	require.NoError(s.t, s.source.Exec(
-		fmt.Sprintf(`INSERT INTO %s ("key",d) VALUES ('init','1935-01-01')`, quotedSrcFullName),
-	))
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(
+		`INSERT INTO %s ("key",d,dt,tm,t) VALUES ('init','1935-01-01','1953-02-02 12:01','1973-02-02 13:01.123','14:21.654321')`,
+		quotedSrcFullName)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_date32"),
@@ -303,13 +310,13 @@ func (s ClickHouseSuite) Test_Date32() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",d")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
 
-	require.NoError(s.t, s.source.Exec(
-		fmt.Sprintf(`INSERT INTO %s ("key",d) VALUES ('cdc','1935-01-01')`, quotedSrcFullName),
-	))
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(
+		`INSERT INTO %s ("key",d,dt,tm,t) VALUES ('init','1935-01-01','1953-02-02 12:01.123','1953-02-02 13:01','14:21.654321')`,
+		quotedSrcFullName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)
@@ -741,7 +748,7 @@ func (s ClickHouseSuite) Test_Binary_Format_Base64() {
 
 func (s ClickHouseSuite) Test_Types_CH() {
 	if _, ok := s.source.(*e2e.PostgresSource); !ok {
-		s.t.Skip("only applies to mysql")
+		s.t.Skip("only applies to postgres")
 	}
 
 	srcTableName := "test_types"

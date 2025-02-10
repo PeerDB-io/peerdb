@@ -85,7 +85,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := conn.Execute("SET sql_mode = ANSI"); err != nil {
+		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
 			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
 		}
 	}
