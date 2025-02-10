@@ -396,26 +396,30 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 
 	schema := make([]qvalue.QField, 0, len(fields))
 	for _, field := range fields {
-		qkind, err := qkindFromMysql(field)
-		if err != nil {
-			return qvalue.QRecordSchema{}, err
-		}
-
-		qf := qvalue.QField{
-			Name:      string(field.Name),
-			Type:      qkind,
-			Precision: 0,
-			Scale:     0,
-			Nullable:  (field.Flag & mysql.NOT_NULL_FLAG) == 0,
-		}
-
-		if qkind == qvalue.QValueKindNumeric {
-			if col, ok := tableColumns[qf.Name]; ok {
-				qf.Precision, qf.Scale = datatypes.ParseNumericTypmod(col.TypeModifier)
+		var precision int16
+		var scale int16
+		name := string(field.Name)
+		var qkind qvalue.QValueKind
+		if col, ok := tableColumns[name]; ok {
+			qkind = qvalue.QValueKind(col.Type)
+			if qkind == qvalue.QValueKindNumeric {
+				precision, scale = datatypes.ParseNumericTypmod(col.TypeModifier)
+			}
+		} else {
+			var err error
+			qkind, err = qkindFromMysql(field)
+			if err != nil {
+				return qvalue.QRecordSchema{}, err
 			}
 		}
 
-		schema = append(schema, qf)
+		schema = append(schema, qvalue.QField{
+			Name:      name,
+			Type:      qkind,
+			Precision: precision,
+			Scale:     scale,
+			Nullable:  (field.Flag & mysql.NOT_NULL_FLAG) == 0,
+		})
 	}
 	return qvalue.QRecordSchema{Fields: schema}, nil
 }
