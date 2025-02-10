@@ -505,7 +505,9 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 	case nil:
 		return qvalue.QValueNull(qkind), nil
 	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
-		if qkind == qvalue.QValueKindUInt8 {
+		if qkind == qvalue.QValueKindBoolean {
+			return qvalue.QValueBoolean{Val: val != 0}, nil
+		} else if qkind == qvalue.QValueKindUInt8 {
 			return qvalue.QValueUInt8{Val: uint8(val)}, nil
 		} else {
 			return qvalue.QValueInt8{Val: val}, nil

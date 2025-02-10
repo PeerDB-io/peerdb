@@ -335,7 +335,7 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 
 func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
-	ct, _, _ = strings.Cut(ct, "(")
+	ct, param, _ := strings.Cut(ct, "(")
 	switch ct {
 	case "json":
 		return qvalue.QValueKindJSON, nil
@@ -358,7 +358,9 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 	case "double":
 		return qvalue.QValueKindFloat64, nil
 	case "tinyint":
-		if isUnsigned {
+		if strings.HasPrefix(param, "1)") {
+			return qvalue.QValueKindBoolean, nil
+		} else if isUnsigned {
 			return qvalue.QValueKindUInt8, nil
 		} else {
 			return qvalue.QValueKindInt8, nil
@@ -424,6 +426,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		return qvalue.QValueNull(qkind), nil
 	case uint64:
 		switch qkind {
+		case qvalue.QValueKindBoolean:
+			return qvalue.QValueBoolean{Val: v != 0}, nil
 		case qvalue.QValueKindInt8:
 			return qvalue.QValueInt8{Val: int8(v)}, nil
 		case qvalue.QValueKindInt16:
@@ -445,6 +449,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		}
 	case int64:
 		switch qkind {
+		case qvalue.QValueKindBoolean:
+			return qvalue.QValueBoolean{Val: v != 0}, nil
 		case qvalue.QValueKindInt8:
 			return qvalue.QValueInt8{Val: int8(v)}, nil
 		case qvalue.QValueKindInt16:
