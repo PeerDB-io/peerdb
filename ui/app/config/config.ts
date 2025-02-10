@@ -1,4 +1,4 @@
-export var Configuration = {
+export const Configuration = {
   authentication: {
     PEERDB_PASSWORD: process.env.PEERDB_PASSWORD,
     // Set this in production to a static value
