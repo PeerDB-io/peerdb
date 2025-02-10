@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/client"
@@ -15,6 +16,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -186,7 +188,8 @@ func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
 		return gtid_mode == "ON", nil
 	} else {
 		// mariadb always enabled: https://mariadb.com/kb/en/gtid/#using-global-transaction-ids
-		return true, nil
+		// doesn't seem to work so disabling for now
+		return false, nil
 	}
 }
 
@@ -202,6 +205,7 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 	showBinlogStatus := "SHOW BINARY LOG STATUS"
 	masterReplaced := "8.4.0" // https://dev.mysql.com/doc/relnotes/mysql/8.4/en/news-8-4-0.html
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		showBinlogStatus = "SHOW BINLOG STATUS"
 		masterReplaced = "10.5.2" // https://mariadb.com/kb/en/show-binlog-status
 	}
 	if eq, err := c.CompareServerVersion(ctx, masterReplaced); err == nil && eq < 0 {
@@ -252,28 +256,40 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 }
 
 func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
+	unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
 	switch field.Type {
-	case mysql.MYSQL_TYPE_DECIMAL:
-		return qvalue.QValueKindNumeric, nil
 	case mysql.MYSQL_TYPE_TINY:
-		return qvalue.QValueKindInt16, nil // TODO qvalue.QValueKindInt8
+		if unsigned {
+			return qvalue.QValueKindUInt8, nil
+		} else {
+			return qvalue.QValueKindInt8, nil
+		}
 	case mysql.MYSQL_TYPE_SHORT:
-		return qvalue.QValueKindInt16, nil
-	case mysql.MYSQL_TYPE_LONG:
-		return qvalue.QValueKindInt32, nil
+		if unsigned {
+			return qvalue.QValueKindUInt16, nil
+		} else {
+			return qvalue.QValueKindInt16, nil
+		}
+	case mysql.MYSQL_TYPE_INT24, mysql.MYSQL_TYPE_LONG:
+		if unsigned {
+			return qvalue.QValueKindUInt32, nil
+		} else {
+			return qvalue.QValueKindInt32, nil
+		}
+	case mysql.MYSQL_TYPE_LONGLONG:
+		if unsigned {
+			return qvalue.QValueKindUInt64, nil
+		} else {
+			return qvalue.QValueKindInt64, nil
+		}
 	case mysql.MYSQL_TYPE_FLOAT:
 		return qvalue.QValueKindFloat32, nil
 	case mysql.MYSQL_TYPE_DOUBLE:
 		return qvalue.QValueKindFloat64, nil
 	case mysql.MYSQL_TYPE_NULL:
-		// TODO qvalue.QValueKindNothing, but don't think this can actually be column type
 		return qvalue.QValueKindInvalid, nil
 	case mysql.MYSQL_TYPE_TIMESTAMP:
 		return qvalue.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_LONGLONG:
-		return qvalue.QValueKindInt64, nil
-	case mysql.MYSQL_TYPE_INT24:
-		return qvalue.QValueKindInt32, nil
 	case mysql.MYSQL_TYPE_DATE:
 		return qvalue.QValueKindDate, nil
 	case mysql.MYSQL_TYPE_TIME:
@@ -296,12 +312,12 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 		return qvalue.QValueKindTime, nil
 	case mysql.MYSQL_TYPE_JSON:
 		return qvalue.QValueKindJSON, nil
-	case mysql.MYSQL_TYPE_NEWDECIMAL:
+	case mysql.MYSQL_TYPE_DECIMAL, mysql.MYSQL_TYPE_NEWDECIMAL:
 		return qvalue.QValueKindNumeric, nil
 	case mysql.MYSQL_TYPE_ENUM:
-		return qvalue.QValueKindInt64, nil
+		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_SET:
-		return qvalue.QValueKindInt64, nil
+		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_TINY_BLOB, mysql.MYSQL_TYPE_MEDIUM_BLOB, mysql.MYSQL_TYPE_LONG_BLOB, mysql.MYSQL_TYPE_BLOB:
 		if field.Charset == 0x3f { // binary https://dev.mysql.com/doc/dev/mysql-server/8.4.3/page_protocol_basic_character_set.html
 			return qvalue.QValueKindBytes, nil
@@ -317,7 +333,65 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 	}
 }
 
-func QRecordSchemaFromMysqlFields(fields []*mysql.Field) (qvalue.QRecordSchema, error) {
+func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
+	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
+	ct, _, _ = strings.Cut(ct, "(")
+	switch ct {
+	case "json":
+		return qvalue.QValueKindJSON, nil
+	case "char", "varchar", "text", "enum", "set":
+		return qvalue.QValueKindString, nil
+	case "binary", "varbinary", "blob":
+		return qvalue.QValueKindBytes, nil
+	case "date":
+		return qvalue.QValueKindDate, nil
+	case "time":
+		return qvalue.QValueKindTime, nil
+	case "datetime":
+		return qvalue.QValueKindTimestamp, nil
+	case "timestamp":
+		return qvalue.QValueKindTimestamp, nil
+	case "decimal", "numeric":
+		return qvalue.QValueKindNumeric, nil
+	case "float":
+		return qvalue.QValueKindFloat32, nil
+	case "double":
+		return qvalue.QValueKindFloat64, nil
+	case "tinyint":
+		if isUnsigned {
+			return qvalue.QValueKindUInt8, nil
+		} else {
+			return qvalue.QValueKindInt8, nil
+		}
+	case "smallint", "year":
+		if isUnsigned {
+			return qvalue.QValueKindUInt16, nil
+		} else {
+			return qvalue.QValueKindInt16, nil
+		}
+	case "mediumint", "int":
+		if isUnsigned {
+			return qvalue.QValueKindUInt32, nil
+		} else {
+			return qvalue.QValueKindInt32, nil
+		}
+	case "bigint", "bit":
+		if isUnsigned {
+			return qvalue.QValueKindUInt64, nil
+		} else {
+			return qvalue.QValueKindInt64, nil
+		}
+	default:
+		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
+	}
+}
+
+func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mysql.Field) (qvalue.QRecordSchema, error) {
+	tableColumns := make(map[string]*protos.FieldDescription, len(tableSchema.Columns))
+	for _, col := range tableSchema.Columns {
+		tableColumns[col.Name] = col
+	}
+
 	schema := make([]qvalue.QField, 0, len(fields))
 	for _, field := range fields {
 		qkind, err := qkindFromMysql(field)
@@ -325,42 +399,68 @@ func QRecordSchemaFromMysqlFields(fields []*mysql.Field) (qvalue.QRecordSchema, 
 			return qvalue.QRecordSchema{}, err
 		}
 
-		schema = append(schema, qvalue.QField{
+		qf := qvalue.QField{
 			Name:      string(field.Name),
 			Type:      qkind,
-			Precision: 0, // TODO numerics
-			Scale:     0, // TODO numerics
+			Precision: 0,
+			Scale:     0,
 			Nullable:  (field.Flag & mysql.NOT_NULL_FLAG) == 0,
-		})
+		}
+
+		if qkind == qvalue.QValueKindNumeric {
+			if col, ok := tableColumns[qf.Name]; ok {
+				qf.Precision, qf.Scale = datatypes.ParseNumericTypmod(col.TypeModifier)
+			}
+		}
+
+		schema = append(schema, qf)
 	}
 	return qvalue.QRecordSchema{Fields: schema}, nil
 }
 
 func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
-	// TODO fill this in, maybe contribute upstream, figure out how numeric etc fit in
 	switch v := fv.Value().(type) {
 	case nil:
 		return qvalue.QValueNull(qkind), nil
 	case uint64:
-		// TODO unsigned integers
 		switch qkind {
+		case qvalue.QValueKindInt8:
+			return qvalue.QValueInt8{Val: int8(v)}, nil
 		case qvalue.QValueKindInt16:
 			return qvalue.QValueInt16{Val: int16(v)}, nil
 		case qvalue.QValueKindInt32:
 			return qvalue.QValueInt32{Val: int32(v)}, nil
 		case qvalue.QValueKindInt64:
 			return qvalue.QValueInt64{Val: int64(v)}, nil
+		case qvalue.QValueKindUInt8:
+			return qvalue.QValueUInt8{Val: uint8(v)}, nil
+		case qvalue.QValueKindUInt16:
+			return qvalue.QValueUInt16{Val: uint16(v)}, nil
+		case qvalue.QValueKindUInt32:
+			return qvalue.QValueUInt32{Val: uint32(v)}, nil
+		case qvalue.QValueKindUInt64:
+			return qvalue.QValueUInt64{Val: v}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert uint64 to %s", qkind)
 		}
 	case int64:
 		switch qkind {
+		case qvalue.QValueKindInt8:
+			return qvalue.QValueInt8{Val: int8(v)}, nil
 		case qvalue.QValueKindInt16:
 			return qvalue.QValueInt16{Val: int16(v)}, nil
 		case qvalue.QValueKindInt32:
 			return qvalue.QValueInt32{Val: int32(v)}, nil
 		case qvalue.QValueKindInt64:
 			return qvalue.QValueInt64{Val: v}, nil
+		case qvalue.QValueKindUInt8:
+			return qvalue.QValueUInt8{Val: uint8(v)}, nil
+		case qvalue.QValueKindUInt16:
+			return qvalue.QValueUInt16{Val: uint16(v)}, nil
+		case qvalue.QValueKindUInt32:
+			return qvalue.QValueUInt32{Val: uint32(v)}, nil
+		case qvalue.QValueKindUInt64:
+			return qvalue.QValueUInt64{Val: uint64(v)}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert int64 to %s", qkind)
 		}

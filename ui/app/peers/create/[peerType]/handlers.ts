@@ -6,6 +6,7 @@ import {
   ElasticsearchConfig,
   EventHubGroupConfig,
   KafkaConfig,
+  MySqlConfig,
   Peer,
   PostgresConfig,
   PubSubConfig,
@@ -30,6 +31,7 @@ import {
   ehGroupSchema,
   esSchema,
   kaSchema,
+  mySchema,
   peerNameSchema,
   pgSchema,
   psSchema,
@@ -48,6 +50,12 @@ function constructPeer(
         name,
         type: DBType.POSTGRES,
         postgresConfig: config as PostgresConfig,
+      };
+    case 'MYSQL':
+      return {
+        name,
+        type: DBType.MYSQL,
+        mysqlConfig: config as MySqlConfig,
       };
     case 'SNOWFLAKE':
       return {
@@ -138,6 +146,10 @@ const validateFields = async (
       const pgConfig = pgSchema.safeParse(config);
       if (!pgConfig.success) validationErr = pgConfig.error.issues[0].message;
       break;
+    case 'MYSQL':
+      const myConfig = mySchema.safeParse(config);
+      if (!myConfig.success) validationErr = myConfig.error.issues[0].message;
+      break;
     case 'SNOWFLAKE':
       const sfConfig = sfSchema.safeParse(config);
       if (!sfConfig.success) validationErr = sfConfig.error.issues[0].message;
@@ -211,12 +223,12 @@ export const handleValidate = async (
   setLoading(false);
 };
 
-const S3Validation = (config: S3Config): string => {
+function S3Validation(config: S3Config): string {
   if (!config.secretAccessKey && !config.accessKeyId && !config.roleArn) {
     return 'Either both access key and secret or role ARN is required';
   }
   return '';
-};
+}
 
 // API call to create peer
 export async function handleCreate(

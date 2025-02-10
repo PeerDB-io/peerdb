@@ -506,6 +506,10 @@ func QRepFlowWorkflow(
 		return state, err
 	}
 
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {
+		return state, nil
+	}
+
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 	q := newQRepFlowExecution(ctx, config, originalRunID)
 
@@ -579,7 +583,8 @@ func QRepFlowWorkflow(
 
 		if config.InitialCopyOnly {
 			q.logger.Info("initial copy completed for peer flow")
-			return state, nil
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_COMPLETED
+			return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 		}
 
 		if err := q.handleTableRenameForResync(ctx, state); err != nil {

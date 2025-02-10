@@ -108,9 +108,6 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	if errors.As(err, &exception) {
 		switch exception.Code {
 		case 241: // MEMORY_LIMIT_EXCEEDED
-			if isClickHouseMvError(exception) {
-				return ErrorNotifyMVOrView
-			}
 			return ErrorNotifyOOM
 		case 349: // CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN
 			if isClickHouseMvError(exception) {
@@ -134,9 +131,13 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
+		case "28000": // invalid_authorization_specification
+			return ErrorNotifyConnectivity
 		case "28P01": // invalid_password
 			return ErrorNotifyConnectivity
 		case "42P01": // undefined_table
+			return ErrorNotifyConnectivity
+		case "42501": // insufficient_privilege
 			return ErrorNotifyConnectivity
 		case "57P01": // admin_shutdown
 			return ErrorNotifyTerminate

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react';
 import { getSlotData, SlotNameDisplay } from './helpers';
 import { tableStyle } from './style';
 
-const SlotTable = ({ peerName }: { peerName: string }) => {
+export default function SlotTable({ peerName }: { peerName: string }) {
   const [data, setData] = useState<SlotInfo[]>([]);
 
   useEffect(() => {
@@ -85,6 +85,4 @@ const SlotTable = ({ peerName }: { peerName: string }) => {
       </div>
     </div>
   );
-};
-
-export default SlotTable;
+}

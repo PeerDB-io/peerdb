@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
@@ -130,13 +129,12 @@ func generateCreateTableSQLForNormalizedTable(
 
 		if clickHouseType == "" {
 			var err error
-			clickHouseType, err = colType.ToDWHColumnType(ctx, config.Env, protos.DBType_CLICKHOUSE, column)
+			clickHouseType, err = colType.ToDWHColumnType(
+				ctx, config.Env, protos.DBType_CLICKHOUSE, column, tableSchema.NullableEnabled || columnNullableEnabled,
+			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
 			}
-		}
-		if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
-			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 		}
 
 		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
@@ -230,9 +228,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
 ) (model.NormalizeResponse, error) {
-	// fix for potential consistency issues
-	time.Sleep(3 * time.Second)
-
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
 		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", "error", err)
@@ -365,14 +360,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
 				if clickHouseType == "" {
 					var err error
-					clickHouseType, err = colType.ToDWHColumnType(ctx, req.Env, protos.DBType_CLICKHOUSE, column)
+					clickHouseType, err = colType.ToDWHColumnType(
+						ctx, req.Env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
+					)
 					if err != nil {
 						close(queries)
 						return model.NormalizeResponse{}, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
-					}
-
-					if (schema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
-						clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 					}
 				}
 

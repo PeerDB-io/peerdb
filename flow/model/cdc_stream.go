@@ -89,8 +89,10 @@ func (r *CDCStream[T]) SignalAsNotEmpty() {
 }
 
 func (r *CDCStream[T]) WaitAndCheckEmpty() bool {
-	isEmpty := <-r.emptySignal
-	return isEmpty
+	// if ok is false Close was called before SignalAsEmpty or SignalAsNotEmpty were called,
+	// such a scenario is best treated as stream being empty
+	isEmpty, ok := <-r.emptySignal
+	return isEmpty || !ok
 }
 
 func (r *CDCStream[T]) Close() {

@@ -1,25 +1,37 @@
 'use client';
+
 import { PeerSetter } from '@/app/dto/PeersDTO';
-import { kaSetting } from '@/app/peers/create/[peerType]/helpers/ka';
+import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import SelectTheme from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
-import { Switch } from '@/lib/Switch/Switch';
+import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import ReactSelect from 'react-select';
 
-interface KafkaProps {
+interface ConfigProps {
+  settings: PeerSetting[];
   setter: PeerSetter;
 }
 
-export default function KafkaForm({ setter }: KafkaProps) {
+export default function MySqlForm({ settings, setter }: ConfigProps) {
+  const handleSwitchChange = (val: string | boolean, setting: PeerSetting) => {
+    setting.stateHandler(val, setter);
+  };
+  const handleTextFieldChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setting: PeerSetting
+  ) => {
+    setting.stateHandler(e.target.value, setter);
+  };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', rowGap: '0.5rem' }}>
-      {kaSetting.map((setting, index) => {
-        return setting.type === 'switch' ? (
+    <>
+      {settings.map((setting, id) => {
+        return setting.type == 'switch' ? (
           <RowWithSwitch
+            key={id}
             label={
               <Label>
                 {setting.label}{' '}
@@ -36,10 +48,10 @@ export default function KafkaForm({ setter }: KafkaProps) {
               </Label>
             }
             action={
-              <div style={{ display: 'flex', alignItems: 'center' }}>
+              <div>
                 <Switch
                   onCheckedChange={(state: boolean) =>
-                    setting.stateHandler(state, setter)
+                    handleSwitchChange(state, setting)
                   }
                 />
                 {setting.tips && (
@@ -50,11 +62,15 @@ export default function KafkaForm({ setter }: KafkaProps) {
           />
         ) : setting.type === 'select' ? (
           <RowWithSelect
-            key={index}
+            key={id}
             label={<Label>{setting.label}</Label>}
             action={
               <ReactSelect
                 placeholder={setting.placeholder}
+                defaultValue={
+                  setting.options &&
+                  setting.options.find((x) => x.value === setting.default)
+                }
                 onChange={(val) =>
                   val && setting.stateHandler(val.value, setter)
                 }
@@ -65,14 +81,14 @@ export default function KafkaForm({ setter }: KafkaProps) {
           />
         ) : (
           <RowWithTextField
-            key={index}
+            key={id}
             label={
               <Label>
                 {setting.label}{' '}
                 {!setting.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -99,7 +115,7 @@ export default function KafkaForm({ setter }: KafkaProps) {
                   type={setting.type}
                   defaultValue={setting.default}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setting.stateHandler(e.target.value, setter)
+                    handleTextFieldChange(e, setting)
                   }
                 />
                 {setting.tips && (
@@ -110,6 +126,6 @@ export default function KafkaForm({ setter }: KafkaProps) {
           />
         );
       })}
-    </div>
+    </>
   );
 }

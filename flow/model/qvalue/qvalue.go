@@ -81,6 +81,22 @@ func (v QValueFloat64) LValue(ls *lua.LState) lua.LValue {
 	return lua.LNumber(v.Val)
 }
 
+type QValueInt8 struct {
+	Val int8
+}
+
+func (QValueInt8) Kind() QValueKind {
+	return QValueKindInt8
+}
+
+func (v QValueInt8) Value() any {
+	return v.Val
+}
+
+func (v QValueInt8) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNumber(v.Val)
+}
+
 type QValueInt16 struct {
 	Val int16
 }
@@ -127,6 +143,70 @@ func (v QValueInt64) Value() any {
 
 func (v QValueInt64) LValue(ls *lua.LState) lua.LValue {
 	return glua64.I64.New(ls, v.Val)
+}
+
+type QValueUInt8 struct {
+	Val uint8
+}
+
+func (QValueUInt8) Kind() QValueKind {
+	return QValueKindUInt8
+}
+
+func (v QValueUInt8) Value() any {
+	return v.Val
+}
+
+func (v QValueUInt8) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNumber(v.Val)
+}
+
+type QValueUInt16 struct {
+	Val uint16
+}
+
+func (QValueUInt16) Kind() QValueKind {
+	return QValueKindUInt16
+}
+
+func (v QValueUInt16) Value() any {
+	return v.Val
+}
+
+func (v QValueUInt16) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNumber(v.Val)
+}
+
+type QValueUInt32 struct {
+	Val uint32
+}
+
+func (QValueUInt32) Kind() QValueKind {
+	return QValueKindUInt32
+}
+
+func (v QValueUInt32) Value() any {
+	return v.Val
+}
+
+func (v QValueUInt32) LValue(ls *lua.LState) lua.LValue {
+	return lua.LNumber(v.Val)
+}
+
+type QValueUInt64 struct {
+	Val uint64
+}
+
+func (QValueUInt64) Kind() QValueKind {
+	return QValueKindUInt64
+}
+
+func (v QValueUInt64) Value() any {
+	return v.Val
+}
+
+func (v QValueUInt64) LValue(ls *lua.LState) lua.LValue {
+	return glua64.U64.New(ls, v.Val)
 }
 
 type QValueBoolean struct {

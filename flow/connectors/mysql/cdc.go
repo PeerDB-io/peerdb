@@ -17,6 +17,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -61,27 +62,53 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	rs, err := c.Execute(ctx, fmt.Sprintf("select * from %s limit 0", schemaTable.MySQL()))
+	rs, err := c.Execute(ctx, `select column_name, column_type, column_key, is_nullable, numeric_precision, numeric_scale
+	from information_schema.columns
+	where table_schema = ? and table_name = ? order by ordinal_position`, schemaTable.Schema, schemaTable.Table)
 	if err != nil {
 		return nil, err
 	}
-	columns := make([]*protos.FieldDescription, 0, len(rs.Values))
+	columns := make([]*protos.FieldDescription, 0, rs.RowNumber())
 	primary := make([]string, 0)
 
-	for _, field := range rs.Fields {
-		qkind, err := qkindFromMysql(field)
+	for idx := range rs.RowNumber() {
+		columnName, err := rs.GetString(idx, 0)
+		if err != nil {
+			return nil, err
+		}
+		dataType, err := rs.GetString(idx, 1)
+		if err != nil {
+			return nil, err
+		}
+		columnKey, err := rs.GetString(idx, 2)
+		if err != nil {
+			return nil, err
+		}
+		isNullable, err := rs.GetString(idx, 3)
+		if err != nil {
+			return nil, err
+		}
+		numericPrecision, err := rs.GetInt(idx, 4)
+		if err != nil {
+			return nil, err
+		}
+		numericScale, err := rs.GetInt(idx, 5)
+		if err != nil {
+			return nil, err
+		}
+		qkind, err := qkindFromMysqlColumnType(dataType)
 		if err != nil {
 			return nil, err
 		}
 
 		column := &protos.FieldDescription{
-			Name:         string(field.Name),
+			Name:         columnName,
 			Type:         string(qkind),
-			TypeModifier: 0, // TODO numeric precision info
-			Nullable:     (field.Flag & mysql.NOT_NULL_FLAG) == 0,
+			TypeModifier: datatypes.MakeNumericTypmod(int32(numericPrecision), int32(numericScale)),
+			Nullable:     isNullable == "YES",
 		}
-		if (field.Flag & mysql.PRI_KEY_FLAG) != 0 {
-			primary = append(primary, column.Name)
+		if columnKey == "PRI" {
+			primary = append(primary, columnName)
 		}
 		columns = append(columns, column)
 	}
@@ -264,6 +291,13 @@ func (c *MySqlConnector) PullRecords(
 	defer cancelTimeout()
 
 	var recordCount uint32
+	defer func() {
+		if recordCount == 0 {
+			req.RecordStream.SignalAsEmpty()
+		}
+		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
+	}()
+
 	for recordCount < req.MaxBatchSize {
 		event, err := mystream.GetEvent(timeoutCtx)
 		if err != nil {
@@ -320,8 +354,23 @@ func (c *MySqlConnector) PullRecords(
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
+			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				getFd := func(idx int) *protos.FieldDescription {
+					if ev.Table.ColumnName != nil {
+						name := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
+						if _, excluded := exclusion[name]; !excluded {
+							for _, col := range schema.Columns {
+								if col.Name == name {
+									return col
+								}
+							}
+						}
+						return nil
+					}
+					return schema.Columns[idx]
+				}
 				switch event.Header.EventType {
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return errors.New("mysql v0 replication protocol not supported")
@@ -329,7 +378,10 @@ func (c *MySqlConnector) PullRecords(
 					for _, row := range ev.Rows {
 						items := model.NewRecordItems(len(row))
 						for idx, val := range row {
-							fd := schema.Columns[idx]
+							fd := getFd(idx)
+							if fd == nil {
+								continue
+							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
@@ -346,6 +398,9 @@ func (c *MySqlConnector) PullRecords(
 						}); err != nil {
 							return err
 						}
+						if recordCount == 1 {
+							req.RecordStream.SignalAsNotEmpty()
+						}
 					}
 				case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2, replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
 					for idx := 0; idx < len(ev.Rows); idx += 2 {
@@ -360,7 +415,10 @@ func (c *MySqlConnector) PullRecords(
 						oldRow := ev.Rows[idx]
 						oldItems := model.NewRecordItems(len(oldRow))
 						for idx, val := range oldRow {
-							fd := schema.Columns[idx]
+							fd := getFd(idx)
+							if fd == nil {
+								continue
+							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
@@ -370,7 +428,10 @@ func (c *MySqlConnector) PullRecords(
 						newRow := ev.Rows[idx+1]
 						newItems := model.NewRecordItems(len(newRow))
 						for idx, val := range ev.Rows[idx+1] {
-							fd := schema.Columns[idx]
+							fd := getFd(idx)
+							if fd == nil {
+								continue
+							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
@@ -389,6 +450,9 @@ func (c *MySqlConnector) PullRecords(
 						}); err != nil {
 							return err
 						}
+						if recordCount == 1 {
+							req.RecordStream.SignalAsNotEmpty()
+						}
 					}
 				case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
 					for idx, row := range ev.Rows {
@@ -402,7 +466,10 @@ func (c *MySqlConnector) PullRecords(
 
 						items := model.NewRecordItems(len(row))
 						for idx, val := range row {
-							fd := schema.Columns[idx]
+							fd := getFd(idx)
+							if fd == nil {
+								continue
+							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
@@ -420,6 +487,9 @@ func (c *MySqlConnector) PullRecords(
 						}); err != nil {
 							return err
 						}
+						if recordCount == 1 {
+							req.RecordStream.SignalAsNotEmpty()
+						}
 					}
 				default:
 				}
@@ -430,19 +500,38 @@ func (c *MySqlConnector) PullRecords(
 }
 
 func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qvalue.QValue, error) {
-	// TODO signedness, in ev.Table, need to extend QValue system
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
 	case nil:
 		return qvalue.QValueNull(qkind), nil
-	case int8: // TODO qvalue.Int8
-		return qvalue.QValueInt16{Val: int16(val)}, nil
+	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
+		if qkind == qvalue.QValueKindUInt8 {
+			return qvalue.QValueUInt8{Val: uint8(val)}, nil
+		} else {
+			return qvalue.QValueInt8{Val: val}, nil
+		}
 	case int16:
-		return qvalue.QValueInt16{Val: val}, nil
+		if qkind == qvalue.QValueKindUInt16 {
+			return qvalue.QValueUInt16{Val: uint16(val)}, nil
+		} else {
+			return qvalue.QValueInt16{Val: val}, nil
+		}
 	case int32:
-		return qvalue.QValueInt32{Val: val}, nil
+		if qkind == qvalue.QValueKindUInt32 {
+			if mytype == mysql.MYSQL_TYPE_INT24 {
+				return qvalue.QValueUInt32{Val: uint32(val) & 0xFFFFFF}, nil
+			} else {
+				return qvalue.QValueUInt32{Val: uint32(val)}, nil
+			}
+		} else {
+			return qvalue.QValueInt32{Val: val}, nil
+		}
 	case int64:
-		return qvalue.QValueInt64{Val: val}, nil
+		if qkind == qvalue.QValueKindUInt64 {
+			return qvalue.QValueUInt64{Val: uint64(val)}, nil
+		} else {
+			return qvalue.QValueInt64{Val: val}, nil
+		}
 	case float32:
 		return qvalue.QValueFloat32{Val: val}, nil
 	case float64:

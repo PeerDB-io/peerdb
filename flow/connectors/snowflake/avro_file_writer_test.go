@@ -135,7 +135,7 @@ func generateRecords(
 
 func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -162,7 +162,7 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 
 func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro.zst")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro.zst")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -189,7 +189,7 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 
 func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro.zz")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro.zz")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -216,7 +216,7 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 
 func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -242,7 +242,7 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 
 func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up

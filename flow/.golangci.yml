@@ -9,6 +9,7 @@ linters:
     - dogsled
     - durationcheck
     - errcheck
+    - exptostd
     - forbidigo
     - gci
     - gocritic
@@ -22,6 +23,7 @@ linters:
     - misspell
     - musttag
     - nakedret
+    - nilnesserr
     - nolintlint
     - nonamedreturns
     - perfsprint
@@ -36,6 +38,7 @@ linters:
     - unconvert
     - unparam
     - unused
+    - usetesting
     - wastedassign
     - whitespace
 linters-settings:

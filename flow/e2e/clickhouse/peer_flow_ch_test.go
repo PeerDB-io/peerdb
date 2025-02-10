@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -739,6 +740,10 @@ func (s ClickHouseSuite) Test_Binary_Format_Base64() {
 }
 
 func (s ClickHouseSuite) Test_Types_CH() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
 	srcTableName := "test_types"
 	srcFullName := s.attachSchemaSuffix("test_types")
 	dstTableName := "test_types"
@@ -758,7 +763,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		c39 TXID_SNAPSHOT,c40 UUID,c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
 		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[]);
 		INSERT INTO %[1]s SELECT 2,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -795,7 +800,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 3,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -822,7 +827,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		UPDATE %[1]s SET c1=3,c32='testery' WHERE id=2;
 		UPDATE %[1]s SET c33=now(),c34=now(),c35=now()::TIME,c36=now()::TIMETZ WHERE id=3;
 		INSERT INTO %[1]s SELECT 4,2,b'1',b'101',
-		true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -844,6 +849,175 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 3", srcTableName, dstTableName,
 		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36")
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_UnsignedMySQL() {
+	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_unsigned"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_unsigned"
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`CREATE TABLE %s (
+		id serial primary key,
+		i8 tinyint, u8 tinyint unsigned,
+		i16 smallint, u16 smallint unsigned,
+		i24 mediumint, u24 mediumint unsigned,
+		i32 int, u32 int unsigned,
+		i64 bigint, u64 bigint unsigned,
+		d decimal(7, 6)
+	)`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`insert into %s
+		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d)
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592)
+	`, srcFullName, int64(math.MinInt64), uint64(math.MaxUint64))))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      srcFullName,
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d")
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`insert into %s
+		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d)
+		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592)
+	`, srcFullName, int64(math.MinInt64), uint64(math.MaxUint64))))
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d")
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Column_Exclusion() {
+	if mySource, ok := s.source.(*e2e.MySqlSource); ok && mySource.IsMaria {
+		s.t.Skip("skip maria, testing minimal row metadata on maria")
+	}
+
+	tc := e2e.NewTemporalClient(s.t)
+
+	tableName := "test_exclude_ch"
+	srcFullName := s.attachSchemaSuffix(tableName)
+	dstTableName := tableName
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			c1 INT,
+			c2 INT,
+			t TEXT
+		);
+	`, srcFullName)))
+
+	// insert 5 rows into the source table
+	for i := range 5 {
+		require.NoError(s.t, s.source.Exec(fmt.Sprintf(
+			`INSERT INTO %[1]s(c1,c2,t) VALUES (%[2]d,%[2]d,'test_value_%[2]d')`,
+			srcFullName, i,
+		)))
+	}
+
+	config := &protos.FlowConnectionConfigs{
+		FlowJobName:     s.attachSuffix(tableName),
+		DestinationName: s.Peer().Name,
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      srcFullName,
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"c2"},
+			},
+		},
+		SourceName:        s.Source().GeneratePeer(s.t).Name,
+		SyncedAtColName:   "_PEERDB_SYNCED_AT",
+		MaxBatchSize:      100,
+		DoInitialSnapshot: true,
+	}
+
+	// wait for PeerFlowStatusQuery to finish setup
+	// and then insert, update and delete rows in the table.
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+
+	// insert 5 rows into the source table
+	for i := range 5 {
+		e2e.EnvNoError(s.t, env, s.source.Exec(fmt.Sprintf(
+			`INSERT INTO %[1]s(c1,c2,t) VALUES (%[2]d,%[2]d,'test_value_%[2]d')`,
+			srcFullName, i,
+		)))
+	}
+
+	e2e.EnvWaitForEqualTables(env, s, "normalize table", tableName, "id,c1,t")
+	e2e.EnvNoError(s.t, env, s.source.Exec(
+		fmt.Sprintf(`UPDATE %s SET c1=c1+1 WHERE MOD(c2,2)=1`, srcFullName)))
+	e2e.EnvNoError(s.t, env, s.source.Exec(fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=0`, srcFullName)))
+	e2e.EnvWaitForEqualTables(env, s, "normalize update/delete", tableName, "id,c1,t")
+
+	env.Cancel()
+	e2e.RequireEnvCanceled(s.t, env)
+
+	rows, err := s.GetRows(tableName, "*")
+	require.NoError(s.t, err)
+
+	for _, field := range rows.Schema.Fields {
+		require.NotEqual(s.t, "c2", field.Name)
+	}
+	require.Len(s.t, rows.Schema.Fields, 6)
+}
+
+func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
+	if _, ok := s.source.(*e2e.MySqlSource); ok {
+		s.t.Skip("mysql connector does not support schema changes yet")
+	}
+
+	tc := e2e.NewTemporalClient(s.t)
+
+	tableName := "test_nullable_sc_ch"
+	srcFullName := s.attachSchemaSuffix(tableName)
+	dstTableName := tableName
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT);`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, tableName),
+		TableMappings: e2e.TableMappings(s, tableName, dstTableName),
+		Destination:   s.Peer().Name,
+	}
+	config := connectionGen.GenerateFlowConnectionConfigs(s)
+	config.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 INT`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`INSERT INTO %s (c1,c2) VALUES (1,null)`, srcFullName)))
+
+	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
+		ch, err := connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
+		if err != nil {
+			return false
+		}
+		rows, err := ch.Query(context.Background(), "select c2 from "+dstTableName)
+		if err != nil {
+			return false
+		}
+		defer rows.Close()
+
+		return rows.ColumnTypes()[0].Nullable()
+	})
 
 	env.Cancel()
 	e2e.RequireEnvCanceled(s.t, env)

@@ -16,9 +16,14 @@ const (
 	QValueKindInvalid     QValueKind = "invalid"
 	QValueKindFloat32     QValueKind = "float32"
 	QValueKindFloat64     QValueKind = "float64"
+	QValueKindInt8        QValueKind = "int8"
 	QValueKindInt16       QValueKind = "int16"
 	QValueKindInt32       QValueKind = "int32"
 	QValueKindInt64       QValueKind = "int64"
+	QValueKindUInt8       QValueKind = "uint8"
+	QValueKindUInt16      QValueKind = "uint16"
+	QValueKindUInt32      QValueKind = "uint32"
+	QValueKindUInt64      QValueKind = "uint64"
 	QValueKindBoolean     QValueKind = "bool"
 	QValueKindStruct      QValueKind = "struct"
 	QValueKindQChar       QValueKind = "qchar"
@@ -67,9 +72,14 @@ func (kind QValueKind) IsArray() bool {
 
 var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindBoolean:     "BOOLEAN",
+	QValueKindInt8:        "INTEGER",
 	QValueKindInt16:       "INTEGER",
 	QValueKindInt32:       "INTEGER",
 	QValueKindInt64:       "INTEGER",
+	QValueKindUInt8:       "INTEGER",
+	QValueKindUInt16:      "INTEGER",
+	QValueKindUInt32:      "INTEGER",
+	QValueKindUInt64:      "INTEGER",
 	QValueKindFloat32:     "FLOAT",
 	QValueKindFloat64:     "FLOAT",
 	QValueKindQChar:       "CHAR",
@@ -109,9 +119,14 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 
 var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindBoolean:     "Bool",
+	QValueKindInt8:        "Int8",
 	QValueKindInt16:       "Int16",
 	QValueKindInt32:       "Int32",
 	QValueKindInt64:       "Int64",
+	QValueKindUInt8:       "UInt8",
+	QValueKindUInt16:      "UInt16",
+	QValueKindUInt32:      "UInt32",
+	QValueKindUInt64:      "UInt64",
 	QValueKindFloat32:     "Float32",
 	QValueKindFloat64:     "Float64",
 	QValueKindQChar:       "FixedString(1)",
@@ -131,11 +146,11 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 
 	QValueKindArrayFloat32:     "Array(Float32)",
 	QValueKindArrayFloat64:     "Array(Float64)",
+	QValueKindArrayInt16:       "Array(Int16)",
 	QValueKindArrayInt32:       "Array(Int32)",
 	QValueKindArrayInt64:       "Array(Int64)",
 	QValueKindArrayString:      "Array(String)",
 	QValueKindArrayBoolean:     "Array(Bool)",
-	QValueKindArrayInt16:       "Array(Int16)",
 	QValueKindArrayDate:        "Array(Date)",
 	QValueKindArrayTimestamp:   "Array(DateTime64(6))",
 	QValueKindArrayTimestampTZ: "Array(DateTime64(6))",
@@ -161,27 +176,40 @@ func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]strin
 }
 
 // SEE ALSO: QField ToDWHColumnType
-func (kind QValueKind) ToDWHColumnType(ctx context.Context, env map[string]string, dwhType protos.DBType, column *protos.FieldDescription,
+func (kind QValueKind) ToDWHColumnType(
+	ctx context.Context, env map[string]string, dwhType protos.DBType, column *protos.FieldDescription, nullableEnabled bool,
 ) (string, error) {
+	var colType string
 	switch dwhType {
 	case protos.DBType_SNOWFLAKE:
 		if kind == QValueKindNumeric {
 			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.SnowflakeNumericCompatibility{})
-			return fmt.Sprintf("NUMERIC(%d,%d)", precision, scale), nil
+			colType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		} else if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
-			return val, nil
+			colType = val
 		} else {
-			return "STRING", nil
+			colType = "STRING"
+		}
+		if nullableEnabled && !column.Nullable {
+			colType += " NOT NULL"
 		}
 	case protos.DBType_CLICKHOUSE:
 		if kind == QValueKindNumeric {
-			return getClickHouseTypeForNumericColumn(ctx, env, column)
+			var err error
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column)
+			if err != nil {
+				return "", err
+			}
 		} else if val, ok := QValueKindToClickHouseTypeMap[kind]; ok {
-			return val, nil
+			colType = val
 		} else {
-			return "String", nil
+			colType = "String"
+		}
+		if nullableEnabled && column.Nullable && !kind.IsArray() {
+			colType = fmt.Sprintf("Nullable(%s)", colType)
 		}
 	default:
 		return "", fmt.Errorf("unknown dwh type: %v", dwhType)
 	}
+	return colType, nil
 }

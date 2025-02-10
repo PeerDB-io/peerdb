@@ -1,5 +1,5 @@
 import { ehSchema } from '@/components/PeerForms/Eventhubs/schema';
-import { ElasticsearchAuthType } from '@/grpc_generated/peers';
+import { ElasticsearchAuthType, MySqlFlavor } from '@/grpc_generated/peers';
 import * as z from 'zod';
 
 export const peerNameSchema = z
@@ -90,6 +90,43 @@ export const pgSchema = z.object({
       }),
     })
     .optional(),
+});
+export const mySchema = z.object({
+  host: z
+    .string({
+      required_error: 'Host is required',
+      invalid_type_error: 'Host must be a string',
+    })
+    .min(1, { message: 'Host cannot be empty' })
+    .max(255, 'Host must be less than 255 characters'),
+  port: z
+    .number({
+      required_error: 'Port is required',
+      invalid_type_error: 'Port must be a number',
+    })
+    .int()
+    .min(1, 'Port must be a positive integer')
+    .max(65535, 'Port must be below 65535'),
+  user: z
+    .string({
+      required_error: 'User is required',
+      invalid_type_error: 'User must be a string',
+    })
+    .min(1, 'User must be non-empty')
+    .max(64, 'User must be less than 64 characters'),
+  password: z
+    .string({
+      required_error: 'Password is required',
+      invalid_type_error: 'Password must be a string',
+    })
+    .min(1, 'Password must be non-empty')
+    .max(100, 'Password must be less than 100 characters'),
+  compression: z.number().min(0).max(1),
+  disableTls: z.boolean(),
+  flavor: z.union([
+    z.literal(MySqlFlavor.MYSQL_MYSQL),
+    z.literal(MySqlFlavor.MYSQL_MARIA),
+  ]),
 });
 
 export const sfSchema = z.object({
@@ -231,8 +268,8 @@ export const bqSchema = z.object({
     .max(1024, 'DatasetID must be less than 1025 characters'),
 });
 
-export const chSchema = (hostDomains: string[]) =>
-  z.object({
+export function chSchema(hostDomains: string[]) {
+  return z.object({
     host: z
       .string({
         required_error: 'Host is required',
@@ -316,6 +353,7 @@ export const chSchema = (hostDomains: string[]) =>
       .optional()
       .transform((e) => (e === '' ? undefined : e)),
   });
+}
 
 export const kaSchema = z.object({
   servers: z
@@ -482,9 +520,9 @@ export const ehGroupSchema = z.object({
 });
 
 // slightly cursed, check for non-empty and non-whitespace string
-const isString = (i: string | undefined): boolean => {
+function isString(i: string | undefined): boolean {
   return !!i && !!i.trim();
-};
+}
 
 export const esSchema = z
   .object({

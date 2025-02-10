@@ -7,29 +7,31 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import Image from 'next/image';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { PulseLoader } from 'react-spinners';
 import useSWR from 'swr';
 import { tableStyle } from '../peers/[peerName]/style';
 import { fetcher } from '../utils/swr';
 import { AlertConfigProps, NewConfig, ServiceType } from './new';
 
-const ServiceIcon = ({
+function ServiceIcon({
   serviceType,
   size,
 }: {
   serviceType: string;
   size: number;
-}) => (
-  <Image
-    src={`/images/${serviceType}.png`}
-    height={size}
-    width={size}
-    alt={serviceType}
-  />
-);
+}) {
+  return (
+    <Image
+      src={`/images/${serviceType}.png`}
+      height={size}
+      width={size}
+      alt={serviceType}
+    />
+  );
+}
 
-const AlertConfigPage: React.FC = () => {
+export default function AlertConfigPage() {
   const {
     data: alerts,
     isLoading,
@@ -180,6 +182,4 @@ const AlertConfigPage: React.FC = () => {
       {inEditOrAddMode && <NewConfig {...editAlertConfig} />}
     </div>
   );
-};
-
-export default AlertConfigPage;
+}

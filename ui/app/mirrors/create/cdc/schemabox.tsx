@@ -25,7 +25,7 @@ import {
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
-import { SchemaSettings } from './schemasettings';
+import SchemaSettings from './schemasettings';
 import {
   columnBoxDividerStyle,
   engineOptionStyles,

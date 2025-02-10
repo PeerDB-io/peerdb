@@ -91,6 +91,9 @@ func processCDCFlowConfigUpdate(
 		state.SyncFlowOptions.NumberOfSyncs = 0
 	}
 	if flowConfigUpdate.UpdatedEnv != nil {
+		if cfg.Env == nil {
+			cfg.Env = make(map[string]string, len(flowConfigUpdate.UpdatedEnv))
+		}
 		maps.Copy(cfg.Env, flowConfigUpdate.UpdatedEnv)
 	}
 
@@ -321,6 +324,10 @@ func CDCFlowWorkflow(
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
 
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {
+		return state, nil
+	}
+
 	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
 
 	if state.ActiveSignal == model.PauseSignal {
@@ -460,15 +467,14 @@ func CDCFlowWorkflow(
 			}
 		}
 
-		logger.Info("executed setup flow and snapshot flow")
 		// if initial_copy_only is opted for, we end the flow here.
 		if cfg.InitialSnapshotOnly {
 			logger.Info("initial snapshot only, ending flow")
 			state.CurrentFlowStatus = protos.FlowStatus_STATUS_COMPLETED
-			return state, nil
+		} else {
+			logger.Info("executed setup flow and snapshot flow, start running")
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 		}
-
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
 		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
 

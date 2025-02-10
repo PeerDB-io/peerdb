@@ -153,11 +153,11 @@ func qValueKindToPostgresType(colTypeStr string) string {
 	switch qvalue.QValueKind(colTypeStr) {
 	case qvalue.QValueKindBoolean:
 		return "BOOLEAN"
-	case qvalue.QValueKindInt16:
+	case qvalue.QValueKindInt16, qvalue.QValueKindUInt16, qvalue.QValueKindInt8, qvalue.QValueKindUInt8:
 		return "SMALLINT"
-	case qvalue.QValueKindInt32:
+	case qvalue.QValueKindInt32, qvalue.QValueKindUInt32:
 		return "INTEGER"
-	case qvalue.QValueKindInt64:
+	case qvalue.QValueKindInt64, qvalue.QValueKindUInt64:
 		return "BIGINT"
 	case qvalue.QValueKindFloat32:
 		return "REAL"

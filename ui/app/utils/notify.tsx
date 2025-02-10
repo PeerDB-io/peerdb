@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { toast } from 'react-toastify';
 
-export const notifyErr = (msg: string, ok?: boolean) => {
+export function notifyErr(msg: string, ok?: boolean) {
   if (ok) {
     toast.success(msg, {
       position: 'bottom-center',
@@ -11,9 +11,9 @@ export const notifyErr = (msg: string, ok?: boolean) => {
       position: 'bottom-center',
     });
   }
-};
+}
 
-const SortingKeyToast = () => {
+export function SortingKeyToast() {
   const orderingKeyDoc = 'https://docs.peerdb.io/mirror/ordering-key-different';
 
   return (
@@ -28,9 +28,9 @@ const SortingKeyToast = () => {
       </p>
     </div>
   );
-};
+}
 
-export const notifySortingKey = () => {
+export function notifySortingKey() {
   toast.warn(SortingKeyToast, {
     position: 'bottom-center',
     autoClose: false,
@@ -38,4 +38,4 @@ export const notifySortingKey = () => {
     closeButton: true,
     toastId: 'sorting_key_warning',
   });
-};
+}

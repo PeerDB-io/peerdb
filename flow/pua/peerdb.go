@@ -190,6 +190,8 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		newqv = qvalue.QValueFloat32{Val: float32(lua.LVAsNumber(val))}
 	case qvalue.QValueKindFloat64:
 		newqv = qvalue.QValueFloat64{Val: float64(lua.LVAsNumber(val))}
+	case qvalue.QValueKindInt8:
+		newqv = qvalue.QValueInt8{Val: int8(lua.LVAsNumber(val))}
 	case qvalue.QValueKindInt16:
 		newqv = qvalue.QValueInt16{Val: int16(lua.LVAsNumber(val))}
 	case qvalue.QValueKindInt32:
@@ -208,6 +210,27 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		}
 		if newqv == nil {
 			ls.RaiseError("invalid int64")
+		}
+	case qvalue.QValueKindUInt8:
+		newqv = qvalue.QValueUInt8{Val: uint8(lua.LVAsNumber(val))}
+	case qvalue.QValueKindUInt16:
+		newqv = qvalue.QValueUInt16{Val: uint16(lua.LVAsNumber(val))}
+	case qvalue.QValueKindUInt32:
+		newqv = qvalue.QValueUInt32{Val: uint32(lua.LVAsNumber(val))}
+	case qvalue.QValueKindUInt64:
+		switch v := val.(type) {
+		case lua.LNumber:
+			newqv = qvalue.QValueUInt64{Val: uint64(v)}
+		case *lua.LUserData:
+			switch i64 := v.Value.(type) {
+			case int64:
+				newqv = qvalue.QValueUInt64{Val: uint64(i64)}
+			case uint64:
+				newqv = qvalue.QValueUInt64{Val: i64}
+			}
+		}
+		if newqv == nil {
+			ls.RaiseError("invalid uint64")
 		}
 	case qvalue.QValueKindBoolean:
 		newqv = qvalue.QValueBoolean{Val: lua.LVAsBool(val)}

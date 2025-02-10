@@ -34,7 +34,7 @@ type EditMirrorProps = {
   params: { mirrorId: string };
 };
 
-const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
+export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   const defaultBatchSize = blankCDCSetting.maxBatchSize;
   const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
 
@@ -248,6 +248,4 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
       <ToastContainer />
     </div>
   );
-};
-
-export default EditMirror;
+}

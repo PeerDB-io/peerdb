@@ -10,7 +10,7 @@ import { Label } from '@/lib/Label';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useCallback, useEffect, useState } from 'react';
 
-const colorForErrorType = (errorType: string) => {
+function colorForErrorType(errorType: string) {
   const errorUpper = errorType.toUpperCase();
   if (errorUpper === 'ERROR') {
     return '#F45156';
@@ -19,14 +19,14 @@ const colorForErrorType = (errorType: string) => {
   } else {
     return '#4CAF50';
   }
-};
+}
 
-const extractFromCloneName = (mirrorOrCloneName: string) => {
+function extractFromCloneName(mirrorOrCloneName: string) {
   if (mirrorOrCloneName.includes('clone_')) {
     return mirrorOrCloneName.split('_')[1] + ' (initial load)';
   }
   return mirrorOrCloneName;
-};
+}
 
 export default function LogsTable({
   numPerPage,
