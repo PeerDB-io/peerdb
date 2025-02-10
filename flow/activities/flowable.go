@@ -957,6 +957,11 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	partition *protos.QRepPartition,
 	runUUID string,
 ) (int64, error) {
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "syncing xmin"
+	})
+	defer shutdown()
+
 	switch config.System {
 	case protos.TypeSystem_Q:
 		stream := model.NewQRecordStream(shared.FetchAndChannelSize)

@@ -507,11 +507,6 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	) (int, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) (int64, error) {
-	shutdown := heartbeatRoutine(ctx, func() string {
-		return "syncing xmin"
-	})
-	defer shutdown()
-
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := activity.GetLogger(ctx)
 	logger.Info("replicating xmin")

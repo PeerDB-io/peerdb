@@ -151,9 +151,14 @@ func (c *MySqlConnector) PullQRepRecords(
 		return 0, err
 	}
 
+	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env, config.WatermarkTable, protos.TypeSystem_Q)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
+	}
+
 	totalRecords := 0
 	onResult := func(rs *mysql.Result) error {
-		schema, err := QRecordSchemaFromMysqlFields(rs.Fields)
+		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields)
 		if err != nil {
 			return err
 		}
