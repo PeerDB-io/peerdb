@@ -98,6 +98,10 @@ func (a *SnapshotActivity) SetupReplication(
 }
 
 func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string) error {
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "maintaining transaction snapshot"
+	})
+	defer shutdown()
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, peer)
 	if err != nil {
 		return err
@@ -123,12 +127,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	logger := activity.GetLogger(ctx)
 	start := time.Now()
 	for {
-		msg := fmt.Sprintf("maintaining export snapshot transaction %s", time.Since(start).Round(time.Second))
-		logger.Info(msg)
-		// this function relies on context cancellation to exit
-		// context is not explicitly cancelled, but workflow exit triggers an implicit cancel
-		// from activity.RecordBeat
-		activity.RecordHeartbeat(ctx, msg)
+		logger.Info("maintaining export snapshot transaction", slog.Int64("seconds", int64(time.Since(start).Round(time.Second)/time.Second)))
 		if ctx.Err() != nil {
 			a.SnapshotStatesMutex.Lock()
 			delete(a.TxSnapshotStates, sessionID)
