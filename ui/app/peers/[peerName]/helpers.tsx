@@ -2,14 +2,14 @@ import { PeerSlotResponse, PeerStatResponse } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import Link from 'next/link';
 
-const getFlowName = (slotName: string) => {
+function getFlowName(slotName: string) {
   if (slotName.startsWith('peerflow_slot_')) {
     return slotName.slice(14);
   }
   return '';
-};
+}
 
-export const getStatData = async (peerName: string) => {
+export async function getStatData(peerName: string) {
   try {
     const peerStats: PeerStatResponse = await fetch(
       `/api/v1/peers/stats/${peerName}`,
@@ -20,9 +20,9 @@ export const getStatData = async (peerName: string) => {
     console.error('Error fetching stats:', e);
     return [];
   }
-};
+}
 
-export const getSlotData = async (peerName: string) => {
+export async function getSlotData(peerName: string) {
   try {
     const peerSlots: PeerSlotResponse = await fetch(
       `/api//v1/peers/slots/${peerName}`,
@@ -51,9 +51,9 @@ export const getSlotData = async (peerName: string) => {
     console.error('Error fetching slots:', e);
     return [];
   }
-};
+}
 
-export const SlotNameDisplay = ({ slotName }: { slotName: string }) => {
+export function SlotNameDisplay({ slotName }: { slotName: string }) {
   const flowName = getFlowName(slotName);
   return flowName.length >= 1 ? (
     <Label
@@ -71,9 +71,9 @@ export const SlotNameDisplay = ({ slotName }: { slotName: string }) => {
   ) : (
     <Label>{slotName}</Label>
   );
-};
+}
 
-export const DurationDisplay = ({ duration }: { duration: number }) => {
+export function DurationDisplay({ duration }: { duration: number }) {
   if (duration < 0) return 'N/A';
   return duration >= 3600
     ? `${Math.floor(duration / 3600)} hour(s) ${Math.floor(
@@ -84,4 +84,4 @@ export const DurationDisplay = ({ duration }: { duration: number }) => {
           duration % 60
         )} seconds`
       : `${duration.toFixed(2)} seconds`;
-};
+}

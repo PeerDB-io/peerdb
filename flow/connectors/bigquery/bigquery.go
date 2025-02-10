@@ -214,7 +214,11 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 
 	AddedColumnsLoop:
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			dstDatasetTable, _ := c.convertToDatasetTable(schemaDelta.DstTableName)
+			dstDatasetTable, err := c.convertToDatasetTable(schemaDelta.DstTableName)
+			if err != nil {
+				return err
+			}
+
 			table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
 			dstMetadata, metadataErr := table.Metadata(ctx)
 			if metadataErr != nil {
@@ -236,8 +240,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 				dstDatasetTable.table, addedColumn.Name, addedColumnBigQueryType))
 			query.DefaultProjectID = c.projectID
 			query.DefaultDatasetID = dstDatasetTable.dataset
-			_, err := query.Read(ctx)
-			if err != nil {
+			if _, err := query.Read(ctx); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}

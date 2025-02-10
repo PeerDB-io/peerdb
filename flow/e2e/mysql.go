@@ -15,7 +15,7 @@ import (
 
 type MySqlSource struct {
 	*connmysql.MySqlConnector
-	isMaria bool
+	IsMaria bool
 }
 
 var mysqlConfig = &protos.MySqlConfig{
@@ -80,7 +80,14 @@ func setupMyCore(t *testing.T, suffix string, isMaria bool) (*MySqlSource, error
 		return nil, err
 	}
 
-	return &MySqlSource{MySqlConnector: connector}, nil
+	if !isMaria {
+		if _, err := connector.Execute(context.Background(), "set global binlog_row_metadata=full"); err != nil {
+			connector.Close()
+			return nil, err
+		}
+	}
+
+	return &MySqlSource{MySqlConnector: connector, IsMaria: isMaria}, nil
 }
 
 func (s *MySqlSource) Connector() connectors.Connector {
@@ -100,7 +107,7 @@ func (s *MySqlSource) Teardown(t *testing.T, suffix string) {
 func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 	config := mysqlConfig
-	if s.isMaria {
+	if s.IsMaria {
 		config = mariaConfig
 	}
 
@@ -134,7 +141,13 @@ func (s *MySqlSource) GetRows(suffix string, table string, cols string) (*model.
 		return nil, err
 	}
 
-	schema, err := connmysql.QRecordSchemaFromMysqlFields(rs.Fields)
+	tableName := fmt.Sprintf("e2e_test_%s.%s", suffix, table)
+	tableSchemas, err := s.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
+	if err != nil {
+		return nil, err
+	}
+
+	schema, err := connmysql.QRecordSchemaFromMysqlFields(tableSchemas[tableName], rs.Fields)
 	if err != nil {
 		return nil, err
 	}

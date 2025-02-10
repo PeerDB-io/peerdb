@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
-const MirrorLink = ({ flowName }: { flowName: string }) => {
+export default function MirrorLink({ flowName }: { flowName: string }) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   return (
@@ -27,5 +27,4 @@ const MirrorLink = ({ flowName }: { flowName: string }) => {
       )}
     </div>
   );
-};
-export default MirrorLink;
+}

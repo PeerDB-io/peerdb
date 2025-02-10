@@ -481,7 +481,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	/* test inserting various types*/
 	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
 	INSERT INTO %s SELECT 2,2,b'1',b'101',
-	true,random_bytea(32),'s','test','1.1.10.2'::cidr,
+	true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 	CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
 	'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
 	'{"sai":1}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
@@ -811,9 +811,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion() {
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(100))
-		`, srcTableName), i, testValue)
+		_, err := s.Conn().Exec(context.Background(),
+			fmt.Sprintf(`INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(100))`, srcTableName), i, testValue)
 		e2e.EnvNoError(s.t, env, err)
 	}
 	s.t.Log("Inserted 10 rows into the source table")
@@ -877,16 +876,13 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Basic() {
 	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, config, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`INSERT INTO %s(c1,c2,t) VALUES (1,2,random_string(9000))`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize row", tableName, dstName, "id,c1,c2,t")
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`UPDATE %s SET c1=c1+4 WHERE id=1`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize update", tableName, dstName, "id,c1,c2,t")
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			DELETE FROM %s WHERE id=1`, srcTableName))
+	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`DELETE FROM %s WHERE id=1`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitForEqualTablesWithNames(
 		env,
@@ -1216,9 +1212,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Column_Exclusion_With_Schema_Changes() {
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO %s(c2,t) VALUES ($1,$2)
-		`, srcTableName), i, testValue)
+		_, err = s.Conn().Exec(context.Background(),
+			fmt.Sprintf(`INSERT INTO %s(c2,t) VALUES ($1,$2)`, srcTableName), i, testValue)
 		e2e.EnvNoError(s.t, env, err)
 	}
 	s.t.Log("Inserted 10 rows into the source table")

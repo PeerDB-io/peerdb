@@ -2,13 +2,13 @@ import { Icon } from '@/lib/Icon';
 import * as Popover from '@radix-ui/react-popover';
 import { useState } from 'react';
 
-export const SchemaSettings = ({
+export default function SchemaSettings({
   schema,
   setTargetSchemaOverride,
 }: {
   schema: string;
   setTargetSchemaOverride: (schema: string) => void;
-}) => {
+}) {
   const [inputValue, setInputValue] = useState(schema);
   const [savedIndicator, setSavedIndicator] = useState(false);
 
@@ -82,4 +82,4 @@ export const SchemaSettings = ({
       </Popover.Portal>
     </Popover.Root>
   );
-};
+}

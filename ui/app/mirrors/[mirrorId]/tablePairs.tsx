@@ -6,7 +6,7 @@ import { Table, TableCell } from '@/lib/Table';
 import { TableRow } from '@tremor/react';
 import { useMemo, useState } from 'react';
 
-const TablePairs = ({ tables }: { tables?: TableMapping[] }) => {
+export default function TablePairs({ tables }: { tables?: TableMapping[] }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const shownTables: TableMapping[] | undefined = useMemo(() => {
     const shownTables = tables?.filter(
@@ -16,8 +16,9 @@ const TablePairs = ({ tables }: { tables?: TableMapping[] }) => {
     );
     return shownTables?.length ? shownTables : tables;
   }, [tables, searchQuery]);
-  if (tables)
-    return (
+
+  return (
+    tables && (
       <div style={{ height: '30em' }}>
         <div style={{ width: '20%', marginTop: '2rem' }}>
           <SearchField
@@ -49,7 +50,6 @@ const TablePairs = ({ tables }: { tables?: TableMapping[] }) => {
           </Table>
         </div>
       </div>
-    );
-};
-
-export default TablePairs;
+    )
+  );
+}

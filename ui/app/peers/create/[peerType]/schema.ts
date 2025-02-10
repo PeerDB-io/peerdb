@@ -268,8 +268,8 @@ export const bqSchema = z.object({
     .max(1024, 'DatasetID must be less than 1025 characters'),
 });
 
-export const chSchema = (hostDomains: string[]) =>
-  z.object({
+export function chSchema(hostDomains: string[]) {
+  return z.object({
     host: z
       .string({
         required_error: 'Host is required',
@@ -353,6 +353,7 @@ export const chSchema = (hostDomains: string[]) =>
       .optional()
       .transform((e) => (e === '' ? undefined : e)),
   });
+}
 
 export const kaSchema = z.object({
   servers: z
@@ -519,9 +520,9 @@ export const ehGroupSchema = z.object({
 });
 
 // slightly cursed, check for non-empty and non-whitespace string
-const isString = (i: string | undefined): boolean => {
+function isString(i: string | undefined): boolean {
   return !!i && !!i.trim();
-};
+}
 
 export const esSchema = z
   .object({
