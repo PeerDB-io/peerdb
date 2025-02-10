@@ -22,7 +22,7 @@ const centerFlexStyle = {
   marginBottom: '0.5rem',
 };
 
-export default function SidebarComponent() {
+export default function SidebarComponent(props: { showLogout: boolean }) {
   const timezones = ['UTC', 'Local', 'Relative'];
   const [zone, setZone] = useLocalStorage('timezone-ui', '');
 
@@ -38,133 +38,134 @@ export default function SidebarComponent() {
     'peerdb-sidebar',
     'open'
   );
-  return (
-    <SessionProvider>
-      <Sidebar
-        style={{ width: sidebarState == 'closed' ? 'fit-content' : 'auto' }}
-        topTitle={
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              width: '100%',
-            }}
+  const sidebar = (
+    <Sidebar
+      style={{ width: sidebarState == 'closed' ? 'fit-content' : 'auto' }}
+      topTitle={
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            width: '100%',
+          }}
+        >
+          {sidebarState === 'open' && (
+            <Label as={Link} href='/'>
+              <div className='cursor-pointer'>
+                <BrandLogo />
+              </div>
+            </Label>
+          )}
+          <Button
+            variant='normalBorderless'
+            aria-label='iconButton'
+            onClick={() =>
+              setSidebarState(sidebarState === 'open' ? 'closed' : 'open')
+            }
           >
-            {sidebarState === 'open' && (
-              <Label as={Link} href='/'>
-                <div className='cursor-pointer'>
-                  <BrandLogo />
-                </div>
-              </Label>
-            )}
-            <Button
-              variant='normalBorderless'
-              aria-label='iconButton'
-              onClick={() =>
-                setSidebarState(sidebarState === 'open' ? 'closed' : 'open')
+            <Icon
+              name={
+                sidebarState === 'closed' ? 'chevron_right' : 'chevron_left'
               }
-            >
-              <Icon
-                name={
-                  sidebarState === 'closed' ? 'chevron_right' : 'chevron_left'
+            />
+          </Button>
+        </div>
+      }
+      bottomRow={
+        sidebarState === 'open' ? (
+          <>
+            <div style={centerFlexStyle}>
+              <RowWithSelect
+                label={<Label>Timezone:</Label>}
+                action={
+                  <select
+                    style={{
+                      borderRadius: '0.5rem',
+                      padding: '0.2rem',
+                      backgroundColor: 'transparent',
+                      boxShadow: '0px 2px 4px rgba(0,0,0,0.1)',
+                    }}
+                    value={zone}
+                    id='timeselect'
+                    onChange={(e) => setZone(e.target.value)}
+                  >
+                    {timezones.map((tz, id) => (
+                      <option key={id} value={tz}>
+                        {tz}
+                      </option>
+                    ))}
+                  </select>
                 }
               />
-            </Button>
-          </div>
-        }
-        bottomRow={
-          sidebarState === 'open' ? (
-            <>
-              <div style={centerFlexStyle}>
-                <RowWithSelect
-                  label={<Label>Timezone:</Label>}
-                  action={
-                    <select
-                      style={{
-                        borderRadius: '0.5rem',
-                        padding: '0.2rem',
-                        backgroundColor: 'transparent',
-                        boxShadow: '0px 2px 4px rgba(0,0,0,0.1)',
-                      }}
-                      value={zone}
-                      id='timeselect'
-                      onChange={(e) => setZone(e.target.value)}
-                    >
-                      {timezones.map((tz, id) => {
-                        return (
-                          <option key={id} value={tz}>
-                            {tz}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  }
-                />
-              </div>
-              <Logout />
-            </>
-          ) : (
-            <></>
-          )
-        }
-        bottomLabel={
-          sidebarState === 'open' ? (
-            <div style={centerFlexStyle}>
-              <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
-                {' '}
-                <b>Version: </b>
-                {isLoading ? 'Loading...' : version?.version}
-              </Label>
             </div>
-          ) : (
-            <></>
-          )
-        }
+            {props.showLogout && <Logout />}
+          </>
+        ) : (
+          <></>
+        )
+      }
+      bottomLabel={
+        sidebarState === 'open' ? (
+          <div style={centerFlexStyle}>
+            <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
+              {' '}
+              <b>Version: </b>
+              {isLoading ? 'Loading...' : version?.version}
+            </Label>
+          </div>
+        ) : (
+          <></>
+        )
+      }
+    >
+      <SidebarItem
+        as={Link}
+        href={'/peers'}
+        leadingIcon={<Icon name='cable' />}
       >
-        <SidebarItem
-          as={Link}
-          href={'/peers'}
-          leadingIcon={<Icon name='cable' />}
-        >
-          {sidebarState === 'open' && 'Peers'}
-        </SidebarItem>
-        <SidebarItem
-          as={Link}
-          href={'/mirrors'}
-          leadingIcon={<Icon name='compare_arrows' />}
-        >
-          {sidebarState === 'open' && 'Mirrors'}
-        </SidebarItem>
-        <SidebarItem
-          as={Link}
-          href={'/alert-config'}
-          leadingIcon={<Icon name='notifications' />}
-        >
-          {sidebarState === 'open' && 'Alerts'}
-        </SidebarItem>
-        <SidebarItem
-          as={Link}
-          href={'/scripts'}
-          leadingIcon={<Icon name='code' />}
-        >
-          {sidebarState === 'open' && 'Scripts'}
-        </SidebarItem>
-        <SidebarItem
-          as={Link}
-          href={'/mirror-logs'}
-          leadingIcon={<Icon name='receipt' />}
-        >
-          {sidebarState === 'open' && 'Logs'}
-        </SidebarItem>
-        <SidebarItem
-          as={Link}
-          href={'/settings'}
-          leadingIcon={<Icon name='settings' />}
-        >
-          {sidebarState === 'open' && 'Settings'}
-        </SidebarItem>
-      </Sidebar>
-    </SessionProvider>
+        {sidebarState === 'open' && 'Peers'}
+      </SidebarItem>
+      <SidebarItem
+        as={Link}
+        href={'/mirrors'}
+        leadingIcon={<Icon name='compare_arrows' />}
+      >
+        {sidebarState === 'open' && 'Mirrors'}
+      </SidebarItem>
+      <SidebarItem
+        as={Link}
+        href={'/alert-config'}
+        leadingIcon={<Icon name='notifications' />}
+      >
+        {sidebarState === 'open' && 'Alerts'}
+      </SidebarItem>
+      <SidebarItem
+        as={Link}
+        href={'/scripts'}
+        leadingIcon={<Icon name='code' />}
+      >
+        {sidebarState === 'open' && 'Scripts'}
+      </SidebarItem>
+      <SidebarItem
+        as={Link}
+        href={'/mirror-logs'}
+        leadingIcon={<Icon name='receipt' />}
+      >
+        {sidebarState === 'open' && 'Logs'}
+      </SidebarItem>
+      <SidebarItem
+        as={Link}
+        href={'/settings'}
+        leadingIcon={<Icon name='settings' />}
+      >
+        {sidebarState === 'open' && 'Settings'}
+      </SidebarItem>
+    </Sidebar>
+  );
+  return props.showLogout ? (
+    <SessionProvider>{sidebar}</SessionProvider>
+  ) : (
+    sidebar
   );
 }
