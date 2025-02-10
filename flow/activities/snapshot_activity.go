@@ -98,6 +98,10 @@ func (a *SnapshotActivity) SetupReplication(
 }
 
 func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string) error {
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "maintaining transaction snapshot"
+	})
+	defer shutdown()
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, peer)
 	if err != nil {
 		return err
