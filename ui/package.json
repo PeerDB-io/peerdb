@@ -55,7 +55,7 @@
     "eslint-config-next": "14.2.17",
     "eslint-config-prettier": "10.0.1",
     "less": "4.2.2",
-    "postcss": "8.5.1",
+    "postcss": "8.5.2",
     "prettier": "3.5.0",
     "prettier-plugin-organize-imports": "4.1.0",
     "string-width": "7.2.0",

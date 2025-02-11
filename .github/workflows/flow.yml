@@ -25,7 +25,7 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
       mysql:
-        image: mysql:oracle@sha256:45f5ae20cfe1d6e6c43684dfffef17db1e1e8dc9bf7133ceaafb25c16b10f31b
+        image: mysql:oracle@sha256:b842a59bfaf81ea435b65be7e041c280416df8d295457f64c7c1445484464123
         ports:
           - 3306:3306
         env:
@@ -37,7 +37,7 @@ jobs:
           #  env:
           #    MARIADB_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:0590e03f7122aa88caf57506fd45b148bcd3fc09b74f5789eb81f926affa28ef
+        image: redpandadata/redpanda@sha256:8b2802411074676c96a81eb65483b29e63a212673023869e91fd41d728aaa278
         ports:
           - 9092:9092
           - 9644:9644
@@ -50,7 +50,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.1.20@sha256:4d0c90387e9a946c65a7b29acfc60401980f4aad5e7e156a1ee6efad10cc1ada
+        image: bitnami/minio:2025.2.7@sha256:20e4acd1178864dba7d9a1cc3922eecd42f1e8020c5d553eac72a1e758749994
         ports:
           - 9999:9999
         env:
