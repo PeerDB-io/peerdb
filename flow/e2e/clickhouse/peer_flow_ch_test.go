@@ -273,15 +273,15 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s ClickHouseSuite) Test_Date32() {
+func (s ClickHouseSuite) Test_MySQL_Time() {
 	if _, ok := s.source.(*e2e.MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
-	srcTableName := "test_date32"
-	srcFullName := s.attachSchemaSuffix("test_date32")
+	srcTableName := "test_datetime"
+	srcFullName := s.attachSchemaSuffix("test_datetime")
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
-	dstTableName := "test_date32_dst"
+	dstTableName := "test_datetime_dst"
 
 	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -294,12 +294,13 @@ func (s ClickHouseSuite) Test_Date32() {
 		);
 	`, quotedSrcFullName)))
 
-	require.NoError(s.t, s.source.Exec(fmt.Sprintf(
-		`INSERT INTO %s ("key",d,dt,tm,t) VALUES ('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321')`,
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t) VALUES
+		('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321'),
+		('init','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00')`,
 		quotedSrcFullName)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_date32"),
+		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -312,8 +313,9 @@ func (s ClickHouseSuite) Test_Date32() {
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
 
-	require.NoError(s.t, s.source.Exec(fmt.Sprintf(
-		`INSERT INTO %s ("key",d,dt,tm,t) VALUES ('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321')`,
+	require.NoError(s.t, s.source.Exec(fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t) VALUES
+		('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321'),
+		('init','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00')`,
 		quotedSrcFullName)))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
