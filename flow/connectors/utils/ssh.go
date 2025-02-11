@@ -17,12 +17,7 @@ type SSHTunnel struct {
 	*ssh.Client
 }
 
-// getSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
-// Parameters:
-//
-//	user: SSH username
-//	password: SSH password (can be empty if using a private key)
-//	privateKeyString: Private key as a string (can be empty if using a password)
+// GetSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
 func GetSSHClientConfig(config *protos.SSHConfig) (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
 
