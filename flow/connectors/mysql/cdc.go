@@ -563,7 +563,7 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 	case string:
 		switch qkind {
 		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: []byte(val)}, nil
+			return qvalue.QValueBytes{Val: shared.UnsafeFastStringToReadOnlyBytes(val)}, nil
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: val}, nil
 		case qvalue.QValueKindJSON:
