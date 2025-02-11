@@ -508,7 +508,7 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			}
 			return qvalue.QValueTimestamp{Val: val}, nil
 		case qvalue.QValueKindTime:
-			if strings.HasPrefix(val, "00:00:00") {
+			if strings.HasPrefix(unsafeString, "00:00:00") {
 				return qvalue.QValueTime{Val: time.Unix(0, 0)}, nil
 			}
 			val, err := time.Parse("15:04:05.999999", unsafeString)

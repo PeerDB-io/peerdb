@@ -295,7 +295,7 @@ func (s ClickHouseSuite) Test_Date32() {
 	`, quotedSrcFullName)))
 
 	require.NoError(s.t, s.source.Exec(fmt.Sprintf(
-		`INSERT INTO %s ("key",d,dt,tm,t) VALUES ('init','1935-01-01','1953-02-02 12:01','1973-02-02 13:01.123','14:21.654321')`,
+		`INSERT INTO %s ("key",d,dt,tm,t) VALUES ('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321')`,
 		quotedSrcFullName)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
