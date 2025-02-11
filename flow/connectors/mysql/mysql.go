@@ -484,6 +484,7 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			return nil, fmt.Errorf("cannot convert float64 to %s", qkind)
 		}
 	case []byte:
+		unsafeString := shared.UnsafeFastReadOnlyBytesToString(v)
 		switch qkind {
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(v)}, nil
@@ -492,25 +493,34 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(v)}, nil
 		case qvalue.QValueKindNumeric:
-			val, err := decimal.NewFromString(shared.UnsafeFastReadOnlyBytesToString(v))
+			val, err := decimal.NewFromString(unsafeString)
 			if err != nil {
 				return nil, err
 			}
 			return qvalue.QValueNumeric{Val: val}, nil
 		case qvalue.QValueKindTimestamp:
-			val, err := time.Parse("2006-01-02 15:04:05.999999", shared.UnsafeFastReadOnlyBytesToString(v))
+			if strings.HasPrefix(unsafeString, "0000-00-00") {
+				return qvalue.QValueTimestamp{Val: time.Unix(0, 0)}, nil
+			}
+			val, err := time.Parse("2006-01-02 15:04:05.999999", unsafeString)
 			if err != nil {
 				return nil, err
 			}
 			return qvalue.QValueTimestamp{Val: val}, nil
 		case qvalue.QValueKindTime:
-			val, err := time.Parse("15:04:05.999999", shared.UnsafeFastReadOnlyBytesToString(v))
+			if strings.HasPrefix(val, "00:00:00") {
+				return qvalue.QValueTime{Val: time.Unix(0, 0)}, nil
+			}
+			val, err := time.Parse("15:04:05.999999", unsafeString)
 			if err != nil {
 				return nil, err
 			}
 			return qvalue.QValueTime{Val: val}, nil
 		case qvalue.QValueKindDate:
-			val, err := time.Parse(time.DateOnly, shared.UnsafeFastReadOnlyBytesToString(v))
+			if unsafeString == "0000-00-00" {
+				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil
+			}
+			val, err := time.Parse(time.DateOnly, unsafeString)
 			if err != nil {
 				return nil, err
 			}

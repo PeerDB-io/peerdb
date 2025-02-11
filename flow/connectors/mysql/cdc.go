@@ -572,17 +572,32 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			// TODO figure out mysql geo encoding
 			return qvalue.QValueGeometry{Val: val}, nil
 		case qvalue.QValueKindTime:
+			if strings.HasPrefix(val, "00:00:00") {
+				return qvalue.QValueTime{Val: time.Unix(0, 0)}, nil
+			}
 			val, err := time.Parse("15:04:05.999999", val)
 			if err != nil {
 				return nil, err
 			}
 			return qvalue.QValueTime{Val: val}, nil
 		case qvalue.QValueKindDate:
+			if val == "0000-00-00" {
+				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil
+			}
 			val, err := time.Parse(time.DateOnly, val)
 			if err != nil {
 				return nil, err
 			}
 			return qvalue.QValueDate{Val: val}, nil
+		case qvalue.QValueKindTimestamp: // 0000-00-00 ends up here
+			if strings.HasPrefix(val, "0000-00-00") {
+				return qvalue.QValueTimestamp{Val: time.Unix(0, 0)}, nil
+			}
+			val, err := time.Parse("2006-01-02 15:04:05.999999", val)
+			if err != nil {
+				return nil, err
+			}
+			return qvalue.QValueTimestamp{Val: val}, nil
 		}
 	}
 	return nil, fmt.Errorf("unexpected type %T for mysql type %d", val, mytype)
