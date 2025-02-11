@@ -287,9 +287,6 @@ func (c *MySqlConnector) PullRecords(
 		req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 	}
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, req.IdleTimeout)
-	defer cancelTimeout()
-
 	var recordCount uint32
 	defer func() {
 		if recordCount == 0 {
@@ -297,6 +294,26 @@ func (c *MySqlConnector) PullRecords(
 		}
 		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
 	}()
+
+	timeoutCtx := ctx
+	var cancelTimeout context.CancelFunc
+	defer func() {
+		if cancelTimeout != nil {
+			cancelTimeout()
+		}
+	}()
+
+	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
+		recordCount += 1
+		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
+			return err
+		}
+		if recordCount == 1 {
+			req.RecordStream.SignalAsNotEmpty()
+			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+		}
+		return nil
+	}
 
 	for recordCount < req.MaxBatchSize {
 		event, err := mystream.GetEvent(timeoutCtx)
@@ -389,17 +406,13 @@ func (c *MySqlConnector) PullRecords(
 							items.AddColumn(fd.Name, val)
 						}
 
-						recordCount += 1
-						if err := req.RecordStream.AddRecord(ctx, &model.InsertRecord[model.RecordItems]{
+						if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
 							BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							Items:                items,
 							SourceTableName:      sourceTableName,
 							DestinationTableName: destinationTableName,
 						}); err != nil {
 							return err
-						}
-						if recordCount == 1 {
-							req.RecordStream.SignalAsNotEmpty()
 						}
 					}
 				case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2, replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
@@ -439,8 +452,7 @@ func (c *MySqlConnector) PullRecords(
 							newItems.AddColumn(fd.Name, val)
 						}
 
-						recordCount += 1
-						if err := req.RecordStream.AddRecord(ctx, &model.UpdateRecord[model.RecordItems]{
+						if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
 							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							OldItems:              oldItems,
 							NewItems:              newItems,
@@ -449,9 +461,6 @@ func (c *MySqlConnector) PullRecords(
 							UnchangedToastColumns: unchangedToastColumns,
 						}); err != nil {
 							return err
-						}
-						if recordCount == 1 {
-							req.RecordStream.SignalAsNotEmpty()
 						}
 					}
 				case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
@@ -477,8 +486,7 @@ func (c *MySqlConnector) PullRecords(
 							items.AddColumn(fd.Name, val)
 						}
 
-						recordCount += 1
-						if err := req.RecordStream.AddRecord(ctx, &model.DeleteRecord[model.RecordItems]{
+						if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
 							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							Items:                 items,
 							SourceTableName:       sourceTableName,
@@ -486,9 +494,6 @@ func (c *MySqlConnector) PullRecords(
 							UnchangedToastColumns: unchangedToastColumns,
 						}); err != nil {
 							return err
-						}
-						if recordCount == 1 {
-							req.RecordStream.SignalAsNotEmpty()
 						}
 					}
 				default:
