@@ -87,7 +87,6 @@ func (c *MySqlConnector) Dialer() client.Dialer {
 		return (&net.Dialer{Timeout: time.Minute}).DialContext
 	}
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		// TODO check if we need to bring noDeadlineConn over from pg code
 		return c.ssh.Client.DialContext(ctx, network, addr)
 	}
 }
