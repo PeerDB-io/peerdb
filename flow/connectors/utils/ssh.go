@@ -14,8 +14,7 @@ import (
 )
 
 type SSHTunnel struct {
-	Config *ssh.ClientConfig
-	Client *ssh.Client
+	*ssh.Client
 }
 
 // getSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
@@ -89,10 +88,7 @@ func NewSSHTunnel(
 			return SSHTunnel{}, err
 		}
 
-		return SSHTunnel{
-			Config: clientConfig,
-			Client: client,
-		}, nil
+		return SSHTunnel{Client: client}, nil
 	}
 
 	return SSHTunnel{}, nil
