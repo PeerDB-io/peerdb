@@ -572,9 +572,6 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			// TODO figure out mysql geo encoding
 			return qvalue.QValueGeometry{Val: val}, nil
 		case qvalue.QValueKindTime:
-			if strings.HasPrefix(val, "00:00:00") {
-				return qvalue.QValueTime{Val: time.Unix(0, 0)}, nil
-			}
 			val, err := time.Parse("15:04:05.999999", val)
 			if err != nil {
 				return nil, err
