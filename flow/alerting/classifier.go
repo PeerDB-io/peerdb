@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"strings"
+	"syscall"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -63,6 +64,10 @@ var (
 	ErrorIgnoreEOF = ErrorClass{
 		// io.EOF || io.ErrUnexpectedEOF
 		Class: "IGNORE_EOF", action: Ignore,
+	}
+	ErrorIgnoreConnReset = ErrorClass{
+		// net.OpError with "connection reset by peer"
+		Class: "IGNORE_CONN_RESET", action: Ignore,
 	}
 	ErrorIgnoreContextCancelled = ErrorClass{
 		// context.Canceled
@@ -153,6 +158,10 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	// Network related errors
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {
+		// Connection reset errors can mostly be ignored
+		if netErr.Err.Error() == syscall.ECONNRESET.Error() {
+			return ErrorIgnoreConnReset
+		}
 		return ErrorNotifyConnectivity
 	}
 
