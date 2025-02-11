@@ -563,7 +563,7 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 	case string:
 		switch qkind {
 		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: []byte(val)}, nil
+			return qvalue.QValueBytes{Val: shared.UnsafeFastStringToReadOnlyBytes(val)}, nil
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: val}, nil
 		case qvalue.QValueKindJSON:
@@ -576,13 +576,26 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueTime{Val: val}, nil
+			h, m, s := val.Clock()
+			return qvalue.QValueTime{Val: time.Date(1970, 1, 1, h, m, s, val.Nanosecond(), val.Location())}, nil
 		case qvalue.QValueKindDate:
+			if val == "0000-00-00" {
+				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil
+			}
 			val, err := time.Parse(time.DateOnly, val)
 			if err != nil {
 				return nil, err
 			}
 			return qvalue.QValueDate{Val: val}, nil
+		case qvalue.QValueKindTimestamp: // 0000-00-00 ends up here
+			if strings.HasPrefix(val, "0000-00-00") {
+				return qvalue.QValueTimestamp{Val: time.Unix(0, 0)}, nil
+			}
+			val, err := time.Parse("2006-01-02 15:04:05.999999", val)
+			if err != nil {
+				return nil, err
+			}
+			return qvalue.QValueTimestamp{Val: val}, nil
 		}
 	}
 	return nil, fmt.Errorf("unexpected type %T for mysql type %d", val, mytype)
