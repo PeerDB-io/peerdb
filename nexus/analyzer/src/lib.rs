@@ -985,6 +985,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 _ => MySqlFlavor::MysqlUnknown,
             }
             .into(),
+            ssh_config: None,
         }),
     }))
 }

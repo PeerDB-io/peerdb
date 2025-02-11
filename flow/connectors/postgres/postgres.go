@@ -88,6 +88,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 
 	conn, err := NewPostgresConnFromConfig(ctx, connConfig, tunnel)
 	if err != nil {
+		tunnel.Close()
 		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -25,6 +27,7 @@ import (
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
 	config *protos.MySqlConfig
+	ssh    utils.SSHTunnel
 	// go-mysql lacks context per query, cache connection per context
 	conn   map[context.Context]*client.Conn
 	logger log.Logger
@@ -35,10 +38,15 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	if err != nil {
 		return nil, err
 	}
+	ssh, err := utils.NewSSHTunnel(ctx, config.SshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
+	}
 	return &MySqlConnector{
 		PostgresMetadata: pgMetadata,
 		config:           config,
 		conn:             make(map[context.Context]*client.Conn),
+		ssh:              ssh,
 		logger:           shared.LoggerFromCtx(ctx),
 	}, nil
 }
@@ -58,15 +66,30 @@ func (c *MySqlConnector) Close() error {
 	var errs []error
 	if c.conn != nil {
 		for _, conn := range c.conn {
-			errs = append(errs, conn.Close())
+			if err := conn.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 		c.conn = nil
+	}
+	if err := c.ssh.Close(); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
 
 func (c *MySqlConnector) ConnectionActive(context.Context) error {
 	return nil
+}
+
+func (c *MySqlConnector) Dialer() client.Dialer {
+	if c.ssh.Client == nil {
+		return (&net.Dialer{Timeout: time.Minute}).DialContext
+	}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		// TODO check if we need to bring noDeadlineConn over from pg code
+		return c.ssh.Client.DialContext(ctx, network, addr)
+	}
 }
 
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
@@ -80,8 +103,8 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			return nil
 		}}
 		var err error
-		conn, err = client.ConnectWithContext(ctx, fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
-			c.config.User, c.config.Password, c.config.Database, time.Minute, argF...)
+		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
+			c.config.User, c.config.Password, c.config.Database, c.Dialer(), argF...)
 		if err != nil {
 			return nil, err
 		}
