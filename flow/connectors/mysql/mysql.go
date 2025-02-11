@@ -515,7 +515,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueTime{Val: val}, nil
+			h, m, s := val.Clock()
+			return qvalue.QValueTime{Val: time.Date(1970, 1, 1, h, m, s, val.Nanosecond(), val.Location())}, nil
 		case qvalue.QValueKindDate:
 			if unsafeString == "0000-00-00" {
 				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil

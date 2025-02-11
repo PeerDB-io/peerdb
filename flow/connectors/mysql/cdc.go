@@ -579,7 +579,8 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueTime{Val: val}, nil
+			h, m, s := val.Clock()
+			return qvalue.QValueTime{Val: time.Date(1970, 1, 1, h, m, s, val.Nanosecond(), val.Location())}, nil
 		case qvalue.QValueKindDate:
 			if val == "0000-00-00" {
 				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil

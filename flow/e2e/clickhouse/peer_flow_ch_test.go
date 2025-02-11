@@ -313,7 +313,7 @@ func (s ClickHouseSuite) Test_Date32() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
 
 	require.NoError(s.t, s.source.Exec(fmt.Sprintf(
-		`INSERT INTO %s ("key",d,dt,tm,t) VALUES ('init','1935-01-01','1953-02-02 12:01.123','1953-02-02 13:01','14:21.654321')`,
+		`INSERT INTO %s ("key",d,dt,tm,t) VALUES ('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321')`,
 		quotedSrcFullName)))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
