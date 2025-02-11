@@ -11,6 +11,9 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -356,6 +359,21 @@ func (c *MySqlConnector) PullRecords(
 				pos.Pos = uint32(ev.Position)
 				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
+		case *replication.QueryEvent:
+			stmts, warns, err := parser.New().ParseSQL(string(ev.Query))
+			if err != nil {
+				return err
+			}
+			if len(warns) > 0 {
+				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("stmts", stmts), slog.Any("warns", warns))
+			}
+			for _, stmt := range stmts {
+				alterTableStmt, ok := stmt.(*ast.AlterTableStmt)
+				if ok {
+					c.processAlterTableQuery(req, alterTableStmt)
+				}
+			}
+			c.logger.Warn("QueryEvent", slog.String("query", string(ev.Query)))
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
