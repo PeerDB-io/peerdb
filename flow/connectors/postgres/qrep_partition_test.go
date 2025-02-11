@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -73,13 +74,13 @@ func TestGetQRepPartitions(t *testing.T) {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
 
-	tunnel, err := NewSSHTunnel(context.Background(), nil)
+	tunnel, err := utils.NewSSHTunnel(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Failed to create tunnel: %v", err)
 	}
 	defer tunnel.Close()
 
-	conn, err := tunnel.NewPostgresConnFromConfig(context.Background(), config)
+	conn, err := NewPostgresConnFromConfig(context.Background(), config, tunnel)
 	if err != nil {
 		t.Fatalf("Failed to create connection: %v", err)
 	}

@@ -9,7 +9,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/log"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -17,67 +16,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-type SSHTunnel struct {
-	sshConfig *ssh.ClientConfig
-	sshClient *ssh.Client
-	sshServer string
-}
-
-func NewSSHTunnel(
-	ctx context.Context,
-	sshConfig *protos.SSHConfig,
-) (*SSHTunnel, error) {
-	var sshServer string
-	var clientConfig *ssh.ClientConfig
-
-	if sshConfig != nil {
-		sshServer = fmt.Sprintf("%s:%d", sshConfig.Host, sshConfig.Port)
-		var err error
-		clientConfig, err = utils.GetSSHClientConfig(sshConfig)
-		if err != nil {
-			shared.LoggerFromCtx(ctx).Error("Failed to get SSH client config", "error", err)
-			return nil, err
-		}
-	}
-
-	tunnel := &SSHTunnel{
-		sshConfig: clientConfig,
-		sshServer: sshServer,
-	}
-
-	err := tunnel.setupSSH(shared.LoggerFromCtx(ctx))
-	if err != nil {
-		return nil, err
-	}
-
-	return tunnel, nil
-}
-
-func (tunnel *SSHTunnel) setupSSH(logger log.Logger) error {
-	if tunnel.sshConfig == nil {
-		return nil
-	}
-
-	logger.Info("Setting up SSH connection to " + tunnel.sshServer)
-
-	var err error
-	tunnel.sshClient, err = ssh.Dial("tcp", tunnel.sshServer, tunnel.sshConfig)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (tunnel *SSHTunnel) Close() {
-	if tunnel.sshClient != nil {
-		tunnel.sshClient.Close()
-	}
-}
-
-func (tunnel *SSHTunnel) NewPostgresConnFromPostgresConfig(
+func NewPostgresConnFromPostgresConfig(
 	ctx context.Context,
 	pgConfig *protos.PostgresConfig,
+	tunnel utils.SSHTunnel,
 ) (*pgx.Conn, error) {
 	flowNameInApplicationName, err := peerdbenv.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
@@ -95,16 +37,17 @@ func (tunnel *SSHTunnel) NewPostgresConnFromPostgresConfig(
 		return nil, err
 	}
 
-	return tunnel.NewPostgresConnFromConfig(ctx, connConfig)
+	return NewPostgresConnFromConfig(ctx, connConfig, tunnel)
 }
 
-func (tunnel *SSHTunnel) NewPostgresConnFromConfig(
+func NewPostgresConnFromConfig(
 	ctx context.Context,
 	connConfig *pgx.ConnConfig,
+	tunnel utils.SSHTunnel,
 ) (*pgx.Conn, error) {
-	if tunnel.sshClient != nil {
+	if tunnel.Client != nil {
 		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := tunnel.sshClient.Dial(network, addr)
+			conn, err := tunnel.Client.Dial(network, addr)
 			if err != nil {
 				return nil, err
 			}
