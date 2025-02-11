@@ -79,6 +79,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	runtimeParams["idle_in_transaction_session_timeout"] = "0"
 	runtimeParams["statement_timeout"] = "0"
 	runtimeParams["DateStyle"] = "ISO, DMY"
+	runtimeParams["client_encoding"] = "UTF8"
 
 	tunnel, err := NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
