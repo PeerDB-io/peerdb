@@ -355,7 +355,9 @@ func (c *MySqlConnector) PullRecords(
 			for _, stmt := range stmts {
 				alterTableStmt, ok := stmt.(*ast.AlterTableStmt)
 				if ok {
-					c.processAlterTableQuery(ctx, catalogPool, req, alterTableStmt)
+					if err := c.processAlterTableQuery(ctx, catalogPool, req, alterTableStmt); err != nil {
+						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
+					}
 				}
 			}
 			c.logger.Warn("QueryEvent", slog.Any("stmts", stmts), slog.Any("warns", warns), slog.String("query", string(ev.Query)))
