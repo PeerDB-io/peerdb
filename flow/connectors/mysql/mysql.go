@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
+	"net"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -25,6 +27,7 @@ import (
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
 	config *protos.MySqlConfig
+	ssh    utils.SSHTunnel
 	// go-mysql lacks context per query, cache connection per context
 	conn   map[context.Context]*client.Conn
 	logger log.Logger
@@ -35,10 +38,15 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	if err != nil {
 		return nil, err
 	}
+	ssh, err := utils.NewSSHTunnel(ctx, config.SshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
+	}
 	return &MySqlConnector{
 		PostgresMetadata: pgMetadata,
 		config:           config,
 		conn:             make(map[context.Context]*client.Conn),
+		ssh:              ssh,
 		logger:           shared.LoggerFromCtx(ctx),
 	}, nil
 }
@@ -58,15 +66,29 @@ func (c *MySqlConnector) Close() error {
 	var errs []error
 	if c.conn != nil {
 		for _, conn := range c.conn {
-			errs = append(errs, conn.Close())
+			if err := conn.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 		c.conn = nil
+	}
+	if err := c.ssh.Close(); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
 
 func (c *MySqlConnector) ConnectionActive(context.Context) error {
 	return nil
+}
+
+func (c *MySqlConnector) Dialer() client.Dialer {
+	if c.ssh.Client == nil {
+		return (&net.Dialer{Timeout: time.Minute}).DialContext
+	}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return c.ssh.Client.DialContext(ctx, network, addr)
+	}
 }
 
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
@@ -80,12 +102,12 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			return nil
 		}}
 		var err error
-		conn, err = client.ConnectWithContext(ctx, fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
-			c.config.User, c.config.Password, c.config.Database, time.Minute, argF...)
+		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
+			c.config.User, c.config.Password, c.config.Database, c.Dialer(), argF...)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := conn.Execute("SET sql_mode = ANSI"); err != nil {
+		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
 			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
 		}
 	}
@@ -484,6 +506,7 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			return nil, fmt.Errorf("cannot convert float64 to %s", qkind)
 		}
 	case []byte:
+		unsafeString := shared.UnsafeFastReadOnlyBytesToString(v)
 		switch qkind {
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(v)}, nil
@@ -492,25 +515,32 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(v)}, nil
 		case qvalue.QValueKindNumeric:
-			val, err := decimal.NewFromString(shared.UnsafeFastReadOnlyBytesToString(v))
+			val, err := decimal.NewFromString(unsafeString)
 			if err != nil {
 				return nil, err
 			}
 			return qvalue.QValueNumeric{Val: val}, nil
 		case qvalue.QValueKindTimestamp:
-			val, err := time.Parse("2006-01-02 15:04:05.999999", shared.UnsafeFastReadOnlyBytesToString(v))
+			if strings.HasPrefix(unsafeString, "0000-00-00") {
+				return qvalue.QValueTimestamp{Val: time.Unix(0, 0)}, nil
+			}
+			val, err := time.Parse("2006-01-02 15:04:05.999999", unsafeString)
 			if err != nil {
 				return nil, err
 			}
 			return qvalue.QValueTimestamp{Val: val}, nil
 		case qvalue.QValueKindTime:
-			val, err := time.Parse("15:04:05.999999", shared.UnsafeFastReadOnlyBytesToString(v))
+			val, err := time.Parse("15:04:05.999999", unsafeString)
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueTime{Val: val}, nil
+			h, m, s := val.Clock()
+			return qvalue.QValueTime{Val: time.Date(1970, 1, 1, h, m, s, val.Nanosecond(), val.Location())}, nil
 		case qvalue.QValueKindDate:
-			val, err := time.Parse(time.DateOnly, shared.UnsafeFastReadOnlyBytesToString(v))
+			if unsafeString == "0000-00-00" {
+				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil
+			}
+			val, err := time.Parse(time.DateOnly, unsafeString)
 			if err != nil {
 				return nil, err
 			}
