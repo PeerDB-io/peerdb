@@ -47,7 +47,7 @@ func NewPostgresConnFromConfig(
 ) (*pgx.Conn, error) {
 	if tunnel.Client != nil {
 		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := tunnel.Client.Dial(network, addr)
+			conn, err := tunnel.Client.DialContext(ctx, network, addr)
 			if err != nil {
 				return nil, err
 			}

@@ -149,6 +149,7 @@ message MySqlConfig {
   uint32 compression = 7;
   bool disable_tls = 8;
   MySqlFlavor flavor = 9;
+  optional SSHConfig ssh_config = 10;
 }
 
 message KafkaConfig {

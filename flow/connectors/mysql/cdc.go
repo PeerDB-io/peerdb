@@ -184,6 +184,7 @@ func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
 		User:       c.config.User,
 		Password:   c.config.Password,
 		Logger:     BinlogLogger{Logger: c.logger},
+		Dialer:     c.Dialer(),
 		UseDecimal: true,
 		ParseTime:  true,
 	})
