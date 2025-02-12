@@ -152,6 +152,8 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") {
 				return ErrorNotifySlotInvalid
 			}
+		case "53300": // too_many_connections
+			return ErrorNotifyConnectivity // Maybe we can return something else?
 		}
 	}
 
