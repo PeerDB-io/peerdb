@@ -27,6 +27,8 @@ type MySqlConnector struct {
 	// go-mysql lacks context per query, cache connection per context
 	conn   map[context.Context]*client.Conn
 	logger log.Logger
+
+	tableSchemaLookup map[string][]string
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -39,11 +41,12 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
 	return &MySqlConnector{
-		PostgresMetadata: pgMetadata,
-		config:           config,
-		conn:             make(map[context.Context]*client.Conn),
-		ssh:              ssh,
-		logger:           shared.LoggerFromCtx(ctx),
+		PostgresMetadata:  pgMetadata,
+		config:            config,
+		ssh:               ssh,
+		conn:              make(map[context.Context]*client.Conn),
+		logger:            shared.LoggerFromCtx(ctx),
+		tableSchemaLookup: nil,
 	}, nil
 }
 
