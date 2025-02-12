@@ -370,7 +370,7 @@ func (c *MySqlConnector) PullRecords(
 			for _, stmt := range stmts {
 				alterTableStmt, ok := stmt.(*ast.AlterTableStmt)
 				if ok {
-					c.processAlterTableQuery(req, alterTableStmt)
+					c.processAlterTableQuery(ctx, catalogPool, req, alterTableStmt)
 				}
 			}
 			c.logger.Warn("QueryEvent", slog.String("query", string(ev.Query)))
