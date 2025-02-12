@@ -94,20 +94,20 @@ func (s ClickHouseSuite) DestinationTable(table string) string {
 	return table
 }
 
-func (s ClickHouseSuite) Teardown() {
-	require.NoError(s.t, s.s3Helper.CleanUp(context.Background()))
-	s.source.Teardown(s.t, s.Suffix())
+func (s ClickHouseSuite) Teardown(ctx context.Context) {
+	require.NoError(s.t, s.s3Helper.CleanUp(ctx))
+	s.source.Teardown(s.t, ctx, s.Suffix())
 }
 
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
-	ch, err := connclickhouse.Connect(context.Background(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	if err != nil {
 		return nil, err
 	}
 	defer ch.Close()
 
 	rows, err := ch.Query(
-		context.Background(),
+		s.t.Context(),
 		fmt.Sprintf(`SELECT %s FROM %s FINAL WHERE _peerdb_is_deleted = 0 ORDER BY 1 SETTINGS use_query_cache = false`, cols, table),
 	)
 	if err != nil {
@@ -276,7 +276,7 @@ func SetupSuite[TSource e2e.SuiteSource](
 		source, err := setupSource(t, suffix)
 		require.NoError(t, err, "failed to setup postgres")
 
-		s3Helper, err := e2e_s3.NewS3TestHelper(e2e_s3.Minio)
+		s3Helper, err := e2e_s3.NewS3TestHelper(t.Context(), e2e_s3.Minio)
 		require.NoError(t, err, "failed to setup S3")
 
 		s := ClickHouseSuite{
@@ -286,9 +286,9 @@ func SetupSuite[TSource e2e.SuiteSource](
 			s3Helper: s3Helper,
 		}
 
-		ch, err := connclickhouse.Connect(context.Background(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
+		ch, err := connclickhouse.Connect(s.t.Context(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
 		require.NoError(t, err, "failed to connect to clickhouse")
-		err = ch.Exec(context.Background(), "CREATE DATABASE e2e_test_"+suffix)
+		err = ch.Exec(t.Context(), "CREATE DATABASE e2e_test_"+suffix)
 		require.NoError(t, err, "failed to create clickhouse database")
 
 		return s
