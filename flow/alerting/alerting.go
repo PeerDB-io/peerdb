@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -463,6 +464,10 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	var myErr *mysql.MyError
 	if errors.As(err, &myErr) {
 		tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
+	}
+	var chErr *clickhouse.Exception
+	if errors.As(err, &chErr) {
+		tags = append(tags, fmt.Sprintf("chcode:%d", chErr.Code))
 	}
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {
