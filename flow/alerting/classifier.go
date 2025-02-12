@@ -36,23 +36,18 @@ type ErrorClass struct {
 
 var (
 	ErrorNotifyOOM = ErrorClass{
-		// ClickHouse Code 241
 		Class: "NOTIFY_OOM", action: NotifyUser,
 	}
 	ErrorNotifyMVOrView = ErrorClass{
-		// ClickHouse Code 349 / Code 48 with "while pushing to view"
 		Class: "NOTIFY_MV_OR_VIEW", action: NotifyUser,
 	}
 	ErrorNotifyConnectivity = ErrorClass{
-		// ClickHouse Code 81 or Postgres Code 28P01
 		Class: "NOTIFY_CONNECTIVITY", action: NotifyUser,
 	}
 	ErrorNotifySlotInvalid = ErrorClass{
-		// Postgres Code 55000 with "cannot read from logical replication slot"
 		Class: "NOTIFY_SLOT_INVALID", action: NotifyUser,
 	}
 	ErrorNotifyTerminate = ErrorClass{
-		// Postgres Code 57P01
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
 	ErrorNotifyConnectTimeout = ErrorClass{
@@ -64,19 +59,15 @@ var (
 		Class: "EVENT_INTERNAL", action: NotifyTelemetry,
 	}
 	ErrorIgnoreEOF = ErrorClass{
-		// io.EOF || io.ErrUnexpectedEOF
 		Class: "IGNORE_EOF", action: Ignore,
 	}
 	ErrorIgnoreConnReset = ErrorClass{
-		// net.OpError with "connection reset by peer"
 		Class: "IGNORE_CONN_RESET", action: Ignore,
 	}
 	ErrorIgnoreContextCancelled = ErrorClass{
-		// context.Canceled
 		Class: "IGNORE_CONTEXT_CANCELLED", action: Ignore,
 	}
 	ErrorInternalClickHouse = ErrorClass{
-		// Code 999 or 341
 		Class: "INTERNAL_CLICKHOUSE", action: NotifyTelemetry,
 	}
 	ErrorOther = ErrorClass{
