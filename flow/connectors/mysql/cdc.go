@@ -370,7 +370,10 @@ func (c *MySqlConnector) PullRecords(
 						}
 						return nil
 					}
-					return schema.Columns[idx]
+					if idx < len(schema.Columns) {
+						return schema.Columns[idx]
+					}
+					return nil
 				}
 				switch event.Header.EventType {
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
