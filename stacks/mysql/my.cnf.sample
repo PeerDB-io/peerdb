@@ -17,5 +17,8 @@ sync_binlog=1
 # Set the binary log row image format (FULL, MINIMAL, or NOBLOB)
 binlog_row_image=full
 
+# Not required, but needed for excluded columns, & makes system more resilient
+binlog_row_metadata=full
+
 # Ensure the InnoDB log is flushed to disk after each transaction commit
 innodb-flush-log-at-trx-commit=1
