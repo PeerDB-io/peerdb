@@ -291,6 +291,7 @@ func (c *MySqlConnector) PullRecords(
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, req.IdleTimeout)
 	defer cancelTimeout()
 
+	var skewLossReported bool
 	var recordCount uint32
 	defer func() {
 		if recordCount == 0 {
@@ -360,18 +361,26 @@ func (c *MySqlConnector) PullRecords(
 			if schema != nil {
 				getFd := func(idx int) *protos.FieldDescription {
 					if ev.Table.ColumnName != nil {
-						name := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
-						if _, excluded := exclusion[name]; !excluded {
+						unsafeName := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
+						if _, excluded := exclusion[unsafeName]; !excluded {
 							for _, col := range schema.Columns {
-								if col.Name == name {
+								if col.Name == unsafeName {
 									return col
 								}
 							}
+						}
+						if !skewLossReported {
+							skewLossReported = true
+							c.logger.Warn("Unknown column name received, ignoring", slog.String("name", string(ev.Table.ColumnName[idx])))
 						}
 						return nil
 					}
 					if idx < len(schema.Columns) {
 						return schema.Columns[idx]
+					}
+					if !skewLossReported {
+						skewLossReported = true
+						c.logger.Warn("Column ordinal position out of range, ignoring", slog.Int("position", idx))
 					}
 					return nil
 				}
