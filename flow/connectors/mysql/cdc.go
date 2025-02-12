@@ -8,12 +8,10 @@ import (
 	"math/rand/v2"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -288,9 +286,7 @@ func (c *MySqlConnector) PullRecords(
 		req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 	}
 
-	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, req.IdleTimeout)
-	defer cancelTimeout()
-
+	var skewLossReported bool
 	var recordCount uint32
 	defer func() {
 		if recordCount == 0 {
@@ -298,6 +294,26 @@ func (c *MySqlConnector) PullRecords(
 		}
 		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
 	}()
+
+	timeoutCtx := ctx
+	var cancelTimeout context.CancelFunc
+	defer func() {
+		if cancelTimeout != nil {
+			cancelTimeout()
+		}
+	}()
+
+	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
+		recordCount += 1
+		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
+			return err
+		}
+		if recordCount == 1 {
+			req.RecordStream.SignalAsNotEmpty()
+			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+		}
+		return nil
+	}
 
 	for recordCount < req.MaxBatchSize {
 		event, err := mystream.GetEvent(timeoutCtx)
@@ -360,17 +376,28 @@ func (c *MySqlConnector) PullRecords(
 			if schema != nil {
 				getFd := func(idx int) *protos.FieldDescription {
 					if ev.Table.ColumnName != nil {
-						name := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
-						if _, excluded := exclusion[name]; !excluded {
+						unsafeName := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
+						if _, excluded := exclusion[unsafeName]; !excluded {
 							for _, col := range schema.Columns {
-								if col.Name == name {
+								if col.Name == unsafeName {
 									return col
 								}
 							}
 						}
+						if !skewLossReported {
+							skewLossReported = true
+							c.logger.Warn("Unknown column name received, ignoring", slog.String("name", string(ev.Table.ColumnName[idx])))
+						}
 						return nil
 					}
-					return schema.Columns[idx]
+					if idx < len(schema.Columns) {
+						return schema.Columns[idx]
+					}
+					if !skewLossReported {
+						skewLossReported = true
+						c.logger.Warn("Column ordinal position out of range, ignoring", slog.Int("position", idx))
+					}
+					return nil
 				}
 				switch event.Header.EventType {
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
@@ -390,17 +417,13 @@ func (c *MySqlConnector) PullRecords(
 							items.AddColumn(fd.Name, val)
 						}
 
-						recordCount += 1
-						if err := req.RecordStream.AddRecord(ctx, &model.InsertRecord[model.RecordItems]{
+						if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
 							BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							Items:                items,
 							SourceTableName:      sourceTableName,
 							DestinationTableName: destinationTableName,
 						}); err != nil {
 							return err
-						}
-						if recordCount == 1 {
-							req.RecordStream.SignalAsNotEmpty()
 						}
 					}
 				case replication.UPDATE_ROWS_EVENTv1, replication.UPDATE_ROWS_EVENTv2, replication.MARIADB_UPDATE_ROWS_COMPRESSED_EVENT_V1:
@@ -440,8 +463,7 @@ func (c *MySqlConnector) PullRecords(
 							newItems.AddColumn(fd.Name, val)
 						}
 
-						recordCount += 1
-						if err := req.RecordStream.AddRecord(ctx, &model.UpdateRecord[model.RecordItems]{
+						if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
 							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							OldItems:              oldItems,
 							NewItems:              newItems,
@@ -450,9 +472,6 @@ func (c *MySqlConnector) PullRecords(
 							UnchangedToastColumns: unchangedToastColumns,
 						}); err != nil {
 							return err
-						}
-						if recordCount == 1 {
-							req.RecordStream.SignalAsNotEmpty()
 						}
 					}
 				case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
@@ -478,8 +497,7 @@ func (c *MySqlConnector) PullRecords(
 							items.AddColumn(fd.Name, val)
 						}
 
-						recordCount += 1
-						if err := req.RecordStream.AddRecord(ctx, &model.DeleteRecord[model.RecordItems]{
+						if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
 							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
 							Items:                 items,
 							SourceTableName:       sourceTableName,
@@ -488,9 +506,6 @@ func (c *MySqlConnector) PullRecords(
 						}); err != nil {
 							return err
 						}
-						if recordCount == 1 {
-							req.RecordStream.SignalAsNotEmpty()
-						}
 					}
 				default:
 				}
@@ -498,106 +513,4 @@ func (c *MySqlConnector) PullRecords(
 		}
 	}
 	return nil
-}
-
-func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qvalue.QValue, error) {
-	// See go-mysql row_event.go for mapping
-	switch val := val.(type) {
-	case nil:
-		return qvalue.QValueNull(qkind), nil
-	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
-		if qkind == qvalue.QValueKindBoolean {
-			return qvalue.QValueBoolean{Val: val != 0}, nil
-		} else if qkind == qvalue.QValueKindUInt8 {
-			return qvalue.QValueUInt8{Val: uint8(val)}, nil
-		} else {
-			return qvalue.QValueInt8{Val: val}, nil
-		}
-	case int16:
-		if qkind == qvalue.QValueKindUInt16 {
-			return qvalue.QValueUInt16{Val: uint16(val)}, nil
-		} else {
-			return qvalue.QValueInt16{Val: val}, nil
-		}
-	case int32:
-		if qkind == qvalue.QValueKindUInt32 {
-			if mytype == mysql.MYSQL_TYPE_INT24 {
-				return qvalue.QValueUInt32{Val: uint32(val) & 0xFFFFFF}, nil
-			} else {
-				return qvalue.QValueUInt32{Val: uint32(val)}, nil
-			}
-		} else {
-			return qvalue.QValueInt32{Val: val}, nil
-		}
-	case int64:
-		if qkind == qvalue.QValueKindUInt64 {
-			return qvalue.QValueUInt64{Val: uint64(val)}, nil
-		} else {
-			return qvalue.QValueInt64{Val: val}, nil
-		}
-	case float32:
-		return qvalue.QValueFloat32{Val: val}, nil
-	case float64:
-		return qvalue.QValueFloat64{Val: val}, nil
-	case decimal.Decimal:
-		return qvalue.QValueNumeric{Val: val}, nil
-	case int:
-		// YEAR: https://dev.mysql.com/doc/refman/8.4/en/year.html
-		return qvalue.QValueInt16{Val: int16(val)}, nil
-	case time.Time:
-		return qvalue.QValueTimestamp{Val: val}, nil
-	case *replication.JsonDiff:
-		// TODO support somehow??
-		return qvalue.QValueNull(qvalue.QValueKindJSON), nil
-	case []byte:
-		switch qkind {
-		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: val}, nil
-		case qvalue.QValueKindString:
-			return qvalue.QValueString{Val: string(val)}, nil
-		case qvalue.QValueKindJSON:
-			return qvalue.QValueJSON{Val: string(val)}, nil
-		case qvalue.QValueKindGeometry:
-			// TODO figure out mysql geo encoding
-			return qvalue.QValueGeometry{Val: string(val)}, nil
-		}
-	case string:
-		switch qkind {
-		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: shared.UnsafeFastStringToReadOnlyBytes(val)}, nil
-		case qvalue.QValueKindString:
-			return qvalue.QValueString{Val: val}, nil
-		case qvalue.QValueKindJSON:
-			return qvalue.QValueJSON{Val: val}, nil
-		case qvalue.QValueKindGeometry:
-			// TODO figure out mysql geo encoding
-			return qvalue.QValueGeometry{Val: val}, nil
-		case qvalue.QValueKindTime:
-			val, err := time.Parse("15:04:05.999999", val)
-			if err != nil {
-				return nil, err
-			}
-			h, m, s := val.Clock()
-			return qvalue.QValueTime{Val: time.Date(1970, 1, 1, h, m, s, val.Nanosecond(), val.Location())}, nil
-		case qvalue.QValueKindDate:
-			if val == "0000-00-00" {
-				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil
-			}
-			val, err := time.Parse(time.DateOnly, val)
-			if err != nil {
-				return nil, err
-			}
-			return qvalue.QValueDate{Val: val}, nil
-		case qvalue.QValueKindTimestamp: // 0000-00-00 ends up here
-			if strings.HasPrefix(val, "0000-00-00") {
-				return qvalue.QValueTimestamp{Val: time.Unix(0, 0)}, nil
-			}
-			val, err := time.Parse("2006-01-02 15:04:05.999999", val)
-			if err != nil {
-				return nil, err
-			}
-			return qvalue.QValueTimestamp{Val: val}, nil
-		}
-	}
-	return nil, fmt.Errorf("unexpected type %T for mysql type %d", val, mytype)
 }
