@@ -90,8 +90,6 @@ github.com/PeerDB-io/glua64 v1.0.1 h1:biXLlFF/L5pnJCwDon7hkWkuQPozC8NjKS3J7Wzi69
 github.com/PeerDB-io/glua64 v1.0.1/go.mod h1:UHmAhniv61bJPMhQvxkpC7jXbn353dSbQviu83bgQVg=
 github.com/PeerDB-io/gluabit32 v1.0.2 h1:AGI1Z7dwDVotakpuOOuyTX4/QGi5HUYsipL/VfodmO4=
 github.com/PeerDB-io/gluabit32 v1.0.2/go.mod h1:tsHStN1XG5uGVWEA8d/RameB7el3PE3sVkvk8e3+FJg=
-github.com/PeerDB-io/gluaflatbuffers v1.0.1 h1:Oxlv0VlMYoQ05Q5n/k4hXAsvtDnuVNC99JBUf927br0=
-github.com/PeerDB-io/gluaflatbuffers v1.0.1/go.mod h1:unZOM4Mm2Sn+aAFuVjoJDZ2Dji7jlDWrt4Hvq79as2g=
 github.com/PeerDB-io/gluajson v1.0.2 h1:Kv5Qabj2Md6gxRZsX5QVUOQDf5WMOQEF8lIkKXguajM=
 github.com/PeerDB-io/gluajson v1.0.2/go.mod h1:arRzpblxlLiWfBAluxP9Xibf6J8UkUIfoY4FPHTsz4Q=
 github.com/PeerDB-io/gluamsgpack v1.0.4 h1:JrZtdNAAkE6RtllVuhEuWWa26lQZ/K5BJWiI3q9EhL0=
