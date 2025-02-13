@@ -22,3 +22,7 @@ binlog_row_metadata=full
 
 # Ensure the InnoDB log is flushed to disk after each transaction commit
 innodb-flush-log-at-trx-commit=1
+
+# Enable GTID based replication
+enforce_gtid_consistency=ON
+gtid_mode=ON

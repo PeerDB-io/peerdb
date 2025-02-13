@@ -4,7 +4,7 @@
 FROM mysql:9.2.0
 
 # Copy the sample configuration file into the container
-COPY mysql/my.cnf.sample /etc/mysql/my.cnf
+COPY stacks/mysql/my.cnf.sample /etc/mysql/my.cnf
 
 # Expose the default MySQL port
 EXPOSE 3306
