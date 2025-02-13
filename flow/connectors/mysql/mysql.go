@@ -41,8 +41,8 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	return &MySqlConnector{
 		PostgresMetadata: pgMetadata,
 		config:           config,
-		conn:             make(map[context.Context]*client.Conn),
 		ssh:              ssh,
+		conn:             make(map[context.Context]*client.Conn),
 		logger:           shared.LoggerFromCtx(ctx),
 	}, nil
 }
