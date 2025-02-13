@@ -140,9 +140,15 @@ func (c *MySqlConnector) SetupReplication(
 	ctx context.Context,
 	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
-	gtidModeOn, err := c.GetGtidModeOn(ctx)
-	if err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("[mysql] SetupReplication failed to get gtid_mode: %w", err)
+	var gtidModeOn bool
+	if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_AUTO {
+		var err error
+		gtidModeOn, err = c.GetGtidModeOn(ctx)
+		if err != nil {
+			return model.SetupReplicationResult{}, fmt.Errorf("[mysql] SetupReplication failed to get gtid_mode: %w", err)
+		}
+	} else {
+		gtidModeOn = c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID
 	}
 	var lastOffsetText string
 	if gtidModeOn {
