@@ -1,0 +1,28 @@
+[mysqld]
+# Enable binary logging
+log_bin=ON
+
+# Set the server ID (must be unique within the replication group)
+server-id=1
+
+# Specify the binary log format (ROW, STATEMENT, or MIXED)
+binlog_format=ROW
+
+# Maximum size of a binary log file before a new one is created
+max_binlog_size=100M
+
+# Ensure the binary log is flushed to disk after each transaction
+sync_binlog=1
+
+# Set the binary log row image format (FULL, MINIMAL, or NOBLOB)
+binlog_row_image=full
+
+# Not required, but needed for excluded columns, & makes system more resilient
+binlog_row_metadata=full
+
+# Ensure the InnoDB log is flushed to disk after each transaction commit
+innodb-flush-log-at-trx-commit=1
+
+# Enable GTID based replication
+enforce_gtid_consistency=ON
+gtid_mode=ON
