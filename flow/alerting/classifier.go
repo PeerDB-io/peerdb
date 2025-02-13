@@ -108,7 +108,8 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM
 		case chproto.ErrCannotInsertNullInOrdinaryColumn,
-			chproto.ErrNotImplemented:
+			chproto.ErrNotImplemented,
+			chproto.ErrTooManyParts:
 			if isClickHouseMvError(exception) {
 				return ErrorNotifyMVOrView
 			}
