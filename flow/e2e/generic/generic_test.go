@@ -69,6 +69,7 @@ func (s Generic) Test_Simple_Flow() {
 			id SERIAL PRIMARY KEY,
 			ky TEXT NOT NULL,
 			value TEXT NOT NULL,
+			j JSON NOT NULL,
 			myh %s NOT NULL
 		);
 	`, srcSchemaTable, hstoreType)))
@@ -79,6 +80,18 @@ func (s Generic) Test_Simple_Flow() {
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	// insert 10 rows into the source table
+	for i := range 10 {
+		testKey := fmt.Sprintf("init_key_%d", i)
+		testValue := fmt.Sprintf("init_value_%d", i)
+		require.NoError(t, s.Source().Exec(
+			t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(ky, value, j, myh) VALUES ('%s', '%s', '{"a":[1,2,3]}', '"a"=>"b"')`,
+				srcSchemaTable, testKey, testValue),
+		))
+	}
 
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -90,7 +103,8 @@ func (s Generic) Test_Simple_Flow() {
 		testValue := fmt.Sprintf("test_value_%d", i)
 		e2e.EnvNoError(t, env, s.Source().Exec(
 			t.Context(),
-			fmt.Sprintf(`INSERT INTO %s(ky, value, myh) VALUES ('%s', '%s', '"a"=>"b"')`, srcSchemaTable, testKey, testValue),
+			fmt.Sprintf(`INSERT INTO %s(ky, value, j, myh) VALUES ('%s', '%s', '{"a":[1,2,3]}', '"a"=>"b"')`,
+				srcSchemaTable, testKey, testValue),
 		))
 	}
 	t.Log("Inserted 10 rows into the source table")
