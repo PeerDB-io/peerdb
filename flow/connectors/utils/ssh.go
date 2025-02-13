@@ -81,7 +81,7 @@ func NewSSHTunnel(
 		logger.Info("Setting up SSH connection ", slog.String("Server", sshServer))
 		client, err := ssh.Dial("tcp", sshServer, clientConfig)
 		if err != nil {
-			return SSHTunnel{}, exceptions.NewSSHError(err)
+			return SSHTunnel{}, exceptions.NewSSHTunnelSetupError(err)
 		}
 
 		return SSHTunnel{Client: client}, nil
