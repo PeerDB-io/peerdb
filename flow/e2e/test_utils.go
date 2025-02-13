@@ -75,7 +75,7 @@ func EnvNoError(t *testing.T, env WorkflowRun, err error) {
 	t.Helper()
 
 	if err != nil {
-		env.Cancel()
+		env.Cancel(t.Context())
 		t.Fatal("UNEXPECTED ERROR", err.Error())
 	}
 }
@@ -84,7 +84,7 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 	t.Helper()
 
 	if !val {
-		env.Cancel()
+		env.Cancel(t.Context())
 		t.Fatal("UNEXPECTED FALSE")
 	}
 }
@@ -93,7 +93,7 @@ func RequireEqualTables(suite RowSource, table string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	sourceRows, err := suite.Source().GetRows(suite.Suffix(), table, cols)
+	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), table, cols)
 	require.NoError(t, err)
 
 	rows, err := suite.GetRows(table, cols)
@@ -112,7 +112,7 @@ func EnvEqualTablesWithNames(
 	t := suite.T()
 	t.Helper()
 
-	sourceRows, err := suite.Source().GetRows(suite.Suffix(), srcTable, cols)
+	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
 	EnvNoError(t, env, err)
 
 	rows, err := suite.GetRows(dstTable, cols)
@@ -146,7 +146,7 @@ func EnvWaitForEqualTablesWithNames(
 	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 		t.Helper()
 
-		sourceRows, err := suite.Source().GetRows(suite.Suffix(), srcTable, cols)
+		sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
 		if err != nil {
 			t.Log(err)
 			return false
@@ -191,7 +191,7 @@ func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 	EnvWaitForFinished(t, env, time.Minute)
 	var panicErr *temporal.PanicError
 	var canceledErr *temporal.CanceledError
-	if err := env.Error(); err == nil {
+	if err := env.Error(t.Context()); err == nil {
 		t.Fatal("Expected workflow to be canceled, not completed")
 	} else if errors.As(err, &panicErr) {
 		t.Fatalf("Workflow panic: %s %s", panicErr.Error(), panicErr.StackTrace())
@@ -207,7 +207,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.Query(shared.FlowStatusQuery, config.FlowJobName)
+		response, err := env.Query(t.Context(), shared.FlowStatusQuery, config.FlowJobName)
 		if err == nil {
 			var status protos.FlowStatus
 			if err := response.Get(&status); err != nil {
@@ -215,11 +215,11 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 			} else if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
 			} else if counter > 30 {
-				env.Cancel()
+				env.Cancel(t.Context())
 				t.Fatal("UNEXPECTED STATUS TIMEOUT", status)
 			}
 		} else if counter > 15 {
-			env.Cancel()
+			env.Cancel(t.Context())
 			t.Fatal("UNEXPECTED STATUS QUERY TIMEOUT", err.Error())
 		} else if counter > 5 {
 			// log the error for informational purposes
@@ -228,7 +228,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 	}
 }
 
-func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
+func CreateTableForQRep(ctx context.Context, conn *pgx.Conn, suffix string, tableName string) error {
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 
 	tblFields := []string{
@@ -292,16 +292,15 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"mymac MACADDR",
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
-	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
-	if enumErr != nil &&
-		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
-		return enumErr
+	if _, err := conn.Exec(
+		ctx, createMoodEnum,
+	); err != nil && !shared.IsSQLStateError(err, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
+		return err
 	}
-	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`
 		CREATE TABLE e2e_test_%s.%s (
 			%s
-		);`, suffix, tableName, tblFieldStr))
-	if err != nil {
+		);`, suffix, tableName, tblFieldStr)); err != nil {
 		return fmt.Errorf("error creating table for qrep tests: %w", err)
 	}
 
@@ -322,7 +321,7 @@ func generate20MBJson() ([]byte, error) {
 	return v, nil
 }
 
-func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCount int) error {
+func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tableName string, rowCount int) error {
 	var id0 string
 	rows := make([]string, 0, rowCount)
 	for i := range rowCount - 1 {
@@ -330,8 +329,7 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 		if i == 0 {
 			id0 = id
 		}
-		row := fmt.Sprintf(`
-					(
+		row := fmt.Sprintf(`(
 						'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
 						CURRENT_TIMESTAMP, E'\\\\xDEADBEEF', 'type1', '%s',
 						1, 0, 1, 'dealType1',
@@ -358,36 +356,31 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 		rows = append(rows, row)
 	}
 
-	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO e2e_test_%s.%s (
-					id, card_id, "from", price, created_at,
-					updated_at, transaction_hash, ownerable_type, ownerable_id,
-					user_nonce, transfer_type, blockchain, deal_type,
-					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
-					paid_eth_price, card_bought_notified, address, account_id,
-					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date,
-					my_time, my_mood, myh,
-					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon,
-					myreal, myreal2, myreal3,
-					myinet, mycidr, mymac
-			) VALUES %s;
-	`, suffix, tableName, strings.Join(rows, ",")))
-	if err != nil {
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`INSERT INTO e2e_test_%s.%s (
+				id, card_id, "from", price, created_at,
+				updated_at, transaction_hash, ownerable_type, ownerable_id,
+				user_nonce, transfer_type, blockchain, deal_type,
+				deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
+				paid_eth_price, card_bought_notified, address, account_id,
+				asset_id, status, transaction_id, settled_at, reference_id,
+				settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date,
+				my_time, my_mood, myh,
+				"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon,
+				myreal, myreal2, myreal3,
+				myinet, mycidr, mymac
+		) VALUES %s;
+	`, suffix, tableName, strings.Join(rows, ","))); err != nil {
 		return fmt.Errorf("error populating source table with initial data: %w", err)
 	}
 
 	// add a row where all the nullable fields are null
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO e2e_test_%s.%s (
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`INSERT INTO e2e_test_%s.%s (
 			id, "from", created_at, updated_at,
 			transfer_type, blockchain, card_bought_notified, asset_id
 	) VALUES (
 			'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
 			0, 1, false, 12345
-	);
-	`, suffix, tableName, uuid.New().String()))
-	if err != nil {
+	);`, suffix, tableName, uuid.New().String())); err != nil {
 		return err
 	}
 
@@ -396,18 +389,16 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 	if err != nil {
 		return err
 	}
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`
 		UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
-	`, suffix, tableName), v, id0)
-	if err != nil {
+	`, suffix, tableName), v, id0); err != nil {
 		return err
 	}
 
 	// update my_date to a date before 1970
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`
 		UPDATE e2e_test_%s.%s SET old_date = '1950-01-01' WHERE id = $1;
-	`, suffix, tableName), id0)
-	if err != nil {
+	`, suffix, tableName), id0); err != nil {
 		return err
 	}
 
@@ -448,12 +439,12 @@ func CreateQRepWorkflowConfig(
 	}
 }
 
-func RunQRepFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(tc, peerflow.QRepFlowWorkflow, config, nil)
+func RunQRepFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
+	return ExecutePeerflow(ctx, tc, peerflow.QRepFlowWorkflow, config, nil)
 }
 
-func RunXminFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(tc, peerflow.XminFlowWorkflow, config, nil)
+func RunXminFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
+	return ExecutePeerflow(ctx, tc, peerflow.XminFlowWorkflow, config, nil)
 }
 
 func GetOwnersSchema() *qvalue.QRecordSchema {
@@ -580,15 +571,15 @@ type WorkflowRun struct {
 	c client.Client
 }
 
-func ExecutePeerflow(tc client.Client, wf interface{}, args ...interface{}) WorkflowRun {
-	return ExecuteWorkflow(tc, shared.PeerFlowTaskQueue, wf, args...)
+func ExecutePeerflow(ctx context.Context, tc client.Client, wf interface{}, args ...interface{}) WorkflowRun {
+	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, wf, args...)
 }
 
-func ExecuteWorkflow(tc client.Client, taskQueueID shared.TaskQueueID, wf interface{}, args ...interface{}) WorkflowRun {
+func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf interface{}, args ...interface{}) WorkflowRun {
 	taskQueue := peerdbenv.PeerFlowTaskQueueName(taskQueueID)
 
 	wr, err := tc.ExecuteWorkflow(
-		context.Background(),
+		ctx,
 		client.StartWorkflowOptions{
 			TaskQueue:                taskQueue,
 			WorkflowExecutionTimeout: 5 * time.Minute,
@@ -605,32 +596,32 @@ func ExecuteWorkflow(tc client.Client, taskQueueID shared.TaskQueueID, wf interf
 	}
 }
 
-func (env WorkflowRun) Finished() bool {
-	desc, err := env.c.DescribeWorkflowExecution(context.Background(), env.GetID(), "")
+func (env WorkflowRun) Finished(ctx context.Context) bool {
+	desc, err := env.c.DescribeWorkflowExecution(ctx, env.GetID(), "")
 	if err != nil {
 		return false
 	}
 	return desc.GetWorkflowExecutionInfo().GetStatus() != enums.WORKFLOW_EXECUTION_STATUS_RUNNING
 }
 
-func (env WorkflowRun) Error() error {
-	if env.Finished() {
-		return env.Get(context.Background(), nil)
+func (env WorkflowRun) Error(ctx context.Context) error {
+	if env.Finished(ctx) {
+		return env.Get(ctx, nil)
 	} else {
 		return nil
 	}
 }
 
-func (env WorkflowRun) Cancel() {
-	_ = env.c.CancelWorkflow(context.Background(), env.GetID(), "")
+func (env WorkflowRun) Cancel(ctx context.Context) {
+	_ = env.c.CancelWorkflow(ctx, env.GetID(), "")
 }
 
-func (env WorkflowRun) Query(queryType string, args ...interface{}) (converter.EncodedValue, error) {
-	return env.c.QueryWorkflow(context.Background(), env.GetID(), "", queryType, args...)
+func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+	return env.c.QueryWorkflow(ctx, env.GetID(), "", queryType, args...)
 }
 
-func SignalWorkflow[T any](env WorkflowRun, signal model.TypedSignal[T], value T) {
-	err := env.c.SignalWorkflow(context.Background(), env.GetID(), "", signal.Name, value)
+func SignalWorkflow[T any](ctx context.Context, env WorkflowRun, signal model.TypedSignal[T], value T) {
+	err := env.c.SignalWorkflow(ctx, env.GetID(), "", signal.Name, value)
 	if err != nil {
 		panic(err)
 	}
@@ -680,7 +671,7 @@ func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason str
 	deadline := time.Now().Add(timeout)
 	for !f() {
 		if time.Now().After(deadline) {
-			env.Cancel()
+			env.Cancel(t.Context())
 			t.Fatal("UNEXPECTED TIMEOUT", reason, time.Now())
 		}
 		time.Sleep(time.Second)
@@ -693,7 +684,7 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 	EnvWaitFor(t, env, timeout, "finish", func() bool {
 		t.Helper()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		desc, err := env.c.DescribeWorkflowExecution(ctx, env.GetID(), "")
 		if err != nil {
@@ -712,7 +703,7 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 func EnvGetWorkflowState(t *testing.T, env WorkflowRun) peerflow.CDCFlowWorkflowState {
 	t.Helper()
 	var state peerflow.CDCFlowWorkflowState
-	val, err := env.Query(shared.CDCFlowStateQuery)
+	val, err := env.Query(t.Context(), shared.CDCFlowStateQuery)
 	EnvNoError(t, env, err)
 	EnvNoError(t, env, val.Get(&state))
 	return state
@@ -720,7 +711,7 @@ func EnvGetWorkflowState(t *testing.T, env WorkflowRun) peerflow.CDCFlowWorkflow
 
 func EnvGetRunID(t *testing.T, env WorkflowRun) string {
 	t.Helper()
-	execData, err := env.c.DescribeWorkflowExecution(context.Background(), env.GetID(), "")
+	execData, err := env.c.DescribeWorkflowExecution(t.Context(), env.GetID(), "")
 	require.NoError(t, err)
 	return execData.WorkflowExecutionInfo.Execution.RunId
 }
@@ -728,7 +719,7 @@ func EnvGetRunID(t *testing.T, env WorkflowRun) string {
 func EnvGetFlowStatus(t *testing.T, env WorkflowRun) protos.FlowStatus {
 	t.Helper()
 	var flowStatus protos.FlowStatus
-	val, err := env.Query(shared.FlowStatusQuery)
+	val, err := env.Query(t.Context(), shared.FlowStatusQuery)
 	EnvNoError(t, env, err)
 	EnvNoError(t, env, val.Get(&flowStatus))
 	return flowStatus

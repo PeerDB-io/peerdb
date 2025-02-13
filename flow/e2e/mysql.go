@@ -61,27 +61,27 @@ func setupMyCore(t *testing.T, suffix string, isMaria bool) (*MySqlSource, error
 		config = mariaConfig
 	}
 
-	connector, err := connmysql.NewMySqlConnector(context.Background(), config)
+	connector, err := connmysql.NewMySqlConnector(t.Context(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
 
 	if _, err := connector.Execute(
-		context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS \"e2e_test_%s\"", suffix),
+		t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS \"e2e_test_%s\"", suffix),
 	); err != nil {
 		connector.Close()
 		return nil, err
 	}
 
 	if _, err := connector.Execute(
-		context.Background(), fmt.Sprintf("CREATE DATABASE \"e2e_test_%s\"", suffix),
+		t.Context(), fmt.Sprintf("CREATE DATABASE \"e2e_test_%s\"", suffix),
 	); err != nil {
 		connector.Close()
 		return nil, err
 	}
 
 	if !isMaria {
-		if _, err := connector.Execute(context.Background(), "set global binlog_row_metadata=full"); err != nil {
+		if _, err := connector.Execute(t.Context(), "set global binlog_row_metadata=full"); err != nil {
 			connector.Close()
 			return nil, err
 		}
@@ -94,10 +94,10 @@ func (s *MySqlSource) Connector() connectors.Connector {
 	return s.MySqlConnector
 }
 
-func (s *MySqlSource) Teardown(t *testing.T, suffix string) {
+func (s *MySqlSource) Teardown(t *testing.T, ctx context.Context, suffix string) {
 	t.Helper()
 	if _, err := s.MySqlConnector.Execute(
-		context.Background(), fmt.Sprintf("DROP DATABASE IF EXISTS \"e2e_test_%s\"", suffix),
+		ctx, fmt.Sprintf("DROP DATABASE IF EXISTS \"e2e_test_%s\"", suffix),
 	); err != nil {
 		t.Log("failed to drop mysql database", err)
 		s.MySqlConnector.Close()
@@ -127,14 +127,14 @@ func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	return peer
 }
 
-func (s *MySqlSource) Exec(sql string) error {
-	_, err := s.MySqlConnector.Execute(context.Background(), sql)
+func (s *MySqlSource) Exec(ctx context.Context, sql string) error {
+	_, err := s.MySqlConnector.Execute(ctx, sql)
 	return err
 }
 
-func (s *MySqlSource) GetRows(suffix string, table string, cols string) (*model.QRecordBatch, error) {
+func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
 	rs, err := s.MySqlConnector.Execute(
-		context.Background(),
+		ctx,
 		fmt.Sprintf(`SELECT %s FROM "e2e_test_%s".%s ORDER BY id`, cols, suffix, connpostgres.QuoteIdentifier(table)),
 	)
 	if err != nil {
@@ -142,7 +142,7 @@ func (s *MySqlSource) GetRows(suffix string, table string, cols string) (*model.
 	}
 
 	tableName := fmt.Sprintf("e2e_test_%s.%s", suffix, table)
-	tableSchemas, err := s.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
+	tableSchemas, err := s.GetTableSchema(ctx, nil, protos.TypeSystem_Q, []string{tableName})
 	if err != nil {
 		return nil, err
 	}

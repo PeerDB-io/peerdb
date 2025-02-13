@@ -2,6 +2,7 @@ package qvalue
 
 import (
 	"bytes"
+	"encoding/json"
 	"math"
 	"reflect"
 	"slices"
@@ -98,8 +99,19 @@ func Equals(qv QValue, other QValue) bool {
 	case QValueUUID:
 		return compareUUID(qvValue, otherValue)
 	case QValueJSON:
-		// TODO (kaushik): fix for tests
-		return true
+		if otherValue == nil || otherValue == "" {
+			// TODO make this more strict
+			return true
+		}
+		var a any
+		var b any
+		if err := json.Unmarshal([]byte(q.Val), &a); err != nil {
+			return false
+		}
+		if err := json.Unmarshal([]byte(otherValue.(string)), &b); err != nil {
+			return false
+		}
+		return reflect.DeepEqual(a, b)
 	case QValueGeometry:
 		return compareGeometry(q.Val, otherValue)
 	case QValueGeography:
