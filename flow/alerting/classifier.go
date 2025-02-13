@@ -153,10 +153,17 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	}
 
 	// SSH related errors
-	var sshErr *ssh.OpenChannelError
+	var ssOpenChanhErr *ssh.OpenChannelError
+	if errors.As(err, &ssOpenChanhErr) {
+		return ErrorNotifyConnectivity
+	}
+
+	// Other SSH related errors
+	var sshErr *exceptions.SSHError
 	if errors.As(err, &sshErr) {
 		return ErrorNotifyConnectivity
 	}
+
 	return ErrorOther
 }
 
