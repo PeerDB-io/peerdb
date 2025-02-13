@@ -28,3 +28,11 @@ jobs:
       - name: Build
         working-directory: ui
         run: npm run build
+
+      - name: Prettier
+        working-directory: ui
+        run: npx prettier --check .
+
+      - name: Lint
+        working-directory: ui
+        run: npm run lint
