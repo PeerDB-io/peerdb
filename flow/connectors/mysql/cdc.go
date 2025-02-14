@@ -346,14 +346,6 @@ func (c *MySqlConnector) PullRecords(
 		}
 
 		switch ev := event.Event.(type) {
-		case *replication.QueryEvent:
-			if string(ev.Query) == "COMMIT" {
-				if gset != nil {
-					gset = ev.GSet
-					req.RecordStream.UpdateLatestCheckpointText(gset.String())
-				}
-				inTx = false
-			}
 		case *replication.XIDEvent:
 			if gset != nil {
 				gset = ev.GSet
