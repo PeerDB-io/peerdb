@@ -75,7 +75,7 @@ func NewKafkaConnector(
 		kgo.WithLogger(kgoLogger(logger)),
 	)
 	if !config.DisableTls {
-		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS12}))
+		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13}))
 	}
 	switch config.Partitioner {
 	case "LeastBackup":
