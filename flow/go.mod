@@ -10,10 +10,10 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.1
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.3.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0
+	github.com/ClickHouse/ch-go v0.64.1
 	github.com/ClickHouse/clickhouse-go/v2 v2.31.0
 	github.com/PeerDB-io/glua64 v1.0.1
 	github.com/PeerDB-io/gluabit32 v1.0.2
-	github.com/PeerDB-io/gluaflatbuffers v1.0.1
 	github.com/PeerDB-io/gluajson v1.0.2
 	github.com/PeerDB-io/gluamsgpack v1.0.4
 	github.com/PeerDB-io/gluautf8 v1.0.0
@@ -82,7 +82,6 @@ require (
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/99designs/keyring v1.2.2 // indirect
 	github.com/BurntSushi/toml v1.4.0 // indirect
-	github.com/ClickHouse/ch-go v0.64.1 // indirect
 	github.com/DataDog/zstd v1.5.6 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.26.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.50.0 // indirect

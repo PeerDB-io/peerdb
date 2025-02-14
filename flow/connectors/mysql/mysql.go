@@ -206,8 +206,8 @@ func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
 		return gtid_mode == "ON", nil
 	} else {
 		// mariadb always enabled: https://mariadb.com/kb/en/gtid/#using-global-transaction-ids
-		// doesn't seem to work so disabling for now
-		return false, nil
+		cmp, err := c.CompareServerVersion(ctx, "10.0.2")
+		return cmp >= 0, err
 	}
 }
 
