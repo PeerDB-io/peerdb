@@ -12,7 +12,6 @@ import (
 	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/exp/constraints"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -366,8 +365,8 @@ func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bo
 	return value, nil
 }
 
-func UpdateDynamicSetting(ctx context.Context, pool *pgxpool.Pool, name string, value *string) error {
-	if pool == nil {
+func UpdateDynamicSetting(ctx context.Context, pool shared.CatalogPool, name string, value *string) error {
+	if pool.Pool == nil {
 		var err error
 		pool, err = GetCatalogConnectionPoolFromEnv(ctx)
 		if err != nil {
@@ -519,7 +518,7 @@ func PeerDBMaintenanceModeEnabled(ctx context.Context, env map[string]string) (b
 	return dynamicConfBool(ctx, env, "PEERDB_MAINTENANCE_MODE_ENABLED")
 }
 
-func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool *pgxpool.Pool, enabled bool) error {
+func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool shared.CatalogPool, enabled bool) error {
 	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", ptr.String(strconv.FormatBool(enabled)))
 }
 

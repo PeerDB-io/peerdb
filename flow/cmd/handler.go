@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 
@@ -28,12 +27,12 @@ import (
 type FlowRequestHandler struct {
 	protos.UnimplementedFlowServiceServer
 	temporalClient      client.Client
-	pool                *pgxpool.Pool
+	pool                shared.CatalogPool
 	alerter             *alerting.Alerter
 	peerflowTaskQueueID string
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
+func NewFlowRequestHandler(temporalClient client.Client, pool shared.CatalogPool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
 		temporalClient:      temporalClient,
 		pool:                pool,

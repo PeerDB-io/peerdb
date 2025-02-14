@@ -88,20 +88,26 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 }
 
 func GetErrorClass(ctx context.Context, err error) ErrorClass {
-	// PeerDB error types
+	var catalogErr *exceptions.CatalogError
+	if errors.As(err, &catalogErr) {
+		return ErrorEventInternal
+	}
+
 	var peerDBErr *exceptions.PostgresSetupError
 	if errors.As(err, &peerDBErr) {
 		return ErrorNotifyConnectivity
 	}
-	// Generally happens during workflow cancellation
+
 	if errors.Is(err, context.Canceled) {
+		// Generally happens during workflow cancellation
 		return ErrorIgnoreContextCancelled
 	}
-	// Usually seen in ClickHouse cloud during instance scale-up
+
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		// Usually seen in ClickHouse cloud during instance scale-up
 		return ErrorIgnoreEOF
 	}
-	// ClickHouse specific errors
+
 	var exception *clickhouse.Exception
 	if errors.As(err, &exception) {
 		switch chproto.Error(exception.Code) {
@@ -121,7 +127,7 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 			return ErrorInternalClickHouse
 		}
 	}
-	// Postgres specific errors
+
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
 		switch pgErr.Code {
@@ -142,7 +148,6 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 		}
 	}
 
-	// Network related errors
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {
 		// Connection reset errors can mostly be ignored
@@ -152,13 +157,11 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 		return ErrorNotifyConnectivity
 	}
 
-	// SSH related errors
 	var ssOpenChanErr *ssh.OpenChannelError
 	if errors.As(err, &ssOpenChanErr) {
 		return ErrorNotifyConnectivity
 	}
 
-	// Other SSH Initial Connection related errors
 	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
 	if errors.As(err, &sshTunnelSetupErr) {
 		return ErrorNotifyConnectivity
