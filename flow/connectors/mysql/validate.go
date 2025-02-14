@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/go-mysql-org/go-mysql/mysql"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
