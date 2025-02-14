@@ -1,5 +1,9 @@
 import { ehSchema } from '@/components/PeerForms/Eventhubs/schema';
-import { ElasticsearchAuthType, MySqlFlavor } from '@/grpc_generated/peers';
+import {
+  ElasticsearchAuthType,
+  MySqlFlavor,
+  MySqlReplicationMechanism,
+} from '@/grpc_generated/peers';
 import * as z from 'zod';
 
 const sshSchema = z
@@ -128,6 +132,11 @@ export const mySchema = z.object({
   flavor: z.union([
     z.literal(MySqlFlavor.MYSQL_MYSQL),
     z.literal(MySqlFlavor.MYSQL_MARIA),
+  ]),
+  replicationMechanism: z.union([
+    z.literal(MySqlReplicationMechanism.MYSQL_AUTO),
+    z.literal(MySqlReplicationMechanism.MYSQL_GTID),
+    z.literal(MySqlReplicationMechanism.MYSQL_FILEPOS),
   ]),
   sshConfig: sshSchema,
 });

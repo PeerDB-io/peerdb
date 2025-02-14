@@ -914,7 +914,7 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 }
 
 func (s ClickHouseSuite) Test_Column_Exclusion() {
-	if mySource, ok := s.source.(*e2e.MySqlSource); ok && mySource.IsMaria {
+	if mySource, ok := s.source.(*e2e.MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("skip maria, testing minimal row metadata on maria")
 	}
 

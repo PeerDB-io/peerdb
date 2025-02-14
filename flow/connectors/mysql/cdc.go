@@ -140,9 +140,15 @@ func (c *MySqlConnector) SetupReplication(
 	ctx context.Context,
 	req *protos.SetupReplicationInput,
 ) (model.SetupReplicationResult, error) {
-	gtidModeOn, err := c.GetGtidModeOn(ctx)
-	if err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("[mysql] SetupReplication failed to get gtid_mode: %w", err)
+	var gtidModeOn bool
+	if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_AUTO {
+		var err error
+		gtidModeOn, err = c.GetGtidModeOn(ctx)
+		if err != nil {
+			return model.SetupReplicationResult{}, fmt.Errorf("[mysql] SetupReplication failed to get gtid_mode: %w", err)
+		}
+	} else {
+		gtidModeOn = c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID
 	}
 	var lastOffsetText string
 	if gtidModeOn {
@@ -224,7 +230,6 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 func (c *MySqlConnector) startCdcStreamingGtid(
 	gset mysql.GTIDSet,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	// https://hevodata.com/learn/mysql-gtids-and-replication-set-up
 	syncer := c.startSyncer()
 	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
@@ -287,6 +292,7 @@ func (c *MySqlConnector) PullRecords(
 	}
 
 	var skewLossReported bool
+	var inTx bool
 	var recordCount uint32
 	defer func() {
 		if recordCount == 0 {
@@ -315,10 +321,14 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
-	for recordCount < req.MaxBatchSize {
-		event, err := mystream.GetEvent(timeoutCtx)
+	for inTx || recordCount < req.MaxBatchSize {
+		getCtx := ctx
+		if !inTx {
+			getCtx = timeoutCtx
+		}
+		event, err := mystream.GetEvent(getCtx)
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
+			if !inTx && errors.Is(err, context.DeadlineExceeded) {
 				return nil
 			}
 			return err
@@ -335,46 +345,25 @@ func (c *MySqlConnector) PullRecords(
 		}
 
 		switch ev := event.Event.(type) {
+		case *replication.XIDEvent:
+			if gset != nil {
+				gset = ev.GSet
+				req.RecordStream.UpdateLatestCheckpointText(gset.String())
+			}
+			inTx = false
 		case *replication.RotateEvent:
 			if gset == nil && event.Header.Timestamp != 0 {
 				pos.Name = string(ev.NextLogName)
 				pos.Pos = uint32(ev.Position)
 				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
-		case *replication.MariadbGTIDEvent:
-			if gset != nil {
-				var err error
-				newset, err := ev.GTIDNext()
-				if err != nil {
-					// TODO could ignore, but then we might get stuck rereading same batch each time
-					return err
-				}
-				if err := gset.Update(newset.String()); err != nil {
-					return err
-				}
-				req.RecordStream.UpdateLatestCheckpointText(gset.String())
-			}
-		case *replication.GTIDEvent:
-			if gset != nil {
-				var err error
-				newset, err := ev.GTIDNext()
-				if err != nil {
-					// TODO could ignore, but then we might get stuck rereading same batch each time
-					return err
-				}
-				if err := gset.Update(newset.String()); err != nil {
-					return err
-				}
-				req.RecordStream.UpdateLatestCheckpointText(gset.String())
-			}
-		case *replication.PreviousGTIDsEvent:
-			// TODO look into this, maybe we just do gset.Update(ev.GTIDSets)
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				inTx = true
 				getFd := func(idx int) *protos.FieldDescription {
 					if ev.Table.ColumnName != nil {
 						unsafeName := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])

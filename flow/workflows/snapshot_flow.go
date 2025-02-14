@@ -327,8 +327,7 @@ func SnapshotFlowWorkflow(
 	defer workflow.CompleteSession(sessionCtx)
 
 	if !config.DoInitialSnapshot {
-		_, err := se.setupReplication(sessionCtx)
-		if err != nil {
+		if _, err := se.setupReplication(sessionCtx); err != nil {
 			return fmt.Errorf("failed to setup replication: %w", err)
 		}
 
