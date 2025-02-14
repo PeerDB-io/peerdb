@@ -199,12 +199,17 @@ export default function SchemaBox({
               ?.map((tableMap) => tableMap.sourceTableIdentifier)
               .includes(row.source)
           ) {
+            const existingRow = alreadySelectedTables?.find(
+              (tableMap) => tableMap.sourceTableIdentifier === row.source
+            );
             row.selected = true;
+            row.engine = existingRow?.engine ?? TableEngine.CH_ENGINE_REPLACING_MERGE_TREE;
             row.editingDisabled = true;
-            row.destination =
-              alreadySelectedTables?.find(
-                (tableMap) => tableMap.sourceTableIdentifier === row.source
-              )?.destinationTableIdentifier ?? '';
+            row.exclude = new Set(existingRow?.exclude ?? []);
+            row.destination = existingRow?.destinationTableIdentifier ?? '';
+            alreadySelectedTables?.find(
+              (tableMap) => tableMap.sourceTableIdentifier === row.source
+            )?.destinationTableIdentifier ?? '';
             addTableColumns(row.source);
           }
         }
@@ -369,6 +374,7 @@ export default function SchemaBox({
                               Engine:
                             </p>
                             <ReactSelect
+                              isDisabled={row.editingDisabled}
                               styles={engineOptionStyles}
                               options={engineOptions}
                               placeholder='ReplacingMergeTree (default)'
