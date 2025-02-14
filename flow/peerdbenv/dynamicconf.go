@@ -111,7 +111,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
 		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
-		DefaultValue:     "base64",
+		DefaultValue:     "raw",
 		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
