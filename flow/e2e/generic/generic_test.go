@@ -1,7 +1,6 @@
 package e2e_generic
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -40,6 +39,13 @@ func TestGenericCH_MySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, e2e.SetupMySQL)))
 }
 
+func TestGenericCH_MySQL_FilePos(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, func(t *testing.T, suffix string) (*e2e.MySqlSource, error) {
+		t.Helper()
+		return e2e.SetupMyCore(t, suffix, false, protos.MySqlReplicationMechanism_MYSQL_FILEPOS)
+	})))
+}
+
 func TestGenericCH_MariaDB(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, e2e.SetupMariaDB)))
 }
@@ -65,11 +71,12 @@ func (s Generic) Test_Simple_Flow() {
 		hstoreType = "HSTORE"
 	}
 
-	require.NoError(t, s.Source().Exec(fmt.Sprintf(`
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			ky TEXT NOT NULL,
 			value TEXT NOT NULL,
+			j JSON NOT NULL,
 			myh %s NOT NULL
 		);
 	`, srcSchemaTable, hstoreType)))
@@ -80,9 +87,21 @@ func (s Generic) Test_Simple_Flow() {
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	// insert 10 rows into the source table
+	for i := range 10 {
+		testKey := fmt.Sprintf("init_key_%d", i)
+		testValue := fmt.Sprintf("init_value_%d", i)
+		require.NoError(t, s.Source().Exec(
+			t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(ky, value, j, myh) VALUES ('%s', '%s', '{"a":[1,2,3]}', '"a"=>"b"')`,
+				srcSchemaTable, testKey, testValue),
+		))
+	}
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// insert 10 rows into the source table
@@ -90,13 +109,15 @@ func (s Generic) Test_Simple_Flow() {
 		testKey := fmt.Sprintf("test_key_%d", i)
 		testValue := fmt.Sprintf("test_value_%d", i)
 		e2e.EnvNoError(t, env, s.Source().Exec(
-			fmt.Sprintf(`INSERT INTO %s(ky, value, myh) VALUES ('%s', '%s', '"a"=>"b"')`, srcSchemaTable, testKey, testValue),
+			t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(ky, value, j, myh) VALUES ('%s', '%s', '{"a":[1,2,3]}', '"a"=>"b"')`,
+				srcSchemaTable, testKey, testValue),
 		))
 	}
 	t.Log("Inserted 10 rows into the source table")
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalizing 10 rows", srcTable, dstTable, `id,ky,value,myh`)
-	env.Cancel()
+	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }
 
@@ -113,7 +134,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	srcTableName := e2e.AttachSchema(s, srcTable)
 	dstTableName := s.DestinationTable(dstTable)
 
-	_, err := s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
 			c1 BIGINT
@@ -131,9 +152,9 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
 	e2e.EnvNoError(t, env, err)
 	t.Log("Inserted initial row in the source table")
@@ -165,16 +186,16 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err := destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 
 	// alter source table, add column c2 and insert another row.
-	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 		ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName))
 	e2e.EnvNoError(t, env, err)
 	t.Log("Altered source table, added column c2")
-	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c2) VALUES ($1,$2)`, srcTableName), 2, 2)
 	e2e.EnvNoError(t, env, err)
 	t.Log("Inserted row with added c2 in the source table")
@@ -206,17 +227,17 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c2")
 
 	// alter source table, add column c3, drop column c2 and insert another row.
-	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 BIGINT`, srcTableName))
 	e2e.EnvNoError(t, env, err)
 	t.Log("Altered source table, dropped column c2 and added column c3")
-	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 		INSERT INTO %s(c1,c3) VALUES ($1,$2)`, srcTableName), 3, 3)
 	e2e.EnvNoError(t, env, err)
 	t.Log("Inserted row with added c3 in the source table")
@@ -253,17 +274,17 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c3")
 
 	// alter source table, drop column c3 and insert another row.
-	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 		ALTER TABLE %s DROP COLUMN c3`, srcTableName))
 	e2e.EnvNoError(t, env, err)
 	t.Log("Altered source table, dropped column c3")
-	_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 4)
 	e2e.EnvNoError(t, env, err)
 	t.Log("Inserted row after dropping all columns in the source table")
@@ -300,12 +321,12 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")
 
-	env.Cancel()
+	env.Cancel(t.Context())
 
 	e2e.RequireEnvCanceled(t, env)
 }
@@ -316,7 +337,7 @@ func (s Generic) Test_Partitioned_Table() {
 	dstTable := "test_partition_dst"
 	srcSchemaTable := e2e.AttachSchema(s, srcTable)
 
-	_, err := s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 			CREATE TABLE %[1]s(
 				id SERIAL NOT NULL,
 				name TEXT,
@@ -343,13 +364,13 @@ func (s Generic) Test_Partitioned_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testName := fmt.Sprintf("test_name_%d", i)
-		_, err = s.Connector().Conn().Exec(context.Background(), fmt.Sprintf(`
+		_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
 		INSERT INTO %s(name, created_at) VALUES ($1, '2024-%d-01')
 		`, srcSchemaTable, max(1, i)), testName)
 		e2e.EnvNoError(t, env, err)
@@ -357,6 +378,6 @@ func (s Generic) Test_Partitioned_Table() {
 	t.Log("Inserted 10 rows into the source table")
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalizing 10 rows", srcTable, dstTable, `id,name,created_at`)
-	env.Cancel()
+	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }

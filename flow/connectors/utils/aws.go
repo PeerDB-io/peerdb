@@ -143,7 +143,7 @@ func getPeerDBAWSEnv(connectorName string, awsKey string) string {
 	return os.Getenv(fmt.Sprintf("PEERDB_%s_AWS_CREDENTIALS_%s", strings.ToUpper(connectorName), awsKey))
 }
 
-func LoadPeerDBAWSEnvConfigProvider(connectorName string) AWSCredentialsProvider {
+func LoadPeerDBAWSEnvConfigProvider(connectorName string) *StaticAWSCredentialsProvider {
 	accessKeyId := getPeerDBAWSEnv(connectorName, "AWS_ACCESS_KEY_ID")
 	secretAccessKey := getPeerDBAWSEnv(connectorName, "AWS_SECRET_ACCESS_KEY")
 	region := getPeerDBAWSEnv(connectorName, "AWS_REGION")

@@ -14,11 +14,11 @@ import (
 )
 
 type SuiteSource interface {
-	Teardown(t *testing.T, suffix string)
+	Teardown(t *testing.T, ctx context.Context, suffix string)
 	GeneratePeer(t *testing.T) *protos.Peer
 	Connector() connectors.Connector
-	Exec(sql string) error
-	GetRows(suffix, table, cols string) (*model.QRecordBatch, error)
+	Exec(ctx context.Context, sql string) error
+	GetRows(ctx context.Context, suffix, table, cols string) (*model.QRecordBatch, error)
 }
 
 func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
@@ -37,10 +37,9 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 
 func CreatePeer(t *testing.T, peer *protos.Peer) {
 	t.Helper()
-	ctx := context.Background()
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(t.Context())
 	require.NoError(t, err)
-	res, err := utils.CreatePeerNoValidate(ctx, pool, peer, false)
+	res, err := utils.CreatePeerNoValidate(t.Context(), pool, peer, false)
 	require.NoError(t, err)
 	if res.Status != protos.CreatePeerStatus_CREATED {
 		require.Fail(t, res.Message)

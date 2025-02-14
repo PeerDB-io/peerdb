@@ -139,6 +139,12 @@ enum MySqlFlavor {
   MYSQL_MARIA = 2;
 }
 
+enum MySqlReplicationMechanism {
+  MYSQL_AUTO = 0;
+  MYSQL_GTID = 1;
+  MYSQL_FILEPOS = 2;
+}
+
 message MySqlConfig {
   string host = 1;
   uint32 port = 2;
@@ -149,6 +155,8 @@ message MySqlConfig {
   uint32 compression = 7;
   bool disable_tls = 8;
   MySqlFlavor flavor = 9;
+  optional SSHConfig ssh_config = 10;
+  MySqlReplicationMechanism replication_mechanism = 11;
 }
 
 message KafkaConfig {

@@ -1,6 +1,47 @@
 import { ehSchema } from '@/components/PeerForms/Eventhubs/schema';
-import { ElasticsearchAuthType, MySqlFlavor } from '@/grpc_generated/peers';
+import {
+  ElasticsearchAuthType,
+  MySqlFlavor,
+  MySqlReplicationMechanism,
+} from '@/grpc_generated/peers';
 import * as z from 'zod';
+
+const sshSchema = z
+  .object({
+    host: z
+      .string({
+        required_error: 'SSH Host is required',
+        invalid_type_error: 'SSH Host must be a string',
+      })
+      .min(1, { message: 'SSH Host cannot be empty' })
+      .max(255, 'SSH Host must be less than 255 characters'),
+    port: z
+      .number({
+        required_error: 'SSH Port is required',
+        invalid_type_error: 'SSH Port must be a number',
+      })
+      .int()
+      .min(1, 'SSH Port must be a positive integer')
+      .max(65535, 'SSH Port must be below 65535'),
+    user: z
+      .string({
+        required_error: 'SSH User is required',
+        invalid_type_error: 'SSH User must be a string',
+      })
+      .min(1, 'SSH User must be non-empty')
+      .max(64, 'SSH User must be less than 64 characters'),
+    password: z
+      .string({
+        required_error: 'SSH Password is required',
+        invalid_type_error: 'SSH Password must be a string',
+      })
+      .max(100, 'SSH Password must be less than 100 characters'),
+    privateKey: z.string({
+      required_error: 'SSH Private Key is required',
+      invalid_type_error: 'SSH Private Key must be a string',
+    }),
+  })
+  .optional();
 
 export const peerNameSchema = z
   .string({
@@ -54,42 +95,7 @@ export const pgSchema = z.object({
     .string()
     .max(100, 'Transaction snapshot too long (100 char limit)')
     .optional(),
-  sshConfig: z
-    .object({
-      host: z
-        .string({
-          required_error: 'SSH Host is required',
-          invalid_type_error: 'SSH Host must be a string',
-        })
-        .min(1, { message: 'SSH Host cannot be empty' })
-        .max(255, 'SSH Host must be less than 255 characters'),
-      port: z
-        .number({
-          required_error: 'SSH Port is required',
-          invalid_type_error: 'SSH Port must be a number',
-        })
-        .int()
-        .min(1, 'SSH Port must be a positive integer')
-        .max(65535, 'SSH Port must be below 65535'),
-      user: z
-        .string({
-          required_error: 'SSH User is required',
-          invalid_type_error: 'SSH User must be a string',
-        })
-        .min(1, 'SSH User must be non-empty')
-        .max(64, 'SSH User must be less than 64 characters'),
-      password: z
-        .string({
-          required_error: 'SSH Password is required',
-          invalid_type_error: 'SSH Password must be a string',
-        })
-        .max(100, 'SSH Password must be less than 100 characters'),
-      privateKey: z.string({
-        required_error: 'SSH Private Key is required',
-        invalid_type_error: 'SSH Private Key must be a string',
-      }),
-    })
-    .optional(),
+  sshConfig: sshSchema,
 });
 export const mySchema = z.object({
   host: z
@@ -127,6 +133,12 @@ export const mySchema = z.object({
     z.literal(MySqlFlavor.MYSQL_MYSQL),
     z.literal(MySqlFlavor.MYSQL_MARIA),
   ]),
+  replicationMechanism: z.union([
+    z.literal(MySqlReplicationMechanism.MYSQL_AUTO),
+    z.literal(MySqlReplicationMechanism.MYSQL_GTID),
+    z.literal(MySqlReplicationMechanism.MYSQL_FILEPOS),
+  ]),
+  sshConfig: sshSchema,
 });
 
 export const sfSchema = z.object({

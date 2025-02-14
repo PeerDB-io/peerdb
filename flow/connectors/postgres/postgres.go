@@ -38,7 +38,7 @@ import (
 type PostgresConnector struct {
 	logger                 log.Logger
 	config                 *protos.PostgresConfig
-	ssh                    *SSHTunnel
+	ssh                    utils.SSHTunnel
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
 	replState              *ReplState
@@ -80,14 +80,15 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	runtimeParams["statement_timeout"] = "0"
 	runtimeParams["DateStyle"] = "ISO, DMY"
 
-	tunnel, err := NewSSHTunnel(ctx, pgConfig.SshConfig)
+	tunnel, err := utils.NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
 		logger.Error("failed to create ssh tunnel", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
 
-	conn, err := tunnel.NewPostgresConnFromConfig(ctx, connConfig)
+	conn, err := NewPostgresConnFromConfig(ctx, connConfig, tunnel)
 	if err != nil {
+		tunnel.Close()
 		logger.Error("failed to create connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
@@ -143,7 +144,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	conn, err := c.ssh.NewPostgresConnFromConfig(ctx, replConfig)
+	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.ssh)
 	if err != nil {
 		shared.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)

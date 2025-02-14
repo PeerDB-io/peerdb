@@ -228,8 +228,7 @@ func NewSnowflakeConnector(
 
 func (c *SnowflakeConnector) Close() error {
 	if c != nil {
-		err := c.database.Close()
-		if err != nil {
+		if err := c.database.Close(); err != nil {
 			return fmt.Errorf("error while closing connection to Snowflake peer: %w", err)
 		}
 	}

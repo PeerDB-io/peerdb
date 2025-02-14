@@ -46,9 +46,7 @@ func NewElasticsearchConnector(ctx context.Context,
 		Addresses: config.Addresses,
 		Transport: &http.Transport{
 			MaxIdleConnsPerHost: 4,
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS13,
-			},
+			TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS13},
 		},
 	}
 	if config.AuthType == protos.ElasticsearchAuthType_BASIC {
