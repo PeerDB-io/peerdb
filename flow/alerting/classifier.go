@@ -142,8 +142,9 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 			return ErrorNotifyConnectivity
 		case pgerrcode.AdminShutdown:
 			return ErrorNotifyTerminate
-		case pgerrcode.ObjectNotInPrerequisiteState:
-			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") {
+		case pgerrcode.ObjectNotInPrerequisiteState, pgerrcode.InvalidParameterValue:
+			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") ||
+				strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifySlotInvalid
 			}
 		case pgerrcode.TooManyConnections:
