@@ -119,6 +119,10 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 			chproto.ErrUnfinished,
 			chproto.ErrAborted:
 			return ErrorInternalClickHouse
+		default:
+			if isClickHouseMvError(exception) {
+				return ErrorNotifyMVOrView
+			}
 		}
 	}
 	// Postgres specific errors
