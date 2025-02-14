@@ -47,15 +47,15 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	}, nil
 }
 
-func (c *MySqlConnector) Flavor() string {
-	switch c.config.Flavor {
-	case protos.MySqlFlavor_MYSQL_MYSQL:
-		return mysql.MySQLFlavor
-	case protos.MySqlFlavor_MYSQL_MARIA:
-		return mysql.MariaDBFlavor
-	default:
+func (c *MySqlConnector) Flavor(ctx context.Context) string {
+	// it looks like gtid_mode was never supported in MariaDB, so hoping this clears the flavor up
+	if _, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
+		if mysql.ErrorCode(err.Error()) == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			return mysql.MariaDBFlavor
+		}
 		return "unknown"
 	}
+	return mysql.MySQLFlavor
 }
 
 func (c *MySqlConnector) Close() error {
@@ -192,7 +192,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
-	if c.Flavor() == mysql.MySQLFlavor {
+	if c.Flavor(ctx) == mysql.MySQLFlavor {
 		rr, err := c.Execute(ctx, "select @@gtid_mode")
 		if err != nil {
 			return false, err
@@ -222,7 +222,7 @@ func (c *MySqlConnector) CompareServerVersion(ctx context.Context, version strin
 func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, error) {
 	showBinlogStatus := "SHOW BINARY LOG STATUS"
 	masterReplaced := "8.4.0" // https://dev.mysql.com/doc/relnotes/mysql/8.4/en/news-8-4-0.html
-	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+	if c.Flavor(ctx) == mysql.MariaDBFlavor {
 		showBinlogStatus = "SHOW BINLOG STATUS"
 		masterReplaced = "10.5.2" // https://mariadb.com/kb/en/show-binlog-status
 	}
@@ -242,7 +242,7 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 
 func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, error) {
 	var query string
-	switch c.Flavor() {
+	switch c.Flavor(ctx) {
 	case mysql.MariaDBFlavor:
 		query = "select @@gtid_current_pos"
 	default:
@@ -256,7 +256,8 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to GetString for %s: %w", query, err)
 	}
-	gset, err := mysql.ParseGTIDSet(c.Flavor(), gx)
+	c.logger.Info("QQQQ", slog.String("gset", gx))
+	gset, err := mysql.ParseGTIDSet(c.Flavor(ctx), gx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse GTID from %s: %w", query, err)
 	}

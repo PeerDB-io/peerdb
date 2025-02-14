@@ -1,7 +1,5 @@
 import {
   MySqlConfig,
-  MySqlFlavor,
-  mySqlFlavorFromJSON,
 } from '@/grpc_generated/peers';
 
 import { PeerSetting } from './common';
@@ -53,19 +51,6 @@ export const mysqlSetting: PeerSetting[] = [
     tips: 'If you are using a non-TLS connection, check this box.',
     optional: true,
   },
-  {
-    label: 'Flavor',
-    field: 'flavor',
-    type: 'select',
-    default: 'MYSQL_MYSQL',
-    placeholder: 'Select a flavor',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, flavor: mySqlFlavorFromJSON(value) })),
-    options: [
-      { value: 'MYSQL_MYSQL', label: 'MySQL' },
-      { value: 'MYSQL_MARIA', label: 'MariaDB' },
-    ],
-  },
 ];
 
 export const blankMySqlSetting: MySqlConfig = {
@@ -77,5 +62,4 @@ export const blankMySqlSetting: MySqlConfig = {
   setup: [],
   compression: 0,
   disableTls: false,
-  flavor: MySqlFlavor.MYSQL_MYSQL,
 };

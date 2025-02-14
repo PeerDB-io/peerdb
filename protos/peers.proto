@@ -133,13 +133,8 @@ message SqlServerConfig {
   string database = 5;
 }
 
-enum MySqlFlavor {
-  MYSQL_UNKNOWN = 0;
-  MYSQL_MYSQL = 1;
-  MYSQL_MARIA = 2;
-}
-
 message MySqlConfig {
+  reserved 9;
   string host = 1;
   uint32 port = 2;
   string user = 3;
@@ -148,7 +143,6 @@ message MySqlConfig {
   repeated string setup = 6;
   uint32 compression = 7;
   bool disable_tls = 8;
-  MySqlFlavor flavor = 9;
   optional SSHConfig ssh_config = 10;
 }
 

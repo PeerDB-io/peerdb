@@ -172,11 +172,11 @@ func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
+func (c *MySqlConnector) startSyncer(ctx context.Context) *replication.BinlogSyncer {
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:   rand.Uint32(),
-		Flavor:     c.Flavor(),
+		Flavor:     c.Flavor(ctx),
 		Host:       c.config.Host,
 		Port:       uint16(c.config.Port),
 		User:       c.config.User,
@@ -189,7 +189,7 @@ func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
 }
 
 func (c *MySqlConnector) startStreaming(
-	pos string,
+	ctx context.Context, pos string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	if rest, isFile := strings.CutPrefix(pos, "!f:"); isFile {
 		comma := strings.LastIndexByte(rest, ',')
@@ -200,20 +200,20 @@ func (c *MySqlConnector) startStreaming(
 		if err != nil {
 			return nil, nil, nil, mysql.Position{}, fmt.Errorf("invalid offset in file/pos offset %s: %w", pos, err)
 		}
-		return c.startCdcStreamingFilePos(mysql.Position{Name: rest[:comma], Pos: uint32(offset)})
+		return c.startCdcStreamingFilePos(ctx, mysql.Position{Name: rest[:comma], Pos: uint32(offset)})
 	} else {
-		gset, err := mysql.ParseGTIDSet(c.Flavor(), pos)
+		gset, err := mysql.ParseGTIDSet(c.Flavor(ctx), pos)
 		if err != nil {
 			return nil, nil, nil, mysql.Position{}, err
 		}
-		return c.startCdcStreamingGtid(gset)
+		return c.startCdcStreamingGtid(ctx, gset)
 	}
 }
 
 func (c *MySqlConnector) startCdcStreamingFilePos(
-	pos mysql.Position,
+	ctx context.Context, pos mysql.Position,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer := c.startSyncer()
+	syncer := c.startSyncer(ctx)
 	stream, err := syncer.StartSync(pos)
 	if err != nil {
 		syncer.Close()
@@ -222,10 +222,10 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 }
 
 func (c *MySqlConnector) startCdcStreamingGtid(
-	gset mysql.GTIDSet,
+	ctx context.Context, gset mysql.GTIDSet,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	// https://hevodata.com/learn/mysql-gtids-and-replication-set-up
-	syncer := c.startSyncer()
+	syncer := c.startSyncer(ctx)
 	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
 		syncer.Close()
@@ -276,7 +276,7 @@ func (c *MySqlConnector) PullRecords(
 ) error {
 	defer req.RecordStream.Close()
 
-	syncer, mystream, gset, pos, err := c.startStreaming(req.LastOffset.Text)
+	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
 		return err
 	}
