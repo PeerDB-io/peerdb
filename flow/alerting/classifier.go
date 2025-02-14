@@ -54,9 +54,8 @@ var (
 		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
 	}
-	ErrorEventInternal = ErrorClass{
-		// Level <= Info
-		Class: "EVENT_INTERNAL", action: NotifyTelemetry,
+	ErrorInternal = ErrorClass{
+		Class: "INTERNAL", action: NotifyTelemetry,
 	}
 	ErrorIgnoreEOF = ErrorClass{
 		Class: "IGNORE_EOF", action: Ignore,
@@ -71,7 +70,7 @@ var (
 		Class: "INTERNAL_CLICKHOUSE", action: NotifyTelemetry,
 	}
 	ErrorOther = ErrorClass{
-		// These are internal and should not be exposed
+		// These are unclassified and should not be exposed
 		Class: "OTHER", action: NotifyTelemetry,
 	}
 )
@@ -90,7 +89,7 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	var catalogErr *exceptions.CatalogError
 	if errors.As(err, &catalogErr) {
-		return ErrorEventInternal
+		return ErrorInternal
 	}
 
 	var peerDBErr *exceptions.PostgresSetupError
