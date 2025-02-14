@@ -1,6 +1,4 @@
-import {
-  MySqlConfig,
-} from '@/grpc_generated/peers';
+import { MySqlConfig } from '@/grpc_generated/peers';
 
 import { PeerSetting } from './common';
 

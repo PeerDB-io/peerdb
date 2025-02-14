@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	"github.com/PeerDB-io/peerdb/flow/connectors/mysql"
-	"github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -27,7 +27,6 @@ var mysqlConfig = &protos.MySqlConfig{
 	Setup:       nil,
 	Compression: 0,
 	DisableTls:  true,
-	Flavor:      protos.MySqlFlavor_MYSQL_MYSQL,
 }
 
 var mariaConfig = &protos.MySqlConfig{
@@ -39,7 +38,6 @@ var mariaConfig = &protos.MySqlConfig{
 	Setup:       nil,
 	Compression: 0,
 	DisableTls:  true,
-	Flavor:      protos.MySqlFlavor_MYSQL_MARIA,
 }
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
@@ -112,9 +110,6 @@ func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	}
 
 	name := "mysql"
-	if config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		name = "maria"
-	}
 
 	peer := &protos.Peer{
 		Name: name,
