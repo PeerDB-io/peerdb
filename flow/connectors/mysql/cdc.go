@@ -230,7 +230,6 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 func (c *MySqlConnector) startCdcStreamingGtid(
 	gset mysql.GTIDSet,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	// https://hevodata.com/learn/mysql-gtids-and-replication-set-up
 	syncer := c.startSyncer()
 	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
@@ -322,7 +321,7 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
-	for recordCount < req.MaxBatchSize {
+	for inTx || recordCount < req.MaxBatchSize {
 		getCtx := ctx
 		if !inTx {
 			getCtx = timeoutCtx
