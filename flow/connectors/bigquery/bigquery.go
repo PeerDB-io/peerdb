@@ -391,6 +391,14 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 // NormalizeRecords normalizes raw table to destination table,
 // one batch at a time from the previous normalized batch to the currently synced batch.
 func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
+	unchangedToastMergeChunking, err := peerdbenv.PeerDBBigQueryToastMergeChunking(ctx, req.Env)
+	if err != nil {
+		c.logger.Warn("failed to load PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING, continuing with 8", slog.Any("error", err))
+		unchangedToastMergeChunking = 8
+	} else if unchangedToastMergeChunking == 0 {
+		unchangedToastMergeChunking = 8
+	}
+
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
@@ -407,18 +415,14 @@ func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.Nor
 	}
 
 	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
-		mergeErr := c.mergeTablesInThisBatch(ctx, batchId,
-			req.FlowJobName, rawTableName, req.TableNameSchemaMapping,
-			&protos.PeerDBColumns{
-				SoftDeleteColName: req.SoftDeleteColName,
-				SyncedAtColName:   req.SyncedAtColName,
-			})
-		if mergeErr != nil {
-			return model.NormalizeResponse{}, mergeErr
+		if err := c.mergeTablesInThisBatch(ctx, batchId,
+			req.FlowJobName, rawTableName, req.TableNameSchemaMapping, unchangedToastMergeChunking,
+			&protos.PeerDBColumns{SoftDeleteColName: req.SoftDeleteColName, SyncedAtColName: req.SyncedAtColName},
+		); err != nil {
+			return model.NormalizeResponse{}, err
 		}
 
-		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
-		if err != nil {
+		if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId); err != nil {
 			return model.NormalizeResponse{}, err
 		}
 	}
@@ -445,6 +449,7 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 	flowName string,
 	rawTableName string,
 	tableToSchema map[string]*protos.TableSchema,
+	unchangedToastMergeChunking uint32,
 	peerdbColumns *protos.PeerDBColumns,
 ) error {
 	tableNames, err := c.getDistinctTableNamesInBatch(
@@ -480,13 +485,12 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 
 	for _, tableName := range tableNames {
 		unchangedToastColumns := tableNametoUnchangedToastCols[tableName]
-		dstDatasetTable, _ := c.convertToDatasetTable(tableName)
+		dstDatasetTable, err := c.convertToDatasetTable(tableName)
+		if err != nil {
+			return err
+		}
 
 		// normalize anything between last normalized batch id to last sync batchid
-		// TODO (kaushik): This is so that the statement size for individual merge statements
-		// doesn't exceed the limit. We should make this configurable.
-		const batchSize = 8
-		chunkNumber := 0
 		if len(unchangedToastColumns) == 0 {
 			c.logger.Info("running single merge statement", slog.String("table", tableName))
 			mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, nil)
@@ -494,7 +498,10 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 				return err
 			}
 		} else {
-			for chunk := range slices.Chunk(unchangedToastColumns, batchSize) {
+			// This is so that the statement size for individual merge statements
+			// doesn't exceed the limit
+			chunkNumber := 0
+			for chunk := range slices.Chunk(unchangedToastColumns, int(unchangedToastMergeChunking)) {
 				chunkNumber += 1
 				c.logger.Info("running merge statement", slog.Int("chunk", chunkNumber), slog.String("table", tableName))
 				mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, chunk)
