@@ -9,7 +9,6 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -26,7 +25,7 @@ const (
 )
 
 type PostgresMetadata struct {
-	pool   *pgxpool.Pool
+	pool   shared.CatalogPool
 	logger log.Logger
 }
 
@@ -42,7 +41,7 @@ func NewPostgresMetadata(ctx context.Context) (*PostgresMetadata, error) {
 	}, nil
 }
 
-func NewPostgresMetadataFromCatalog(logger log.Logger, pool *pgxpool.Pool) *PostgresMetadata {
+func NewPostgresMetadataFromCatalog(logger log.Logger, pool shared.CatalogPool) *PostgresMetadata {
 	return &PostgresMetadata{
 		pool:   pool,
 		logger: logger,

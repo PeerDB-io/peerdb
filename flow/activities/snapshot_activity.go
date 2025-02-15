@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -29,7 +28,7 @@ type TxSnapshotState struct {
 
 type SnapshotActivity struct {
 	Alerter             *alerting.Alerter
-	CatalogPool         *pgxpool.Pool
+	CatalogPool         shared.CatalogPool
 	SlotSnapshotStates  map[string]SlotSnapshotState
 	TxSnapshotStates    map[string]TxSnapshotState
 	SnapshotStatesMutex sync.Mutex

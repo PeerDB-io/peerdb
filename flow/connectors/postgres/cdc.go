@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
 	"go.temporal.io/sdk/activity"
 
@@ -43,7 +42,7 @@ type PostgresCDCSource struct {
 	childToParentRelIDMapping map[uint32]uint32
 
 	// for storing schema delta audit logs to catalog
-	catalogPool                  *pgxpool.Pool
+	catalogPool                  shared.CatalogPool
 	otelManager                  *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected map[uint32]struct{}
@@ -51,7 +50,7 @@ type PostgresCDCSource struct {
 }
 
 type PostgresCDCConfig struct {
-	CatalogPool            *pgxpool.Pool
+	CatalogPool            shared.CatalogPool
 	OtelManager            *otel_metrics.OtelManager
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude

@@ -16,7 +16,6 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
@@ -27,12 +26,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
-	"github.com/PeerDB-io/peerdb/flow/tags"
 )
 
 // alerting service, no cool name :(
 type Alerter struct {
-	CatalogPool               *pgxpool.Pool
+	shared.CatalogPool
 	snsTelemetrySender        telemetry.Sender
 	incidentIoTelemetrySender telemetry.Sender
 	otelManager               *otel_metrics.OtelManager
@@ -123,8 +121,8 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 }
 
 // doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool, otelManager *otel_metrics.OtelManager) *Alerter {
-	if catalogPool == nil {
+func NewAlerter(ctx context.Context, catalogPool shared.CatalogPool, otelManager *otel_metrics.OtelManager) *Alerter {
+	if catalogPool.Pool == nil {
 		panic("catalog pool is nil for Alerter")
 	}
 	snsTopic := peerdbenv.PeerDBTelemetryAWSSNSTopicArn()
@@ -380,7 +378,7 @@ func (a *Alerter) sendTelemetryMessage(
 	allTags := []string{flowName, peerdbenv.PeerDBDeploymentUID()}
 	allTags = append(allTags, additionalTags...)
 
-	if flowTags, err := tags.GetTags(ctx, a.CatalogPool, flowName); err != nil {
+	if flowTags, err := GetTags(ctx, a.CatalogPool, flowName); err != nil {
 		logger.Warn("failed to get flow tags", slog.Any("error", err))
 	} else {
 		for key, value := range flowTags {

@@ -17,6 +17,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PGVersion int32
@@ -108,7 +109,7 @@ func RollbackTx(tx pgx.Tx, logger log.Logger) {
 	}
 }
 
-func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
+func UpdateCDCConfigInCatalog(ctx context.Context, pool CatalogPool,
 	logger log.Logger, cfg *protos.FlowConnectionConfigs,
 ) error {
 	logger.Info("syncing state to catalog: updating config_proto in flows", slog.String("flowName", cfg.FlowJobName))
@@ -130,12 +131,12 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool *pgxpool.Pool,
 
 func LoadTableSchemaFromCatalog(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool CatalogPool,
 	flowName string,
 	tableName string,
 ) (*protos.TableSchema, error) {
 	var tableSchemaBytes []byte
-	if err := pool.QueryRow(
+	if err := pool.Pool.QueryRow(
 		ctx,
 		"select table_schema from table_schema_mapping where flow_name = $1 and table_name = $2",
 		flowName,
@@ -150,4 +151,174 @@ func LoadTableSchemaFromCatalog(
 func IsSQLStateError(err error, sqlStates ...string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && slices.Contains(sqlStates, pgErr.Code)
+}
+
+type CatalogPool struct {
+	Pool *pgxpool.Pool
+}
+
+type CatalogRow struct {
+	Row pgx.Row
+}
+
+type CatalogRows struct {
+	Rows pgx.Rows
+}
+
+type CatalogTx struct {
+	Tx pgx.Tx
+}
+
+func (p CatalogPool) Ping(ctx context.Context) error {
+	if err := p.Pool.Ping(ctx); err != nil {
+		return exceptions.NewCatalogError(err)
+	}
+	return nil
+}
+
+func (p CatalogPool) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+	r, err := p.Pool.Exec(ctx, sql, arguments...)
+	if err != nil {
+		return r, exceptions.NewCatalogError(err)
+	}
+	return r, nil
+}
+
+func (p CatalogPool) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return CatalogRow{p.Pool.QueryRow(ctx, sql, args...)}
+}
+
+func (p CatalogPool) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	rows, err := p.Pool.Query(ctx, sql, args...)
+	if err != nil {
+		return CatalogRows{rows}, exceptions.NewCatalogError(err)
+	}
+	return CatalogRows{rows}, nil
+}
+
+func (p CatalogPool) Begin(ctx context.Context) (pgx.Tx, error) {
+	return p.BeginTx(ctx, pgx.TxOptions{})
+}
+
+func (p CatalogPool) BeginTx(ctx context.Context, txOptions pgx.TxOptions) (pgx.Tx, error) {
+	tx, err := p.Pool.BeginTx(ctx, txOptions)
+	if err != nil {
+		return CatalogTx{tx}, exceptions.NewCatalogError(err)
+	}
+	return CatalogTx{tx}, nil
+}
+
+func (row CatalogRow) Scan(dest ...any) error {
+	if err := row.Row.Scan(dest...); err != nil {
+		return exceptions.NewCatalogError(err)
+	}
+	return nil
+}
+
+func (rows CatalogRows) Close() {
+	rows.Rows.Close()
+}
+
+func (rows CatalogRows) Err() error {
+	if err := rows.Rows.Err(); err != nil {
+		return exceptions.NewCatalogError(err)
+	}
+	return nil
+}
+
+func (rows CatalogRows) CommandTag() pgconn.CommandTag {
+	return rows.Rows.CommandTag()
+}
+
+func (rows CatalogRows) FieldDescriptions() []pgconn.FieldDescription {
+	return rows.Rows.FieldDescriptions()
+}
+
+func (rows CatalogRows) Next() bool {
+	return rows.Rows.Next()
+}
+
+func (rows CatalogRows) Scan(dest ...any) error {
+	if err := rows.Rows.Scan(dest...); err != nil {
+		return exceptions.NewCatalogError(err)
+	}
+	return nil
+}
+
+func (rows CatalogRows) Values() ([]any, error) {
+	res, err := rows.Rows.Values()
+	if err != nil {
+		return res, exceptions.NewCatalogError(err)
+	}
+	return res, nil
+}
+
+func (rows CatalogRows) RawValues() [][]byte {
+	return rows.Rows.RawValues()
+}
+
+func (rows CatalogRows) Conn() *pgx.Conn {
+	return rows.Rows.Conn()
+}
+
+func (tx CatalogTx) Begin(ctx context.Context) (pgx.Tx, error) {
+	subtx, err := tx.Tx.Begin(ctx)
+	if err != nil {
+		return CatalogTx{tx}, exceptions.NewCatalogError(err)
+	}
+	return subtx, nil
+}
+
+func (tx CatalogTx) Commit(ctx context.Context) error {
+	if err := tx.Tx.Commit(ctx); err != nil {
+		return exceptions.NewCatalogError(err)
+	}
+	return nil
+}
+
+func (tx CatalogTx) Rollback(ctx context.Context) error {
+	if err := tx.Tx.Rollback(ctx); err != nil {
+		return exceptions.NewCatalogError(err)
+	}
+	return nil
+}
+
+func (tx CatalogTx) CopyFrom(ctx context.Context, tableName pgx.Identifier, columnNames []string, rowSrc pgx.CopyFromSource) (int64, error) {
+	val, err := tx.Tx.CopyFrom(ctx, tableName, columnNames, rowSrc)
+	if err != nil {
+		return val, exceptions.NewCatalogError(err)
+	}
+	return val, nil
+}
+
+func (tx CatalogTx) SendBatch(ctx context.Context, b *pgx.Batch) pgx.BatchResults {
+	return tx.Tx.SendBatch(ctx, b)
+}
+
+func (tx CatalogTx) LargeObjects() pgx.LargeObjects {
+	return tx.Tx.LargeObjects()
+}
+
+func (tx CatalogTx) Prepare(ctx context.Context, name, sql string) (*pgconn.StatementDescription, error) {
+	return tx.Tx.Prepare(ctx, name, sql)
+}
+
+func (tx CatalogTx) Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error) {
+	return tx.Tx.Exec(ctx, sql, arguments...)
+}
+
+func (tx CatalogTx) Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
+	rows, err := tx.Tx.Query(ctx, sql, args...)
+	if err != nil {
+		return CatalogRows{rows}, exceptions.NewCatalogError(err)
+	}
+	return CatalogRows{rows}, err
+}
+
+func (tx CatalogTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.Row {
+	return CatalogRow{tx.Tx.QueryRow(ctx, sql, args...)}
+}
+
+func (tx CatalogTx) Conn() *pgx.Conn {
+	return tx.Tx.Conn()
 }

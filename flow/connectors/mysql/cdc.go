@@ -11,7 +11,6 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -254,7 +253,7 @@ func (c *MySqlConnector) PullFlowCleanup(ctx context.Context, jobName string) er
 func (c *MySqlConnector) HandleSlotInfo(
 	ctx context.Context,
 	alerter *alerting.Alerter,
-	catalogPool *pgxpool.Pool,
+	catalogPool shared.CatalogPool,
 	alertKeys *alerting.AlertKeys,
 	slotMetricGauges otel_metrics.SlotMetricGauges,
 ) error {
@@ -275,7 +274,7 @@ func (c *MySqlConnector) RemoveTablesFromPublication(ctx context.Context, req *p
 
 func (c *MySqlConnector) PullRecords(
 	ctx context.Context,
-	catalogPool *pgxpool.Pool,
+	catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
