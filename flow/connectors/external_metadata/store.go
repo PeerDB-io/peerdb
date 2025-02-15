@@ -2,6 +2,7 @@ package connmetadata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -77,7 +78,7 @@ func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (m
 		`SELECT last_offset, last_text FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
 		jobName,
 	).Scan(&offset.ID, &offset.Text); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return offset, nil
 		}
 
@@ -97,7 +98,7 @@ func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName strin
 		jobName,
 	).Scan(&syncBatchID); err != nil {
 		// if the job doesn't exist, return 0
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 

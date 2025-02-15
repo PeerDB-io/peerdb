@@ -305,7 +305,7 @@ func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (
 	if err := c.conn.QueryRow(
 		ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
 	).Scan(&result.ID); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning nil")
 			return result, nil
 		}

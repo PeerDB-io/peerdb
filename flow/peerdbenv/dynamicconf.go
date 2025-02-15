@@ -2,6 +2,7 @@ package peerdbenv
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -298,7 +299,7 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 
 	var value pgtype.Text
 	query := "SELECT config_value FROM dynamic_settings WHERE config_name=$1"
-	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && err != pgx.ErrNoRows {
+	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		shared.LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get key: %w", err)
 	}

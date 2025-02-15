@@ -147,12 +147,13 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 		}
 	}
 
+	// Connection reset errors can mostly be ignored
+	if errors.Is(err, syscall.ECONNRESET) {
+		return ErrorIgnoreConnReset
+	}
+
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {
-		// Connection reset errors can mostly be ignored
-		if netErr.Err.Error() == syscall.ECONNRESET.Error() {
-			return ErrorIgnoreConnReset
-		}
 		return ErrorNotifyConnectivity
 	}
 

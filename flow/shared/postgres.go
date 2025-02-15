@@ -80,7 +80,7 @@ func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
 	err := conn.QueryRow(context.Background(), `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID)
 	if err != nil {
 		// hstore isn't present, just proceed
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
 		}
 		return err

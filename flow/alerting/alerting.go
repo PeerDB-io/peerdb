@@ -342,12 +342,12 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 		return false
 	}
 
-	row := a.CatalogPool.QueryRow(ctx,
+	var createdTimestamp time.Time
+	if err := a.CatalogPool.QueryRow(ctx,
 		`SELECT created_timestamp FROM peerdb_stats.alerts_v1 WHERE alert_key=$1 AND alert_config_id=$2
 		 ORDER BY created_timestamp DESC LIMIT 1`,
-		alertKey, alertConfigId)
-	var createdTimestamp time.Time
-	if err := row.Scan(&createdTimestamp); err != nil && err != pgx.ErrNoRows {
+		alertKey, alertConfigId,
+	).Scan(&createdTimestamp); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		shared.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("err", err))
 		return false
 	}
