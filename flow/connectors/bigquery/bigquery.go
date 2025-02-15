@@ -12,7 +12,6 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/api/iterator"
 
@@ -34,7 +33,7 @@ type BigQueryConnector struct {
 	bqConfig      *protos.BigqueryConfig
 	client        *bigquery.Client
 	storageClient *storage.Client
-	catalogPool   *pgxpool.Pool
+	catalogPool   shared.CatalogPool
 	datasetID     string
 	projectID     string
 }

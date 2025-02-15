@@ -14,7 +14,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
@@ -47,7 +46,7 @@ type RecryptItem struct {
 // updateSql should take id, field, keyId as parameters respectively
 func recryptDatabase(
 	ctx context.Context,
-	catalogPool *pgxpool.Pool,
+	catalogPool shared.CatalogPool,
 	tag string,
 	selectSql string,
 	updateSql string,

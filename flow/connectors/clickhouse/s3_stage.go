@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
@@ -52,7 +53,7 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (*
 		WHERE flow_job_name = $1 AND sync_batch_id = $2`,
 		flowJobName, syncBatchID,
 	).Scan(&avroFileJSON); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("no avro stage found for flow job %s and sync batch %d", flowJobName, syncBatchID)
 		}
 		return nil, fmt.Errorf("failed to get avro stage: %w", err)

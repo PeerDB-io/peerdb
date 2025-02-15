@@ -2,6 +2,7 @@ package pua
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -126,9 +127,8 @@ func LoadPeerdbScript(ls *lua.LState) int {
 	}
 
 	var source []byte
-	err = pool.QueryRow(ctx, "select source from scripts where lang = 'lua' and name = $1", name).Scan(&source)
-	if err != nil {
-		if err == pgx.ErrNoRows {
+	if err := pool.QueryRow(ctx, "select source from scripts where lang = 'lua' and name = $1", name).Scan(&source); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			ls.Push(lua.LString("Could not find script " + name))
 			return 1
 		}

@@ -17,7 +17,6 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
@@ -306,7 +305,7 @@ func (c *PostgresConnector) GetLastOffset(ctx context.Context, jobName string) (
 	if err := c.conn.QueryRow(
 		ctx, fmt.Sprintf(getLastOffsetSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
 	).Scan(&result.ID); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning nil")
 			return result, nil
 		}
@@ -333,7 +332,7 @@ func (c *PostgresConnector) SetLastOffset(ctx context.Context, jobName string, l
 
 func (c *PostgresConnector) PullRecords(
 	ctx context.Context,
-	catalogPool *pgxpool.Pool,
+	catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
@@ -342,7 +341,7 @@ func (c *PostgresConnector) PullRecords(
 
 func (c *PostgresConnector) PullPg(
 	ctx context.Context,
-	catalogPool *pgxpool.Pool,
+	catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[model.PgItems],
 ) error {
@@ -353,7 +352,7 @@ func (c *PostgresConnector) PullPg(
 func pullCore[Items model.Items](
 	ctx context.Context,
 	c *PostgresConnector,
-	catalogPool *pgxpool.Pool,
+	catalogPool shared.CatalogPool,
 	otelManager *otel_metrics.OtelManager,
 	req *model.PullRecordsRequest[Items],
 	processor replProcessor[Items],
@@ -1193,7 +1192,7 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 func (c *PostgresConnector) HandleSlotInfo(
 	ctx context.Context,
 	alerter *alerting.Alerter,
-	catalogPool *pgxpool.Pool,
+	catalogPool shared.CatalogPool,
 	alertKeys *alerting.AlertKeys,
 	slotMetricGauges otel_metrics.SlotMetricGauges,
 ) error {
