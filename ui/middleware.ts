@@ -37,7 +37,7 @@ export default async function middleware(req: NextRequest, resp: NextResponse) {
 
   const res = NextResponse.next();
   console.log(
-    `[${req.method} ${req.url}] [${req.ip} ${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)}) ${res.status}`
+    `[${req.method} ${req.url}] [${xForwardedFor}] (${JSON.stringify(agent.device)} ${JSON.stringify(agent.os)} ${JSON.stringify(agent.browser)}) ${res.status}`
   );
   return res;
 }

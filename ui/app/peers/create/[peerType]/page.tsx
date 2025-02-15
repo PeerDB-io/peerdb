@@ -27,7 +27,7 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
@@ -38,13 +38,12 @@ import { snowflakeSetting } from './helpers/sf';
 import { peerNameSchema } from './schema';
 
 type CreateConfigProps = {
-  params: { peerType: string };
+  params: Promise<{ peerType: string }>;
 };
 
 // when updating a peer we get ?update=<peer_name>
-export default function CreateConfig({
-  params: { peerType },
-}: CreateConfigProps) {
+export default function CreateConfig({ params }: CreateConfigProps) {
+  const { peerType } = React.use(params);
   const router = useRouter();
   const searchParams = useSearchParams();
   const peerName = searchParams.get('update');
