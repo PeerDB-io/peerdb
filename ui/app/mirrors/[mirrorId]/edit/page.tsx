@@ -18,7 +18,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import { Callout } from '@tremor/react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import TablePicker from '../../create/cdc/tablemapping';
 import {
@@ -31,10 +31,11 @@ import * as styles from '../../create/styles';
 import { getMirrorState } from '../handlers';
 
 type EditMirrorProps = {
-  params: { mirrorId: string };
+  params: Promise<{ mirrorId: string }>;
 };
 
-export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
+export default function EditMirror({ params }: EditMirrorProps) {
+  const { mirrorId } = React.use(params);
   const defaultBatchSize = blankCDCSetting.maxBatchSize;
   const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
 

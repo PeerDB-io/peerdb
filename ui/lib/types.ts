@@ -3,8 +3,10 @@ import type { ReactElement } from 'react';
 export type RenderObject = ReactElement | string;
 
 type PropsOf<
-  E extends keyof JSX.IntrinsicElements | React.JSXElementConstructor<any>,
-> = JSX.LibraryManagedAttributes<E, React.ComponentPropsWithRef<E>>;
+  E extends
+    | keyof React.JSX.IntrinsicElements
+    | React.JSXElementConstructor<any>,
+> = React.JSX.LibraryManagedAttributes<E, React.ComponentPropsWithRef<E>>;
 
 export interface AsProps<E extends React.ElementType = React.ElementType> {
   as?: E;

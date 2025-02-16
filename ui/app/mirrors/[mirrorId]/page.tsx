@@ -8,7 +8,7 @@ import { Badge } from '@/lib/Badge';
 import { Header } from '@/lib/Header';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
-import { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { CDCMirror } from './cdc';
 import { getMirrorState } from './handlers';
 import NoMirror from './nomirror';
@@ -18,10 +18,11 @@ import QRepStatusTable from './qrepStatusTable';
 import SyncStatus from './syncStatus';
 
 type EditMirrorProps = {
-  params: { mirrorId: string };
+  params: Promise<{ mirrorId: string }>;
 };
 
-export default function ViewMirror({ params: { mirrorId } }: EditMirrorProps) {
+export default function ViewMirror({ params }: EditMirrorProps) {
+  const { mirrorId } = React.use(params);
   const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
   const [errorMessage, setErrorMessage] = useState('');
   const [mounted, setMounted] = useState(false);
