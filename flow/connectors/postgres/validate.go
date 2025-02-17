@@ -28,7 +28,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 			QuoteLiteral(parsedTable.Schema), QuoteLiteral(parsedTable.Table)))
 		if err := c.conn.QueryRow(ctx,
 			fmt.Sprintf("SELECT * FROM %s.%s LIMIT 0", QuoteIdentifier(parsedTable.Schema), QuoteIdentifier(parsedTable.Table)),
-		).Scan(&row); err != nil && err != pgx.ErrNoRows {
+		).Scan(&row); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 	}
@@ -37,7 +37,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 		// Check if publication exists
 		var alltables bool
 		if err := c.conn.QueryRow(ctx, "SELECT puballtables FROM pg_publication WHERE pubname=$1", pubName).Scan(&alltables); err != nil {
-			if err == pgx.ErrNoRows {
+			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("publication does not exist: %s", pubName)
 			}
 			return fmt.Errorf("error while checking for publication existence: %w", err)

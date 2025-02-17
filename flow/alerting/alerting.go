@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
@@ -26,12 +26,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
-	"github.com/PeerDB-io/peerdb/flow/tags"
 )
 
 // alerting service, no cool name :(
 type Alerter struct {
-	CatalogPool               *pgxpool.Pool
+	shared.CatalogPool
 	snsTelemetrySender        telemetry.Sender
 	incidentIoTelemetrySender telemetry.Sender
 	otelManager               *otel_metrics.OtelManager
@@ -122,8 +121,8 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 }
 
 // doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool, otelManager *otel_metrics.OtelManager) *Alerter {
-	if catalogPool == nil {
+func NewAlerter(ctx context.Context, catalogPool shared.CatalogPool, otelManager *otel_metrics.OtelManager) *Alerter {
+	if catalogPool.Pool == nil {
 		panic("catalog pool is nil for Alerter")
 	}
 	snsTopic := peerdbenv.PeerDBTelemetryAWSSNSTopicArn()
@@ -343,12 +342,12 @@ func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId i
 		return false
 	}
 
-	row := a.CatalogPool.QueryRow(ctx,
+	var createdTimestamp time.Time
+	if err := a.CatalogPool.QueryRow(ctx,
 		`SELECT created_timestamp FROM peerdb_stats.alerts_v1 WHERE alert_key=$1 AND alert_config_id=$2
 		 ORDER BY created_timestamp DESC LIMIT 1`,
-		alertKey, alertConfigId)
-	var createdTimestamp time.Time
-	if err := row.Scan(&createdTimestamp); err != nil && err != pgx.ErrNoRows {
+		alertKey, alertConfigId,
+	).Scan(&createdTimestamp); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		shared.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("err", err))
 		return false
 	}
@@ -379,7 +378,7 @@ func (a *Alerter) sendTelemetryMessage(
 	allTags := []string{flowName, peerdbenv.PeerDBDeploymentUID()}
 	allTags = append(allTags, additionalTags...)
 
-	if flowTags, err := tags.GetTags(ctx, a.CatalogPool, flowName); err != nil {
+	if flowTags, err := GetTags(ctx, a.CatalogPool, flowName); err != nil {
 		logger.Warn("failed to get flow tags", slog.Any("error", err))
 	} else {
 		for key, value := range flowTags {
@@ -463,6 +462,10 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 	var myErr *mysql.MyError
 	if errors.As(err, &myErr) {
 		tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
+	}
+	var chErr *clickhouse.Exception
+	if errors.As(err, &chErr) {
+		tags = append(tags, fmt.Sprintf("chcode:%d", chErr.Code))
 	}
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {

@@ -1,7 +1,6 @@
 package e2e_bigquery
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -12,10 +11,8 @@ import (
 )
 
 func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int) {
-	err := e2e.CreateTableForQRep(s.Conn(), s.bqSuffix, tableName)
-	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.Conn(), s.bqSuffix, tableName, rowCount)
-	require.NoError(s.t, err)
+	require.NoError(s.t, e2e.CreateTableForQRep(s.t.Context(), s.Conn(), s.bqSuffix, tableName))
+	require.NoError(s.t, e2e.PopulateSourceTable(s.t.Context(), s.Conn(), s.bqSuffix, tableName, rowCount))
 }
 
 func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
@@ -28,7 +25,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 		"mydate date",
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 			CREATE TABLE e2e_test_%s.%s (
 				%s
 			);`, s.bqSuffix, tableName, tblFieldStr))
@@ -44,7 +41,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 			CURRENT_TIMESTAMP)`
 	rows = append(rows, row)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO e2e_test_%s.%s (
 			watermark_ts, mytimestamp, mytztimestamp, medieval, mybaddate, mydate
 		) VALUES %s;
@@ -72,9 +69,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		true,
 		"",
 		"")
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	e2e.RequireEqualTables(s, tblName, "*")
 }
@@ -97,21 +94,21 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 		"",
 		"")
 	qrepConfig.WatermarkColumn = "watermark_ts"
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	goodValues := []string{"watermark_ts", "mydate", "medieval"}
 	badValues := []string{"mytimestamp", "mytztimestamp", "mybaddate"}
 
 	for _, col := range goodValues {
-		ok, err := s.bqHelper.CheckNull(tblName, []string{col})
+		ok, err := s.bqHelper.CheckNull(s.t.Context(), tblName, []string{col})
 		require.NoError(s.t, err)
 		require.True(s.t, ok)
 	}
 
 	for _, col := range badValues {
-		ok, err := s.bqHelper.CheckNull(tblName, []string{col})
+		ok, err := s.bqHelper.CheckNull(s.t.Context(), tblName, []string{col})
 		require.NoError(s.t, err)
 		require.False(s.t, ok)
 	}
@@ -137,9 +134,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 		true,
 		"_PEERDB_SYNCED_AT",
 		"")
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	require.NoError(s.t, s.checkPeerdbColumns(tblName, false))
 }

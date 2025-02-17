@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -12,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -65,7 +65,7 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 }
 
 func TestGetQRepPartitions(t *testing.T) {
-	connStr := peerdbenv.GetCatalogConnectionStringFromEnv(context.Background())
+	connStr := peerdbenv.GetCatalogConnectionStringFromEnv(t.Context())
 
 	// Setup the DB
 	config, err := pgx.ParseConfig(connStr)
@@ -73,29 +73,29 @@ func TestGetQRepPartitions(t *testing.T) {
 		t.Fatalf("Failed to parse config: %v", err)
 	}
 
-	tunnel, err := NewSSHTunnel(context.Background(), nil)
+	tunnel, err := utils.NewSSHTunnel(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("Failed to create tunnel: %v", err)
 	}
 	defer tunnel.Close()
 
-	conn, err := tunnel.NewPostgresConnFromConfig(context.Background(), config)
+	conn, err := NewPostgresConnFromConfig(t.Context(), config, tunnel)
 	if err != nil {
 		t.Fatalf("Failed to create connection: %v", err)
 	}
-	defer conn.Close(context.Background())
+	defer conn.Close(t.Context())
 
 	//nolint:gosec // Generate a random schema name, number has no cryptographic significance
 	schemaName := fmt.Sprintf("test_%d", rand.Uint64())
 
 	// Create the schema
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`CREATE SCHEMA %s;`, schemaName))
 	if err != nil {
 		t.Fatalf("Failed to create schema: %v", err)
 	}
 
 	// Create the table in the new schema
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s.test (
 			id SERIAL PRIMARY KEY,
 			value INT NOT NULL,
@@ -173,7 +173,7 @@ func TestGetQRepPartitions(t *testing.T) {
 				logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
 			}
 
-			got, err := c.GetQRepPartitions(context.Background(), tc.config, tc.last)
+			got, err := c.GetQRepPartitions(t.Context(), tc.config, tc.last)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("GetQRepPartitions() error = %v, wantErr %v", err, tc.wantErr)
 			}
@@ -205,7 +205,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// Drop the schema at the end
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName))
+	_, err = conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName))
 	if err != nil {
 		t.Fatalf("Failed to drop schema: %v", err)
 	}
@@ -222,7 +222,7 @@ func prepareTestData(t *testing.T, pool *pgx.Conn, schema string) int {
 	times := 0
 	for tm := startTime; tm.Before(endTime); tm = tm.Add(24 * time.Hour) {
 		times += 1
-		_, err := pool.Exec(context.Background(), fmt.Sprintf(`
+		_, err := pool.Exec(t.Context(), fmt.Sprintf(`
 			INSERT INTO %s.test (value, "from") VALUES ($1, $2)
 		`, schema), times, tm)
 		if err != nil {

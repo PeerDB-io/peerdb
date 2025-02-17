@@ -145,9 +145,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			return false, errors.New("flow address is required when skipping based on API")
 		}
 		slog.Info("Constructing flow client")
-		transportCredentials := credentials.NewTLS(&tls.Config{
-			MinVersion: tls.VersionTLS12,
-		})
+		transportCredentials := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13})
 		if !args.FlowTlsEnabled {
 			transportCredentials = insecure.NewCredentials()
 		}

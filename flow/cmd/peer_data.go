@@ -15,6 +15,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
@@ -54,22 +55,22 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 	return &pgPeerConfig, nil
 }
 
-func (h *FlowRequestHandler) getConnForPGPeer(ctx context.Context, peerName string) (*connpostgres.SSHTunnel, *pgx.Conn, error) {
+func (h *FlowRequestHandler) getConnForPGPeer(ctx context.Context, peerName string) (utils.SSHTunnel, *pgx.Conn, error) {
 	pgPeerConfig, err := h.getPGPeerConfig(ctx, peerName)
 	if err != nil {
-		return nil, nil, err
+		return utils.SSHTunnel{}, nil, err
 	}
 
-	tunnel, err := connpostgres.NewSSHTunnel(ctx, pgPeerConfig.SshConfig)
+	tunnel, err := utils.NewSSHTunnel(ctx, pgPeerConfig.SshConfig)
 	if err != nil {
 		slog.Error("Failed to create postgres pool", slog.Any("error", err))
-		return nil, nil, err
+		return utils.SSHTunnel{}, nil, err
 	}
 
-	conn, err := tunnel.NewPostgresConnFromPostgresConfig(ctx, pgPeerConfig)
+	conn, err := connpostgres.NewPostgresConnFromPostgresConfig(ctx, pgPeerConfig, tunnel)
 	if err != nil {
 		tunnel.Close()
-		return nil, nil, err
+		return utils.SSHTunnel{}, nil, err
 	}
 
 	return tunnel, conn, nil

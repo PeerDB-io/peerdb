@@ -2,6 +2,7 @@ package connmetadata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -9,7 +10,6 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -26,7 +26,7 @@ const (
 )
 
 type PostgresMetadata struct {
-	pool   *pgxpool.Pool
+	pool   shared.CatalogPool
 	logger log.Logger
 }
 
@@ -42,7 +42,7 @@ func NewPostgresMetadata(ctx context.Context) (*PostgresMetadata, error) {
 	}, nil
 }
 
-func NewPostgresMetadataFromCatalog(logger log.Logger, pool *pgxpool.Pool) *PostgresMetadata {
+func NewPostgresMetadataFromCatalog(logger log.Logger, pool shared.CatalogPool) *PostgresMetadata {
 	return &PostgresMetadata{
 		pool:   pool,
 		logger: logger,
@@ -78,7 +78,7 @@ func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (m
 		`SELECT last_offset, last_text FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
 		jobName,
 	).Scan(&offset.ID, &offset.Text); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return offset, nil
 		}
 
@@ -98,7 +98,7 @@ func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName strin
 		jobName,
 	).Scan(&syncBatchID); err != nil {
 		// if the job doesn't exist, return 0
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 

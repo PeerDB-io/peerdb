@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -107,7 +106,7 @@ type CDCPullConnectorCore interface {
 	HandleSlotInfo(
 		ctx context.Context,
 		alerter *alerting.Alerter,
-		catalogPool *pgxpool.Pool,
+		catalogPool shared.CatalogPool,
 		alertKeys *alerting.AlertKeys,
 		slotMetricGauges otel_metrics.SlotMetricGauges,
 	) error
@@ -128,7 +127,7 @@ type CDCPullConnector interface {
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	PullRecords(
 		ctx context.Context,
-		catalogPool *pgxpool.Pool,
+		catalogPool shared.CatalogPool,
 		otelManager *otel_metrics.OtelManager,
 		req *model.PullRecordsRequest[model.RecordItems],
 	) error
@@ -141,7 +140,7 @@ type CDCPullPgConnector interface {
 	// It's signature, aside from type parameter, should match CDCPullConnector.PullRecords.
 	PullPg(
 		ctx context.Context,
-		catalogPool *pgxpool.Pool,
+		catalogPool shared.CatalogPool,
 		otelManager *otel_metrics.OtelManager,
 		req *model.PullRecordsRequest[model.PgItems],
 	) error
@@ -310,14 +309,14 @@ type GetVersionConnector interface {
 	GetVersion(context.Context) (string, error)
 }
 
-func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (protos.DBType, error) {
+func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (protos.DBType, error) {
 	row := catalogPool.QueryRow(ctx, "SELECT type FROM peers WHERE name = $1", peerName)
 	var dbtype protos.DBType
 	err := row.Scan(&dbtype)
 	return dbtype, err
 }
 
-func LoadPeerTypes(ctx context.Context, catalogPool *pgxpool.Pool, peerNames []string) (map[string]protos.DBType, error) {
+func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]protos.DBType, error) {
 	if len(peerNames) == 0 {
 		return nil, nil
 	}
@@ -340,7 +339,7 @@ func LoadPeerTypes(ctx context.Context, catalogPool *pgxpool.Pool, peerNames []s
 	return peerTypes, nil
 }
 
-func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (*protos.Peer, error) {
+func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (*protos.Peer, error) {
 	row := catalogPool.QueryRow(ctx, `
 		SELECT type, options, enc_key_id
 		FROM peers
@@ -482,7 +481,7 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 	}
 }
 
-func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool *pgxpool.Pool, name string) (T, error) {
+func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string) (T, error) {
 	peer, err := LoadPeer(ctx, catalogPool, name)
 	if err != nil {
 		var none T
@@ -570,6 +569,7 @@ var (
 	_ ValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
+	_ ValidationConnector = &connmysql.MySqlConnector{}
 
 	_ MirrorSourceValidationConnector = &connpostgres.PostgresConnector{}
 	_ MirrorSourceValidationConnector = &connmysql.MySqlConnector{}

@@ -391,9 +391,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse time: %w", err)
 		}
-		t = t.AddDate(1970, 0, 0)
-		return qvalue.QValueTimeTZ{Val: t}, nil
-
+		return qvalue.QValueTimeTZ{Val: t.AddDate(1970, 0, 0)}, nil
 	case qvalue.QValueKindBoolean:
 		boolVal := value.(bool)
 		return qvalue.QValueBoolean{Val: boolVal}, nil

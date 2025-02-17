@@ -63,7 +63,7 @@ func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
 		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
 	}
 
-	client, err := bqsa.CreateBigQueryClient(context.Background())
+	client, err := bqsa.CreateBigQueryClient(t.Context())
 	if err != nil {
 		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
 	}
@@ -76,8 +76,8 @@ func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
 }
 
 // datasetExists checks if the dataset exists.
-func (b *BigQueryTestHelper) datasetExists(dataset *bigquery.Dataset) (bool, error) {
-	meta, err := dataset.Metadata(context.Background())
+func (b *BigQueryTestHelper) datasetExists(ctx context.Context, dataset *bigquery.Dataset) (bool, error) {
+	meta, err := dataset.Metadata(ctx)
 	if err != nil {
 		// if err message contains `notFound` then dataset does not exist.
 		if strings.Contains(err.Error(), "notFound") {
@@ -95,26 +95,24 @@ func (b *BigQueryTestHelper) datasetExists(dataset *bigquery.Dataset) (bool, err
 }
 
 // RecreateDataset recreates the dataset, i.e, deletes it if exists and creates it again.
-func (b *BigQueryTestHelper) RecreateDataset() error {
+func (b *BigQueryTestHelper) RecreateDataset(ctx context.Context) error {
 	dataset := b.client.Dataset(b.Config.DatasetId)
 
-	exists, err := b.datasetExists(dataset)
+	exists, err := b.datasetExists(ctx, dataset)
 	if err != nil {
 		return fmt.Errorf("failed to check if dataset %s exists: %w", b.Config.DatasetId, err)
 	}
 
 	if exists {
-		err := dataset.DeleteWithContents(context.Background())
-		if err != nil {
+		if err := dataset.DeleteWithContents(ctx); err != nil {
 			return fmt.Errorf("failed to delete dataset: %w", err)
 		}
 	}
 
-	err = dataset.Create(context.Background(), &bigquery.DatasetMetadata{
+	if err := dataset.Create(ctx, &bigquery.DatasetMetadata{
 		DefaultTableExpiration:     time.Hour,
 		DefaultPartitionExpiration: time.Hour,
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to create dataset: %w", err)
 	}
 
@@ -122,16 +120,15 @@ func (b *BigQueryTestHelper) RecreateDataset() error {
 }
 
 // DropDataset drops the dataset.
-func (b *BigQueryTestHelper) DropDataset(datasetName string) error {
+func (b *BigQueryTestHelper) DropDataset(ctx context.Context, datasetName string) error {
 	dataset := b.client.Dataset(datasetName)
-	exists, err := b.datasetExists(dataset)
+	exists, err := b.datasetExists(ctx, dataset)
 	if err != nil {
 		return fmt.Errorf("failed to check if dataset %s exists: %w", b.Config.DatasetId, err)
 	}
 
 	if exists {
-		err = dataset.DeleteWithContents(context.Background())
-		if err != nil {
+		if err := dataset.DeleteWithContents(ctx); err != nil {
 			return fmt.Errorf("failed to delete dataset: %w", err)
 		}
 	}
@@ -140,11 +137,10 @@ func (b *BigQueryTestHelper) DropDataset(datasetName string) error {
 }
 
 // RunCommand runs the given command.
-func (b *BigQueryTestHelper) RunCommand(command string) error {
+func (b *BigQueryTestHelper) RunCommand(ctx context.Context, command string) error {
 	q := b.client.Query(command)
 	q.DisableQueryCache = true
-	_, err := q.Read(context.Background())
-	if err != nil {
+	if _, err := q.Read(ctx); err != nil {
 		return fmt.Errorf("failed to run command: %w", err)
 	}
 
@@ -152,11 +148,11 @@ func (b *BigQueryTestHelper) RunCommand(command string) error {
 }
 
 // countRows(tableName) returns the number of rows in the given table.
-func (b *BigQueryTestHelper) countRows(tableName string) (int, error) {
-	return b.countRowsWithDataset(b.Config.DatasetId, tableName, "")
+func (b *BigQueryTestHelper) countRows(ctx context.Context, tableName string) (int, error) {
+	return b.countRowsWithDataset(ctx, b.Config.DatasetId, tableName, "")
 }
 
-func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, nonNullCol string) (int, error) {
+func (b *BigQueryTestHelper) countRowsWithDataset(ctx context.Context, dataset, tableName string, nonNullCol string) (int, error) {
 	command := fmt.Sprintf("SELECT COUNT(*) FROM `%s.%s`", dataset, tableName)
 	if nonNullCol != "" {
 		command = "SELECT COUNT(CASE WHEN " + nonNullCol +
@@ -164,7 +160,7 @@ func (b *BigQueryTestHelper) countRowsWithDataset(dataset, tableName string, non
 	}
 	q := b.client.Query(command)
 	q.DisableQueryCache = true
-	it, err := q.Read(context.Background())
+	it, err := q.Read(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to run command: %w", err)
 	}
@@ -295,10 +291,10 @@ func bqSchemaToQRecordSchema(schema bigquery.Schema) qvalue.QRecordSchema {
 	return qvalue.QRecordSchema{Fields: fields}
 }
 
-func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecordBatch, error) {
+func (b *BigQueryTestHelper) ExecuteAndProcessQuery(ctx context.Context, query string) (*model.QRecordBatch, error) {
 	q := b.client.Query(query)
 	q.DisableQueryCache = true
-	it, err := q.Read(context.Background())
+	it, err := q.Read(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
@@ -337,7 +333,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(query string) (*model.QRecor
 }
 
 // returns whether the function errors or there are no nulls
-func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool, error) {
+func (b *BigQueryTestHelper) CheckNull(ctx context.Context, tableName string, colName []string) (bool, error) {
 	if len(colName) == 0 {
 		return true, nil
 	}
@@ -346,7 +342,7 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool
 		b.Config.DatasetId, tableName, joinedString)
 	q := b.client.Query(command)
 	q.DisableQueryCache = true
-	it, err := q.Read(context.Background())
+	it, err := q.Read(ctx)
 	if err != nil {
 		return false, fmt.Errorf("failed to run command: %w", err)
 	}
@@ -374,12 +370,12 @@ func (b *BigQueryTestHelper) CheckNull(tableName string, colName []string) (bool
 }
 
 // check if NaN, Inf double values are null
-func (b *BigQueryTestHelper) SelectRow(tableName string, cols ...string) ([]bigquery.Value, error) {
+func (b *BigQueryTestHelper) SelectRow(ctx context.Context, tableName string, cols ...string) ([]bigquery.Value, error) {
 	command := fmt.Sprintf("SELECT %s FROM `%s.%s`",
 		strings.Join(cols, ","), b.Config.DatasetId, tableName)
 	q := b.client.Query(command)
 	q.DisableQueryCache = true
-	it, err := q.Read(context.Background())
+	it, err := q.Read(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
@@ -435,7 +431,7 @@ func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
 	}
 }
 
-func (b *BigQueryTestHelper) CreateTable(tableName string, schema *qvalue.QRecordSchema) error {
+func (b *BigQueryTestHelper) CreateTable(ctx context.Context, tableName string, schema *qvalue.QRecordSchema) error {
 	fields := make([]string, 0, len(schema.Fields))
 	for _, field := range schema.Fields {
 		bqType, err := qValueKindToBqColTypeString(field.Type)
@@ -447,16 +443,15 @@ func (b *BigQueryTestHelper) CreateTable(tableName string, schema *qvalue.QRecor
 
 	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.Config.DatasetId, tableName, strings.Join(fields, ", "))
 
-	err := b.RunCommand(command)
-	if err != nil {
+	if err := b.RunCommand(ctx, command); err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
 	return nil
 }
 
-func (b *BigQueryTestHelper) RunInt64Query(query string) (int64, error) {
-	recordBatch, err := b.ExecuteAndProcessQuery(query)
+func (b *BigQueryTestHelper) RunInt64Query(ctx context.Context, query string) (int64, error) {
+	recordBatch, err := b.ExecuteAndProcessQuery(ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("could not execute query: %w", err)
 	}

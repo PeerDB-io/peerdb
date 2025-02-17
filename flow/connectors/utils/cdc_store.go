@@ -148,7 +148,7 @@ func (c *cdcStore[T]) initPebbleDB() error {
 }
 
 func (c *cdcStore[T]) diskSpillThresholdsExceeded() bool {
-	if len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
+	if c.numRecordsSwitchThreshold >= 0 && len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
 		c.thresholdReason = fmt.Sprintf("more than %d primary keys read, spilling to disk",
 			c.numRecordsSwitchThreshold)
 		return true
@@ -222,8 +222,7 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 			}
 		}
 		defer func() {
-			err := closer.Close()
-			if err != nil {
+			if err := closer.Close(); err != nil {
 				slog.Warn("failed to close database",
 					slog.Any("error", err),
 					slog.String("flowName", c.flowJobName))
@@ -253,13 +252,11 @@ func (c *cdcStore[T]) IsEmpty() bool {
 func (c *cdcStore[T]) Close() error {
 	c.inMemoryRecords = nil
 	if c.pebbleDB != nil {
-		err := c.pebbleDB.Close()
-		if err != nil {
+		if err := c.pebbleDB.Close(); err != nil {
 			return fmt.Errorf("failed to close database: %w", err)
 		}
 	}
-	err := os.RemoveAll(c.dbFolderName)
-	if err != nil {
+	if err := os.RemoveAll(c.dbFolderName); err != nil {
 		return fmt.Errorf("failed to delete database file: %w", err)
 	}
 	return nil

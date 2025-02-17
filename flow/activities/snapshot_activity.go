@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -29,7 +28,7 @@ type TxSnapshotState struct {
 
 type SnapshotActivity struct {
 	Alerter             *alerting.Alerter
-	CatalogPool         *pgxpool.Pool
+	CatalogPool         shared.CatalogPool
 	SlotSnapshotStates  map[string]SlotSnapshotState
 	TxSnapshotStates    map[string]TxSnapshotState
 	SnapshotStatesMutex sync.Mutex
@@ -70,11 +69,12 @@ func (a *SnapshotActivity) SetupReplication(
 	slotInfo, err := conn.SetupReplication(ctx, config)
 
 	if err != nil {
+		connectors.CloseConnector(ctx, conn)
 		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
-		connectors.CloseConnector(ctx, conn)
 		return nil, fmt.Errorf("slot error: %w", err)
 	} else if slotInfo.Conn == nil && slotInfo.SlotName == "" {
+		connectors.CloseConnector(ctx, conn)
 		logger.Info("replication setup without slot")
 		return nil, nil
 	} else {

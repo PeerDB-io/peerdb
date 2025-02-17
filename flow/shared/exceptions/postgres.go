@@ -16,3 +16,15 @@ func (e *PostgresSetupError) Unwrap() error {
 func NewPostgresSetupError(err error) *PostgresSetupError {
 	return &PostgresSetupError{err}
 }
+
+type CatalogError struct {
+	error
+}
+
+func (e *CatalogError) Unwrap() error {
+	return e.error
+}
+
+func NewCatalogError(err error) *CatalogError {
+	return &CatalogError{err}
+}

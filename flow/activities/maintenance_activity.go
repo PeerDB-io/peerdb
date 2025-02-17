@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
@@ -29,7 +28,7 @@ const (
 )
 
 type MaintenanceActivity struct {
-	CatalogPool    *pgxpool.Pool
+	CatalogPool    shared.CatalogPool
 	Alerter        *alerting.Alerter
 	TemporalClient client.Client
 	OtelManager    *otel_metrics.OtelManager

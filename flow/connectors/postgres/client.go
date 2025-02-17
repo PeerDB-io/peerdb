@@ -157,7 +157,7 @@ func (c *PostgresConnector) getUniqueColumns(
 		relID).Scan(&pkIndexOID)
 	if err != nil {
 		// don't error out if no pkey index, this would happen in EnsurePullability or UI.
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return []string{}, nil
 		}
 		return nil, fmt.Errorf("error finding primary key index for table %s: %w", schemaTable, err)
@@ -178,7 +178,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(
 		`SELECT indexrelid FROM pg_index WHERE indrelid=$1 AND indisreplident=true`,
 		relID).Scan(&indexRelID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("no replica identity index for table %s", schemaTable)
 		}
 		return nil, fmt.Errorf("error finding replica identity index for table %s: %w", schemaTable, err)
@@ -249,7 +249,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 		slot).Scan(&slotName)
 	if err != nil {
 		// check if the error is a "no rows" error
-		if err != pgx.ErrNoRows {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return SlotCheckResult{}, fmt.Errorf("error checking for replication slot - %s: %w", slot, err)
 		}
 	} else {
@@ -263,7 +263,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 		publication).Scan(&pubName)
 	if err != nil {
 		// check if the error is a "no rows" error
-		if err != pgx.ErrNoRows {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return SlotCheckResult{}, fmt.Errorf("error checking for publication - %s: %w", publication, err)
 		}
 	} else {
@@ -504,7 +504,7 @@ func (c *PostgresConnector) GetLastSyncBatchID(ctx context.Context, jobName stri
 		mirrorJobsTableIdentifier,
 	), jobName).Scan(&result)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning 0")
 			return 0, nil
 		}
@@ -521,7 +521,7 @@ func (c *PostgresConnector) GetLastNormalizeBatchID(ctx context.Context, jobName
 		mirrorJobsTableIdentifier,
 	), jobName).Scan(&result)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning 0")
 			return 0, nil
 		}

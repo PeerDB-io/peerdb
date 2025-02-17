@@ -74,7 +74,7 @@ func (s PeerFlowE2ETestSuiteSF) GetRows(tableName string, sfSelector string) (*m
 	qualifiedTableName := fmt.Sprintf(`%s.%s.%s`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
 	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
 	s.t.Logf("running query on snowflake: %s", sfSelQuery)
-	return s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
+	return s.sfHelper.ExecuteAndProcessQuery(s.t.Context(), sfSelQuery)
 }
 
 func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
@@ -95,7 +95,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	}
 
 	connector, err := connsnowflake.NewSnowflakeConnector(
-		context.Background(),
+		t.Context(),
 		sfHelper.Config,
 	)
 	require.NoError(t, err)
@@ -111,18 +111,16 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	return suite
 }
 
-func (s PeerFlowE2ETestSuiteSF) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s PeerFlowE2ETestSuiteSF) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 
 	if s.sfHelper != nil {
-		err := s.sfHelper.Cleanup()
-		if err != nil {
+		if err := s.sfHelper.Cleanup(ctx); err != nil {
 			s.t.Fatalf("failed to tear down Snowflake: %v", err)
 		}
 	}
 
-	err := s.connector.Close()
-	if err != nil {
+	if err := s.connector.Close(); err != nil {
 		s.t.Fatalf("failed to close Snowflake connector: %v", err)
 	}
 }

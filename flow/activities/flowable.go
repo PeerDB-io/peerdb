@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	lua "github.com/yuin/gopher-lua"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -44,7 +43,7 @@ type NormalizeBatchRequest struct {
 }
 
 type FlowableActivity struct {
-	CatalogPool *pgxpool.Pool
+	CatalogPool shared.CatalogPool
 	Alerter     *alerting.Alerter
 	OtelManager *otel_metrics.OtelManager
 }
@@ -388,6 +387,7 @@ func (a *FlowableActivity) SyncFlow(
 				a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
 				)))
+				a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 			}
 		}
 		if options.NumberOfSyncs > 0 && currentSyncFlowNum.Load() >= options.NumberOfSyncs {

@@ -1,6 +1,7 @@
 package e2e_bigquery
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -71,7 +72,7 @@ func (s PeerFlowE2ETestSuiteBQ) GetRows(tableName string, colsString string) (*m
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
 	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName)
 	s.t.Logf("running query on bigquery: %s", bqSelQuery)
-	return s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
+	return s.bqHelper.ExecuteAndProcessQuery(s.t.Context(), bqSelQuery)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) GetRowsWhere(tableName string, colsString string, where string) (*model.QRecordBatch, error) {
@@ -79,14 +80,13 @@ func (s PeerFlowE2ETestSuiteBQ) GetRowsWhere(tableName string, colsString string
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
 	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY id", colsString, qualifiedTableName, where)
 	s.t.Logf("running query on bigquery: %s", bqSelQuery)
-	return s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
+	return s.bqHelper.ExecuteAndProcessQuery(s.t.Context(), bqSelQuery)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s PeerFlowE2ETestSuiteBQ) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 
-	err := s.bqHelper.DropDataset(s.bqHelper.Config.DatasetId)
-	if err != nil {
+	if err := s.bqHelper.DropDataset(ctx, s.bqHelper.Config.DatasetId); err != nil {
 		s.t.Fatalf("failed to tear down bigquery: %v", err)
 	}
 }
@@ -107,7 +107,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 		t.Fatalf("Failed to create helper: %v", err)
 	}
 
-	if err := bqHelper.RecreateDataset(); err != nil {
+	if err := bqHelper.RecreateDataset(t.Context()); err != nil {
 		t.Fatalf("Failed to recreate dataset: %v", err)
 	}
 

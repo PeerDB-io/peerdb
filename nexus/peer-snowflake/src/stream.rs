@@ -118,7 +118,10 @@ impl SnowflakeRecordStream {
             inner.advance().await.map(|val| (val, inner))
         });
 
-        Self { schema, stream: Box::pin(stream) }
+        Self {
+            schema,
+            stream: Box::pin(stream),
+        }
     }
 }
 
@@ -225,13 +228,16 @@ impl SnowflakeRecordStreamInner {
         let statement_handle = self.result_set.statementHandle.clone();
         let url = self.endpoint_url.clone();
         println!("Secret: {:#?}", secret);
-        let response = reqwest::Client::new().get(format!("{}/{}", url, statement_handle))
+        let response = reqwest::Client::new()
+            .get(format!("{}/{}", url, statement_handle))
             .query(&[("partition", partition_number.to_string())])
             .header("Authorization", format!("Bearer {}", secret))
             .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
             .header("user-agent", "ureq")
-            .send().await?
-            .json::<PartitionResult>().await
+            .send()
+            .await?
+            .json::<PartitionResult>()
+            .await
             .map_err(|_| anyhow::anyhow!("get_partition failed"))?;
         println!("Response: {:#?}", response.data);
 

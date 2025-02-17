@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
@@ -113,7 +112,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncingBatchID *atomic.Int64,
 	syncState *atomic.Pointer[string],
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
-	pull func(TPull, context.Context, *pgxpool.Pool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
+	pull func(TPull, context.Context, shared.CatalogPool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
 ) (*model.SyncResponse, error) {
 	flowName := config.FlowJobName

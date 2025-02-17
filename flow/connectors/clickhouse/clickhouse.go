@@ -288,8 +288,7 @@ func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args .
 
 func (c *ClickHouseConnector) Close() error {
 	if c != nil {
-		err := c.database.Close()
-		if err != nil {
+		if err := c.database.Close(); err != nil {
 			return fmt.Errorf("error while closing connection to ClickHouse peer: %w", err)
 		}
 	}
