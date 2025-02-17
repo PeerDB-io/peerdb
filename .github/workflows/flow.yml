@@ -25,7 +25,7 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
       mysql:
-        image: mysql:oracle@sha256:b842a59bfaf81ea435b65be7e041c280416df8d295457f64c7c1445484464123
+        image: mysql:oracle@sha256:146682692a3aa409eae7b7dc6a30f637c6cb49b6ca901c2cd160becc81127d3b
         ports:
           - 3306:3306
         env:
@@ -42,7 +42,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:8.17.1@sha256:b3c98b2b5b1c461d31bf1dec5d0907db0de22e344cb3d697cdefd4790629f5da
+        image: elasticsearch:8.17.2@sha256:f388389127fe71274ff82493748e26677b88ff599785875f088627e0ca0e4c28
         ports:
           - 9200:9200
         env:
@@ -50,7 +50,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.2.7@sha256:20e4acd1178864dba7d9a1cc3922eecd42f1e8020c5d553eac72a1e758749994
+        image: bitnami/minio:2025.2.7@sha256:be81cdb6a57972dbc39d13c0c3832be9e84fefeeb2ee0e5a1bf1159aa862cd2e
         ports:
           - 9999:9999
         env:
