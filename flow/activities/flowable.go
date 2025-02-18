@@ -56,7 +56,7 @@ func (a *FlowableActivity) Alert(
 	ctx context.Context,
 	alert *protos.AlertInput,
 ) error {
-	a.Alerter.LogFlowError(ctx, alert.FlowName, errors.New(alert.Message))
+	_ = a.Alerter.LogFlowError(ctx, alert.FlowName, errors.New(alert.Message))
 	return nil
 }
 
@@ -132,8 +132,7 @@ func (a *FlowableActivity) EnsurePullability(
 
 	output, err := srcConn.EnsurePullability(ctx, config)
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return nil, fmt.Errorf("failed to ensure pullability: %w", err)
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to ensure pullability: %w", err))
 	}
 
 	return output, nil
@@ -153,8 +152,7 @@ func (a *FlowableActivity) CreateRawTable(
 
 	res, err := dstConn.CreateRawTable(ctx, config)
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return nil, err
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 	if err := monitoring.InitializeCDCFlow(ctx, a.CatalogPool, config.FlowJobName); err != nil {
 		return nil, err
@@ -1046,7 +1044,9 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 			// we can ignore the error
 			return nil
 		}
-		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("[RemoveTablesFromRawTable] failed to get destination connector: %w", err))
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName,
+			fmt.Errorf("[RemoveTablesFromRawTable] failed to get destination connector: %w", err)
+		)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
