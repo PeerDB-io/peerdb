@@ -7,11 +7,11 @@ require (
 	cloud.google.com/go/bigquery v1.66.2
 	cloud.google.com/go/pubsub v1.47.0
 	cloud.google.com/go/storage v1.50.0
-	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.1
+	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.8.2
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.3.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0
-	github.com/ClickHouse/ch-go v0.64.1
-	github.com/ClickHouse/clickhouse-go/v2 v2.31.0
+	github.com/ClickHouse/ch-go v0.65.0
+	github.com/ClickHouse/clickhouse-go/v2 v2.32.1
 	github.com/PeerDB-io/glua64 v1.0.1
 	github.com/PeerDB-io/gluabit32 v1.0.2
 	github.com/PeerDB-io/gluajson v1.0.2
@@ -20,12 +20,12 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.36.1
 	github.com/aws/aws-sdk-go-v2/config v1.29.6
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.59
-	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.61
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.62
 	github.com/aws/aws-sdk-go-v2/service/kms v1.37.18
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.76.1
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.77.0
 	github.com/aws/aws-sdk-go-v2/service/ses v1.29.10
 	github.com/aws/aws-sdk-go-v2/service/sns v1.33.19
-	github.com/aws/smithy-go v1.22.2
+	github.com/aws/smithy-go v1.22.3
 	github.com/cockroachdb/pebble v1.1.4
 	github.com/elastic/go-elasticsearch/v8 v8.17.1
 	github.com/go-mysql-org/go-mysql v1.11.0
@@ -66,16 +66,16 @@ require (
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.33.0
 	golang.org/x/sync v0.11.0
-	google.golang.org/api v0.220.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20250207221924-e9438ea467c6
+	google.golang.org/api v0.221.0
+	google.golang.org/genproto/googleapis/api v0.0.0-20250212204824-5a70512c5d8b
 	google.golang.org/grpc v1.70.0
 	google.golang.org/protobuf v1.36.5
-	k8s.io/apimachinery v0.32.1
-	k8s.io/client-go v0.32.1
+	k8s.io/apimachinery v0.32.2
+	k8s.io/client-go v0.32.2
 )
 
 require (
-	cel.dev/expr v0.19.2 // indirect
+	cel.dev/expr v0.20.0 // indirect
 	cloud.google.com/go/auth v0.14.1 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
 	cloud.google.com/go/monitoring v1.24.0 // indirect
@@ -147,7 +147,7 @@ require (
 	github.com/paulmach/orb v0.11.1 // indirect
 	github.com/pingcap/errors v0.11.5-0.20240311024730-e056997136bb // indirect
 	github.com/pingcap/log v1.1.1-0.20230317032135-a0d097d16e22 // indirect
-	github.com/pingcap/tidb/pkg/parser v0.0.0-20250211112339-e7d7cdc600e3 // indirect
+	github.com/pingcap/tidb/pkg/parser v0.0.0-20250217163519-0d4ec6e86851 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/prometheus/client_golang v1.20.5 // indirect
@@ -174,7 +174,7 @@ require (
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
-	k8s.io/api v0.32.1 // indirect
+	k8s.io/api v0.32.2 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7 // indirect
 	k8s.io/utils v0.0.0-20241210054802-24370beab758 // indirect
@@ -185,14 +185,14 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
-	cloud.google.com/go/iam v1.3.1 // indirect
+	cloud.google.com/go/iam v1.4.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.17.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.10.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.6.0 // indirect
 	github.com/Azure/go-amqp v1.3.0 // indirect
-	github.com/AzureAD/microsoft-authentication-library-for-go v1.3.3 // indirect
+	github.com/AzureAD/microsoft-authentication-library-for-go v1.4.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
-	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.8 // indirect
+	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.9 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.32 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.6.32 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.3.32 // indirect
@@ -232,7 +232,7 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.opencensus.io v0.24.0 // indirect
-	golang.org/x/exp v0.0.0-20250210185358-939b2ce775ac
+	golang.org/x/exp v0.0.0-20250215185904-eff6e970281f
 	golang.org/x/net v0.35.0 // indirect
 	golang.org/x/oauth2 v0.26.0 // indirect
 	golang.org/x/sys v0.30.0 // indirect
@@ -240,7 +240,7 @@ require (
 	golang.org/x/time v0.10.0 // indirect
 	golang.org/x/tools v0.30.0 // indirect
 	golang.org/x/xerrors v0.0.0-20240903120638-7835f813f4da // indirect
-	google.golang.org/genproto v0.0.0-20250207221924-e9438ea467c6 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250207221924-e9438ea467c6 // indirect
+	google.golang.org/genproto v0.0.0-20250212204824-5a70512c5d8b // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250212204824-5a70512c5d8b // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
