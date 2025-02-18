@@ -1,14 +1,18 @@
 package shared
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/youmark/pkcs8"
 	"golang.org/x/crypto/chacha20poly1305"
 )
@@ -31,6 +35,40 @@ func DecodePKCS8PrivateKey(rawKey []byte, password *string) (*rsa.PrivateKey, er
 	}
 
 	return privateKey, nil
+}
+
+func GetCertPool(ctx context.Context, pool CatalogPool) (*x509.CertPool, error) {
+	certs, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := pool.Query(ctx, "select name, source from certs")
+	if err != nil {
+		return nil, err
+	}
+
+	var name string
+	var source []byte
+	if _, err := pgx.ForEachRow(rows, []any{&name, &source}, func() error {
+		certs.AppendCertsFromPEM(source)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	return certs, nil
+}
+
+func GetTlsConfig(ctx context.Context, pool CatalogPool) (*tls.Config, error) {
+	certs, err := x509.SystemCertPool()
+	if err != nil {
+		return nil, err
+	}
+	return &tls.Config{
+		MinVersion: tls.VersionTLS13,
+		RootCAs:    certs,
+	}, nil
 }
 
 // PeerDBEncKey is a key for encrypting and decrypting data.

@@ -25,9 +25,10 @@ function LanguageIcon(language: string) {
 export default function ScriptsTable({ scripts }: { scripts: Script[] }) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
-  const displayedScripts = useMemo(() => {
-    return scripts.filter((script) => script.name.includes(searchQuery));
-  }, [scripts, searchQuery]);
+  const displayedScripts = useMemo(
+    () => scripts.filter((script) => script.name.includes(searchQuery)),
+    [scripts, searchQuery]
+  );
 
   // This is a hack to ensure this table
   // shows updated data when landing from /scripts/new
@@ -52,56 +53,49 @@ export default function ScriptsTable({ scripts }: { scripts: Script[] }) {
         }}
         header={
           <TableRow>
-            {['Name', 'Language'].map((heading) => {
-              return (
-                <TableCell key={heading} as='th'>
-                  {heading}
-                </TableCell>
-              );
-            })}
+            {['Name', 'Language'].map((heading) => (
+              <TableCell key={heading} as='th'>
+                {heading}
+              </TableCell>
+            ))}
           </TableRow>
         }
       >
-        {displayedScripts.map((script) => {
-          return (
-            <TableRow key={script.id}>
-              <TableCell as='td'>{script.name}</TableCell>
-              <TableCell as='td'>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    width: 'fit-content',
-                  }}
-                >
-                  <Image
-                    src={LanguageIcon(script.lang)}
-                    alt='lang'
-                    width={20}
-                    height={10}
-                  />
-                  <Label>{script.lang.toUpperCase()}</Label>
-                </div>
-              </TableCell>
-              <TableCell as='td'>
-                <Button
-                  as={Link}
-                  href={`/scripts/new?scriptid=${script.id}`}
-                  style={{ width: 'fit-content' }}
-                  variant='normal'
-                >
-                  View and edit
-                </Button>
-              </TableCell>
-              <TableCell as='td'>
-                <DropDialog
-                  mode={'SCRIPT'}
-                  dropArgs={{ scriptId: script.id }}
+        {displayedScripts.map((script) => (
+          <TableRow key={script.id}>
+            <TableCell as='td'>{script.name}</TableCell>
+            <TableCell as='td'>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  width: 'fit-content',
+                }}
+              >
+                <Image
+                  src={LanguageIcon(script.lang)}
+                  alt='lang'
+                  width={20}
+                  height={10}
                 />
-              </TableCell>
-            </TableRow>
-          );
-        })}
+                <Label>{script.lang.toUpperCase()}</Label>
+              </div>
+            </TableCell>
+            <TableCell as='td'>
+              <Button
+                as={Link}
+                href={`/scripts/new?scriptid=${script.id}`}
+                style={{ width: 'fit-content' }}
+                variant='normal'
+              >
+                View and edit
+              </Button>
+            </TableCell>
+            <TableCell as='td'>
+              <DropDialog mode={'SCRIPT'} dropArgs={{ scriptId: script.id }} />
+            </TableCell>
+          </TableRow>
+        ))}
       </Table>
       <ToastContainer />
     </>

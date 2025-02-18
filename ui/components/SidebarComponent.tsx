@@ -147,6 +147,9 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
       >
         {sidebarState === 'open' && 'Scripts'}
       </SidebarItem>
+      <SidebarItem as={Link} href={'/certs'} leadingIcon={<Icon name='lock' />}>
+        {sidebarState === 'open' && 'Certificates'}
+      </SidebarItem>
       <SidebarItem
         as={Link}
         href={'/mirror-logs'}

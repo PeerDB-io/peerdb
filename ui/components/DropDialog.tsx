@@ -1,4 +1,5 @@
 'use client';
+import { DeleteCert } from '@/app/certs/handlers';
 import { changeFlowState } from '@/app/mirrors/[mirrorId]/handlers';
 import { DeleteScript } from '@/app/scripts/handlers';
 import { FlowStatus } from '@/grpc_generated/flow';
@@ -26,6 +27,10 @@ interface deleteAlertArgs {
 
 interface deleteScriptArgs {
   scriptId: number;
+}
+
+interface deleteCertArgs {
+  certId: number;
 }
 
 async function handleDropMirror(
@@ -56,8 +61,13 @@ export default function DropDialog({
   mode,
   dropArgs,
 }: {
-  mode: 'PEER' | 'MIRROR' | 'ALERT' | 'SCRIPT';
-  dropArgs: dropMirrorArgs | dropPeerArgs | deleteAlertArgs | deleteScriptArgs;
+  mode: 'PEER' | 'MIRROR' | 'ALERT' | 'SCRIPT' | 'CERT';
+  dropArgs:
+    | dropMirrorArgs
+    | dropPeerArgs
+    | deleteAlertArgs
+    | deleteScriptArgs
+    | deleteCertArgs;
 }) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
@@ -109,6 +119,14 @@ export default function DropDialog({
     });
   };
 
+  const handleDeleteCert = (dropArgs: deleteCertArgs) => {
+    setLoading(true);
+    DeleteCert(dropArgs.certId).then((success) => {
+      setLoading(false);
+      if (success) window.location.reload();
+    });
+  };
+
   const getDeleteText = () => {
     let objectSpecificDeleteText = '';
     switch (mode) {
@@ -123,6 +141,9 @@ export default function DropDialog({
         break;
       case 'SCRIPT':
         objectSpecificDeleteText = 'this script';
+        break;
+      case 'CERT':
+        objectSpecificDeleteText = 'this certificate';
         break;
     }
     return `Are you sure you want to delete ${objectSpecificDeleteText}? This action cannot be reverted`;
@@ -143,6 +164,8 @@ export default function DropDialog({
         return handleDeleteAlert(dropArgs as deleteAlertArgs);
       case 'SCRIPT':
         return handleDeleteScript(dropArgs as deleteScriptArgs);
+      case 'CERT':
+        return handleDeleteCert(dropArgs as deleteCertArgs);
     }
   };
 

@@ -2,7 +2,6 @@ package connmysql
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"iter"
@@ -93,7 +92,11 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
-				conn.SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13})
+				tlsConfig, err := shared.GetTlsConfig(ctx, c.Pool)
+				if err != nil {
+					return err
+				}
+				conn.SetTLSConfig(tlsConfig)
 			}
 			return nil
 		}}
