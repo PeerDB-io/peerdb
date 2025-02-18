@@ -433,51 +433,52 @@ func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.Event
 	a.sendTelemetryMessage(ctx, logger, string(eventType)+":"+key, message, level)
 }
 
-func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) {
-	errorWithStack := fmt.Sprintf("%+v", err)
+// LogFlowError pushes the error to the errors table and emits a metric as well as a telemetry message
+func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
+	errorWithStack := fmt.Sprintf("%+v", inErr)
 	logger := shared.LoggerFromCtx(ctx)
-	logger.Error(err.Error(), slog.Any("stack", errorWithStack))
+	logger.Error(inErr.Error(), slog.Any("stack", errorWithStack))
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, errorWithStack, "error",
 	); err != nil {
-		logger.Warn("failed to insert flow error", slog.Any("error", err))
-		return
+		logger.Error("failed to insert flow error", slog.Any("error", err))
+		return inErr
 	}
 
 	var tags []string
-	if errors.Is(err, context.Canceled) {
+	if errors.Is(inErr, context.Canceled) {
 		tags = append(tags, string(shared.ErrTypeCanceled))
 	}
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.Is(inErr, io.EOF) || errors.Is(inErr, io.ErrUnexpectedEOF) {
 		tags = append(tags, string(shared.ErrTypeEOF))
 	}
-	if errors.Is(err, net.ErrClosed) {
+	if errors.Is(inErr, net.ErrClosed) {
 		tags = append(tags, string(shared.ErrTypeClosed))
 	}
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if errors.As(inErr, &pgErr) {
 		tags = append(tags, "pgcode:"+pgErr.Code)
 	}
 	var myErr *mysql.MyError
-	if errors.As(err, &myErr) {
+	if errors.As(inErr, &myErr) {
 		tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
 	}
 	var chErr *clickhouse.Exception
-	if errors.As(err, &chErr) {
+	if errors.As(inErr, &chErr) {
 		tags = append(tags, fmt.Sprintf("chcode:%d", chErr.Code))
 	}
 	var netErr *net.OpError
-	if errors.As(err, &netErr) {
+	if errors.As(inErr, &netErr) {
 		tags = append(tags, string(shared.ErrTypeNet))
 	}
 	// For SSH connection errors, we currently tag them as "err:Net"
 	var sshErr *ssh.OpenChannelError
-	if errors.As(err, &sshErr) {
+	if errors.As(inErr, &sshErr) {
 		tags = append(tags, string(shared.ErrTypeNet))
 	}
 
-	errorClass := GetErrorClass(ctx, err)
+	errorClass := GetErrorClass(ctx, inErr)
 	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
 
 	if !peerdbenv.PeerDBTelemetryErrorActionBasedAlertingEnabled() || errorClass.ErrorAction() == NotifyTelemetry {
@@ -495,6 +496,7 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) 
 			attribute.String(otel_metrics.ErrorActionKey, errorClass.ErrorAction().String()),
 		)))
 	}
+	return inErr
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
