@@ -442,7 +442,7 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, errorWithStack, "error",
 	); err != nil {
-		logger.Warn("failed to insert flow error", slog.Any("error", err))
+		logger.Error("failed to insert flow error", slog.Any("error", err))
 		return inErr
 	}
 
