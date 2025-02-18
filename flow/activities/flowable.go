@@ -1045,7 +1045,7 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 			return nil
 		}
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName,
-			fmt.Errorf("[RemoveTablesFromRawTable] failed to get destination connector: %w", err)
+			fmt.Errorf("[RemoveTablesFromRawTable] failed to get destination connector: %w", err),
 		)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
