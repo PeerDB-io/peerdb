@@ -19,11 +19,6 @@ const (
 	FlowMetadataKey TemporalContextKey = "x-peerdb-flow-metadata"
 )
 
-type PeerMetadata struct {
-	Name string
-	Type protos.DBType
-}
-
 func GetFlowMetadata(ctx context.Context) *protos.FlowContextMetadata {
 	if metadata, ok := ctx.Value(FlowMetadataKey).(*protos.FlowContextMetadata); ok {
 		return metadata
