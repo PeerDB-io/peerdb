@@ -6,7 +6,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
@@ -33,5 +33,5 @@ func GetFlowMetadataContext(
 	if err := getMetadataFuture.Get(metadataCtx, &metadata); err != nil {
 		return nil, err
 	}
-	return workflow.WithValue(ctx, shared.FlowMetadataKey, metadata), nil
+	return workflow.WithValue(ctx, internal.FlowMetadataKey, metadata), nil
 }

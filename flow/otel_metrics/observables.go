@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/metric/embedded"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type ObservationMapValue[V comparable] struct {
@@ -119,7 +119,7 @@ type ContextAwareInt64SyncGauge struct {
 }
 
 func (a *ContextAwareInt64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
-	flowMetadata := shared.GetFlowMetadata(ctx)
+	flowMetadata := internal.GetFlowMetadata(ctx)
 	if flowMetadata != nil {
 		options = append(options, buildFlowMetadataAttributes(flowMetadata))
 	}
@@ -131,7 +131,7 @@ type ContextAwareFloat64SyncGauge struct {
 }
 
 func (a *ContextAwareFloat64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
-	flowMetadata := shared.GetFlowMetadata(ctx)
+	flowMetadata := internal.GetFlowMetadata(ctx)
 	if flowMetadata != nil {
 		options = append(options, buildFlowMetadataAttributes(flowMetadata))
 	}
@@ -143,7 +143,7 @@ type ContextAwareInt64Counter struct {
 }
 
 func (a *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options ...metric.AddOption) {
-	flowMetadata := shared.GetFlowMetadata(ctx)
+	flowMetadata := internal.GetFlowMetadata(ctx)
 	if flowMetadata != nil {
 		options = append(options, buildFlowMetadataAttributes(flowMetadata))
 	}
