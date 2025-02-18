@@ -109,6 +109,8 @@ func buildFlowMetadataAttributes(flowMetadata *protos.FlowContextMetadata) metri
 		attribute.String(DestinationPeerType, flowMetadata.Destination.Type.String()),
 		attribute.String(SourcePeerName, flowMetadata.Source.Name),
 		attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
+		attribute.String(FlowStatusKey, flowMetadata.Status.String()),
+		attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync),
 	))
 }
 
