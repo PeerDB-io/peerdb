@@ -258,8 +258,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 			tableSchema,
 		)
 		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowName, err)
-			return nil, fmt.Errorf("failed to setup normalized table %s: %w", tableIdentifier, err)
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to setup normalized table %s: %w", tableIdentifier, err))
 		}
 		tableExistsMapping[tableIdentifier] = existing
 
@@ -313,21 +312,18 @@ func (a *FlowableActivity) SyncFlow(
 
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return err
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
 	if err := srcConn.SetupReplConn(ctx); err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		connectors.CloseConnector(ctx, srcConn)
-		return err
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
 	normalizeBufferSize, err := peerdbenv.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		connectors.CloseConnector(ctx, srcConn)
-		return err
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
 	// syncDone will be closed by SyncFlow,
