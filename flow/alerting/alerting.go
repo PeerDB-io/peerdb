@@ -433,6 +433,7 @@ func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.Event
 	a.sendTelemetryMessage(ctx, logger, string(eventType)+":"+key, message, level)
 }
 
+// LogFlowError pushes the error to the errors table and emits a metric as well as a telemetry message
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
 	errorWithStack := fmt.Sprintf("%+v", inErr)
 	logger := shared.LoggerFromCtx(ctx)
@@ -442,7 +443,7 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error
 		flowName, errorWithStack, "error",
 	); err != nil {
 		logger.Warn("failed to insert flow error", slog.Any("error", err))
-		return
+		return inErr
 	}
 
 	var tags []string
