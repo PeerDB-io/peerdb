@@ -62,7 +62,9 @@ func (a *SnapshotActivity) SetupReplication(
 
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connector: %w", err)
+		wrappedErr := fmt.Errorf("failed to get connector: %w", err)
+		a.Alerter.LogFlowError(ctx, config.FlowJobName, wrappedErr)
+		return nil, wrappedErr
 	}
 
 	logger.Info("waiting for slot to be created...")
@@ -104,6 +106,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	defer shutdown()
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, peer)
 	if err != nil {
+		a.Alerter.LogFlowError(ctx, sessionID, err)
 		return err
 	}
 	defer connectors.CloseConnector(ctx, conn)
