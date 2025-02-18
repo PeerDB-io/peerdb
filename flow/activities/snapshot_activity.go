@@ -62,7 +62,7 @@ func (a *SnapshotActivity) SetupReplication(
 
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connector: %w", err)
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
 
 	logger.Info("waiting for slot to be created...")
@@ -70,9 +70,8 @@ func (a *SnapshotActivity) SetupReplication(
 
 	if err != nil {
 		connectors.CloseConnector(ctx, conn)
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
-		return nil, fmt.Errorf("slot error: %w", err)
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("slot error: %w", err))
 	} else if slotInfo.Conn == nil && slotInfo.SlotName == "" {
 		connectors.CloseConnector(ctx, conn)
 		logger.Info("replication setup without slot")
@@ -104,7 +103,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	defer shutdown()
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, peer)
 	if err != nil {
-		return err
+		return a.Alerter.LogFlowError(ctx, sessionID, err)
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
