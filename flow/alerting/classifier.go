@@ -146,6 +146,10 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") {
 				return ErrorNotifySlotInvalid
 			}
+		case pgerrcode.InvalidParameterValue:
+			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
+				return ErrorNotifySlotInvalid
+			}
 		case pgerrcode.TooManyConnections:
 			return ErrorNotifyConnectivity // Maybe we can return something else?
 		}
