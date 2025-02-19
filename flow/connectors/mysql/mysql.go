@@ -96,6 +96,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 				if err != nil {
 					return err
 				}
+				tlsConfig.ServerName = c.config.Host
 				conn.SetTLSConfig(tlsConfig)
 			}
 			return nil
