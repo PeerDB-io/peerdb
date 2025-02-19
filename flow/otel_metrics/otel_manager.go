@@ -90,7 +90,7 @@ func NewOtelManager(serviceName string) (*OtelManager, error) {
 
 	otelManager := OtelManager{
 		MetricsProvider:    metricsProvider,
-		Meter:              metricsProvider.Meter(serviceName),
+		Meter:              metricsProvider.Meter("io.peerdb." + serviceName),
 		Float64GaugesCache: make(map[string]metric.Float64Gauge),
 		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		Int64CountersCache: make(map[string]metric.Int64Counter),
