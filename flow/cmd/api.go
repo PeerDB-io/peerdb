@@ -222,7 +222,6 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		if err != nil {
 			return fmt.Errorf("unable to create otel manager: %w", err)
 		}
-		_ = otelManager.Meter
 		serverOptions = append(serverOptions, grpc.StatsHandler(otelgrpc.NewServerHandler(
 			otelgrpc.WithMeterProvider(otelManager.MetricsProvider),
 		)))
