@@ -88,10 +88,12 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 	logEvery time.Duration,
 ) (protos.FlowStatus, error) {
 	// In case a mirror was just kicked off, it shows up in the running state, we wait for a bit before checking for snapshot
-	if mirror.MirrorCreatedAt.AsTime().After(time.Now().Add(-30 * time.Second)) {
+	targetCheckTime := mirror.MirrorCreatedAt.AsTime().Add(30 * time.Second)
+	now := time.Now()
+	if now.Before(targetCheckTime) {
 		slog.Info("Mirror was created less than 30 seconds ago, waiting for it to be ready before checking for snapshot",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
-		time.Sleep(30 * time.Second)
+		time.Sleep(targetCheckTime.Sub(now))
 	}
 
 	flowStatus, err := RunEveryIntervalUntilFinish(ctx, func() (bool, protos.FlowStatus, error) {
@@ -104,7 +106,7 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 			return false, mirrorStatus, nil
 		}
 		return true, mirrorStatus, nil
-	}, 10*time.Second, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName), logEvery)
+	}, 10*time.Second, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName), logEvery, true)
 	return flowStatus, err
 }
 
@@ -169,7 +171,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 			return true, true, nil
 		}
 		return false, false, nil
-	}, 10*time.Second, "Waiting for mirror to pause", 30*time.Second)
+	}, 10*time.Second, "Waiting for mirror to pause", 30*time.Second, false)
 }
 
 func (a *MaintenanceActivity) CleanBackedUpFlows(ctx context.Context) error {
@@ -265,7 +267,15 @@ func RunEveryIntervalUntilFinish[T any](
 	runInterval time.Duration,
 	logMessage string,
 	logInterval time.Duration,
+	runBeforeFirstTick bool,
 ) (T, error) {
+	if runBeforeFirstTick {
+		finished, result, err := runFunc()
+		if err != nil || finished {
+			return result, err
+		}
+	}
+
 	runTicker := time.NewTicker(runInterval)
 	defer runTicker.Stop()
 
@@ -279,10 +289,7 @@ func RunEveryIntervalUntilFinish[T any](
 		case <-runTicker.C:
 			finished, result, err := runFunc()
 			lastResult = result
-			if err != nil {
-				return lastResult, err
-			}
-			if finished {
+			if err != nil || finished {
 				return lastResult, err
 			}
 		case <-logTicker.C:

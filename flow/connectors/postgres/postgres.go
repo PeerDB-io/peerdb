@@ -1048,9 +1048,8 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 		if txNeedsRollback {
 			rollbackCtx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Minute)
 			defer cancelFunc()
-			err := tx.Rollback(rollbackCtx)
-			if err != pgx.ErrTxClosed {
-				c.logger.Error("error while rolling back transaction for snapshot export")
+			if err := tx.Rollback(rollbackCtx); err != nil && err != pgx.ErrTxClosed {
+				c.logger.Error("error while rolling back transaction for snapshot export", slog.Any("error", err))
 			}
 		}
 	}()

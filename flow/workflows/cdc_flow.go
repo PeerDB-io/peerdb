@@ -370,7 +370,13 @@ func CDCFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
 	var err error
-	ctx, err = GetFlowMetadataContext(ctx, cfg.FlowJobName, cfg.SourceName, cfg.DestinationName)
+	ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
+		FlowName:        cfg.FlowJobName,
+		SourceName:      cfg.SourceName,
+		DestinationName: cfg.DestinationName,
+		Status:          state.CurrentFlowStatus,
+		IsResync:        cfg.Resync,
+	})
 	if err != nil {
 		return state, fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
