@@ -13,6 +13,7 @@ import (
 	peersql "github.com/PeerDB-io/peerdb/flow/connectors/sql"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -54,7 +55,7 @@ func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*S
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
 		logger, database, snowflakeTypeToQValueKindMap, qvalue.QValueKindToSnowflakeTypeMap)
 

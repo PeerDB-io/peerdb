@@ -8,8 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/aws-sdk-go-v2/service/ses/types"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/aws_common"
 )
 
@@ -66,7 +66,7 @@ func (e *EmailAlertSender) sendAlert(ctx context.Context, alertTitle string, ale
 		},
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Warn(fmt.Sprintf(
+		internal.LoggerFromCtx(ctx).Warn(fmt.Sprintf(
 			"Error sending email alert from %v to %s subject=[%s], body=[%s], configurationSet=%s, replyToAddresses=[%v]",
 			e.sourceEmail, e.emailAddresses, alertTitle, alertMessage, e.configurationSetName, e.replyToAddresses))
 		return err

@@ -15,6 +15,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
@@ -58,7 +59,7 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.Mainte
 }
 
 func (a *MaintenanceActivity) getMirrorStatus(ctx context.Context, mirror *protos.MaintenanceMirror) (protos.FlowStatus, error) {
-	return shared.GetWorkflowStatus(ctx, a.TemporalClient, mirror.WorkflowId)
+	return internal.GetWorkflowStatus(ctx, a.TemporalClient, mirror.WorkflowId)
 }
 
 func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context) (*protos.MaintenanceMirrors, error) {

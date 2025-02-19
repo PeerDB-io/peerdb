@@ -22,6 +22,7 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
@@ -68,7 +69,7 @@ func NewElasticsearchConnector(ctx context.Context,
 	return &ElasticsearchConnector{
 		PostgresMetadata: pgMetadata,
 		client:           esClient,
-		logger:           shared.LoggerFromCtx(ctx),
+		logger:           internal.LoggerFromCtx(ctx),
 	}, nil
 }
 

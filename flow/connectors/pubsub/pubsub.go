@@ -15,6 +15,7 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/pua"
@@ -46,7 +47,7 @@ func NewPubSubConnector(
 	return &PubSubConnector{
 		client:           client,
 		PostgresMetadata: pgMetadata,
-		logger:           shared.LoggerFromCtx(ctx),
+		logger:           internal.LoggerFromCtx(ctx),
 	}, nil
 }
 

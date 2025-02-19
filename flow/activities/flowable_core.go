@@ -24,6 +24,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
@@ -608,7 +609,7 @@ func (a *FlowableActivity) startNormalize(
 	batchID int64,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
 	dstConn, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
 		ctx,

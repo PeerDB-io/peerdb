@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
@@ -305,7 +306,7 @@ func PullCdcRecords[Items model.Items](
 	processor replProcessor[Items],
 	replLock *sync.Mutex,
 ) error {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {
@@ -644,7 +645,7 @@ func processMessage[Items model.Items](
 	currentClientXlogPos pglogrepl.LSN,
 	processor replProcessor[Items],
 ) (model.Record[Items], error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)

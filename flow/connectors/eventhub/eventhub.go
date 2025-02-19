@@ -15,6 +15,7 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/pua"
@@ -34,7 +35,7 @@ func NewEventHubConnector(
 	ctx context.Context,
 	config *protos.EventHubGroupConfig,
 ) (*EventHubConnector, error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	defaultAzureCreds, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
 		logger.Error("failed to get default azure credentials", "error", err)

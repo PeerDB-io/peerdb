@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -39,7 +40,7 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (shared.CatalogPool, e
 }
 
 func GetCatalogConnectionStringFromEnv(ctx context.Context) string {
-	return shared.GetPGConnectionString(GetCatalogPostgresConfigFromEnv(ctx), "")
+	return internal.GetPGConnectionString(GetCatalogPostgresConfigFromEnv(ctx), "")
 }
 
 func GetCatalogPostgresConfigFromEnv(ctx context.Context) *protos.PostgresConfig {
