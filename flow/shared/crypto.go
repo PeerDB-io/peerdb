@@ -61,7 +61,7 @@ func GetCertPool(ctx context.Context, pool CatalogPool) (*x509.CertPool, error) 
 }
 
 func GetTlsConfig(ctx context.Context, pool CatalogPool) (*tls.Config, error) {
-	certs, err := x509.SystemCertPool()
+	certs, err := GetCertPool(ctx, pool)
 	if err != nil {
 		return nil, err
 	}
