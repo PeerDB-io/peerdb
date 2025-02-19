@@ -209,23 +209,34 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
-	}
-	if config.Certificate != nil || config.PrivateKey != nil {
-		if config.Certificate == nil || config.PrivateKey == nil {
-			return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+		if config.Certificate != nil || config.PrivateKey != nil {
+			if config.Certificate == nil || config.PrivateKey == nil {
+				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+			}
+			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+			}
+			tlsSetting.Certificates = []tls.Certificate{cert}
 		}
-		cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+
+		if config.RootCa != nil {
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
+				return nil, errors.New("failed to parse provided root CA")
+			}
+			tlsSetting.RootCAs = caPool
+		} else {
+			pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get catalog connection to get root ca pool: %w", err)
+			}
+			certs, err := shared.GetCertPool(ctx, pool)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get root ca pool: %w", err)
+			}
+			tlsSetting.RootCAs = certs
 		}
-		tlsSetting.Certificates = []tls.Certificate{cert}
-	}
-	if config.RootCa != nil {
-		caPool := x509.NewCertPool()
-		if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-			return nil, errors.New("failed to parse provided root CA")
-		}
-		tlsSetting.RootCAs = caPool
 	}
 
 	settings := clickhouse.Settings{
