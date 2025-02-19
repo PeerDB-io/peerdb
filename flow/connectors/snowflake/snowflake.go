@@ -23,7 +23,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -528,7 +527,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
-	mergeParallelism, err := peerdbenv.PeerDBSnowflakeMergeParallelism(ctx, env)
+	mergeParallelism, err := internal.PeerDBSnowflakeMergeParallelism(ctx, env)
 	if err != nil {
 		return fmt.Errorf("failed to get merge parallelism: %w", err)
 	}

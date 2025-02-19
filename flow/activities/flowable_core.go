@@ -27,7 +27,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -153,7 +152,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	consumedOffset := atomic.Int64{}
 	consumedOffset.Store(lastOffset.ID)
 
-	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx, config.Env)
+	channelBufferSize, err := internal.PeerDBCDCChannelBufferSize(ctx, config.Env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
@@ -182,7 +181,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			LastOffset:            lastOffset,
 			ConsumedOffset:        &consumedOffset,
 			MaxBatchSize:          batchSize,
-			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
+			IdleTimeout: internal.PeerDBCDCIdleTimeoutSeconds(
 				int(options.IdleTimeoutSeconds),
 			),
 			TableNameSchemaMapping:      tableNameSchemaMapping,
@@ -322,7 +321,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if recordBatchSync.NeedsNormalize() {
-		parallel, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
+		parallel, err := internal.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
 		if err != nil {
 			return nil, err
 		}
@@ -365,7 +364,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 			return nil, err
 		}
 
-		peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
+		peerOptions, err := internal.Decrypt(ctx, encKeyID, encPeerOptions)
 		if err != nil {
 			return nil, err
 		}

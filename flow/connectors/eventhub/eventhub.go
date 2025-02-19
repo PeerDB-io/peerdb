@@ -17,7 +17,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -176,7 +175,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+	flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get flush timeout: %w", err)
 	}

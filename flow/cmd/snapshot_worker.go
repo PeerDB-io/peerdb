@@ -17,7 +17,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -48,7 +47,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		})
 	}
 
-	if peerdbenv.PeerDBTemporalEnableCertAuth() {
+	if internal.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
 		certs, err := parseTemporalCertAndKey(context.Background())
 		if err != nil {
@@ -64,7 +63,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(context.Background())
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
@@ -74,7 +73,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
+	taskQueue := internal.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 		OnFatalError: func(err error) {

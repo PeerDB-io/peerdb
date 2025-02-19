@@ -9,7 +9,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ses/types"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared/aws_common"
 )
 
@@ -62,7 +61,7 @@ func (e *EmailAlertSender) sendAlert(ctx context.Context, alertTitle string, ale
 		ConfigurationSetName: aws.String(e.configurationSetName),
 		ReplyToAddresses:     e.replyToAddresses,
 		Tags: []types.MessageTag{
-			{Name: aws.String("DeploymentUUID"), Value: aws.String(peerdbenv.PeerDBDeploymentUID())},
+			{Name: aws.String("DeploymentUUID"), Value: aws.String(internal.PeerDBDeploymentUID())},
 		},
 	})
 	if err != nil {

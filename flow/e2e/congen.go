@@ -9,8 +9,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
 type SuiteSource interface {
@@ -37,7 +37,7 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 
 func CreatePeer(t *testing.T, peer *protos.Peer) {
 	t.Helper()
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(t.Context())
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
 	require.NoError(t, err)
 	res, err := utils.CreatePeerNoValidate(t.Context(), pool, peer, false)
 	require.NoError(t, err)

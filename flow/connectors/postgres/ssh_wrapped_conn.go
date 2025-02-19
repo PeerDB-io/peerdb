@@ -13,7 +13,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -22,7 +21,7 @@ func NewPostgresConnFromPostgresConfig(
 	pgConfig *protos.PostgresConfig,
 	tunnel utils.SSHTunnel,
 ) (*pgx.Conn, error) {
-	flowNameInApplicationName, err := peerdbenv.PeerDBApplicationNamePerMirrorName(ctx, nil)
+	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("Failed to get flow name from application name", slog.Any("error", err))
 	}

@@ -16,7 +16,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
 type EventHubManager struct {
@@ -186,7 +185,7 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 
 func (m *EventHubManager) getEventHubMgmtClient(subID string) (*armeventhub.EventHubsClient, error) {
 	if subID == "" {
-		envSubID := peerdbenv.GetEnvString("AZURE_SUBSCRIPTION_ID", "")
+		envSubID := internal.GetEnvString("AZURE_SUBSCRIPTION_ID", "")
 		if envSubID == "" {
 			slog.Error("couldn't find AZURE_SUBSCRIPTION_ID in environment")
 			return nil, errors.New("couldn't find AZURE_SUBSCRIPTION_ID in environment")

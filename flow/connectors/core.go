@@ -24,7 +24,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -353,7 +352,7 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 
-	peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
+	peerOptions, err := internal.Decrypt(ctx, encKeyID, encPeerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}

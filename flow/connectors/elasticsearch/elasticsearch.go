@@ -25,7 +25,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -145,7 +144,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 		if err != nil {
 			esc.logger.Warn("[elasticsearch] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return

@@ -17,7 +17,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type AvroSchemaField struct {
@@ -118,18 +118,18 @@ func GetAvroSchemaFromQValueKind(
 	case QValueKindBoolean:
 		return "boolean", nil
 	case QValueKindBytes:
-		format, err := peerdbenv.PeerDBBinaryFormat(ctx, env)
+		format, err := internal.PeerDBBinaryFormat(ctx, env)
 		if err != nil {
 			return nil, err
 		}
-		if targetDWH == protos.DBType_CLICKHOUSE && format != peerdbenv.BinaryFormatRaw {
+		if targetDWH == protos.DBType_CLICKHOUSE && format != internal.BinaryFormatRaw {
 			return "string", nil
 		}
 		return "bytes", nil
 	case QValueKindNumeric:
 		if targetDWH == protos.DBType_CLICKHOUSE {
 			if precision == 0 && scale == 0 {
-				asString, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+				asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 				if err != nil {
 					return nil, err
 				}
@@ -397,7 +397,7 @@ func QValueToAvro(
 	case QValueNumeric:
 		return c.processNumeric(v.Val), nil
 	case QValueBytes:
-		format, err := peerdbenv.PeerDBBinaryFormat(ctx, env)
+		format, err := internal.PeerDBBinaryFormat(ctx, env)
 		if err != nil {
 			return nil, err
 		}
@@ -533,13 +533,13 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 	return rat
 }
 
-func (c *QValueAvroConverter) processBytes(byteData []byte, format peerdbenv.BinaryFormat) interface{} {
-	if c.TargetDWH == protos.DBType_CLICKHOUSE && format != peerdbenv.BinaryFormatRaw {
+func (c *QValueAvroConverter) processBytes(byteData []byte, format internal.BinaryFormat) interface{} {
+	if c.TargetDWH == protos.DBType_CLICKHOUSE && format != internal.BinaryFormatRaw {
 		var encoded string
 		switch format {
-		case peerdbenv.BinaryFormatBase64:
+		case internal.BinaryFormatBase64:
 			encoded = base64.StdEncoding.EncodeToString(byteData)
-		case peerdbenv.BinaryFormatHex:
+		case internal.BinaryFormatHex:
 			encoded = strings.ToUpper(hex.EncodeToString(byteData))
 		default:
 			panic(fmt.Sprintf("unhandled binary format: %d", format))

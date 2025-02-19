@@ -19,7 +19,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -69,7 +69,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 				Skipped:       true,
 				SkippedReason: ptr.String("Assumed skipped by CLI Flag"),
-				CLIVersion:    peerdbenv.PeerDBVersionShaShort(),
+				CLIVersion:    internal.PeerDBVersionShaShort(),
 			})
 		}
 		skipped, err := skipStartMaintenanceIfNeeded(ctx, args)
@@ -93,7 +93,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 		slog.Info("Start maintenance workflow completed", "output", output)
 		return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 			Skipped:    false,
-			CLIVersion: peerdbenv.PeerDBVersionShaShort(),
+			CLIVersion: internal.PeerDBVersionShaShort(),
 			APIVersion: output.Version,
 		})
 	} else if args.Mode == "end" {
@@ -137,7 +137,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 				Skipped:       true,
 				SkippedReason: ptr.String(fmt.Sprintf("K8s service %s missing", args.SkipIfK8sServiceMissing)),
-				CLIVersion:    peerdbenv.PeerDBVersionShaShort(),
+				CLIVersion:    internal.PeerDBVersionShaShort(),
 			})
 		}
 	}
@@ -158,20 +158,20 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 		}
 		peerFlowClient := protos.NewFlowServiceClient(conn)
 		if args.SkipOnApiVersionMatch {
-			slog.Info("Checking if CLI version matches API version", "cliVersion", peerdbenv.PeerDBVersionShaShort())
+			slog.Info("Checking if CLI version matches API version", "cliVersion", internal.PeerDBVersionShaShort())
 			version, err := peerFlowClient.GetVersion(ctx, &protos.PeerDBVersionRequest{})
 			if err != nil {
 				return false, err
 			}
 			slog.Info("Got version from flow", "version", version.Version)
-			if version.Version == peerdbenv.PeerDBVersionShaShort() {
+			if version.Version == internal.PeerDBVersionShaShort() {
 				slog.Info("Skipping maintenance workflow due to matching versions")
 				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 					Skipped: true,
-					SkippedReason: ptr.String(fmt.Sprintf("CLI version %s matches API version %s", peerdbenv.PeerDBVersionShaShort(),
+					SkippedReason: ptr.String(fmt.Sprintf("CLI version %s matches API version %s", internal.PeerDBVersionShaShort(),
 						version.Version)),
 					APIVersion: version.Version,
-					CLIVersion: peerdbenv.PeerDBVersionShaShort(),
+					CLIVersion: internal.PeerDBVersionShaShort(),
 				})
 			}
 		}
@@ -195,7 +195,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 }
 
 func WriteMaintenanceOutputToCatalog(ctx context.Context, result StartMaintenanceResult) error {
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return err
 	}
@@ -209,7 +209,7 @@ func WriteMaintenanceOutputToCatalog(ctx context.Context, result StartMaintenanc
 }
 
 func ReadLastMaintenanceOutput(ctx context.Context) (*StartMaintenanceResult, error) {
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +234,7 @@ func CheckK8sServiceExistence(ctx context.Context, serviceName string) (bool, er
 	if err != nil {
 		return false, err
 	}
-	_, err = clientset.CoreV1().Services(peerdbenv.GetEnvString("POD_NAMESPACE", "")).Get(ctx, serviceName, v1.GetOptions{})
+	_, err = clientset.CoreV1().Services(internal.GetEnvString("POD_NAMESPACE", "")).Get(ctx, serviceName, v1.GetOptions{})
 	if err != nil {
 		if k8sErrors.IsNotFound(err) {
 			return false, nil

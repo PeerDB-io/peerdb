@@ -7,7 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type QValueKind string
@@ -161,7 +161,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 
 func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, column *protos.FieldDescription) (string, error) {
 	if column.TypeModifier == -1 {
-		numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+		numericAsStringEnabled, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 		if err != nil {
 			return "", err
 		}

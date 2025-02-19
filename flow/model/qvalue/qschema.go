@@ -7,7 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type QField struct {
@@ -53,7 +53,7 @@ func (q QRecordSchema) GetColumnNames() []string {
 
 func (q QField) getClickHouseTypeForNumericField(ctx context.Context, env map[string]string) (string, error) {
 	if q.Precision == 0 && q.Scale == 0 {
-		numericAsStringEnabled, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+		numericAsStringEnabled, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 		if err != nil {
 			return "", err
 		}

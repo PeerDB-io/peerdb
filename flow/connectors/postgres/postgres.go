@@ -30,7 +30,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
@@ -60,7 +59,7 @@ type ReplState struct {
 
 func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	flowNameInApplicationName, err := peerdbenv.PeerDBApplicationNamePerMirrorName(ctx, nil)
+	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to get flow name from application name", slog.Any("error", err))
 	}
@@ -799,7 +798,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, fmt.Errorf("[getTableSchema] error getting primary key column for table %s: %w", schemaTable, err)
 	}
 
-	nullableEnabled, err := peerdbenv.PeerDBNullable(ctx, env)
+	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
 	if err != nil {
 		return nil, err
 	}

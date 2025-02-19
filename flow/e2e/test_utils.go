@@ -26,9 +26,9 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -576,7 +576,7 @@ func ExecutePeerflow(ctx context.Context, tc client.Client, wf interface{}, args
 }
 
 func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf interface{}, args ...interface{}) WorkflowRun {
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(taskQueueID)
+	taskQueue := internal.PeerFlowTaskQueueName(taskQueueID)
 
 	wr, err := tc.ExecuteWorkflow(
 		ctx,

@@ -11,8 +11,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -25,7 +25,7 @@ type PostgresSchemaDeltaTestSuite struct {
 func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(t.Context(), nil, peerdbenv.GetCatalogPostgresConfigFromEnv(t.Context()))
+	connector, err := NewPostgresConnector(t.Context(), nil, internal.GetCatalogPostgresConfigFromEnv(t.Context()))
 	require.NoError(t, err)
 
 	setupTx, err := connector.conn.Begin(t.Context())

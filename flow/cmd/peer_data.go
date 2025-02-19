@@ -17,7 +17,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func redactProto(message proto.Message) {
@@ -43,7 +43,7 @@ func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName strin
 		return nil, err
 	}
 
-	peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
+	peerOptions, err := internal.Decrypt(ctx, encKeyID, encPeerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
@@ -135,7 +135,7 @@ func (h *FlowRequestHandler) ListPeers(
 	req *protos.ListPeersRequest,
 ) (*protos.ListPeersResponse, error) {
 	query := "SELECT name, type FROM peers"
-	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
+	if internal.PeerDBOnlyClickHouseAllowed() {
 		// only postgres, mysql, and clickhouse
 		query += " WHERE type IN (3, 7, 8)"
 	}
@@ -159,7 +159,7 @@ func (h *FlowRequestHandler) ListPeers(
 		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL {
 			sourceItems = append(sourceItems, peer)
 		}
-		if peer.Type != protos.DBType_MYSQL && (!peerdbenv.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
+		if peer.Type != protos.DBType_MYSQL && (!internal.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
 			destinationItems = append(destinationItems, peer)
 		}
 	}

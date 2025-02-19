@@ -1,4 +1,4 @@
-package peerdbenv
+package internal
 
 import (
 	"context"
@@ -16,7 +16,6 @@ import (
 	"golang.org/x/exp/constraints"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -298,7 +297,7 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 
 	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		internal.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get catalog connection pool: %w", err)
 	}
 
@@ -310,7 +309,7 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 	var value pgtype.Text
 	query := "SELECT config_value FROM dynamic_settings WHERE config_name=$1"
 	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		internal.LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get key: %w", err)
 	}
 	if !value.Valid {
@@ -347,7 +346,7 @@ func dynamicConfSigned[T constraints.Signed](ctx context.Context, env map[string
 		return strconv.ParseInt(value, 10, 64)
 	})
 	if err != nil {
-		internal.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.String("key", key), slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.String("key", key), slog.Any("error", err))
 		return 0, fmt.Errorf("failed to parse %s as int64: %w", key, err)
 	}
 
@@ -359,7 +358,7 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 		return strconv.ParseUint(value, 10, 64)
 	})
 	if err != nil {
-		internal.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.String("key", key), slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.String("key", key), slog.Any("error", err))
 		return 0, fmt.Errorf("failed to parse %s as uint64: %w", key, err)
 	}
 
@@ -369,7 +368,7 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bool, error) {
 	value, err := dynLookupConvert(ctx, env, key, strconv.ParseBool)
 	if err != nil {
-		internal.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.String("key", key), slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to parse bool", slog.String("key", key), slog.Any("error", err))
 		return false, fmt.Errorf("failed to parse %s as bool: %w", key, err)
 	}
 
@@ -381,7 +380,7 @@ func UpdateDynamicSetting(ctx context.Context, pool shared.CatalogPool, name str
 		var err error
 		pool, err = GetCatalogConnectionPoolFromEnv(ctx)
 		if err != nil {
-			internal.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool for dynamic setting update", slog.Any("error", err))
+			LoggerFromCtx(ctx).Error("Failed to get catalog connection pool for dynamic setting update", slog.Any("error", err))
 			return fmt.Errorf("failed to get catalog connection pool: %w", err)
 		}
 	}
