@@ -7,6 +7,8 @@ import (
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
+
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func LoggerFromCtx(ctx context.Context) log.Logger {
@@ -23,8 +25,8 @@ func LoggerFromCtx(ctx context.Context) log.Logger {
 		logger = log.With(logger, string(FlowNameKey), flowName)
 	}
 
-	if flowMetadata := GetFlowMetadata(ctx); flowMetadata != nil {
-		logger = log.With(logger, string(FlowMetadataKey), flowMetadata)
+	if flowMetadata := internal.GetFlowMetadata(ctx); flowMetadata != nil {
+		logger = log.With(logger, string(internal.FlowMetadataKey), flowMetadata)
 	}
 
 	return logger
