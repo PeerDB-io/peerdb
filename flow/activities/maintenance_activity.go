@@ -87,10 +87,12 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 	logEvery time.Duration,
 ) (protos.FlowStatus, error) {
 	// In case a mirror was just kicked off, it shows up in the running state, we wait for a bit before checking for snapshot
-	if mirror.MirrorCreatedAt.AsTime().After(time.Now().Add(-30 * time.Second)) {
+	targetCheckTime := mirror.MirrorCreatedAt.AsTime().Add(30 * time.Second)
+	now := time.Now()
+	if now.Before(targetCheckTime) {
 		slog.Info("Mirror was created less than 30 seconds ago, waiting for it to be ready before checking for snapshot",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
-		time.Sleep(time.Now().Add(35 * time.Second).Sub(mirror.MirrorCreatedAt.AsTime()))
+		time.Sleep(targetCheckTime.Sub(now))
 	}
 
 	flowStatus, err := RunEveryIntervalUntilFinish(ctx, func() (bool, protos.FlowStatus, error) {
@@ -268,10 +270,7 @@ func RunEveryIntervalUntilFinish[T any](
 ) (T, error) {
 	if runBeforeFirstTick {
 		finished, result, err := runFunc()
-		if err != nil {
-			return result, err
-		}
-		if finished {
+		if err != nil || finished {
 			return result, err
 		}
 	}
@@ -289,10 +288,7 @@ func RunEveryIntervalUntilFinish[T any](
 		case <-runTicker.C:
 			finished, result, err := runFunc()
 			lastResult = result
-			if err != nil {
-				return lastResult, err
-			}
-			if finished {
+			if err != nil || finished {
 				return lastResult, err
 			}
 		case <-logTicker.C:
