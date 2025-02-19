@@ -26,11 +26,12 @@ type CDCFlowWorkflowState struct {
 	FlowConfigUpdate *protos.CDCFlowConfigUpdate
 	// options passed to all SyncFlows
 	SyncFlowOptions *protos.SyncFlowOptions
+	// used for computing backoff timeout
+	LastError  time.Time
+	ErrorCount int32
 	// Current signalled state of the peer flow.
 	ActiveSignal      model.CDCFlowSignal
 	CurrentFlowStatus protos.FlowStatus
-	// used for computing backoff timeout
-	ErrorCount int
 }
 
 // returns a new empty PeerFlowState
@@ -500,6 +501,11 @@ func CDCFlowWorkflow(
 	})
 	mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 		if err := f.Get(ctx, nil); err != nil {
+			now := workflow.Now(ctx)
+			if state.LastError.Add(24 * time.Hour).Before(now) {
+				state.ErrorCount = 0
+			}
+			state.LastError = now
 			var sleepFor time.Duration
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
