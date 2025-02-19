@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -134,7 +134,7 @@ func CreatePeerNoValidate(
 }
 
 func encryptPeerOptions(ctx context.Context, peerOptions []byte) ([]byte, string, error) {
-	key, err := peerdbenv.PeerDBCurrentEncKey(ctx)
+	key, err := internal.PeerDBCurrentEncKey(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get current encryption key: %w", err)
 	}

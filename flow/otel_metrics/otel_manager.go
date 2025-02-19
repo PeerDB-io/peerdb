@@ -14,7 +14,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 const (
@@ -64,7 +64,7 @@ type SlotMetricGauges struct {
 }
 
 func BuildMetricName(baseName string) string {
-	return peerdbenv.GetPeerDBOtelMetricsNamespace() + baseName
+	return internal.GetPeerDBOtelMetricsNamespace() + baseName
 }
 
 type OtelManager struct {
@@ -235,7 +235,7 @@ func (om *OtelManager) setupMetrics() error {
 func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*resource.Resource, error) {
 	allAttrs := append([]attribute.KeyValue{
 		semconv.ServiceNameKey.String(otelServiceName),
-		attribute.String(DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
+		attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
 	}, attrs...)
 	return resource.Merge(
 		resource.Default(),
@@ -247,7 +247,7 @@ func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*reso
 }
 
 func temporalMetricsFilteringView() sdkmetric.View {
-	exportListString := peerdbenv.GetPeerDBOtelTemporalMetricsExportListEnv()
+	exportListString := internal.GetPeerDBOtelTemporalMetricsExportListEnv()
 	slog.Info("Found export list for temporal metrics", slog.String("exportList", exportListString))
 	// Special case for exporting all metrics
 	if exportListString == "__ALL__" {
@@ -293,8 +293,8 @@ func temporalMetricsFilteringView() sdkmetric.View {
 }
 
 func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
-	otlpMetricProtocol := peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
-		peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
+	otlpMetricProtocol := internal.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
+		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
 	var err error
 	switch otlpMetricProtocol {

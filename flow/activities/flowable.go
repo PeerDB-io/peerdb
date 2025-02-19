@@ -29,7 +29,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -323,7 +322,7 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	normalizeBufferSize, err := peerdbenv.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
+	normalizeBufferSize, err := internal.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
 	if err != nil {
 		connectors.CloseConnector(ctx, srcConn)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -658,7 +657,7 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	logger := activity.GetLogger(ctx)
-	walHeartbeatEnabled, err := peerdbenv.PeerDBEnableWALHeartbeat(ctx, nil)
+	walHeartbeatEnabled, err := internal.PeerDBEnableWALHeartbeat(ctx, nil)
 	if err != nil {
 		logger.Warn("unable to fetch wal heartbeat config, skipping wal heartbeat send", slog.Any("error", err))
 		return err
@@ -667,7 +666,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 		logger.Info("wal heartbeat is disabled")
 		return nil
 	}
-	walHeartbeatStatement, err := peerdbenv.PeerDBWALHeartbeatQuery(ctx, nil)
+	walHeartbeatStatement, err := internal.PeerDBWALHeartbeatQuery(ctx, nil)
 	if err != nil {
 		logger.Warn("unable to fetch wal heartbeat config, skipping wal heartbeat send", slog.Any("error", err))
 		return err
@@ -742,7 +741,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 		slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
 
-		maintenanceEnabled, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+		maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 		instanceStatus := otel_metrics.InstanceStatusReady
 		if err != nil {
 			logger.Error("Failed to get maintenance mode status", slog.Any("error", err))

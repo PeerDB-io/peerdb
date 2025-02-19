@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
@@ -112,7 +111,7 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 
 func (a *MaintenanceActivity) EnableMaintenanceMode(ctx context.Context) error {
 	slog.Info("Enabling maintenance mode")
-	return peerdbenv.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, true)
+	return internal.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, true)
 }
 
 func (a *MaintenanceActivity) BackupAllPreviouslyRunningFlows(ctx context.Context, mirrors *protos.MaintenanceMirrors) error {
@@ -129,7 +128,7 @@ func (a *MaintenanceActivity) BackupAllPreviouslyRunningFlows(ctx context.Contex
 		values
 			($1, $2, $3, $4, $5, $6, $7)
 		`, mirror.MirrorId, mirror.MirrorName, mirror.WorkflowId, mirror.MirrorCreatedAt.AsTime(), mirror.IsCdc, mirrorStateBackup,
-			peerdbenv.PeerDBVersionShaShort())
+			internal.PeerDBVersionShaShort())
 		if err != nil {
 			return err
 		}
@@ -181,7 +180,7 @@ func (a *MaintenanceActivity) CleanBackedUpFlows(ctx context.Context) error {
 			restored_at = now(),
 			to_version = $2
 		where state = $3
-	`, mirrorStateRestored, peerdbenv.PeerDBVersionShaShort(), mirrorStateBackup)
+	`, mirrorStateRestored, internal.PeerDBVersionShaShort(), mirrorStateBackup)
 	return err
 }
 
@@ -234,13 +233,13 @@ func (a *MaintenanceActivity) ResumeMirror(ctx context.Context, mirror *protos.M
 
 func (a *MaintenanceActivity) DisableMaintenanceMode(ctx context.Context) error {
 	slog.Info("Disabling maintenance mode")
-	return peerdbenv.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, false)
+	return internal.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, false)
 }
 
 func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 	heartbeatTicker := time.NewTicker(30 * time.Second)
 	defer heartbeatTicker.Stop()
-	alertTicker := time.NewTicker(time.Duration(peerdbenv.PeerDBMaintenanceModeWaitAlertSeconds()) * time.Second)
+	alertTicker := time.NewTicker(time.Duration(internal.PeerDBMaintenanceModeWaitAlertSeconds()) * time.Second)
 	defer alertTicker.Stop()
 
 	for {

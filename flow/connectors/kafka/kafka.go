@@ -23,7 +23,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -105,7 +104,7 @@ func NewKafkaConnector(
 			return nil, fmt.Errorf("unsupported SASL mechanism: %s", config.Sasl)
 		}
 	}
-	force, err := peerdbenv.PeerDBQueueForceTopicCreation(ctx, env)
+	force, err := internal.PeerDBQueueForceTopicCreation(ctx, env)
 	if err == nil && force {
 		optionalOpts = append(optionalOpts, kgo.UnknownTopicRetries(0))
 	}
@@ -209,7 +208,7 @@ func (c *KafkaConnector) createPool(
 	lastSeenLSN *atomic.Int64,
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
-	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx, env)
+	maxSize, err := internal.PeerDBQueueParallelism(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get parallelism: %w", err)
 	}
@@ -239,7 +238,7 @@ func (c *KafkaConnector) createPool(
 				if err != nil {
 					var success bool
 					if errors.Is(err, kerr.UnknownTopicOrPartition) {
-						force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx, env)
+						force, envErr := internal.PeerDBQueueForceTopicCreation(ctx, env)
 						if envErr == nil && force {
 							c.logger.Info("[kafka] force topic creation", slog.String("topic", kr.Topic))
 							_, err := kadm.NewClient(c.client).CreateTopic(ctx, 1, 3, nil, kr.Topic)
@@ -285,7 +284,7 @@ func (c *KafkaConnector) SyncRecords(ctx context.Context, req *model.SyncRecords
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 		if err != nil {
 			c.logger.Warn("[kafka] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return

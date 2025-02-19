@@ -24,7 +24,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -372,7 +371,7 @@ func PullCdcRecords[Items model.Items](
 	pkmRequiresResponse := false
 	waitingForCommit := false
 
-	pkmEmptyBatchThrottleThresholdSeconds, err := peerdbenv.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
+	pkmEmptyBatchThrottleThresholdSeconds, err := internal.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
 	if err != nil {
 		logger.Error("failed to get PeerDBPKMEmptyBatchThrottleThresholdSeconds", slog.Any("error", err))
 	}

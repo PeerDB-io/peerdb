@@ -12,9 +12,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -159,7 +159,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	}
 
 	hashColName := dstTableSchema[0].Name()
-	numParts, err := peerdbenv.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
+	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
 	if err != nil {
 		s.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
 		numParts = 1

@@ -24,7 +24,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -229,7 +228,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		numRows, writeOcfError = p.WriteOCF(ctx, env, w)
 	}()
 
-	partSize, err := peerdbenv.PeerDBS3PartSize(ctx, env)
+	partSize, err := internal.PeerDBS3PartSize(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("could not get s3 part size config: %w", err)
 	}

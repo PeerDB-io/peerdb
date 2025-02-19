@@ -23,7 +23,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 )
@@ -69,7 +68,7 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 // Performs some checks on the ClickHouse peer to ensure it will work for mirrors
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
-	allowedDomains := peerdbenv.PeerDBClickHouseAllowedDomains()
+	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 	if err := ValidateClickHouseHost(ctx, c.config.Host, allowedDomains); err != nil {
 		return err
 	}
@@ -154,11 +153,11 @@ func NewClickHouseConnector(
 
 	awsBucketPath := config.S3Path
 	if awsBucketPath == "" {
-		deploymentUID := peerdbenv.PeerDBDeploymentUID()
+		deploymentUID := internal.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := peerdbenv.PeerDBClickHouseAWSS3BucketName(ctx, env)
+		awsBucketName, err := internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
 		}
@@ -235,7 +234,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		// broken downstream views should not interrupt ingestion
 		"ignore_materialized_views_with_dropped_target_table": true,
 	}
-	if maxInsertThreads, err := peerdbenv.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
+	if maxInsertThreads, err := internal.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
 		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
 	} else if maxInsertThreads != 0 {
 		settings["max_insert_threads"] = maxInsertThreads

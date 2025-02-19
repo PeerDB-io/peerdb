@@ -12,7 +12,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -46,7 +46,7 @@ func SetupSuite(t *testing.T) elasticsearchSuite {
 	suffix := "es_" + strings.ToLower(shared.RandomString(8))
 	conn, err := e2e.SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
-	esAddresses := strings.Split(peerdbenv.GetEnvString("ELASTICSEARCH_TEST_ADDRESS", ""), ",")
+	esAddresses := strings.Split(internal.GetEnvString("ELASTICSEARCH_TEST_ADDRESS", ""), ",")
 
 	esClient, err := elasticsearch.NewTypedClient(elasticsearch.Config{
 		Addresses: esAddresses,

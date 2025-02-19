@@ -23,8 +23,8 @@ import (
 	"google.golang.org/grpc/reflection"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/middleware"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -51,8 +51,8 @@ func recryptDatabase(
 	selectSql string,
 	updateSql string,
 ) {
-	newKeyID := peerdbenv.PeerDBCurrentEncKeyID()
-	keys := peerdbenv.PeerDBEncKeys(ctx)
+	newKeyID := internal.PeerDBCurrentEncKeyID()
+	keys := internal.PeerDBEncKeys(ctx)
 	if newKeyID == "" {
 		if len(keys) == 0 {
 			slog.Warn("Encryption disabled. This is not recommended.")
@@ -213,12 +213,12 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	grpcServer := grpc.NewServer(interceptors)
 
-	catalogPool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}
 
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	flowHandler := NewFlowRequestHandler(tc, catalogPool, taskQueue)
 
 	err = killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue)
@@ -293,7 +293,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 }
 
 func setupTemporalClient(ctx context.Context, clientOptions client.Options) (client.Client, error) {
-	if peerdbenv.PeerDBTemporalEnableCertAuth() {
+	if internal.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
 
 		certs, err := parseTemporalCertAndKey(ctx)

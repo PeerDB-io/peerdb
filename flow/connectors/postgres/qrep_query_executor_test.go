@@ -10,14 +10,14 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func setupDB(t *testing.T) (*PostgresConnector, string) {
 	t.Helper()
 
 	connector, err := NewPostgresConnector(t.Context(),
-		nil, peerdbenv.GetCatalogPostgresConfigFromEnv(t.Context()))
+		nil, internal.GetCatalogPostgresConfigFromEnv(t.Context()))
 	require.NoError(t, err, "error while creating connector")
 
 	// Create unique schema name using current time

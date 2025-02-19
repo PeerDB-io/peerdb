@@ -13,7 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -65,7 +65,7 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 }
 
 func TestGetQRepPartitions(t *testing.T) {
-	connStr := peerdbenv.GetCatalogConnectionStringFromEnv(t.Context())
+	connStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
 
 	// Setup the DB
 	config, err := pgx.ParseConfig(connStr)

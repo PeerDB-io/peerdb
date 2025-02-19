@@ -16,10 +16,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -54,7 +54,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	nullableEnabled, err := peerdbenv.PeerDBNullable(ctx, env)
+	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
 	if err != nil {
 		return nil, err
 	}

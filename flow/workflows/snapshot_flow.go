@@ -15,7 +15,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -112,7 +112,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName), cloneLog)
 
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,

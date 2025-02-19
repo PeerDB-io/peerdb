@@ -17,7 +17,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -32,7 +31,7 @@ type PostgresMetadata struct {
 }
 
 func NewPostgresMetadata(ctx context.Context) (*PostgresMetadata, error) {
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create catalog connection pool: %w", err)
 	}
