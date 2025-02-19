@@ -22,8 +22,6 @@ import (
 )
 
 type CDCFlowWorkflowState struct {
-	// deprecated field
-	RelationMessageMapping model.RelationMessageMapping
 	// flow config update request, set to nil after processed
 	FlowConfigUpdate *protos.CDCFlowConfigUpdate
 	// options passed to all SyncFlows
@@ -31,6 +29,8 @@ type CDCFlowWorkflowState struct {
 	// Current signalled state of the peer flow.
 	ActiveSignal      model.CDCFlowSignal
 	CurrentFlowStatus protos.FlowStatus
+	// used for computing backoff timeout
+	ErrorCount int
 }
 
 // returns a new empty PeerFlowState
@@ -485,6 +485,7 @@ func CDCFlowWorkflow(
 	}
 
 	var finished bool
+	var finishedError bool
 	syncCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 365 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
@@ -502,27 +503,27 @@ func CDCFlowWorkflow(
 			var sleepFor time.Duration
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
+				sleepFor = time.Duration(10+min(state.ErrorCount, 3)*15) * time.Minute
 				logger.Error(
-					"panic in sync flow, waiting 10 minutes",
+					"panic in sync flow",
 					slog.Any("error", panicErr.Error()),
 					slog.String("stack", panicErr.StackTrace()),
+					slog.Any("sleepFor", sleepFor),
 				)
-				sleepFor = 10 * time.Minute
 			} else {
-				logger.Error("error in sync flow", slog.Any("error", err))
-
 				// cannot use shared.IsSQLStateError because temporal serialize/deserialize
 				if !temporal.IsApplicationError(err) || strings.Contains(err.Error(), "(SQLSTATE 55006)") {
-					logger.Info("sync flow errored, waiting 1 minute before retrying")
-					sleepFor = time.Minute
+					sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
 				} else {
-					logger.Info("sync flow errored, waiting 10 minutes before retrying")
-					sleepFor = 10 * time.Minute
+					sleepFor = time.Duration(5+min(state.ErrorCount, 5)*15) * time.Minute
 				}
+
+				logger.Error("error in sync flow", slog.Any("error", err), slog.Any("sleepFor", sleepFor))
 			}
 			mainLoopSelector.AddFuture(model.SleepFuture(ctx, sleepFor), func(_ workflow.Future) {
 				logger.Info("sync finished after waiting after error")
 				finished = true
+				finishedError = true
 				if state.SyncFlowOptions.NumberOfSyncs > 0 {
 					state.ActiveSignal = model.PauseSignal
 				}
@@ -570,6 +571,11 @@ func CDCFlowWorkflow(
 				return nil, err
 			}
 
+			if finishedError {
+				state.ErrorCount += 1
+			} else {
+				state.ErrorCount = 0
+			}
 			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
 	}
