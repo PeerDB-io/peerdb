@@ -545,7 +545,7 @@ func buildTableSchemaLookup(req *model.PullRecordsRequest[model.RecordItems]) (m
 	return tableSchemaLookup, nil
 }
 
-func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool *pgxpool.Pool,
+func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
 	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, tableSchemaLookup map[string][]string,
 ) error {
 	// ALTER TABLE didn't have database/schema name, so we need to determine it
@@ -614,7 +614,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 	}
 	if tableSchemaDelta.AddedColumns != nil {
 		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
-		return monitoring.AuditSchemaDelta(ctx, catalogPool, req.FlowJobName, tableSchemaDelta)
+		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
 	}
 	return nil
 }

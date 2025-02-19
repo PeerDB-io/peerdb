@@ -937,7 +937,7 @@ func processRelationMessage[Items model.Items](
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
 		}
-		return rec, monitoring.AuditSchemaDelta(ctx, p.catalogPool, p.flowJobName, schemaDelta)
+		return rec, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
 }
