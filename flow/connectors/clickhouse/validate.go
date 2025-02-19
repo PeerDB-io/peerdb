@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 )
 
@@ -30,7 +30,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
 	}
 	// this is for handling column exclusion, processed schema does that in a step
-	processedMapping := shared.BuildProcessedSchemaMapping(cfg.TableMappings, tableNameSchemaMapping, c.logger)
+	processedMapping := internal.BuildProcessedSchemaMapping(cfg.TableMappings, tableNameSchemaMapping, c.logger)
 	dstTableNames := slices.Collect(maps.Keys(processedMapping))
 
 	// In the case of resync, we don't need to check the content or structure of the original tables;

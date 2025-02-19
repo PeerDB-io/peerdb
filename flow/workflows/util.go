@@ -32,3 +32,9 @@ func GetFlowMetadataContext(ctx workflow.Context, flowJobName string, sourceName
 	}
 	return workflow.WithValue(ctx, shared.FlowMetadataKey, metadata), nil
 }
+
+func ShouldWorkflowContinueAsNew(ctx workflow.Context) bool {
+	info := workflow.GetInfo(ctx)
+	return info.GetContinueAsNewSuggested() &&
+		(info.GetCurrentHistoryLength() > 40960 || info.GetCurrentHistorySize() > 40*1024*1024)
+}

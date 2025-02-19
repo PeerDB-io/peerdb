@@ -26,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
@@ -67,7 +68,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	if flowNameInApplicationName {
 		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
 	}
-	connectionString := shared.GetPGConnectionString(pgConfig, flowName)
+	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
 
 	connConfig, err := pgx.ParseConfig(connectionString)
 	if err != nil {

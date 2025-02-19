@@ -16,6 +16,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -138,7 +139,7 @@ func processTableAdditions(
 		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 		return nil
 	}
-	if shared.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
+	if internal.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
 		logger.Warn("duplicate source/destination tables found in additionalTables")
 		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 		return nil
@@ -550,7 +551,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if shared.ShouldWorkflowContinueAsNew(ctx) {
+		if ShouldWorkflowContinueAsNew(ctx) {
 			finished = true
 		}
 

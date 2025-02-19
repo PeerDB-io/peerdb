@@ -203,8 +203,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		s.connector.logger.Info("SyncQRepRecords: no rows to sync, hence skipping transaction", flowLog)
 	}
 
-	err = s.connector.FinishQRepPartition(ctx, partition, flowJobName, startTime)
-	if err != nil {
+	if err := s.connector.FinishQRepPartition(ctx, partition, flowJobName, startTime); err != nil {
 		return -1, err
 	}
 
