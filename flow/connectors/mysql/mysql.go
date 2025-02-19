@@ -17,7 +17,7 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type MySqlConnector struct {
@@ -43,7 +43,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		config:           config,
 		conn:             make(map[context.Context]*client.Conn),
 		ssh:              ssh,
-		logger:           shared.LoggerFromCtx(ctx),
+		logger:           internal.LoggerFromCtx(ctx),
 	}, nil
 }
 

@@ -15,8 +15,8 @@ import (
 	cmap "github.com/orcaman/concurrent-map/v2"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type EventHubManager struct {
@@ -65,7 +65,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 		hubTmp := hub.(*azeventhubs.ProducerClient)
 		_, err := hubTmp.GetEventHubProperties(ctx, nil)
 		if err != nil {
-			logger := shared.LoggerFromCtx(ctx)
+			logger := internal.LoggerFromCtx(ctx)
 			logger.Info(
 				fmt.Sprintf("eventhub %s not reachable. Will re-establish connection and re-create it.", name),
 				slog.Any("error", err))
@@ -111,7 +111,7 @@ func (m *EventHubManager) Close(ctx context.Context) error {
 		hub := value.(*azeventhubs.ProducerClient)
 		err := m.closeProducerClient(ctx, hub)
 		if err != nil {
-			shared.LoggerFromCtx(ctx).Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
+			internal.LoggerFromCtx(ctx).Error(fmt.Sprintf("failed to close eventhub client for %v", name), slog.Any("error", err))
 			allErrors = errors.Join(allErrors, err)
 		}
 		return true
@@ -161,7 +161,7 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 
 	partitionCount := int64(cfg.PartitionCount)
 	retention := int64(cfg.MessageRetentionInDays)
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	if err != nil {
 		opts := armeventhub.Eventhub{
 			Properties: &armeventhub.Properties{

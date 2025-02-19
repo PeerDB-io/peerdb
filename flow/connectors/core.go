@@ -21,6 +21,7 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	connsqlserver "github.com/PeerDB-io/peerdb/flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
@@ -492,7 +493,7 @@ func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalo
 
 func CloseConnector(ctx context.Context, conn Connector) {
 	if err := conn.Close(); err != nil {
-		shared.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
 	}
 }
 

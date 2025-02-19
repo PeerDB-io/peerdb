@@ -2,11 +2,15 @@ package internal
 
 import (
 	"context"
+	"log/slog"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type TemporalContextKey string
@@ -76,4 +80,25 @@ func (c *ContextPropagator[V]) ExtractToWorkflow(ctx workflow.Context, reader wo
 	}
 
 	return ctx, nil
+}
+
+func LoggerFromCtx(ctx context.Context) log.Logger {
+	var logger log.Logger
+
+	if activity.IsActivity(ctx) {
+		logger = activity.GetLogger(ctx)
+	} else {
+		logger = log.NewStructuredLogger(slog.Default())
+	}
+
+	flowName, hasName := ctx.Value(shared.FlowNameKey).(string)
+	if hasName {
+		logger = log.With(logger, string(shared.FlowNameKey), flowName)
+	}
+
+	if flowMetadata := GetFlowMetadata(ctx); flowMetadata != nil {
+		logger = log.With(logger, string(FlowMetadataKey), flowMetadata)
+	}
+
+	return logger
 }

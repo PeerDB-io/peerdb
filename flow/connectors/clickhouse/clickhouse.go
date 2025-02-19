@@ -21,6 +21,7 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -127,7 +128,7 @@ func NewClickHouseConnector(
 	env map[string]string,
 	config *protos.ClickhouseConfig,
 ) (*ClickHouseConnector, error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	database, err := Connect(ctx, env, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)

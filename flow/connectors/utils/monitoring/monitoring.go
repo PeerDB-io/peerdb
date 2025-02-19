@@ -12,6 +12,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -115,7 +116,7 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 	}
 	defer func() {
 		if err := insertBatchTablesTx.Rollback(context.Background()); err != pgx.ErrTxClosed && err != nil {
-			shared.LoggerFromCtx(ctx).Error("error during transaction rollback",
+			internal.LoggerFromCtx(ctx).Error("error during transaction rollback",
 				slog.Any("error", err),
 				slog.String(string(shared.FlowNameKey), flowJobName))
 		}
@@ -225,7 +226,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	runUUID string, partition *protos.QRepPartition, parentMirrorName string,
 ) error {
 	if partition.Range == nil && partition.FullTablePartition {
-		shared.LoggerFromCtx(ctx).Info("partition"+partition.PartitionId+
+		internal.LoggerFromCtx(ctx).Info("partition"+partition.PartitionId+
 			" is a full table partition. Metrics logging is skipped.",
 			slog.String(string(shared.FlowNameKey), flowJobName))
 		return nil

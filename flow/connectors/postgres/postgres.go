@@ -59,7 +59,7 @@ type ReplState struct {
 }
 
 func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	flowNameInApplicationName, err := peerdbenv.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
 		logger.Error("Failed to get flow name from application name", slog.Any("error", err))
@@ -146,7 +146,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 
 	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.ssh)
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
+		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
 	}
 	return conn, nil
@@ -1013,7 +1013,7 @@ func (c *PostgresConnector) EnsurePullability(
 		}
 
 		if !req.CheckConstraints {
-			shared.LoggerFromCtx(ctx).Info("[no-constraints] ensured pullability table " + tableName)
+			internal.LoggerFromCtx(ctx).Info("[no-constraints] ensured pullability table " + tableName)
 			continue
 		}
 
@@ -1196,7 +1196,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	alertKeys *alerting.AlertKeys,
 	slotMetricGauges otel_metrics.SlotMetricGauges,
 ) error {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
 	slotInfo, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.config.Database)
 	if err != nil {

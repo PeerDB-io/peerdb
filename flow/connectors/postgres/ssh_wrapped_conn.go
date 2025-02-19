@@ -24,7 +24,7 @@ func NewPostgresConnFromPostgresConfig(
 ) (*pgx.Conn, error) {
 	flowNameInApplicationName, err := peerdbenv.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to get flow name from application name", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).Error("Failed to get flow name from application name", slog.Any("error", err))
 	}
 
 	var flowName string
@@ -61,7 +61,7 @@ func NewPostgresConnFromConfig(
 		}
 	}
 
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	conn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
 		logger.Error("Failed to create pool", slog.Any("error", err))
