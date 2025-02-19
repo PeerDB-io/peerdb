@@ -565,6 +565,7 @@ var (
 	_ RawTableConnector = &connsnowflake.SnowflakeConnector{}
 	_ RawTableConnector = &connpostgres.PostgresConnector{}
 
+	_ ValidationConnector = &connpostgres.PostgresConnector{}
 	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
 	_ ValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}

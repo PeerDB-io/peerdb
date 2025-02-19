@@ -1,6 +1,6 @@
 // from https://github.com/lib/pq/blob/v1.10.9/conn.go#L1656
 
-package connpostgres
+package utils
 
 import "strings"
 
