@@ -14,6 +14,8 @@ const (
 	DestinationPeerType = "destinationPeerType"
 	SourcePeerName      = "sourcePeerName"
 	DestinationPeerName = "destinationPeerName"
+	FlowStatusKey       = "flowStatus"
+	IsFlowResyncKey     = "isFlowResync"
 )
 
 const (
