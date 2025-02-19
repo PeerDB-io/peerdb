@@ -94,6 +94,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 		return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 			Skipped:    false,
 			CLIVersion: peerdbenv.PeerDBVersionShaShort(),
+			APIVersion: output.Version,
 		})
 	} else if args.Mode == "end" {
 		if input, err := ReadLastMaintenanceOutput(ctx); input != nil || err != nil {
