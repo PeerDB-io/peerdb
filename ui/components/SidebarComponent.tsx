@@ -53,7 +53,7 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
     data: InstanceInfoResponse;
     error: any;
     isLoading: boolean;
-  } = useSWR('/api/instance/info', fetcher);
+  } = useSWR('/api/v1/instance/info', fetcher);
 
   const [sidebarState, setSidebarState] = useLocalStorage(
     'peerdb-sidebar',
@@ -149,7 +149,7 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
       }
       bottomLabel={
         <div>
-          {sidebarState === 'open' ? (
+          {sidebarState === 'open' && (
             <div>
               <div style={centerFlexStyle}>
                 <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
@@ -159,8 +159,6 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
                 </Label>
               </div>
             </div>
-          ) : (
-            <></>
           )}
           <SidebarItem
             style={centerFlexStyle}
