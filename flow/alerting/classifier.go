@@ -69,6 +69,10 @@ var (
 	ErrorIgnoreContextCancelled = ErrorClass{
 		Class: "IGNORE_CONTEXT_CANCELLED", action: Ignore,
 	}
+	ErrorRetryRecoverable = ErrorClass{
+		// These errors are generally recoverable, but need to be escalated if they persist
+		Class: "ERROR_RETRY_RECOVERABLE", action: NotifyTelemetry,
+	}
 	ErrorInternalClickHouse = ErrorClass{
 		Class: "INTERNAL_CLICKHOUSE", action: NotifyTelemetry,
 	}
@@ -176,6 +180,19 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
 	if errors.As(err, &sshTunnelSetupErr) {
 		return ErrorNotifyConnectivity
+	}
+
+	var pgWalErr *exceptions.PostgresWalError
+	if errors.As(err, &pgWalErr) {
+		if pgWalErr.Msg.Severity == "ERROR" && pgWalErr.Msg.Code == pgerrcode.InternalError &&
+			(strings.HasPrefix(pgWalErr.Msg.Message, "could not read from reorderbuffer spill file") ||
+				(strings.HasPrefix(pgWalErr.Msg.Message, "could not stat file ") || strings.HasSuffix(pgWalErr.Msg.Message, "Stale file handle"))) {
+			// Example errors:
+			// could not stat file "pg_logical/snapshots/1B6-2A845058.snap": Stale file handle
+			// could not read from reorderbuffer spill file: Bad address
+			// could not read from reorderbuffer spill file: Bad file descriptor
+			return ErrorRetryRecoverable
+		}
 	}
 
 	return ErrorOther
