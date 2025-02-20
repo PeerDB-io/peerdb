@@ -106,7 +106,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 		},
 	}
 	if opts.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(otel_metrics.FlowWorkerServiceName)
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(context.Background(), otel_metrics.FlowWorkerServiceName)
 		if metricsErr != nil {
 			return nil, metricsErr
 		}
@@ -164,7 +164,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		otelManager, err = otel_metrics.NewOtelManager(otel_metrics.FlowWorkerServiceName)
+		otelManager, err = otel_metrics.NewOtelManager(context.Background(), otel_metrics.FlowWorkerServiceName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create otel manager: %w", err)
 		}
