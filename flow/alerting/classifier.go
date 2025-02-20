@@ -58,7 +58,7 @@ var (
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
 	}
 	ErrorNotifyGeneral = ErrorClass{
-		Class: "NOTIFY_GENERAL", action: NotifyUser,
+		Class: "NOTIFY_GENERAL", action: NotifyTelemetry,
 	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
