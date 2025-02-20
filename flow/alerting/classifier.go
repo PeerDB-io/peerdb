@@ -184,7 +184,7 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	var normalizationErr *exceptions.NormalizationError
 	if exception != nil && errors.As(err, &normalizationErr) {
 		// notify if normalization hits error on destination
-		return ErrorNotifyGeneral
+		return ErrorNormalize
 	}
 
 	return ErrorOther
