@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/jackc/pgx/v5"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
@@ -25,6 +26,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/middleware"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -34,6 +36,7 @@ type APIServerParams struct {
 	TemporalNamespace string
 	Port              uint16
 	GatewayPort       uint16
+	EnableOtelMetrics bool
 }
 
 type RecryptItem struct {
@@ -205,13 +208,26 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	requestLoggingMiddleware := middleware.RequestLoggingMiddleWare()
 
-	// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged
-	interceptors := grpc.ChainUnaryInterceptor(
-		authGrpcMiddleware,
-		requestLoggingMiddleware,
-	)
+	serverOptions := []grpc.ServerOption{
+		// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged
+		grpc.ChainUnaryInterceptor(
+			authGrpcMiddleware,
+			requestLoggingMiddleware,
+		),
+	}
 
-	grpcServer := grpc.NewServer(interceptors)
+	var otelManager *otel_metrics.OtelManager
+	if args.EnableOtelMetrics {
+		otelManager, err = otel_metrics.NewOtelManager(otel_metrics.FlowApiServiceName)
+		if err != nil {
+			return fmt.Errorf("unable to create otel manager: %w", err)
+		}
+		serverOptions = append(serverOptions, grpc.StatsHandler(otelgrpc.NewServerHandler(
+			otelgrpc.WithMeterProvider(otelManager.MetricsProvider),
+		)))
+	}
+
+	grpcServer := grpc.NewServer(serverOptions...)
 
 	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
