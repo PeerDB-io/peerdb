@@ -186,7 +186,7 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	if errors.As(err, &pgWalErr) {
 		if pgWalErr.Msg.Severity == "ERROR" && pgWalErr.Msg.Code == pgerrcode.InternalError &&
 			(strings.HasPrefix(pgWalErr.Msg.Message, "could not read from reorderbuffer spill file") ||
-				(strings.HasPrefix(pgWalErr.Msg.Message, "could not stat file ") || strings.HasSuffix(pgWalErr.Msg.Message, "Stale file handle"))) {
+				(strings.HasPrefix(pgWalErr.Msg.Message, "could not stat file ") && strings.HasSuffix(pgWalErr.Msg.Message, "Stale file handle"))) {
 			// Example errors:
 			// could not stat file "pg_logical/snapshots/1B6-2A845058.snap": Stale file handle
 			// could not read from reorderbuffer spill file: Bad address
