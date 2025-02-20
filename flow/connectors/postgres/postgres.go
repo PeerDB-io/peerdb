@@ -689,13 +689,11 @@ func (c *PostgresConnector) NormalizeRecords(
 	c.logger.Info(fmt.Sprintf("normalized %d records", totalRowsAffected))
 
 	// updating metadata with new normalizeBatchID
-	err = c.updateNormalizeMetadata(ctx, req.FlowJobName, req.SyncBatchID, normalizeRecordsTx)
-	if err != nil {
+	if err := c.updateNormalizeMetadata(ctx, req.FlowJobName, req.SyncBatchID, normalizeRecordsTx); err != nil {
 		return model.NormalizeResponse{}, err
 	}
 	// transaction commits
-	err = normalizeRecordsTx.Commit(ctx)
-	if err != nil {
+	if err := normalizeRecordsTx.Commit(ctx); err != nil {
 		return model.NormalizeResponse{}, err
 	}
 
@@ -725,23 +723,21 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}
 	defer shared.RollbackTx(createRawTableTx, c.logger)
 
-	_, err = createRawTableTx.Exec(ctx, fmt.Sprintf(createRawTableSQL, c.metadataSchema, rawTableIdentifier))
-	if err != nil {
+	if _, err := createRawTableTx.Exec(ctx, fmt.Sprintf(createRawTableSQL, c.metadataSchema, rawTableIdentifier)); err != nil {
 		return nil, fmt.Errorf("error creating raw table: %w", err)
 	}
-	_, err = createRawTableTx.Exec(ctx, fmt.Sprintf(createRawTableBatchIDIndexSQL, rawTableIdentifier,
-		c.metadataSchema, rawTableIdentifier))
-	if err != nil {
+	if _, err := createRawTableTx.Exec(ctx,
+		fmt.Sprintf(createRawTableBatchIDIndexSQL, rawTableIdentifier, c.metadataSchema, rawTableIdentifier),
+	); err != nil {
 		return nil, fmt.Errorf("error creating batch ID index on raw table: %w", err)
 	}
-	_, err = createRawTableTx.Exec(ctx, fmt.Sprintf(createRawTableDstTableIndexSQL, rawTableIdentifier,
-		c.metadataSchema, rawTableIdentifier))
-	if err != nil {
+	if _, err := createRawTableTx.Exec(ctx,
+		fmt.Sprintf(createRawTableDstTableIndexSQL, rawTableIdentifier, c.metadataSchema, rawTableIdentifier),
+	); err != nil {
 		return nil, fmt.Errorf("error creating destination table index on raw table: %w", err)
 	}
 
-	err = createRawTableTx.Commit(ctx)
-	if err != nil {
+	if err := createRawTableTx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("error committing transaction for creating raw table: %w", err)
 	}
 

@@ -57,6 +57,9 @@ var (
 		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
 	}
+	ErrorNotifyGeneral = ErrorClass{
+		Class: "NOTIFY_GENERAL", action: NotifyUser,
+	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
@@ -176,6 +179,12 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
 	if errors.As(err, &sshTunnelSetupErr) {
 		return ErrorNotifyConnectivity
+	}
+
+	var normalizationErr *exceptions.NormalizationError
+	if exception != nil && errors.As(err, &normalizationErr) {
+		// notify if normalization hits error on destination
+		return ErrorNotifyGeneral
 	}
 
 	return ErrorOther
