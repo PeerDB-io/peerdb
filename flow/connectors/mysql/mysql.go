@@ -24,8 +24,7 @@ type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
 	config *protos.MySqlConfig
 	ssh    utils.SSHTunnel
-	// go-mysql lacks context per query, cache connection per context
-	conn   map[context.Context]*client.Conn
+	conn   *client.Conn
 	logger log.Logger
 }
 
@@ -41,7 +40,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	return &MySqlConnector{
 		PostgresMetadata: pgMetadata,
 		config:           config,
-		conn:             make(map[context.Context]*client.Conn),
+		conn:             nil,
 		ssh:              ssh,
 		logger:           internal.LoggerFromCtx(ctx),
 	}, nil
@@ -61,10 +60,8 @@ func (c *MySqlConnector) Flavor() string {
 func (c *MySqlConnector) Close() error {
 	var errs []error
 	if c.conn != nil {
-		for _, conn := range c.conn {
-			if err := conn.Close(); err != nil {
-				errs = append(errs, err)
-			}
+		if err := c.conn.Close(); err != nil {
+			errs = append(errs, err)
 		}
 		c.conn = nil
 	}
@@ -88,8 +85,7 @@ func (c *MySqlConnector) Dialer() client.Dialer {
 }
 
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
-	conn := c.conn[ctx]
-	if conn == nil {
+	if c.conn == nil {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
@@ -97,8 +93,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			}
 			return nil
 		}}
-		var err error
-		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
+		conn, err := client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
 			c.config.User, c.config.Password, c.config.Database, c.Dialer(), argF...)
 		if err != nil {
 			return nil, err
@@ -106,8 +101,9 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
 			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
 		}
+		c.conn = conn
 	}
-	return conn, nil
+	return c.conn, nil
 }
 
 // withRetries return an iterable over connections,
@@ -117,15 +113,12 @@ func (c *MySqlConnector) withRetries(ctx context.Context) iter.Seq2[*client.Conn
 	return func(yield func(*client.Conn, error) bool) {
 		for range 3 {
 			conn, err := c.connect(ctx)
-			if err == nil {
-				c.conn[ctx] = conn
-			}
 			if !yield(conn, err) {
 				return
 			}
-			if err == nil {
-				_ = conn.Close()
-				delete(c.conn, ctx)
+			if c.conn != nil {
+				c.conn.Close()
+				c.conn = nil
 			}
 		}
 	}
