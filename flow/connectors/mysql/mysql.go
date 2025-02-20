@@ -257,11 +257,13 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 }
 
 func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
-	rr, err := c.Execute(ctx, "select @@version")
-	if err != nil {
-		return "", err
+	for conn, err := range c.withRetries(ctx) {
+		if err != nil {
+			return "", err
+		}
+		version := conn.GetServerVersion()
+		c.logger.Info("[mysql] version", slog.String("version", version))
+		return version, nil
 	}
-	version, _ := rr.GetString(0, 0)
-	c.logger.Info("[mysql] version", slog.String("version", version))
-	return version, nil
+	return "", errors.New("failed to connect")
 }
