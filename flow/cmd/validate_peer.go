@@ -3,13 +3,10 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
@@ -43,22 +40,6 @@ func (h *FlowRequestHandler) ValidatePeer(
 		}, nil
 	}
 	defer conn.Close()
-
-	if req.Peer.Type == protos.DBType_POSTGRES {
-		pgversion, err := conn.(*connpostgres.PostgresConnector).MajorVersion(ctx)
-		if err != nil {
-			slog.Error("/peer/validate: pg version check", slog.Any("error", err))
-			return nil, err
-		}
-
-		if pgversion < shared.POSTGRES_12 {
-			return &protos.ValidatePeerResponse{
-				Status: protos.ValidatePeerStatus_INVALID,
-				Message: fmt.Sprintf("Postgres peer %s must be of PG12 or above. Current version: %d",
-					req.Peer.Name, pgversion),
-			}, nil
-		}
-	}
 
 	if validationConn, ok := conn.(connectors.ValidationConnector); ok {
 		if validErr := validationConn.ValidateCheck(ctx); validErr != nil {

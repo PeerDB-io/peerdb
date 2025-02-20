@@ -6,10 +6,6 @@ import (
 	"unicode"
 )
 
-func QuoteIdentifier(identifier string) string {
-	return fmt.Sprintf(`"%s"`, identifier)
-}
-
 // SchemaTable is a table in a schema.
 type SchemaTable struct {
 	Schema string

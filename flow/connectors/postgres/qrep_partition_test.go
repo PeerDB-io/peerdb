@@ -168,7 +168,7 @@ func TestGetQRepPartitions(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c := &PostgresConnector{
 				connStr: connStr,
-				config:  &protos.PostgresConfig{},
+				Config:  &protos.PostgresConfig{},
 				conn:    conn,
 				logger:  log.NewStructuredLogger(slog.With(slog.String(string(shared.FlowNameKey), "testGetQRepPartitions"))),
 			}
