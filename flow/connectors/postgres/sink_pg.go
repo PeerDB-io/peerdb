@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/postgres/sanitize"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -55,7 +56,7 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	defer shared.RollbackTx(tx, qe.logger)
 
 	if qe.snapshot != "" {
-		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot)); err != nil {
+		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
 			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
@@ -119,7 +120,7 @@ func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx
 	}
 	quotedCols := make([]string, 0, len(cols))
 	for _, col := range cols {
-		quotedCols = append(quotedCols, QuoteIdentifier(col))
+		quotedCols = append(quotedCols, utils.QuoteIdentifier(col))
 	}
 	ct, err := tx.Conn().PgConn().CopyFrom(
 		ctx,
