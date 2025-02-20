@@ -45,7 +45,7 @@ func (e *PostgresWalError) Unwrap() error {
 }
 
 func (e *PostgresWalError) Error() string {
-	return fmt.Sprintf("Postgres WAL error: %s, message: %v", e.error.Error(), e.Msg)
+	return fmt.Sprintf("Postgres WAL error: %s, message: %+v", e.error.Error(), e.Msg)
 }
 
 func NewPostgresWalError(err error, msg *pgproto3.ErrorResponse) *PostgresWalError {
