@@ -29,6 +29,26 @@ func (e ErrorAction) String() string {
 	return string(e)
 }
 
+type ErrorSource string
+
+const (
+	ErrorSourceClickHouse      ErrorSource = "clickhouse"
+	ErrorSourcePostgres        ErrorSource = "postgres"
+	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
+	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
+	ErrorSourceNet             ErrorSource = "net"
+	ErrorSourceOther           ErrorSource = "other"
+)
+
+func (e ErrorSource) String() string {
+	return string(e)
+}
+
+type ErrorInfo struct {
+	Source ErrorSource
+	Code   string
+}
+
 type ErrorClass struct {
 	Class  string
 	action ErrorAction
@@ -92,102 +112,148 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 	return NotifyTelemetry
 }
 
-func GetErrorClass(ctx context.Context, err error) ErrorClass {
+func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
+	var pgErrorInfo ErrorInfo
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		pgErrorInfo = ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   pgErr.Code,
+		}
+	}
+
 	var catalogErr *exceptions.CatalogError
 	if errors.As(err, &catalogErr) {
-		return ErrorInternal
+		errorClass := ErrorInternal
+		if pgErr != nil {
+			return errorClass, pgErrorInfo
+		}
+		return errorClass, ErrorInfo{
+			Source: ErrorSourcePostgresCatalog,
+			Code:   "UNKNOWN",
+		}
 	}
 
 	var peerDBErr *exceptions.PostgresSetupError
 	if errors.As(err, &peerDBErr) {
-		return ErrorNotifyConnectivity
+		errorClass := ErrorNotifyConnectivity
+		if pgErr != nil {
+			return errorClass, pgErrorInfo
+		}
+		return errorClass, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNKNOWN",
+		}
 	}
 
 	if errors.Is(err, context.Canceled) {
 		// Generally happens during workflow cancellation
-		return ErrorIgnoreContextCancelled
+		return ErrorIgnoreContextCancelled, ErrorInfo{
+			Source: ErrorSourceOther,
+			Code:   "CONTEXT_CANCELLED",
+		}
 	}
 
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		// Usually seen in ClickHouse cloud during instance scale-up
-		return ErrorIgnoreEOF
-	}
-
-	var exception *clickhouse.Exception
-	if errors.As(err, &exception) {
-		switch chproto.Error(exception.Code) {
-		case chproto.ErrMemoryLimitExceeded:
-			return ErrorNotifyOOM
-		case chproto.ErrCannotInsertNullInOrdinaryColumn,
-			chproto.ErrNotImplemented,
-			chproto.ErrTooManyParts:
-			if isClickHouseMvError(exception) {
-				return ErrorNotifyMVOrView
-			}
-		case chproto.ErrUnknownDatabase:
-			return ErrorNotifyConnectivity
-		case chproto.ErrKeeperException,
-			chproto.ErrUnfinished,
-			chproto.ErrAborted:
-			return ErrorInternalClickHouse
-		default:
-			if isClickHouseMvError(exception) {
-				return ErrorNotifyMVOrView
-			}
+		return ErrorIgnoreEOF, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "EOF",
 		}
 	}
 
-	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	if pgErr != nil {
 		switch pgErr.Code {
 		case pgerrcode.InvalidAuthorizationSpecification,
 			pgerrcode.InvalidPassword,
 			pgerrcode.InsufficientPrivilege,
 			pgerrcode.UndefinedTable,
 			pgerrcode.CannotConnectNow:
-			return ErrorNotifyConnectivity
+			return ErrorNotifyConnectivity, pgErrorInfo
 		case pgerrcode.AdminShutdown:
-			return ErrorNotifyTerminate
+			return ErrorNotifyTerminate, pgErrorInfo
 		case pgerrcode.ObjectNotInPrerequisiteState:
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") {
-				return ErrorNotifySlotInvalid
+				return ErrorNotifySlotInvalid, pgErrorInfo
 			}
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
-				return ErrorNotifyInvalidSnapshotIdentifier
+				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
 			}
 		case pgerrcode.TooManyConnections:
-			return ErrorNotifyConnectivity // Maybe we can return something else?
+			return ErrorNotifyConnectivity, pgErrorInfo // Maybe we can return something else?
+		}
+	}
+
+	var chException *clickhouse.Exception
+	if errors.As(err, &chException) {
+		chErrorInfo := ErrorInfo{
+			Source: ErrorSourceClickHouse,
+			Code:   string(chException.Code),
+		}
+		switch chproto.Error(chException.Code) {
+		case chproto.ErrMemoryLimitExceeded:
+			return ErrorNotifyOOM, chErrorInfo
+		case chproto.ErrCannotInsertNullInOrdinaryColumn,
+			chproto.ErrNotImplemented,
+			chproto.ErrTooManyParts:
+			if isClickHouseMvError(chException) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
+		case chproto.ErrUnknownDatabase:
+			return ErrorNotifyConnectivity, chErrorInfo
+		case chproto.ErrKeeperException,
+			chproto.ErrUnfinished,
+			chproto.ErrAborted:
+			return ErrorInternalClickHouse, chErrorInfo
+		default:
+			if isClickHouseMvError(chException) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
+			var normalizationErr *exceptions.NormalizationError
+			if errors.As(err, &normalizationErr) {
+				// notify if normalization hits error on destination
+				return ErrorNormalize, chErrorInfo
+			}
 		}
 	}
 
 	// Connection reset errors can mostly be ignored
 	if errors.Is(err, syscall.ECONNRESET) {
-		return ErrorIgnoreConnReset
+		return ErrorIgnoreConnReset, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   syscall.ECONNRESET.Error(),
+		}
 	}
 
 	var netErr *net.OpError
 	if errors.As(err, &netErr) {
-		return ErrorNotifyConnectivity
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   netErr.Err.Error(),
+		}
 	}
 
 	var ssOpenChanErr *ssh.OpenChannelError
 	if errors.As(err, &ssOpenChanErr) {
-		return ErrorNotifyConnectivity
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   ssOpenChanErr.Reason.String(),
+		}
 	}
 
 	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
 	if errors.As(err, &sshTunnelSetupErr) {
-		return ErrorNotifyConnectivity
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   "UNKNOWN",
+		}
 	}
 
-	var normalizationErr *exceptions.NormalizationError
-	if exception != nil && errors.As(err, &normalizationErr) {
-		// notify if normalization hits error on destination
-		return ErrorNormalize
+	return ErrorOther, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
 	}
-
-	return ErrorOther
 }
 
 func isClickHouseMvError(exception *clickhouse.Exception) bool {
