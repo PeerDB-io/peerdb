@@ -57,8 +57,8 @@ var (
 		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
 	}
-	ErrorNotifyGeneral = ErrorClass{
-		Class: "NOTIFY_GENERAL", action: NotifyTelemetry,
+	ErrorNormalize = ErrorClass{
+		Class: "NORMALIZE", action: NotifyTelemetry,
 	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
