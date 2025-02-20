@@ -5,11 +5,13 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"syscall"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/ssh"
@@ -34,6 +36,7 @@ type ErrorSource string
 const (
 	ErrorSourceClickHouse      ErrorSource = "clickhouse"
 	ErrorSourcePostgres        ErrorSource = "postgres"
+	ErrorSourceMySQL           ErrorSource = "mysql"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -182,6 +185,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		case pgerrcode.TooManyConnections:
 			return ErrorNotifyConnectivity, pgErrorInfo // Maybe we can return something else?
+		}
+	}
+
+	var myErr *mysql.MyError
+	if errors.As(err, &myErr) {
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   strconv.Itoa(int(myErr.Code)),
 		}
 	}
 
