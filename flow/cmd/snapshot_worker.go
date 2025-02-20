@@ -38,7 +38,8 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 	}
 
 	if opts.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(context.Background(), otel_metrics.FlowSnapshotWorkerServiceName)
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(context.Background(),
+			otel_metrics.FlowSnapshotWorkerServiceName)
 		if metricsErr != nil {
 			return nil, metricsErr
 		}
