@@ -781,6 +781,8 @@ func processUpdateMessage[Items model.Items](
 		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
 	}
 
+	p.logger.Info("UPDATE QQQ", slog.Any("oldItems", msg.OldTuple), slog.Any("newItems", msg.NewTuple))
+
 	/*
 	   Looks like in some cases (at least replident full + TOAST), the new tuple doesn't contain unchanged columns
 	   and only the old tuple does. So we can backfill the new tuple with the unchanged columns from the old tuple.
