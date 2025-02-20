@@ -18,6 +18,12 @@ import (
 )
 
 const (
+	FlowWorkerServiceName         = "flow-worker"
+	FlowSnapshotWorkerServiceName = "flow-snapshot-worker"
+	FlowApiServiceName            = "flow-api"
+)
+
+const (
 	SlotLagGaugeName                    = "cdc_slot_lag"
 	CurrentBatchIdGaugeName             = "current_batch_id"
 	LastNormalizedBatchIdGaugeName      = "last_normalized_batch_id"
@@ -76,15 +82,15 @@ type OtelManager struct {
 	Metrics            Metrics
 }
 
-func NewOtelManager() (*OtelManager, error) {
-	metricsProvider, err := SetupPeerDBMetricsProvider("flow-worker")
+func NewOtelManager(serviceName string) (*OtelManager, error) {
+	metricsProvider, err := SetupPeerDBMetricsProvider(serviceName)
 	if err != nil {
 		return nil, err
 	}
 
 	otelManager := OtelManager{
 		MetricsProvider:    metricsProvider,
-		Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
+		Meter:              metricsProvider.Meter("io.peerdb." + serviceName),
 		Float64GaugesCache: make(map[string]metric.Float64Gauge),
 		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		Int64CountersCache: make(map[string]metric.Int64Counter),
