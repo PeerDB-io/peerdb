@@ -298,6 +298,18 @@ func temporalMetricsFilteringView() sdkmetric.View {
 	}
 }
 
+// componentMetricsRenamingView renames the metrics to include the component name and any prefix
+func componentMetricsRenamingView(componentName string) sdkmetric.View {
+	return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
+		stream := sdkmetric.Stream{
+			Name:        BuildMetricName(componentName + "." + instrument.Name),
+			Description: instrument.Description,
+			Unit:        instrument.Unit,
+		}
+		return stream, true
+	}
+}
+
 func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	otlpMetricProtocol := internal.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
@@ -345,4 +357,12 @@ func SetupTemporalMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvi
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
 	return setupMetricsProvider(context.Background(), otelResource, temporalMetricsFilteringView())
+}
+
+func SetupComponentMetricsProvider(otelServiceName string, componentName string) (*sdkmetric.MeterProvider, error) {
+	otelResource, err := newOtelResource(otelServiceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
+	}
+	return setupMetricsProvider(context.Background(), otelResource, componentMetricsRenamingView(componentName))
 }

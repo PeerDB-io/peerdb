@@ -106,7 +106,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 		},
 	}
 	if opts.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider("flow-worker")
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(otel_metrics.FlowWorkerServiceName)
 		if metricsErr != nil {
 			return nil, metricsErr
 		}
