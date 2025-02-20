@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
@@ -192,6 +193,15 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		Namespace: args.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
+	if args.EnableOtelMetrics {
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowApiServiceName)
+		if metricsErr != nil {
+			return metricsErr
+		}
+		clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
+			Meter: metricsProvider.Meter("temporal-sdk-go"),
+		})
+	}
 
 	tc, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
@@ -216,14 +226,13 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		),
 	}
 
-	var otelManager *otel_metrics.OtelManager
 	if args.EnableOtelMetrics {
-		otelManager, err = otel_metrics.NewOtelManager(otel_metrics.FlowApiServiceName)
+		componentManager, err := otel_metrics.SetupComponentMetricsProvider(ctx, otel_metrics.FlowApiServiceName, "grpc-api")
 		if err != nil {
-			return fmt.Errorf("unable to create otel manager: %w", err)
+			return fmt.Errorf("unable to metrics provider for grpc api: %w", err)
 		}
 		serverOptions = append(serverOptions, grpc.StatsHandler(otelgrpc.NewServerHandler(
-			otelgrpc.WithMeterProvider(otelManager.MetricsProvider),
+			otelgrpc.WithMeterProvider(componentManager),
 		)))
 	}
 

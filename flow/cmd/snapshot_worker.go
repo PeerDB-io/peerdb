@@ -38,7 +38,8 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 	}
 
 	if opts.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider("flow-snapshot-worker")
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(context.Background(),
+			otel_metrics.FlowSnapshotWorkerServiceName)
 		if metricsErr != nil {
 			return nil, metricsErr
 		}
@@ -83,7 +84,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		otelManager, err = otel_metrics.NewOtelManager(otel_metrics.FlowSnapshotWorkerServiceName)
+		otelManager, err = otel_metrics.NewOtelManager(context.Background(), otel_metrics.FlowSnapshotWorkerServiceName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create otel manager: %w", err)
 		}
