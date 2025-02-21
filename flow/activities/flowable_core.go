@@ -28,6 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PeerType string
@@ -607,7 +608,6 @@ func (a *FlowableActivity) startNormalize(
 	config *protos.FlowConnectionConfigs,
 	batchID int64,
 ) error {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
 
 	dstConn, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
@@ -628,8 +628,7 @@ func (a *FlowableActivity) startNormalize(
 		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
-	logger.Info("Normalizing batch",
-		slog.Int64("SyncBatchID", batchID))
+	logger.Info("normalizing batch", slog.Int64("SyncBatchID", batchID))
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            config.FlowJobName,
 		Env:                    config.Env,
@@ -640,7 +639,8 @@ func (a *FlowableActivity) startNormalize(
 		SyncBatchID:            batchID,
 	})
 	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to normalized records: %w", err))
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName,
+			exceptions.NewNormalizationError(fmt.Errorf("failed to normalized records: %w", err)))
 	}
 	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
 		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {

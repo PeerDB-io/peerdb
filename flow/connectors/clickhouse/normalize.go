@@ -473,7 +473,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				selectQuery.WriteString(projectionUpdate.String())
 				selectQuery.WriteString(" FROM ")
 				selectQuery.WriteString(rawTbl)
-				selectQuery.WriteString(" WHERE _peerdb_batch_id > ")
+				selectQuery.WriteString(" WHERE _peerdb_match_data != '' AND _peerdb_batch_id > ")
 				selectQuery.WriteString(strconv.FormatInt(normBatchID, 10))
 				selectQuery.WriteString(" AND _peerdb_batch_id <= ")
 				selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))

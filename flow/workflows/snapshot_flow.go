@@ -12,7 +12,6 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/activities"
-	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -153,7 +152,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		quotedColumns := make([]string, 0, len(tableSchema.Columns))
 		for _, col := range tableSchema.Columns {
 			if !slices.Contains(mapping.Exclude, col.Name) {
-				quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
+				quotedColumns = append(quotedColumns, utils.QuoteIdentifier(col.Name))
 			}
 		}
 		from = strings.Join(quotedColumns, ",")

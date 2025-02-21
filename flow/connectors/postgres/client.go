@@ -279,9 +279,9 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database string) ([]*protos.SlotInfo, error) {
 	var whereClause string
 	if slotName != "" {
-		whereClause = "WHERE slot_name=" + QuoteLiteral(slotName)
+		whereClause = "WHERE slot_name=" + utils.QuoteLiteral(slotName)
 	} else {
-		whereClause = "WHERE database=" + QuoteLiteral(database)
+		whereClause = "WHERE database=" + utils.QuoteLiteral(database)
 	}
 
 	pgversion, err := shared.GetMajorVersion(ctx, conn)
@@ -332,7 +332,7 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 // If slotName input is empty, all slot info rows are returned - this is for UI.
 // Else, only the row pertaining to that slotName will be returned.
 func (c *PostgresConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	return getSlotInfo(ctx, c.conn, slotName, c.config.Database)
+	return getSlotInfo(ctx, c.conn, slotName, c.Config.Database)
 }
 
 func (c *PostgresConnector) CreatePublication(
@@ -470,24 +470,24 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s%s", QuoteIdentifier(column.Name), pgColumnType, notNull))
+			fmt.Sprintf("%s %s%s", utils.QuoteIdentifier(column.Name), pgColumnType, notNull))
 	}
 
 	if config.SoftDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			QuoteIdentifier(config.SoftDeleteColName)+` BOOL DEFAULT FALSE`)
+			utils.QuoteIdentifier(config.SoftDeleteColName)+` BOOL DEFAULT FALSE`)
 	}
 
 	if config.SyncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			QuoteIdentifier(config.SyncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
+			utils.QuoteIdentifier(config.SyncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
 	}
 
 	// add composite primary key to the table
 	if len(tableSchema.PrimaryKeyColumns) > 0 && !tableSchema.IsReplicaIdentityFull {
 		primaryKeyColsQuoted := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
 		for _, primaryKeyCol := range tableSchema.PrimaryKeyColumns {
-			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))
+			primaryKeyColsQuoted = append(primaryKeyColsQuoted, utils.QuoteIdentifier(primaryKeyCol))
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s)",
 			strings.Join(primaryKeyColsQuoted, ",")))

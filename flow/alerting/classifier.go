@@ -57,6 +57,9 @@ var (
 		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
 	}
+	ErrorNormalize = ErrorClass{
+		Class: "NORMALIZE", action: NotifyTelemetry,
+	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
@@ -194,6 +197,12 @@ func GetErrorClass(ctx context.Context, err error) ErrorClass {
 			// could not read from reorderbuffer spill file: Bad file descriptor
 			return ErrorRetryRecoverable
 		}
+	}
+
+	var normalizationErr *exceptions.NormalizationError
+	if exception != nil && errors.As(err, &normalizationErr) {
+		// notify if normalization hits error on destination
+		return ErrorNormalize
 	}
 
 	return ErrorOther
