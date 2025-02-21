@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"math/rand/v2"
 	"strconv"
 	"strings"
@@ -298,7 +297,6 @@ func (c *MySqlConnector) PullRecords(
 	var skewLossReported bool
 	var inTx bool
 	var recordCount uint32
-	var tableSchemaLookup map[string][]string
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
@@ -349,6 +347,7 @@ func (c *MySqlConnector) PullRecords(
 			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 		}
 
+		c.logger.Warn("event", slog.Any("event", event))
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
 			if gset != nil {
@@ -363,8 +362,8 @@ func (c *MySqlConnector) PullRecords(
 				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
 		case *replication.QueryEvent:
-			c.logger.Warn("QueryEvent", slog.String("query", string(ev.Query)))
-			stmts, warns, err := parser.New().ParseSQL(string(ev.Query))
+			c.logger.Warn("QueryEvent", slog.String("query", shared.UnsafeFastReadOnlyBytesToString(ev.Query)))
+			stmts, warns, err := parser.New().ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
 			if err != nil {
 				return err
 			}
@@ -373,14 +372,7 @@ func (c *MySqlConnector) PullRecords(
 			}
 			for _, stmt := range stmts {
 				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
-					if tableSchemaLookup == nil {
-						var err error
-						tableSchemaLookup, err = buildTableSchemaLookup(req)
-						if err != nil {
-							return err
-						}
-					}
-					if err := c.processAlterTableQuery(ctx, catalogPool, req, alterTableStmt, tableSchemaLookup); err != nil {
+					if err := c.processAlterTableQuery(ctx, catalogPool, req, alterTableStmt, string(ev.Schema)); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
 				}
@@ -533,34 +525,17 @@ func (c *MySqlConnector) PullRecords(
 	return nil
 }
 
-func buildTableSchemaLookup(req *model.PullRecordsRequest[model.RecordItems]) (map[string][]string, error) {
-	tableSchemaLookup := make(map[string][]string, len(req.TableNameMapping))
-	for sourceTableName := range maps.Keys(req.TableNameMapping) {
-		schemaTable, err := utils.ParseSchemaTable(sourceTableName)
-		if err != nil {
-			return nil, err
-		}
-		tableSchemaLookup[schemaTable.Table] = append(tableSchemaLookup[schemaTable.Table], schemaTable.Schema)
-	}
-	return tableSchemaLookup, nil
-}
-
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
-	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, tableSchemaLookup map[string][]string,
+	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
 ) error {
-	// ALTER TABLE didn't have database/schema name, so we need to determine it
-	var sourceTableName string
-	if stmt.Table.Schema.String() == "" {
-		tables := tableSchemaLookup[stmt.Table.Name.String()]
-		if len(tables) == 1 {
-			sourceTableName = tables[0] + "." + stmt.Table.Name.String()
-		} else {
-			c.logger.Warn("could not determine schema for ALTER TABLE statement, unable to propagate", slog.String("stmt", stmt.Text()))
-			return nil
-		}
+	// if ALTER TABLE doesn't have database/schema name, use one attached to event
+	var sourceSchemaName string
+	if stmt.Table.Schema.String() != "" {
+		sourceSchemaName = stmt.Table.Schema.String()
 	} else {
-		sourceTableName = stmt.Table.Schema.String() + "." + stmt.Table.Name.String()
+		sourceSchemaName = stmtSchema
 	}
+	sourceTableName := sourceSchemaName + "." + stmt.Table.Name.String()
 
 	destinationTableName := req.TableNameMapping[sourceTableName].Name
 	c.logger.Warn("alter table", slog.String("table", sourceTableName), slog.String("destination", destinationTableName),
