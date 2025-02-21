@@ -25,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PostgresCDCSource struct {
@@ -467,7 +468,7 @@ func PullCdcRecords[Items model.Items](
 
 		switch msg := rawMsg.(type) {
 		case *pgproto3.ErrorResponse:
-			return shared.LogError(logger, fmt.Errorf("received Postgres WAL error: %+v", msg))
+			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
 		case *pgproto3.CopyData:
 			if p.otelManager != nil {
 				p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))

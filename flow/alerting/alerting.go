@@ -478,23 +478,22 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error
 		tags = append(tags, string(shared.ErrTypeNet))
 	}
 
-	errorClass := GetErrorClass(ctx, inErr)
+	errorClass, errInfo := GetErrorClass(ctx, inErr)
 	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
 
 	if !internal.PeerDBTelemetryErrorActionBasedAlertingEnabled() || errorClass.ErrorAction() == NotifyTelemetry {
 		a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 	}
 	if a.otelManager != nil {
-		a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, flowName),
 			attribute.String(otel_metrics.ErrorClassKey, errorClass.String()),
 			attribute.String(otel_metrics.ErrorActionKey, errorClass.ErrorAction().String()),
-		)))
-		a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, flowName),
-			attribute.String(otel_metrics.ErrorClassKey, errorClass.String()),
-			attribute.String(otel_metrics.ErrorActionKey, errorClass.ErrorAction().String()),
-		)))
+			attribute.String(otel_metrics.ErrorSourceKey, errInfo.Source.String()),
+			attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
+		))
+		a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, errorAttributeSet)
+		a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, errorAttributeSet)
 	}
 	return inErr
 }

@@ -7,6 +7,8 @@ const (
 	DeploymentUidKey    = "deploymentUID"
 	ErrorClassKey       = "errorClass"
 	ErrorActionKey      = "errorAction"
+	ErrorSourceKey      = "errorSource"
+	ErrorCodeKey        = "errorCode"
 	InstanceStatusKey   = "instanceStatus"
 	WorkflowTypeKey     = "workflowType"
 	BatchIdKey          = "batchId"
