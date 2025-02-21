@@ -363,6 +363,7 @@ func (c *MySqlConnector) PullRecords(
 				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
 		case *replication.QueryEvent:
+			c.logger.Warn("QueryEvent", slog.String("query", string(ev.Query)))
 			stmts, warns, err := parser.New().ParseSQL(string(ev.Query))
 			if err != nil {
 				return err
@@ -384,7 +385,6 @@ func (c *MySqlConnector) PullRecords(
 					}
 				}
 			}
-			c.logger.Warn("QueryEvent", slog.String("query", string(ev.Query)))
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
