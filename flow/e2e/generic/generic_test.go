@@ -133,10 +133,13 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
 	}
 
+	t.Log("Testing simple schema changes")
 	srcTable := "test_simple_schema_changes"
 	dstTable := "test_simple_schema_changes_dst"
 	srcTableName := e2e.AttachSchema(s, srcTable)
 	dstTableName := s.DestinationTable(dstTable)
+	t.Log("Source table name: ", srcTableName)
+	t.Log("Destination table name: ", dstTableName)
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
