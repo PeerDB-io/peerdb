@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -40,7 +41,6 @@ func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error 
 }
 
 func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
-
 	rs, err := c.Execute(ctx, "SHOW MASTER STATUS")
 	if err != nil {
 		return fmt.Errorf("failed to check replication status: %w", err)
@@ -61,28 +61,38 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 }
 
 func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context) error {
-	rows, err := c.Execute(ctx, "SELECT @@binlog_expire_logs_seconds")
+	// Check binlog_expire_logs_seconds
+	rs, err := c.Execute(ctx, "SELECT @@binlog_expire_logs_seconds")
 	if err != nil {
 		return fmt.Errorf("failed to retrieve binlog_expire_logs_seconds: %w", err)
 	}
-	defer rows.Close()
 
-	var expireSeconds int
-	if rows.Next() {
-		if err := rows.Scan(&expireSeconds); err != nil {
-			return fmt.Errorf("failed to scan binlog_expire_logs_seconds: %w", err)
-		}
+	if len(rs.Values) == 0 || len(rs.Values[0]) == 0 {
+		return errors.New("no value returned for binlog_expire_logs_seconds")
 	}
+	// Convert FieldValue to int
+	expireSecondsStr := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
+	expireSeconds, err := strconv.Atoi(expireSecondsStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse binlog_expire_logs_seconds: %w", err)
+	}
+
 	if expireSeconds <= 86400 {
 		return errors.New("binlog_expire_logs_seconds is too low. Must be greater than 1 day")
 	}
 
 	// Check binlog_format
-	rows, err = c.Execute(ctx, "SELECT @@binlog_format")
-	if err != nil || len(rows) == 0 {
+	rs, err = c.Execute(ctx, "SELECT @@binlog_format")
+	if err != nil {
 		return fmt.Errorf("failed to retrieve binlog_format: %w", err)
 	}
-	binlogFormat, _ := rows[0][0].(string)
+
+	if len(rs.Values) == 0 || len(rs.Values[0]) == 0 {
+		return errors.New("no value returned for binlog_format")
+	}
+
+	// Convert FieldValue to string safely
+	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
 	if binlogFormat != "ROW" {
 		return errors.New("binlog_format must be set to 'ROW'")
 	}
@@ -124,19 +134,17 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context) error {
 	// }
 
 	// Check binlog_row_value_options
-	rows, err = c.Execute(ctx, "SELECT @@binlog_row_value_options")
+	rs, err = c.Execute(ctx, "SELECT @@binlog_row_value_options")
 	if err != nil {
 		return fmt.Errorf("failed to retrieve binlog_row_value_options: %w", err)
 	}
-	defer rows.Close()
 
-	var binlogRowValueOptions string
-	if rows.Next() {
-		if err := rows.Scan(&binlogRowValueOptions); err != nil {
-			return fmt.Errorf("failed to scan binlog_row_value_options: %w", err)
-		}
+	if len(rs.Values) == 0 || len(rs.Values[0]) == 0 {
+		return errors.New("no value returned for binlog_row_value_options")
 	}
 
+	// Convert FieldValue to string safely
+	binlogRowValueOptions := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
 	if binlogRowValueOptions != "" {
 		return errors.New("binlog_row_value_options must be disabled to prevent JSON change deltas")
 	}
