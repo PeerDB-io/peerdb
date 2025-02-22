@@ -10,11 +10,10 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	// "github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-func (c *MySQLConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
-
+func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
 	for _, parsedTable := range tableNames {
 		query := fmt.Sprintf("SELECT 1 FROM `%s`.`%s` LIMIT 1", parsedTable.Schema, parsedTable.Table)
 		_, err := c.Execute(ctx, query)
@@ -25,46 +24,43 @@ func (c *MySQLConnector) CheckSourceTables(ctx context.Context, tableNames []*ut
 	return nil
 }
 
-func (c *MySQLConnector) CheckReplicationPermissions(ctx context.Context) error {
-
-	rows, err := c.Execute(ctx, "SHOW GRANTS FOR CURRENT_USER()")
+func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error {
+	rs, err := c.Execute(ctx, "SHOW GRANTS FOR CURRENT_USER()")
 	if err != nil {
 		return fmt.Errorf("failed to check replication privileges: %w", err)
 	}
-	for _, row := range rows {
-		if grant, ok := row[0].(string); ok {
-			if strings.Contains(grant, "REPLICATION SLAVE") || strings.Contains(grant, "REPLICATION CLIENT") {
-				return nil
-			}
+	for _, row := range rs.Values {
+		grant := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
+		if strings.Contains(grant, "REPLICATION SLAVE") || strings.Contains(grant, "REPLICATION CLIENT") {
+			return nil
 		}
 	}
 
-	return errors.New("MySQL user does not have replication privileges")	
+	return errors.New("MySQL user does not have replication privileges")
 }
 
-func (c *MySQLConnector) CheckReplicationConnectivity(ctx context.Context) error {
+func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
 
-	rows, err := c.Execute(ctx, "SHOW MASTER STATUS")
+	rs, err := c.Execute(ctx, "SHOW MASTER STATUS")
 	if err != nil {
 		return fmt.Errorf("failed to check replication status: %w", err)
 	}
-	if len(rows) == 0 {
+	if rs.RowNumber() == 0 {
 		return errors.New("binary logging is disabled on this MySQL server")
 	}
-	
-	masterLogFile, _ := rows[0][0].(string)
-	masterLogPos, _ := rows[0][1].(int64)
+
+	masterLogFile := rs.Values[0][0].AsString()
+	masterLogPos := rs.Values[0][1].AsInt64()
 
 	// Additional validation: Check if the values are valid
-	if masterLogFile == "" || masterLogPos <= 0 {
+	if len(masterLogFile) == 0 || masterLogPos <= 0 {
 		return errors.New("invalid replication status: missing log file or position")
-	}	
+	}
 
 	return nil
 }
 
-func (c *MySQLConnector) CheckBinlogSettings(ctx context.Context) error {
-
+func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context) error {
 	rows, err := c.Execute(ctx, "SELECT @@binlog_expire_logs_seconds")
 	if err != nil {
 		return fmt.Errorf("failed to retrieve binlog_expire_logs_seconds: %w", err)
@@ -89,9 +85,9 @@ func (c *MySQLConnector) CheckBinlogSettings(ctx context.Context) error {
 	binlogFormat, _ := rows[0][0].(string)
 	if binlogFormat != "ROW" {
 		return errors.New("binlog_format must be set to 'ROW'")
-	}	
+	}
 
-	// Check binlog_row_metadata 
+	// Check binlog_row_metadata
 	// rows, err := c.Execute(ctx, "SELECT @@binlog_row_metadata")
 	// if err != nil {
 	// 	return fmt.Errorf("failed to retrieve binlog_row_metadata: %w", err)
@@ -107,7 +103,7 @@ func (c *MySQLConnector) CheckBinlogSettings(ctx context.Context) error {
 
 	// if binlogRowMetadata != "FULL" {
 	// 	return errors.New("binlog_row_metadata must be set to 'FULL' for column exclusion support")
-	// }	
+	// }
 
 	// Check binlog_row_image
 	// rows, err := c.Execute(ctx, "SELECT @@binlog_row_image")
@@ -126,7 +122,6 @@ func (c *MySQLConnector) CheckBinlogSettings(ctx context.Context) error {
 	// if binlogRowImage != "FULL" {
 	// 	return errors.New("binlog_row_image must be set to 'FULL' (equivalent to PostgreSQL's REPLICA IDENTITY FULL)")
 	// }
-
 
 	// Check binlog_row_value_options
 	rows, err = c.Execute(ctx, "SELECT @@binlog_row_value_options")
@@ -149,7 +144,7 @@ func (c *MySQLConnector) CheckBinlogSettings(ctx context.Context) error {
 	return nil
 }
 
-func (c *MySQLConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
 	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
@@ -177,7 +172,6 @@ func (c *MySQLConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 
 	return nil
 }
-
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 	if _, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
