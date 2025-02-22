@@ -14,13 +14,10 @@ import (
 )
 
 func (c *MySQLConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
-	// if c.conn == nil {
-	// 	return errors.New("check tables: conn is nil")
-	// }
 
 	for _, parsedTable := range tableNames {
 		query := fmt.Sprintf("SELECT 1 FROM `%s`.`%s` LIMIT 1", parsedTable.Schema, parsedTable.Table)
-		_, err := c.conn.QueryContext(ctx, query)
+		_, err := c.Execute(ctx, query)
 		if err != nil {
 			return fmt.Errorf("error checking table %s.%s: %w", parsedTable.Schema, parsedTable.Table, err)
 		}
@@ -29,9 +26,6 @@ func (c *MySQLConnector) CheckSourceTables(ctx context.Context, tableNames []*ut
 }
 
 func (c *MySQLConnector) CheckReplicationPermissions(ctx context.Context) error {
-	// if c.conn == nil {
-	// 	return errors.New("check replication permissions: conn is nil")
-	// }
 
 	rows, err := c.Execute(ctx, "SHOW GRANTS FOR CURRENT_USER()")
 	if err != nil {
@@ -49,9 +43,6 @@ func (c *MySQLConnector) CheckReplicationPermissions(ctx context.Context) error 
 }
 
 func (c *MySQLConnector) CheckReplicationConnectivity(ctx context.Context) error {
-	// if c.conn == nil {
-	// 	return errors.New("check replication connectivity: conn is nil")
-	// }
 
 	rows, err := c.Execute(ctx, "SHOW MASTER STATUS")
 	if err != nil {
@@ -73,9 +64,6 @@ func (c *MySQLConnector) CheckReplicationConnectivity(ctx context.Context) error
 }
 
 func (c *MySQLConnector) CheckBinlogSettings(ctx context.Context) error {
-	// if c.conn == nil {
-	// 	return errors.New("check binlog settings: conn is nil")
-	// }
 
 	rows, err := c.Execute(ctx, "SELECT @@binlog_expire_logs_seconds")
 	if err != nil {
