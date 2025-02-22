@@ -97,42 +97,6 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context) error {
 		return errors.New("binlog_format must be set to 'ROW'")
 	}
 
-	// Check binlog_row_metadata
-	// rows, err := c.Execute(ctx, "SELECT @@binlog_row_metadata")
-	// if err != nil {
-	// 	return fmt.Errorf("failed to retrieve binlog_row_metadata: %w", err)
-	// }
-	// defer rows.Close()
-
-	// var binlogRowMetadata string
-	// if rows.Next() {
-	// 	if err := rows.Scan(&binlogRowMetadata); err != nil {
-	// 		return fmt.Errorf("failed to scan binlog_row_metadata: %w", err)
-	// 	}
-	// }
-
-	// if binlogRowMetadata != "FULL" {
-	// 	return errors.New("binlog_row_metadata must be set to 'FULL' for column exclusion support")
-	// }
-
-	// Check binlog_row_image
-	// rows, err := c.Execute(ctx, "SELECT @@binlog_row_image")
-	// if err != nil {
-	// 	return fmt.Errorf("failed to retrieve binlog_row_image: %w", err)
-	// }
-	// defer rows.Close()
-
-	// var binlogRowImage string
-	// if rows.Next() {
-	// 	if err := rows.Scan(&binlogRowImage); err != nil {
-	// 		return fmt.Errorf("failed to scan binlog_row_image: %w", err)
-	// 	}
-	// }
-
-	// if binlogRowImage != "FULL" {
-	// 	return errors.New("binlog_row_image must be set to 'FULL' (equivalent to PostgreSQL's REPLICA IDENTITY FULL)")
-	// }
-
 	// Check binlog_row_value_options
 	rs, err = c.Execute(ctx, "SELECT @@binlog_row_value_options")
 	if err != nil {
