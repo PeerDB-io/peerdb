@@ -30,7 +30,7 @@ impl MyClient {
                     Ok(stream) => {
                         response.send(Response::Schema(stream.columns())).await.ok();
                         stream
-                            .for_each_concurrent(1, |row| async {
+                            .for_each_concurrent(1, async |row| {
                                 response
                                     .send(match row {
                                         Ok(row) => Response::Row(row),
