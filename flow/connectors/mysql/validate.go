@@ -10,13 +10,13 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	// "github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (c *MySQLConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
-	if c.conn == nil {
-		return errors.New("check tables: conn is nil")
-	}
+	// if c.conn == nil {
+	// 	return errors.New("check tables: conn is nil")
+	// }
 
 	for _, parsedTable := range tableNames {
 		query := fmt.Sprintf("SELECT 1 FROM `%s`.`%s` LIMIT 1", parsedTable.Schema, parsedTable.Table)
@@ -29,9 +29,9 @@ func (c *MySQLConnector) CheckSourceTables(ctx context.Context, tableNames []*ut
 }
 
 func (c *MySQLConnector) CheckReplicationPermissions(ctx context.Context) error {
-	if c.conn == nil {
-		return errors.New("check replication permissions: conn is nil")
-	}
+	// if c.conn == nil {
+	// 	return errors.New("check replication permissions: conn is nil")
+	// }
 
 	rows, err := c.Execute(ctx, "SHOW GRANTS FOR CURRENT_USER()")
 	if err != nil {
@@ -49,9 +49,9 @@ func (c *MySQLConnector) CheckReplicationPermissions(ctx context.Context) error 
 }
 
 func (c *MySQLConnector) CheckReplicationConnectivity(ctx context.Context) error {
-	if c.conn == nil {
-		return errors.New("check replication connectivity: conn is nil")
-	}
+	// if c.conn == nil {
+	// 	return errors.New("check replication connectivity: conn is nil")
+	// }
 
 	rows, err := c.Execute(ctx, "SHOW MASTER STATUS")
 	if err != nil {
@@ -73,9 +73,9 @@ func (c *MySQLConnector) CheckReplicationConnectivity(ctx context.Context) error
 }
 
 func (c *MySQLConnector) CheckBinlogSettings(ctx context.Context) error {
-	if c.conn == nil {
-		return errors.New("check binlog settings: conn is nil")
-	}
+	// if c.conn == nil {
+	// 	return errors.New("check binlog settings: conn is nil")
+	// }
 
 	rows, err := c.Execute(ctx, "SELECT @@binlog_expire_logs_seconds")
 	if err != nil {
@@ -94,7 +94,7 @@ func (c *MySQLConnector) CheckBinlogSettings(ctx context.Context) error {
 	}
 
 	// Check binlog_format
-	rows, err := c.Execute(ctx, "SELECT @@binlog_format")
+	rows, err = c.Execute(ctx, "SELECT @@binlog_format")
 	if err != nil || len(rows) == 0 {
 		return fmt.Errorf("failed to retrieve binlog_format: %w", err)
 	}
@@ -141,7 +141,7 @@ func (c *MySQLConnector) CheckBinlogSettings(ctx context.Context) error {
 
 
 	// Check binlog_row_value_options
-	rows, err := c.Execute(ctx, "SELECT @@binlog_row_value_options")
+	rows, err = c.Execute(ctx, "SELECT @@binlog_row_value_options")
 	if err != nil {
 		return fmt.Errorf("failed to retrieve binlog_row_value_options: %w", err)
 	}
