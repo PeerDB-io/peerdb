@@ -49,7 +49,7 @@ interface SchemaBoxProps {
     SetStateAction<{ tableName: string; columns: string[] }[]>
   >;
   peerType?: DBType;
-  alreadySelectedTables: TableMapping[] | undefined;
+  alreadySelectedTables: TableMapping[];
   initialLoadOnly?: boolean;
 }
 
@@ -196,20 +196,18 @@ export default function SchemaBox({
         for (const row of newRows) {
           if (
             alreadySelectedTables
-              ?.map((tableMap) => tableMap.sourceTableIdentifier)
+              .map((tableMap) => tableMap.sourceTableIdentifier)
               .includes(row.source)
           ) {
-            const existingRow = alreadySelectedTables?.find(
+            const existingRow = alreadySelectedTables.find(
               (tableMap) => tableMap.sourceTableIdentifier === row.source
             );
             row.selected = true;
-            row.engine = existingRow?.engine ?? TableEngine.CH_ENGINE_REPLACING_MERGE_TREE;
+            row.engine =
+              existingRow?.engine ?? TableEngine.CH_ENGINE_REPLACING_MERGE_TREE;
             row.editingDisabled = true;
             row.exclude = new Set(existingRow?.exclude ?? []);
             row.destination = existingRow?.destinationTableIdentifier ?? '';
-            alreadySelectedTables?.find(
-              (tableMap) => tableMap.sourceTableIdentifier === row.source
-            )?.destinationTableIdentifier ?? '';
             addTableColumns(row.source);
           }
         }
