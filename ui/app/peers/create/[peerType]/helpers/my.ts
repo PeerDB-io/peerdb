@@ -85,6 +85,21 @@ export const mysqlSetting: PeerSetting[] = [
       { value: 'MYSQL_FILEPOS', label: 'FilePos' },
     ],
   },
+  {
+    label: 'Root Certificate',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          delete (curr as MySqlConfig)['rootCa'];
+          return curr;
+        });
+      } else setter((curr) => ({ ...curr, rootCa: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'If not provided, host CA roots will be used.',
+  },
 ];
 
 export const blankMySqlSetting: MySqlConfig = {
