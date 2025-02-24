@@ -98,6 +98,8 @@ github.com/PeerDB-io/gluamsgpack v1.0.4 h1:JrZtdNAAkE6RtllVuhEuWWa26lQZ/K5BJWiI3
 github.com/PeerDB-io/gluamsgpack v1.0.4/go.mod h1:1ufs5NK2DczzQS78Nhy0AkCA0dOVyt/KVEk39lbWzyU=
 github.com/PeerDB-io/gluautf8 v1.0.0 h1:Ubhy6FVnrED5jrosdUOxzAkf3YdcgebYJzX2YBdGedE=
 github.com/PeerDB-io/gluautf8 v1.0.0/go.mod h1:+4RQlCVFCMikYFmiKUA9ADZftgGAZseMmdErxfE1EZQ=
+github.com/PeerDB-io/tikv-client-go/v2 v2.0.1 h1:3GQdAgzEtMQYVUv4inptzbRxrWAyTrVhp023Mt+OHoU=
+github.com/PeerDB-io/tikv-client-go/v2 v2.0.1/go.mod h1:PzqTyoyJk6nQ/C/5Kz9GaiTVy4g3s99t2ctpn37HD/k=
 github.com/VividCortex/ewma v1.2.0 h1:f58SaIzcDXrSy3kWaHNvuJgJ3Nmz59Zji6XoJR/q1ow=
 github.com/VividCortex/ewma v1.2.0/go.mod h1:nz4BbCtbLyFDeC9SUHbtcT5644juEuWfUAUnGx7j5l4=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=
@@ -390,8 +392,6 @@ github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.1 h1:e9Rjr40Z98/clHv5Yg79Is0Ntos
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.1/go.mod h1:tIxuGz/9mpox++sgp9fJjHO0+q1X9/UOWd798aAm22M=
 github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c h1:6rhixN/i8ZofjG1Y75iExal34USq5p+wiN1tpie8IrU=
 github.com/gsterjov/go-libsecret v0.0.0-20161001094733-a6f4afe4910c/go.mod h1:NMPJylDgVpX0MLRlPy15sqSwOFv/U1GZ2m21JhFfek0=
-github.com/heavycrystal/tikv-client-go/v2 v2.0.1 h1:wEnV/3ZvNFUOItxI5EsguSMn2/4gGenX0SJnGWXg30s=
-github.com/heavycrystal/tikv-client-go/v2 v2.0.1/go.mod h1:PzqTyoyJk6nQ/C/5Kz9GaiTVy4g3s99t2ctpn37HD/k=
 github.com/hexops/gotextdiff v1.0.3 h1:gitA9+qJrrTCsiCl7+kh75nPqQt1cx4ZkudSTLoUqJM=
 github.com/hexops/gotextdiff v1.0.3/go.mod h1:pSWU5MAI3yDq+fZBTazCSJysOMbxWL1BSow5/V2vxeg=
 github.com/influxdata/tdigest v0.0.1 h1:XpFptwYmnEKUqmkcDjrzffswZ3nvNeevbUSLPP/ZzIY=
