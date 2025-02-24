@@ -151,7 +151,7 @@ jobs:
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
-          go test -p 32 ./... -timeout 900s -run '^(TestGenericCH_MySQL|TestGenericCH_MySQL_FilePos)$'
+          go test -p 32 ./... -timeout 900s
         working-directory: ./flow
         env:
           AWS_ENDPOINT_URL_S3: http://localhost:9999

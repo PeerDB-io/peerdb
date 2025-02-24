@@ -63,7 +63,6 @@ func SetupGenericSuite[T e2e.GenericSuite](f func(t *testing.T) T) func(t *testi
 
 func (s Generic) Test_Simple_Flow() {
 	t := s.T()
-	t.Skip() // TODO no
 	srcTable := "test_simple"
 	dstTable := "test_simple_dst"
 	srcSchemaTable := e2e.AttachSchema(s, srcTable)

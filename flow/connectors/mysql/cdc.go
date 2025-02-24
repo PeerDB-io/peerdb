@@ -329,9 +329,7 @@ func (c *MySqlConnector) PullRecords(
 		if !inTx {
 			getCtx = timeoutCtx
 		}
-		c.logger.Warn("YYYY", slog.Any("inTx", inTx), slog.Any("recordCound", recordCount))
 		event, err := mystream.GetEvent(getCtx)
-		c.logger.Warn("ZZZZ", slog.Any("event", event))
 		if err != nil {
 			if !inTx && errors.Is(err, context.DeadlineExceeded) {
 				return nil

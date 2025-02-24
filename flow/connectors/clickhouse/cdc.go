@@ -135,7 +135,6 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			c.logger.Warn("QQQQQ", slog.String("type", addedColumn.Type), slog.String("name", addedColumn.Name))
 			clickHouseColType, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(
 				ctx, env, protos.DBType_CLICKHOUSE, addedColumn, schemaDelta.NullableEnabled,
 			)

@@ -48,7 +48,8 @@ func (s ClickHouseSuite) Source() e2e.SuiteSource {
 }
 
 func (s ClickHouseSuite) DestinationConnector() connectors.Connector {
-	return s.connector
+	// TODO needed for generic schema changes test
+	return nil
 }
 
 func (s ClickHouseSuite) Conn() *pgx.Conn {
