@@ -349,6 +349,10 @@ func (c *MySqlConnector) PullRecords(
 			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 		}
 
+		if event.Header.EventType == replication.STOP_EVENT {
+			return nil
+		}
+
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
 			if gset != nil {
@@ -410,8 +414,6 @@ func (c *MySqlConnector) PullRecords(
 					return nil
 				}
 				switch event.Header.EventType {
-				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
-					return errors.New("mysql v0 replication protocol not supported")
 				case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2, replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1:
 					for _, row := range ev.Rows {
 						items := model.NewRecordItems(len(row))
@@ -517,7 +519,8 @@ func (c *MySqlConnector) PullRecords(
 							return err
 						}
 					}
-				default:
+				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
+					return errors.New("mysql v0 replication protocol not supported")
 				}
 			}
 		}
