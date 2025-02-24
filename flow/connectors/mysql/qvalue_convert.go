@@ -185,10 +185,11 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 }
 
 func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
-	switch v := fv.Value().(type) {
-	case nil:
+	switch fv.Type {
+	case mysql.FieldValueTypeNull:
 		return qvalue.QValueNull(qkind), nil
-	case uint64:
+	case mysql.FieldValueTypeUnsigned:
+		v := fv.AsUint64()
 		switch qkind {
 		case qvalue.QValueKindBoolean:
 			return qvalue.QValueBoolean{Val: v != 0}, nil
@@ -211,7 +212,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		default:
 			return nil, fmt.Errorf("cannot convert uint64 to %s", qkind)
 		}
-	case int64:
+	case mysql.FieldValueTypeSigned:
+		v := fv.AsInt64()
 		switch qkind {
 		case qvalue.QValueKindBoolean:
 			return qvalue.QValueBoolean{Val: v != 0}, nil
@@ -234,7 +236,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		default:
 			return nil, fmt.Errorf("cannot convert int64 to %s", qkind)
 		}
-	case float64:
+	case mysql.FieldValueTypeFloat:
+		v := fv.AsFloat64()
 		switch qkind {
 		case qvalue.QValueKindFloat32:
 			return qvalue.QValueFloat32{Val: float32(v)}, nil
@@ -243,7 +246,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		default:
 			return nil, fmt.Errorf("cannot convert float64 to %s", qkind)
 		}
-	case []byte:
+	case mysql.FieldValueTypeString:
+		v := fv.AsString()
 		unsafeString := shared.UnsafeFastReadOnlyBytesToString(v)
 		switch qkind {
 		case qvalue.QValueKindString:
@@ -287,7 +291,7 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			return nil, fmt.Errorf("cannot convert bytes %v to %s", v, qkind)
 		}
 	default:
-		return nil, fmt.Errorf("unexpected mysql type %T", v)
+		return nil, fmt.Errorf("unexpected mysql type %d", fv.Type)
 	}
 }
 
