@@ -538,8 +538,6 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 	sourceTableName := sourceSchemaName + "." + stmt.Table.Name.String()
 
 	destinationTableName := req.TableNameMapping[sourceTableName].Name
-	c.logger.Warn("alter table", slog.String("table", sourceTableName), slog.String("destination", destinationTableName),
-		slog.Any("tableNameMapping", req.TableNameMapping))
 	if destinationTableName == "" {
 		c.logger.Warn("table not found in mapping", slog.String("table", sourceTableName))
 		return nil
@@ -552,8 +550,8 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		System:       protos.TypeSystem_Q,
 	}
 	for _, spec := range stmt.Specs {
-		// these are added columns
 		if spec.NewColumns != nil {
+			// these are added columns
 			currentSchema := req.TableNameSchemaMapping[destinationTableName]
 
 			for _, col := range spec.NewColumns {
@@ -562,23 +560,20 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					return err
 				}
 
-				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, &protos.FieldDescription{
+				fd := &protos.FieldDescription{
 					Name:         col.Name.String(),
 					Type:         string(qkind),
 					TypeModifier: -1,
 					Nullable:     false,
-				})
+				}
+
+				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, fd)
 				// current assumption is the columns will be ordered like this
-				currentSchema.Columns = append(currentSchema.Columns, &protos.FieldDescription{
-					Name:         col.Name.String(),
-					Type:         string(qkind),
-					TypeModifier: -1,
-					Nullable:     false,
-				})
+				currentSchema.Columns = append(currentSchema.Columns, fd)
 				c.logger.Warn("added column", slog.String("columnName", col.Name.String()))
 			}
-			// this could be dropped or renamed column
 		} else if spec.OldColumnName != nil {
+			// this could be dropped or renamed column
 			if spec.NewColumnName != nil {
 				c.logger.Warn("renamed column detected but not propagating",
 					slog.String("columnOldName", spec.OldColumnName.String()), slog.String("columnNewName", spec.NewColumnName.String()))
@@ -587,6 +582,8 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 			}
 		}
 	}
+	c.logger.Warn("alter table", slog.String("table", sourceTableName), slog.String("destination", destinationTableName),
+		slog.Any("tableNameMapping", req.TableNameMapping), slog.Any("addedColumns", tableSchemaDelta.AddedColumns))
 	if tableSchemaDelta.AddedColumns != nil {
 		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
