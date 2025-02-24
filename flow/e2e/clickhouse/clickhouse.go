@@ -97,6 +97,7 @@ func (s ClickHouseSuite) DestinationTable(table string) string {
 func (s ClickHouseSuite) Teardown(ctx context.Context) {
 	require.NoError(s.t, s.s3Helper.CleanUp(ctx))
 	s.source.Teardown(s.t, ctx, s.Suffix())
+	require.NoError(s.t, s.connector.Close())
 }
 
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
