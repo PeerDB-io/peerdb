@@ -329,7 +329,9 @@ func (c *MySqlConnector) PullRecords(
 		if !inTx {
 			getCtx = timeoutCtx
 		}
+		c.logger.Warn("YYYY", slog.Any("inTx", inTx), slog.Any("recordCound", recordCount))
 		event, err := mystream.GetEvent(getCtx)
+		c.logger.Warn("ZZZZ", slog.Any("event", event))
 		if err != nil {
 			if !inTx && errors.Is(err, context.DeadlineExceeded) {
 				return nil
@@ -347,7 +349,6 @@ func (c *MySqlConnector) PullRecords(
 			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 		}
 
-		c.logger.Warn("event", slog.Any("event", event))
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
 			if gset != nil {
@@ -362,7 +363,6 @@ func (c *MySqlConnector) PullRecords(
 				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
 		case *replication.QueryEvent:
-			c.logger.Warn("QueryEvent", slog.String("query", shared.UnsafeFastReadOnlyBytesToString(ev.Query)))
 			stmts, warns, err := parser.New().ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
 			if err != nil {
 				return err
@@ -564,13 +564,11 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					Name:         col.Name.String(),
 					Type:         string(qkind),
 					TypeModifier: -1,
-					Nullable:     false,
+					Nullable:     (col.Tp.GetFlag() & mysql.NOT_NULL_FLAG) != 0,
 				}
-
 				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, fd)
 				// current assumption is the columns will be ordered like this
 				currentSchema.Columns = append(currentSchema.Columns, fd)
-				c.logger.Warn("added column", slog.String("columnName", col.Name.String()))
 			}
 		} else if spec.OldColumnName != nil {
 			// this could be dropped or renamed column
@@ -582,8 +580,6 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 			}
 		}
 	}
-	c.logger.Warn("alter table", slog.String("table", sourceTableName), slog.String("destination", destinationTableName),
-		slog.Any("tableNameMapping", req.TableNameMapping), slog.Any("addedColumns", tableSchemaDelta.AddedColumns))
 	if tableSchemaDelta.AddedColumns != nil {
 		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
