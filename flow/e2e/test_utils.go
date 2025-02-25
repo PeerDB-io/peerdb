@@ -675,6 +675,9 @@ func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason str
 			t.Fatal("UNEXPECTED TIMEOUT", reason, time.Now())
 		}
 		time.Sleep(time.Second)
+		if err := t.Context().Err(); err != nil {
+			t.Fatal(reason, err)
+		}
 	}
 }
 
