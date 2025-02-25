@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -41,7 +40,7 @@ func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error 
 }
 
 func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
-	rs, err := c.Execute(ctx, "SHOW MASTER STATUS")
+	rs, err := c.Execute(ctx, "SHOW BINARY LOG STATUS")
 	if err != nil {
 		return fmt.Errorf("failed to check replication status: %w", err)
 	}
@@ -70,12 +69,8 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context) error {
 	if len(rs.Values) == 0 || len(rs.Values[0]) == 0 {
 		return errors.New("no value returned for binlog_expire_logs_seconds")
 	}
-	// Convert FieldValue to int
-	expireSecondsStr := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
-	expireSeconds, err := strconv.Atoi(expireSecondsStr)
-	if err != nil {
-		return fmt.Errorf("failed to parse binlog_expire_logs_seconds: %w", err)
-	}
+
+	expireSeconds := rs.Values[0][0].AsUint64()
 
 	if expireSeconds <= 86400 {
 		return errors.New("binlog_expire_logs_seconds is too low. Must be greater than 1 day")
