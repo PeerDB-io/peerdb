@@ -347,10 +347,6 @@ func (c *MySqlConnector) PullRecords(
 			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 		}
 
-		if event.Header.EventType == replication.STOP_EVENT {
-			return nil
-		}
-
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
 			if gset != nil {
