@@ -57,7 +57,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
 
-	return s.database.Exec(ctx, query)
+	return s.exec(ctx, query)
 }
 
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
@@ -179,7 +179,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 			slog.String("query", query),
 			slog.Uint64("part", i),
 			slog.Uint64("numParts", numParts))
-		if err := s.database.Exec(ctx, query); err != nil {
+		if err := s.exec(ctx, query); err != nil {
 			s.logger.Error("failed to insert part",
 				slog.String("query", query),
 				slog.Uint64("part", i),

@@ -50,7 +50,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.2.7@sha256:be81cdb6a57972dbc39d13c0c3832be9e84fefeeb2ee0e5a1bf1159aa862cd2e
+        image: bitnami/minio:2025.2.18@sha256:709d72fd6bf81dcf29f515ac95a28c82551e788dd413a25db6202fcefa21ec9c
         ports:
           - 9999:9999
         env:

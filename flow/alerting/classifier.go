@@ -89,8 +89,8 @@ var (
 	ErrorIgnoreEOF = ErrorClass{
 		Class: "IGNORE_EOF", action: Ignore,
 	}
-	ErrorIgnoreConnReset = ErrorClass{
-		Class: "IGNORE_CONN_RESET", action: Ignore,
+	ErrorIgnoreConnTemporary = ErrorClass{
+		Class: "IGNORE_CONN_TEMPORARY", action: Ignore,
 	}
 	ErrorIgnoreContextCancelled = ErrorClass{
 		Class: "IGNORE_CONTEXT_CANCELLED", action: Ignore,
@@ -235,9 +235,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	// Connection reset errors can mostly be ignored
 	if errors.Is(err, syscall.ECONNRESET) {
-		return ErrorIgnoreConnReset, ErrorInfo{
+		return ErrorIgnoreConnTemporary, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   syscall.ECONNRESET.Error(),
+		}
+	}
+
+	if errors.Is(err, net.ErrClosed) {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "net.ErrClosed",
 		}
 	}
 
