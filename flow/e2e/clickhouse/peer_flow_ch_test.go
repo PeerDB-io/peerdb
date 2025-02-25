@@ -1016,7 +1016,7 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 INT`, srcFullName)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,c2) VALUES (1,null)`, srcFullName)))
 
-	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
+	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "new column", func() bool {
 		ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 		if err != nil {
 			return false
