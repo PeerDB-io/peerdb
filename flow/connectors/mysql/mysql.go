@@ -25,7 +25,7 @@ type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
 	config   *protos.MySqlConfig
 	ssh      utils.SSHTunnel
-	conn     atomic.Pointer[client.Conn]
+	conn     atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
 	contexts chan context.Context
 	logger   log.Logger
 }
