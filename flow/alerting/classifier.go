@@ -141,6 +141,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var dropFlowErr *exceptions.DropFlowError
+	if errors.As(err, &dropFlowErr) {
+		errorClass := ErrorInternal
+		if pgErr != nil {
+			return errorClass, pgErrorInfo
+		}
+		// For now we are not making it as verbose, will take this up later
+		return errorClass, ErrorInfo{
+			Source: ErrorSourceOther,
+			Code:   "UNKNOWN",
+		}
+	}
+
 	var peerDBErr *exceptions.PostgresSetupError
 	if errors.As(err, &peerDBErr) {
 		errorClass := ErrorNotifyConnectivity
