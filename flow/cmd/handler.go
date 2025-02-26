@@ -345,7 +345,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		slog.Error("[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
 		return nil, err
 	}
-	currState, err := h.getWorkflowStatus(ctx, workflowID)
+	err, currState := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
 		slog.Error("[flow-state-change] unable to get workflow status", logs, slog.Any("error", err))
 		return nil, err

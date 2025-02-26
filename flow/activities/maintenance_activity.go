@@ -63,7 +63,7 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.Mainte
 }
 
 func (a *MaintenanceActivity) getMirrorStatus(ctx context.Context, mirror *protos.MaintenanceMirror) (protos.FlowStatus, error) {
-	return internal.GetWorkflowStatus(ctx, a.TemporalClient, mirror.WorkflowId)
+	return internal.GetWorkflowStatus(ctx, a.CatalogPool, a.TemporalClient, mirror.WorkflowId)
 }
 
 func (a *MaintenanceActivity) WaitForRunningSnapshots(
