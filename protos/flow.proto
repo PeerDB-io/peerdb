@@ -338,6 +338,7 @@ message DropFlowInput {
   bool drop_flow_stats = 4;
   FlowConnectionConfigs flow_connection_configs = 5;
   bool skip_destination_drop = 6;
+  bool skip_source_drop = 7;
 }
 
 message TableSchemaDelta {
