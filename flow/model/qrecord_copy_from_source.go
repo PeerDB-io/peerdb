@@ -46,12 +46,12 @@ func (src *QRecordCopyFromSource) Next() bool {
 	return ok || src.Err() != nil
 }
 
-func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
+func (src *QRecordCopyFromSource) Values() ([]any, error) {
 	if err := src.Err(); err != nil {
 		return nil, err
 	}
 
-	values := make([]interface{}, len(src.currentRecord))
+	values := make([]any, len(src.currentRecord))
 	for i, qValue := range src.currentRecord {
 		if qValue.Value() == nil {
 			values[i] = nil
@@ -190,7 +190,7 @@ func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = a
 		case qvalue.QValueJSON:
 			if v.IsArray {
-				var arrayJ []interface{}
+				var arrayJ []any
 				if err := json.Unmarshal([]byte(v.Value().(string)), &arrayJ); err != nil {
 					return nil, fmt.Errorf("failed to unmarshal JSON array: %v", err)
 				}
