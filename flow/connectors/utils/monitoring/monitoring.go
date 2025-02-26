@@ -114,13 +114,7 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 	if err != nil {
 		return fmt.Errorf("error while beginning transaction for inserting statistics into cdc_batch_table: %w", err)
 	}
-	defer func() {
-		if err := insertBatchTablesTx.Rollback(context.Background()); err != pgx.ErrTxClosed && err != nil {
-			internal.LoggerFromCtx(ctx).Error("error during transaction rollback",
-				slog.Any("error", err),
-				slog.String(string(shared.FlowNameKey), flowJobName))
-		}
-	}()
+	defer shared.RollbackTx(insertBatchTablesTx, internal.LoggerFromCtx(ctx))
 
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
 		inserts := rowCounts.InsertCount.Load()
