@@ -86,6 +86,9 @@ var (
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
+	ErrorDropFlow = ErrorClass{
+		Class: "DROP_FLOW", action: NotifyTelemetry,
+	}
 	ErrorIgnoreEOF = ErrorClass{
 		Class: "IGNORE_EOF", action: Ignore,
 	}
@@ -143,7 +146,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	var dropFlowErr *exceptions.DropFlowError
 	if errors.As(err, &dropFlowErr) {
-		errorClass := ErrorInternal
+		errorClass := ErrorDropFlow
 		if pgErr != nil {
 			return errorClass, pgErrorInfo
 		}
