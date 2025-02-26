@@ -565,10 +565,17 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					}
 				}
 
+				precision := col.Tp.GetFlen()
+				scale := col.Tp.GetDecimal()
+				typmod := int32(-1)
+				if scale >= 0 || precision >= 0 {
+					typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
+				}
+
 				fd := &protos.FieldDescription{
 					Name:         col.Name.String(),
 					Type:         string(qkind),
-					TypeModifier: -1,
+					TypeModifier: typmod,
 					Nullable:     nullable,
 				}
 				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, fd)
