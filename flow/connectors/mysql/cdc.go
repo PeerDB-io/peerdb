@@ -544,18 +544,19 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		c.logger.Warn("table not found in mapping", slog.String("table", sourceTableName))
 		return nil
 	}
+	currentSchema := req.TableNameSchemaMapping[destinationTableName]
 
 	tableSchemaDelta := &protos.TableSchemaDelta{
-		SrcTableName: sourceTableName,
-		DstTableName: destinationTableName,
-		AddedColumns: nil,
-		System:       protos.TypeSystem_Q,
+		SrcTableName:    sourceTableName,
+		DstTableName:    destinationTableName,
+		AddedColumns:    nil,
+		System:          protos.TypeSystem_Q,
+		NullableEnabled: currentSchema != nil && currentSchema.NullableEnabled,
 	}
+
 	for _, spec := range stmt.Specs {
 		if spec.NewColumns != nil {
 			// these are added columns
-			currentSchema := req.TableNameSchemaMapping[destinationTableName]
-
 			for _, col := range spec.NewColumns {
 				qkind, err := qkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
 				if err != nil {
@@ -568,7 +569,6 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						nullable = false
 					}
 				}
-				c.logger.Warn("QQQQ", slog.String("QQQQname", col.Name.String()), slog.Any("nullable", nullable), slog.Any("options", col.Options))
 
 				precision := col.Tp.GetFlen()
 				scale := col.Tp.GetDecimal()
