@@ -324,6 +324,7 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	var mysqlParser *parser.Parser
 	for inTx || recordCount < req.MaxBatchSize {
 		getCtx := ctx
 		if !inTx {
@@ -361,7 +362,10 @@ func (c *MySqlConnector) PullRecords(
 				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
 		case *replication.QueryEvent:
-			stmts, warns, err := parser.New().ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
+			if mysqlParser == nil {
+				mysqlParser = parser.New()
+			}
+			stmts, warns, err := mysqlParser.ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
 			if err != nil {
 				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
 				break
@@ -564,6 +568,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						nullable = false
 					}
 				}
+				c.logger.Warn("QQQQ", slog.String("QQQQname", col.Name.String()), slog.Any("nullable", nullable), slog.Any("options", col.Options))
 
 				precision := col.Tp.GetFlen()
 				scale := col.Tp.GetDecimal()
