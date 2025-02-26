@@ -32,33 +32,37 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 	})
 
 	var dropSource, dropDestination func(f workflow.Future)
-	dropSource = func(f workflow.Future) {
-		sourceError = f.Get(ctx, nil)
-		sourceOk = sourceError == nil
-		if !sourceOk {
-			sourceTries += 1
-			var dropSourceFuture workflow.Future
-			if sourceTries < 50 {
-				dropSourceFuture = workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
-					FlowJobName: input.FlowJobName,
-					PeerName:    input.FlowConnectionConfigs.SourceName,
-				})
-			} else {
-				dropSourceFuture = workflow.ExecuteActivity(ctx, flowable.Alert, &protos.AlertInput{
-					FlowName: input.FlowJobName,
-					Message:  "failed to drop source peer " + input.FlowConnectionConfigs.SourceName,
-				})
+	if !input.SkipSourceDrop {
+		dropSource = func(f workflow.Future) {
+			sourceError = f.Get(ctx, nil)
+			sourceOk = sourceError == nil
+			if !sourceOk {
+				sourceTries += 1
+				var dropSourceFuture workflow.Future
+				if sourceTries < 50 {
+					dropSourceFuture = workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
+						FlowJobName: input.FlowJobName,
+						PeerName:    input.FlowConnectionConfigs.SourceName,
+					})
+				} else {
+					dropSourceFuture = workflow.ExecuteActivity(ctx, flowable.Alert, &protos.AlertInput{
+						FlowName: input.FlowJobName,
+						Message:  "failed to drop source peer " + input.FlowConnectionConfigs.SourceName,
+					})
+				}
+				selector.AddFuture(dropSourceFuture, dropSource)
+				_ = workflow.Sleep(ctx, time.Second)
 			}
-			selector.AddFuture(dropSourceFuture, dropSource)
-			_ = workflow.Sleep(ctx, time.Second)
 		}
-	}
 
-	dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
-		FlowJobName: input.FlowJobName,
-		PeerName:    input.FlowConnectionConfigs.SourceName,
-	})
-	selector.AddFuture(dropSourceFuture, dropSource)
+		dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
+			FlowJobName: input.FlowJobName,
+			PeerName:    input.FlowConnectionConfigs.SourceName,
+		})
+		selector.AddFuture(dropSourceFuture, dropSource)
+	} else {
+		sourceOk = true
+	}
 
 	if !input.SkipDestinationDrop {
 		dropDestination = func(f workflow.Future) {
@@ -91,14 +95,13 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 		destinationOk = true
 	}
 
-	for {
+	for !sourceOk || !destinationOk {
 		selector.Select(ctx)
 		if canceled {
 			return errors.Join(ctx.Err(), sourceError, destinationError)
-		} else if sourceOk && destinationOk {
-			return nil
 		}
 	}
+	return nil
 }
 
 func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
