@@ -558,11 +558,18 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					return err
 				}
 
+				nullable := true
+				for _, option := range col.Options {
+					if option.Tp == ast.ColumnOptionNotNull {
+						nullable = false
+					}
+				}
+
 				fd := &protos.FieldDescription{
 					Name:         col.Name.String(),
 					Type:         string(qkind),
 					TypeModifier: -1,
-					Nullable:     (col.Tp.GetFlag() & mysql.NOT_NULL_FLAG) != 0,
+					Nullable:     nullable,
 				}
 				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, fd)
 				// current assumption is the columns will be ordered like this
