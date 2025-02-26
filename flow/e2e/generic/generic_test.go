@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	"github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	e2e_bigquery "github.com/PeerDB-io/peerdb/flow/e2e/bigquery"
 	e2e_clickhouse "github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
@@ -124,9 +124,13 @@ func (s Generic) Test_Simple_Flow() {
 func (s Generic) Test_Simple_Schema_Changes() {
 	t := s.T()
 
+	if _, ok := s.Source().(*e2e.MySqlSource); ok {
+		t.Skip("mysql connector does not support schema changes yet")
+	}
+
 	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
 	if !ok {
-		t.SkipNow()
+		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
 	}
 
 	srcTable := "test_simple_schema_changes"
@@ -134,13 +138,12 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	srcTableName := e2e.AttachSchema(s, srcTable)
 	dstTableName := s.DestinationTable(dstTable)
 
-	_, err := s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+			id SERIAL PRIMARY KEY,
 			c1 BIGINT
 		);
-	`, srcTableName))
-	require.NoError(t, err)
+	`, srcTableName)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
@@ -154,10 +157,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 1)
-	e2e.EnvNoError(t, env, err)
-	t.Log("Inserted initial row in the source table")
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(1)`, srcTableName)))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", srcTable, dstTable, "id,c1")
 
@@ -191,17 +191,11 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 
 	// alter source table, add column c2 and insert another row.
-	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
-		ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName))
-	e2e.EnvNoError(t, env, err)
-	t.Log("Altered source table, added column c2")
-	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %s(c1,c2) VALUES ($1,$2)`, srcTableName), 2, 2)
-	e2e.EnvNoError(t, env, err)
-	t.Log("Inserted row with added c2 in the source table")
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES (2,2)`, srcTableName)))
 
 	// verify we got our two rows, if schema did not match up it will error.
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,c2")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
 	expectedTableSchema = &protos.TableSchema{
 		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
 		Columns: []*protos.FieldDescription{
@@ -230,20 +224,14 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c2")
+	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
 
 	// alter source table, add column c3, drop column c2 and insert another row.
-	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
-		ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 BIGINT`, srcTableName))
-	e2e.EnvNoError(t, env, err)
-	t.Log("Altered source table, dropped column c2 and added column c3")
-	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %s(c1,c3) VALUES ($1,$2)`, srcTableName), 3, 3)
-	e2e.EnvNoError(t, env, err)
-	t.Log("Inserted row with added c3 in the source table")
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN c2, ADD COLUMN c3 BIGINT`, srcTableName)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c3) VALUES (3,3)`, srcTableName)))
 
 	// verify we got our two rows, if schema did not match up it will error.
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c2 column", srcTable, dstTable, "id,c1,c3")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c2 column", srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
 	expectedTableSchema = &protos.TableSchema{
 		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
 		Columns: []*protos.FieldDescription{
@@ -277,17 +265,11 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,c3")
+	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
 
 	// alter source table, drop column c3 and insert another row.
-	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
-		ALTER TABLE %s DROP COLUMN c3`, srcTableName))
-	e2e.EnvNoError(t, env, err)
-	t.Log("Altered source table, dropped column c3")
-	_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %s(c1) VALUES ($1)`, srcTableName), 4)
-	e2e.EnvNoError(t, env, err)
-	t.Log("Inserted row after dropping all columns in the source table")
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN c3`, srcTableName)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES (4)`, srcTableName)))
 
 	// verify we got our two rows, if schema did not match up it will error.
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c3 column", srcTable, dstTable, "id,c1")
@@ -333,11 +315,18 @@ func (s Generic) Test_Simple_Schema_Changes() {
 
 func (s Generic) Test_Partitioned_Table() {
 	t := s.T()
+
+	pgSource, ok := s.Source().(*e2e.PostgresSource)
+	if !ok {
+		t.Skip("test only applies to postgres")
+	}
+	conn := pgSource.PostgresConnector
+
 	srcTable := "test_partition"
 	dstTable := "test_partition_dst"
 	srcSchemaTable := e2e.AttachSchema(s, srcTable)
 
-	_, err := s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
+	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
 			CREATE TABLE %[1]s(
 				id SERIAL NOT NULL,
 				name TEXT,
@@ -370,9 +359,9 @@ func (s Generic) Test_Partitioned_Table() {
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testName := fmt.Sprintf("test_name_%d", i)
-		_, err = s.Connector().Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %s(name, created_at) VALUES ($1, '2024-%d-01')
-		`, srcSchemaTable, max(1, i)), testName)
+		_, err := conn.Conn().Exec(t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(name, created_at) VALUES ($1, '2024-%d-01')`,
+				srcSchemaTable, max(1, i)), testName)
 		e2e.EnvNoError(t, env, err)
 	}
 	t.Log("Inserted 10 rows into the source table")

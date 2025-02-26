@@ -28,9 +28,9 @@ func isSupportedClusteringType(fieldType bigquery.FieldType) bool {
 func obtainClusteringColumns(tableSchema *protos.TableSchema) []string {
 	numPkeyCols := len(tableSchema.PrimaryKeyColumns)
 	supportedPkeyColsForClustering := make([]string, 0, numPkeyCols)
-	isColPrimary := make(map[string]bool, numPkeyCols)
+	isColPrimary := make(map[string]struct{}, numPkeyCols)
 	for _, pkeyCol := range tableSchema.PrimaryKeyColumns {
-		isColPrimary[pkeyCol] = true
+		isColPrimary[pkeyCol] = struct{}{}
 	}
 	for _, col := range tableSchema.Columns {
 		if _, ok := isColPrimary[col.Name]; ok {

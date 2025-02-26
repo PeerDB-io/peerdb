@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -253,7 +254,7 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(v)}, nil
 		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: v}, nil
+			return qvalue.QValueBytes{Val: slices.Clone(v)}, nil
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(v)}, nil
 		case qvalue.QValueKindNumeric:
