@@ -363,10 +363,11 @@ func (c *MySqlConnector) PullRecords(
 		case *replication.QueryEvent:
 			stmts, warns, err := parser.New().ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
 			if err != nil {
-				return err
+				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				break
 			}
 			if len(warns) > 0 {
-				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("stmts", stmts), slog.Any("warns", warns))
+				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
 			}
 			for _, stmt := range stmts {
 				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
