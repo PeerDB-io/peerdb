@@ -11,7 +11,7 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -19,10 +19,10 @@ func getMaintenanceWorkflowOptions(workflowIDPrefix string, taskQueueId shared.T
 	maintenanceWorkflowOptions := client.StartWorkflowOptions{
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		TaskQueue:                peerdbenv.PeerFlowTaskQueueName(taskQueueId),
+		TaskQueue:                internal.PeerFlowTaskQueueName(taskQueueId),
 		ID:                       workflowIDPrefix,
 	}
-	if deploymentUid := peerdbenv.PeerDBDeploymentUID(); deploymentUid != "" {
+	if deploymentUid := internal.PeerDBDeploymentUID(); deploymentUid != "" {
 		maintenanceWorkflowOptions.ID += "-" + deploymentUid
 	}
 	return maintenanceWorkflowOptions
@@ -293,6 +293,6 @@ func runBackgroundAlerter(ctx workflow.Context) workflow.CancelFunc {
 
 func GetPeerDBVersion(ctx workflow.Context) (string, error) {
 	return GetSideEffect(ctx, func(workflow.Context) string {
-		return peerdbenv.PeerDBVersionShaShort()
+		return internal.PeerDBVersionShaShort()
 	}), nil
 }

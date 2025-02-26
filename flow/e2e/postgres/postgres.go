@@ -11,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -58,14 +59,14 @@ func (s PeerFlowE2ETestSuitePG) DestinationTable(table string) string {
 
 func (s PeerFlowE2ETestSuitePG) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	s.t.Helper()
-	pgQueryExecutor, err := s.conn.NewQRepQueryExecutor(context.Background(), "testflow", "testpart")
+	pgQueryExecutor, err := s.conn.NewQRepQueryExecutor(s.t.Context(), "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
-		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, s.suffix, connpostgres.QuoteIdentifier(table)),
+		s.t.Context(),
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, s.suffix, utils.QuoteIdentifier(table)),
 	)
 }
 
@@ -83,6 +84,6 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	}
 }
 
-func (s PeerFlowE2ETestSuitePG) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s PeerFlowE2ETestSuitePG) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 }

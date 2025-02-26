@@ -115,16 +115,14 @@ func TestAdjustNumPartitions(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			got := AdjustNumPartitions(tc.totalRows, tc.desiredRowsPerPartition)
-			if got.AdjustedNumPartitions != tc.expectedPartitions {
-				t.Errorf("AdjustNumPartitions(totalRows=%d, desiredRowsPerPartition=%d).AdjustedNumPartitions = %d; want %d",
-					tc.totalRows, tc.desiredRowsPerPartition, got.AdjustedNumPartitions, tc.expectedPartitions)
-			}
-			if got.AdjustedNumRowsPerPartition != tc.expectedRowsPerPartition {
-				t.Errorf("AdjustNumPartitions(totalRows=%d, desiredRowsPerPartition=%d).AdjustedNumRowsPerPartition = %d; want %d",
-					tc.totalRows, tc.desiredRowsPerPartition, got.AdjustedNumRowsPerPartition, tc.expectedRowsPerPartition)
-			}
-		})
+		got := AdjustNumPartitions(tc.totalRows, tc.desiredRowsPerPartition)
+		if got.AdjustedNumPartitions != tc.expectedPartitions {
+			t.Errorf("AdjustNumPartitions(totalRows=%d, desiredRowsPerPartition=%d).AdjustedNumPartitions = %d; want %d",
+				tc.totalRows, tc.desiredRowsPerPartition, got.AdjustedNumPartitions, tc.expectedPartitions)
+		}
+		if got.AdjustedNumRowsPerPartition != tc.expectedRowsPerPartition {
+			t.Errorf("AdjustNumPartitions(totalRows=%d, desiredRowsPerPartition=%d).AdjustedNumRowsPerPartition = %d; want %d",
+				tc.totalRows, tc.desiredRowsPerPartition, got.AdjustedNumRowsPerPartition, tc.expectedRowsPerPartition)
+		}
 	}
 }

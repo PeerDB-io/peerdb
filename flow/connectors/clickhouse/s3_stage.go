@@ -3,12 +3,13 @@ package connclickhouse
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
 	utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func SetAvroStage(
@@ -22,7 +23,7 @@ func SetAvroStage(
 		return fmt.Errorf("failed to marshal avro file: %w", err)
 	}
 
-	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get connection: %w", err)
 	}
@@ -41,7 +42,7 @@ func SetAvroStage(
 }
 
 func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (*utils.AvroFile, error) {
-	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection: %w", err)
 	}
@@ -52,7 +53,7 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (*
 		WHERE flow_job_name = $1 AND sync_batch_id = $2`,
 		flowJobName, syncBatchID,
 	).Scan(&avroFileJSON); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("no avro stage found for flow job %s and sync batch %d", flowJobName, syncBatchID)
 		}
 		return nil, fmt.Errorf("failed to get avro stage: %w", err)

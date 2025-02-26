@@ -22,9 +22,9 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -46,9 +46,7 @@ func NewElasticsearchConnector(ctx context.Context,
 		Addresses: config.Addresses,
 		Transport: &http.Transport{
 			MaxIdleConnsPerHost: 4,
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS13,
-			},
+			TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS13},
 		},
 	}
 	if config.AuthType == protos.ElasticsearchAuthType_BASIC {
@@ -70,7 +68,7 @@ func NewElasticsearchConnector(ctx context.Context,
 	return &ElasticsearchConnector{
 		PostgresMetadata: pgMetadata,
 		client:           esClient,
-		logger:           shared.LoggerFromCtx(ctx),
+		logger:           internal.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -146,7 +144,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 		if err != nil {
 			esc.logger.Warn("[elasticsearch] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return

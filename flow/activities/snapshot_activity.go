@@ -7,12 +7,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -29,7 +29,7 @@ type TxSnapshotState struct {
 
 type SnapshotActivity struct {
 	Alerter             *alerting.Alerter
-	CatalogPool         *pgxpool.Pool
+	CatalogPool         shared.CatalogPool
 	SlotSnapshotStates  map[string]SlotSnapshotState
 	TxSnapshotStates    map[string]TxSnapshotState
 	SnapshotStatesMutex sync.Mutex
@@ -63,18 +63,18 @@ func (a *SnapshotActivity) SetupReplication(
 
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connector: %w", err)
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
 
 	logger.Info("waiting for slot to be created...")
 	slotInfo, err := conn.SetupReplication(ctx, config)
 
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
 		connectors.CloseConnector(ctx, conn)
-		return nil, fmt.Errorf("slot error: %w", err)
+		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("slot error: %w", err))
 	} else if slotInfo.Conn == nil && slotInfo.SlotName == "" {
+		connectors.CloseConnector(ctx, conn)
 		logger.Info("replication setup without slot")
 		return nil, nil
 	} else {
@@ -104,7 +104,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	defer shutdown()
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, peer)
 	if err != nil {
-		return err
+		return a.Alerter.LogFlowError(ctx, sessionID, err)
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
@@ -165,5 +165,5 @@ func (a *SnapshotActivity) LoadTableSchema(
 	flowName string,
 	tableName string,
 ) (*protos.TableSchema, error) {
-	return shared.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
+	return internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
 }

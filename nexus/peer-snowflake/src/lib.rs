@@ -175,7 +175,7 @@ impl SnowflakeQueryExecutor {
                         timestamp_tz_output_format: TIMESTAMP_TZ_OUTPUT_FORMAT,
                     },
                 })
-            .send()
+                .send()
                 .await
                 .map_err(|e| {
                     anyhow::anyhow!("failed in making request for QueryStatus. error: {:?}", e)
@@ -188,7 +188,7 @@ impl SnowflakeQueryExecutor {
 
             // TODO: remove this blind retry logic for anything other than a SELECT.
             if let Some(res) = self.query_poll(query_status).await? {
-                return Ok(res)
+                return Ok(res);
             }
         }
     }

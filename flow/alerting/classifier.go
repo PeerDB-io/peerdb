@@ -5,9 +5,14 @@ import (
 	"errors"
 	"io"
 	"net"
+	"strconv"
 	"strings"
+	"syscall"
 
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/ssh"
 
@@ -26,6 +31,27 @@ func (e ErrorAction) String() string {
 	return string(e)
 }
 
+type ErrorSource string
+
+const (
+	ErrorSourceClickHouse      ErrorSource = "clickhouse"
+	ErrorSourcePostgres        ErrorSource = "postgres"
+	ErrorSourceMySQL           ErrorSource = "mysql"
+	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
+	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
+	ErrorSourceNet             ErrorSource = "net"
+	ErrorSourceOther           ErrorSource = "other"
+)
+
+func (e ErrorSource) String() string {
+	return string(e)
+}
+
+type ErrorInfo struct {
+	Source ErrorSource
+	Code   string
+}
+
 type ErrorClass struct {
 	Class  string
 	action ErrorAction
@@ -33,47 +59,51 @@ type ErrorClass struct {
 
 var (
 	ErrorNotifyOOM = ErrorClass{
-		// ClickHouse Code 241
 		Class: "NOTIFY_OOM", action: NotifyUser,
 	}
 	ErrorNotifyMVOrView = ErrorClass{
-		// ClickHouse Code 349 / Code 48 with "while pushing to view"
 		Class: "NOTIFY_MV_OR_VIEW", action: NotifyUser,
 	}
 	ErrorNotifyConnectivity = ErrorClass{
-		// ClickHouse Code 81 or Postgres Code 28P01
 		Class: "NOTIFY_CONNECTIVITY", action: NotifyUser,
 	}
 	ErrorNotifySlotInvalid = ErrorClass{
-		// Postgres Code 55000 with "cannot read from logical replication slot"
 		Class: "NOTIFY_SLOT_INVALID", action: NotifyUser,
 	}
+	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
+		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
+	}
 	ErrorNotifyTerminate = ErrorClass{
-		// Postgres Code 57P01
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
 	ErrorNotifyConnectTimeout = ErrorClass{
 		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
 	}
-	ErrorEventInternal = ErrorClass{
-		// Level <= Info
-		Class: "EVENT_INTERNAL", action: NotifyTelemetry,
+	ErrorNormalize = ErrorClass{
+		Class: "NORMALIZE", action: NotifyTelemetry,
+	}
+	ErrorInternal = ErrorClass{
+		Class: "INTERNAL", action: NotifyTelemetry,
 	}
 	ErrorIgnoreEOF = ErrorClass{
-		// io.EOF || io.ErrUnexpectedEOF
 		Class: "IGNORE_EOF", action: Ignore,
 	}
+	ErrorIgnoreConnTemporary = ErrorClass{
+		Class: "IGNORE_CONN_TEMPORARY", action: Ignore,
+	}
 	ErrorIgnoreContextCancelled = ErrorClass{
-		// context.Canceled
 		Class: "IGNORE_CONTEXT_CANCELLED", action: Ignore,
 	}
+	ErrorRetryRecoverable = ErrorClass{
+		// These errors are generally recoverable, but need to be escalated if they persist
+		Class: "ERROR_RETRY_RECOVERABLE", action: NotifyTelemetry,
+	}
 	ErrorInternalClickHouse = ErrorClass{
-		// Code 999 or 341
 		Class: "INTERNAL_CLICKHOUSE", action: NotifyTelemetry,
 	}
 	ErrorOther = ErrorClass{
-		// These are internal and should not be exposed
+		// These are unclassified and should not be exposed
 		Class: "OTHER", action: NotifyTelemetry,
 	}
 )
@@ -89,79 +119,179 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 	return NotifyTelemetry
 }
 
-func GetErrorClass(ctx context.Context, err error) ErrorClass {
-	// PeerDB error types
-	var peerDBErr *exceptions.PostgresSetupError
-	if errors.As(err, &peerDBErr) {
-		return ErrorNotifyConnectivity
-	}
-	// Generally happens during workflow cancellation
-	if errors.Is(err, context.Canceled) {
-		return ErrorIgnoreContextCancelled
-	}
-	// Usually seen in ClickHouse cloud during instance scale-up
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return ErrorIgnoreEOF
-	}
-	// ClickHouse specific errors
-	var exception *clickhouse.Exception
-	if errors.As(err, &exception) {
-		switch exception.Code {
-		case 241: // MEMORY_LIMIT_EXCEEDED
-			return ErrorNotifyOOM
-		case 349: // CANNOT_INSERT_NULL_IN_ORDINARY_COLUMN
-			if isClickHouseMvError(exception) {
-				return ErrorNotifyMVOrView
-			}
-		case 48: // NOT_IMPLEMENTED
-			if isClickHouseMvError(exception) {
-				return ErrorNotifyMVOrView
-			}
-		case 81: // UNKNOWN_DATABASE
-			return ErrorNotifyConnectivity
-		case 999: // KEEPER_EXCEPTION
-			return ErrorInternalClickHouse
-		case 341: // UNFINISHED
-			return ErrorInternalClickHouse
-		case 236: // ABORTED
-			return ErrorInternalClickHouse
-		}
-	}
-	// Postgres specific errors
+func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
+	var pgErrorInfo ErrorInfo
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
+		pgErrorInfo = ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   pgErr.Code,
+		}
+	}
+
+	var catalogErr *exceptions.CatalogError
+	if errors.As(err, &catalogErr) {
+		errorClass := ErrorInternal
+		if pgErr != nil {
+			return errorClass, pgErrorInfo
+		}
+		return errorClass, ErrorInfo{
+			Source: ErrorSourcePostgresCatalog,
+			Code:   "UNKNOWN",
+		}
+	}
+
+	var peerDBErr *exceptions.PostgresSetupError
+	if errors.As(err, &peerDBErr) {
+		errorClass := ErrorNotifyConnectivity
+		if pgErr != nil {
+			return errorClass, pgErrorInfo
+		}
+		return errorClass, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNKNOWN",
+		}
+	}
+
+	if errors.Is(err, context.Canceled) {
+		// Generally happens during workflow cancellation
+		return ErrorIgnoreContextCancelled, ErrorInfo{
+			Source: ErrorSourceOther,
+			Code:   "CONTEXT_CANCELLED",
+		}
+	}
+
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		// Usually seen in ClickHouse cloud during instance scale-up
+		return ErrorIgnoreEOF, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "EOF",
+		}
+	}
+
+	if pgErr != nil {
 		switch pgErr.Code {
-		case "28000": // invalid_authorization_specification
-			return ErrorNotifyConnectivity
-		case "28P01": // invalid_password
-			return ErrorNotifyConnectivity
-		case "42P01": // undefined_table
-			return ErrorNotifyConnectivity
-		case "42501": // insufficient_privilege
-			return ErrorNotifyConnectivity
-		case "57P01": // admin_shutdown
-			return ErrorNotifyTerminate
-		case "57P03": // cannot_connect_now
-			return ErrorNotifyConnectivity
-		case "55000": // object_not_in_prerequisite_state
+		case pgerrcode.InvalidAuthorizationSpecification,
+			pgerrcode.InvalidPassword,
+			pgerrcode.InsufficientPrivilege,
+			pgerrcode.UndefinedTable,
+			pgerrcode.CannotConnectNow:
+			return ErrorNotifyConnectivity, pgErrorInfo
+		case pgerrcode.AdminShutdown:
+			return ErrorNotifyTerminate, pgErrorInfo
+		case pgerrcode.ObjectNotInPrerequisiteState:
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") {
-				return ErrorNotifySlotInvalid
+				return ErrorNotifySlotInvalid, pgErrorInfo
+			}
+		case pgerrcode.InvalidParameterValue:
+			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
+				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
+			}
+		case pgerrcode.TooManyConnections:
+			return ErrorNotifyConnectivity, pgErrorInfo // Maybe we can return something else?
+		}
+	}
+
+	var myErr *mysql.MyError
+	if errors.As(err, &myErr) {
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   strconv.Itoa(int(myErr.Code)),
+		}
+	}
+
+	var chException *clickhouse.Exception
+	if errors.As(err, &chException) {
+		chErrorInfo := ErrorInfo{
+			Source: ErrorSourceClickHouse,
+			Code:   string(chException.Code),
+		}
+		switch chproto.Error(chException.Code) {
+		case chproto.ErrMemoryLimitExceeded:
+			return ErrorNotifyOOM, chErrorInfo
+		case chproto.ErrCannotInsertNullInOrdinaryColumn,
+			chproto.ErrNotImplemented,
+			chproto.ErrTooManyParts:
+			if isClickHouseMvError(chException) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
+		case chproto.ErrUnknownDatabase:
+			return ErrorNotifyConnectivity, chErrorInfo
+		case chproto.ErrKeeperException,
+			chproto.ErrUnfinished,
+			chproto.ErrAborted:
+			return ErrorInternalClickHouse, chErrorInfo
+		default:
+			if isClickHouseMvError(chException) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
+			var normalizationErr *exceptions.NormalizationError
+			if errors.As(err, &normalizationErr) {
+				// notify if normalization hits error on destination
+				return ErrorNormalize, chErrorInfo
 			}
 		}
 	}
 
-	// Network related errors
-	var netErr *net.OpError
-	if errors.As(err, &netErr) {
-		return ErrorNotifyConnectivity
+	// Connection reset errors can mostly be ignored
+	if errors.Is(err, syscall.ECONNRESET) {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   syscall.ECONNRESET.Error(),
+		}
 	}
 
-	// SSH related errors
-	var sshErr *ssh.OpenChannelError
-	if errors.As(err, &sshErr) {
-		return ErrorNotifyConnectivity
+	if errors.Is(err, net.ErrClosed) {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "net.ErrClosed",
+		}
 	}
-	return ErrorOther
+
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   netErr.Err.Error(),
+		}
+	}
+
+	var ssOpenChanErr *ssh.OpenChannelError
+	if errors.As(err, &ssOpenChanErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   ssOpenChanErr.Reason.String(),
+		}
+	}
+
+	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
+	if errors.As(err, &sshTunnelSetupErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   "UNKNOWN",
+		}
+	}
+	var pgWalErr *exceptions.PostgresWalError
+	if errors.As(err, &pgWalErr) {
+		if pgWalErr.Msg.Severity == "ERROR" && pgWalErr.Msg.Code == pgerrcode.InternalError &&
+			(strings.HasPrefix(pgWalErr.Msg.Message, "could not read from reorderbuffer spill file") ||
+				(strings.HasPrefix(pgWalErr.Msg.Message, "could not stat file ") &&
+					strings.HasSuffix(pgWalErr.Msg.Message, "Stale file handle"))) {
+			// Example errors:
+			// could not stat file "pg_logical/snapshots/1B6-2A845058.snap": Stale file handle
+			// could not read from reorderbuffer spill file: Bad address
+			// could not read from reorderbuffer spill file: Bad file descriptor
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   pgWalErr.Msg.Code,
+			}
+		}
+	}
+
+	return ErrorOther, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
+	}
 }
 
 func isClickHouseMvError(exception *clickhouse.Exception) bool {

@@ -2,6 +2,8 @@ import {
   MySqlConfig,
   MySqlFlavor,
   mySqlFlavorFromJSON,
+  MySqlReplicationMechanism,
+  mySqlReplicationMechanismFromJSON,
 } from '@/grpc_generated/peers';
 
 import { PeerSetting } from './common';
@@ -66,6 +68,23 @@ export const mysqlSetting: PeerSetting[] = [
       { value: 'MYSQL_MARIA', label: 'MariaDB' },
     ],
   },
+  {
+    label: 'Replication',
+    field: 'replicationMechanism',
+    type: 'select',
+    default: 'MYSQL_AUTO',
+    placeholder: 'Select a replication mechanism',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({
+        ...curr,
+        replicationMechanism: mySqlReplicationMechanismFromJSON(value),
+      })),
+    options: [
+      { value: 'MYSQL_AUTO', label: 'Auto' },
+      { value: 'MYSQL_GTID', label: 'GTID' },
+      { value: 'MYSQL_FILEPOS', label: 'FilePos' },
+    ],
+  },
 ];
 
 export const blankMySqlSetting: MySqlConfig = {
@@ -78,4 +97,5 @@ export const blankMySqlSetting: MySqlConfig = {
   compression: 0,
   disableTls: false,
   flavor: MySqlFlavor.MYSQL_MYSQL,
+  replicationMechanism: MySqlReplicationMechanism.MYSQL_AUTO,
 };

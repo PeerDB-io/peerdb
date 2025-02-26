@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	partition_utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -71,7 +72,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 
 func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx, snapshot string) error {
 	if snapshot != "" {
-		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(snapshot)); err != nil {
+		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(snapshot)); err != nil {
 			return fmt.Errorf("failed to set transaction snapshot: %w", err)
 		}
 	}
@@ -86,7 +87,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
+	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
@@ -201,7 +202,7 @@ func (c *PostgresConnector) getMinMaxValues(
 	last *protos.QRepPartition,
 ) (interface{}, interface{}, error) {
 	var minValue, maxValue interface{}
-	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
+	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -444,7 +445,7 @@ func syncQRepRecords(
 	defer func() {
 		if err := tx.Rollback(context.Background()); err != nil {
 			if err != pgx.ErrTxClosed {
-				shared.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
+				internal.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
 			}
 		}
 	}()
@@ -479,8 +480,8 @@ func syncQRepRecords(
 			updateSyncedAtStmt := fmt.Sprintf(
 				`UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL;`,
 				pgx.Identifier{dstTable.Schema, dstTable.Table}.Sanitize(),
-				QuoteIdentifier(syncedAtCol),
-				QuoteIdentifier(syncedAtCol),
+				utils.QuoteIdentifier(syncedAtCol),
+				utils.QuoteIdentifier(syncedAtCol),
 			)
 			_, err = tx.Exec(ctx, updateSyncedAtStmt)
 			if err != nil {
@@ -539,14 +540,14 @@ func syncQRepRecords(
 		selectStrArray := make([]string, 0, len(columnNames))
 		for _, col := range columnNames {
 			_, ok := upsertMatchCols[col]
-			quotedCol := QuoteIdentifier(col)
+			quotedCol := utils.QuoteIdentifier(col)
 			if !ok {
 				setClauseArray = append(setClauseArray, fmt.Sprintf(`%s = EXCLUDED.%s`, quotedCol, quotedCol))
 			}
 			selectStrArray = append(selectStrArray, quotedCol)
 		}
 		setClauseArray = append(setClauseArray,
-			QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
+			utils.QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
 		setClause := strings.Join(setClauseArray, ",")
 		selectSQL := strings.Join(selectStrArray, ",")
 
@@ -555,7 +556,7 @@ func syncQRepRecords(
 			`INSERT INTO %s (%s, %s) SELECT %s, CURRENT_TIMESTAMP FROM %s ON CONFLICT (%s) DO UPDATE SET %s;`,
 			dstTableIdentifier.Sanitize(),
 			selectSQL,
-			QuoteIdentifier(syncedAtCol),
+			utils.QuoteIdentifier(syncedAtCol),
 			selectSQL,
 			stagingTableIdentifier.Sanitize(),
 			strings.Join(writeMode.UpsertKeyColumns, ", "),

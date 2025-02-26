@@ -10,8 +10,8 @@ use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
         peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount,
-        KafkaConfig, MongoConfig, MySqlFlavor, Peer, PostgresConfig, PubSubConfig, S3Config,
-        SnowflakeConfig, SqlServerConfig, SshConfig,
+        KafkaConfig, MongoConfig, MySqlFlavor, MySqlReplicationMechanism, Peer, PostgresConfig,
+        PubSubConfig, S3Config, SnowflakeConfig, SqlServerConfig, SshConfig,
     },
 };
 use qrep::process_options;
@@ -983,6 +983,13 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 Some(&"mysql") => MySqlFlavor::MysqlMysql,
                 Some(&"maria") | Some(&"mariadb") => MySqlFlavor::MysqlMaria,
                 _ => MySqlFlavor::MysqlUnknown,
+            }
+            .into(),
+            ssh_config: None,
+            replication_mechanism: match opts.get("replication_mechanism") {
+                Some(&"gtid") => MySqlReplicationMechanism::MysqlGtid,
+                Some(&"filepos") => MySqlReplicationMechanism::MysqlFilepos,
+                _ => MySqlReplicationMechanism::MysqlAuto,
             }
             .into(),
         }),

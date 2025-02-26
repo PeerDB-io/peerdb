@@ -1,21 +1,24 @@
 package utils
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-// getSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
-// Parameters:
-//
-//	user: SSH username
-//	password: SSH password (can be empty if using a private key)
-//	privateKeyString: Private key as a string (can be empty if using a password)
+type SSHTunnel struct {
+	*ssh.Client
+}
+
+// GetSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
 func GetSSHClientConfig(config *protos.SSHConfig) (*ssh.ClientConfig, error) {
 	var authMethods []ssh.AuthMethod
 
@@ -60,4 +63,36 @@ func GetSSHClientConfig(config *protos.SSHConfig) (*ssh.ClientConfig, error) {
 		Auth:            authMethods,
 		HostKeyCallback: hostKeyCallback,
 	}, nil
+}
+
+func NewSSHTunnel(
+	ctx context.Context,
+	sshConfig *protos.SSHConfig,
+) (SSHTunnel, error) {
+	if sshConfig != nil {
+		logger := internal.LoggerFromCtx(ctx)
+		sshServer := fmt.Sprintf("%s:%d", sshConfig.Host, sshConfig.Port)
+		clientConfig, err := GetSSHClientConfig(sshConfig)
+		if err != nil {
+			logger.Error("Failed to get SSH client config", "error", err)
+			return SSHTunnel{}, err
+		}
+
+		logger.Info("Setting up SSH connection ", slog.String("Server", sshServer))
+		client, err := ssh.Dial("tcp", sshServer, clientConfig)
+		if err != nil {
+			return SSHTunnel{}, exceptions.NewSSHTunnelSetupError(err)
+		}
+
+		return SSHTunnel{Client: client}, nil
+	}
+
+	return SSHTunnel{}, nil
+}
+
+func (tunnel SSHTunnel) Close() error {
+	if tunnel.Client != nil {
+		return tunnel.Client.Close()
+	}
+	return nil
 }

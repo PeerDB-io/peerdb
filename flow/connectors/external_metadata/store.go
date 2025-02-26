@@ -2,6 +2,7 @@ package connmetadata
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -9,14 +10,13 @@ import (
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -26,23 +26,23 @@ const (
 )
 
 type PostgresMetadata struct {
-	pool   *pgxpool.Pool
+	pool   shared.CatalogPool
 	logger log.Logger
 }
 
 func NewPostgresMetadata(ctx context.Context) (*PostgresMetadata, error) {
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create catalog connection pool: %w", err)
 	}
 
 	return &PostgresMetadata{
 		pool:   pool,
-		logger: shared.LoggerFromCtx(ctx),
+		logger: internal.LoggerFromCtx(ctx),
 	}, nil
 }
 
-func NewPostgresMetadataFromCatalog(logger log.Logger, pool *pgxpool.Pool) *PostgresMetadata {
+func NewPostgresMetadataFromCatalog(logger log.Logger, pool shared.CatalogPool) *PostgresMetadata {
 	return &PostgresMetadata{
 		pool:   pool,
 		logger: logger,
@@ -78,7 +78,7 @@ func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (m
 		`SELECT last_offset, last_text FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
 		jobName,
 	).Scan(&offset.ID, &offset.Text); err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return offset, nil
 		}
 
@@ -98,7 +98,7 @@ func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName strin
 		jobName,
 	).Scan(&syncBatchID); err != nil {
 		// if the job doesn't exist, return 0
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 

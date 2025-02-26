@@ -13,6 +13,7 @@ import (
 	peersql "github.com/PeerDB-io/peerdb/flow/connectors/sql"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -50,12 +51,11 @@ func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*S
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
-	err = database.PingContext(ctx)
-	if err != nil {
+	if err := database.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
 		logger, database, snowflakeTypeToQValueKindMap, qvalue.QValueKindToSnowflakeTypeMap)
 
@@ -68,15 +68,13 @@ func NewSnowflakeClient(ctx context.Context, config *protos.SnowflakeConfig) (*S
 func (c *SnowflakeConnector) getTableCounts(ctx context.Context, tables []string) (int64, error) {
 	var totalRecords int64
 	for _, table := range tables {
-		_, err := utils.ParseSchemaTable(table)
-		if err != nil {
+		if _, err := utils.ParseSchemaTable(table); err != nil {
 			return 0, fmt.Errorf("failed to parse table name %s: %w", table, err)
 		}
 		//nolint:gosec
 		row := c.database.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+table)
 		var count pgtype.Int8
-		err = row.Scan(&count)
-		if err != nil {
+		if err := row.Scan(&count); err != nil {
 			return 0, fmt.Errorf("failed to get count for table %s: %w", table, err)
 		}
 		totalRecords += count.Int64

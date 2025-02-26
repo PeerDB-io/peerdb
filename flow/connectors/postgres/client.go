@@ -157,7 +157,7 @@ func (c *PostgresConnector) getUniqueColumns(
 		relID).Scan(&pkIndexOID)
 	if err != nil {
 		// don't error out if no pkey index, this would happen in EnsurePullability or UI.
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return []string{}, nil
 		}
 		return nil, fmt.Errorf("error finding primary key index for table %s: %w", schemaTable, err)
@@ -178,7 +178,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(
 		`SELECT indexrelid FROM pg_index WHERE indrelid=$1 AND indisreplident=true`,
 		relID).Scan(&indexRelID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("no replica identity index for table %s", schemaTable)
 		}
 		return nil, fmt.Errorf("error finding replica identity index for table %s: %w", schemaTable, err)
@@ -249,7 +249,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 		slot).Scan(&slotName)
 	if err != nil {
 		// check if the error is a "no rows" error
-		if err != pgx.ErrNoRows {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return SlotCheckResult{}, fmt.Errorf("error checking for replication slot - %s: %w", slot, err)
 		}
 	} else {
@@ -263,7 +263,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 		publication).Scan(&pubName)
 	if err != nil {
 		// check if the error is a "no rows" error
-		if err != pgx.ErrNoRows {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return SlotCheckResult{}, fmt.Errorf("error checking for publication - %s: %w", publication, err)
 		}
 	} else {
@@ -279,9 +279,9 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database string) ([]*protos.SlotInfo, error) {
 	var whereClause string
 	if slotName != "" {
-		whereClause = "WHERE slot_name=" + QuoteLiteral(slotName)
+		whereClause = "WHERE slot_name=" + utils.QuoteLiteral(slotName)
 	} else {
-		whereClause = "WHERE database=" + QuoteLiteral(database)
+		whereClause = "WHERE database=" + utils.QuoteLiteral(database)
 	}
 
 	pgversion, err := shared.GetMajorVersion(ctx, conn)
@@ -332,7 +332,7 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 // If slotName input is empty, all slot info rows are returned - this is for UI.
 // Else, only the row pertaining to that slotName will be returned.
 func (c *PostgresConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	return getSlotInfo(ctx, c.conn, slotName, c.config.Database)
+	return getSlotInfo(ctx, c.conn, slotName, c.Config.Database)
 }
 
 func (c *PostgresConnector) CreatePublication(
@@ -470,24 +470,24 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s%s", QuoteIdentifier(column.Name), pgColumnType, notNull))
+			fmt.Sprintf("%s %s%s", utils.QuoteIdentifier(column.Name), pgColumnType, notNull))
 	}
 
 	if config.SoftDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			QuoteIdentifier(config.SoftDeleteColName)+` BOOL DEFAULT FALSE`)
+			utils.QuoteIdentifier(config.SoftDeleteColName)+` BOOL DEFAULT FALSE`)
 	}
 
 	if config.SyncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			QuoteIdentifier(config.SyncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
+			utils.QuoteIdentifier(config.SyncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
 	}
 
 	// add composite primary key to the table
 	if len(tableSchema.PrimaryKeyColumns) > 0 && !tableSchema.IsReplicaIdentityFull {
 		primaryKeyColsQuoted := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
 		for _, primaryKeyCol := range tableSchema.PrimaryKeyColumns {
-			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))
+			primaryKeyColsQuoted = append(primaryKeyColsQuoted, utils.QuoteIdentifier(primaryKeyCol))
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s)",
 			strings.Join(primaryKeyColsQuoted, ",")))
@@ -504,7 +504,7 @@ func (c *PostgresConnector) GetLastSyncBatchID(ctx context.Context, jobName stri
 		mirrorJobsTableIdentifier,
 	), jobName).Scan(&result)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning 0")
 			return 0, nil
 		}
@@ -521,7 +521,7 @@ func (c *PostgresConnector) GetLastNormalizeBatchID(ctx context.Context, jobName
 		mirrorJobsTableIdentifier,
 	), jobName).Scan(&result)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning 0")
 			return 0, nil
 		}

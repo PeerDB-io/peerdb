@@ -2,6 +2,7 @@ package pua
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"math"
 	"math/big"
@@ -17,9 +18,9 @@ import (
 	"github.com/PeerDB-io/gluajson"
 	"github.com/PeerDB-io/gluamsgpack"
 	"github.com/PeerDB-io/gluautf8"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -119,16 +120,15 @@ func RegisterTypes(ls *lua.LState) {
 func LoadPeerdbScript(ls *lua.LState) int {
 	ctx := ls.Context()
 	name := ls.CheckString(1)
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		ls.RaiseError("Connection failed loading %s: %s", name, err.Error())
 		return 0
 	}
 
 	var source []byte
-	err = pool.QueryRow(ctx, "select source from scripts where lang = 'lua' and name = $1", name).Scan(&source)
-	if err != nil {
-		if err == pgx.ErrNoRows {
+	if err := pool.QueryRow(ctx, "select source from scripts where lang = 'lua' and name = $1", name).Scan(&source); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			ls.Push(lua.LString("Could not find script " + name))
 			return 1
 		}

@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
 func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -64,11 +65,10 @@ func (c *MySqlConnector) GetTablesInSchema(
 		if err != nil {
 			return nil, err
 		}
-		// TODO prettier size
 		tables = append(tables, &protos.TableResponse{
 			TableName: tableName,
 			CanMirror: true,
-			TableSize: fmt.Sprintf("%d bytes", tableSizeInBytes),
+			TableSize: mysql.PrettyBytes(tableSizeInBytes),
 		})
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil

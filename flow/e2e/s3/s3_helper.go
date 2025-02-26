@@ -32,7 +32,7 @@ const (
 	Minio
 )
 
-func NewS3TestHelper(s3environment S3Environment) (*S3TestHelper, error) {
+func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestHelper, error) {
 	var config utils.S3PeerCredentials
 	var endpoint string
 	var credsPath string
@@ -78,7 +78,7 @@ func NewS3TestHelper(s3environment S3Environment) (*S3TestHelper, error) {
 		},
 		EndpointUrl: endpointUrlPtr,
 	}, config.Region)
-	client, err := utils.CreateS3Client(context.Background(), provider)
+	client, err := utils.CreateS3Client(ctx, provider)
 	if err != nil {
 		return nil, err
 	}

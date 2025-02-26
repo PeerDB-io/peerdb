@@ -16,18 +16,19 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type CDCFlowWorkflowState struct {
-	// deprecated field
-	RelationMessageMapping model.RelationMessageMapping
 	// flow config update request, set to nil after processed
 	FlowConfigUpdate *protos.CDCFlowConfigUpdate
 	// options passed to all SyncFlows
 	SyncFlowOptions *protos.SyncFlowOptions
+	// used for computing backoff timeout
+	LastError  time.Time
+	ErrorCount int32
 	// Current signalled state of the peer flow.
 	ActiveSignal      model.CDCFlowSignal
 	CurrentFlowStatus protos.FlowStatus
@@ -138,7 +139,7 @@ func processTableAdditions(
 		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 		return nil
 	}
-	if shared.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
+	if internal.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
 		logger.Warn("duplicate source/destination tables found in additionalTables")
 		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 		return nil
@@ -369,7 +370,13 @@ func CDCFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
 	var err error
-	ctx, err = GetFlowMetadataContext(ctx, cfg.FlowJobName, cfg.SourceName, cfg.DestinationName)
+	ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
+		FlowName:        cfg.FlowJobName,
+		SourceName:      cfg.SourceName,
+		DestinationName: cfg.DestinationName,
+		Status:          state.CurrentFlowStatus,
+		IsResync:        cfg.Resync,
+	})
 	if err != nil {
 		return state, fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
@@ -417,7 +424,7 @@ func CDCFlowWorkflow(
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID := GetChildWorkflowID("snapshot-flow", cfg.FlowJobName, originalRunID)
 
-		taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
+		taskQueue := internal.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
 			WorkflowID:        snapshotFlowID,
 			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
@@ -479,6 +486,7 @@ func CDCFlowWorkflow(
 	}
 
 	var finished bool
+	var finishedError bool
 	syncCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 365 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
@@ -493,30 +501,35 @@ func CDCFlowWorkflow(
 	})
 	mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 		if err := f.Get(ctx, nil); err != nil {
+			now := workflow.Now(ctx)
+			if state.LastError.Add(24 * time.Hour).Before(now) {
+				state.ErrorCount = 0
+			}
+			state.LastError = now
 			var sleepFor time.Duration
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
+				sleepFor = time.Duration(10+min(state.ErrorCount, 3)*15) * time.Minute
 				logger.Error(
-					"panic in sync flow, waiting 10 minutes",
+					"panic in sync flow",
 					slog.Any("error", panicErr.Error()),
 					slog.String("stack", panicErr.StackTrace()),
+					slog.Any("sleepFor", sleepFor),
 				)
-				sleepFor = 10 * time.Minute
 			} else {
-				logger.Error("error in sync flow", slog.Any("error", err))
-
 				// cannot use shared.IsSQLStateError because temporal serialize/deserialize
 				if !temporal.IsApplicationError(err) || strings.Contains(err.Error(), "(SQLSTATE 55006)") {
-					logger.Info("sync flow errored, waiting 1 minute before retrying")
-					sleepFor = time.Minute
+					sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
 				} else {
-					logger.Info("sync flow errored, waiting 10 minutes before retrying")
-					sleepFor = 10 * time.Minute
+					sleepFor = time.Duration(5+min(state.ErrorCount, 5)*15) * time.Minute
 				}
+
+				logger.Error("error in sync flow", slog.Any("error", err), slog.Any("sleepFor", sleepFor))
 			}
 			mainLoopSelector.AddFuture(model.SleepFuture(ctx, sleepFor), func(_ workflow.Future) {
 				logger.Info("sync finished after waiting after error")
 				finished = true
+				finishedError = true
 				if state.SyncFlowOptions.NumberOfSyncs > 0 {
 					state.ActiveSignal = model.PauseSignal
 				}
@@ -550,7 +563,7 @@ func CDCFlowWorkflow(
 			return state, err
 		}
 
-		if shared.ShouldWorkflowContinueAsNew(ctx) {
+		if ShouldWorkflowContinueAsNew(ctx) {
 			finished = true
 		}
 
@@ -564,6 +577,11 @@ func CDCFlowWorkflow(
 				return nil, err
 			}
 
+			if finishedError {
+				state.ErrorCount += 1
+			} else {
+				state.ErrorCount = 0
+			}
 			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
 	}

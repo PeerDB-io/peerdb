@@ -13,6 +13,18 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return err
+	}
+
+	if pgversion < shared.POSTGRES_12 {
+		return fmt.Errorf("postgres must be of PG12 or above. Current version: %d", pgversion)
+	}
+	return nil
+}
+
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 	tableNames []*utils.SchemaTable, pubName string, noCDC bool,
 ) error {
@@ -25,10 +37,10 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 	for _, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
-			QuoteLiteral(parsedTable.Schema), QuoteLiteral(parsedTable.Table)))
+			utils.QuoteLiteral(parsedTable.Schema), utils.QuoteLiteral(parsedTable.Table)))
 		if err := c.conn.QueryRow(ctx,
-			fmt.Sprintf("SELECT * FROM %s.%s LIMIT 0", QuoteIdentifier(parsedTable.Schema), QuoteIdentifier(parsedTable.Table)),
-		).Scan(&row); err != nil && err != pgx.ErrNoRows {
+			fmt.Sprintf("SELECT * FROM %s.%s LIMIT 0", utils.QuoteIdentifier(parsedTable.Schema), utils.QuoteIdentifier(parsedTable.Table)),
+		).Scan(&row); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
 	}
@@ -37,7 +49,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 		// Check if publication exists
 		var alltables bool
 		if err := c.conn.QueryRow(ctx, "SELECT puballtables FROM pg_publication WHERE pubname=$1", pubName).Scan(&alltables); err != nil {
-			if err == pgx.ErrNoRows {
+			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("publication does not exist: %s", pubName)
 			}
 			return fmt.Errorf("error while checking for publication existence: %w", err)
@@ -66,7 +78,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 				if err := row.Scan(&schema, &table); err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("%s.%s", QuoteIdentifier(schema), QuoteIdentifier(table)), nil
+				return fmt.Sprintf("%s.%s", utils.QuoteIdentifier(schema), utils.QuoteIdentifier(table)), nil
 			})
 			if err != nil {
 				return err
@@ -184,7 +196,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 
 		// Check permissions of postgres peer
-		if err := c.CheckReplicationPermissions(ctx, c.config.User); err != nil {
+		if err := c.CheckReplicationPermissions(ctx, c.Config.User); err != nil {
 			return fmt.Errorf("failed to check replication permissions: %v", err)
 		}
 	}
@@ -204,7 +216,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		srcTableNames := make([]string, 0, len(sourceTables))
 		for _, srcTable := range sourceTables {
 			srcTableNames = append(srcTableNames, fmt.Sprintf(
-				`%s.%s`, QuoteIdentifier(srcTable.Schema), QuoteIdentifier(srcTable.Table),
+				`%s.%s`, utils.QuoteIdentifier(srcTable.Schema), utils.QuoteIdentifier(srcTable.Table),
 			))
 		}
 

@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -21,11 +21,11 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		slog.Error("[GetDynamicConfigs] failed to query settings", slog.Any("error", err))
 		return nil, err
 	}
-	settings := slices.Clone(peerdbenv.DynamicSettings[:])
+	settings := slices.Clone(internal.DynamicSettings[:])
 	var name string
 	var value string
 	if _, err := pgx.ForEachRow(rows, []any{&name, &value}, func() error {
-		if idx, ok := peerdbenv.DynamicIndex[name]; ok {
+		if idx, ok := internal.DynamicIndex[name]; ok {
 			settings[idx] = shared.CloneProto(settings[idx])
 			newValue := value // create a new string reference as value can be overwritten by the next iteration.
 			settings[idx].Value = &newValue
@@ -36,7 +36,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		return nil, err
 	}
 
-	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
+	if internal.PeerDBOnlyClickHouseAllowed() {
 		filteredSettings := make([]*protos.DynamicSetting, 0)
 		for _, setting := range settings {
 			if setting.TargetForSetting == protos.DynconfTarget_ALL ||
@@ -54,7 +54,7 @@ func (h *FlowRequestHandler) PostDynamicSetting(
 	ctx context.Context,
 	req *protos.PostDynamicSettingRequest,
 ) (*protos.PostDynamicSettingResponse, error) {
-	err := peerdbenv.UpdateDynamicSetting(ctx, h.pool, req.Name, req.Value)
+	err := internal.UpdateDynamicSetting(ctx, h.pool, req.Name, req.Value)
 	if err != nil {
 		slog.Error("[PostDynamicConfig] failed to execute update setting", slog.Any("error", err))
 		return nil, err

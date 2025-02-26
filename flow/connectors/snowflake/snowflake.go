@@ -20,9 +20,9 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -107,8 +107,7 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	schemaName := c.rawSchema
 	// check if schema exists
 	var schemaExists sql.NullBool
-	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists)
-	if err != nil {
+	if err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists); err != nil {
 		return fmt.Errorf("error while checking if schema exists: %w", err)
 	}
 
@@ -122,42 +121,35 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	}
 	// in case we return after error, ensure transaction is rolled back
 	defer func() {
-		deferErr := tx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			shared.LoggerFromCtx(ctx).Error("error while rolling back transaction for table check",
-				"error", deferErr)
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			c.logger.Error("error while rolling back transaction for table check", "error", err)
 		}
 	}()
 
 	if !schemaExists.Valid || !schemaExists.Bool {
 		// create schema
-		_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, schemaName))
-		if err != nil {
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, schemaName)); err != nil {
 			return fmt.Errorf("failed to create schema %s: %w", schemaName, err)
 		}
 	}
 
 	// create table
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(createDummyTableSQL, schemaName, dummyTable))
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(createDummyTableSQL, schemaName, dummyTable)); err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
 
 	// insert row
-	_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.%s VALUES ('dummy')", schemaName, dummyTable))
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.%s VALUES ('dummy')", schemaName, dummyTable)); err != nil {
 		return fmt.Errorf("failed to insert row: %w", err)
 	}
 
 	// drop table
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, schemaName, dummyTable))
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, schemaName, dummyTable)); err != nil {
 		return fmt.Errorf("failed to drop table: %w", err)
 	}
 
 	// commit transaction
-	err = tx.Commit()
-	if err != nil {
+	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction for table check: %w", err)
 	}
 
@@ -168,7 +160,7 @@ func NewSnowflakeConnector(
 	ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig,
 ) (*SnowflakeConnector, error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
 		snowflakeProtoConfig.Password)
 	if err != nil {
@@ -228,8 +220,7 @@ func NewSnowflakeConnector(
 
 func (c *SnowflakeConnector) Close() error {
 	if c != nil {
-		err := c.database.Close()
-		if err != nil {
+		if err := c.database.Close(); err != nil {
 			return fmt.Errorf("error while closing connection to Snowflake peer: %w", err)
 		}
 	}
@@ -536,7 +527,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
-	mergeParallelism, err := peerdbenv.PeerDBSnowflakeMergeParallelism(ctx, env)
+	mergeParallelism, err := internal.PeerDBSnowflakeMergeParallelism(ctx, env)
 	if err != nil {
 		return fmt.Errorf("failed to get merge parallelism: %w", err)
 	}

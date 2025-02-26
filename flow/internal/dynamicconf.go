@@ -1,7 +1,8 @@
-package peerdbenv
+package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -12,7 +13,6 @@ import (
 	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/exp/constraints"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -111,7 +111,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
 		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
-		DefaultValue:     "base64",
+		DefaultValue:     "raw",
 		ValueType:        protos.DynconfValueType_STRING,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
@@ -179,6 +179,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_BIGQUERY,
+	},
+	{
+		Name: "PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING",
+		Description: "BigQuery only: controls number of unchanged toast columns merged per statement in normalization. " +
+			"Avoids statements growing too large",
+		DefaultValue:     "8",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_BIGQUERY,
 	},
 	{
@@ -288,7 +297,7 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 
 	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get catalog connection pool: %w", err)
 	}
 
@@ -299,8 +308,8 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 
 	var value pgtype.Text
 	query := "SELECT config_value FROM dynamic_settings WHERE config_name=$1"
-	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && err != pgx.ErrNoRows {
-		shared.LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
+	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get key: %w", err)
 	}
 	if !value.Valid {
@@ -337,7 +346,7 @@ func dynamicConfSigned[T constraints.Signed](ctx context.Context, env map[string
 		return strconv.ParseInt(value, 10, 64)
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.String("key", key), slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.String("key", key), slog.Any("error", err))
 		return 0, fmt.Errorf("failed to parse %s as int64: %w", key, err)
 	}
 
@@ -349,7 +358,7 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 		return strconv.ParseUint(value, 10, 64)
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.String("key", key), slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.String("key", key), slog.Any("error", err))
 		return 0, fmt.Errorf("failed to parse %s as uint64: %w", key, err)
 	}
 
@@ -359,19 +368,19 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bool, error) {
 	value, err := dynLookupConvert(ctx, env, key, strconv.ParseBool)
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.String("key", key), slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to parse bool", slog.String("key", key), slog.Any("error", err))
 		return false, fmt.Errorf("failed to parse %s as bool: %w", key, err)
 	}
 
 	return value, nil
 }
 
-func UpdateDynamicSetting(ctx context.Context, pool *pgxpool.Pool, name string, value *string) error {
-	if pool == nil {
+func UpdateDynamicSetting(ctx context.Context, pool shared.CatalogPool, name string, value *string) error {
+	if pool.Pool == nil {
 		var err error
 		pool, err = GetCatalogConnectionPoolFromEnv(ctx)
 		if err != nil {
-			shared.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool for dynamic setting update", slog.Any("error", err))
+			LoggerFromCtx(ctx).Error("Failed to get catalog connection pool for dynamic setting update", slog.Any("error", err))
 			return fmt.Errorf("failed to get catalog connection pool: %w", err)
 		}
 	}
@@ -405,6 +414,10 @@ func PeerDBOpenConnectionsAlertThreshold(ctx context.Context, env map[string]str
 // If false, the target tables will not be partitioned
 func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS")
+}
+
+func PeerDBBigQueryToastMergeChunking(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING")
 }
 
 func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
@@ -519,7 +532,7 @@ func PeerDBMaintenanceModeEnabled(ctx context.Context, env map[string]string) (b
 	return dynamicConfBool(ctx, env, "PEERDB_MAINTENANCE_MODE_ENABLED")
 }
 
-func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool *pgxpool.Pool, enabled bool) error {
+func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool shared.CatalogPool, enabled bool) error {
 	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", ptr.String(strconv.FormatBool(enabled)))
 }
 

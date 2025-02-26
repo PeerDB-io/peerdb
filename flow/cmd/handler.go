@@ -10,7 +10,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 
@@ -18,8 +17,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -28,12 +27,12 @@ import (
 type FlowRequestHandler struct {
 	protos.UnimplementedFlowServiceServer
 	temporalClient      client.Client
-	pool                *pgxpool.Pool
+	pool                shared.CatalogPool
 	alerter             *alerting.Alerter
 	peerflowTaskQueueID string
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
+func NewFlowRequestHandler(temporalClient client.Client, pool shared.CatalogPool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
 		temporalClient:      temporalClient,
 		pool:                pool,
@@ -173,7 +172,7 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigs,
 ) error {
-	return shared.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
+	return internal.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
 }
 
 func (h *FlowRequestHandler) CreateQRepFlow(
@@ -330,7 +329,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 ) (*protos.FlowStateChangeResponse, error) {
 	logs := slog.String("flowJobName", req.FlowJobName)
 	slog.Info("FlowStateChange called", logs, slog.Any("req", req))
-	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		slog.Error("unable to check maintenance mode", logs, slog.Any("error", err))
 		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
@@ -500,7 +499,7 @@ func (h *FlowRequestHandler) ResyncMirror(
 	ctx context.Context,
 	req *protos.ResyncMirrorRequest,
 ) (*protos.ResyncMirrorResponse, error) {
-	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get maintenance mode status: %w", err)
 	}
@@ -543,7 +542,7 @@ func (h *FlowRequestHandler) ResyncMirror(
 }
 
 func (h *FlowRequestHandler) GetInstanceInfo(ctx context.Context, in *protos.InstanceInfoRequest) (*protos.InstanceInfoResponse, error) {
-	enabled, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	enabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		slog.Error("unable to get maintenance mode status", slog.Any("error", err))
 		return &protos.InstanceInfoResponse{

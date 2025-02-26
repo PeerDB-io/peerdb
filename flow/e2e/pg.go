@@ -12,20 +12,21 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
-func cleanPostgres(conn *pgx.Conn, suffix string) error {
+func cleanPostgres(ctx context.Context, conn *pgx.Conn, suffix string) error {
 	// drop the e2e_test schema with the given suffix if it exists
-	if _, err := conn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS e2e_test_%s CASCADE", suffix)); err != nil {
+	if _, err := conn.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS e2e_test_%s CASCADE", suffix)); err != nil {
 		return fmt.Errorf("failed to drop e2e_test schema: %w", err)
 	}
 
 	// drop all open slots with the given suffix
 	if _, err := conn.Exec(
-		context.Background(),
+		ctx,
 		"SELECT pg_drop_replication_slot(slot_name) FROM pg_replication_slots WHERE slot_name LIKE $1",
 		"%_"+suffix,
 	); err != nil {
@@ -33,7 +34,7 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	}
 
 	// list all publications from pg_publication table
-	rows, err := conn.Query(context.Background(),
+	rows, err := conn.Query(ctx,
 		"SELECT pubname FROM pg_publication WHERE pubname LIKE $1",
 		"%_"+suffix,
 	)
@@ -46,7 +47,7 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 	}
 
 	for _, pubName := range publications {
-		if _, err := conn.Exec(context.Background(), "DROP PUBLICATION "+pubName); err != nil {
+		if _, err := conn.Exec(ctx, "DROP PUBLICATION "+pubName); err != nil {
 			return fmt.Errorf("failed to drop publication %s: %w", pubName, err)
 		}
 	}
@@ -57,27 +58,27 @@ func cleanPostgres(conn *pgx.Conn, suffix string) error {
 func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 	t.Helper()
 
-	setupTx, err := conn.Begin(context.Background())
+	setupTx, err := conn.Begin(t.Context())
 	if err != nil {
 		return errors.New("failed to start setup transaction")
 	}
 
 	// create an e2e_test schema
-	if _, err := setupTx.Exec(context.Background(), "SELECT pg_advisory_xact_lock(hashtext('Megaton Mile'))"); err != nil {
+	if _, err := setupTx.Exec(t.Context(), "SELECT pg_advisory_xact_lock(hashtext('Megaton Mile'))"); err != nil {
 		return fmt.Errorf("failed to get lock: %w", err)
 	}
 	defer func() {
-		deferErr := setupTx.Rollback(context.Background())
+		deferErr := setupTx.Rollback(t.Context())
 		if deferErr != pgx.ErrTxClosed && deferErr != nil {
 			t.Errorf("error rolling back setup transaction: %v", err)
 		}
 	}()
 
-	if _, err := setupTx.Exec(context.Background(), "CREATE SCHEMA e2e_test_"+suffix); err != nil {
+	if _, err := setupTx.Exec(t.Context(), "CREATE SCHEMA e2e_test_"+suffix); err != nil {
 		return fmt.Errorf("failed to create e2e_test schema: %w", err)
 	}
 
-	if _, err := setupTx.Exec(context.Background(), `
+	if _, err := setupTx.Exec(t.Context(), `
 		CREATE OR REPLACE FUNCTION random_string(int) RETURNS TEXT as $$
 			SELECT string_agg(substring('0123456789bcdefghijkmnpqrstvwxyz',
 			round(random() * 32)::integer, 1), '') FROM generate_series(1, $1);
@@ -94,7 +95,7 @@ func setupPostgresSchema(t *testing.T, conn *pgx.Conn, suffix string) error {
 		return fmt.Errorf("failed to create utility functions: %w", err)
 	}
 
-	return setupTx.Commit(context.Background())
+	return setupTx.Commit(t.Context())
 }
 
 type PostgresSource struct {
@@ -104,14 +105,14 @@ type PostgresSource struct {
 func SetupPostgres(t *testing.T, suffix string) (*PostgresSource, error) {
 	t.Helper()
 
-	connector, err := connpostgres.NewPostgresConnector(context.Background(),
-		nil, peerdbenv.GetCatalogPostgresConfigFromEnv(context.Background()))
+	connector, err := connpostgres.NewPostgresConnector(t.Context(),
+		nil, internal.GetCatalogPostgresConfigFromEnv(t.Context()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
 	conn := connector.Conn()
 
-	if err := cleanPostgres(conn, suffix); err != nil {
+	if err := cleanPostgres(t.Context(), conn, suffix); err != nil {
 		connector.Close()
 		return nil, err
 	}
@@ -128,7 +129,7 @@ func (s *PostgresSource) Connector() connectors.Connector {
 	return s.PostgresConnector
 }
 
-func (s *PostgresSource) Teardown(t *testing.T, suffix string) {
+func (s *PostgresSource) Teardown(t *testing.T, ctx context.Context, suffix string) {
 	t.Helper()
 
 	if s.PostgresConnector != nil {
@@ -136,9 +137,8 @@ func (s *PostgresSource) Teardown(t *testing.T, suffix string) {
 		t.Log("begin tearing down postgres schema", suffix)
 		deadline := time.Now().Add(2 * time.Minute)
 		for {
-			err := cleanPostgres(conn, suffix)
-			if err == nil {
-				conn.Close(context.Background())
+			if err := cleanPostgres(ctx, conn, suffix); err == nil {
+				conn.Close(ctx)
 				return
 			} else if time.Now().After(deadline) {
 				require.Fail(t, "failed to teardown postgres schema", "%s: %v", suffix, err)
@@ -148,19 +148,18 @@ func (s *PostgresSource) Teardown(t *testing.T, suffix string) {
 	}
 }
 
-func TearDownPostgres(s Suite) {
+func TearDownPostgres(ctx context.Context, s Suite) {
 	t := s.T()
 	t.Helper()
 
-	conn := s.Connector()
-	if conn != nil {
+	if conn := s.Connector(); conn != nil {
 		conn := s.Connector().Conn()
 		t.Log("begin tearing down postgres schema", s.Suffix())
 		deadline := time.Now().Add(2 * time.Minute)
 		for {
-			err := cleanPostgres(conn, s.Suffix())
+			err := cleanPostgres(ctx, conn, s.Suffix())
 			if err == nil {
-				conn.Close(context.Background())
+				conn.Close(ctx)
 				return
 			} else if time.Now().After(deadline) {
 				require.Fail(t, "failed to teardown postgres schema", "%s: %v", s.Suffix(), err)
@@ -181,26 +180,26 @@ func GeneratePostgresPeer(t *testing.T) *protos.Peer {
 		Name: "catalog",
 		Type: protos.DBType_POSTGRES,
 		Config: &protos.Peer_PostgresConfig{
-			PostgresConfig: peerdbenv.GetCatalogPostgresConfigFromEnv(context.Background()),
+			PostgresConfig: internal.GetCatalogPostgresConfigFromEnv(t.Context()),
 		},
 	}
 	CreatePeer(t, peer)
 	return peer
 }
 
-func (s *PostgresSource) Exec(sql string) error {
-	_, err := s.PostgresConnector.Conn().Exec(context.Background(), sql)
+func (s *PostgresSource) Exec(ctx context.Context, sql string) error {
+	_, err := s.PostgresConnector.Conn().Exec(ctx, sql)
 	return err
 }
 
-func (s *PostgresSource) GetRows(suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(context.Background(), "testflow", "testpart")
+func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
-		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, connpostgres.QuoteIdentifier(table)),
+		ctx,
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
 	)
 }

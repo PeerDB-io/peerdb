@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -173,8 +172,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 				config: config,
 			}
 
-			ctx := context.Background()
-			status, err := sender.SendMessage(ctx, tt.subject, tt.body, tt.attributes)
+			status, err := sender.SendMessage(t.Context(), tt.subject, tt.body, tt.attributes)
 
 			if tt.expectError {
 				require.Error(t, err)

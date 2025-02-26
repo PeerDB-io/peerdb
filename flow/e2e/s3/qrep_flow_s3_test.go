@@ -67,8 +67,8 @@ func TestPeerFlowE2ETestSuiteMinIO(t *testing.T) {
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	require.NoError(s.t, e2e.CreateTableForQRep(s.conn.Conn(), s.suffix, tableName))
-	require.NoError(s.t, e2e.PopulateSourceTable(s.conn.Conn(), s.suffix, tableName, rowCount))
+	require.NoError(s.t, e2e.CreateTableForQRep(s.t.Context(), s.conn.Conn(), s.suffix, tableName))
+	require.NoError(s.t, e2e.PopulateSourceTable(s.t.Context(), s.conn.Conn(), s.suffix, tableName, rowCount))
 }
 
 func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS3 {
@@ -80,7 +80,7 @@ func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS
 		require.Fail(t, "failed to setup postgres", err)
 	}
 
-	helper, err := NewS3TestHelper(s3environment)
+	helper, err := NewS3TestHelper(t.Context(), s3environment)
 	if err != nil {
 		require.Fail(t, "failed to setup S3", err)
 	}
@@ -93,11 +93,10 @@ func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS
 	}
 }
 
-func (s PeerFlowE2ETestSuiteS3) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s PeerFlowE2ETestSuiteS3) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 
-	err := s.s3Helper.CleanUp(context.Background())
-	if err != nil {
+	if err := s.s3Helper.CleanUp(ctx); err != nil {
 		require.Fail(s.t, "failed to clean up s3", err)
 	}
 }
@@ -144,13 +143,13 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	)
 	qrepConfig.StagingPath = s.s3Helper.S3Config.Url
 
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	// Verify destination has 1 file
 	// make context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(s.t.Context(), 10*time.Second)
 	defer cancel()
 
 	files, err := s.s3Helper.ListAllFiles(ctx, jobName)
@@ -189,13 +188,13 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.WatermarkColumn = "ctid"
 
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	// Verify destination has 1 file
 	// make context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(s.t.Context(), 10*time.Second)
 	defer cancel()
 
 	files, err := s.s3Helper.ListAllFiles(ctx, jobName)

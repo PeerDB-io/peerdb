@@ -7,6 +7,8 @@ const (
 	DeploymentUidKey    = "deploymentUID"
 	ErrorClassKey       = "errorClass"
 	ErrorActionKey      = "errorAction"
+	ErrorSourceKey      = "errorSource"
+	ErrorCodeKey        = "errorCode"
 	InstanceStatusKey   = "instanceStatus"
 	WorkflowTypeKey     = "workflowType"
 	BatchIdKey          = "batchId"
@@ -14,6 +16,8 @@ const (
 	DestinationPeerType = "destinationPeerType"
 	SourcePeerName      = "sourcePeerName"
 	DestinationPeerName = "destinationPeerName"
+	FlowStatusKey       = "flowStatus"
+	IsFlowResyncKey     = "isFlowResync"
 )
 
 const (

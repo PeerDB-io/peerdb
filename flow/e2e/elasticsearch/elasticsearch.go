@@ -12,7 +12,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -46,7 +46,7 @@ func SetupSuite(t *testing.T) elasticsearchSuite {
 	suffix := "es_" + strings.ToLower(shared.RandomString(8))
 	conn, err := e2e.SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
-	esAddresses := strings.Split(peerdbenv.GetEnvString("ELASTICSEARCH_TEST_ADDRESS", ""), ",")
+	esAddresses := strings.Split(internal.GetEnvString("ELASTICSEARCH_TEST_ADDRESS", ""), ",")
 
 	esClient, err := elasticsearch.NewTypedClient(elasticsearch.Config{
 		Addresses: esAddresses,
@@ -65,8 +65,8 @@ func SetupSuite(t *testing.T) elasticsearchSuite {
 	}
 }
 
-func (s elasticsearchSuite) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s elasticsearchSuite) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 }
 
 func (s elasticsearchSuite) Peer() *protos.Peer {
@@ -85,7 +85,7 @@ func (s elasticsearchSuite) Peer() *protos.Peer {
 }
 
 func (s elasticsearchSuite) countDocumentsInIndex(index string) int64 {
-	res, err := s.esClient.Count().Index(index).Do(context.Background())
+	res, err := s.esClient.Count().Index(index).Do(s.t.Context())
 	// index may not exist yet, don't error out for that
 	// search can occasionally fail, retry for that
 	if err != nil && (strings.Contains(err.Error(), "index_not_found_exception") ||

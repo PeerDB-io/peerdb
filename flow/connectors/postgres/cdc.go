@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
 	"go.temporal.io/sdk/activity"
 
@@ -21,11 +20,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PostgresCDCSource struct {
@@ -43,7 +43,7 @@ type PostgresCDCSource struct {
 	childToParentRelIDMapping map[uint32]uint32
 
 	// for storing schema delta audit logs to catalog
-	catalogPool                  *pgxpool.Pool
+	catalogPool                  shared.CatalogPool
 	otelManager                  *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected map[uint32]struct{}
@@ -51,7 +51,7 @@ type PostgresCDCSource struct {
 }
 
 type PostgresCDCConfig struct {
-	CatalogPool            *pgxpool.Pool
+	CatalogPool            shared.CatalogPool
 	OtelManager            *otel_metrics.OtelManager
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
@@ -306,7 +306,7 @@ func PullCdcRecords[Items model.Items](
 	processor replProcessor[Items],
 	replLock *sync.Mutex,
 ) error {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {
@@ -372,7 +372,7 @@ func PullCdcRecords[Items model.Items](
 	pkmRequiresResponse := false
 	waitingForCommit := false
 
-	pkmEmptyBatchThrottleThresholdSeconds, err := peerdbenv.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
+	pkmEmptyBatchThrottleThresholdSeconds, err := internal.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
 	if err != nil {
 		logger.Error("failed to get PeerDBPKMEmptyBatchThrottleThresholdSeconds", slog.Any("error", err))
 	}
@@ -468,10 +468,11 @@ func PullCdcRecords[Items model.Items](
 
 		switch msg := rawMsg.(type) {
 		case *pgproto3.ErrorResponse:
-			return shared.LogError(logger, fmt.Errorf("received Postgres WAL error: %+v", msg))
+			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
 		case *pgproto3.CopyData:
 			if p.otelManager != nil {
 				p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
+				p.otelManager.Metrics.InstantaneousFetchedBytesGauge.Record(ctx, int64(len(msg.Data)))
 			}
 			switch msg.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
@@ -644,7 +645,7 @@ func processMessage[Items model.Items](
 	currentClientXlogPos pglogrepl.LSN,
 	processor replProcessor[Items],
 ) (model.Record[Items], error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)

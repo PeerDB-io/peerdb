@@ -5,24 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 )
-
-func LoggerFromCtx(ctx context.Context) log.Logger {
-	flowName, hasName := ctx.Value(FlowNameKey).(string)
-	if activity.IsActivity(ctx) {
-		if hasName {
-			return log.With(activity.GetLogger(ctx), string(FlowNameKey), flowName)
-		} else {
-			return activity.GetLogger(ctx)
-		}
-	} else if hasName {
-		return slog.With(string(FlowNameKey), flowName)
-	} else {
-		return slog.Default()
-	}
-}
 
 func LogError(logger log.Logger, err error) error {
 	logger.Error(err.Error())

@@ -5,7 +5,7 @@ import {
 } from '@/grpc_generated/route';
 import { notifyErr } from '../utils/notify';
 
-export const HandleAddScript = async (script: Script) => {
+export async function HandleAddScript(script: Script) {
   const addScriptRes = await fetch('/api/v1/scripts', {
     method: 'POST',
     body: JSON.stringify({
@@ -22,9 +22,9 @@ export const HandleAddScript = async (script: Script) => {
   }
   notifyErr('Successfully added script', true);
   return true;
-};
+}
 
-export const GetScriptById = async (scriptId: string) => {
+export async function GetScriptById(scriptId: string) {
   try {
     const scriptByIdRes = await fetch(`/api/v1/scripts/${scriptId}`);
     const scriptRes: GetScriptsResponse = await scriptByIdRes.json();
@@ -39,9 +39,9 @@ export const GetScriptById = async (scriptId: string) => {
     );
     return;
   }
-};
+}
 
-export const HandleEditScript = async (script: Script) => {
+export async function HandleEditScript(script: Script) {
   const editScriptRes = await fetch('/api/v1/scripts', {
     method: 'POST',
     body: JSON.stringify({
@@ -55,9 +55,9 @@ export const HandleEditScript = async (script: Script) => {
   }
   notifyErr('Successfully edited script', true);
   return true;
-};
+}
 
-export const DeleteScript = async (scriptId: number) => {
+export async function DeleteScript(scriptId: number) {
   const deleteScriptRes = await fetch(`/api/v1/scripts/${scriptId}`, {
     method: 'DELETE',
   });
@@ -70,4 +70,4 @@ export const DeleteScript = async (scriptId: number) => {
 
   notifyErr('Successfully deleted script', true);
   return true;
-};
+}

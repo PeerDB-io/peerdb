@@ -7,27 +7,27 @@ import (
 	"fmt"
 	"iter"
 	"log/slog"
-	"strings"
+	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
-	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config *protos.MySqlConfig
-	// go-mysql lacks context per query, cache connection per context
-	conn   map[context.Context]*client.Conn
-	logger log.Logger
+	config   *protos.MySqlConfig
+	ssh      utils.SSHTunnel
+	conn     atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts chan context.Context
+	logger   log.Logger
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -35,12 +35,45 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	if err != nil {
 		return nil, err
 	}
-	return &MySqlConnector{
+	ssh, err := utils.NewSSHTunnel(ctx, config.SshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
+	}
+	contexts := make(chan context.Context)
+	c := &MySqlConnector{
 		PostgresMetadata: pgMetadata,
 		config:           config,
-		conn:             make(map[context.Context]*client.Conn),
-		logger:           shared.LoggerFromCtx(ctx),
-	}, nil
+		ssh:              ssh,
+		conn:             atomic.Pointer[client.Conn]{},
+		contexts:         contexts,
+		logger:           internal.LoggerFromCtx(ctx),
+	}
+	go func() {
+		ctx := context.Background()
+		for {
+			var ok bool
+			select {
+			case <-ctx.Done():
+				ctx = context.Background()
+				if conn := c.conn.Swap(nil); conn != nil {
+					conn.Close()
+				}
+			case ctx, ok = <-contexts:
+				if !ok {
+					return
+				}
+			}
+		}
+	}()
+
+	return c, nil
+}
+
+func (c *MySqlConnector) watchCtx(ctx context.Context) func() {
+	c.contexts <- ctx
+	return func() {
+		c.contexts <- context.Background()
+	}
 }
 
 func (c *MySqlConnector) Flavor() string {
@@ -56,11 +89,16 @@ func (c *MySqlConnector) Flavor() string {
 
 func (c *MySqlConnector) Close() error {
 	var errs []error
-	if c.conn != nil {
-		for _, conn := range c.conn {
-			errs = append(errs, conn.Close())
+	if c.contexts != nil {
+		close(c.contexts)
+	}
+	if conn := c.conn.Swap(nil); conn != nil {
+		if err := conn.Close(); err != nil {
+			errs = append(errs, err)
 		}
-		c.conn = nil
+	}
+	if err := c.ssh.Close(); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
@@ -69,23 +107,37 @@ func (c *MySqlConnector) ConnectionActive(context.Context) error {
 	return nil
 }
 
+func (c *MySqlConnector) Dialer() client.Dialer {
+	if c.ssh.Client == nil {
+		return (&net.Dialer{Timeout: time.Minute}).DialContext
+	}
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		return c.ssh.Client.DialContext(ctx, network, addr)
+	}
+}
+
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
-	conn := c.conn[ctx]
+	conn := c.conn.Load()
 	if conn == nil {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
-				conn.SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13})
+				conn.SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: c.config.Host})
 			}
 			return nil
 		}}
 		var err error
-		conn, err = client.ConnectWithContext(ctx, fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
-			c.config.User, c.config.Password, c.config.Database, time.Minute, argF...)
+		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
+			c.config.User, c.config.Password, c.config.Database, c.Dialer(), argF...)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := conn.Execute("SET sql_mode = ANSI"); err != nil {
+		c.conn.Store(conn)
+		if err := ctx.Err(); err != nil {
+			// need to check if context cancel came in before above Store
+			return nil, err
+		}
+		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
 			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
 		}
 	}
@@ -97,18 +149,14 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 // to retry for mysql.ErrBadConn
 func (c *MySqlConnector) withRetries(ctx context.Context) iter.Seq2[*client.Conn, error] {
 	return func(yield func(*client.Conn, error) bool) {
+		defer c.watchCtx(ctx)()
 		for range 3 {
 			conn, err := c.connect(ctx)
-			if err == nil {
-				c.conn[ctx] = conn
-			}
 			if !yield(conn, err) {
 				return
 			}
-			if err == nil {
-				_ = conn.Close()
-				delete(c.conn, ctx)
-			}
+			c.conn.CompareAndSwap(conn, nil)
+			conn.Close()
 		}
 	}
 }
@@ -188,12 +236,13 @@ func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
 		return gtid_mode == "ON", nil
 	} else {
 		// mariadb always enabled: https://mariadb.com/kb/en/gtid/#using-global-transaction-ids
-		// doesn't seem to work so disabling for now
-		return false, nil
+		cmp, err := c.CompareServerVersion(ctx, "10.0.2")
+		return cmp >= 0, err
 	}
 }
 
 func (c *MySqlConnector) CompareServerVersion(ctx context.Context, version string) (int, error) {
+	defer c.watchCtx(ctx)()
 	conn, err := c.connect(ctx)
 	if err != nil {
 		return 0, err
@@ -246,269 +295,13 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 }
 
 func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
-	rr, err := c.Execute(ctx, "select @@version")
-	if err != nil {
-		return "", err
-	}
-	version, _ := rr.GetString(0, 0)
-	c.logger.Info("[mysql] version", slog.String("version", version))
-	return version, nil
-}
-
-func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
-	unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
-	switch field.Type {
-	case mysql.MYSQL_TYPE_TINY:
-		if unsigned {
-			return qvalue.QValueKindUInt8, nil
-		} else {
-			return qvalue.QValueKindInt8, nil
-		}
-	case mysql.MYSQL_TYPE_SHORT:
-		if unsigned {
-			return qvalue.QValueKindUInt16, nil
-		} else {
-			return qvalue.QValueKindInt16, nil
-		}
-	case mysql.MYSQL_TYPE_INT24, mysql.MYSQL_TYPE_LONG:
-		if unsigned {
-			return qvalue.QValueKindUInt32, nil
-		} else {
-			return qvalue.QValueKindInt32, nil
-		}
-	case mysql.MYSQL_TYPE_LONGLONG:
-		if unsigned {
-			return qvalue.QValueKindUInt64, nil
-		} else {
-			return qvalue.QValueKindInt64, nil
-		}
-	case mysql.MYSQL_TYPE_FLOAT:
-		return qvalue.QValueKindFloat32, nil
-	case mysql.MYSQL_TYPE_DOUBLE:
-		return qvalue.QValueKindFloat64, nil
-	case mysql.MYSQL_TYPE_NULL:
-		return qvalue.QValueKindInvalid, nil
-	case mysql.MYSQL_TYPE_TIMESTAMP:
-		return qvalue.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_DATE:
-		return qvalue.QValueKindDate, nil
-	case mysql.MYSQL_TYPE_TIME:
-		return qvalue.QValueKindTime, nil
-	case mysql.MYSQL_TYPE_DATETIME:
-		return qvalue.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_YEAR:
-		return qvalue.QValueKindInt16, nil
-	case mysql.MYSQL_TYPE_NEWDATE:
-		return qvalue.QValueKindDate, nil
-	case mysql.MYSQL_TYPE_VARCHAR:
-		return qvalue.QValueKindString, nil
-	case mysql.MYSQL_TYPE_BIT:
-		return qvalue.QValueKindInt64, nil
-	case mysql.MYSQL_TYPE_TIMESTAMP2:
-		return qvalue.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_DATETIME2:
-		return qvalue.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_TIME2:
-		return qvalue.QValueKindTime, nil
-	case mysql.MYSQL_TYPE_JSON:
-		return qvalue.QValueKindJSON, nil
-	case mysql.MYSQL_TYPE_DECIMAL, mysql.MYSQL_TYPE_NEWDECIMAL:
-		return qvalue.QValueKindNumeric, nil
-	case mysql.MYSQL_TYPE_ENUM:
-		return qvalue.QValueKindString, nil
-	case mysql.MYSQL_TYPE_SET:
-		return qvalue.QValueKindString, nil
-	case mysql.MYSQL_TYPE_TINY_BLOB, mysql.MYSQL_TYPE_MEDIUM_BLOB, mysql.MYSQL_TYPE_LONG_BLOB, mysql.MYSQL_TYPE_BLOB:
-		if field.Charset == 0x3f { // binary https://dev.mysql.com/doc/dev/mysql-server/8.4.3/page_protocol_basic_character_set.html
-			return qvalue.QValueKindBytes, nil
-		} else {
-			return qvalue.QValueKindString, nil
-		}
-	case mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING:
-		return qvalue.QValueKindString, nil
-	case mysql.MYSQL_TYPE_GEOMETRY:
-		return qvalue.QValueKindGeometry, nil
-	default:
-		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %d", field.Type)
-	}
-}
-
-func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
-	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
-	ct, _, _ = strings.Cut(ct, "(")
-	switch ct {
-	case "json":
-		return qvalue.QValueKindJSON, nil
-	case "char", "varchar", "text", "enum", "set":
-		return qvalue.QValueKindString, nil
-	case "binary", "varbinary", "blob":
-		return qvalue.QValueKindBytes, nil
-	case "date":
-		return qvalue.QValueKindDate, nil
-	case "time":
-		return qvalue.QValueKindTime, nil
-	case "datetime":
-		return qvalue.QValueKindTimestamp, nil
-	case "timestamp":
-		return qvalue.QValueKindTimestamp, nil
-	case "decimal", "numeric":
-		return qvalue.QValueKindNumeric, nil
-	case "float":
-		return qvalue.QValueKindFloat32, nil
-	case "double":
-		return qvalue.QValueKindFloat64, nil
-	case "tinyint":
-		if isUnsigned {
-			return qvalue.QValueKindUInt8, nil
-		} else {
-			return qvalue.QValueKindInt8, nil
-		}
-	case "smallint", "year":
-		if isUnsigned {
-			return qvalue.QValueKindUInt16, nil
-		} else {
-			return qvalue.QValueKindInt16, nil
-		}
-	case "mediumint", "int":
-		if isUnsigned {
-			return qvalue.QValueKindUInt32, nil
-		} else {
-			return qvalue.QValueKindInt32, nil
-		}
-	case "bigint", "bit":
-		if isUnsigned {
-			return qvalue.QValueKindUInt64, nil
-		} else {
-			return qvalue.QValueKindInt64, nil
-		}
-	default:
-		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
-	}
-}
-
-func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mysql.Field) (qvalue.QRecordSchema, error) {
-	tableColumns := make(map[string]*protos.FieldDescription, len(tableSchema.Columns))
-	for _, col := range tableSchema.Columns {
-		tableColumns[col.Name] = col
-	}
-
-	schema := make([]qvalue.QField, 0, len(fields))
-	for _, field := range fields {
-		qkind, err := qkindFromMysql(field)
+	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return qvalue.QRecordSchema{}, err
+			return "", err
 		}
-
-		qf := qvalue.QField{
-			Name:      string(field.Name),
-			Type:      qkind,
-			Precision: 0,
-			Scale:     0,
-			Nullable:  (field.Flag & mysql.NOT_NULL_FLAG) == 0,
-		}
-
-		if qkind == qvalue.QValueKindNumeric {
-			if col, ok := tableColumns[qf.Name]; ok {
-				qf.Precision, qf.Scale = datatypes.ParseNumericTypmod(col.TypeModifier)
-			}
-		}
-
-		schema = append(schema, qf)
+		version := conn.GetServerVersion()
+		c.logger.Info("[mysql] version", slog.String("version", version))
+		return version, nil
 	}
-	return qvalue.QRecordSchema{Fields: schema}, nil
-}
-
-func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
-	switch v := fv.Value().(type) {
-	case nil:
-		return qvalue.QValueNull(qkind), nil
-	case uint64:
-		switch qkind {
-		case qvalue.QValueKindInt8:
-			return qvalue.QValueInt8{Val: int8(v)}, nil
-		case qvalue.QValueKindInt16:
-			return qvalue.QValueInt16{Val: int16(v)}, nil
-		case qvalue.QValueKindInt32:
-			return qvalue.QValueInt32{Val: int32(v)}, nil
-		case qvalue.QValueKindInt64:
-			return qvalue.QValueInt64{Val: int64(v)}, nil
-		case qvalue.QValueKindUInt8:
-			return qvalue.QValueUInt8{Val: uint8(v)}, nil
-		case qvalue.QValueKindUInt16:
-			return qvalue.QValueUInt16{Val: uint16(v)}, nil
-		case qvalue.QValueKindUInt32:
-			return qvalue.QValueUInt32{Val: uint32(v)}, nil
-		case qvalue.QValueKindUInt64:
-			return qvalue.QValueUInt64{Val: v}, nil
-		default:
-			return nil, fmt.Errorf("cannot convert uint64 to %s", qkind)
-		}
-	case int64:
-		switch qkind {
-		case qvalue.QValueKindInt8:
-			return qvalue.QValueInt8{Val: int8(v)}, nil
-		case qvalue.QValueKindInt16:
-			return qvalue.QValueInt16{Val: int16(v)}, nil
-		case qvalue.QValueKindInt32:
-			return qvalue.QValueInt32{Val: int32(v)}, nil
-		case qvalue.QValueKindInt64:
-			return qvalue.QValueInt64{Val: v}, nil
-		case qvalue.QValueKindUInt8:
-			return qvalue.QValueUInt8{Val: uint8(v)}, nil
-		case qvalue.QValueKindUInt16:
-			return qvalue.QValueUInt16{Val: uint16(v)}, nil
-		case qvalue.QValueKindUInt32:
-			return qvalue.QValueUInt32{Val: uint32(v)}, nil
-		case qvalue.QValueKindUInt64:
-			return qvalue.QValueUInt64{Val: uint64(v)}, nil
-		default:
-			return nil, fmt.Errorf("cannot convert int64 to %s", qkind)
-		}
-	case float64:
-		switch qkind {
-		case qvalue.QValueKindFloat32:
-			return qvalue.QValueFloat32{Val: float32(v)}, nil
-		case qvalue.QValueKindFloat64:
-			return qvalue.QValueFloat64{Val: float64(v)}, nil
-		default:
-			return nil, fmt.Errorf("cannot convert float64 to %s", qkind)
-		}
-	case []byte:
-		switch qkind {
-		case qvalue.QValueKindString:
-			return qvalue.QValueString{Val: string(v)}, nil
-		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: v}, nil
-		case qvalue.QValueKindJSON:
-			return qvalue.QValueJSON{Val: string(v)}, nil
-		case qvalue.QValueKindNumeric:
-			val, err := decimal.NewFromString(shared.UnsafeFastReadOnlyBytesToString(v))
-			if err != nil {
-				return nil, err
-			}
-			return qvalue.QValueNumeric{Val: val}, nil
-		case qvalue.QValueKindTimestamp:
-			val, err := time.Parse("2006-01-02 15:04:05.999999", shared.UnsafeFastReadOnlyBytesToString(v))
-			if err != nil {
-				return nil, err
-			}
-			return qvalue.QValueTimestamp{Val: val}, nil
-		case qvalue.QValueKindTime:
-			val, err := time.Parse("15:04:05.999999", shared.UnsafeFastReadOnlyBytesToString(v))
-			if err != nil {
-				return nil, err
-			}
-			return qvalue.QValueTime{Val: val}, nil
-		case qvalue.QValueKindDate:
-			val, err := time.Parse(time.DateOnly, shared.UnsafeFastReadOnlyBytesToString(v))
-			if err != nil {
-				return nil, err
-			}
-			return qvalue.QValueDate{Val: val}, nil
-		default:
-			return nil, fmt.Errorf("cannot convert bytes %v to %s", v, qkind)
-		}
-	default:
-		return nil, fmt.Errorf("unexpected mysql type %T", v)
-	}
+	return "", errors.New("failed to connect")
 }

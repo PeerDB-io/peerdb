@@ -1,4 +1,4 @@
-package peerdbenv
+package internal
 
 func GetPeerDBOtelMetricsNamespace() string {
 	return GetEnvString("PEERDB_OTEL_METRICS_NAMESPACE", "")
