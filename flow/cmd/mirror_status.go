@@ -72,7 +72,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 		return nil, fmt.Errorf("unable to get the workflow ID of mirror %s: %w", req.FlowJobName, err)
 	}
 
-	currState, err := h.getWorkflowStatus(ctx, workflowID)
+	err, currState := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
 		slog.Error("unable to get the running status of mirror", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to get the running status of mirror %s: %w", req.FlowJobName, err)
@@ -447,8 +447,8 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 	return isCdc, nil
 }
 
-func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
-	return internal.GetWorkflowStatus(ctx, h.temporalClient, workflowID)
+func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (error, protos.FlowStatus) {
+	return internal.GetWorkflowStatus(ctx, h.pool, h.temporalClient, workflowID)
 }
 
 func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
