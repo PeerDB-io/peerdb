@@ -20,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	partition_utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -437,18 +436,11 @@ func syncQRepRecords(
 		return 0, fmt.Errorf("failed to register hstore: %w", err)
 	}
 
-	// Second transaction - to handle rest of the processing
 	tx, err := txConn.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		if err := tx.Rollback(context.Background()); err != nil {
-			if err != pgx.ErrTxClosed {
-				internal.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
-			}
-		}
-	}()
+	defer shared.RollbackTx(tx, c.logger)
 
 	// Step 2: Insert records into destination table
 	var numRowsSynced int64
@@ -466,12 +458,7 @@ func syncQRepRecords(
 			}
 		}
 
-		numRowsSynced, err = sink.CopyInto(
-			ctx,
-			c,
-			tx,
-			pgx.Identifier{dstTable.Schema, dstTable.Table},
-		)
+		numRowsSynced, err = sink.CopyInto(ctx, c, tx, pgx.Identifier{dstTable.Schema, dstTable.Table})
 		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into destination table: %w", err)
 		}
@@ -515,12 +502,7 @@ func syncQRepRecords(
 		}
 
 		// Step 2.2: Insert records into the staging table
-		numRowsSynced, err = sink.CopyInto(
-			ctx,
-			c,
-			tx,
-			stagingTableIdentifier,
-		)
+		numRowsSynced, err = sink.CopyInto(ctx, c, tx, stagingTableIdentifier)
 		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into staging table: %w", err)
 		}
@@ -582,7 +564,7 @@ func syncQRepRecords(
 		metadataTableIdentifier.Sanitize(),
 	)
 	c.logger.Info("Executing transaction inside QRep sync", syncLog)
-	_, err = tx.Exec(
+	if _, err := tx.Exec(
 		ctx,
 		insertMetadataStmt,
 		flowJobName,
@@ -590,8 +572,7 @@ func syncQRepRecords(
 		string(pbytes),
 		startTime,
 		time.Now(),
-	)
-	if err != nil {
+	); err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
