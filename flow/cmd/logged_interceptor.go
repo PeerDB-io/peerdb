@@ -22,7 +22,7 @@ func NewLoggedWorkflowInboundInterceptor(next interceptor.WorkflowInboundInterce
 func (w *LoggedWorkflowInboundInterceptor) ExecuteWorkflow(
 	ctx workflow.Context,
 	in *interceptor.ExecuteWorkflowInput,
-) (interface{}, error) {
+) (any, error) {
 	// Workflow starts here
 	result, err := w.Next.ExecuteWorkflow(ctx, in)
 	// Workflow ends here
@@ -44,7 +44,7 @@ func NewLoggedActivityInboundInterceptor(next interceptor.ActivityInboundInterce
 func (c *LoggedActivityInboundInterceptor) ExecuteActivity(
 	ctx context.Context,
 	in *interceptor.ExecuteActivityInput,
-) (interface{}, error) {
+) (any, error) {
 	// Activity starts here
 	out, err := c.Next.ExecuteActivity(ctx, in)
 	// Activity ends here

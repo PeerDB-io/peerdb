@@ -49,7 +49,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context,
 	}, nil
 }
 
-func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) (pgx.Rows, error) {
+func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...any) (pgx.Rows, error) {
 	rows, err := qe.conn.Query(ctx, query, args...)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to execute query", slog.Any("error", err))
@@ -217,7 +217,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	ctx context.Context,
 	query string,
-	args ...interface{},
+	args ...any,
 ) (*model.QRecordBatch, error) {
 	stream := model.NewQRecordStream(1024)
 	errors := make(chan struct{})
@@ -264,7 +264,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	ctx context.Context,
 	stream *model.QRecordStream,
 	query string,
-	args ...interface{},
+	args ...any,
 ) (int, error) {
 	return qe.ExecuteQueryIntoSink(
 		ctx,
@@ -278,7 +278,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	ctx context.Context,
 	sink QRepPullSink,
 	query string,
-	args ...interface{},
+	args ...any,
 ) (int, error) {
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer sink.Close(nil)
@@ -305,7 +305,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	ctx context.Context,
 	sink QRepPullSink,
 	query string,
-	args ...interface{},
+	args ...any,
 ) (int, int64, error) {
 	var currentSnapshotXmin pgtype.Int8
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))

@@ -48,7 +48,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 
 	// Query to get the total number of rows in the table
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
-	var minVal interface{}
+	var minVal any
 	var totalRows int64
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
@@ -190,8 +190,8 @@ func (c *MySqlConnector) PullQRepRecords(
 			return 0, err
 		}
 	} else {
-		var rangeStart interface{}
-		var rangeEnd interface{}
+		var rangeStart any
+		var rangeEnd any
 
 		// Depending on the type of the range, convert the range into the correct type
 		switch x := last.Range.Range.(type) {
@@ -221,7 +221,7 @@ func BuildQuery(logger log.Logger, query string) (string, error) {
 		return "", err
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"start": "$1",
 		"end":   "$2",
 	}

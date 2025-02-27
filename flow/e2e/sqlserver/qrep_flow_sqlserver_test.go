@@ -109,7 +109,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) setupSQLServerTable(tableName string) {
 func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName string, numRows int) {
 	schemaQualified := fmt.Sprintf("%s.%s", s.sqlsHelper.SchemaName, tableName)
 	for i := range numRows {
-		params := map[string]interface{}{
+		params := map[string]any{
 			"id":      "test_id_" + strconv.Itoa(i),
 			"card_id": "test_card_id_" + strconv.Itoa(i),
 			"v_from":  time.Now(),

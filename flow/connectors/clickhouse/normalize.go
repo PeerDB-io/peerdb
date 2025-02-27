@@ -27,20 +27,20 @@ const (
 	versionColType = "Int64"
 )
 
-func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
 	return nil, nil
 }
 
-func (c *ClickHouseConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+func (c *ClickHouseConnector) FinishSetupNormalizedTables(_ context.Context, _ any) error {
 	return nil
 }
 
-func (c *ClickHouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *ClickHouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ any) {
 }
 
 func (c *ClickHouseConnector) SetupNormalizedTable(
 	ctx context.Context,
-	tx interface{},
+	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,

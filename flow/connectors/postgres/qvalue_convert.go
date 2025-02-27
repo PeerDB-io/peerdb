@@ -232,7 +232,7 @@ func qValueKindToPostgresType(colTypeStr string) string {
 	}
 }
 
-func parseJSON(value interface{}, isArray bool) (qvalue.QValue, error) {
+func parseJSON(value any, isArray bool) (qvalue.QValue, error) {
 	jsonVal, err := json.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
@@ -240,7 +240,7 @@ func parseJSON(value interface{}, isArray bool) (qvalue.QValue, error) {
 	return qvalue.QValueJSON{Val: string(jsonVal), IsArray: isArray}, nil
 }
 
-func parseUUID(value interface{}) (uuid.UUID, error) {
+func parseUUID(value any) (uuid.UUID, error) {
 	switch v := value.(type) {
 	case string:
 		return uuid.Parse(v)
@@ -253,7 +253,7 @@ func parseUUID(value interface{}) (uuid.UUID, error) {
 	}
 }
 
-func parseUUIDArray(value interface{}) (qvalue.QValue, error) {
+func parseUUIDArray(value any) (qvalue.QValue, error) {
 	switch v := value.(type) {
 	case []string:
 		uuids := make([]uuid.UUID, 0, len(v))
@@ -273,12 +273,12 @@ func parseUUIDArray(value interface{}) (qvalue.QValue, error) {
 		return qvalue.QValueArrayUUID{Val: uuids}, nil
 	case []uuid.UUID:
 		return qvalue.QValueArrayUUID{Val: v}, nil
-	case []interface{}:
+	case []any:
 		uuids := make([]uuid.UUID, 0, len(v))
 		for _, v := range v {
 			id, err := parseUUID(v)
 			if err != nil {
-				return nil, fmt.Errorf("invalid UUID interface{} value in array: %w", err)
+				return nil, fmt.Errorf("invalid UUID any value in array: %w", err)
 			}
 			uuids = append(uuids, id)
 		}
@@ -288,7 +288,7 @@ func parseUUIDArray(value interface{}) (qvalue.QValue, error) {
 	}
 }
 
-func convertToArray[T any](kind qvalue.QValueKind, value interface{}) ([]T, error) {
+func convertToArray[T any](kind qvalue.QValueKind, value any) ([]T, error) {
 	switch v := value.(type) {
 	case pgtype.Array[T]:
 		if v.Valid {
@@ -296,13 +296,13 @@ func convertToArray[T any](kind qvalue.QValueKind, value interface{}) ([]T, erro
 		}
 	case []T:
 		return v, nil
-	case []interface{}:
+	case []any:
 		return shared.ArrayCastElements[T](v), nil
 	}
 	return nil, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
 
-func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (qvalue.QValue, error) {
+func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.QValue, error) {
 	if value == nil {
 		return qvalue.QValueNull(qvalueKind), nil
 	}
@@ -344,7 +344,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 
 		return qvalue.QValueString{Val: string(intervalJSON)}, nil
 	case qvalue.QValueKindTSTZRange:
-		tstzrangeObject := value.(pgtype.Range[interface{}])
+		tstzrangeObject := value.(pgtype.Range[any])
 		lowerBoundType := tstzrangeObject.LowerType
 		upperBoundType := tstzrangeObject.UpperType
 		lowerTime, err := convertTimeRangeBound(tstzrangeObject.Lower)
@@ -549,7 +549,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value interface{}) (
 	return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
 }
 
-func (c *PostgresConnector) parseFieldFromPostgresOID(oid uint32, value interface{}) (qvalue.QValue, error) {
+func (c *PostgresConnector) parseFieldFromPostgresOID(oid uint32, value any) (qvalue.QValue, error) {
 	return parseFieldFromQValueKind(c.postgresOIDToQValueKind(oid), value)
 }
 
@@ -581,7 +581,7 @@ func customTypeToQKind(typeName string) qvalue.QValueKind {
 // Postgres does not like timestamps of the form 2006-01-02 15:04:05 +0000 UTC
 // in tstzrange.
 // convertTimeRangeBound removes the +0000 UTC part
-func convertTimeRangeBound(timeBound interface{}) (string, error) {
+func convertTimeRangeBound(timeBound any) (string, error) {
 	if timeBound, isInfinite := timeBound.(pgtype.InfinityModifier); isInfinite {
 		return timeBound.String(), nil
 	}

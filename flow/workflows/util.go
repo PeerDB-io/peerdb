@@ -10,7 +10,7 @@ import (
 )
 
 func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
-	sideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+	sideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) any {
 		return f(ctx)
 	})
 

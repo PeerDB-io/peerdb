@@ -14,10 +14,10 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
-	"go.temporal.io/sdk/activity"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -842,22 +842,6 @@ func processDeleteMessage[Items model.Items](
 	}, nil
 }
 
-func auditSchemaDelta[Items model.Items](ctx context.Context, p *PostgresCDCSource, rec *model.RelationRecord[Items]) error {
-	activityInfo := activity.GetInfo(ctx)
-	workflowID := activityInfo.WorkflowExecution.ID
-	runID := activityInfo.WorkflowExecution.RunID
-
-	_, err := p.catalogPool.Exec(ctx,
-		`INSERT INTO
-		 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info)
-		 VALUES($1,$2,$3,$4)`,
-		p.flowJobName, workflowID, runID, rec)
-	if err != nil {
-		return fmt.Errorf("failed to insert row into table: %w", err)
-	}
-	return nil
-}
-
 // processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
 func processRelationMessage[Items model.Items](
 	ctx context.Context,
@@ -953,7 +937,7 @@ func processRelationMessage[Items model.Items](
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
 		}
-		return rec, auditSchemaDelta(ctx, p, rec)
+		return rec, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
 }

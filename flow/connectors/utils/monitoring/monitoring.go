@@ -9,6 +9,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -114,13 +116,7 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 	if err != nil {
 		return fmt.Errorf("error while beginning transaction for inserting statistics into cdc_batch_table: %w", err)
 	}
-	defer func() {
-		if err := insertBatchTablesTx.Rollback(context.Background()); err != pgx.ErrTxClosed && err != nil {
-			internal.LoggerFromCtx(ctx).Error("error during transaction rollback",
-				slog.Any("error", err),
-				slog.String(string(shared.FlowNameKey), flowJobName))
-		}
-	}()
+	defer shared.RollbackTx(insertBatchTablesTx, internal.LoggerFromCtx(ctx))
 
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
 		inserts := rowCounts.InsertCount.Load()
@@ -357,4 +353,21 @@ func DeleteMirrorStats(ctx context.Context, logger log.Logger, pool shared.Catal
 	}
 
 	return tx.Commit(ctx)
+}
+
+func AuditSchemaDelta(ctx context.Context, pool *pgxpool.Pool,
+	flowJobName string, rec *protos.TableSchemaDelta,
+) error {
+	activityInfo := activity.GetInfo(ctx)
+	workflowID := activityInfo.WorkflowExecution.ID
+	runID := activityInfo.WorkflowExecution.RunID
+
+	if _, err := pool.Exec(ctx,
+		`INSERT INTO
+			 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info)
+			 VALUES($1,$2,$3,$4)`,
+		flowJobName, workflowID, runID, rec); err != nil {
+		return fmt.Errorf("failed to insert row into table: %w", err)
+	}
+	return nil
 }

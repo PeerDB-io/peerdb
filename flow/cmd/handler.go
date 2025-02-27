@@ -196,7 +196,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	if err != nil {
 		return nil, err
 	}
-	var workflowFn interface{}
+	var workflowFn any
 	if dbtype == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {
 		workflowFn = peerflow.XminFlowWorkflow
 	} else {

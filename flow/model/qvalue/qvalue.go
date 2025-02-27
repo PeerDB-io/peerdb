@@ -226,7 +226,7 @@ func (v QValueBoolean) LValue(ls *lua.LState) lua.LValue {
 }
 
 type QValueStruct struct {
-	Val map[string]interface{}
+	Val map[string]any
 }
 
 func (QValueStruct) Kind() QValueKind {

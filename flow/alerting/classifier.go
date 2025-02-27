@@ -220,7 +220,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	if errors.As(err, &chException) {
 		chErrorInfo := ErrorInfo{
 			Source: ErrorSourceClickHouse,
-			Code:   string(chException.Code),
+			Code:   strconv.Itoa(int(chException.Code)),
 		}
 		switch chproto.Error(chException.Code) {
 		case chproto.ErrMemoryLimitExceeded:

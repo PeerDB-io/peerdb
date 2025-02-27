@@ -989,10 +989,6 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 }
 
 func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
-	if _, ok := s.source.(*e2e.MySqlSource); ok {
-		s.t.Skip("mysql connector does not support schema changes yet")
-	}
-
 	tc := e2e.NewTemporalClient(s.t)
 
 	tableName := "test_nullable_sc_ch"

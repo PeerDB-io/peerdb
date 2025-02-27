@@ -54,7 +54,7 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeholder int) qvalue.
 		// case qvalue.QValueKindArray:
 		// 	value = []int{1, 2, 3} // placeholder array, replace with actual logic
 		// case qvalue.QValueKindStruct:
-		// 	value = map[string]interface{}{"key": "value"} // placeholder struct, replace with actual logic
+		// 	value = map[string]any{"key": "value"} // placeholder struct, replace with actual logic
 		// case qvalue.QValueKindJSON:
 		// 	value = `{"key": "value"}` // placeholder JSON, replace with actual logic
 	case qvalue.QValueKindBytes:

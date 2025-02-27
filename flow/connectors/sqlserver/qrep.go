@@ -46,7 +46,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 
 	// Query to get the total number of rows in the table
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
-	var minVal interface{}
+	var minVal any
 	var totalRows pgtype.Int8
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
@@ -56,7 +56,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
 		c.logger.Info(fmt.Sprintf("count query: %s - minVal: %v", countQuery, minVal))
-		params := map[string]interface{}{
+		params := map[string]any{
 			"minVal": minVal,
 		}
 
@@ -110,7 +110,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 			config.WatermarkTable,
 		)
 		c.logger.Info(fmt.Sprintf("partitions query: %s - minVal: %v", partitionsQuery, minVal))
-		params := map[string]interface{}{
+		params := map[string]any{
 			"minVal": minVal,
 		}
 		rows, err = c.db.NamedQuery(partitionsQuery, params)
@@ -138,7 +138,7 @@ func (c *SQLServerConnector) GetQRepPartitions(
 	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for rows.Next() {
 		var bucket pgtype.Int8
-		var start, end interface{}
+		var start, end any
 		if err := rows.Scan(&bucket, &start, &end); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -173,8 +173,8 @@ func (c *SQLServerConnector) PullQRepRecords(
 			return 0, err
 		}
 	} else {
-		var rangeStart interface{}
-		var rangeEnd interface{}
+		var rangeStart any
+		var rangeEnd any
 
 		// Depending on the type of the range, convert the range into the correct type
 		switch x := last.Range.Range.(type) {
@@ -189,7 +189,7 @@ func (c *SQLServerConnector) PullQRepRecords(
 		}
 
 		var err error
-		qbatch, err = c.NamedExecuteAndProcessQuery(ctx, query, map[string]interface{}{
+		qbatch, err = c.NamedExecuteAndProcessQuery(ctx, query, map[string]any{
 			"startRange": rangeStart,
 			"endRange":   rangeEnd,
 		})
@@ -208,7 +208,7 @@ func BuildQuery(logger log.Logger, query string) (string, error) {
 		return "", err
 	}
 
-	data := map[string]interface{}{
+	data := map[string]any{
 		"start": ":startRange",
 		"end":   ":endRange",
 	}

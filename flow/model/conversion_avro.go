@@ -95,7 +95,7 @@ func GetAvroSchemaDefinition(
 		}
 
 		if qField.Nullable {
-			avroType = []interface{}{"null", avroType}
+			avroType = []any{"null", avroType}
 		}
 
 		avroFields = append(avroFields, QRecordAvroField{

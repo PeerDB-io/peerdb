@@ -242,6 +242,7 @@ func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*reso
 	allAttrs := append([]attribute.KeyValue{
 		semconv.ServiceNameKey.String(otelServiceName),
 		attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
+		semconv.ServiceVersion(internal.PeerDBVersionShaShort()),
 	}, attrs...)
 	return resource.Merge(
 		resource.Default(),

@@ -64,7 +64,7 @@ func (r PgItems) ToJSON() (string, error) {
 }
 
 func (r PgItems) MarshalJSON() ([]byte, error) {
-	jsonStruct := make(map[string]interface{}, len(r.ColToVal))
+	jsonStruct := make(map[string]any, len(r.ColToVal))
 	for col, bytes := range r.ColToVal {
 		if bytes == nil {
 			jsonStruct[col] = nil

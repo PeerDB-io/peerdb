@@ -22,7 +22,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	qe *QRepQueryExecutor,
 	tx pgx.Tx,
 	query string,
-	args ...interface{},
+	args ...any,
 ) (int, error) {
 	defer shared.RollbackTx(tx, qe.logger)
 
