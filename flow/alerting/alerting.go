@@ -487,9 +487,9 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error
 	if a.otelManager != nil {
 		errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowNameKey, flowName),
-			attribute.String(otel_metrics.ErrorClassKey, errorClass.String()),
-			attribute.String(otel_metrics.ErrorActionKey, errorClass.ErrorAction().String()),
-			attribute.String(otel_metrics.ErrorSourceKey, errInfo.Source.String()),
+			attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
+			attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
+			attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),
 			attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
 		))
 		a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, errorAttributeSet)
