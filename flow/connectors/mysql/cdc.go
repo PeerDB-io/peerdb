@@ -339,6 +339,7 @@ func (c *MySqlConnector) PullRecords(
 		}
 
 		if otelManager != nil {
+			otelManager.Metrics.RecordsReceivedGauge.Record(ctx, int64(recordCount))
 			otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 			otelManager.Metrics.InstantaneousFetchedBytesGauge.Record(ctx, int64(len(event.RawData)))
 		}

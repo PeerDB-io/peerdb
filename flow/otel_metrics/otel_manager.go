@@ -30,6 +30,7 @@ const (
 	OpenConnectionsGaugeName            = "open_connections"
 	OpenReplicationConnectionsGaugeName = "open_replication_connections"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
+	RecordsReceivedName                 = "records_received"
 	FetchedBytesCounterName             = "fetched_bytes"
 	InstantaneousFetchedBytesGaugeName  = "instantaneous_fetched_bytes"
 	ErrorEmittedGaugeName               = "error_emitted"
@@ -48,6 +49,7 @@ type Metrics struct {
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
+	RecordsReceivedGauge            metric.Int64Gauge
 	FetchedBytesCounter             metric.Int64Counter
 	InstantaneousFetchedBytesGauge  metric.Int64Gauge
 	ErrorEmittedGauge               metric.Int64Gauge
