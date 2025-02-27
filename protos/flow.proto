@@ -508,10 +508,17 @@ message FlowContextMetadataInput {
   bool is_resync = 5;
 }
 
+enum FlowOperation {
+  FLOW_OPERATION_UNKNOWN = 0;
+  FLOW_OPERATION_SYNC = 1;
+  FLOW_OPERATION_NORMALIZE = 2;
+}
+
 message FlowContextMetadata{
   string flow_name = 1;
   PeerContextMetadata source = 2;
   PeerContextMetadata destination = 3;
   FlowStatus status = 4;
   bool is_resync = 5;
+  FlowOperation operation = 6;
 }

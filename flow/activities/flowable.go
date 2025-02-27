@@ -311,6 +311,8 @@ func (a *FlowableActivity) SyncFlow(
 	defer shutdown()
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	// This is kept here and not deeper as we can have errors during SetupReplConn
+	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := activity.GetLogger(ctx)
 
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -337,8 +339,9 @@ func (a *FlowableActivity) SyncFlow(
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
+		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(groupCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {
