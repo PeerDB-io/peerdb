@@ -87,7 +87,7 @@ type SnowflakeConnector struct {
 // creating this to capture array results from snowflake.
 type ArrayString []string
 
-func (a *ArrayString) Scan(src interface{}) error {
+func (a *ArrayString) Scan(src any) error {
 	switch v := src.(type) {
 	case string:
 		return json.Unmarshal([]byte(v), a)
@@ -297,20 +297,20 @@ func (c *SnowflakeConnector) getTableNameToUnchangedCols(
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+func (c *SnowflakeConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
 	return nil, nil
 }
 
-func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context, _ any) error {
 	return nil
 }
 
-func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ any) {
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTable(
 	ctx context.Context,
-	tx interface{},
+	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,

@@ -28,7 +28,7 @@ const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
 type QRepPullSink interface {
 	Close(error)
-	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...interface{}) (int, error)
+	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...any) (int, error)
 }
 
 type QRepSyncSink interface {
@@ -101,7 +101,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	// Query to get the total number of rows in the table
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, parsedWatermarkTable.String(), whereClause)
 	var row pgx.Row
-	var minVal interface{} = nil
+	var minVal any = nil
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -173,7 +173,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	partitionHelper := partition_utils.NewPartitionHelper(c.logger)
 	for rows.Next() {
 		var bucket pgtype.Int8
-		var start, end interface{}
+		var start, end any
 		if err := rows.Scan(&bucket, &start, &end); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -199,8 +199,8 @@ func (c *PostgresConnector) getMinMaxValues(
 	tx pgx.Tx,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
-) (interface{}, interface{}, error) {
-	var minValue, maxValue interface{}
+) (any, any, error) {
+	var minValue, maxValue any
 	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
@@ -322,8 +322,8 @@ func corePullQRepRecords(
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
-	var rangeStart interface{}
-	var rangeEnd interface{}
+	var rangeStart any
+	var rangeEnd any
 
 	// Depending on the type of the range, convert the range into the correct type
 	switch x := partition.Range.Range.(type) {
@@ -637,10 +637,10 @@ func pullXminRecordStream(
 	sink QRepPullSink,
 ) (int, int64, error) {
 	query := config.Query
-	var queryArgs []interface{}
+	var queryArgs []any
 	if partition.Range != nil {
 		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
-		queryArgs = []interface{}{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
+		queryArgs = []any{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.SnapshotName,
@@ -670,7 +670,7 @@ func BuildQuery(logger log.Logger, query string, flowJobName string) (string, er
 	}
 
 	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, map[string]interface{}{
+	if err := tmpl.Execute(buf, map[string]any{
 		"start": "$1",
 		"end":   "$2",
 	}); err != nil {

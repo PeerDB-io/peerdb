@@ -26,7 +26,7 @@ type SyncGauge[V comparable, O metric.Observable] struct {
 }
 
 func (a *SyncGauge[V, O]) Callback(ctx context.Context, observeFunc func(value V, options ...metric.ObserveOption)) error {
-	a.observations.Range(func(key, value interface{}) bool {
+	a.observations.Range(func(key, value any) bool {
 		attrs := key.(attribute.Set)
 		val := value.(*ObservationMapValue[V])
 		observeFunc(val.Value, metric.WithAttributeSet(attrs))
