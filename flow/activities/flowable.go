@@ -338,8 +338,8 @@ func (a *FlowableActivity) SyncFlow(
 	normRequests := make(chan NormalizeBatchRequest, normalizeBufferSize)
 
 	group, groupCtx := errgroup.WithContext(ctx)
-	normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 	group.Go(func() error {
+		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
 		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
 		return nil
