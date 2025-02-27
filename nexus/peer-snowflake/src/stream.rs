@@ -227,7 +227,6 @@ impl SnowflakeRecordStreamInner {
         let secret = self.auth.get_jwt()?.expose_secret();
         let statement_handle = self.result_set.statementHandle.clone();
         let url = self.endpoint_url.clone();
-        println!("Secret: {:#?}", secret);
         let response = reqwest::Client::new()
             .get(format!("{}/{}", url, statement_handle))
             .query(&[("partition", partition_number.to_string())])
@@ -239,7 +238,6 @@ impl SnowflakeRecordStreamInner {
             .json::<PartitionResult>()
             .await
             .map_err(|_| anyhow::anyhow!("get_partition failed"))?;
-        println!("Response: {:#?}", response.data);
 
         self.result_set.data = response.data;
         Ok(true)
