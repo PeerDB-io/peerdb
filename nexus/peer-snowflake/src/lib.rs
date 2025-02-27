@@ -158,7 +158,7 @@ impl SnowflakeQueryExecutor {
             // If we need to retry, send same UUID with retry=true parameter set and Snowflake should prevent duplicate execution.
             let query_status_res = self
                 .reqwest_client
-                .post(self.endpoint_url.to_owned())
+                .post(&self.endpoint_url)
                 .bearer_auth(secret)
                 .query(&[("async", "true")])
                 .json(&SQLStatement {
@@ -235,8 +235,7 @@ impl SnowflakeQueryExecutor {
         } else if response.status().is_client_error() || response.status().is_server_error() {
             Ok(QueryAttemptResult::ErrorAbort {
                 error_message: format!(
-                    "{}{}\n{}",
-                    "Unexpected response: ",
+                    "Unexpected response: {}\n{}",
                     response.status().as_str(),
                     response.text().await?
                 ),

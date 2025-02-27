@@ -2567,6 +2567,35 @@ dependencies = [
 ]
 
 [[package]]
+name = "peer-clickhouse"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "catalog",
+ "chrono",
+ "futures",
+ "hex",
+ "jsonwebtoken",
+ "memchr",
+ "peer-cursor",
+ "pgwire",
+ "pt",
+ "reqwest",
+ "rsa",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sqlparser",
+ "tokio",
+ "tracing",
+ "value",
+]
+
+[[package]]
 name = "peer-connections"
 version = "0.1.0"
 dependencies = [
@@ -2706,6 +2735,7 @@ dependencies = [
  "flow-rs",
  "futures",
  "peer-bigquery",
+ "peer-clickhouse",
  "peer-connections",
  "peer-cursor",
  "peer-mysql",
