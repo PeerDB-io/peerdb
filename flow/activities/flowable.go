@@ -336,9 +336,10 @@ func (a *FlowableActivity) SyncFlow(
 	normRequests := make(chan NormalizeBatchRequest, normalizeBufferSize)
 
 	group, groupCtx := errgroup.WithContext(ctx)
+	normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 	group.Go(func() error {
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(groupCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {
@@ -352,13 +353,14 @@ func (a *FlowableActivity) SyncFlow(
 	for groupCtx.Err() == nil {
 		logger.Info("executing sync flow", slog.Int64("count", int64(currentSyncFlowNum.Add(1))))
 
+		syncCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 		var syncResponse *model.SyncResponse
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.syncRecords(syncCtx, config, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.syncPg(syncCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, &syncingBatchID, &syncState)
 		}
 
