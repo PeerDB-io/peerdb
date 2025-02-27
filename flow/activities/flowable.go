@@ -311,6 +311,8 @@ func (a *FlowableActivity) SyncFlow(
 	defer shutdown()
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	// This is kept here and not deeper as we can have errors during SetupReplConn
+	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := activity.GetLogger(ctx)
 
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -353,14 +355,13 @@ func (a *FlowableActivity) SyncFlow(
 	for groupCtx.Err() == nil {
 		logger.Info("executing sync flow", slog.Int64("count", int64(currentSyncFlowNum.Add(1))))
 
-		syncCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 		var syncResponse *model.SyncResponse
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.syncRecords(syncCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
 				normRequests, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.syncPg(syncCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, &syncingBatchID, &syncState)
 		}
 
