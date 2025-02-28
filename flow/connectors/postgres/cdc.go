@@ -262,13 +262,13 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32,
 			}
 			return nil, err
 		}
-		retVal, err := p.parseFieldFromPostgresOID(dataType, parsedData)
+		retVal, err := p.parseFieldFromPostgresOID(p.typeMap, dataType, parsedData)
 		if err != nil {
 			return nil, err
 		}
 		return retVal, nil
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
-		retVal, err := p.parseFieldFromPostgresOID(dataType, string(data))
+		retVal, err := p.parseFieldFromPostgresOID(p.typeMap, dataType, string(data))
 		if err != nil {
 			return nil, err
 		}
@@ -897,7 +897,7 @@ func processRelationMessage[Items model.Items](
 	for _, column := range currRel.Columns {
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
-			qKind := p.postgresOIDToQValueKind(column.DataType)
+			qKind := p.postgresOIDToQValueKind(p.typeMap, column.DataType)
 			if qKind == qvalue.QValueKindInvalid {
 				typeName, ok := customTypeMapping[column.DataType]
 				if ok {
@@ -906,7 +906,7 @@ func processRelationMessage[Items model.Items](
 			}
 			currRelMap[column.Name] = string(qKind)
 		case protos.TypeSystem_PG:
-			currRelMap[column.Name] = p.postgresOIDToName(column.DataType)
+			currRelMap[column.Name] = p.postgresOIDToName(p.typeMap, column.DataType)
 		default:
 			panic(fmt.Sprintf("cannot process schema changes for unknown type system %s", prevSchema.System))
 		}
