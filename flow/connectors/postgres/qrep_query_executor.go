@@ -23,7 +23,6 @@ type QRepQueryExecutor struct {
 	snapshot          string
 	flowJobName       string
 	partitionID       string
-	typeMap           *pgtype.Map
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context,
@@ -47,7 +46,6 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context,
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
 		customTypeMapping: customTypeMapping,
-		typeMap:           pgtype.NewMap(),
 	}, nil
 }
 
