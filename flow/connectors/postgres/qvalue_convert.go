@@ -19,8 +19,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-func (c *PostgresConnector) postgresOIDToName(typeMap *pgtype.Map, recvOID uint32) string {
-	if ty, ok := typeMap.TypeForOID(recvOID); ok {
+func (c *PostgresConnector) postgresOIDToName(recvOID uint32) string {
+	if ty, ok := c.typeMap.TypeForOID(recvOID); ok {
 		return ty.Name
 	}
 	// workaround for some types not being defined by pgtype
@@ -42,7 +42,7 @@ func (c *PostgresConnector) postgresOIDToName(typeMap *pgtype.Map, recvOID uint3
 	}
 }
 
-func (c *PostgresConnector) postgresOIDToQValueKind(typeMap *pgtype.Map, recvOID uint32) qvalue.QValueKind {
+func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
 		return qvalue.QValueKindBoolean
@@ -117,7 +117,7 @@ func (c *PostgresConnector) postgresOIDToQValueKind(typeMap *pgtype.Map, recvOID
 	case pgtype.TstzrangeOID:
 		return qvalue.QValueKindTSTZRange
 	default:
-		typeName, ok := typeMap.TypeForOID(recvOID)
+		typeName, ok := c.typeMap.TypeForOID(recvOID)
 		if !ok {
 			// workaround for some types not being defined by pgtype
 			switch recvOID {
@@ -549,8 +549,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 	return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
 }
 
-func (c *PostgresConnector) parseFieldFromPostgresOID(typeMap *pgtype.Map, oid uint32, value any) (qvalue.QValue, error) {
-	return parseFieldFromQValueKind(c.postgresOIDToQValueKind(typeMap, oid), value)
+func (c *PostgresConnector) parseFieldFromPostgresOID(oid uint32, value any) (qvalue.QValue, error) {
+	return parseFieldFromQValueKind(c.postgresOIDToQValueKind(oid), value)
 }
 
 func numericToDecimal(numVal pgtype.Numeric) (qvalue.QValue, error) {

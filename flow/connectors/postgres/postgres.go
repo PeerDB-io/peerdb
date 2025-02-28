@@ -755,7 +755,7 @@ func (c *PostgresConnector) GetTableSchema(
 	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
 
 	for _, tableName := range tableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, c.typeMap, tableName, system)
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)
 		if err != nil {
 			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
 			return nil, err
@@ -770,7 +770,6 @@ func (c *PostgresConnector) GetTableSchema(
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
-	typeMap *pgtype.Map,
 	tableName string,
 	system protos.TypeSystem,
 ) (*protos.TableSchema, error) {
@@ -825,7 +824,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		var colType string
 		switch system {
 		case protos.TypeSystem_PG:
-			colType = c.postgresOIDToName(typeMap, fieldDescription.DataTypeOID)
+			colType = c.postgresOIDToName(fieldDescription.DataTypeOID)
 			if colType == "" {
 				typeName, ok := customTypeMapping[fieldDescription.DataTypeOID]
 				if !ok {
@@ -834,7 +833,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 				colType = typeName
 			}
 		case protos.TypeSystem_Q:
-			qColType := c.postgresOIDToQValueKind(typeMap, fieldDescription.DataTypeOID)
+			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID)
 			if qColType == qvalue.QValueKindInvalid {
 				typeName, ok := customTypeMapping[fieldDescription.DataTypeOID]
 				if ok {

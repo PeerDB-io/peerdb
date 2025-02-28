@@ -76,7 +76,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
 		cname := fd.Name
-		ctype := qe.postgresOIDToQValueKind(qe.typeMap, fd.DataTypeOID)
+		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID)
 		if ctype == qvalue.QValueKindInvalid {
 			typeName, ok := qe.customTypeMapping[fd.DataTypeOID]
 			if ok {
@@ -352,7 +352,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 		// Check if it's a custom type first
 		typeName, ok := qe.customTypeMapping[fd.DataTypeOID]
 		if !ok {
-			tmp, err := qe.parseFieldFromPostgresOID(qe.typeMap, fd.DataTypeOID, values[i])
+			tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
 			if err != nil {
 				qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to parse field: %w", err)
