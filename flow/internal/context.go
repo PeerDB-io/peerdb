@@ -30,6 +30,15 @@ func GetFlowMetadata(ctx context.Context) *protos.FlowContextMetadata {
 	return nil
 }
 
+func WithOperationContext(ctx context.Context, operation protos.FlowOperation) context.Context {
+	currentMetadata := GetFlowMetadata(ctx)
+	if currentMetadata == nil {
+		currentMetadata = &protos.FlowContextMetadata{}
+	}
+	currentMetadata.Operation = operation
+	return context.WithValue(ctx, FlowMetadataKey, currentMetadata)
+}
+
 type ContextPropagator[V any] struct {
 	Key TemporalContextKey
 }

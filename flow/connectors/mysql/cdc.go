@@ -11,9 +11,13 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -320,6 +324,7 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	var mysqlParser *parser.Parser
 	for inTx || recordCount < req.MaxBatchSize {
 		getCtx := ctx
 		if !inTx {
@@ -356,6 +361,25 @@ func (c *MySqlConnector) PullRecords(
 				pos.Pos = uint32(ev.Position)
 				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
+		case *replication.QueryEvent:
+			if mysqlParser == nil {
+				mysqlParser = parser.New()
+			}
+			stmts, warns, err := mysqlParser.ParseSQL(shared.UnsafeFastReadOnlyBytesToString(ev.Query))
+			if err != nil {
+				c.logger.Warn("failed to parse QueryEvent", slog.String("query", string(ev.Query)), slog.Any("error", err))
+				break
+			}
+			if len(warns) > 0 {
+				c.logger.Warn("processing QueryEvent with logged warnings", slog.Any("warns", warns))
+			}
+			for _, stmt := range stmts {
+				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
+					if err := c.processAlterTableQuery(ctx, catalogPool, req, alterTableStmt, string(ev.Schema)); err != nil {
+						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
+					}
+				}
+			}
 		case *replication.RowsEvent:
 			sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table) // TODO this is fragile
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
@@ -389,8 +413,6 @@ func (c *MySqlConnector) PullRecords(
 					return nil
 				}
 				switch event.Header.EventType {
-				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
-					return errors.New("mysql v0 replication protocol not supported")
 				case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2, replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1:
 					for _, row := range ev.Rows {
 						items := model.NewRecordItems(len(row))
@@ -496,10 +518,88 @@ func (c *MySqlConnector) PullRecords(
 							return err
 						}
 					}
-				default:
+				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
+					return errors.New("mysql v0 replication protocol not supported")
 				}
 			}
 		}
+	}
+	return nil
+}
+
+func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
+	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
+) error {
+	// if ALTER TABLE doesn't have database/schema name, use one attached to event
+	var sourceSchemaName string
+	if stmt.Table.Schema.String() != "" {
+		sourceSchemaName = stmt.Table.Schema.String()
+	} else {
+		sourceSchemaName = stmtSchema
+	}
+	sourceTableName := sourceSchemaName + "." + stmt.Table.Name.String()
+
+	destinationTableName := req.TableNameMapping[sourceTableName].Name
+	if destinationTableName == "" {
+		c.logger.Warn("table not found in mapping", slog.String("table", sourceTableName))
+		return nil
+	}
+	currentSchema := req.TableNameSchemaMapping[destinationTableName]
+
+	tableSchemaDelta := &protos.TableSchemaDelta{
+		SrcTableName:    sourceTableName,
+		DstTableName:    destinationTableName,
+		AddedColumns:    nil,
+		System:          protos.TypeSystem_Q,
+		NullableEnabled: currentSchema != nil && currentSchema.NullableEnabled,
+	}
+
+	for _, spec := range stmt.Specs {
+		if spec.NewColumns != nil {
+			// these are added columns
+			for _, col := range spec.NewColumns {
+				qkind, err := qkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
+				if err != nil {
+					return err
+				}
+
+				nullable := true
+				for _, option := range col.Options {
+					if option.Tp == ast.ColumnOptionNotNull {
+						nullable = false
+					}
+				}
+
+				precision := col.Tp.GetFlen()
+				scale := col.Tp.GetDecimal()
+				typmod := int32(-1)
+				if scale >= 0 || precision >= 0 {
+					typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
+				}
+
+				fd := &protos.FieldDescription{
+					Name:         col.Name.String(),
+					Type:         string(qkind),
+					TypeModifier: typmod,
+					Nullable:     nullable,
+				}
+				tableSchemaDelta.AddedColumns = append(tableSchemaDelta.AddedColumns, fd)
+				// current assumption is the columns will be ordered like this
+				currentSchema.Columns = append(currentSchema.Columns, fd)
+			}
+		} else if spec.OldColumnName != nil {
+			// this could be dropped or renamed column
+			if spec.NewColumnName != nil {
+				c.logger.Warn("renamed column detected but not propagating",
+					slog.String("columnOldName", spec.OldColumnName.String()), slog.String("columnNewName", spec.NewColumnName.String()))
+			} else {
+				c.logger.Warn("dropped column detected but not propagating", slog.String("columnName", spec.OldColumnName.String()))
+			}
+		}
+	}
+	if tableSchemaDelta.AddedColumns != nil {
+		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
 	}
 	return nil
 }

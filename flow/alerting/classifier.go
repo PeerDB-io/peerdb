@@ -86,11 +86,14 @@ var (
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
+	ErrorDropFlow = ErrorClass{
+		Class: "DROP_FLOW", action: NotifyTelemetry,
+	}
 	ErrorIgnoreEOF = ErrorClass{
 		Class: "IGNORE_EOF", action: Ignore,
 	}
-	ErrorIgnoreConnReset = ErrorClass{
-		Class: "IGNORE_CONN_RESET", action: Ignore,
+	ErrorIgnoreConnTemporary = ErrorClass{
+		Class: "IGNORE_CONN_TEMPORARY", action: Ignore,
 	}
 	ErrorIgnoreContextCancelled = ErrorClass{
 		Class: "IGNORE_CONTEXT_CANCELLED", action: Ignore,
@@ -137,6 +140,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 		return errorClass, ErrorInfo{
 			Source: ErrorSourcePostgresCatalog,
+			Code:   "UNKNOWN",
+		}
+	}
+
+	var dropFlowErr *exceptions.DropFlowError
+	if errors.As(err, &dropFlowErr) {
+		errorClass := ErrorDropFlow
+		if pgErr != nil {
+			return errorClass, pgErrorInfo
+		}
+		// For now we are not making it as verbose, will take this up later
+		return errorClass, ErrorInfo{
+			Source: ErrorSourceOther,
 			Code:   "UNKNOWN",
 		}
 	}
@@ -204,7 +220,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	if errors.As(err, &chException) {
 		chErrorInfo := ErrorInfo{
 			Source: ErrorSourceClickHouse,
-			Code:   string(chException.Code),
+			Code:   strconv.Itoa(int(chException.Code)),
 		}
 		switch chproto.Error(chException.Code) {
 		case chproto.ErrMemoryLimitExceeded:
@@ -235,9 +251,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	// Connection reset errors can mostly be ignored
 	if errors.Is(err, syscall.ECONNRESET) {
-		return ErrorIgnoreConnReset, ErrorInfo{
+		return ErrorIgnoreConnTemporary, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   syscall.ECONNRESET.Error(),
+		}
+	}
+
+	if errors.Is(err, net.ErrClosed) {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "net.ErrClosed",
 		}
 	}
 

@@ -34,27 +34,28 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-type PostgresConnector struct {
-	logger                 log.Logger
-	Config                 *protos.PostgresConfig
-	ssh                    utils.SSHTunnel
-	conn                   *pgx.Conn
-	replConn               *pgx.Conn
-	replState              *ReplState
-	customTypeMapping      map[uint32]string
-	hushWarnOID            map[uint32]struct{}
-	relationMessageMapping model.RelationMessageMapping
-	connStr                string
-	metadataSchema         string
-	replLock               sync.Mutex
-	pgVersion              shared.PGVersion
-}
-
 type ReplState struct {
 	Slot        string
 	Publication string
 	Offset      int64
 	LastOffset  atomic.Int64
+}
+
+type PostgresConnector struct {
+	logger                 log.Logger
+	customTypeMapping      map[uint32]string
+	ssh                    utils.SSHTunnel
+	conn                   *pgx.Conn
+	replConn               *pgx.Conn
+	replState              *ReplState
+	Config                 *protos.PostgresConfig
+	hushWarnOID            map[uint32]struct{}
+	relationMessageMapping model.RelationMessageMapping
+	typeMap                *pgtype.Map
+	connStr                string
+	metadataSchema         string
+	replLock               sync.Mutex
+	pgVersion              shared.PGVersion
 }
 
 func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
@@ -111,6 +112,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		metadataSchema:         metadataSchema,
 		replLock:               sync.Mutex{},
 		pgVersion:              0,
+		typeMap:                pgtype.NewMap(),
 	}, nil
 }
 
@@ -751,6 +753,7 @@ func (c *PostgresConnector) GetTableSchema(
 	tableIdentifiers []string,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
+
 	for _, tableName := range tableIdentifiers {
 		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)
 		if err != nil {
@@ -1038,24 +1041,18 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 	if err != nil {
 		return nil, nil, err
 	}
-	txNeedsRollback := true
+	needRollback := true
 	defer func() {
-		if txNeedsRollback {
-			rollbackCtx, cancelFunc := context.WithTimeout(context.Background(), 5*time.Minute)
-			defer cancelFunc()
-			if err := tx.Rollback(rollbackCtx); err != nil && err != pgx.ErrTxClosed {
-				c.logger.Error("error while rolling back transaction for snapshot export", slog.Any("error", err))
-			}
+		if needRollback {
+			shared.RollbackTx(tx, c.logger)
 		}
 	}()
 
-	_, err = tx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0")
-	if err != nil {
+	if _, err := tx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout=0"); err != nil {
 		return nil, nil, fmt.Errorf("[export-snapshot] error setting idle_in_transaction_session_timeout: %w", err)
 	}
 
-	_, err = tx.Exec(ctx, "SET LOCAL lock_timeout=0")
-	if err != nil {
+	if _, err := tx.Exec(ctx, "SET LOCAL lock_timeout=0"); err != nil {
 		return nil, nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
 	}
 
@@ -1064,11 +1061,11 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
 	}
 
-	err = tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotName)
-	if err != nil {
+	if err := tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotName); err != nil {
 		return nil, nil, err
 	}
-	txNeedsRollback = false
+
+	needRollback = false
 
 	return &protos.ExportTxSnapshotOutput{
 		SnapshotName:     snapshotName,

@@ -338,6 +338,7 @@ message DropFlowInput {
   bool drop_flow_stats = 4;
   FlowConnectionConfigs flow_connection_configs = 5;
   bool skip_destination_drop = 6;
+  bool skip_source_drop = 7;
 }
 
 message TableSchemaDelta {
@@ -507,10 +508,17 @@ message FlowContextMetadataInput {
   bool is_resync = 5;
 }
 
+enum FlowOperation {
+  FLOW_OPERATION_UNKNOWN = 0;
+  FLOW_OPERATION_SYNC = 1;
+  FLOW_OPERATION_NORMALIZE = 2;
+}
+
 message FlowContextMetadata{
   string flow_name = 1;
   PeerContextMetadata source = 2;
   PeerContextMetadata destination = 3;
   FlowStatus status = 4;
   bool is_resync = 5;
+  FlowOperation operation = 6;
 }

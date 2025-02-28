@@ -9,6 +9,7 @@ import (
 	"iter"
 	"log/slog"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/client"
@@ -23,10 +24,11 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config *protos.MySqlConfig
-	ssh    utils.SSHTunnel
-	conn   *client.Conn
-	logger log.Logger
+	config   *protos.MySqlConfig
+	ssh      utils.SSHTunnel
+	conn     atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts chan context.Context
+	logger   log.Logger
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -38,13 +40,41 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
-	return &MySqlConnector{
+	contexts := make(chan context.Context)
+	c := &MySqlConnector{
 		PostgresMetadata: pgMetadata,
 		config:           config,
-		conn:             nil,
 		ssh:              ssh,
+		conn:             atomic.Pointer[client.Conn]{},
+		contexts:         contexts,
 		logger:           internal.LoggerFromCtx(ctx),
-	}, nil
+	}
+	go func() {
+		ctx := context.Background()
+		for {
+			var ok bool
+			select {
+			case <-ctx.Done():
+				ctx = context.Background()
+				if conn := c.conn.Swap(nil); conn != nil {
+					conn.Close()
+				}
+			case ctx, ok = <-contexts:
+				if !ok {
+					return
+				}
+			}
+		}
+	}()
+
+	return c, nil
+}
+
+func (c *MySqlConnector) watchCtx(ctx context.Context) func() {
+	c.contexts <- ctx
+	return func() {
+		c.contexts <- context.Background()
+	}
 }
 
 func (c *MySqlConnector) Flavor() string {
@@ -60,11 +90,13 @@ func (c *MySqlConnector) Flavor() string {
 
 func (c *MySqlConnector) Close() error {
 	var errs []error
-	if c.conn != nil {
-		if err := c.conn.Close(); err != nil {
+	if c.contexts != nil {
+		close(c.contexts)
+	}
+	if conn := c.conn.Swap(nil); conn != nil {
+		if err := conn.Close(); err != nil {
 			errs = append(errs, err)
 		}
-		c.conn = nil
 	}
 	if err := c.ssh.Close(); err != nil {
 		errs = append(errs, err)
@@ -86,7 +118,8 @@ func (c *MySqlConnector) Dialer() client.Dialer {
 }
 
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
-	if c.conn == nil {
+	conn := c.conn.Load()
+	if conn == nil {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
@@ -102,17 +135,22 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			}
 			return nil
 		}}
-		conn, err := client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
+		var err error
+		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
 			c.config.User, c.config.Password, c.config.Database, c.Dialer(), argF...)
 		if err != nil {
+			return nil, err
+		}
+		c.conn.Store(conn)
+		if err := ctx.Err(); err != nil {
+			// need to check if context cancel came in before above Store
 			return nil, err
 		}
 		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
 			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
 		}
-		c.conn = conn
 	}
-	return c.conn, nil
+	return conn, nil
 }
 
 // withRetries return an iterable over connections,
@@ -120,20 +158,19 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 // to retry for mysql.ErrBadConn
 func (c *MySqlConnector) withRetries(ctx context.Context) iter.Seq2[*client.Conn, error] {
 	return func(yield func(*client.Conn, error) bool) {
+		defer c.watchCtx(ctx)()
 		for range 3 {
 			conn, err := c.connect(ctx)
 			if !yield(conn, err) {
 				return
 			}
-			if c.conn != nil {
-				c.conn.Close()
-				c.conn = nil
-			}
+			c.conn.CompareAndSwap(conn, nil)
+			conn.Close()
 		}
 	}
 }
 
-func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...interface{}) (*mysql.Result, error) {
+func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
 	var connectionErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
@@ -153,7 +190,7 @@ func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...interf
 func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string, result *mysql.Result,
 	rowCb client.SelectPerRowCallback,
 	resultCb client.SelectPerResultCallback,
-	args ...interface{},
+	args ...any,
 ) error {
 	var connectionErr error
 	for conn, err := range c.withRetries(ctx) {
@@ -214,6 +251,7 @@ func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
 }
 
 func (c *MySqlConnector) CompareServerVersion(ctx context.Context, version string) (int, error) {
+	defer c.watchCtx(ctx)()
 	conn, err := c.connect(ctx)
 	if err != nil {
 		return 0, err

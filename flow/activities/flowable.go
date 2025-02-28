@@ -31,6 +31,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type CheckMetadataTablesResult struct {
@@ -310,6 +311,8 @@ func (a *FlowableActivity) SyncFlow(
 	defer shutdown()
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	// This is kept here and not deeper as we can have errors during SetupReplConn
+	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := activity.GetLogger(ctx)
 
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -336,8 +339,9 @@ func (a *FlowableActivity) SyncFlow(
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
+		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(groupCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {
@@ -623,12 +627,14 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName, fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err))
+		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
+			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err)),
+		)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.PullFlowCleanup(ctx, req.FlowJobName); err != nil {
-		pullCleanupErr := fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err)
+		pullCleanupErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err))
 		if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
 			// don't alert when PID active
 			_ = a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
@@ -643,13 +649,16 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName, fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err))
+		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
+			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err)),
+		)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	if err := dstConn.SyncFlowCleanup(ctx, req.FlowJobName); err != nil {
-		syncFlowCleanupErr := fmt.Errorf("[DropFlowDestination] failed to clean up destination: %w", err)
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName, syncFlowCleanupErr)
+		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
+			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to clean up destination: %w", err)),
+		)
 	}
 
 	return nil
