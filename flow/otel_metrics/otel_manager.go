@@ -29,6 +29,7 @@ const (
 	LastNormalizedBatchIdGaugeName      = "last_normalized_batch_id"
 	OpenConnectionsGaugeName            = "open_connections"
 	OpenReplicationConnectionsGaugeName = "open_replication_connections"
+	CommittedLSNGaugeName               = "committed_lsn"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
 	FetchedBytesCounterName             = "fetched_bytes"
 	InstantaneousFetchedBytesGaugeName  = "instantaneous_fetched_bytes"
@@ -47,6 +48,7 @@ type Metrics struct {
 	LastNormalizedBatchIdGauge      metric.Int64Gauge
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
+	CommittedLSNGauge               metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
 	FetchedBytesCounter             metric.Int64Counter
 	InstantaneousFetchedBytesGauge  metric.Int64Gauge
@@ -165,6 +167,12 @@ func (om *OtelManager) setupMetrics() error {
 
 	if om.Metrics.OpenReplicationConnectionsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(OpenReplicationConnectionsGaugeName),
 		metric.WithDescription("Current open replication connections for PeerDB user"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CommittedLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommittedLSNGaugeName),
+		metric.WithDescription("Committed LSN of the replication slot"),
 	); err != nil {
 		return err
 	}

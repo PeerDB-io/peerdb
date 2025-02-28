@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -381,10 +382,12 @@ func PullCdcRecords[Items model.Items](
 		if pkmRequiresResponse {
 			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
 				metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-				if err := metadata.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)}); err != nil {
+				flowJobName := req.FlowJobName
+				consumedOffset := req.ConsumedOffset
+				err := updateConsumedOffset(ctx, metadata, flowJobName, consumedOffset, clientXLogPos, p.otelManager)
+				if err != nil {
 					return err
 				}
-				req.ConsumedOffset.Store(int64(clientXLogPos))
 				lastEmptyBatchPkmSentTime = time.Now()
 			}
 
@@ -609,12 +612,10 @@ func PullCdcRecords[Items model.Items](
 						if cdcRecordsStorage.IsEmpty() {
 							if int64(clientXLogPos) > req.ConsumedOffset.Load() {
 								metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-								if err := metadata.SetLastOffset(
-									ctx, req.FlowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)},
-								); err != nil {
+								err := updateConsumedOffset(ctx, metadata, req.FlowJobName, req.ConsumedOffset, clientXLogPos, p.otelManager)
+								if err != nil {
 									return err
 								}
-								req.ConsumedOffset.Store(int64(clientXLogPos))
 							}
 						} else if err := records.AddRecord(ctx, rec); err != nil {
 							return err
@@ -624,6 +625,24 @@ func PullCdcRecords[Items model.Items](
 			}
 		}
 	}
+}
+
+func updateConsumedOffset(
+	ctx context.Context,
+	metadata *connmetadata.PostgresMetadata,
+	flowJobName string,
+	consumedOffset *atomic.Int64,
+	clientXLogPos pglogrepl.LSN,
+	otelManager *otel_metrics.OtelManager,
+) error {
+	if err := metadata.SetLastOffset(ctx, flowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)}); err != nil {
+		return err
+	}
+	consumedOffset.Store(int64(clientXLogPos))
+	if otelManager != nil {
+		otelManager.Metrics.CommittedLSNGauge.Record(ctx, int64(clientXLogPos))
+	}
+	return nil
 }
 
 func (p *PostgresCDCSource) baseRecord(lsn pglogrepl.LSN) model.BaseRecord {
