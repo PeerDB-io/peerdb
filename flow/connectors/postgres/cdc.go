@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
+	"go.temporal.io/sdk/log"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -381,8 +382,7 @@ func PullCdcRecords[Items model.Items](
 	for {
 		if pkmRequiresResponse {
 			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
-				metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-				err := updateConsumedOffset(ctx, metadata, req.FlowJobName, req.ConsumedOffset, clientXLogPos, p.otelManager)
+				err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos)
 				if err != nil {
 					return err
 				}
@@ -609,8 +609,8 @@ func PullCdcRecords[Items model.Items](
 						// otherwise push to records so destination can ack once all previous messages processed
 						if cdcRecordsStorage.IsEmpty() {
 							if int64(clientXLogPos) > req.ConsumedOffset.Load() {
-								metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-								err := updateConsumedOffset(ctx, metadata, req.FlowJobName, req.ConsumedOffset, clientXLogPos, p.otelManager)
+
+								err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos)
 								if err != nil {
 									return err
 								}
@@ -625,20 +625,20 @@ func PullCdcRecords[Items model.Items](
 	}
 }
 
-func updateConsumedOffset(
+func (p *PostgresCDCSource) updateConsumedOffset(
 	ctx context.Context,
-	metadata *connmetadata.PostgresMetadata,
+	logger log.Logger,
 	flowJobName string,
 	consumedOffset *atomic.Int64,
 	clientXLogPos pglogrepl.LSN,
-	otelManager *otel_metrics.OtelManager,
 ) error {
+	metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
 	if err := metadata.SetLastOffset(ctx, flowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)}); err != nil {
 		return err
 	}
 	consumedOffset.Store(int64(clientXLogPos))
-	if otelManager != nil {
-		otelManager.Metrics.CommittedLSNGauge.Record(ctx, int64(clientXLogPos))
+	if p.otelManager != nil {
+		p.otelManager.Metrics.CommittedLSNGauge.Record(ctx, int64(clientXLogPos))
 	}
 	return nil
 }
