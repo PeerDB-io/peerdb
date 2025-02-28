@@ -1,7 +1,9 @@
 package connmysql
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -89,6 +91,8 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		return qvalue.QValueKindGeometry, nil
+	case mysql.MYSQL_TYPE_VECTOR:
+		return qvalue.QValueKindArrayFloat32, nil
 	default:
 		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %d", field.Type)
 	}
@@ -144,6 +148,8 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 		} else {
 			return qvalue.QValueKindInt64, nil
 		}
+	case "vector":
+		return qvalue.QValueKindArrayFloat32, nil
 	default:
 		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
 	}
@@ -288,6 +294,12 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 				return nil, err
 			}
 			return qvalue.QValueDate{Val: val}, nil
+		case qvalue.QValueKindArrayFloat32:
+			floats := make([]float32, 0, len(v)/4)
+			for i := 0; i < len(v); i += 4 {
+				floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(v[i:])))
+			}
+			return qvalue.QValueArrayFloat32{Val: floats}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert bytes %v to %s", v, qkind)
 		}
@@ -356,6 +368,12 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 		case qvalue.QValueKindGeometry:
 			// TODO figure out mysql geo encoding
 			return qvalue.QValueGeometry{Val: string(val)}, nil
+		case qvalue.QValueKindArrayFloat32:
+			floats := make([]float32, 0, len(val)/4)
+			for i := 0; i < len(val); i += 4 {
+				floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(val[i:])))
+			}
+			return qvalue.QValueArrayFloat32{Val: floats}, nil
 		}
 	case string:
 		switch qkind {
