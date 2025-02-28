@@ -985,6 +985,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 _ => MySqlFlavor::MysqlUnknown,
             }
             .into(),
+            root_ca: opts.get("root_ca").map(|s| s.to_string()),
             ssh_config: None,
             replication_mechanism: match opts.get("replication_mechanism") {
                 Some(&"gtid") => MySqlReplicationMechanism::MysqlGtid,
