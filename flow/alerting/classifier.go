@@ -86,6 +86,9 @@ var (
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
+	ErrorDropFlow = ErrorClass{
+		Class: "DROP_FLOW", action: NotifyTelemetry,
+	}
 	ErrorIgnoreEOF = ErrorClass{
 		Class: "IGNORE_EOF", action: Ignore,
 	}
@@ -137,6 +140,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 		return errorClass, ErrorInfo{
 			Source: ErrorSourcePostgresCatalog,
+			Code:   "UNKNOWN",
+		}
+	}
+
+	var dropFlowErr *exceptions.DropFlowError
+	if errors.As(err, &dropFlowErr) {
+		errorClass := ErrorDropFlow
+		if pgErr != nil {
+			return errorClass, pgErrorInfo
+		}
+		// For now we are not making it as verbose, will take this up later
+		return errorClass, ErrorInfo{
+			Source: ErrorSourceOther,
 			Code:   "UNKNOWN",
 		}
 	}
@@ -204,7 +220,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	if errors.As(err, &chException) {
 		chErrorInfo := ErrorInfo{
 			Source: ErrorSourceClickHouse,
-			Code:   string(chException.Code),
+			Code:   strconv.Itoa(int(chException.Code)),
 		}
 		switch chproto.Error(chException.Code) {
 		case chproto.ErrMemoryLimitExceeded:

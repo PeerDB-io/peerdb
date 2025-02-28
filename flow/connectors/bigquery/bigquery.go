@@ -597,22 +597,22 @@ func (c *BigQueryConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}, nil
 }
 
-func (c *BigQueryConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+func (c *BigQueryConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
 	// needed since CreateNormalizedTable duplicate check isn't accurate enough
 	return make(map[datasetTable]struct{}), nil
 }
 
-func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context, _ any) error {
 	return nil
 }
 
-func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ any) {
 }
 
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
 func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
-	tx interface{},
+	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,

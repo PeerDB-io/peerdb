@@ -161,7 +161,7 @@ func (c *MySqlConnector) withRetries(ctx context.Context) iter.Seq2[*client.Conn
 	}
 }
 
-func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...interface{}) (*mysql.Result, error) {
+func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (*mysql.Result, error) {
 	var connectionErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
@@ -181,7 +181,7 @@ func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...interf
 func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string, result *mysql.Result,
 	rowCb client.SelectPerRowCallback,
 	resultCb client.SelectPerResultCallback,
-	args ...interface{},
+	args ...any,
 ) error {
 	var connectionErr error
 	for conn, err := range c.withRetries(ctx) {

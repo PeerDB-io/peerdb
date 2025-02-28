@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -14,10 +15,11 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
-	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/log"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -380,11 +382,10 @@ func PullCdcRecords[Items model.Items](
 	for {
 		if pkmRequiresResponse {
 			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
-				metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-				if err := metadata.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)}); err != nil {
+				err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos)
+				if err != nil {
 					return err
 				}
-				req.ConsumedOffset.Store(int64(clientXLogPos))
 				lastEmptyBatchPkmSentTime = time.Now()
 			}
 
@@ -608,13 +609,10 @@ func PullCdcRecords[Items model.Items](
 						// otherwise push to records so destination can ack once all previous messages processed
 						if cdcRecordsStorage.IsEmpty() {
 							if int64(clientXLogPos) > req.ConsumedOffset.Load() {
-								metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-								if err := metadata.SetLastOffset(
-									ctx, req.FlowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)},
-								); err != nil {
+								err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos)
+								if err != nil {
 									return err
 								}
-								req.ConsumedOffset.Store(int64(clientXLogPos))
 							}
 						} else if err := records.AddRecord(ctx, rec); err != nil {
 							return err
@@ -624,6 +622,24 @@ func PullCdcRecords[Items model.Items](
 			}
 		}
 	}
+}
+
+func (p *PostgresCDCSource) updateConsumedOffset(
+	ctx context.Context,
+	logger log.Logger,
+	flowJobName string,
+	consumedOffset *atomic.Int64,
+	clientXLogPos pglogrepl.LSN,
+) error {
+	metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
+	if err := metadata.SetLastOffset(ctx, flowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)}); err != nil {
+		return err
+	}
+	consumedOffset.Store(int64(clientXLogPos))
+	if p.otelManager != nil {
+		p.otelManager.Metrics.CommittedLSNGauge.Record(ctx, int64(clientXLogPos))
+	}
+	return nil
 }
 
 func (p *PostgresCDCSource) baseRecord(lsn pglogrepl.LSN) model.BaseRecord {
@@ -842,22 +858,6 @@ func processDeleteMessage[Items model.Items](
 	}, nil
 }
 
-func auditSchemaDelta[Items model.Items](ctx context.Context, p *PostgresCDCSource, rec *model.RelationRecord[Items]) error {
-	activityInfo := activity.GetInfo(ctx)
-	workflowID := activityInfo.WorkflowExecution.ID
-	runID := activityInfo.WorkflowExecution.RunID
-
-	_, err := p.catalogPool.Exec(ctx,
-		`INSERT INTO
-		 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info)
-		 VALUES($1,$2,$3,$4)`,
-		p.flowJobName, workflowID, runID, rec)
-	if err != nil {
-		return fmt.Errorf("failed to insert row into table: %w", err)
-	}
-	return nil
-}
-
 // processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
 func processRelationMessage[Items model.Items](
 	ctx context.Context,
@@ -953,7 +953,7 @@ func processRelationMessage[Items model.Items](
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
 		}
-		return rec, auditSchemaDelta(ctx, p, rec)
+		return rec, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
 }

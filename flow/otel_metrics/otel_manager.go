@@ -29,6 +29,7 @@ const (
 	LastNormalizedBatchIdGaugeName      = "last_normalized_batch_id"
 	OpenConnectionsGaugeName            = "open_connections"
 	OpenReplicationConnectionsGaugeName = "open_replication_connections"
+	CommittedLSNGaugeName               = "committed_lsn"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
 	FetchedBytesCounterName             = "fetched_bytes"
 	InstantaneousFetchedBytesGaugeName  = "instantaneous_fetched_bytes"
@@ -47,6 +48,7 @@ type Metrics struct {
 	LastNormalizedBatchIdGauge      metric.Int64Gauge
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
+	CommittedLSNGauge               metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
 	FetchedBytesCounter             metric.Int64Counter
 	InstantaneousFetchedBytesGauge  metric.Int64Gauge
@@ -169,6 +171,12 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
+	if om.Metrics.CommittedLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommittedLSNGaugeName),
+		metric.WithDescription("Committed LSN of the replication slot"),
+	); err != nil {
+		return err
+	}
+
 	if om.Metrics.IntervalSinceLastNormalizeGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(IntervalSinceLastNormalizeGaugeName),
 		metric.WithUnit("s"),
 		metric.WithDescription("Interval since last normalize"),
@@ -242,6 +250,7 @@ func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*reso
 	allAttrs := append([]attribute.KeyValue{
 		semconv.ServiceNameKey.String(otelServiceName),
 		attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
+		semconv.ServiceVersion(internal.PeerDBVersionShaShort()),
 	}, attrs...)
 	return resource.Merge(
 		resource.Default(),
