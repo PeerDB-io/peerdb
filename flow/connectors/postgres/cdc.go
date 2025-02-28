@@ -38,7 +38,6 @@ type PostgresCDCSource struct {
 	relationMessageMapping model.RelationMessageMapping
 	slot                   string
 	publication            string
-	typeMap                *pgtype.Map
 	commitLock             *pglogrepl.BeginMessage
 
 	// for partitioned tables, maps child relid to parent relid
@@ -75,7 +74,6 @@ func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *
 		relationMessageMapping:       cdcConfig.RelationMessageMapping,
 		slot:                         cdcConfig.Slot,
 		publication:                  cdcConfig.Publication,
-		typeMap:                      pgtype.NewMap(),
 		commitLock:                   nil,
 		childToParentRelIDMapping:    cdcConfig.ChildToParentRelIDMap,
 		catalogPool:                  cdcConfig.CatalogPool,
