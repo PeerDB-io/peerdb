@@ -471,7 +471,6 @@ func PullCdcRecords[Items model.Items](
 			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
 		case *pgproto3.CopyData:
 			if p.otelManager != nil {
-				p.otelManager.Metrics.RecordsReceivedGauge.Record(ctx, int64(cdcRecordsStorage.Len()))
 				p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
 				p.otelManager.Metrics.InstantaneousFetchedBytesGauge.Record(ctx, int64(len(msg.Data)))
 			}
