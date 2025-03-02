@@ -15,10 +15,8 @@ import (
 
 func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
 	for _, parsedTable := range tableNames {
-		query := fmt.Sprintf("SELECT 1 FROM `%s`.`%s` LIMIT 1", parsedTable.Schema, parsedTable.Table)
-		_, err := c.Execute(ctx, query)
-		if err != nil {
-			return fmt.Errorf("error checking table %s.%s: %w", parsedTable.Schema, parsedTable.Table, err)
+		if _, err := c.Execute(ctx, fmt.Sprintf("SELECT 1 FROM %s LIMIT 1", parsedTable.MySQL())); err != nil {
+			return fmt.Errorf("error checking table %s: %w", parsedTable.MySQL(), err)
 		}
 	}
 	return nil
@@ -40,16 +38,12 @@ func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error 
 }
 
 func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
-	rs, err := c.Execute(ctx, "SHOW BINARY LOG STATUS")
+	namePos, err := c.GetMasterPos(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to check replication status: %w", err)
 	}
-	if rs.RowNumber() == 0 {
-		return errors.New("binary logging is disabled on this MySQL server")
-	}
 
-	masterLogFile := rs.Values[0][0].AsString()
-	masterLogPos := rs.Values[0][1].AsInt64()
+	masterLogFile, masterLogPos := namePos.Name, namePos.Pos
 
 	// Additional validation: Check if the values are valid
 	if len(masterLogFile) == 0 || masterLogPos <= 0 {
@@ -86,7 +80,6 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context) error {
 		return errors.New("no value returned for binlog_format")
 	}
 
-	// Convert FieldValue to string safely
 	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
 	if binlogFormat != "ROW" {
 		return errors.New("binlog_format must be set to 'ROW'")
@@ -102,10 +95,48 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context) error {
 		return errors.New("no value returned for binlog_row_value_options")
 	}
 
-	// Convert FieldValue to string safely
 	binlogRowValueOptions := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
 	if binlogRowValueOptions != "" {
 		return errors.New("binlog_row_value_options must be disabled to prevent JSON change deltas")
+	}
+
+	// Check binlog_row_metadata
+	rs, err = c.Execute(ctx, "SELECT @@binlog_row_metadata")
+	if err != nil {
+		c.logger.Warn("failed to retrieve binlog_row_metadata", "error", err)
+		return nil
+
+	}
+
+	if len(rs.Values) == 0 {
+		c.logger.Warn("failed to retrieve binlog_row_metadata: no rows returned")
+		return nil
+	}
+
+	binlogRowMetadata := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString()) // Convert FieldValue to string
+
+	if binlogRowMetadata != "FULL" {
+		c.logger.Warn("binlog_row_metadata must be set to 'FULL' for column exclusion support")
+		return nil
+	}
+
+	// Check binlog_row_image
+	rs, err = c.Execute(ctx, "SELECT @@binlog_row_image")
+	if err != nil {
+		c.logger.Warn("failed to retrieve binlog_row_image: ", "error", err)
+		return nil
+	}
+
+	if len(rs.Values) == 0 {
+		c.logger.Warn("failed to retrieve binlog_row_image: no rows returned")
+		return nil
+	}
+
+	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString()) // Convert FieldValue to string
+
+	if binlogRowImage != "FULL" {
+		c.logger.Warn("binlog_row_image must be set to 'FULL' (equivalent to PostgreSQL's REPLICA IDENTITY FULL)")
+		return nil
 	}
 
 	return nil
