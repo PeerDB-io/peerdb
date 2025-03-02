@@ -27,9 +27,23 @@ func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error 
 	if err != nil {
 		return fmt.Errorf("failed to check replication privileges: %w", err)
 	}
+
 	for _, row := range rs.Values {
 		grant := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
-		if strings.Contains(grant, "REPLICATION SLAVE") || strings.Contains(grant, "REPLICATION CLIENT") {
+		// Normalize and split grant string into individual permissions
+		grantParts := strings.FieldsFunc(grant, func(r rune) bool { return r == ' ' || r == ',' })
+
+		// Use a map for efficient lookup
+		grantSet := make(map[string]struct{}, len(grantParts))
+		for _, part := range grantParts {
+			grantSet[part] = struct{}{}
+		}
+
+		// Check for exact match of required privileges
+		if _, ok := grantSet["REPLICATION SLAVE"]; ok {
+			return nil
+		}
+		if _, ok := grantSet["REPLICATION CLIENT"]; ok {
 			return nil
 		}
 	}
@@ -46,7 +60,7 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 	masterLogFile, masterLogPos := namePos.Name, namePos.Pos
 
 	// Additional validation: Check if the values are valid
-	if len(masterLogFile) == 0 || masterLogPos <= 0 {
+	if masterLogFile == "" || masterLogPos <= 0 {
 		return errors.New("invalid replication status: missing log file or position")
 	}
 
@@ -105,7 +119,6 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context) error {
 	if err != nil {
 		c.logger.Warn("failed to retrieve binlog_row_metadata", "error", err)
 		return nil
-
 	}
 
 	if len(rs.Values) == 0 {
