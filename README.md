@@ -56,7 +56,7 @@ PeerDB is an ETL/ELT tool built for PostgreSQL. We implement multiple Postgres n
 
 ### Now available natively in ClickHouse Cloud (Private Preview)
 
-PeerDB is now available natively in ClickHouse Cloud (Private Preview). Learn more about it [here](https://clickhouse.com/cloud/clickpipes/postgres-cdc-connector).
+PeerDB is now available natively in ClickHouse Cloud (Public Preview). Learn more about it [here](https://clickhouse.com/cloud/clickpipes/postgres-cdc-connector).
 
 <a href="https://clickhouse.com/cloud/clickpipes/postgres-cdc-connector">
 <img src="images/in-clickpipes.png" width="512" />

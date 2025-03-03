@@ -108,14 +108,16 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
 	workflow.GetLogger(ctx).Info("performing cleanup for flow",
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
-	var err error
-	ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
-		FlowName:        input.FlowJobName,
-		SourceName:      input.FlowConnectionConfigs.SourceName,
-		DestinationName: input.FlowConnectionConfigs.DestinationName,
-		Status:          protos.FlowStatus_STATUS_UNKNOWN,
-		IsResync:        false,
-	})
+	contextMetadataInput := &protos.FlowContextMetadataInput{
+		FlowName: input.FlowJobName,
+		Status:   protos.FlowStatus_STATUS_UNKNOWN,
+		IsResync: false,
+	}
+	if input.FlowConnectionConfigs != nil {
+		contextMetadataInput.SourceName = input.FlowConnectionConfigs.SourceName
+		contextMetadataInput.DestinationName = input.FlowConnectionConfigs.DestinationName
+	}
+	ctx, err := GetFlowMetadataContext(ctx, contextMetadataInput)
 	if err != nil {
 		return fmt.Errorf("failed to get flow metadata context: %w", err)
 	}

@@ -20,7 +20,7 @@ import (
 )
 
 func (c *PostgresConnector) postgresOIDToName(recvOID uint32) string {
-	if ty, ok := pgtype.NewMap().TypeForOID(recvOID); ok {
+	if ty, ok := c.typeMap.TypeForOID(recvOID); ok {
 		return ty.Name
 	}
 	// workaround for some types not being defined by pgtype
@@ -117,7 +117,7 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 	case pgtype.TstzrangeOID:
 		return qvalue.QValueKindTSTZRange
 	default:
-		typeName, ok := pgtype.NewMap().TypeForOID(recvOID)
+		typeName, ok := c.typeMap.TypeForOID(recvOID)
 		if !ok {
 			// workaround for some types not being defined by pgtype
 			switch recvOID {

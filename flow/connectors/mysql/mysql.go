@@ -3,6 +3,7 @@ package connmysql
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"iter"
@@ -122,7 +123,15 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
-				conn.SetTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13, ServerName: c.config.Host})
+				tlsSetting := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: c.config.Host}
+				if c.config.RootCa != nil {
+					caPool := x509.NewCertPool()
+					if !caPool.AppendCertsFromPEM([]byte(*c.config.RootCa)) {
+						return errors.New("failed to parse provided root CA")
+					}
+					tlsSetting.RootCAs = caPool
+				}
+				conn.SetTLSConfig(tlsSetting)
 			}
 			return nil
 		}}

@@ -114,9 +114,7 @@ export default function TablePicker({
               tableColumns={tableColumns}
               setTableColumns={setTableColumns}
               peerType={peerType}
-              alreadySelectedTables={
-                alreadySelectedTablesMapping.get(schema) ?? []
-              }
+              alreadySelectedTables={alreadySelectedTablesMapping.get(schema)}
               initialLoadOnly={initialLoadOnly}
             />
           ))

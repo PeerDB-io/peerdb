@@ -138,6 +138,12 @@ export const mySchema = z.object({
     z.literal(MySqlReplicationMechanism.MYSQL_GTID),
     z.literal(MySqlReplicationMechanism.MYSQL_FILEPOS),
   ]),
+  rootCa: z
+    .string({
+      invalid_type_error: 'Root CA must be a string',
+    })
+    .optional()
+    .transform((e) => (e === '' ? undefined : e)),
   sshConfig: sshSchema,
 });
 

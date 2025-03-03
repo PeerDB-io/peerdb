@@ -200,8 +200,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
 			// don't log flow error for "replState changed" and "slot is already active"
-			if !(temporal.IsApplicationError(err) ||
-				shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			if !(temporal.IsApplicationError(err) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 				_ = a.Alerter.LogFlowError(ctx, flowName, err)
 			}
 			if temporal.IsApplicationError(err) {
@@ -272,8 +271,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		if !(temporal.IsApplicationError(err) ||
-			shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+		if !(temporal.IsApplicationError(err) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		if temporal.IsApplicationError(err) {
