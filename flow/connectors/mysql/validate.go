@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -15,7 +16,7 @@ import (
 
 func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
 	for _, parsedTable := range tableNames {
-		if _, err := c.Execute(ctx, fmt.Sprintf("SELECT 1 FROM %s LIMIT 1", parsedTable.MySQL())); err != nil {
+		if _, err := c.Execute(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", parsedTable.MySQL())); err != nil {
 			return fmt.Errorf("error checking table %s: %w", parsedTable.MySQL(), err)
 		}
 	}
@@ -30,21 +31,10 @@ func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error 
 
 	for _, row := range rs.Values {
 		grant := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
-		// Normalize and split grant string into individual permissions
-		grantParts := strings.FieldsFunc(grant, func(r rune) bool { return r == ' ' || r == ',' })
-
-		// Use a map for efficient lookup
-		grantSet := make(map[string]struct{}, len(grantParts))
-		for _, part := range grantParts {
-			grantSet[part] = struct{}{}
-		}
-
-		// Check for exact match of required privileges
-		if _, ok := grantSet["REPLICATION SLAVE"]; ok {
-			return nil
-		}
-		if _, ok := grantSet["REPLICATION CLIENT"]; ok {
-			return nil
+		for permission := range strings.FieldsFuncSeq(grant, func(r rune) bool { return r == ' ' || r == ',' }) {
+			if permission == "REPLICATION SLAVE" || permission == "REPLICATION CLIENT" {
+				return nil
+			}
 		}
 	}
 
@@ -67,89 +57,71 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 	return nil
 }
 
-func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context) error {
-	// Check binlog_expire_logs_seconds
-	rs, err := c.Execute(ctx, "SELECT @@binlog_expire_logs_seconds")
+func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMetadata bool) error {
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
+		return nil
+	}
+
+	// Check binlog_expire_logos_seconds
+	cmp, err := c.CompareServerVersion(ctx, "8.0.1")
 	if err != nil {
-		return fmt.Errorf("failed to retrieve binlog_expire_logs_seconds: %w", err)
+		return fmt.Errorf("failed to get server version: %w", err)
 	}
-
-	if len(rs.Values) == 0 || len(rs.Values[0]) == 0 {
-		return errors.New("no value returned for binlog_expire_logs_seconds")
+	if cmp < 0 {
+		c.logger.Warn("cannot validate mysql prior to 8.0.1")
+		return nil
 	}
+	query := "SELECT @@binlog_expire_logs_seconds, @@binlog_format, @@binlog_row_image, @@binlog_row_metadata"
 
-	expireSeconds := rs.Values[0][0].AsUint64()
-
-	if expireSeconds <= 86400 {
-		return errors.New("binlog_expire_logs_seconds is too low. Must be greater than 1 day")
-	}
-
-	// Check binlog_format
-	rs, err = c.Execute(ctx, "SELECT @@binlog_format")
+	checkRowValueOptions := false
+	cmp, err = c.CompareServerVersion(ctx, "8.0.3")
 	if err != nil {
-		return fmt.Errorf("failed to retrieve binlog_format: %w", err)
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	if cmp >= 0 {
+		checkRowValueOptions = true
+		query += ", @@binlog_row_value_options"
+		return nil
 	}
 
-	if len(rs.Values) == 0 || len(rs.Values[0]) == 0 {
-		return errors.New("no value returned for binlog_format")
+	rs, err := c.Execute(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve settings: %w", err)
+	}
+	if len(rs.Values) == 0 {
+		return errors.New("no value returned for settings")
+	}
+	row := rs.Values[0]
+
+	binlogExpireLogsSeconds := row[0].AsUint64()
+	if binlogExpireLogsSeconds < 86400 {
+		c.logger.Warn("binlog_expire_logs_seconds should be at least 24 hours", slog.Uint64("binlog_expire_logs_seconds", binlogExpireLogsSeconds))
 	}
 
-	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
+	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(row[1].AsString())
 	if binlogFormat != "ROW" {
-		return errors.New("binlog_format must be set to 'ROW'")
+		return errors.New("binlog_format must be set to 'ROW', currently " + binlogFormat)
 	}
 
-	// Check binlog_row_value_options
-	rs, err = c.Execute(ctx, "SELECT @@binlog_row_value_options")
-	if err != nil {
-		return fmt.Errorf("failed to retrieve binlog_row_value_options: %w", err)
+	if checkRowValueOptions {
+		binlogRowValueOptions := shared.UnsafeFastReadOnlyBytesToString(row[4].AsString())
+		if binlogRowValueOptions != "" {
+			return errors.New("binlog_row_value_options must be disabled, currently " + binlogRowValueOptions)
+		}
 	}
 
-	if len(rs.Values) == 0 || len(rs.Values[0]) == 0 {
-		return errors.New("no value returned for binlog_row_value_options")
-	}
-
-	binlogRowValueOptions := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
-	if binlogRowValueOptions != "" {
-		return errors.New("binlog_row_value_options must be disabled to prevent JSON change deltas")
-	}
-
-	// Check binlog_row_metadata
-	rs, err = c.Execute(ctx, "SELECT @@binlog_row_metadata")
-	if err != nil {
-		c.logger.Warn("failed to retrieve binlog_row_metadata", "error", err)
-		return nil
-	}
-
-	if len(rs.Values) == 0 {
-		c.logger.Warn("failed to retrieve binlog_row_metadata: no rows returned")
-		return nil
-	}
-
-	binlogRowMetadata := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString()) // Convert FieldValue to string
-
+	binlogRowMetadata := shared.UnsafeFastReadOnlyBytesToString(row[3].AsString())
 	if binlogRowMetadata != "FULL" {
-		c.logger.Warn("binlog_row_metadata must be set to 'FULL' for column exclusion support")
-		return nil
+		if requireRowMetadata {
+			return errors.New("binlog_row_metadata must be set to 'FULL' for column exclusion support, currently " + binlogRowMetadata)
+		} else {
+			c.logger.Warn("binlog_row_metadata should be set to 'FULL' for more reliable replication", slog.String("binlog_row_metadata", strings.Clone(binlogRowMetadata)))
+		}
 	}
 
-	// Check binlog_row_image
-	rs, err = c.Execute(ctx, "SELECT @@binlog_row_image")
-	if err != nil {
-		c.logger.Warn("failed to retrieve binlog_row_image: ", "error", err)
-		return nil
-	}
-
-	if len(rs.Values) == 0 {
-		c.logger.Warn("failed to retrieve binlog_row_image: no rows returned")
-		return nil
-	}
-
-	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString()) // Convert FieldValue to string
-
+	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[2].AsString())
 	if binlogRowImage != "FULL" {
-		c.logger.Warn("binlog_row_image must be set to 'FULL' (equivalent to PostgreSQL's REPLICA IDENTITY FULL)")
-		return nil
+		c.logger.Warn("binlog_row_image should be set to 'FULL' to avoid missing data", slog.String("binlog_row_image", strings.Clone(binlogRowImage)))
 	}
 
 	return nil
@@ -177,7 +149,14 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 
-	if err := c.CheckBinlogSettings(ctx); err != nil {
+	requireRowMetadata := false
+	for _, tm := range cfg.TableMappings {
+		if len(tm.Exclude) > 0 {
+			requireRowMetadata = true
+			break
+		}
+	}
+	if err := c.CheckBinlogSettings(ctx, requireRowMetadata); err != nil {
 		return fmt.Errorf("binlog configuration error: %w", err)
 	}
 
@@ -191,7 +170,7 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE && c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
 			return errors.New("server appears to be MariaDB but flavor is not set to MariaDB")
 		} else {
-			return err
+			return nil
 		}
 	}
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
@@ -208,10 +187,8 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to check replication permissions: %w", err)
 	}
 
-	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
-		if err := c.CheckBinlogSettings(ctx); err != nil {
-			return fmt.Errorf("binlog configuration error: %w", err)
-		}
+	if err := c.CheckBinlogSettings(ctx, false); err != nil {
+		return fmt.Errorf("binlog configuration error: %w", err)
 	}
 
 	return nil
