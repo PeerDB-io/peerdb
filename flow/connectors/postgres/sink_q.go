@@ -8,6 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -21,12 +22,12 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	qe *QRepQueryExecutor,
 	tx pgx.Tx,
 	query string,
-	args ...interface{},
+	args ...any,
 ) (int, error) {
 	defer shared.RollbackTx(tx, qe.logger)
 
 	if qe.snapshot != "" {
-		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(qe.snapshot)); err != nil {
+		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
 			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)

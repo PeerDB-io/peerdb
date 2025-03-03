@@ -26,9 +26,9 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -308,7 +308,7 @@ func CreateTableForQRep(ctx context.Context, conn *pgx.Conn, suffix string, tabl
 }
 
 func generate20MBJson() ([]byte, error) {
-	xn := make(map[string]interface{}, 215000)
+	xn := make(map[string]any, 215000)
 	for range 215000 {
 		xn[uuid.New().String()] = uuid.New().String()
 	}
@@ -571,12 +571,12 @@ type WorkflowRun struct {
 	c client.Client
 }
 
-func ExecutePeerflow(ctx context.Context, tc client.Client, wf interface{}, args ...interface{}) WorkflowRun {
+func ExecutePeerflow(ctx context.Context, tc client.Client, wf any, args ...any) WorkflowRun {
 	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, wf, args...)
 }
 
-func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf interface{}, args ...interface{}) WorkflowRun {
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(taskQueueID)
+func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf any, args ...any) WorkflowRun {
+	taskQueue := internal.PeerFlowTaskQueueName(taskQueueID)
 
 	wr, err := tc.ExecuteWorkflow(
 		ctx,
@@ -616,7 +616,7 @@ func (env WorkflowRun) Cancel(ctx context.Context) {
 	_ = env.c.CancelWorkflow(ctx, env.GetID(), "")
 }
 
-func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...interface{}) (converter.EncodedValue, error) {
+func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any) (converter.EncodedValue, error) {
 	return env.c.QueryWorkflow(ctx, env.GetID(), "", queryType, args...)
 }
 
@@ -675,6 +675,9 @@ func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason str
 			t.Fatal("UNEXPECTED TIMEOUT", reason, time.Now())
 		}
 		time.Sleep(time.Second)
+		if err := t.Context().Err(); err != nil {
+			t.Fatal(reason, err)
+		}
 	}
 }
 

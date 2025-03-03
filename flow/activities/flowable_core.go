@@ -24,10 +24,11 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PeerType string
@@ -152,7 +153,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	consumedOffset := atomic.Int64{}
 	consumedOffset.Store(lastOffset.ID)
 
-	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx, config.Env)
+	channelBufferSize, err := internal.PeerDBCDCChannelBufferSize(ctx, config.Env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
@@ -181,7 +182,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			LastOffset:            lastOffset,
 			ConsumedOffset:        &consumedOffset,
 			MaxBatchSize:          batchSize,
-			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
+			IdleTimeout: internal.PeerDBCDCIdleTimeoutSeconds(
 				int(options.IdleTimeoutSeconds),
 			),
 			TableNameSchemaMapping:      tableNameSchemaMapping,
@@ -199,8 +200,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
 			// don't log flow error for "replState changed" and "slot is already active"
-			if !(temporal.IsApplicationError(err) ||
-				shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			if !(temporal.IsApplicationError(err) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 				_ = a.Alerter.LogFlowError(ctx, flowName, err)
 			}
 			if temporal.IsApplicationError(err) {
@@ -271,8 +271,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		if !(temporal.IsApplicationError(err) ||
-			shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+		if !(temporal.IsApplicationError(err) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		if temporal.IsApplicationError(err) {
@@ -321,7 +320,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if recordBatchSync.NeedsNormalize() {
-		parallel, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
+		parallel, err := internal.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
 		if err != nil {
 			return nil, err
 		}
@@ -364,7 +363,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 			return nil, err
 		}
 
-		peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
+		peerOptions, err := internal.Decrypt(ctx, encKeyID, encPeerOptions)
 		if err != nil {
 			return nil, err
 		}
@@ -607,8 +606,7 @@ func (a *FlowableActivity) startNormalize(
 	config *protos.FlowConnectionConfigs,
 	batchID int64,
 ) error {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
 	dstConn, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
 		ctx,
@@ -628,8 +626,7 @@ func (a *FlowableActivity) startNormalize(
 		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
-	logger.Info("Normalizing batch",
-		slog.Int64("SyncBatchID", batchID))
+	logger.Info("normalizing batch", slog.Int64("SyncBatchID", batchID))
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            config.FlowJobName,
 		Env:                    config.Env,
@@ -640,7 +637,8 @@ func (a *FlowableActivity) startNormalize(
 		SyncBatchID:            batchID,
 	})
 	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to normalized records: %w", err))
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName,
+			exceptions.NewNormalizationError(fmt.Errorf("failed to normalized records: %w", err)))
 	}
 	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
 		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {

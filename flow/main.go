@@ -194,6 +194,7 @@ func main() {
 					},
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
+					otelMetricsFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
@@ -203,6 +204,7 @@ func main() {
 						TemporalHostPort:  temporalHostPort,
 						GatewayPort:       uint16(clicmd.Uint("gateway-port")),
 						TemporalNamespace: clicmd.String("temporal-namespace"),
+						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),
 					})
 				},
 			},

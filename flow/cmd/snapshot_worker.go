@@ -15,8 +15,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/activities"
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -33,12 +33,13 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		Namespace: opts.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 		ContextPropagators: []workflow.ContextPropagator{
-			shared.NewContextPropagator[*protos.FlowContextMetadata](shared.FlowMetadataKey),
+			internal.NewContextPropagator[*protos.FlowContextMetadata](internal.FlowMetadataKey),
 		},
 	}
 
 	if opts.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider("flow-snapshot-worker")
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(context.Background(),
+			otel_metrics.FlowSnapshotWorkerServiceName)
 		if metricsErr != nil {
 			return nil, metricsErr
 		}
@@ -47,7 +48,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		})
 	}
 
-	if peerdbenv.PeerDBTemporalEnableCertAuth() {
+	if internal.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
 		certs, err := parseTemporalCertAndKey(context.Background())
 		if err != nil {
@@ -63,7 +64,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	conn, err := peerdbenv.GetCatalogConnectionPoolFromEnv(context.Background())
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
@@ -73,7 +74,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
+	taskQueue := internal.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 		OnFatalError: func(err error) {
@@ -83,7 +84,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		otelManager, err = otel_metrics.NewOtelManager()
+		otelManager, err = otel_metrics.NewOtelManager(context.Background(), otel_metrics.FlowSnapshotWorkerServiceName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create otel manager: %w", err)
 		}

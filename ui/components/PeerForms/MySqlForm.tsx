@@ -32,6 +32,22 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
     setting.stateHandler(val, setter);
   };
 
+  const handleCa = (
+    file: File,
+    setFile: (value: string, setter: PeerSetter) => void
+  ) => {
+    if (file) {
+      const reader = new FileReader();
+      reader.readAsText(file);
+      reader.onload = () => {
+        setFile(reader.result as string, setter);
+      };
+      reader.onerror = (error) => {
+        console.log(error);
+      };
+    }
+  };
+
   const handleFile = (
     file: File,
     setFile: (value: string, configSetter: sshSetter) => void
@@ -56,7 +72,11 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
     e: React.ChangeEvent<HTMLInputElement>,
     setting: PeerSetting
   ) => {
-    setting.stateHandler(e.target.value, setter);
+    if (setting.type === 'file') {
+      if (e.target.files) handleCa(e.target.files[0], setting.stateHandler);
+    } else {
+      setting.stateHandler(e.target.value, setter);
+    }
   };
 
   const handleSSHParam = (

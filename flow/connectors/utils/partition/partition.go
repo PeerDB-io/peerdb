@@ -15,7 +15,7 @@ import (
 )
 
 // Function to compare two values
-func compareValues(prevEnd interface{}, start interface{}) int {
+func compareValues(prevEnd any, start any) int {
 	switch v := start.(type) {
 	case int64:
 		return cmp.Compare(prevEnd.(int64), v)
@@ -43,7 +43,7 @@ func compareValues(prevEnd interface{}, start interface{}) int {
 }
 
 // Function to adjust start value
-func adjustStartValue(prevEnd interface{}, start interface{}) interface{} {
+func adjustStartValue(prevEnd any, start any) any {
 	switch start.(type) {
 	case int64:
 		return prevEnd.(int64) + 1
@@ -122,8 +122,8 @@ func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition 
 
 type PartitionHelper struct {
 	logger     log.Logger
-	prevStart  interface{}
-	prevEnd    interface{}
+	prevStart  any
+	prevEnd    any
 	partitions []*protos.QRepPartition
 }
 
@@ -134,7 +134,7 @@ func NewPartitionHelper(logger log.Logger) *PartitionHelper {
 	}
 }
 
-func (p *PartitionHelper) AddPartition(start interface{}, end interface{}) error {
+func (p *PartitionHelper) AddPartition(start any, end any) error {
 	p.logger.Info("adding partition", slog.Any("start", start), slog.Any("end", end))
 
 	// Skip partition if it's fully contained within the previous one

@@ -20,9 +20,9 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -87,7 +87,7 @@ type SnowflakeConnector struct {
 // creating this to capture array results from snowflake.
 type ArrayString []string
 
-func (a *ArrayString) Scan(src interface{}) error {
+func (a *ArrayString) Scan(src any) error {
 	switch v := src.(type) {
 	case string:
 		return json.Unmarshal([]byte(v), a)
@@ -160,7 +160,7 @@ func NewSnowflakeConnector(
 	ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig,
 ) (*SnowflakeConnector, error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
 		snowflakeProtoConfig.Password)
 	if err != nil {
@@ -297,20 +297,20 @@ func (c *SnowflakeConnector) getTableNameToUnchangedCols(
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+func (c *SnowflakeConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
 	return nil, nil
 }
 
-func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context, _ any) error {
 	return nil
 }
 
-func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ any) {
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTable(
 	ctx context.Context,
-	tx interface{},
+	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -527,7 +527,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
-	mergeParallelism, err := peerdbenv.PeerDBSnowflakeMergeParallelism(ctx, env)
+	mergeParallelism, err := internal.PeerDBSnowflakeMergeParallelism(ctx, env)
 	if err != nil {
 		return fmt.Errorf("failed to get merge parallelism: %w", err)
 	}

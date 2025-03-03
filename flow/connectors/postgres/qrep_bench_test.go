@@ -5,14 +5,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func BenchmarkQRepQueryExecutor(b *testing.B) {
 	query := "SELECT * FROM bench.large_table"
 
 	ctx := b.Context()
-	connector, err := NewPostgresConnector(ctx, nil, peerdbenv.GetCatalogPostgresConfigFromEnv(ctx))
+	connector, err := NewPostgresConnector(ctx, nil, internal.GetCatalogPostgresConfigFromEnv(ctx))
 	require.NoError(b, err, "error while creating connector")
 	defer connector.Close()
 

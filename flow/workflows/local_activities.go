@@ -11,8 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
@@ -20,7 +19,7 @@ func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, e
 		StartToCloseTimeout: time.Minute,
 	})
 
-	getFullRefreshFuture := workflow.ExecuteLocalActivity(checkCtx, peerdbenv.PeerDBFullRefreshOverwriteMode, env)
+	getFullRefreshFuture := workflow.ExecuteLocalActivity(checkCtx, internal.PeerDBFullRefreshOverwriteMode, env)
 	var fullRefreshEnabled bool
 	if err := getFullRefreshFuture.Get(checkCtx, &fullRefreshEnabled); err != nil {
 		logger.Warn("Failed to check if full refresh mode is enabled", slog.Any("error", err))
@@ -30,7 +29,7 @@ func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, e
 }
 
 func localPeerType(ctx context.Context, name string) (protos.DBType, error) {
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -49,9 +48,9 @@ func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
 }
 
 func updateCDCConfigInCatalogActivity(ctx context.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) error {
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get catalog connection pool: %w", err)
 	}
-	return shared.UpdateCDCConfigInCatalog(ctx, pool, logger, cfg)
+	return internal.UpdateCDCConfigInCatalog(ctx, pool, logger, cfg)
 }

@@ -6,11 +6,11 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
-	sideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) interface{} {
+	sideEffect := workflow.SideEffect(ctx, func(ctx workflow.Context) any {
 		return f(ctx)
 	})
 
@@ -21,14 +21,23 @@ func GetSideEffect[T any](ctx workflow.Context, f func(workflow.Context) T) T {
 	return result
 }
 
-func GetFlowMetadataContext(ctx workflow.Context, flowJobName string, sourceName string, destinationName string) (workflow.Context, error) {
+func GetFlowMetadataContext(
+	ctx workflow.Context,
+	input *protos.FlowContextMetadataInput,
+) (workflow.Context, error) {
 	metadataCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 30 * time.Second,
 	})
-	getMetadataFuture := workflow.ExecuteLocalActivity(metadataCtx, flowable.GetFlowMetadata, flowJobName, sourceName, destinationName)
+	getMetadataFuture := workflow.ExecuteLocalActivity(metadataCtx, flowable.GetFlowMetadata, input)
 	var metadata *protos.FlowContextMetadata
 	if err := getMetadataFuture.Get(metadataCtx, &metadata); err != nil {
 		return nil, err
 	}
-	return workflow.WithValue(ctx, shared.FlowMetadataKey, metadata), nil
+	return workflow.WithValue(ctx, internal.FlowMetadataKey, metadata), nil
+}
+
+func ShouldWorkflowContinueAsNew(ctx workflow.Context) bool {
+	info := workflow.GetInfo(ctx)
+	return info.GetContinueAsNewSuggested() &&
+		(info.GetCurrentHistoryLength() > 40960 || info.GetCurrentHistorySize() > 40*1024*1024)
 }

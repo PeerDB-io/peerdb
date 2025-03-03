@@ -26,11 +26,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type CheckMetadataTablesResult struct {
@@ -183,7 +184,7 @@ func (a *FlowableActivity) SetupTableSchema(
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}
-	processed := shared.BuildProcessedSchemaMapping(config.TableMappings, tableNameSchemaMapping, logger)
+	processed := internal.BuildProcessedSchemaMapping(config.TableMappings, tableNameSchemaMapping, logger)
 
 	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -310,6 +311,8 @@ func (a *FlowableActivity) SyncFlow(
 	defer shutdown()
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
+	// This is kept here and not deeper as we can have errors during SetupReplConn
+	ctx = internal.WithOperationContext(ctx, protos.FlowOperation_FLOW_OPERATION_SYNC)
 	logger := activity.GetLogger(ctx)
 
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -322,7 +325,7 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	normalizeBufferSize, err := peerdbenv.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
+	normalizeBufferSize, err := internal.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
 	if err != nil {
 		connectors.CloseConnector(ctx, srcConn)
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
@@ -336,8 +339,9 @@ func (a *FlowableActivity) SyncFlow(
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
+		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(groupCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {
@@ -623,12 +627,14 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName, fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err))
+		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
+			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err)),
+		)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.PullFlowCleanup(ctx, req.FlowJobName); err != nil {
-		pullCleanupErr := fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err)
+		pullCleanupErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err))
 		if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
 			// don't alert when PID active
 			_ = a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
@@ -643,13 +649,16 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName, fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err))
+		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
+			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err)),
+		)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	if err := dstConn.SyncFlowCleanup(ctx, req.FlowJobName); err != nil {
-		syncFlowCleanupErr := fmt.Errorf("[DropFlowDestination] failed to clean up destination: %w", err)
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName, syncFlowCleanupErr)
+		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
+			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to clean up destination: %w", err)),
+		)
 	}
 
 	return nil
@@ -657,7 +666,7 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	logger := activity.GetLogger(ctx)
-	walHeartbeatEnabled, err := peerdbenv.PeerDBEnableWALHeartbeat(ctx, nil)
+	walHeartbeatEnabled, err := internal.PeerDBEnableWALHeartbeat(ctx, nil)
 	if err != nil {
 		logger.Warn("unable to fetch wal heartbeat config, skipping wal heartbeat send", slog.Any("error", err))
 		return err
@@ -666,7 +675,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 		logger.Info("wal heartbeat is disabled")
 		return nil
 	}
-	walHeartbeatStatement, err := peerdbenv.PeerDBWALHeartbeatQuery(ctx, nil)
+	walHeartbeatStatement, err := internal.PeerDBWALHeartbeatQuery(ctx, nil)
 	if err != nil {
 		logger.Warn("unable to fetch wal heartbeat config, skipping wal heartbeat send", slog.Any("error", err))
 		return err
@@ -741,7 +750,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 		slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
 
-		maintenanceEnabled, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+		maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 		instanceStatus := otel_metrics.InstanceStatusReady
 		if err != nil {
 			logger.Error("Failed to get maintenance mode status", slog.Any("error", err))
@@ -859,7 +868,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema, len(config.RenameTableOptions))
 	for _, option := range config.RenameTableOptions {
-		schema, err := shared.LoadTableSchemaFromCatalog(
+		schema, err := internal.LoadTableSchemaFromCatalog(
 			ctx,
 			a.CatalogPool,
 			config.FlowJobName,
@@ -1098,27 +1107,27 @@ func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowN
 
 func (a *FlowableActivity) GetFlowMetadata(
 	ctx context.Context,
-	flowName string,
-	sourceName string,
-	destinationName string,
+	input *protos.FlowContextMetadataInput,
 ) (*protos.FlowContextMetadata, error) {
-	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), flowName))
-	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, []string{sourceName, destinationName})
+	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), input.FlowName))
+	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, []string{input.SourceName, input.DestinationName})
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
+		return nil, a.Alerter.LogFlowError(ctx, input.FlowName, err)
 	}
-	logger.Info("loaded peer types for flow", slog.String("flowName", flowName),
-		slog.String("sourceName", sourceName), slog.String("destinationName", destinationName),
+	logger.Info("loaded peer types for flow", slog.String("flowName", input.FlowName),
+		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
 		slog.Any("peerTypes", peerTypes))
 	return &protos.FlowContextMetadata{
-		FlowName: flowName,
+		FlowName: input.FlowName,
 		Source: &protos.PeerContextMetadata{
-			Name: sourceName,
-			Type: peerTypes[sourceName],
+			Name: input.SourceName,
+			Type: peerTypes[input.SourceName],
 		},
 		Destination: &protos.PeerContextMetadata{
-			Name: destinationName,
-			Type: peerTypes[destinationName],
+			Name: input.DestinationName,
+			Type: peerTypes[input.DestinationName],
 		},
+		Status:   input.Status,
+		IsResync: input.IsResync,
 	}, nil
 }

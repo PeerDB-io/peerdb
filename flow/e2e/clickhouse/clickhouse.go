@@ -24,10 +24,11 @@ import (
 )
 
 type ClickHouseSuite struct {
-	t        *testing.T
-	source   e2e.SuiteSource
-	s3Helper *e2e_s3.S3TestHelper
-	suffix   string
+	t         *testing.T
+	source    e2e.SuiteSource
+	s3Helper  *e2e_s3.S3TestHelper
+	connector *connclickhouse.ClickHouseConnector
+	suffix    string
 }
 
 func (s ClickHouseSuite) T() *testing.T {
@@ -47,8 +48,7 @@ func (s ClickHouseSuite) Source() e2e.SuiteSource {
 }
 
 func (s ClickHouseSuite) DestinationConnector() connectors.Connector {
-	// TODO have CH connector
-	return nil
+	return s.connector
 }
 
 func (s ClickHouseSuite) Conn() *pgx.Conn {
@@ -97,6 +97,7 @@ func (s ClickHouseSuite) DestinationTable(table string) string {
 func (s ClickHouseSuite) Teardown(ctx context.Context) {
 	require.NoError(s.t, s.s3Helper.CleanUp(ctx))
 	s.source.Teardown(s.t, ctx, s.Suffix())
+	require.NoError(s.t, s.connector.Close())
 }
 
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
@@ -117,7 +118,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 
 	batch := &model.QRecordBatch{}
 	types := rows.ColumnTypes()
-	row := make([]interface{}, 0, len(types))
+	row := make([]any, 0, len(types))
 	tableSchema, err := connclickhouse.GetTableSchemaForTable(table, types)
 	if err != nil {
 		return nil, err
@@ -286,10 +287,14 @@ func SetupSuite[TSource e2e.SuiteSource](
 			s3Helper: s3Helper,
 		}
 
-		ch, err := connclickhouse.Connect(s.t.Context(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
+		ch, err := connclickhouse.Connect(t.Context(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
 		require.NoError(t, err, "failed to connect to clickhouse")
 		err = ch.Exec(t.Context(), "CREATE DATABASE e2e_test_"+suffix)
 		require.NoError(t, err, "failed to create clickhouse database")
+
+		connector, err := connclickhouse.NewClickHouseConnector(t.Context(), nil, s.Peer().GetClickhouseConfig())
+		require.NoError(t, err)
+		s.connector = connector
 
 		return s
 	}

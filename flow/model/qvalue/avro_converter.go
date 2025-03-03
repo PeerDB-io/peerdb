@@ -17,13 +17,13 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type AvroSchemaField struct {
-	Name        string      `json:"name"`
-	Type        interface{} `json:"type"`
-	LogicalType string      `json:"logicalType,omitempty"`
+	Name        string `json:"name"`
+	Type        any    `json:"type"`
+	LogicalType string `json:"logicalType,omitempty"`
 }
 
 type AvroSchemaLogical struct {
@@ -85,7 +85,7 @@ func GetAvroSchemaFromQValueKind(
 	targetDWH protos.DBType,
 	precision int16,
 	scale int16,
-) (interface{}, error) {
+) (any, error) {
 	switch kind {
 	case QValueKindString:
 		return "string", nil
@@ -118,18 +118,18 @@ func GetAvroSchemaFromQValueKind(
 	case QValueKindBoolean:
 		return "boolean", nil
 	case QValueKindBytes:
-		format, err := peerdbenv.PeerDBBinaryFormat(ctx, env)
+		format, err := internal.PeerDBBinaryFormat(ctx, env)
 		if err != nil {
 			return nil, err
 		}
-		if targetDWH == protos.DBType_CLICKHOUSE && format != peerdbenv.BinaryFormatRaw {
+		if targetDWH == protos.DBType_CLICKHOUSE && format != internal.BinaryFormatRaw {
 			return "string", nil
 		}
 		return "bytes", nil
 	case QValueKindNumeric:
 		if targetDWH == protos.DBType_CLICKHOUSE {
 			if precision == 0 && scale == 0 {
-				asString, err := peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+				asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 				if err != nil {
 					return nil, err
 				}
@@ -397,7 +397,7 @@ func QValueToAvro(
 	case QValueNumeric:
 		return c.processNumeric(v.Val), nil
 	case QValueBytes:
-		format, err := peerdbenv.PeerDBBinaryFormat(ctx, env)
+		format, err := internal.PeerDBBinaryFormat(ctx, env)
 		if err != nil {
 			return nil, err
 		}
@@ -435,7 +435,7 @@ func QValueToAvro(
 	}
 }
 
-func (c *QValueAvroConverter) processGoTimeTZ(t time.Time) interface{} {
+func (c *QValueAvroConverter) processGoTimeTZ(t time.Time) any {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
@@ -444,7 +444,7 @@ func (c *QValueAvroConverter) processGoTimeTZ(t time.Time) interface{} {
 	return t.UnixMicro()
 }
 
-func (c *QValueAvroConverter) processGoTime(t time.Time) interface{} {
+func (c *QValueAvroConverter) processGoTime(t time.Time) any {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
@@ -454,7 +454,7 @@ func (c *QValueAvroConverter) processGoTime(t time.Time) interface{} {
 	return t.UnixMicro()
 }
 
-func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) interface{} {
+func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
@@ -470,7 +470,7 @@ func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) interface{} {
 	return t.UnixMicro()
 }
 
-func (c *QValueAvroConverter) processGoTimestamp(t time.Time) interface{} {
+func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
@@ -486,7 +486,7 @@ func (c *QValueAvroConverter) processGoTimestamp(t time.Time) interface{} {
 	return t.UnixMicro()
 }
 
-func (c *QValueAvroConverter) processGoDate(t time.Time) interface{} {
+func (c *QValueAvroConverter) processGoDate(t time.Time) any {
 	// Bigquery will not allow Date if it is less than 1AD and more than 9999AD
 	// So make such Dates null
 	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
@@ -503,8 +503,8 @@ func (c *QValueAvroConverter) processGoDate(t time.Time) interface{} {
 
 func (c *QValueAvroConverter) processNullableUnion(
 	avroType string,
-	value interface{},
-) (interface{}, error) {
+	value any,
+) (any, error) {
 	if c.Nullable {
 		if value == nil {
 			return nil, nil
@@ -533,13 +533,13 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 	return rat
 }
 
-func (c *QValueAvroConverter) processBytes(byteData []byte, format peerdbenv.BinaryFormat) interface{} {
-	if c.TargetDWH == protos.DBType_CLICKHOUSE && format != peerdbenv.BinaryFormatRaw {
+func (c *QValueAvroConverter) processBytes(byteData []byte, format internal.BinaryFormat) any {
+	if c.TargetDWH == protos.DBType_CLICKHOUSE && format != internal.BinaryFormatRaw {
 		var encoded string
 		switch format {
-		case peerdbenv.BinaryFormatBase64:
+		case internal.BinaryFormatBase64:
 			encoded = base64.StdEncoding.EncodeToString(byteData)
-		case peerdbenv.BinaryFormatHex:
+		case internal.BinaryFormatHex:
 			encoded = strings.ToUpper(hex.EncodeToString(byteData))
 		default:
 			panic(fmt.Sprintf("unhandled binary format: %d", format))
@@ -555,7 +555,7 @@ func (c *QValueAvroConverter) processBytes(byteData []byte, format peerdbenv.Bin
 	return byteData
 }
 
-func (c *QValueAvroConverter) processJSON(jsonString string) interface{} {
+func (c *QValueAvroConverter) processJSON(jsonString string) any {
 	if c.Nullable {
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && len(jsonString) > 15*1024*1024 {
 			slog.Warn("Clearing JSON value > 15MB for Snowflake!")
@@ -573,7 +573,7 @@ func (c *QValueAvroConverter) processJSON(jsonString string) interface{} {
 	return jsonString
 }
 
-func (c *QValueAvroConverter) processArrayBoolean(arrayData []bool) interface{} {
+func (c *QValueAvroConverter) processArrayBoolean(arrayData []bool) any {
 	if c.Nullable {
 		return goavro.Union("array", arrayData)
 	}
@@ -581,8 +581,8 @@ func (c *QValueAvroConverter) processArrayBoolean(arrayData []bool) interface{} 
 	return arrayData
 }
 
-func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) interface{} {
-	transformedTimeArr := make([]interface{}, 0, len(arrayTime))
+func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) any {
+	transformedTimeArr := make([]any, 0, len(arrayTime))
 	for _, t := range arrayTime {
 		// Snowflake has issues with avro timestamp types, returning as string form
 		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
@@ -600,8 +600,8 @@ func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) interface{
 	return transformedTimeArr
 }
 
-func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) interface{} {
-	transformedTimeArr := make([]interface{}, 0, len(arrayDate))
+func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) any {
+	transformedTimeArr := make([]any, 0, len(arrayDate))
 	for _, t := range arrayDate {
 		if c.TargetDWH == protos.DBType_SNOWFLAKE {
 			transformedTimeArr = append(transformedTimeArr, t.Format("2006-01-02"))
@@ -617,7 +617,7 @@ func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) interface{
 	return transformedTimeArr
 }
 
-func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) {
+func (c *QValueAvroConverter) processHStore(hstore string) (any, error) {
 	jsonString, err := datatypes.ParseHstore(hstore)
 	if err != nil {
 		return "", fmt.Errorf("cannot parse %s: %w", hstore, err)
@@ -640,7 +640,7 @@ func (c *QValueAvroConverter) processHStore(hstore string) (interface{}, error) 
 	return jsonString, nil
 }
 
-func (c *QValueAvroConverter) processUUID(byteData uuid.UUID) interface{} {
+func (c *QValueAvroConverter) processUUID(byteData uuid.UUID) any {
 	uuidString := byteData.String()
 	if c.Nullable {
 		return goavro.Union("string", uuidString)
@@ -648,7 +648,7 @@ func (c *QValueAvroConverter) processUUID(byteData uuid.UUID) interface{} {
 	return uuidString
 }
 
-func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) interface{} {
+func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) any {
 	UUIDData := make([]string, 0, len(arrayData))
 	for _, uuid := range arrayData {
 		UUIDData = append(UUIDData, uuid.String())
@@ -661,14 +661,14 @@ func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) interface{
 	return UUIDData
 }
 
-func (c *QValueAvroConverter) processGeospatial(geoString string) interface{} {
+func (c *QValueAvroConverter) processGeospatial(geoString string) any {
 	if c.Nullable {
 		return goavro.Union("string", geoString)
 	}
 	return geoString
 }
 
-func (c *QValueAvroConverter) processArrayInt16(arrayData []int16) interface{} {
+func (c *QValueAvroConverter) processArrayInt16(arrayData []int16) any {
 	// cast to int32
 	int32Data := make([]int32, 0, len(arrayData))
 	for _, v := range arrayData {
@@ -682,35 +682,35 @@ func (c *QValueAvroConverter) processArrayInt16(arrayData []int16) interface{} {
 	return int32Data
 }
 
-func (c *QValueAvroConverter) processArrayInt32(arrayData []int32) interface{} {
+func (c *QValueAvroConverter) processArrayInt32(arrayData []int32) any {
 	if c.Nullable {
 		return goavro.Union("array", arrayData)
 	}
 	return arrayData
 }
 
-func (c *QValueAvroConverter) processArrayInt64(arrayData []int64) interface{} {
+func (c *QValueAvroConverter) processArrayInt64(arrayData []int64) any {
 	if c.Nullable {
 		return goavro.Union("array", arrayData)
 	}
 	return arrayData
 }
 
-func (c *QValueAvroConverter) processArrayFloat32(arrayData []float32) interface{} {
+func (c *QValueAvroConverter) processArrayFloat32(arrayData []float32) any {
 	if c.Nullable {
 		return goavro.Union("array", arrayData)
 	}
 	return arrayData
 }
 
-func (c *QValueAvroConverter) processArrayFloat64(arrayData []float64) interface{} {
+func (c *QValueAvroConverter) processArrayFloat64(arrayData []float64) any {
 	if c.Nullable {
 		return goavro.Union("array", arrayData)
 	}
 	return arrayData
 }
 
-func (c *QValueAvroConverter) processArrayString(arrayData []string) interface{} {
+func (c *QValueAvroConverter) processArrayString(arrayData []string) any {
 	if c.Nullable {
 		return goavro.Union("array", arrayData)
 	}

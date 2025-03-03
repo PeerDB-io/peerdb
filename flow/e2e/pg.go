@@ -12,9 +12,10 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
 func cleanPostgres(ctx context.Context, conn *pgx.Conn, suffix string) error {
@@ -105,7 +106,7 @@ func SetupPostgres(t *testing.T, suffix string) (*PostgresSource, error) {
 	t.Helper()
 
 	connector, err := connpostgres.NewPostgresConnector(t.Context(),
-		nil, peerdbenv.GetCatalogPostgresConfigFromEnv(t.Context()))
+		nil, internal.GetCatalogPostgresConfigFromEnv(t.Context()))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create postgres connection: %w", err)
 	}
@@ -179,7 +180,7 @@ func GeneratePostgresPeer(t *testing.T) *protos.Peer {
 		Name: "catalog",
 		Type: protos.DBType_POSTGRES,
 		Config: &protos.Peer_PostgresConfig{
-			PostgresConfig: peerdbenv.GetCatalogPostgresConfigFromEnv(t.Context()),
+			PostgresConfig: internal.GetCatalogPostgresConfigFromEnv(t.Context()),
 		},
 	}
 	CreatePeer(t, peer)
@@ -199,6 +200,6 @@ func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table strin
 
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		ctx,
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, connpostgres.QuoteIdentifier(table)),
+		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
 	)
 }
