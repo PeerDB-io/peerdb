@@ -22,12 +22,12 @@ impl PostgresAst {
 
     pub fn rewrite_statement(&self, stmt: &mut Statement) -> anyhow::Result<()> {
         // DROP statement needs to be handled separately
-        visit_statements_mut(stmt, |stmnt| {
+        visit_statements_mut(stmt, |stmt| {
             if let Statement::Drop {
-                ref object_type,
-                ref mut names,
+                object_type,
+                names,
                 ..
-            } = stmnt
+            } = stmt
             {
                 if object_type == &ObjectType::Table {
                     if let Some(ref peername) = self.peername {

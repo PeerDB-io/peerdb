@@ -108,13 +108,13 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
                 }
             }
             Expr::Cast {
-                data_type: DataType::Time(_, ref mut tzinfo),
+                data_type: DataType::Time(_, tzinfo),
                 ..
             } => {
                 *tzinfo = TimezoneInfo::None;
             }
             Expr::Cast {
-                ref mut data_type, ..
+                data_type, ..
             } if matches!(data_type, DataType::Timestamp(..)) => {
                 *data_type = DataType::Datetime(None);
             }

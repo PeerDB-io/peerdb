@@ -659,7 +659,7 @@ impl NexusBackend {
             DashEntry::Occupied(entry) => Arc::clone(entry.get()),
             DashEntry::Vacant(entry) => {
                 let executor: Arc<dyn QueryExecutor> = match &peer.config {
-                    Some(Config::BigqueryConfig(ref c)) => {
+                    Some(Config::BigqueryConfig(c)) => {
                         let executor = peer_bigquery::BigQueryQueryExecutor::new(
                             peer.name.clone(),
                             c,
@@ -668,17 +668,17 @@ impl NexusBackend {
                         .await?;
                         Arc::new(executor)
                     }
-                    Some(Config::MysqlConfig(ref c)) => {
+                    Some(Config::MysqlConfig(c)) => {
                         let executor =
                             peer_mysql::MySqlQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
-                    Some(Config::PostgresConfig(ref c)) => {
+                    Some(Config::PostgresConfig(c)) => {
                         let executor =
                             peer_postgres::PostgresQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
-                    Some(Config::SnowflakeConfig(ref c)) => {
+                    Some(Config::SnowflakeConfig(c)) => {
                         let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
                         Arc::new(executor)
                     }
