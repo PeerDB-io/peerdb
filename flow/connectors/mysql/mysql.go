@@ -123,15 +123,23 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
-				tlsSetting := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: c.config.Host}
+        var tlsConfig *tls.Config
 				if c.config.RootCa != nil {
+				  tlsConfig := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: c.config.Host}
 					caPool := x509.NewCertPool()
 					if !caPool.AppendCertsFromPEM([]byte(*c.config.RootCa)) {
 						return errors.New("failed to parse provided root CA")
 					}
 					tlsSetting.RootCAs = caPool
-				}
-				conn.SetTLSConfig(tlsSetting)
+        } else {
+          var err error
+				  tlsConfig, err = shared.GetTlsConfig(ctx, c.Pool)
+				  if err != nil {
+					  return err
+				  }
+        }
+				tlsConfig.ServerName = c.config.Host
+				conn.SetTLSConfig(tlsConfig)
 			}
 			return nil
 		}}
