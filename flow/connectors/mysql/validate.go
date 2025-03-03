@@ -81,7 +81,6 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 	if cmp >= 0 {
 		checkRowValueOptions = true
 		query += ", @@binlog_row_value_options"
-		return nil
 	}
 
 	rs, err := c.Execute(ctx, query)
@@ -95,7 +94,8 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 
 	binlogExpireLogsSeconds := row[0].AsUint64()
 	if binlogExpireLogsSeconds < 86400 {
-		c.logger.Warn("binlog_expire_logs_seconds should be at least 24 hours", slog.Uint64("binlog_expire_logs_seconds", binlogExpireLogsSeconds))
+		c.logger.Warn("binlog_expire_logs_seconds should be at least 24 hours",
+			slog.Uint64("binlog_expire_logs_seconds", binlogExpireLogsSeconds))
 	}
 
 	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(row[1].AsString())
@@ -115,13 +115,15 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 		if requireRowMetadata {
 			return errors.New("binlog_row_metadata must be set to 'FULL' for column exclusion support, currently " + binlogRowMetadata)
 		} else {
-			c.logger.Warn("binlog_row_metadata should be set to 'FULL' for more reliable replication", slog.String("binlog_row_metadata", strings.Clone(binlogRowMetadata)))
+			c.logger.Warn("binlog_row_metadata should be set to 'FULL' for more reliable replication",
+				slog.String("binlog_row_metadata", strings.Clone(binlogRowMetadata)))
 		}
 	}
 
 	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[2].AsString())
 	if binlogRowImage != "FULL" {
-		c.logger.Warn("binlog_row_image should be set to 'FULL' to avoid missing data", slog.String("binlog_row_image", strings.Clone(binlogRowImage)))
+		c.logger.Warn("binlog_row_image should be set to 'FULL' to avoid missing data",
+			slog.String("binlog_row_image", strings.Clone(binlogRowImage)))
 	}
 
 	return nil
