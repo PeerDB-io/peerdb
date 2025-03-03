@@ -47,10 +47,7 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 		return fmt.Errorf("failed to check replication status: %w", err)
 	}
 
-	masterLogFile, masterLogPos := namePos.Name, namePos.Pos
-
-	// Additional validation: Check if the values are valid
-	if masterLogFile == "" || masterLogPos <= 0 {
+	if namePos.Name == "" || namePos.Pos <= 0 {
 		return errors.New("invalid replication status: missing log file or position")
 	}
 
@@ -62,7 +59,6 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 		return nil
 	}
 
-	// Check binlog_expire_logos_seconds
 	cmp, err := c.CompareServerVersion(ctx, "8.0.1")
 	if err != nil {
 		return fmt.Errorf("failed to get server version: %w", err)
