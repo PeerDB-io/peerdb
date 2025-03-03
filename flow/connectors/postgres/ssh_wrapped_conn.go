@@ -12,7 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -21,16 +21,16 @@ func NewPostgresConnFromPostgresConfig(
 	pgConfig *protos.PostgresConfig,
 	tunnel utils.SSHTunnel,
 ) (*pgx.Conn, error) {
-	flowNameInApplicationName, err := peerdbenv.PeerDBApplicationNamePerMirrorName(ctx, nil)
+	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to get flow name from application name", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).Error("Failed to get flow name from application name", slog.Any("error", err))
 	}
 
 	var flowName string
 	if flowNameInApplicationName {
 		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
 	}
-	connectionString := shared.GetPGConnectionString(pgConfig, flowName)
+	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
 
 	connConfig, err := pgx.ParseConfig(connectionString)
 	if err != nil {
@@ -60,7 +60,7 @@ func NewPostgresConnFromConfig(
 		}
 	}
 
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	conn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
 		logger.Error("Failed to create pool", slog.Any("error", err))

@@ -18,8 +18,8 @@ import (
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -104,7 +104,7 @@ func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
 }
 
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
 	bqsa, err := NewBigQueryServiceAccount(config)
 	if err != nil {
@@ -139,7 +139,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create Storage client: %v", err)
 	}
 
-	catalogPool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create catalog connection pool: %v", err)
 	}
@@ -391,7 +391,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 // NormalizeRecords normalizes raw table to destination table,
 // one batch at a time from the previous normalized batch to the currently synced batch.
 func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
-	unchangedToastMergeChunking, err := peerdbenv.PeerDBBigQueryToastMergeChunking(ctx, req.Env)
+	unchangedToastMergeChunking, err := internal.PeerDBBigQueryToastMergeChunking(ctx, req.Env)
 	if err != nil {
 		c.logger.Warn("failed to load PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING, continuing with 8", slog.Any("error", err))
 		unchangedToastMergeChunking = 8
@@ -597,22 +597,22 @@ func (c *BigQueryConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}, nil
 }
 
-func (c *BigQueryConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+func (c *BigQueryConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
 	// needed since CreateNormalizedTable duplicate check isn't accurate enough
 	return make(map[datasetTable]struct{}), nil
 }
 
-func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context, _ any) error {
 	return nil
 }
 
-func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ any) {
 }
 
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
 func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
-	tx interface{},
+	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -705,7 +705,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
-	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, config.Env)
+	timePartitionEnabled, err := internal.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, config.Env)
 	if err != nil {
 		return false, fmt.Errorf("failed to get dynamic setting for BigQuery time partitioning: %w", err)
 	}

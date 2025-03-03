@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -164,5 +165,5 @@ func (a *SnapshotActivity) LoadTableSchema(
 	flowName string,
 	tableName string,
 ) (*protos.TableSchema, error) {
-	return shared.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
+	return internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
 }

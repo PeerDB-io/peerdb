@@ -5,30 +5,8 @@ import (
 	"log/slog"
 	"os"
 
-	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 )
-
-func LoggerFromCtx(ctx context.Context) log.Logger {
-	var logger log.Logger
-
-	if activity.IsActivity(ctx) {
-		logger = activity.GetLogger(ctx)
-	} else {
-		logger = log.NewStructuredLogger(slog.Default())
-	}
-
-	flowName, hasName := ctx.Value(FlowNameKey).(string)
-	if hasName {
-		logger = log.With(logger, string(FlowNameKey), flowName)
-	}
-
-	if flowMetadata := GetFlowMetadata(ctx); flowMetadata != nil {
-		logger = log.With(logger, string(FlowMetadataKey), flowMetadata)
-	}
-
-	return logger
-}
 
 func LogError(logger log.Logger, err error) error {
 	logger.Error(err.Error())

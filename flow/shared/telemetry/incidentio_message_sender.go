@@ -15,6 +15,7 @@ import (
 
 	"go.temporal.io/sdk/activity"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -54,7 +55,7 @@ func (i *IncidentIoMessageSender) SendMessage(
 	}
 
 	if shared.SkipSendingToIncidentIo(attributes.Tags) {
-		logger := shared.LoggerFromCtx(ctx)
+		logger := internal.LoggerFromCtx(ctx)
 		logger.Info("skipping incident.io alert",
 			slog.Any("attributes", attributes),
 			slog.String("subject", subject),

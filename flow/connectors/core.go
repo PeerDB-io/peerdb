@@ -21,9 +21,9 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	connsqlserver "github.com/PeerDB-io/peerdb/flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -352,7 +352,7 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 
-	peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
+	peerOptions, err := internal.Decrypt(ctx, encKeyID, encPeerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
@@ -492,7 +492,7 @@ func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalo
 
 func CloseConnector(ctx context.Context, conn Connector) {
 	if err := conn.Close(); err != nil {
-		shared.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
 	}
 }
 
@@ -565,6 +565,7 @@ var (
 	_ RawTableConnector = &connsnowflake.SnowflakeConnector{}
 	_ RawTableConnector = &connpostgres.PostgresConnector{}
 
+	_ ValidationConnector = &connpostgres.PostgresConnector{}
 	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
 	_ ValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}

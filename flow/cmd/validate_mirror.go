@@ -11,7 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
@@ -23,7 +23,7 @@ var (
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
-	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		slog.Error("unable to check maintenance mode", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to load dynamic config: %w", err)

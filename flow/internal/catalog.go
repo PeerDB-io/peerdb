@@ -1,4 +1,4 @@
-package peerdbenv
+package internal
 
 import (
 	"context"
@@ -39,7 +39,7 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (shared.CatalogPool, e
 }
 
 func GetCatalogConnectionStringFromEnv(ctx context.Context) string {
-	return shared.GetPGConnectionString(GetCatalogPostgresConfigFromEnv(ctx), "")
+	return GetPGConnectionString(GetCatalogPostgresConfigFromEnv(ctx), "")
 }
 
 func GetCatalogPostgresConfigFromEnv(ctx context.Context) *protos.PostgresConfig {

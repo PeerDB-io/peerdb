@@ -6,12 +6,12 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type CDCStream[T Items] struct {
 	// empty signal to indicate if the records are going to be empty or not.
-	emptySignal chan bool
+	emptySignal chan struct{}
 	records     chan Record[T]
 	// lastCheckpointText is used for mysql GTID
 	lastCheckpointText string
@@ -21,6 +21,8 @@ type CDCStream[T Items] struct {
 	lastCheckpointID  int64
 	lastCheckpointSet bool
 	needsNormalize    bool
+	empty             bool
+	emptySet          bool
 }
 
 type CdcCheckpoint struct {
@@ -32,11 +34,13 @@ func NewCDCStream[T Items](channelBuffer int) *CDCStream[T] {
 	return &CDCStream[T]{
 		records:            make(chan Record[T], channelBuffer),
 		SchemaDeltas:       make([]*protos.TableSchemaDelta, 0),
-		emptySignal:        make(chan bool, 1),
+		emptySignal:        make(chan struct{}),
 		lastCheckpointID:   0,
 		lastCheckpointText: "",
 		needsNormalize:     false,
 		lastCheckpointSet:  false,
+		empty:              true,
+		emptySet:           false,
 	}
 }
 
@@ -63,7 +67,7 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 		}
 	}
 
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
@@ -81,23 +85,27 @@ func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
 }
 
 func (r *CDCStream[T]) SignalAsEmpty() {
-	r.emptySignal <- true
+	r.emptySet = true
+	close(r.emptySignal)
 }
 
 func (r *CDCStream[T]) SignalAsNotEmpty() {
-	r.emptySignal <- false
+	r.empty = false
+	r.emptySet = true
+	close(r.emptySignal)
 }
 
 func (r *CDCStream[T]) WaitAndCheckEmpty() bool {
-	// if ok is false Close was called before SignalAsEmpty or SignalAsNotEmpty were called,
-	// such a scenario is best treated as stream being empty
-	isEmpty, ok := <-r.emptySignal
-	return isEmpty || !ok
+	<-r.emptySignal
+	return r.empty
 }
 
 func (r *CDCStream[T]) Close() {
 	if !r.lastCheckpointSet {
-		close(r.emptySignal)
+		if !r.emptySet {
+			r.emptySet = true
+			close(r.emptySignal)
+		}
 		close(r.records)
 		r.lastCheckpointSet = true
 	}

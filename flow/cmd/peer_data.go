@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -15,9 +14,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func redactProto(message proto.Message) {
@@ -32,48 +30,6 @@ func redactProto(message proto.Message) {
 		}
 		return true
 	})
-}
-
-func (h *FlowRequestHandler) getPGPeerConfig(ctx context.Context, peerName string) (*protos.PostgresConfig, error) {
-	var encPeerOptions []byte
-	var encKeyID string
-	if err := h.pool.QueryRow(
-		ctx, "SELECT options, enc_key_id FROM peers WHERE name=$1 AND type=3", peerName,
-	).Scan(&encPeerOptions, &encKeyID); err != nil {
-		return nil, err
-	}
-
-	peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load peer: %w", err)
-	}
-
-	var pgPeerConfig protos.PostgresConfig
-	if err := proto.Unmarshal(peerOptions, &pgPeerConfig); err != nil {
-		return nil, err
-	}
-	return &pgPeerConfig, nil
-}
-
-func (h *FlowRequestHandler) getConnForPGPeer(ctx context.Context, peerName string) (utils.SSHTunnel, *pgx.Conn, error) {
-	pgPeerConfig, err := h.getPGPeerConfig(ctx, peerName)
-	if err != nil {
-		return utils.SSHTunnel{}, nil, err
-	}
-
-	tunnel, err := utils.NewSSHTunnel(ctx, pgPeerConfig.SshConfig)
-	if err != nil {
-		slog.Error("Failed to create postgres pool", slog.Any("error", err))
-		return utils.SSHTunnel{}, nil, err
-	}
-
-	conn, err := connpostgres.NewPostgresConnFromPostgresConfig(ctx, pgPeerConfig, tunnel)
-	if err != nil {
-		tunnel.Close()
-		return utils.SSHTunnel{}, nil, err
-	}
-
-	return tunnel, conn, nil
 }
 
 func (h *FlowRequestHandler) GetPeerInfo(
@@ -135,7 +91,7 @@ func (h *FlowRequestHandler) ListPeers(
 	req *protos.ListPeersRequest,
 ) (*protos.ListPeersResponse, error) {
 	query := "SELECT name, type FROM peers"
-	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
+	if internal.PeerDBOnlyClickHouseAllowed() {
 		// only postgres, mysql, and clickhouse
 		query += " WHERE type IN (3, 7, 8)"
 	}
@@ -159,7 +115,7 @@ func (h *FlowRequestHandler) ListPeers(
 		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL {
 			sourceItems = append(sourceItems, peer)
 		}
-		if peer.Type != protos.DBType_MYSQL && (!peerdbenv.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
+		if peer.Type != protos.DBType_MYSQL && (!internal.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
 			destinationItems = append(destinationItems, peer)
 		}
 	}
@@ -220,17 +176,12 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerSlotResponse, error) {
-	pgConfig, err := h.getPGPeerConfig(ctx, req.PeerName)
-	if err != nil {
-		return nil, err
-	}
-
-	pgConnector, err := connpostgres.NewPostgresConnector(ctx, nil, pgConfig)
+	pgConnector, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		slog.Error("Failed to create postgres connector", slog.Any("error", err))
 		return nil, err
 	}
-	defer pgConnector.Close()
+	defer connectors.CloseConnector(ctx, pgConnector)
 
 	slotInfo, err := pgConnector.GetSlotInfo(ctx, "")
 	if err != nil {
@@ -286,16 +237,15 @@ func (h *FlowRequestHandler) GetStatInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerStatResponse, error) {
-	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	peerConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
 	}
-	defer tunnel.Close()
-	defer peerConn.Close(ctx)
+	defer connectors.CloseConnector(ctx, peerConn)
 
-	peerUser := peerConn.Config().User
+	peerUser := peerConn.Config.User
 
-	rows, err := peerConn.Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
+	rows, err := peerConn.Conn().Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
 		"EXTRACT(epoch FROM(now()-query_start)) AS dur, state"+
 		" FROM pg_stat_activity WHERE "+
 		"usename=$1 AND application_name LIKE 'peerdb%';", peerUser)
@@ -368,14 +318,13 @@ func (h *FlowRequestHandler) GetPublications(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerPublicationsResponse, error) {
-	tunnel, peerConn, err := h.getConnForPGPeer(ctx, req.PeerName)
+	peerConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
 	}
-	defer tunnel.Close()
-	defer peerConn.Close(ctx)
+	defer connectors.CloseConnector(ctx, peerConn)
 
-	rows, err := peerConn.Query(ctx, "select pubname from pg_publication;")
+	rows, err := peerConn.Conn().Query(ctx, "select pubname from pg_publication;")
 	if err != nil {
 		slog.Info("failed to fetch publications", slog.Any("error", err))
 		return nil, err

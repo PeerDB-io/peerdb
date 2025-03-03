@@ -16,9 +16,9 @@ import (
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -45,11 +45,11 @@ type cdcStore[Items model.Items] struct {
 }
 
 func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, flowJobName string) (*cdcStore[Items], error) {
-	numRecordsSwitchThreshold, err := peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(ctx, env)
+	numRecordsSwitchThreshold, err := internal.PeerDBCDCDiskSpillRecordsThreshold(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill records threshold: %w", err)
 	}
-	memPercent, err := peerdbenv.PeerDBCDCDiskSpillMemPercentThreshold(ctx, env)
+	memPercent, err := internal.PeerDBCDCDiskSpillMemPercentThreshold(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill memory percent threshold: %w", err)
 	}
@@ -62,7 +62,7 @@ func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, 
 		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
 		numRecordsSwitchThreshold: int(numRecordsSwitchThreshold),
 		memThresholdBytes: func() uint64 {
-			maxMemBytes := peerdbenv.PeerDBFlowWorkerMaxMemBytes()
+			maxMemBytes := internal.PeerDBFlowWorkerMaxMemBytes()
 			if memPercent > 0 && maxMemBytes > 0 {
 				return maxMemBytes * uint64(memPercent) / 100
 			}

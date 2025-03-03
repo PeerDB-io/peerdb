@@ -8,9 +8,9 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/embedded"
+	"go.temporal.io/sdk/activity"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type ObservationMapValue[V comparable] struct {
@@ -26,7 +26,7 @@ type SyncGauge[V comparable, O metric.Observable] struct {
 }
 
 func (a *SyncGauge[V, O]) Callback(ctx context.Context, observeFunc func(value V, options ...metric.ObserveOption)) error {
-	a.observations.Range(func(key, value interface{}) bool {
+	a.observations.Range(func(key, value any) bool {
 		attrs := key.(attribute.Set)
 		val := value.(*ObservationMapValue[V])
 		observeFunc(val.Value, metric.WithAttributeSet(attrs))
@@ -102,14 +102,31 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 	return &Float64SyncGauge{syncGauge: syncGauge}, nil
 }
 
-func buildFlowMetadataAttributes(flowMetadata *protos.FlowContextMetadata) metric.MeasurementOption {
-	return metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(FlowNameKey, flowMetadata.FlowName),
-		attribute.String(SourcePeerType, flowMetadata.Source.Type.String()),
-		attribute.String(DestinationPeerType, flowMetadata.Destination.Type.String()),
-		attribute.String(SourcePeerName, flowMetadata.Source.Name),
-		attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
-	))
+func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
+	attributes := make([]attribute.KeyValue, 0)
+	flowMetadata := internal.GetFlowMetadata(ctx)
+	if flowMetadata != nil {
+		attributes = append(attributes,
+			attribute.String(FlowNameKey, flowMetadata.FlowName),
+			attribute.Stringer(SourcePeerType, flowMetadata.Source.Type),
+			attribute.Stringer(DestinationPeerType, flowMetadata.Destination.Type),
+			attribute.String(SourcePeerName, flowMetadata.Source.Name),
+			attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
+			attribute.Stringer(FlowStatusKey, flowMetadata.Status),
+			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync),
+			attribute.Stringer(FlowOperationKey, flowMetadata.Operation),
+		)
+	}
+	if activity.IsActivity(ctx) {
+		activityInfo := activity.GetInfo(ctx)
+		attributes = append(attributes,
+			attribute.Bool(IsTemporalActivityKey, true),
+			attribute.Bool(IsTemporalLocalActivityKey, activityInfo.IsLocalActivity),
+			attribute.String(TemporalActivityTypeKey, activityInfo.ActivityType.Name),
+			attribute.String(TemporalWorkflowTypeKey, activityInfo.WorkflowType.Name),
+		)
+	}
+	return metric.WithAttributeSet(attribute.NewSet(attributes...))
 }
 
 type ContextAwareInt64SyncGauge struct {
@@ -117,10 +134,7 @@ type ContextAwareInt64SyncGauge struct {
 }
 
 func (a *ContextAwareInt64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
-	flowMetadata := shared.GetFlowMetadata(ctx)
-	if flowMetadata != nil {
-		options = append(options, buildFlowMetadataAttributes(flowMetadata))
-	}
+	options = append(options, buildContextualAttributes(ctx))
 	a.Int64Gauge.Record(ctx, value, options...)
 }
 
@@ -129,10 +143,7 @@ type ContextAwareFloat64SyncGauge struct {
 }
 
 func (a *ContextAwareFloat64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
-	flowMetadata := shared.GetFlowMetadata(ctx)
-	if flowMetadata != nil {
-		options = append(options, buildFlowMetadataAttributes(flowMetadata))
-	}
+	options = append(options, buildContextualAttributes(ctx))
 	a.Float64Gauge.Record(ctx, value, options...)
 }
 
@@ -141,10 +152,7 @@ type ContextAwareInt64Counter struct {
 }
 
 func (a *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options ...metric.AddOption) {
-	flowMetadata := shared.GetFlowMetadata(ctx)
-	if flowMetadata != nil {
-		options = append(options, buildFlowMetadataAttributes(flowMetadata))
-	}
+	options = append(options, buildContextualAttributes(ctx))
 	a.Int64Counter.Add(ctx, value, options...)
 }
 

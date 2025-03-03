@@ -10,6 +10,7 @@ import (
 
 	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -105,7 +106,7 @@ func (h *HubBatches) sendBatch(
 		return err
 	}
 
-	shared.LoggerFromCtx(ctx).Info("sendBatch",
+	internal.LoggerFromCtx(ctx).Info("sendBatch",
 		slog.Int("events sent", int(events.NumEvents())), slog.String("event hub topic", tblName.ToString()))
 	return nil
 }
@@ -114,7 +115,7 @@ func (h *HubBatches) flushAllBatches(
 	ctx context.Context,
 	flowName string,
 ) error {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	if h.Len() == 0 {
 		logger.Info("no events to send", slog.String(string(shared.FlowNameKey), flowName))
 		return nil

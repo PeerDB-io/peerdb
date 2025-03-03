@@ -203,8 +203,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		s.connector.logger.Info("SyncQRepRecords: no rows to sync, hence skipping transaction", flowLog)
 	}
 
-	err = s.connector.FinishQRepPartition(ctx, partition, flowJobName, startTime)
-	if err != nil {
+	if err := s.connector.FinishQRepPartition(ctx, partition, flowJobName, startTime); err != nil {
 		return -1, err
 	}
 
@@ -222,8 +221,8 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 }
 
 type AvroField struct {
-	Type interface{} `json:"type"`
-	Name string      `json:"name"`
+	Type any    `json:"type"`
+	Name string `json:"name"`
 }
 
 type AvroSchema struct {
@@ -268,11 +267,11 @@ func DefineAvroSchema(dstTableName string,
 	}, nil
 }
 
-func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
+func GetAvroType(bqField *bigquery.FieldSchema) (any, error) {
 	avroNumericPrecision, avroNumericScale := qvalue.DetermineNumericSettingForDWH(
 		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY)
 
-	considerRepeated := func(typ string, repeated bool) interface{} {
+	considerRepeated := func(typ string, repeated bool) any {
 		if repeated {
 			return qvalue.AvroSchemaArray{
 				Type:  "array",
@@ -379,7 +378,7 @@ func GetAvroField(bqField *bigquery.FieldSchema) (AvroField, error) {
 
 	// If a field is nullable, its Avro type should be ["null", actualType]
 	if !bqField.Required {
-		avroType = []interface{}{"null", avroType}
+		avroType = []any{"null", avroType}
 	}
 
 	return AvroField{

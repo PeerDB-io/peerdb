@@ -3,13 +3,19 @@
 import { fetcher } from '@/app/utils/swr';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import Logout from '@/components/Logout';
-import { PeerDBVersionResponse } from '@/grpc_generated/route';
+import {
+  InstanceInfoResponse,
+  InstanceStatus,
+  PeerDBVersionResponse,
+} from '@/grpc_generated/route';
+
 import { BrandLogo } from '@/lib/BrandLogo';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithSelect } from '@/lib/Layout';
 import { Sidebar, SidebarItem } from '@/lib/Sidebar';
+import { MaterialSymbol } from 'material-symbols';
 import { SessionProvider } from 'next-auth/react';
 import Link from 'next/link';
 import useSWR from 'swr';
@@ -20,6 +26,11 @@ const centerFlexStyle = {
   alignItems: 'center',
   width: '100%',
   marginBottom: '0.5rem',
+};
+
+type instanceInfoDisplay = {
+  icon: MaterialSymbol;
+  text: string;
 };
 
 export default function SidebarComponent(props: { showLogout: boolean }) {
@@ -34,10 +45,41 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
     fetcher
   );
 
+  const {
+    data: instanceInfo,
+    error: instanceInfoError,
+    isLoading: isInstanceInfoLoading,
+  }: {
+    data: InstanceInfoResponse;
+    error: any;
+    isLoading: boolean;
+  } = useSWR('/api/v1/instance/info', fetcher);
+
   const [sidebarState, setSidebarState] = useLocalStorage(
     'peerdb-sidebar',
     'open'
   );
+
+  function getInstanceInfoDisplay(): instanceInfoDisplay {
+    if (isInstanceInfoLoading) {
+      return { icon: 'sync', text: 'Loading...' };
+    }
+    if (instanceInfoError) {
+      return { icon: 'error', text: 'Error' };
+    }
+
+    switch (InstanceInfoResponse.fromJSON(instanceInfo).status) {
+      case InstanceStatus.INSTANCE_STATUS_READY:
+        return { icon: 'check', text: 'Ready' };
+      case InstanceStatus.INSTANCE_STATUS_MAINTENANCE:
+        return { icon: 'build', text: 'Maintenance' };
+      case InstanceStatus.INSTANCE_STATUS_UNKNOWN:
+        return { icon: 'help', text: 'Unknown' };
+      default:
+        return { icon: 'error', text: 'Error' };
+    }
+  }
+
   const sidebar = (
     <Sidebar
       style={{ width: sidebarState == 'closed' ? 'fit-content' : 'auto' }}
@@ -106,17 +148,26 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
         )
       }
       bottomLabel={
-        sidebarState === 'open' ? (
-          <div style={centerFlexStyle}>
-            <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
-              {' '}
-              <b>Version: </b>
-              {isLoading ? 'Loading...' : version?.version}
-            </Label>
-          </div>
-        ) : (
-          <></>
-        )
+        <div>
+          {sidebarState === 'open' && (
+            <div>
+              <div style={centerFlexStyle}>
+                <Label as='label' style={{ textAlign: 'center', fontSize: 15 }}>
+                  {' '}
+                  <b>Version: </b>
+                  {isLoading ? 'Loading...' : version?.version}
+                </Label>
+              </div>
+            </div>
+          )}
+          <SidebarItem
+            style={centerFlexStyle}
+            as={Label}
+            leadingIcon={<Icon name={getInstanceInfoDisplay().icon} />}
+          >
+            <b>{sidebarState === 'open' && getInstanceInfoDisplay().text}</b>
+          </SidebarItem>
+        </div>
       }
     >
       <SidebarItem

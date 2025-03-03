@@ -1,4 +1,4 @@
-package shared
+package internal
 
 import (
 	"log/slog"
@@ -8,6 +8,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
@@ -27,8 +28,8 @@ func AdditionalTablesHasOverlap(currentTableMappings []*protos.TableMapping,
 		additionalDstTables = append(additionalDstTables, additionalTableMapping.DestinationTableIdentifier)
 	}
 
-	return ArraysHaveOverlap(currentSrcTables, additionalSrcTables) ||
-		ArraysHaveOverlap(currentDstTables, additionalDstTables)
+	return shared.ArraysHaveOverlap(currentSrcTables, additionalSrcTables) ||
+		shared.ArraysHaveOverlap(currentDstTables, additionalDstTables)
 }
 
 // given the output of GetTableSchema, processes it to be used by CDCFlow

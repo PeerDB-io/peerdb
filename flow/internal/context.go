@@ -1,12 +1,16 @@
-package shared
+package internal
 
 import (
 	"context"
+	"log/slog"
 
+	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/converter"
+	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type TemporalContextKey string
@@ -19,16 +23,20 @@ const (
 	FlowMetadataKey TemporalContextKey = "x-peerdb-flow-metadata"
 )
 
-type PeerMetadata struct {
-	Name string
-	Type protos.DBType
-}
-
 func GetFlowMetadata(ctx context.Context) *protos.FlowContextMetadata {
 	if metadata, ok := ctx.Value(FlowMetadataKey).(*protos.FlowContextMetadata); ok {
 		return metadata
 	}
 	return nil
+}
+
+func WithOperationContext(ctx context.Context, operation protos.FlowOperation) context.Context {
+	currentMetadata := GetFlowMetadata(ctx)
+	if currentMetadata == nil {
+		currentMetadata = &protos.FlowContextMetadata{}
+	}
+	currentMetadata.Operation = operation
+	return context.WithValue(ctx, FlowMetadataKey, currentMetadata)
 }
 
 type ContextPropagator[V any] struct {
@@ -81,4 +89,25 @@ func (c *ContextPropagator[V]) ExtractToWorkflow(ctx workflow.Context, reader wo
 	}
 
 	return ctx, nil
+}
+
+func LoggerFromCtx(ctx context.Context) log.Logger {
+	var logger log.Logger
+
+	if activity.IsActivity(ctx) {
+		logger = activity.GetLogger(ctx)
+	} else {
+		logger = log.NewStructuredLogger(slog.Default())
+	}
+
+	flowName, hasName := ctx.Value(shared.FlowNameKey).(string)
+	if hasName {
+		logger = log.With(logger, string(shared.FlowNameKey), flowName)
+	}
+
+	if flowMetadata := GetFlowMetadata(ctx); flowMetadata != nil {
+		logger = log.With(logger, string(FlowMetadataKey), flowMetadata)
+	}
+
+	return logger
 }

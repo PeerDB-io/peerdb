@@ -1,4 +1,4 @@
-package peerdbenv
+package internal
 
 import (
 	"log/slog"

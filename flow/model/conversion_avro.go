@@ -8,8 +8,8 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
 type QRecordAvroConverter struct {
@@ -31,7 +31,7 @@ func NewQRecordAvroConverter(
 	var unboundedNumericAsString bool
 	if targetDWH == protos.DBType_CLICKHOUSE {
 		var err error
-		unboundedNumericAsString, err = peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+		unboundedNumericAsString, err = internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 		if err != nil {
 			return nil, err
 		}
@@ -95,7 +95,7 @@ func GetAvroSchemaDefinition(
 		}
 
 		if qField.Nullable {
-			avroType = []interface{}{"null", avroType}
+			avroType = []any{"null", avroType}
 		}
 
 		avroFields = append(avroFields, QRecordAvroField{

@@ -4,9 +4,9 @@ import {
   MirrorStatusResponse,
 } from '@/grpc_generated/route';
 
-export const getMirrorState = async (
+export async function getMirrorState(
   flow_job_name: string
-): Promise<MirrorStatusResponse> => {
+): Promise<MirrorStatusResponse> {
   const res = await fetch('/api/v1/mirrors/status', {
     method: 'POST',
     body: JSON.stringify({
@@ -17,18 +17,18 @@ export const getMirrorState = async (
   });
   if (!res.ok) throw res.json();
   return res.json();
-};
+}
 
-export const getCurrentIdleTimeout = async (mirrorName: string) => {
+export async function getCurrentIdleTimeout(mirrorName: string) {
   const res = await getMirrorState(mirrorName);
   return (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds;
-};
+}
 
-export const changeFlowState = async (
+export async function changeFlowState(
   mirrorName: string,
   flowState: FlowStatus,
   dropStats?: boolean
-): Promise<Response> => {
+): Promise<Response> {
   const req: FlowStateChangeRequest = {
     flowJobName: mirrorName,
     requestedFlowState: flowState,
@@ -42,4 +42,4 @@ export const changeFlowState = async (
   });
   window.location.reload();
   return res;
-};
+}

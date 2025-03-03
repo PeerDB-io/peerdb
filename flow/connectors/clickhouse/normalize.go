@@ -15,9 +15,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/peerdbenv"
 )
 
 const (
@@ -27,20 +27,20 @@ const (
 	versionColType = "Int64"
 )
 
-func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
 	return nil, nil
 }
 
-func (c *ClickHouseConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+func (c *ClickHouseConnector) FinishSetupNormalizedTables(_ context.Context, _ any) error {
 	return nil
 }
 
-func (c *ClickHouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *ClickHouseConnector) CleanupSetupNormalizedTables(_ context.Context, _ any) {
 }
 
 func (c *ClickHouseConnector) SetupNormalizedTable(
 	ctx context.Context,
-	tx interface{},
+	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -174,7 +174,7 @@ func generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteString(") ")
 	}
 
-	if nullable, err := peerdbenv.PeerDBNullable(ctx, config.Env); err != nil {
+	if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
 		return "", err
 	} else if nullable {
 		stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
@@ -258,12 +258,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
-	enablePrimaryUpdate, err := peerdbenv.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
+	enablePrimaryUpdate, err := internal.PeerDBEnableClickHousePrimaryUpdate(ctx, req.Env)
 	if err != nil {
 		return model.NormalizeResponse{}, err
 	}
 
-	parallelNormalize, err := peerdbenv.PeerDBClickHouseParallelNormalize(ctx, req.Env)
+	parallelNormalize, err := internal.PeerDBClickHouseParallelNormalize(ctx, req.Env)
 	if err != nil {
 		return model.NormalizeResponse{}, err
 	}
@@ -273,7 +273,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		slog.Int64("EndBatchID", req.SyncBatchID),
 		slog.Int("connections", parallelNormalize))
 
-	numParts, err := peerdbenv.PeerDBClickHouseNormalizationParts(ctx, req.Env)
+	numParts, err := internal.PeerDBClickHouseNormalizationParts(ctx, req.Env)
 	if err != nil {
 		c.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
 		numParts = 1
@@ -395,12 +395,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				default:
 					projLen := projection.Len()
 					if colType == qvalue.QValueKindBytes {
-						format, err := peerdbenv.PeerDBBinaryFormat(ctx, req.Env)
+						format, err := internal.PeerDBBinaryFormat(ctx, req.Env)
 						if err != nil {
 							return model.NormalizeResponse{}, err
 						}
 						switch format {
-						case peerdbenv.BinaryFormatRaw:
+						case internal.BinaryFormatRaw:
 							projection.WriteString(fmt.Sprintf(
 								"base64Decode(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
 								colName, dstColName,
@@ -411,7 +411,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 									colName, dstColName,
 								))
 							}
-						case peerdbenv.BinaryFormatHex:
+						case internal.BinaryFormatHex:
 							projection.WriteString(fmt.Sprintf("hex(base64Decode(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
 								colName, dstColName))
 							if enablePrimaryUpdate {
@@ -473,7 +473,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				selectQuery.WriteString(projectionUpdate.String())
 				selectQuery.WriteString(" FROM ")
 				selectQuery.WriteString(rawTbl)
-				selectQuery.WriteString(" WHERE _peerdb_batch_id > ")
+				selectQuery.WriteString(" WHERE _peerdb_match_data != '' AND _peerdb_batch_id > ")
 				selectQuery.WriteString(strconv.FormatInt(normBatchID, 10))
 				selectQuery.WriteString(" AND _peerdb_batch_id <= ")
 				selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
