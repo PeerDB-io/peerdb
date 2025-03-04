@@ -16,7 +16,7 @@ jobs:
     name: Run UI linters
     strategy:
       matrix:
-        runner: [ubicloud-standard-2-ubuntu-2204-arm]
+        runner: [ubicloud-standard-2-ubuntu-2404-arm]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout

@@ -6,7 +6,7 @@ on:
 
 jobs:
   flow_cleanup:
-    runs-on: ubicloud-standard-2-ubuntu-2204-arm
+    runs-on: ubicloud-standard-2-ubuntu-2404-arm
     timeout-minutes: 60
     steps:
       - name: checkout sources
