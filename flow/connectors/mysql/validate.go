@@ -31,7 +31,8 @@ func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error 
 
 	for _, row := range rs.Values {
 		grant := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
-		for permission := range strings.FieldsFuncSeq(grant, func(r rune) bool { return r == ' ' || r == ',' }) {
+		for permission := range strings.FieldsFuncSeq(grant, func(r rune) bool { return r == ',' }) {
+			permission = strings.TrimSpace(permission)
 			if permission == "REPLICATION SLAVE" || permission == "REPLICATION CLIENT" {
 				return nil
 			}
