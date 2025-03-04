@@ -324,6 +324,11 @@ func (c *MySqlConnector) PullRecords(
 		return nil
 	}
 
+	ignoreDelete, err := internal.PeerDBIgnoreDelete(ctx, req.Env)
+	if err != nil {
+		c.logger.Error("failed to get PeerDBIgnoreDelete", slog.Any("error", err))
+	}
+
 	var mysqlParser *parser.Parser
 	for inTx || recordCount < req.MaxBatchSize {
 		getCtx := ctx
@@ -486,6 +491,10 @@ func (c *MySqlConnector) PullRecords(
 						}
 					}
 				case replication.DELETE_ROWS_EVENTv1, replication.DELETE_ROWS_EVENTv2, replication.MARIADB_DELETE_ROWS_COMPRESSED_EVENT_V1:
+					if ignoreDelete {
+						break
+					}
+
 					for idx, row := range ev.Rows {
 						var unchangedToastColumns map[string]struct{}
 						if len(ev.SkippedColumns) > idx {
