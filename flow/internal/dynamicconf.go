@@ -109,6 +109,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_IGNORE_DELETE",
+		Description:      "Do not propagate record deletion",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
 		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
 		DefaultValue:     "raw",
@@ -466,6 +474,10 @@ func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) 
 
 func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
+}
+
+func PeerDBIgnoreDelete(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_IGNORE_DELETE")
 }
 
 func PeerDBBinaryFormat(ctx context.Context, env map[string]string) (BinaryFormat, error) {

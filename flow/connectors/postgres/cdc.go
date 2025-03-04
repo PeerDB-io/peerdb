@@ -372,6 +372,11 @@ func PullCdcRecords[Items model.Items](
 	pkmRequiresResponse := false
 	waitingForCommit := false
 
+	ignoreDelete, err := internal.PeerDBIgnoreDelete(ctx, req.Env)
+	if err != nil {
+		logger.Error("failed to get PeerDBIgnoreDelete", slog.Any("error", err))
+	}
+
 	pkmEmptyBatchThrottleThresholdSeconds, err := internal.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
 	if err != nil {
 		logger.Error("failed to get PeerDBPKMEmptyBatchThrottleThresholdSeconds", slog.Any("error", err))
@@ -558,6 +563,10 @@ func PullCdcRecords[Items model.Items](
 							}
 						}
 					case *model.DeleteRecord[Items]:
+						if ignoreDelete {
+							break
+						}
+
 						isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 						if isFullReplica {
 							if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
