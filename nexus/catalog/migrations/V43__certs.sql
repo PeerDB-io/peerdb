@@ -1,0 +1,5 @@
+CREATE TABLE certs (
+  id SERIAL PRIMARY KEY,
+  name TEXT NOT NULL UNIQUE,
+  source BYTEA NOT NULL
+);
