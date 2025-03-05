@@ -49,7 +49,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 					})
 				}
 				selector.AddFuture(dropSourceFuture, dropSource)
-				_ = workflow.Sleep(ctx, time.Duration(sourceTries)*time.Second)
+				_ = workflow.Sleep(ctx, time.Duration(sourceTries*sourceTries)*time.Second)
 			}
 		}
 
@@ -81,7 +81,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 					})
 				}
 				selector.AddFuture(dropDestinationFuture, dropDestination)
-				_ = workflow.Sleep(ctx, time.Duration(destinationTries)*time.Second)
+				_ = workflow.Sleep(ctx, time.Duration(destinationTries*destinationTries)*time.Second)
 			}
 		}
 		dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
