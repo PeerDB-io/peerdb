@@ -739,7 +739,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		return err
 	}
 
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	slotMetricGauges := otel_metrics.SlotMetricGauges{}
 	if a.OtelManager != nil {
 		slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
