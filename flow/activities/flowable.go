@@ -766,14 +766,20 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	}
 	for _, config := range configs {
 		func() {
-			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, config.SourceName)
+			flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+				FlowName:        config.FlowJobName,
+				SourceName:      config.SourceName,
+				DestinationName: config.DestinationName,
+			})
+			connCtx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](connCtx, nil, a.CatalogPool, config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
 					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
 				}
 				return
 			}
-			defer connectors.CloseConnector(ctx, srcConn)
+			defer connectors.CloseConnector(connCtx, srcConn)
 
 			slotName := "peerflow_slot_" + config.FlowJobName
 			if config.ReplicationSlotName != "" {
@@ -781,18 +787,18 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			}
 			peerName := config.SourceName
 
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
-			if ctx.Err() != nil {
+			activity.RecordHeartbeat(connCtx, fmt.Sprintf("checking %s on %s", slotName, peerName))
+			if connCtx.Err() != nil {
 				return
 			}
 			if a.OtelManager != nil {
-				a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(config.TableMappings)), metric.WithAttributeSet(attribute.NewSet(
+				a.OtelManager.Metrics.SyncedTablesGauge.Record(connCtx, int64(len(config.TableMappings)), metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
 					attribute.String(otel_metrics.PeerNameKey, peerName),
 					attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
 				)))
 			}
-			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
+			if err := srcConn.HandleSlotInfo(connCtx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
 				FlowName: config.FlowJobName,
 				PeerName: peerName,
 				SlotName: slotName,
