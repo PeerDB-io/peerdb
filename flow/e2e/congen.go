@@ -19,6 +19,7 @@ type SuiteSource interface {
 	Connector() connectors.Connector
 	Exec(ctx context.Context, sql string) error
 	GetRows(ctx context.Context, suffix, table, cols string) (*model.QRecordBatch, error)
+	Query(ctx context.Context, sql string) (*model.QRecordBatch, error)
 }
 
 func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {

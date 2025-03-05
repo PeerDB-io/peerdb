@@ -7,11 +7,15 @@ import (
 	"log/slog"
 	"time"
 
+	"encoding/json"
+
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
+
+	"maps"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -66,6 +70,148 @@ func (p *PostgresMetadata) LogFlowInfo(ctx context.Context, flowName string, inf
 
 func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) (bool, error) {
 	return false, nil
+}
+
+// SetupNormalizeMetadataTable initializes the metadata table with the given destination table names.
+// This is used to keep track of the last batch ID normalized for each target table.
+func (p *PostgresMetadata) SetupNormalizeMetadataTable(ctx context.Context, jobName string, destinationTableNames []string) error {
+	tableBatchIDData := make(map[string]int64)
+	for _, schemaQualifiedTableName := range destinationTableNames {
+		if _, ok := tableBatchIDData[schemaQualifiedTableName]; ok {
+			continue
+		}
+		tableBatchIDData[schemaQualifiedTableName] = 0
+	}
+
+	tableBatchIDDataJSON, err := json.Marshal(tableBatchIDData)
+	if err != nil {
+		p.logger.Error("failed to marshal table batch id data to json", "error", err)
+		return fmt.Errorf("failed to marshal table batch id data to json: %w", err)
+	}
+
+	var existingTableBatchIDDataJSON string
+	err = p.pool.QueryRow(ctx,
+		`SELECT table_batch_id_data FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&existingTableBatchIDDataJSON)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		p.logger.Error("failed to query existing table batch id data", "error", err)
+		return fmt.Errorf("failed to query existing table batch id data: %w", err)
+	}
+
+	if existingTableBatchIDDataJSON != "" {
+		var existingTableBatchIDData map[string]int64
+		if err := json.Unmarshal([]byte(existingTableBatchIDDataJSON), &existingTableBatchIDData); err != nil {
+			return fmt.Errorf("failed to unmarshal existing table batch id data: %w", err)
+		}
+
+		maps.Copy(existingTableBatchIDData, tableBatchIDData)
+
+		tableBatchIDDataJSON, err = json.Marshal(existingTableBatchIDData)
+		if err != nil {
+			p.logger.Error("failed to marshal updated table batch id data to json", "error", err)
+			return fmt.Errorf("failed to marshal updated table batch id data to json: %w", err)
+		}
+	}
+
+	_, err = p.pool.Exec(ctx,
+		`INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, last_text, sync_batch_id, table_batch_id_data)
+		VALUES ($1, 0, '', 0, $2)
+		ON CONFLICT (job_name)
+		DO UPDATE SET
+			last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+			last_text = excluded.last_text,
+			sync_batch_id = GREATEST(`+lastSyncStateTableName+`.sync_batch_id, excluded.sync_batch_id),
+			table_batch_id_data = excluded.table_batch_id_data,
+			updated_at = NOW()
+	`, jobName, tableBatchIDDataJSON)
+	if err != nil {
+		p.logger.Error("failed to insert into last_sync_state", "error", err)
+		return fmt.Errorf("failed to insert into last_sync_state: %w", err)
+	}
+
+	p.logger.Info("initialized table batch id data in metadata table", "jobName", jobName, "tableBatchIDData", tableBatchIDData)
+	return nil
+}
+
+// GetLastSyncedBatchIDForTable returns the last batch ID normalized for the given target table.
+func (p *PostgresMetadata) GetLastSyncedBatchIDForTable(ctx context.Context, jobName string, dstTableName string) (int64, error) {
+	var tableBatchIDDataJSON string
+	if err := p.pool.QueryRow(ctx,
+		`SELECT table_batch_id_data FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&tableBatchIDDataJSON); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+
+		p.logger.Error("failed to get last synced batch id for table", "error", err)
+		return 0, err
+	}
+
+	var tableBatchIDData map[string]int64
+	if err := json.Unmarshal([]byte(tableBatchIDDataJSON), &tableBatchIDData); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal table batch id data: %w", err)
+	}
+
+	lastSyncedBatchID, ok := tableBatchIDData[dstTableName]
+	if !ok {
+		return 0, nil
+	}
+
+	p.logger.Info("got last synced batch id for table", "dstTableName", dstTableName, "lastSyncedBatchID", lastSyncedBatchID)
+	return lastSyncedBatchID, nil
+}
+
+// SetLastSyncedBatchIDForTable updates the last batch ID normalized for the given target table.
+func (p *PostgresMetadata) SetLastSyncedBatchIDForTable(ctx context.Context, jobName string, dstTableName string, batchID int64) error {
+	p.logger.Info("updating last synced batch id for table", "dstTableName", dstTableName, "batchID", batchID)
+
+	if _, err := p.pool.Exec(ctx,
+		`UPDATE `+lastSyncStateTableName+`
+		SET table_batch_id_data = jsonb_set(table_batch_id_data::jsonb, $2, $3::jsonb, true)
+		WHERE job_name = $1`, jobName, fmt.Sprintf(`{%s}`, dstTableName), fmt.Sprintf(`%d`, batchID),
+	); err != nil {
+		p.logger.Error("failed to update table batch id data", "error", err)
+		return fmt.Errorf("failed to update table batch id data: %w", err)
+	}
+
+	p.logger.Info("updated last synced batch id for table", "dstTableName", dstTableName, "batchID", batchID)
+	return nil
+}
+
+// GetLastBatchIDInRawTable returns the last batch ID in the raw table.
+func (p *PostgresMetadata) GetLastBatchIDInRawTable(ctx context.Context, jobName string) (int64, error) {
+	var latestBatchIDInRawTable pgtype.Int8
+	if err := p.pool.QueryRow(ctx,
+		`SELECT latest_batch_id_in_raw_table FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&latestBatchIDInRawTable); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+
+		p.logger.Error("failed to get last batch id in raw table", "error", err)
+		return 0, err
+	}
+
+	p.logger.Info("got last batch id in raw table", "latestBatchIDInRawTable", latestBatchIDInRawTable.Int64)
+	return latestBatchIDInRawTable.Int64, nil
+}
+
+// SetLastBatchIDInRawTable updates the last batch ID in the raw table.
+func (p *PostgresMetadata) SetLastBatchIDInRawTable(ctx context.Context, jobName string, batchID int64) error {
+	p.logger.Info("updating last batch id in raw table", "jobName", jobName, "batchID", batchID)
+
+	if _, err := p.pool.Exec(ctx,
+		`UPDATE `+lastSyncStateTableName+`
+		SET latest_batch_id_in_raw_table = $2
+		WHERE job_name = $1`, jobName, batchID,
+	); err != nil {
+		p.logger.Error("failed to update last batch id in raw table", "error", err)
+	}
+
+	return nil
 }
 
 func (p *PostgresMetadata) SetupMetadataTables(_ context.Context) error {
