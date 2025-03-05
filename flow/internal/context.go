@@ -46,7 +46,7 @@ func GetAdditionalMetadata(ctx context.Context) AdditionalContextMetadata {
 func WithOperationContext(ctx context.Context, operation protos.FlowOperation) context.Context {
 	currentMetadata := GetAdditionalMetadata(ctx)
 	currentMetadata.Operation = operation
-	return context.WithValue(ctx, FlowMetadataKey, currentMetadata)
+	return context.WithValue(ctx, AdditionalMetadataKey, currentMetadata)
 }
 
 type ContextPropagator[V any] struct {
