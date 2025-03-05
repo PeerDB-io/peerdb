@@ -75,7 +75,7 @@ func LoadTableSchemaFromCatalog(
 func ConstructExcludedColumnsList(tableMappings []*protos.TableMapping) map[string][]string {
 	excludedColumns := make(map[string][]string, len(tableMappings))
 	for _, tm := range tableMappings {
-		excludedColumns[tm.SourceTableIdentifier] = slices.Clone(tm.Exclude)
+		excludedColumns[tm.SourceTableIdentifier] = tm.Exclude
 	}
 	return excludedColumns
 }
