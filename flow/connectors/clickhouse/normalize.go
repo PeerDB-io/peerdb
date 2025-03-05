@@ -257,9 +257,10 @@ func getOrderedOrderByColumns(
 	return orderbyColumns
 }
 
-type NormalizeInsertQuery struct {
-	query     string
-	tableName string
+type TableNormalizeQuery struct {
+	TableName string
+	Query     string
+	Part      uint64
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(
@@ -280,7 +281,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID, req.Env); err != nil {
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, req.SyncBatchID, req.Env); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
@@ -334,7 +335,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	numParts = max(numParts, 1)
 
-	queries := make(chan NormalizeInsertQuery)
+	queries := make(chan TableNormalizeQuery)
 	rawTbl := c.getRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
@@ -359,8 +360,15 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.String("destinationTable", insertIntoSelectQuery.tableName),
 					slog.String("query", insertIntoSelectQuery.query))
 
-				if err := c.execWithConnection(ctx, chConn, insertIntoSelectQuery.query); err != nil {
-					return fmt.Errorf("error while inserting into destination ClickHouse table %s: %w", insertIntoSelectQuery.tableName, err)
+				if err := chConn.Exec(errCtx, query.Query); err != nil {
+					return fmt.Errorf("error while inserting into normalized table: %w", err)
+				}
+
+				if query.Part == numParts-1 {
+					err := c.SetLastSyncedBatchIDForTable(ctx, req.FlowJobName, query.TableName, req.SyncBatchID)
+					if err != nil {
+						return fmt.Errorf("error while setting last synced batch id for table %s: %w", query.TableName, err)
+					}
 				}
 			}
 			return nil
@@ -368,6 +376,18 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	for _, tbl := range destinationTableNames {
+		normalizeBatchIDForTable, err := c.GetLastSyncedBatchIDForTable(ctx, req.FlowJobName, tbl)
+		if err != nil {
+			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, "error", err)
+			return model.NormalizeResponse{}, err
+		}
+
+		if normalizeBatchIDForTable >= req.SyncBatchID {
+			c.logger.Info("[clickhouse] "+tbl+" already normalized, skipping",
+				"table", tbl, "batchIDForTable", normalizeBatchIDForTable, "syncBatchID", req.SyncBatchID)
+			continue
+		}
+
 		for numPart := range numParts {
 			selectQuery := strings.Builder{}
 			selectQuery.WriteString("SELECT ")
@@ -567,9 +587,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
 				peerdb_clickhouse.QuoteIdentifier(tbl), colSelector.String(), selectQuery.String())
 			select {
-			case queries <- NormalizeInsertQuery{
-				query:     insertIntoSelectQuery,
-				tableName: tbl,
+			case queries <- TableNormalizeQuery{
+				TableName: tbl,
+				Query:     insertIntoSelectQuery.String(),
+				Part:      numPart,
 			}:
 			case <-errCtx.Done():
 				close(queries)
@@ -659,11 +680,20 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, normBatchID, syncBatchID int64, env map[string]string,
+	ctx context.Context, flowJobName string, syncBatchID int64, env map[string]string,
 ) error {
-	for s := normBatchID + 1; s <= syncBatchID; s++ {
+	lastSyncedBatchIdInRawTable, err := c.GetLastBatchIDInRawTable(ctx, flowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to get last batch id in raw table: %w", err)
+	}
+
+	for s := lastSyncedBatchIdInRawTable + 1; s <= syncBatchID; s++ {
 		if err := c.copyAvroStageToDestination(ctx, flowJobName, s, env); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
+		}
+		err := c.SetLastBatchIDInRawTable(ctx, flowJobName, s)
+		if err != nil {
+			return fmt.Errorf("failed to set last batch id in raw table: %w", err)
 		}
 	}
 	return nil
