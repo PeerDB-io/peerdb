@@ -17,9 +17,7 @@ import (
 func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: 1 * time.Minute,
-		},
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 	ctx = workflow.WithDataConverter(ctx, converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
 
@@ -51,7 +49,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 					})
 				}
 				selector.AddFuture(dropSourceFuture, dropSource)
-				_ = workflow.Sleep(ctx, time.Second)
+				_ = workflow.Sleep(ctx, time.Duration(sourceTries)*time.Second)
 			}
 		}
 
@@ -83,7 +81,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 					})
 				}
 				selector.AddFuture(dropDestinationFuture, dropDestination)
-				_ = workflow.Sleep(ctx, time.Second)
+				_ = workflow.Sleep(ctx, time.Duration(destinationTries)*time.Second)
 			}
 		}
 		dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
