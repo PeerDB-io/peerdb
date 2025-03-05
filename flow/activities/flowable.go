@@ -775,6 +775,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				logger.Error("Failed to get flow metadata", slog.Any("error", err))
 			}
 			connCtx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+			logger = internal.LoggerFromCtx(connCtx)
 			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](connCtx, nil, a.CatalogPool, config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
