@@ -5,6 +5,10 @@ on:
     - cron: '0 15 * * 1'
   workflow_dispatch:
     inputs: {}
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+    
 permissions:
   issues: write
   pull-requests: write
