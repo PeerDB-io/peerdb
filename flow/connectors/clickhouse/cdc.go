@@ -6,16 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -98,11 +97,11 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: req.Records.GetLastCheckpoint(),
-		NumRecordsSynced:       int64(numRecords),
-		CurrentSyncBatchID:     syncBatchID,
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		LastSyncedCheckpoint: req.Records.GetLastCheckpoint(),
+		NumRecordsSynced:     int64(numRecords),
+		CurrentSyncBatchID:   syncBatchID,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 
@@ -112,7 +111,7 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 		return nil, err
 	}
 
-	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID); err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint); err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
@@ -136,18 +135,20 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			clickHouseColType, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(ctx, env, protos.DBType_CLICKHOUSE, addedColumn)
+			clickHouseColType, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(
+				ctx, env, protos.DBType_CLICKHOUSE, addedColumn, schemaDelta.NullableEnabled,
+			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
-			err = c.execWithLogging(ctx,
+			if err := c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN IF NOT EXISTS `%s` %s",
-					schemaDelta.DstTableName, addedColumn.Name, clickHouseColType))
-			if err != nil {
+					schemaDelta.DstTableName, addedColumn.Name, clickHouseColType),
+			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
 			}
-			c.logger.Info(fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name,
-				addedColumn.Type),
+			c.logger.Info(
+				fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name, clickHouseColType),
 				"destination table name", schemaDelta.DstTableName,
 				"source table name", schemaDelta.SrcTableName)
 		}
@@ -178,21 +179,6 @@ func (c *ClickHouseConnector) RenameTables(
 		}
 
 		if originalTableExists {
-			tableSchema := tableNameSchemaMapping[renameRequest.CurrentName]
-			columnNames := make([]string, 0, len(tableSchema.Columns))
-			for _, col := range tableSchema.Columns {
-				columnNames = append(columnNames, col.Name)
-			}
-
-			allCols := strings.Join(columnNames, ",")
-			c.logger.Info("handling soft-deletes for table before rename", slog.String("NewName", renameRequest.NewName))
-			if err := c.execWithLogging(ctx,
-				fmt.Sprintf("INSERT INTO `%s`(%s,%s) SELECT %s,true FROM `%s` WHERE %s = 1",
-					renameRequest.CurrentName, allCols, signColName, allCols, renameRequest.NewName, signColName),
-			); err != nil {
-				return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", renameRequest.NewName, err)
-			}
-
 			// target table exists, so we can attempt to swap. In most cases, we will have Atomic engine,
 			// which supports a special query to exchange two tables, allowing dependent (materialized) views and dictionaries on these tables
 			c.logger.Info("attempting atomic exchange",

@@ -11,7 +11,6 @@ bytes = "1.1"
 chrono.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-hex = "0.4"
 pgwire.workspace = true
 postgres = { version = "0.19", features = ["with-chrono-0_4"] }
 postgres-inet = "0.19.0"

@@ -1,7 +1,6 @@
 package connpostgres
 
 import (
-	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -11,21 +10,21 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func setupDB(t *testing.T) (*PostgresConnector, string) {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(context.Background(),
-		nil, peerdbenv.GetCatalogPostgresConfigFromEnv(context.Background()))
+	connector, err := NewPostgresConnector(t.Context(),
+		nil, internal.GetCatalogPostgresConfigFromEnv(t.Context()))
 	require.NoError(t, err, "error while creating connector")
 
 	// Create unique schema name using current time
 	schemaName := fmt.Sprintf("schema_%d", time.Now().Unix())
 
 	// Create the schema
-	_, err = connector.conn.Exec(context.Background(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
+	_, err = connector.conn.Exec(t.Context(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
 	require.NoError(t, err, "error while creating schema")
 
 	return connector, schemaName
@@ -34,12 +33,12 @@ func setupDB(t *testing.T) (*PostgresConnector, string) {
 func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
 	t.Helper()
 
-	_, err := conn.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
+	_, err := conn.Exec(t.Context(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
 	require.NoError(t, err, "error while dropping schema")
 }
 
 func TestExecuteAndProcessQuery(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	connector, schemaName := setupDB(t)
 	conn := connector.conn
 	defer connector.Close()
@@ -57,14 +56,14 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	batch, err := qe.ExecuteAndProcessQuery(context.Background(), query)
+	batch, err := qe.ExecuteAndProcessQuery(t.Context(), query)
 	require.NoError(t, err, "error while executing query")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 	require.Equal(t, "testdata", batch.Records[0][1].Value(), "expected 'testdata'")
 }
 
 func TestAllDataTypes(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	connector, schemaName := setupDB(t)
 	conn := connector.conn
 	defer conn.Close(ctx)
@@ -122,7 +121,7 @@ func TestAllDataTypes(t *testing.T) {
 	savedUUID := uuid.New()
 
 	_, err = conn.Exec(
-		context.Background(),
+		t.Context(),
 		query,
 		true,               // col_bool
 		int32(2),           // col_int4
@@ -147,7 +146,7 @@ func TestAllDataTypes(t *testing.T) {
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 	// Select the row back out of the table
 	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	rows, err := qe.ExecuteQuery(context.Background(), query)
+	rows, err := qe.ExecuteQuery(t.Context(), query)
 	require.NoError(t, err, "error while executing query")
 	defer rows.Close()
 

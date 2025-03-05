@@ -1,7 +1,6 @@
 package connsnowflake
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"testing"
@@ -11,10 +10,10 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 // createQValue creates a QValue of the appropriate kind for a given placeholder.
@@ -55,7 +54,7 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeholder int) qvalue.
 		// case qvalue.QValueKindArray:
 		// 	value = []int{1, 2, 3} // placeholder array, replace with actual logic
 		// case qvalue.QValueKindStruct:
-		// 	value = map[string]interface{}{"key": "value"} // placeholder struct, replace with actual logic
+		// 	value = map[string]any{"key": "value"} // placeholder struct, replace with actual logic
 		// case qvalue.QValueKindJSON:
 		// 	value = `{"key": "value"}` // placeholder JSON, replace with actual logic
 	case qvalue.QValueKindBytes:
@@ -135,7 +134,7 @@ func generateRecords(
 
 func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -144,14 +143,14 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(context.Background(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -162,7 +161,7 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 
 func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro.zst")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro.zst")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -171,14 +170,14 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(context.Background(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressZstd, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -189,7 +188,7 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 
 func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro.zz")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro.zz")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -198,14 +197,14 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(context.Background(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressDeflate, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -216,7 +215,7 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 
 func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -224,14 +223,14 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 
 	records, schema := generateRecords(t, false, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(context.Background(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -242,7 +241,7 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 
 func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp("", "example_*.avro")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -251,14 +250,14 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, true)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(context.Background(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
 
 	// Call function
 	writer := avro.NewPeerDBOCFWriter(records, avroSchema, avro.CompressNone, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(context.Background(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty

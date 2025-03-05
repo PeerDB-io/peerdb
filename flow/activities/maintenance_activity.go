@@ -7,17 +7,19 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/PeerDB-io/peer-flow/alerting"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/PeerDB-io/peer-flow/shared/telemetry"
+	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
 const (
@@ -26,9 +28,10 @@ const (
 )
 
 type MaintenanceActivity struct {
-	CatalogPool    *pgxpool.Pool
+	CatalogPool    shared.CatalogPool
 	Alerter        *alerting.Alerter
 	TemporalClient client.Client
+	OtelManager    *otel_metrics.OtelManager
 }
 
 func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.MaintenanceMirrors, error) {
@@ -55,7 +58,7 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.Mainte
 }
 
 func (a *MaintenanceActivity) getMirrorStatus(ctx context.Context, mirror *protos.MaintenanceMirror) (protos.FlowStatus, error) {
-	return shared.GetWorkflowStatus(ctx, a.TemporalClient, mirror.WorkflowId)
+	return internal.GetWorkflowStatus(ctx, a.TemporalClient, mirror.WorkflowId)
 }
 
 func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context) (*protos.MaintenanceMirrors, error) {
@@ -84,10 +87,12 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 	logEvery time.Duration,
 ) (protos.FlowStatus, error) {
 	// In case a mirror was just kicked off, it shows up in the running state, we wait for a bit before checking for snapshot
-	if mirror.MirrorCreatedAt.AsTime().After(time.Now().Add(-30 * time.Second)) {
+	targetCheckTime := mirror.MirrorCreatedAt.AsTime().Add(30 * time.Second)
+	now := time.Now()
+	if now.Before(targetCheckTime) {
 		slog.Info("Mirror was created less than 30 seconds ago, waiting for it to be ready before checking for snapshot",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
-		time.Sleep(30 * time.Second)
+		time.Sleep(targetCheckTime.Sub(now))
 	}
 
 	flowStatus, err := RunEveryIntervalUntilFinish(ctx, func() (bool, protos.FlowStatus, error) {
@@ -100,13 +105,13 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 			return false, mirrorStatus, nil
 		}
 		return true, mirrorStatus, nil
-	}, 10*time.Second, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName), logEvery)
+	}, 10*time.Second, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName), logEvery, true)
 	return flowStatus, err
 }
 
 func (a *MaintenanceActivity) EnableMaintenanceMode(ctx context.Context) error {
 	slog.Info("Enabling maintenance mode")
-	return peerdbenv.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, true)
+	return internal.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, true)
 }
 
 func (a *MaintenanceActivity) BackupAllPreviouslyRunningFlows(ctx context.Context, mirrors *protos.MaintenanceMirrors) error {
@@ -123,7 +128,7 @@ func (a *MaintenanceActivity) BackupAllPreviouslyRunningFlows(ctx context.Contex
 		values
 			($1, $2, $3, $4, $5, $6, $7)
 		`, mirror.MirrorId, mirror.MirrorName, mirror.WorkflowId, mirror.MirrorCreatedAt.AsTime(), mirror.IsCdc, mirrorStateBackup,
-			peerdbenv.PeerDBVersionShaShort())
+			internal.PeerDBVersionShaShort())
 		if err != nil {
 			return err
 		}
@@ -165,7 +170,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 			return true, true, nil
 		}
 		return false, false, nil
-	}, 10*time.Second, "Waiting for mirror to pause", 30*time.Second)
+	}, 10*time.Second, "Waiting for mirror to pause", 30*time.Second, false)
 }
 
 func (a *MaintenanceActivity) CleanBackedUpFlows(ctx context.Context) error {
@@ -175,7 +180,7 @@ func (a *MaintenanceActivity) CleanBackedUpFlows(ctx context.Context) error {
 			restored_at = now(),
 			to_version = $2
 		where state = $3
-	`, mirrorStateRestored, peerdbenv.PeerDBVersionShaShort(), mirrorStateBackup)
+	`, mirrorStateRestored, internal.PeerDBVersionShaShort(), mirrorStateBackup)
 	return err
 }
 
@@ -228,14 +233,13 @@ func (a *MaintenanceActivity) ResumeMirror(ctx context.Context, mirror *protos.M
 
 func (a *MaintenanceActivity) DisableMaintenanceMode(ctx context.Context) error {
 	slog.Info("Disabling maintenance mode")
-	return peerdbenv.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, false)
+	return internal.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, false)
 }
 
 func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 	heartbeatTicker := time.NewTicker(30 * time.Second)
 	defer heartbeatTicker.Stop()
-
-	alertTicker := time.NewTicker(time.Duration(peerdbenv.PeerDBMaintenanceModeWaitAlertSeconds()) * time.Second)
+	alertTicker := time.NewTicker(time.Duration(internal.PeerDBMaintenanceModeWaitAlertSeconds()) * time.Second)
 	defer alertTicker.Stop()
 
 	for {
@@ -247,6 +251,11 @@ func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 		case <-alertTicker.C:
 			slog.Warn("Maintenance Workflow is still running")
 			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "Waiting", "Maintenance mode is still running")
+			if a.OtelManager != nil {
+				a.OtelManager.Metrics.MaintenanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.WorkflowTypeKey, activity.GetInfo(ctx).WorkflowType.Name),
+				)))
+			}
 		}
 	}
 }
@@ -257,7 +266,15 @@ func RunEveryIntervalUntilFinish[T any](
 	runInterval time.Duration,
 	logMessage string,
 	logInterval time.Duration,
+	runBeforeFirstTick bool,
 ) (T, error) {
+	if runBeforeFirstTick {
+		finished, result, err := runFunc()
+		if err != nil || finished {
+			return result, err
+		}
+	}
+
 	runTicker := time.NewTicker(runInterval)
 	defer runTicker.Stop()
 
@@ -271,10 +288,7 @@ func RunEveryIntervalUntilFinish[T any](
 		case <-runTicker.C:
 			finished, result, err := runFunc()
 			lastResult = result
-			if err != nil {
-				return lastResult, err
-			}
-			if finished {
+			if err != nil || finished {
 				return lastResult, err
 			}
 		case <-logTicker.C:

@@ -7,9 +7,9 @@ import (
 	"os"
 	"strconv"
 
-	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	connsqlserver "github.com/PeerDB-io/peerdb/flow/connectors/sqlserver"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 type SQLServerHelper struct {
@@ -20,7 +20,7 @@ type SQLServerHelper struct {
 	tables     []string
 }
 
-func NewSQLServerHelper() (*SQLServerHelper, error) {
+func NewSQLServerHelper(ctx context.Context) (*SQLServerHelper, error) {
 	port, err := strconv.ParseUint(os.Getenv("SQLSERVER_PORT"), 10, 16)
 	if err != nil {
 		return nil, fmt.Errorf("invalid SQLSERVER_PORT: %s", os.Getenv("SQLSERVER_PORT"))
@@ -34,12 +34,12 @@ func NewSQLServerHelper() (*SQLServerHelper, error) {
 		Database: os.Getenv("SQLSERVER_DATABASE"),
 	}
 
-	connector, err := connsqlserver.NewSQLServerConnector(context.Background(), config)
+	connector, err := connsqlserver.NewSQLServerConnector(ctx, config)
 	if err != nil {
 		return nil, err
 	}
 
-	connErr := connector.ConnectionActive(context.Background())
+	connErr := connector.ConnectionActive(ctx)
 	if connErr != nil {
 		return nil, fmt.Errorf("invalid connection configs: %v", connErr)
 	}
@@ -47,7 +47,7 @@ func NewSQLServerHelper() (*SQLServerHelper, error) {
 	//nolint:gosec // number has no cryptographic significance
 	rndNum := rand.Uint64()
 	testSchema := fmt.Sprintf("e2e_test_%d", rndNum)
-	if err := connector.CreateSchema(context.Background(), testSchema); err != nil {
+	if err := connector.CreateSchema(ctx, testSchema); err != nil {
 		return nil, err
 	}
 
@@ -58,9 +58,8 @@ func NewSQLServerHelper() (*SQLServerHelper, error) {
 	}, nil
 }
 
-func (h *SQLServerHelper) CreateTable(schema *qvalue.QRecordSchema, tableName string) error {
-	err := h.E.CreateTable(context.Background(), schema, h.SchemaName, tableName)
-	if err != nil {
+func (h *SQLServerHelper) CreateTable(ctx context.Context, schema *qvalue.QRecordSchema, tableName string) error {
+	if err := h.E.CreateTable(ctx, schema, h.SchemaName, tableName); err != nil {
 		return err
 	}
 
@@ -68,16 +67,16 @@ func (h *SQLServerHelper) CreateTable(schema *qvalue.QRecordSchema, tableName st
 	return nil
 }
 
-func (h *SQLServerHelper) CleanUp() error {
+func (h *SQLServerHelper) CleanUp(ctx context.Context) error {
 	for _, tbl := range h.tables {
-		err := h.E.ExecuteQuery(context.Background(), fmt.Sprintf("DROP TABLE %s.%s", h.SchemaName, tbl))
+		err := h.E.ExecuteQuery(ctx, fmt.Sprintf("DROP TABLE %s.%s", h.SchemaName, tbl))
 		if err != nil {
 			return err
 		}
 	}
 
 	if h.SchemaName != "" {
-		return h.E.ExecuteQuery(context.Background(), "DROP SCHEMA "+h.SchemaName)
+		return h.E.ExecuteQuery(ctx, "DROP SCHEMA "+h.SchemaName)
 	}
 
 	return nil

@@ -16,7 +16,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 //nolint:lll
@@ -35,7 +35,7 @@ type identityProvider struct {
 }
 
 func AuthGrpcMiddleware(unauthenticatedMethods []string) (grpc.UnaryServerInterceptor, error) {
-	oauthConfig := peerdbenv.GetPeerDBOAuthConfig()
+	oauthConfig := internal.GetPeerDBOAuthConfig()
 	oauthJwtClaims := map[string]string{}
 	if oauthConfig.OAuthJwtClaimKey != "" {
 		oauthJwtClaims[oauthConfig.OAuthJwtClaimKey] = oauthConfig.OAuthClaimValue
@@ -83,7 +83,7 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) (grpc.UnaryServerInterc
 			_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
 			if err != nil {
 				slog.Debug("Failed to validate request token", slog.String("method", info.FullMethod), slog.Any("error", err))
-				return nil, status.Errorf(codes.Unauthenticated, "%s", err.Error())
+				return nil, status.Error(codes.Unauthenticated, err.Error())
 			}
 		}
 

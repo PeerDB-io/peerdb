@@ -2,6 +2,7 @@ package qvalue
 
 import (
 	"bytes"
+	"encoding/json"
 	"math"
 	"reflect"
 	"slices"
@@ -13,7 +14,7 @@ import (
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 
-	"github.com/PeerDB-io/peer-flow/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/datatypes"
 )
 
 func valueEmpty(value any) bool {
@@ -32,15 +33,35 @@ func Equals(qv QValue, other QValue) bool {
 	case QValueInvalid:
 		return true
 	case QValueFloat32:
-		return q.compareFloat32(other)
+		float2, ok2 := getFloat32(other.Value())
+		return ok2 && q.Val == float2
 	case QValueFloat64:
-		return q.compareFloat64(other)
+		float2, ok2 := getFloat64(other.Value())
+		return ok2 && q.Val == float2
+	case QValueInt8:
+		int2, ok2 := getInt64(other.Value())
+		return ok2 && int64(q.Val) == int2
 	case QValueInt16:
-		return q.compareInt16(other)
+		int2, ok2 := getInt64(other.Value())
+		return ok2 && int64(q.Val) == int2
 	case QValueInt32:
-		return q.compareInt32(other)
+		int2, ok2 := getInt64(other.Value())
+		return ok2 && int64(q.Val) == int2
 	case QValueInt64:
-		return q.compareInt64(other)
+		int2, ok2 := getInt64(other.Value())
+		return ok2 && q.Val == int2
+	case QValueUInt8:
+		int2, ok2 := getUInt64(other.Value())
+		return ok2 && uint64(q.Val) == int2
+	case QValueUInt16:
+		int2, ok2 := getUInt64(other.Value())
+		return ok2 && uint64(q.Val) == int2
+	case QValueUInt32:
+		int2, ok2 := getUInt64(other.Value())
+		return ok2 && uint64(q.Val) == int2
+	case QValueUInt64:
+		int2, ok2 := getUInt64(other.Value())
+		return ok2 && q.Val == int2
 	case QValueBoolean:
 		if otherVal, ok := other.(QValueBoolean); ok {
 			return q.Val == otherVal.Val
@@ -78,8 +99,19 @@ func Equals(qv QValue, other QValue) bool {
 	case QValueUUID:
 		return compareUUID(qvValue, otherValue)
 	case QValueJSON:
-		// TODO (kaushik): fix for tests
-		return true
+		if otherValue == nil || otherValue == "" {
+			// TODO make this more strict
+			return true
+		}
+		var a any
+		var b any
+		if err := json.Unmarshal([]byte(q.Val), &a); err != nil {
+			return false
+		}
+		if err := json.Unmarshal([]byte(otherValue.(string)), &b); err != nil {
+			return false
+		}
+		return reflect.DeepEqual(a, b)
 	case QValueGeometry:
 		return compareGeometry(q.Val, otherValue)
 	case QValueGeography:
@@ -103,37 +135,12 @@ func Equals(qv QValue, other QValue) bool {
 	}
 }
 
-func (v QValueInt16) compareInt16(value2 QValue) bool {
-	int2, ok2 := getInt16(value2.Value())
-	return ok2 && v.Val == int2
-}
-
-func (v QValueInt32) compareInt32(value2 QValue) bool {
-	int2, ok2 := getInt32(value2.Value())
-	return ok2 && v.Val == int2
-}
-
-func (v QValueInt64) compareInt64(value2 QValue) bool {
-	int2, ok2 := getInt64(value2.Value())
-	return ok2 && v.Val == int2
-}
-
-func (v QValueFloat32) compareFloat32(value2 QValue) bool {
-	float2, ok2 := getFloat32(value2.Value())
-	return ok2 && v.Val == float2
-}
-
-func (v QValueFloat64) compareFloat64(value2 QValue) bool {
-	float2, ok2 := getFloat64(value2.Value())
-	return ok2 && v.Val == float2
-}
-
-func compareString(s1 string, value2 interface{}) bool {
+func compareString(s1 string, value2 any) bool {
 	s2, ok := value2.(string)
 	return ok && s1 == s2
 }
 
-func compareGoTimestamp(value1, value2 interface{}) bool {
+func compareGoTimestamp(value1, value2 any) bool {
 	et1, ok1 := value1.(time.Time)
 	et2, ok2 := value2.(time.Time)
 
@@ -149,7 +156,7 @@ func compareGoTimestamp(value1, value2 interface{}) bool {
 	return t1 == t2
 }
 
-func compareGoTime(value1, value2 interface{}) bool {
+func compareGoTime(value1, value2 any) bool {
 	t1, ok1 := value1.(time.Time)
 	t2, ok2 := value2.(time.Time)
 
@@ -162,7 +169,7 @@ func compareGoTime(value1, value2 interface{}) bool {
 	return h1 == h2 && m1 == m2 && s1 == s2
 }
 
-func compareGoDate(value1, value2 interface{}) bool {
+func compareGoDate(value1, value2 any) bool {
 	t1, ok1 := value1.(time.Time)
 	t2, ok2 := value2.(time.Time)
 
@@ -175,21 +182,21 @@ func compareGoDate(value1, value2 interface{}) bool {
 	return y1 == y2 && m1 == m2 && d1 == d2
 }
 
-func compareUUID(value1, value2 interface{}) bool {
+func compareUUID(value1, value2 any) bool {
 	uuid1, ok1 := getUUID(value1)
 	uuid2, ok2 := getUUID(value2)
 
 	return ok1 && ok2 && uuid1 == uuid2
 }
 
-func compareBytes(value1, value2 interface{}) bool {
+func compareBytes(value1, value2 any) bool {
 	bytes1, ok1 := getBytes(value1)
 	bytes2, ok2 := getBytes(value2)
 
 	return ok1 && ok2 && bytes.Equal(bytes1, bytes2)
 }
 
-func compareNumeric(value1, value2 interface{}) bool {
+func compareNumeric(value1, value2 any) bool {
 	num1, ok1 := getDecimal(value1)
 	num2, ok2 := getDecimal(value2)
 
@@ -200,7 +207,7 @@ func compareNumeric(value1, value2 interface{}) bool {
 	return num1.Equal(num2)
 }
 
-func compareHStore(str1 string, value2 interface{}) bool {
+func compareHStore(str1 string, value2 any) bool {
 	str2 := value2.(string)
 	if str1 == str2 {
 		return true
@@ -212,7 +219,7 @@ func compareHStore(str1 string, value2 interface{}) bool {
 	return parsedHStore1 == strings.ReplaceAll(strings.ReplaceAll(str2, " ", ""), "\n", "")
 }
 
-func compareGeometry(geoWkt string, value2 interface{}) bool {
+func compareGeometry(geoWkt string, value2 any) bool {
 	geo2, err := geom.NewGeomFromWKT(value2.(string))
 	if err != nil {
 		panic(err)
@@ -252,9 +259,9 @@ func (v QValueStruct) compareStruct(value2 QValueStruct) bool {
 	return true
 }
 
-func compareNumericArrays(value1, value2 interface{}) bool {
+func compareNumericArrays(value1, value2 any) bool {
 	// Helper function to convert a value to float64
-	convertToFloat64 := func(val interface{}) []float64 {
+	convertToFloat64 := func(val any) []float64 {
 		switch v := val.(type) {
 		case []int16:
 			result := make([]float64, len(v))
@@ -303,7 +310,7 @@ func compareNumericArrays(value1, value2 interface{}) bool {
 	return true
 }
 
-func compareTimeArrays(value1, value2 interface{}) bool {
+func compareTimeArrays(value1, value2 any) bool {
 	array1, ok1 := value1.([]time.Time)
 	array2, ok2 := value2.([]time.Time)
 
@@ -319,7 +326,7 @@ func compareTimeArrays(value1, value2 interface{}) bool {
 	return true
 }
 
-func compareDateArrays(value1, value2 interface{}) bool {
+func compareDateArrays(value1, value2 any) bool {
 	array1, ok1 := value1.([]time.Time)
 	array2, ok2 := value2.([]time.Time)
 
@@ -337,7 +344,7 @@ func compareDateArrays(value1, value2 interface{}) bool {
 	return true
 }
 
-func compareBoolArrays(value1, value2 interface{}) bool {
+func compareBoolArrays(value1, value2 any) bool {
 	array1, ok1 := value1.([]bool)
 	array2, ok2 := value2.([]bool)
 
@@ -353,7 +360,7 @@ func compareBoolArrays(value1, value2 interface{}) bool {
 	return true
 }
 
-func compareUuidArrays(value1, value2 interface{}) bool {
+func compareUuidArrays(value1, value2 any) bool {
 	array1, ok1 := value1.([]uuid.UUID)
 	array2, ok2 := value2.([]uuid.UUID)
 
@@ -369,7 +376,7 @@ func compareUuidArrays(value1, value2 interface{}) bool {
 	return true
 }
 
-func compareArrayString(value1, value2 interface{}) bool {
+func compareArrayString(value1, value2 any) bool {
 	array1, ok1 := value1.([]string)
 	array2, ok2 := value2.([]string)
 
@@ -380,48 +387,37 @@ func compareArrayString(value1, value2 interface{}) bool {
 	return slices.Compare(array1, array2) == 0
 }
 
-func getInt16(v interface{}) (int16, bool) {
+func getUInt64(v any) (uint64, bool) {
 	switch value := v.(type) {
+	case uint8:
+		return uint64(value), true
+	case uint16:
+		return uint64(value), true
+	case uint32:
+		return uint64(value), true
+	case uint64:
+		return value, true
+	case decimal.Decimal:
+		return value.BigInt().Uint64(), true
+	case string:
+		parsed, err := strconv.ParseUint(value, 10, 64)
+		if err == nil {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+func getInt64(v any) (int64, bool) {
+	switch value := v.(type) {
+	case int8:
+		return int64(value), true
 	case int16:
-		return value, true
-	case int32:
-		return int16(value), true
-	case int64:
-		return int16(value), true
-	case decimal.Decimal:
-		return int16(value.IntPart()), true
-	case string:
-		parsed, err := strconv.ParseInt(value, 10, 16)
-		if err == nil {
-			return int16(parsed), true
-		}
-	}
-	return 0, false
-}
-
-func getInt32(v interface{}) (int32, bool) {
-	switch value := v.(type) {
-	case int32:
-		return value, true
-	case int64:
-		return int32(value), true
-	case decimal.Decimal:
-		return int32(value.IntPart()), true
-	case string:
-		parsed, err := strconv.ParseInt(value, 10, 32)
-		if err == nil {
-			return int32(parsed), true
-		}
-	}
-	return 0, false
-}
-
-func getInt64(v interface{}) (int64, bool) {
-	switch value := v.(type) {
-	case int64:
-		return value, true
+		return int64(value), true
 	case int32:
 		return int64(value), true
+	case int64:
+		return value, true
 	case decimal.Decimal:
 		return value.IntPart(), true
 	case string:
@@ -433,7 +429,7 @@ func getInt64(v interface{}) (int64, bool) {
 	return 0, false
 }
 
-func getFloat32(v interface{}) (float32, bool) {
+func getFloat32(v any) (float32, bool) {
 	switch value := v.(type) {
 	case float32:
 		return value, true
@@ -448,7 +444,7 @@ func getFloat32(v interface{}) (float32, bool) {
 	return 0, false
 }
 
-func getFloat64(v interface{}) (float64, bool) {
+func getFloat64(v any) (float64, bool) {
 	switch value := v.(type) {
 	case float64:
 		return value, true
@@ -463,7 +459,7 @@ func getFloat64(v interface{}) (float64, bool) {
 	return 0, false
 }
 
-func getBytes(v interface{}) ([]byte, bool) {
+func getBytes(v any) ([]byte, bool) {
 	switch value := v.(type) {
 	case []byte:
 		return value, true
@@ -476,7 +472,7 @@ func getBytes(v interface{}) ([]byte, bool) {
 	}
 }
 
-func getUUID(v interface{}) (uuid.UUID, bool) {
+func getUUID(v any) (uuid.UUID, bool) {
 	switch value := v.(type) {
 	case uuid.UUID:
 		return value, true
@@ -493,7 +489,7 @@ func getUUID(v interface{}) (uuid.UUID, bool) {
 }
 
 // getDecimal attempts to parse a decimal from an interface
-func getDecimal(v interface{}) (decimal.Decimal, bool) {
+func getDecimal(v any) (decimal.Decimal, bool) {
 	switch value := v.(type) {
 	case decimal.Decimal:
 		return value, true

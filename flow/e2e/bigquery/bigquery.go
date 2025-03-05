@@ -1,6 +1,7 @@
 package e2e_bigquery
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -8,12 +9,12 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type PeerFlowE2ETestSuiteBQ struct {
@@ -34,6 +35,10 @@ func (s PeerFlowE2ETestSuiteBQ) Conn() *pgx.Conn {
 
 func (s PeerFlowE2ETestSuiteBQ) Connector() *connpostgres.PostgresConnector {
 	return s.conn
+}
+
+func (s PeerFlowE2ETestSuiteBQ) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
 }
 
 func (s PeerFlowE2ETestSuiteBQ) DestinationConnector() connectors.Connector {
@@ -67,7 +72,7 @@ func (s PeerFlowE2ETestSuiteBQ) GetRows(tableName string, colsString string) (*m
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
 	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s ORDER BY id", colsString, qualifiedTableName)
 	s.t.Logf("running query on bigquery: %s", bqSelQuery)
-	return s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
+	return s.bqHelper.ExecuteAndProcessQuery(s.t.Context(), bqSelQuery)
 }
 
 func (s PeerFlowE2ETestSuiteBQ) GetRowsWhere(tableName string, colsString string, where string) (*model.QRecordBatch, error) {
@@ -75,14 +80,13 @@ func (s PeerFlowE2ETestSuiteBQ) GetRowsWhere(tableName string, colsString string
 	qualifiedTableName := fmt.Sprintf("`%s.%s`", s.bqHelper.Config.DatasetId, tableName)
 	bqSelQuery := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY id", colsString, qualifiedTableName, where)
 	s.t.Logf("running query on bigquery: %s", bqSelQuery)
-	return s.bqHelper.ExecuteAndProcessQuery(bqSelQuery)
+	return s.bqHelper.ExecuteAndProcessQuery(s.t.Context(), bqSelQuery)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s PeerFlowE2ETestSuiteBQ) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 
-	err := s.bqHelper.DropDataset(s.bqHelper.Config.DatasetId)
-	if err != nil {
+	if err := s.bqHelper.DropDataset(ctx, s.bqHelper.Config.DatasetId); err != nil {
 		s.t.Fatalf("failed to tear down bigquery: %v", err)
 	}
 }
@@ -103,14 +107,14 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteBQ {
 		t.Fatalf("Failed to create helper: %v", err)
 	}
 
-	if err := bqHelper.RecreateDataset(); err != nil {
+	if err := bqHelper.RecreateDataset(t.Context()); err != nil {
 		t.Fatalf("Failed to recreate dataset: %v", err)
 	}
 
 	return PeerFlowE2ETestSuiteBQ{
 		t:        t,
 		bqSuffix: bqSuffix,
-		conn:     conn,
+		conn:     conn.PostgresConnector,
 		bqHelper: bqHelper,
 	}
 }

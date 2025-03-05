@@ -15,8 +15,8 @@ import (
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 //nolint:iface
@@ -32,10 +32,10 @@ type SQLQueryExecutor interface {
 	CreateTable(ctx context.Context, schema *qvalue.QRecordSchema, schemaName string, tableName string) error
 	CountRows(ctx context.Context, schemaName string, tableName string) (int64, error)
 
-	ExecuteAndProcessQuery(ctx context.Context, query string, args ...interface{}) (*model.QRecordBatch, error)
-	NamedExecuteAndProcessQuery(ctx context.Context, query string, arg interface{}) (*model.QRecordBatch, error)
-	ExecuteQuery(ctx context.Context, query string, args ...interface{}) error
-	NamedExec(ctx context.Context, query string, arg interface{}) (sql.Result, error)
+	ExecuteAndProcessQuery(ctx context.Context, query string, args ...any) (*model.QRecordBatch, error)
+	NamedExecuteAndProcessQuery(ctx context.Context, query string, arg any) (*model.QRecordBatch, error)
+	ExecuteQuery(ctx context.Context, query string, args ...any) error
+	NamedExec(ctx context.Context, query string, arg any) (sql.Result, error)
 }
 
 type GenericSQLQueryExecutor struct {
@@ -194,7 +194,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 			return nil, err
 		}
 
-		values := make([]interface{}, len(columns))
+		values := make([]any, len(columns))
 		for i := range values {
 			switch qfields[i].Type {
 			case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindTime,
@@ -230,7 +230,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 			case qvalue.QValueKindUUID:
 				values[i] = new([]byte)
 			default:
-				values[i] = new(interface{})
+				values[i] = new(any)
 			}
 		}
 
@@ -270,7 +270,7 @@ func (g *GenericSQLQueryExecutor) processRows(rows *sqlx.Rows) (*model.QRecordBa
 func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
 	ctx context.Context,
 	query string,
-	args ...interface{},
+	args ...any,
 ) (*model.QRecordBatch, error) {
 	rows, err := g.db.QueryxContext(ctx, query, args...)
 	if err != nil {
@@ -284,7 +284,7 @@ func (g *GenericSQLQueryExecutor) ExecuteAndProcessQuery(
 func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
 	ctx context.Context,
 	query string,
-	arg interface{},
+	arg any,
 ) (*model.QRecordBatch, error) {
 	rows, err := g.db.NamedQueryContext(ctx, query, arg)
 	if err != nil {
@@ -295,12 +295,12 @@ func (g *GenericSQLQueryExecutor) NamedExecuteAndProcessQuery(
 	return g.processRows(rows)
 }
 
-func (g *GenericSQLQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...interface{}) error {
+func (g *GenericSQLQueryExecutor) ExecuteQuery(ctx context.Context, query string, args ...any) error {
 	_, err := g.db.ExecContext(ctx, query, args...)
 	return err
 }
 
-func (g *GenericSQLQueryExecutor) NamedExec(ctx context.Context, query string, arg interface{}) (sql.Result, error) {
+func (g *GenericSQLQueryExecutor) NamedExec(ctx context.Context, query string, arg any) (sql.Result, error) {
 	return g.db.NamedExecContext(ctx, query, arg)
 }
 
@@ -319,7 +319,7 @@ func (g *GenericSQLQueryExecutor) CheckNull(ctx context.Context, schema string, 
 	return count.Int64 == 0, nil
 }
 
-func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
+func toQValue(kind qvalue.QValueKind, val any) (qvalue.QValue, error) {
 	if val == nil {
 		return qvalue.QValueNull(kind), nil
 	}
@@ -448,7 +448,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		}
 
 	case qvalue.QValueKindJSON:
-		vraw := val.(*interface{})
+		vraw := val.(*any)
 		vstring, ok := (*vraw).(string)
 		if !ok {
 			slog.Warn("A parsed JSON value was not a string. Likely a null field value")
@@ -456,7 +456,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 
 		if strings.HasPrefix(vstring, "[") {
 			// parse the array
-			var v []interface{}
+			var v []any
 			err := json.Unmarshal([]byte(vstring), &v)
 			if err != nil {
 				return nil, fmt.Errorf("failed to parse json array: %v", vstring)
@@ -488,7 +488,7 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 		return qvalue.QValueJSON{Val: vstring}, nil
 
 	case qvalue.QValueKindHStore:
-		vraw := val.(*interface{})
+		vraw := val.(*any)
 		vstring, ok := (*vraw).(string)
 		if !ok {
 			slog.Warn("A parsed hstore value was not a string. Likely a null field value")
@@ -507,13 +507,13 @@ func toQValue(kind qvalue.QValueKind, val interface{}) (qvalue.QValue, error) {
 	return nil, fmt.Errorf("unsupported type %T for kind %s", val, kind)
 }
 
-func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, error) {
+func toQValueArray(kind qvalue.QValueKind, value any) (qvalue.QValue, error) {
 	switch kind {
 	case qvalue.QValueKindArrayFloat32:
 		switch v := value.(type) {
 		case []float32:
 			return qvalue.QValueArrayFloat32{Val: v}, nil
-		case []interface{}:
+		case []any:
 			float32Array := make([]float32, len(v))
 			for i, val := range v {
 				float32Array[i] = val.(float32)
@@ -527,7 +527,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 		switch v := value.(type) {
 		case []float64:
 			return qvalue.QValueArrayFloat64{Val: v}, nil
-		case []interface{}:
+		case []any:
 			float64Array := make([]float64, len(v))
 			for i, val := range v {
 				float64Array[i] = val.(float64)
@@ -541,7 +541,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 		switch v := value.(type) {
 		case []int16:
 			return qvalue.QValueArrayInt16{Val: v}, nil
-		case []interface{}:
+		case []any:
 			int16Array := make([]int16, len(v))
 			for i, val := range v {
 				int16Array[i] = val.(int16)
@@ -555,7 +555,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 		switch v := value.(type) {
 		case []int32:
 			return qvalue.QValueArrayInt32{Val: v}, nil
-		case []interface{}:
+		case []any:
 			int32Array := make([]int32, len(v))
 			for i, val := range v {
 				int32Array[i] = val.(int32)
@@ -569,7 +569,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 		switch v := value.(type) {
 		case []int64:
 			return qvalue.QValueArrayInt64{Val: v}, nil
-		case []interface{}:
+		case []any:
 			int64Array := make([]int64, len(v))
 			for i, val := range v {
 				int64Array[i] = val.(int64)
@@ -583,7 +583,7 @@ func toQValueArray(kind qvalue.QValueKind, value interface{}) (qvalue.QValue, er
 		switch v := value.(type) {
 		case []string:
 			return qvalue.QValueArrayString{Val: v}, nil
-		case []interface{}:
+		case []any:
 			stringArray := make([]string, len(v))
 			for i, val := range v {
 				stringArray[i] = val.(string)

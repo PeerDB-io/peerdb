@@ -6,7 +6,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func (h *FlowRequestHandler) GetScripts(ctx context.Context, req *protos.GetScriptsRequest) (*protos.GetScriptsResponse, error) {

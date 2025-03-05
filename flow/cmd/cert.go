@@ -5,16 +5,16 @@ import (
 	"crypto/tls"
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func parseTemporalCertAndKey(ctx context.Context) ([]tls.Certificate, error) {
-	certBytes, err := peerdbenv.PeerDBTemporalClientCert(ctx)
+	certBytes, err := internal.PeerDBTemporalClientCert(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get temporal certificate: %w", err)
 	}
 
-	keyBytes, err := peerdbenv.PeerDBTemporalClientKey(ctx)
+	keyBytes, err := internal.PeerDBTemporalClientKey(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get temporal key: %w", err)
 	}

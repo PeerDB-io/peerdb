@@ -2,25 +2,23 @@ package activities
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/activity"
 
-	"github.com/PeerDB-io/peer-flow/alerting"
-	"github.com/PeerDB-io/peer-flow/connectors"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type SlotSnapshotState struct {
-	connector    connectors.CDCPullConnector
-	signal       connpostgres.SlotSignal
+	connector    connectors.CDCPullConnectorCore
+	slotConn     interface{ Close(context.Context) error }
 	snapshotName string
 }
 
@@ -31,7 +29,7 @@ type TxSnapshotState struct {
 
 type SnapshotActivity struct {
 	Alerter             *alerting.Alerter
-	CatalogPool         *pgxpool.Pool
+	CatalogPool         shared.CatalogPool
 	SlotSnapshotStates  map[string]SlotSnapshotState
 	TxSnapshotStates    map[string]TxSnapshotState
 	SnapshotStatesMutex sync.Mutex
@@ -43,7 +41,9 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 	defer a.SnapshotStatesMutex.Unlock()
 
 	if s, ok := a.SlotSnapshotStates[flowJobName]; ok {
-		close(s.signal.CloneComplete)
+		if s.slotConn != nil {
+			s.slotConn.Close(ctx)
+		}
 		connectors.CloseConnector(ctx, s.connector)
 		delete(a.SlotSnapshotStates, flowJobName)
 	}
@@ -57,34 +57,26 @@ func (a *SnapshotActivity) SetupReplication(
 	config *protos.SetupReplicationInput,
 ) (*protos.SetupReplicationOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
 	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
-	conn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, config.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
-		if errors.Is(err, errors.ErrUnsupported) {
-			logger.Info("setup replication is no-op for non-postgres source")
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get connector: %w", err)
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
-
-	closeConnectionForError := func(err error) {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
-		connectors.CloseConnector(ctx, conn)
-	}
-
-	slotSignal := connpostgres.NewSlotSignal()
-	go conn.SetupReplication(ctx, slotSignal, config)
 
 	logger.Info("waiting for slot to be created...")
-	slotInfo := <-slotSignal.SlotCreated
+	slotInfo, err := conn.SetupReplication(ctx, config)
 
-	if slotInfo.Err != nil {
-		closeConnectionForError(slotInfo.Err)
-		return nil, fmt.Errorf("slot error: %w", slotInfo.Err)
+	if err != nil {
+		connectors.CloseConnector(ctx, conn)
+		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("slot error: %w", err))
+	} else if slotInfo.Conn == nil && slotInfo.SlotName == "" {
+		connectors.CloseConnector(ctx, conn)
+		logger.Info("replication setup without slot")
+		return nil, nil
 	} else {
 		logger.Info("slot created", slog.String("SlotName", slotInfo.SlotName))
 	}
@@ -93,7 +85,7 @@ func (a *SnapshotActivity) SetupReplication(
 	defer a.SnapshotStatesMutex.Unlock()
 
 	a.SlotSnapshotStates[config.FlowJobName] = SlotSnapshotState{
-		signal:       slotSignal,
+		slotConn:     slotInfo.Conn,
 		snapshotName: slotInfo.SnapshotName,
 		connector:    conn,
 	}
@@ -106,9 +98,13 @@ func (a *SnapshotActivity) SetupReplication(
 }
 
 func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string) error {
+	shutdown := heartbeatRoutine(ctx, func() string {
+		return "maintaining transaction snapshot"
+	})
+	defer shutdown()
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, peer)
 	if err != nil {
-		return err
+		return a.Alerter.LogFlowError(ctx, sessionID, err)
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
@@ -118,21 +114,20 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	}
 
 	a.SnapshotStatesMutex.Lock()
-	a.TxSnapshotStates[sessionID] = TxSnapshotState{
-		SnapshotName:     exportSnapshotOutput.SnapshotName,
-		SupportsTIDScans: exportSnapshotOutput.SupportsTidScans,
+	if exportSnapshotOutput != nil {
+		a.TxSnapshotStates[sessionID] = TxSnapshotState{
+			SnapshotName:     exportSnapshotOutput.SnapshotName,
+			SupportsTIDScans: exportSnapshotOutput.SupportsTidScans,
+		}
+	} else {
+		a.TxSnapshotStates[sessionID] = TxSnapshotState{}
 	}
 	a.SnapshotStatesMutex.Unlock()
 
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	start := time.Now()
 	for {
-		msg := fmt.Sprintf("maintaining export snapshot transaction %s", time.Since(start).Round(time.Second))
-		logger.Info(msg)
-		// this function relies on context cancellation to exit
-		// context is not explicitly cancelled, but workflow exit triggers an implicit cancel
-		// from activity.RecordBeat
-		activity.RecordHeartbeat(ctx, msg)
+		logger.Info("maintaining export snapshot transaction", slog.Int64("seconds", int64(time.Since(start).Round(time.Second)/time.Second)))
 		if ctx.Err() != nil {
 			a.SnapshotStatesMutex.Lock()
 			delete(a.TxSnapshotStates, sessionID)
@@ -144,7 +139,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 }
 
 func (a *SnapshotActivity) WaitForExportSnapshot(ctx context.Context, sessionID string) (*TxSnapshotState, error) {
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	attempt := 0
 	for {
 		a.SnapshotStatesMutex.Lock()
@@ -170,5 +165,5 @@ func (a *SnapshotActivity) LoadTableSchema(
 	flowName string,
 	tableName string,
 ) (*protos.TableSchema, error) {
-	return shared.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
+	return internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
 }

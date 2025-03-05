@@ -19,7 +19,7 @@ import (
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
 	"github.com/google/uuid"
 
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 const (
@@ -143,7 +143,7 @@ func getPeerDBAWSEnv(connectorName string, awsKey string) string {
 	return os.Getenv(fmt.Sprintf("PEERDB_%s_AWS_CREDENTIALS_%s", strings.ToUpper(connectorName), awsKey))
 }
 
-func LoadPeerDBAWSEnvConfigProvider(connectorName string) AWSCredentialsProvider {
+func LoadPeerDBAWSEnvConfigProvider(connectorName string) *StaticAWSCredentialsProvider {
 	accessKeyId := getPeerDBAWSEnv(connectorName, "AWS_ACCESS_KEY_ID")
 	secretAccessKey := getPeerDBAWSEnv(connectorName, "AWS_SECRET_ACCESS_KEY")
 	region := getPeerDBAWSEnv(connectorName, "AWS_REGION")
@@ -175,7 +175,7 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 			EndpointUrl: peerCredentials.EndpointUrl,
 		}, peerCredentials.Region)
 		if peerCredentials.RoleArn == nil || *peerCredentials.RoleArn == "" {
-			shared.LoggerFromCtx(ctx).Info("Received AWS credentials from peer for connector: " + connectorName)
+			internal.LoggerFromCtx(ctx).Info("Received AWS credentials from peer for connector: " + connectorName)
 			return staticProvider, nil
 		}
 		awsConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
@@ -187,12 +187,12 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 		if err != nil {
 			return nil, err
 		}
-		shared.LoggerFromCtx(ctx).Info("Received AWS credentials with role from peer for connector: " + connectorName)
+		internal.LoggerFromCtx(ctx).Info("Received AWS credentials with role from peer for connector: " + connectorName)
 		return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 	}
 	envCredentialsProvider := LoadPeerDBAWSEnvConfigProvider(connectorName)
 	if envCredentialsProvider != nil {
-		shared.LoggerFromCtx(ctx).Info("Received AWS credentials from PeerDB Env for connector: " + connectorName)
+		internal.LoggerFromCtx(ctx).Info("Received AWS credentials from PeerDB Env for connector: " + connectorName)
 		return envCredentialsProvider, nil
 	}
 
@@ -202,7 +202,7 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 	if err != nil {
 		return nil, err
 	}
-	shared.LoggerFromCtx(ctx).Info("Received AWS credentials from SDK config for connector: " + connectorName)
+	internal.LoggerFromCtx(ctx).Info("Received AWS credentials from SDK config for connector: " + connectorName)
 	return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 }
 

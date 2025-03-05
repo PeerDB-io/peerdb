@@ -7,11 +7,10 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/PeerDB-io/gluaflatbuffers"
 	"github.com/PeerDB-io/gluajson"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/pua"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pua"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func LVAsReadOnlyBytes(ls *lua.LState, v lua.LValue) ([]byte, error) {
@@ -67,7 +66,6 @@ func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lu
 			return nil, fmt.Errorf("failed to initialize Lua runtime: %w", err)
 		}
 	}
-	ls.PreloadModule("flatbuffers", gluaflatbuffers.Loader)
 	pua.RegisterTypes(ls)
 	ls.Env.RawSetString("print", ls.NewFunction(printfn))
 	if script != "" {

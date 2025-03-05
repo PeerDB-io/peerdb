@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type SnowflakeAvroConsolidateHandler struct {
@@ -138,7 +138,7 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 		s.config.SoftDeleteColName,
 	)
 	onErrorStr := ""
-	if onError := peerdbenv.GetEnvString("PEERDB_SNOWFLAKE_ON_ERROR", ""); onError != "" {
+	if onError := internal.GetEnvString("PEERDB_SNOWFLAKE_ON_ERROR", ""); onError != "" {
 		onErrorStr = ", ON_ERROR=" + onError
 	}
 	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) FILE_FORMAT=(TYPE=AVRO), PURGE=TRUE%s",

@@ -5,9 +5,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.GetAlertConfigsRequest) (*protos.GetAlertConfigsResponse, error) {
@@ -23,7 +23,7 @@ func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.Ge
 		if err := row.Scan(&config.Id, &config.ServiceType, &serviceConfigPayload, &encKeyID, &config.AlertForMirrors); err != nil {
 			return nil, err
 		}
-		serviceConfig, err := peerdbenv.Decrypt(ctx, encKeyID, serviceConfigPayload)
+		serviceConfig, err := internal.Decrypt(ctx, encKeyID, serviceConfigPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -38,7 +38,7 @@ func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.Ge
 }
 
 func (h *FlowRequestHandler) PostAlertConfig(ctx context.Context, req *protos.PostAlertConfigRequest) (*protos.PostAlertConfigResponse, error) {
-	key, err := peerdbenv.PeerDBCurrentEncKey(ctx)
+	key, err := internal.PeerDBCurrentEncKey(ctx)
 	if err != nil {
 		return nil, err
 	}

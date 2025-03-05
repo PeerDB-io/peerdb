@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 	"sync/atomic"
@@ -8,7 +9,7 @@ import (
 
 	"github.com/jackc/pglogrepl"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 type NameAndExclude struct {
@@ -75,7 +76,7 @@ type PullRecordsRequest[T Items] struct {
 	// override replication slot name
 	OverrideReplicationSlotName string
 	// LastOffset is the latest LSN that was synced.
-	LastOffset int64
+	LastOffset CdcCheckpoint
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
 	// IdleTimeout is the timeout to wait for new records.
@@ -117,7 +118,7 @@ func RecToTablePKey[T Items](
 	for _, pkeyCol := range tableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColBytes, err := rec.GetItems().GetBytesByColName(pkeyCol)
 		if err != nil {
-			return TableWithPkey{}, fmt.Errorf("error getting pkey column value: %w", err)
+			return TableWithPkey{}, fmt.Errorf("error getting primary key column '%s' value for table '%s': %w", pkeyCol, tableName, err)
 		}
 		// cannot return an error
 		_, _ = hasher.Write(pkeyColBytes)
@@ -162,8 +163,8 @@ type SyncResponse struct {
 	TableNameRowsMapping map[string]*RecordTypeCounts
 	// to be carried to parent workflow
 	TableSchemaDeltas []*protos.TableSchemaDelta
-	// LastSyncedCheckpointID is the last ID that was synced.
-	LastSyncedCheckpointID int64
+	// LastSyncedCheckpoint is the last state (eg LSN, GTID) that was synced.
+	LastSyncedCheckpoint CdcCheckpoint
 	// NumRecordsSynced is the number of records that were synced.
 	NumRecordsSynced   int64
 	CurrentSyncBatchID int64
@@ -179,4 +180,11 @@ type RelationMessageMapping map[uint32]*pglogrepl.RelationMessage
 type SyncCompositeResponse struct {
 	SyncResponse   *SyncResponse
 	NeedsNormalize bool
+}
+
+type SetupReplicationResult struct {
+	Conn             interface{ Close(context.Context) error }
+	SlotName         string
+	SnapshotName     string
+	SupportsTIDScans bool
 }

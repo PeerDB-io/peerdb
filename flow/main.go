@@ -13,8 +13,8 @@ import (
 	"go.temporal.io/sdk/worker"
 	_ "go.uber.org/automaxprocs"
 
-	"github.com/PeerDB-io/peer-flow/cmd"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/cmd"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func main() {
@@ -162,17 +162,19 @@ func main() {
 				Name: "snapshot-worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					c, w, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
+					res, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
+						EnableOtelMetrics: clicmd.Bool("enable-otel-metrics"),
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: clicmd.String("temporal-namespace"),
 					})
 					if err != nil {
 						return err
 					}
-					defer c.Close()
-					return w.Run(worker.InterruptCh())
+					defer res.Close()
+					return res.Worker.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
+					otelMetricsFlag,
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
 				},
@@ -192,6 +194,7 @@ func main() {
 					},
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
+					otelMetricsFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
@@ -201,6 +204,7 @@ func main() {
 						TemporalHostPort:  temporalHostPort,
 						GatewayPort:       uint16(clicmd.Uint("gateway-port")),
 						TemporalNamespace: clicmd.String("temporal-namespace"),
+						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),
 					})
 				},
 			},

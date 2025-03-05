@@ -19,13 +19,13 @@ import (
 	"github.com/elastic/go-elasticsearch/v8/esutil"
 	"go.temporal.io/sdk/log"
 
-	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -46,9 +46,7 @@ func NewElasticsearchConnector(ctx context.Context,
 		Addresses: config.Addresses,
 		Transport: &http.Transport{
 			MaxIdleConnsPerHost: 4,
-			TLSClientConfig: &tls.Config{
-				MinVersion: tls.VersionTLS13,
-			},
+			TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS13},
 		},
 	}
 	if config.AuthType == protos.ElasticsearchAuthType_BASIC {
@@ -70,7 +68,7 @@ func NewElasticsearchConnector(ctx context.Context,
 	return &ElasticsearchConnector{
 		PostgresMetadata: pgMetadata,
 		client:           esClient,
-		logger:           shared.LoggerFromCtx(ctx),
+		logger:           internal.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -146,7 +144,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 		if err != nil {
 			esc.logger.Warn("[elasticsearch] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return
@@ -163,7 +161,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 			case <-ticker.C:
 				lastSeen := lastSeenLSN.Load()
 				if lastSeen > req.ConsumedOffset.Load() {
-					if err := esc.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
+					if err := esc.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeen}); err != nil {
 						esc.logger.Warn("[es] SetLastOffset error", slog.Any("error", err))
 					} else {
 						shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
@@ -297,10 +295,10 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 	}
 
 	return &model.SyncResponse{
-		CurrentSyncBatchID:     req.SyncBatchID,
-		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       numRecords,
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		CurrentSyncBatchID:   req.SyncBatchID,
+		LastSyncedCheckpoint: lastCheckpoint,
+		NumRecordsSynced:     numRecords,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }

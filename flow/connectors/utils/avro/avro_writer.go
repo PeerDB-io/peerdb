@@ -20,11 +20,11 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/linkedin/goavro/v2"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type (
@@ -128,8 +128,11 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 }
 
 func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *goavro.OCFWriter) (int64, error) {
-	logger := shared.LoggerFromCtx(ctx)
-	schema := p.stream.Schema()
+	logger := internal.LoggerFromCtx(ctx)
+	schema, err := p.stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 
 	avroConverter, err := model.NewQRecordAvroConverter(
 		ctx,
@@ -154,13 +157,13 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[s
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err
 		} else {
-			avroMap, err := avroConverter.Convert(qrecord)
+			avroMap, err := avroConverter.Convert(ctx, env, qrecord)
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 			}
 
-			if err := ocfWriter.Append([]interface{}{avroMap}); err != nil {
+			if err := ocfWriter.Append([]any{avroMap}); err != nil {
 				logger.Error("Failed to write record to OCF", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
 			}
@@ -199,7 +202,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	key string,
 	s3Creds utils.AWSCredentialsProvider,
 ) (*AvroFile, error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
 	if err != nil {
 		logger.Error("failed to create S3 client", slog.Any("error", err))
@@ -225,7 +228,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		numRows, writeOcfError = p.WriteOCF(ctx, env, w)
 	}()
 
-	partSize, err := peerdbenv.PeerDBS3PartSize(ctx, env)
+	partSize, err := internal.PeerDBS3PartSize(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("could not get s3 part size config: %w", err)
 	}
@@ -266,7 +269,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 	}
 	defer file.Close()
 	printFileStats := func(message string) {
-		logger := shared.LoggerFromCtx(ctx)
+		logger := internal.LoggerFromCtx(ctx)
 		stats, err := file.Stat()
 		if err != nil {
 			return

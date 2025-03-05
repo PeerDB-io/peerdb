@@ -17,22 +17,22 @@ import (
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	partition_utils "github.com/PeerDB-io/peer-flow/connectors/utils/partition"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	partition_utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
 type QRepPullSink interface {
 	Close(error)
-	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...interface{}) (int, error)
+	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...any) (int, error)
 }
 
 type QRepSyncSink interface {
-	GetColumnNames() []string
+	GetColumnNames() ([]string, error)
 	CopyInto(context.Context, *PostgresConnector, pgx.Tx, pgx.Identifier) (int64, error)
 }
 
@@ -43,12 +43,13 @@ func (c *PostgresConnector) GetQRepPartitions(
 ) ([]*protos.QRepPartition, error) {
 	if config.WatermarkColumn == "" {
 		// if no watermark column is specified, return a single partition
-		partition := &protos.QRepPartition{
-			PartitionId:        uuid.New().String(),
-			FullTablePartition: true,
-			Range:              nil,
-		}
-		return []*protos.QRepPartition{partition}, nil
+		return []*protos.QRepPartition{
+			{
+				PartitionId:        uuid.New().String(),
+				FullTablePartition: true,
+				Range:              nil,
+			},
+		}, nil
 	}
 
 	// begin a transaction
@@ -70,7 +71,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 
 func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx, snapshot string) error {
 	if snapshot != "" {
-		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+QuoteLiteral(snapshot)); err != nil {
+		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(snapshot)); err != nil {
 			return fmt.Errorf("failed to set transaction snapshot: %w", err)
 		}
 	}
@@ -85,7 +86,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
+	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
@@ -100,7 +101,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	// Query to get the total number of rows in the table
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, parsedWatermarkTable.String(), whereClause)
 	var row pgx.Row
-	var minVal interface{} = nil
+	var minVal any = nil
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -125,9 +126,12 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 
 	// Calculate the number of partitions
-	numPartitions := shared.DivCeil(totalRows.Int64, numRowsPerPartition)
-	c.logger.Info(fmt.Sprintf("total rows: %d, num partitions: %d, num rows per partition: %d",
-		totalRows.Int64, numPartitions, numRowsPerPartition))
+	adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
+	c.logger.Info("partition adjustment details",
+		slog.Int64("totalRows", totalRows.Int64),
+		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+		slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
 
 	// Query to get partitions using window functions
 	var rows pgx.Rows
@@ -135,32 +139,30 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
-					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
-					FROM %[3]s WHERE %[2]s > $1
+				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
+				FROM %[3]s WHERE %[2]s > $1
 			) subquery
 			GROUP BY bucket
-			ORDER BY start
-			`,
-			numPartitions,
+			ORDER BY start`,
+			adjustedPartitions.AdjustedNumPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		c.logger.Info("[row_based_next] partitions query: " + partitionsQuery)
+		c.logger.Info("[row_based_next] partitions query", slog.String("query", partitionsQuery))
 		rows, err = tx.Query(ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
 			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
-					SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
+				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
 			) subquery
 			GROUP BY bucket
-			ORDER BY start
-			`,
-			numPartitions,
+			ORDER BY start`,
+			adjustedPartitions.AdjustedNumPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.String(),
 		)
-		c.logger.Info("[row_based] partitions query: " + partitionsQuery)
+		c.logger.Info("[row_based] partitions query", slog.String("query", partitionsQuery))
 		rows, err = tx.Query(ctx, partitionsQuery)
 	}
 	if err != nil {
@@ -168,10 +170,10 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 	defer rows.Close()
 
-	partitionHelper := partition_utils.NewPartitionHelper()
+	partitionHelper := partition_utils.NewPartitionHelper(c.logger)
 	for rows.Next() {
 		var bucket pgtype.Int8
-		var start, end interface{}
+		var start, end any
 		if err := rows.Scan(&bucket, &start, &end); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
@@ -197,9 +199,9 @@ func (c *PostgresConnector) getMinMaxValues(
 	tx pgx.Tx,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
-) (interface{}, interface{}, error) {
-	var minValue, maxValue interface{}
-	quotedWatermarkColumn := QuoteIdentifier(config.WatermarkColumn)
+) (any, any, error) {
+	var minValue, maxValue any
+	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -264,11 +266,11 @@ func (c *PostgresConnector) getMinMaxValues(
 	return minValue, maxValue, nil
 }
 
-func (c *PostgresConnector) CheckForUpdatedMaxValue(
+func (c *PostgresConnector) GetMaxValue(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
-) (bool, error) {
+) (any, error) {
 	checkTx, err := c.conn.Begin(ctx)
 	if err != nil {
 		return false, fmt.Errorf("unable to begin transaction for getting max value: %w", err)
@@ -276,28 +278,7 @@ func (c *PostgresConnector) CheckForUpdatedMaxValue(
 	defer shared.RollbackTx(checkTx, c.logger)
 
 	_, maxValue, err := c.getMinMaxValues(ctx, checkTx, config, last)
-	if err != nil {
-		return false, fmt.Errorf("error while getting min and max values: %w", err)
-	}
-
-	if maxValue == nil || last == nil || last.Range == nil {
-		return maxValue != nil, nil
-	}
-
-	switch x := last.Range.Range.(type) {
-	case *protos.PartitionRange_IntRange:
-		if maxValue.(int64) > x.IntRange.End {
-			return true, nil
-		}
-	case *protos.PartitionRange_TimestampRange:
-		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
-			return true, nil
-		}
-	default:
-		return false, fmt.Errorf("unknown range type: %v", x)
-	}
-
-	return false, nil
+	return maxValue, err
 }
 
 func (c *PostgresConnector) PullQRepRecords(
@@ -341,8 +322,8 @@ func corePullQRepRecords(
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
-	var rangeStart interface{}
-	var rangeEnd interface{}
+	var rangeStart any
+	var rangeEnd any
 
 	// Depending on the type of the range, convert the range into the correct type
 	switch x := partition.Range.Range.(type) {
@@ -455,18 +436,11 @@ func syncQRepRecords(
 		return 0, fmt.Errorf("failed to register hstore: %w", err)
 	}
 
-	// Second transaction - to handle rest of the processing
 	tx, err := txConn.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer func() {
-		if err := tx.Rollback(context.Background()); err != nil {
-			if err != pgx.ErrTxClosed {
-				shared.LoggerFromCtx(ctx).Error("failed to rollback transaction tx2", slog.Any("error", err), syncLog)
-			}
-		}
-	}()
+	defer shared.RollbackTx(tx, c.logger)
 
 	// Step 2: Insert records into destination table
 	var numRowsSynced int64
@@ -484,12 +458,7 @@ func syncQRepRecords(
 			}
 		}
 
-		numRowsSynced, err = sink.CopyInto(
-			ctx,
-			c,
-			tx,
-			pgx.Identifier{dstTable.Schema, dstTable.Table},
-		)
+		numRowsSynced, err = sink.CopyInto(ctx, c, tx, pgx.Identifier{dstTable.Schema, dstTable.Table})
 		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into destination table: %w", err)
 		}
@@ -498,8 +467,8 @@ func syncQRepRecords(
 			updateSyncedAtStmt := fmt.Sprintf(
 				`UPDATE %s SET %s = CURRENT_TIMESTAMP WHERE %s IS NULL;`,
 				pgx.Identifier{dstTable.Schema, dstTable.Table}.Sanitize(),
-				QuoteIdentifier(syncedAtCol),
-				QuoteIdentifier(syncedAtCol),
+				utils.QuoteIdentifier(syncedAtCol),
+				utils.QuoteIdentifier(syncedAtCol),
 			)
 			_, err = tx.Exec(ctx, updateSyncedAtStmt)
 			if err != nil {
@@ -533,12 +502,7 @@ func syncQRepRecords(
 		}
 
 		// Step 2.2: Insert records into the staging table
-		numRowsSynced, err = sink.CopyInto(
-			ctx,
-			c,
-			tx,
-			stagingTableIdentifier,
-		)
+		numRowsSynced, err = sink.CopyInto(ctx, c, tx, stagingTableIdentifier)
 		if err != nil {
 			return -1, fmt.Errorf("failed to copy records into staging table: %w", err)
 		}
@@ -550,19 +514,22 @@ func syncQRepRecords(
 			upsertMatchCols[col] = struct{}{}
 		}
 
-		columnNames := sink.GetColumnNames()
+		columnNames, err := sink.GetColumnNames()
+		if err != nil {
+			return -1, fmt.Errorf("faild to get column names: %w", err)
+		}
 		setClauseArray := make([]string, 0, len(upsertMatchColsList)+1)
 		selectStrArray := make([]string, 0, len(columnNames))
 		for _, col := range columnNames {
 			_, ok := upsertMatchCols[col]
-			quotedCol := QuoteIdentifier(col)
+			quotedCol := utils.QuoteIdentifier(col)
 			if !ok {
 				setClauseArray = append(setClauseArray, fmt.Sprintf(`%s = EXCLUDED.%s`, quotedCol, quotedCol))
 			}
 			selectStrArray = append(selectStrArray, quotedCol)
 		}
 		setClauseArray = append(setClauseArray,
-			QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
+			utils.QuoteIdentifier(syncedAtCol)+`= CURRENT_TIMESTAMP`)
 		setClause := strings.Join(setClauseArray, ",")
 		selectSQL := strings.Join(selectStrArray, ",")
 
@@ -571,15 +538,14 @@ func syncQRepRecords(
 			`INSERT INTO %s (%s, %s) SELECT %s, CURRENT_TIMESTAMP FROM %s ON CONFLICT (%s) DO UPDATE SET %s;`,
 			dstTableIdentifier.Sanitize(),
 			selectSQL,
-			QuoteIdentifier(syncedAtCol),
+			utils.QuoteIdentifier(syncedAtCol),
 			selectSQL,
 			stagingTableIdentifier.Sanitize(),
 			strings.Join(writeMode.UpsertKeyColumns, ", "),
 			setClause,
 		)
 		c.logger.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
-		_, err := tx.Exec(ctx, upsertStmt)
-		if err != nil {
+		if _, err := tx.Exec(ctx, upsertStmt); err != nil {
 			return -1, fmt.Errorf("failed to perform upsert operation: %w", err)
 		}
 	}
@@ -598,7 +564,7 @@ func syncQRepRecords(
 		metadataTableIdentifier.Sanitize(),
 	)
 	c.logger.Info("Executing transaction inside QRep sync", syncLog)
-	_, err = tx.Exec(
+	if _, err := tx.Exec(
 		ctx,
 		insertMetadataStmt,
 		flowJobName,
@@ -606,8 +572,7 @@ func syncQRepRecords(
 		string(pbytes),
 		startTime,
 		time.Now(),
-	)
-	if err != nil {
+	); err != nil {
 		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
@@ -672,10 +637,10 @@ func pullXminRecordStream(
 	sink QRepPullSink,
 ) (int, int64, error) {
 	query := config.Query
-	var queryArgs []interface{}
+	var queryArgs []any
 	if partition.Range != nil {
 		query += " WHERE age(xmin) > 0 AND age(xmin) <= age($1::xid)"
-		queryArgs = []interface{}{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
+		queryArgs = []any{strconv.FormatInt(partition.Range.Range.(*protos.PartitionRange_IntRange).IntRange.Start&0xffffffff, 10)}
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.SnapshotName,
@@ -705,7 +670,7 @@ func BuildQuery(logger log.Logger, query string, flowJobName string) (string, er
 	}
 
 	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, map[string]interface{}{
+	if err := tmpl.Execute(buf, map[string]any{
 		"start": "$1",
 		"end":   "$2",
 	}); err != nil {

@@ -8,9 +8,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/ses"
 	"github.com/aws/aws-sdk-go-v2/service/ses/types"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
-	"github.com/PeerDB-io/peer-flow/shared/aws_common"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/aws_common"
 )
 
 type EmailAlertSender struct {
@@ -62,11 +61,11 @@ func (e *EmailAlertSender) sendAlert(ctx context.Context, alertTitle string, ale
 		ConfigurationSetName: aws.String(e.configurationSetName),
 		ReplyToAddresses:     e.replyToAddresses,
 		Tags: []types.MessageTag{
-			{Name: aws.String("DeploymentUUID"), Value: aws.String(peerdbenv.PeerDBDeploymentUID())},
+			{Name: aws.String("DeploymentUUID"), Value: aws.String(internal.PeerDBDeploymentUID())},
 		},
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Warn(fmt.Sprintf(
+		internal.LoggerFromCtx(ctx).Warn(fmt.Sprintf(
 			"Error sending email alert from %v to %s subject=[%s], body=[%s], configurationSet=%s, replyToAddresses=[%v]",
 			e.sourceEmail, e.emailAddresses, alertTitle, alertMessage, e.configurationSetName, e.replyToAddresses))
 		return err

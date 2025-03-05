@@ -1,5 +1,6 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
+import InfoPopover from '@/components/InfoPopover';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig, QRepWriteType } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
@@ -10,7 +11,6 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { Dispatch, SetStateAction, useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import { InfoPopover } from '../../../../components/InfoPopover';
 import { fetchAllTables, fetchColumns } from '../handlers';
 import { MirrorSetting } from '../helpers/common';
 import UpsertColsDisplay from './upsertcols';

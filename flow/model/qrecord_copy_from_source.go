@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	geo "github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 func constructArray[T any](qValue qvalue.QValue, typeName string) (*pgtype.Array[T], error) {
@@ -46,12 +46,12 @@ func (src *QRecordCopyFromSource) Next() bool {
 	return ok || src.Err() != nil
 }
 
-func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
+func (src *QRecordCopyFromSource) Values() ([]any, error) {
 	if err := src.Err(); err != nil {
 		return nil, err
 	}
 
-	values := make([]interface{}, len(src.currentRecord))
+	values := make([]any, len(src.currentRecord))
 	for i, qValue := range src.currentRecord {
 		if qValue.Value() == nil {
 			values[i] = nil
@@ -63,11 +63,21 @@ func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = v.Val
 		case qvalue.QValueFloat64:
 			values[i] = v.Val
+		case qvalue.QValueInt8:
+			values[i] = v.Val
 		case qvalue.QValueInt16:
 			values[i] = v.Val
 		case qvalue.QValueInt32:
 			values[i] = v.Val
 		case qvalue.QValueInt64:
+			values[i] = v.Val
+		case qvalue.QValueUInt8:
+			values[i] = v.Val
+		case qvalue.QValueUInt16:
+			values[i] = v.Val
+		case qvalue.QValueUInt32:
+			values[i] = v.Val
+		case qvalue.QValueUInt64:
 			values[i] = v.Val
 		case qvalue.QValueBoolean:
 			values[i] = v.Val
@@ -180,7 +190,7 @@ func (src *QRecordCopyFromSource) Values() ([]interface{}, error) {
 			values[i] = a
 		case qvalue.QValueJSON:
 			if v.IsArray {
-				var arrayJ []interface{}
+				var arrayJ []any
 				if err := json.Unmarshal([]byte(v.Value().(string)), &arrayJ); err != nil {
 					return nil, fmt.Errorf("failed to unmarshal JSON array: %v", err)
 				}

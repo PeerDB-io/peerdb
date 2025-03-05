@@ -9,10 +9,10 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/pua"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pua"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (*KafkaConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {
@@ -27,7 +27,10 @@ func (c *KafkaConnector) SyncQRepRecords(
 ) (int, error) {
 	startTime := time.Now()
 	numRecords := atomic.Int64{}
-	schema := stream.Schema()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, nil, queueErr)

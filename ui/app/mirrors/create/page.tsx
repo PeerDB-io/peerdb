@@ -1,7 +1,9 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
 import QRepQueryTemplate from '@/app/utils/qreptemplate';
+import InfoPopover from '@/components/InfoPopover';
 import { DBTypeToImageMapping } from '@/components/PeerComponent';
+import PeerDBCodeEditor from '@/components/PeerDBEditor';
 import { RequiredIndicator } from '@/components/RequiredIndicator';
 import { QRepConfig } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
@@ -20,8 +22,6 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import ReactSelect, { SingleValue } from 'react-select';
 import { ToastContainer } from 'react-toastify';
-import { InfoPopover } from '../../../components/InfoPopover';
-import PeerDBCodeEditor from '../../../components/PeerDBEditor';
 import { CDCConfig, MirrorType, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
 import {

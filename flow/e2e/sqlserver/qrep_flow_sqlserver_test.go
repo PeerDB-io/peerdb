@@ -13,12 +13,12 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type PeerFlowE2ETestSuiteSQLServer struct {
@@ -39,6 +39,10 @@ func (s PeerFlowE2ETestSuiteSQLServer) Conn() *pgx.Conn {
 
 func (s PeerFlowE2ETestSuiteSQLServer) Connector() *connpostgres.PostgresConnector {
 	return s.conn
+}
+
+func (s PeerFlowE2ETestSuiteSQLServer) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
 }
 
 func (s PeerFlowE2ETestSuiteSQLServer) Suffix() string {
@@ -63,12 +67,11 @@ func TestCDCFlowE2ETestSuiteSQLServer(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite)
 }
 
-func (s PeerFlowE2ETestSuiteSQLServer) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s PeerFlowE2ETestSuiteSQLServer) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 
 	if s.sqlsHelper != nil {
-		err := s.sqlsHelper.CleanUp()
-		require.NoError(s.t, err)
+		require.NoError(s.t, s.sqlsHelper.CleanUp(ctx))
 	}
 }
 
@@ -86,13 +89,13 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 	if env != "true" {
 		sqlsHelper = nil
 	} else {
-		sqlsHelper, err = NewSQLServerHelper()
+		sqlsHelper, err = NewSQLServerHelper(t.Context())
 		require.NoError(t, err)
 	}
 
 	return PeerFlowE2ETestSuiteSQLServer{
 		t:          t,
-		conn:       conn,
+		conn:       conn.PostgresConnector,
 		sqlsHelper: sqlsHelper,
 		suffix:     suffix,
 	}
@@ -100,14 +103,13 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSQLServer {
 
 func (s PeerFlowE2ETestSuiteSQLServer) setupSQLServerTable(tableName string) {
 	schema := getSimpleTableSchema()
-	err := s.sqlsHelper.CreateTable(schema, tableName)
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.sqlsHelper.CreateTable(s.t.Context(), schema, tableName))
 }
 
 func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName string, numRows int) {
 	schemaQualified := fmt.Sprintf("%s.%s", s.sqlsHelper.SchemaName, tableName)
 	for i := range numRows {
-		params := map[string]interface{}{
+		params := map[string]any{
 			"id":      "test_id_" + strconv.Itoa(i),
 			"card_id": "test_card_id_" + strconv.Itoa(i),
 			"v_from":  time.Now(),
@@ -116,7 +118,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName st
 		}
 
 		_, err := s.sqlsHelper.E.NamedExec(
-			context.Background(),
+			s.t.Context(),
 			"INSERT INTO "+schemaQualified+" (id, card_id, v_from, price, status) VALUES (:id, :card_id, :v_from, :price, :status)",
 			params,
 		)
@@ -126,7 +128,7 @@ func (s PeerFlowE2ETestSuiteSQLServer) insertRowsIntoSQLServerTable(tableName st
 }
 
 func (s PeerFlowE2ETestSuiteSQLServer) setupPGDestinationTable(tableName string) {
-	ctx := context.Background()
+	ctx := s.t.Context()
 
 	_, err := s.Conn().Exec(ctx, fmt.Sprintf("DROP TABLE IF EXISTS e2e_test_%s.%s", s.suffix, tableName))
 	require.NoError(s.t, err)
@@ -183,14 +185,14 @@ func (s PeerFlowE2ETestSuiteSQLServer) Test_Complete_QRep_Flow_SqlServer_Append(
 		WaitBetweenBatchesSeconds:  5,
 	}
 
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	// Verify that the destination table has the same number of rows as the source table
 	var numRowsInDest pgtype.Int8
 	countQuery := "SELECT COUNT(*) FROM " + dstTableName
-	err := s.Conn().QueryRow(context.Background(), countQuery).Scan(&numRowsInDest)
+	err := s.Conn().QueryRow(s.t.Context(), countQuery).Scan(&numRowsInDest)
 	require.NoError(s.t, err)
 
 	require.Equal(s.t, numRows, int(numRowsInDest.Int64))

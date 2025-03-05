@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"context"
 	"crypto/rand"
 	"log/slog"
 	"testing"
@@ -10,8 +9,8 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 func getTimeForTesting(t *testing.T) time.Time {
@@ -68,7 +67,7 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordI
 
 func TestSingleRecord(t *testing.T) {
 	t.Parallel()
-	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), nil, "test_single_record")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](t.Context(), nil, "test_single_record")
 	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
@@ -89,7 +88,7 @@ func TestSingleRecord(t *testing.T) {
 
 func TestRecordsTillSpill(t *testing.T) {
 	t.Parallel()
-	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), nil, "test_records_till_spill")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](t.Context(), nil, "test_records_till_spill")
 	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
@@ -121,7 +120,7 @@ func TestRecordsTillSpill(t *testing.T) {
 func TestTimeAndDecimalEncoding(t *testing.T) {
 	t.Parallel()
 
-	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), nil, "test_time_encoding")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](t.Context(), nil, "test_time_encoding")
 	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 
@@ -143,7 +142,7 @@ func TestTimeAndDecimalEncoding(t *testing.T) {
 func TestNullKeyDoesntStore(t *testing.T) {
 	t.Parallel()
 
-	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), nil, "test_time_encoding")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](t.Context(), nil, "test_time_encoding")
 	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 

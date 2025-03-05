@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -19,13 +18,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
 
-	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
-	chvalidate "github.com/PeerDB-io/peer-flow/shared/clickhouse"
+	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 )
 
 type ClickHouseConnector struct {
@@ -69,7 +68,7 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 // Performs some checks on the ClickHouse peer to ensure it will work for mirrors
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
-	allowedDomains := peerdbenv.PeerDBClickHouseAllowedDomains()
+	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 	if err := ValidateClickHouseHost(ctx, c.config.Host, allowedDomains); err != nil {
 		return err
 	}
@@ -128,7 +127,7 @@ func NewClickHouseConnector(
 	env map[string]string,
 	config *protos.ClickhouseConfig,
 ) (*ClickHouseConnector, error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	database, err := Connect(ctx, env, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)
@@ -154,11 +153,11 @@ func NewClickHouseConnector(
 
 	awsBucketPath := config.S3Path
 	if awsBucketPath == "" {
-		deploymentUID := peerdbenv.PeerDBDeploymentUID()
+		deploymentUID := internal.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
 		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
 		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := peerdbenv.PeerDBClickHouseAWSS3BucketName(ctx, env)
+		awsBucketName, err := internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
 		}
@@ -210,23 +209,23 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
-	}
-	if config.Certificate != nil || config.PrivateKey != nil {
-		if config.Certificate == nil || config.PrivateKey == nil {
-			return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+		if config.Certificate != nil || config.PrivateKey != nil {
+			if config.Certificate == nil || config.PrivateKey == nil {
+				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+			}
+			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+			}
+			tlsSetting.Certificates = []tls.Certificate{cert}
 		}
-		cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+		if config.RootCa != nil {
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
+				return nil, errors.New("failed to parse provided root CA")
+			}
+			tlsSetting.RootCAs = caPool
 		}
-		tlsSetting.Certificates = []tls.Certificate{cert}
-	}
-	if config.RootCa != nil {
-		caPool := x509.NewCertPool()
-		if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-			return nil, errors.New("failed to parse provided root CA")
-		}
-		tlsSetting.RootCAs = caPool
 	}
 
 	settings := clickhouse.Settings{
@@ -235,7 +234,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		// broken downstream views should not interrupt ingestion
 		"ignore_materialized_views_with_dropped_target_table": true,
 	}
-	if maxInsertThreads, err := peerdbenv.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
+	if maxInsertThreads, err := internal.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
 		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
 	} else if maxInsertThreads != 0 {
 		settings["max_insert_threads"] = maxInsertThreads
@@ -289,8 +288,7 @@ func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args .
 
 func (c *ClickHouseConnector) Close() error {
 	if c != nil {
-		err := c.database.Close()
-		if err != nil {
+		if err := c.database.Close(); err != nil {
 			return fmt.Errorf("error while closing connection to ClickHouse peer: %w", err)
 		}
 	}
@@ -347,58 +345,6 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 	return nil
 }
 
-func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
-) error {
-	if peerdbenv.PeerDBOnlyClickHouseAllowed() {
-		err := chvalidate.CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx, c.logger, c.database)
-		if err != nil {
-			return err
-		}
-	}
-
-	peerDBColumns := []string{signColName, versionColName}
-	if req.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, strings.ToLower(req.SyncedAtColName))
-	}
-	// this is for handling column exclusion, processed schema does that in a step
-	processedMapping := shared.BuildProcessedSchemaMapping(req.TableMappings, tableNameSchemaMapping, c.logger)
-	dstTableNames := slices.Collect(maps.Keys(processedMapping))
-
-	// In the case of resync, we don't need to check the content or structure of the original tables;
-	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
-	if !req.Resync {
-		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
-			dstTableNames, req.DoInitialSnapshot, peerdbenv.PeerDBOnlyClickHouseAllowed()); err != nil {
-			return err
-		}
-	}
-	// optimization: fetching columns for all tables at once
-	chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
-	if err != nil {
-		return err
-	}
-
-	for _, tableMapping := range req.TableMappings {
-		dstTableName := tableMapping.DestinationTableIdentifier
-		if _, ok := processedMapping[dstTableName]; !ok {
-			// if destination table is not a key, that means source table was not a key in the original schema mapping(?)
-			return fmt.Errorf("source table %s not found in schema mapping", tableMapping.SourceTableIdentifier)
-		}
-		// if destination table does not exist, we're good
-		if _, ok := chTableColumnsMapping[dstTableName]; !ok {
-			continue
-		}
-
-		err = c.processTableComparison(dstTableName, processedMapping[dstTableName],
-			chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	clickhouseVersion, err := c.database.ServerVersion()
 	if err != nil {
@@ -417,15 +363,25 @@ func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*pro
 			qkind = qvalue.QValueKindString
 		case "Bool", "Nullable(Bool)":
 			qkind = qvalue.QValueKindBoolean
+		case "Int8", "Nullable(Int8)":
+			qkind = qvalue.QValueKindInt8
 		case "Int16", "Nullable(Int16)":
 			qkind = qvalue.QValueKindInt16
 		case "Int32", "Nullable(Int32)":
 			qkind = qvalue.QValueKindInt32
 		case "Int64", "Nullable(Int64)":
 			qkind = qvalue.QValueKindInt64
+		case "UInt8", "Nullable(UInt8)":
+			qkind = qvalue.QValueKindUInt8
+		case "UInt16", "Nullable(UInt16)":
+			qkind = qvalue.QValueKindUInt16
+		case "UInt32", "Nullable(UInt32)":
+			qkind = qvalue.QValueKindUInt32
+		case "UInt64", "Nullable(UInt64)":
+			qkind = qvalue.QValueKindUInt64
 		case "UUID", "Nullable(UUID)":
 			qkind = qvalue.QValueKindUUID
-		case "DateTime64(6)", "Nullable(DateTime64(6))":
+		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
 			qkind = qvalue.QValueKindTimestamp
 		case "Date32", "Nullable(Date32)":
 			qkind = qvalue.QValueKindDate

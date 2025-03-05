@@ -14,7 +14,13 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+)
+
+const (
+	FlowWorkerServiceName         = "flow-worker"
+	FlowSnapshotWorkerServiceName = "flow-snapshot-worker"
+	FlowApiServiceName            = "flow-api"
 )
 
 const (
@@ -23,9 +29,37 @@ const (
 	LastNormalizedBatchIdGaugeName      = "last_normalized_batch_id"
 	OpenConnectionsGaugeName            = "open_connections"
 	OpenReplicationConnectionsGaugeName = "open_replication_connections"
+	CommittedLSNGaugeName               = "committed_lsn"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
 	FetchedBytesCounterName             = "fetched_bytes"
+	InstantaneousFetchedBytesGaugeName  = "instantaneous_fetched_bytes"
+	ErrorEmittedGaugeName               = "error_emitted"
+	ErrorsEmittedCounterName            = "errors_emitted"
+	RecordsSyncedGaugeName              = "records_synced"
+	RecordsSyncedCounterName            = "records_synced_counter"
+	SyncedTablesGaugeName               = "synced_tables"
+	InstanceStatusGaugeName             = "instance_status"
+	MaintenanceStatusGaugeName          = "maintenance_status"
 )
+
+type Metrics struct {
+	SlotLagGauge                    metric.Float64Gauge
+	CurrentBatchIdGauge             metric.Int64Gauge
+	LastNormalizedBatchIdGauge      metric.Int64Gauge
+	OpenConnectionsGauge            metric.Int64Gauge
+	OpenReplicationConnectionsGauge metric.Int64Gauge
+	CommittedLSNGauge               metric.Int64Gauge
+	IntervalSinceLastNormalizeGauge metric.Float64Gauge
+	FetchedBytesCounter             metric.Int64Counter
+	InstantaneousFetchedBytesGauge  metric.Int64Gauge
+	ErrorEmittedGauge               metric.Int64Gauge
+	ErrorsEmittedCounter            metric.Int64Counter
+	RecordsSyncedGauge              metric.Int64Gauge
+	RecordsSyncedCounter            metric.Int64Counter
+	SyncedTablesGauge               metric.Int64Gauge
+	InstanceStatusGauge             metric.Int64Gauge
+	MaintenanceStatusGauge          metric.Int64Gauge
+}
 
 type SlotMetricGauges struct {
 	SlotLagGauge                    metric.Float64Gauge
@@ -34,11 +68,11 @@ type SlotMetricGauges struct {
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
-	FetchedBytesCounter             metric.Int64Counter
+	InstanceStatusGauge             metric.Int64Gauge
 }
 
 func BuildMetricName(baseName string) string {
-	return peerdbenv.GetPeerDBOtelMetricsNamespace() + baseName
+	return internal.GetPeerDBOtelMetricsNamespace() + baseName
 }
 
 type OtelManager struct {
@@ -47,21 +81,26 @@ type OtelManager struct {
 	Float64GaugesCache map[string]metric.Float64Gauge
 	Int64GaugesCache   map[string]metric.Int64Gauge
 	Int64CountersCache map[string]metric.Int64Counter
+	Metrics            Metrics
 }
 
-func NewOtelManager() (*OtelManager, error) {
-	metricsProvider, err := SetupPeerDBMetricsProvider("flow-worker")
+func NewOtelManager(ctx context.Context, serviceName string) (*OtelManager, error) {
+	metricsProvider, err := SetupPeerDBMetricsProvider(ctx, serviceName)
 	if err != nil {
 		return nil, err
 	}
 
-	return &OtelManager{
+	otelManager := OtelManager{
 		MetricsProvider:    metricsProvider,
-		Meter:              metricsProvider.Meter("io.peerdb.flow-worker"),
+		Meter:              metricsProvider.Meter("io.peerdb." + serviceName),
 		Float64GaugesCache: make(map[string]metric.Float64Gauge),
 		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		Int64CountersCache: make(map[string]metric.Int64Counter),
-	}, nil
+	}
+	if err := otelManager.setupMetrics(); err != nil {
+		return nil, err
+	}
+	return &otelManager, nil
 }
 
 func (om *OtelManager) Close(ctx context.Context) error {
@@ -89,22 +128,129 @@ func getOrInitMetric[M any, O any](
 }
 
 func (om *OtelManager) GetOrInitInt64Gauge(name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
-	return getOrInitMetric(metric.Meter.Int64Gauge, om.Meter, om.Int64GaugesCache, name, opts...)
+	// Once fixed, replace first argument below with metric.Meter.Int64Gauge
+	return getOrInitMetric(ContextAwareInt64Gauge, om.Meter, om.Int64GaugesCache, name, opts...)
 }
 
 func (om *OtelManager) GetOrInitFloat64Gauge(name string, opts ...metric.Float64GaugeOption) (metric.Float64Gauge, error) {
-	return getOrInitMetric(metric.Meter.Float64Gauge, om.Meter, om.Float64GaugesCache, name, opts...)
+	// Once fixed, replace first argument below with metric.Meter.Float64Gauge
+	return getOrInitMetric(ContextAwareFloat64Gauge, om.Meter, om.Float64GaugesCache, name, opts...)
 }
 
 func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64CounterOption) (metric.Int64Counter, error) {
-	return getOrInitMetric(metric.Meter.Int64Counter, om.Meter, om.Int64CountersCache, name, opts...)
+	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
+}
+
+func (om *OtelManager) setupMetrics() error {
+	slog.Debug("Setting up all metrics")
+	var err error
+	if om.Metrics.SlotLagGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(SlotLagGaugeName),
+		metric.WithUnit("MiBy"),
+		metric.WithDescription("Postgres replication slot lag in MB"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CurrentBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CurrentBatchIdGaugeName)); err != nil {
+		return err
+	}
+
+	if om.Metrics.LastNormalizedBatchIdGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LastNormalizedBatchIdGaugeName)); err != nil {
+		return err
+	}
+
+	if om.Metrics.OpenConnectionsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(OpenConnectionsGaugeName),
+		metric.WithDescription("Current open connections for PeerDB user"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.OpenReplicationConnectionsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(OpenReplicationConnectionsGaugeName),
+		metric.WithDescription("Current open replication connections for PeerDB user"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CommittedLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommittedLSNGaugeName),
+		metric.WithDescription("Committed LSN of the replication slot"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.IntervalSinceLastNormalizeGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(IntervalSinceLastNormalizeGaugeName),
+		metric.WithUnit("s"),
+		metric.WithDescription("Interval since last normalize"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Bytes received of CopyData over replication slot"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.InstantaneousFetchedBytesGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(InstantaneousFetchedBytesGaugeName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Bytes received of CopyData over replication slot (instantaneous)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ErrorEmittedGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ErrorEmittedGaugeName),
+		// This mostly tells whether an error is emitted or not, used for hooking up event based alerting
+		metric.WithDescription("Whether an error was emitted, 1 if emitted, 0 otherwise"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ErrorsEmittedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ErrorsEmittedCounterName),
+		// This the actual counter for errors emitted, used for alerting based on error rate/more detailed error analysis
+		metric.WithDescription("Counter of errors emitted"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.RecordsSyncedGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(RecordsSyncedGaugeName),
+		metric.WithDescription("Number of records synced for every Sync batch"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.RecordsSyncedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(RecordsSyncedCounterName),
+		metric.WithDescription("Counter of records synced (all time)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.SyncedTablesGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SyncedTablesGaugeName),
+		metric.WithDescription("Number of tables synced"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.InstanceStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(InstanceStatusGaugeName),
+		metric.WithDescription("Status of the instance, always emits a 1 metric with different attributes for different statuses"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.MaintenanceStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(MaintenanceStatusGaugeName),
+		metric.WithDescription("Whether maintenance is running, 1 if running with different attributes for start/end"),
+	); err != nil {
+		return err
+	}
+	slog.Debug("Finished setting up all metrics")
+	return nil
 }
 
 // newOtelResource returns a resource describing this application.
 func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*resource.Resource, error) {
 	allAttrs := append([]attribute.KeyValue{
 		semconv.ServiceNameKey.String(otelServiceName),
-		attribute.String(DeploymentUidKey, peerdbenv.PeerDBDeploymentUID()),
+		attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
+		semconv.ServiceVersion(internal.PeerDBVersionShaShort()),
 	}, attrs...)
 	return resource.Merge(
 		resource.Default(),
@@ -116,7 +262,7 @@ func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*reso
 }
 
 func temporalMetricsFilteringView() sdkmetric.View {
-	exportListString := peerdbenv.GetPeerDBOtelTemporalMetricsExportListEnv()
+	exportListString := internal.GetPeerDBOtelTemporalMetricsExportListEnv()
 	slog.Info("Found export list for temporal metrics", slog.String("exportList", exportListString))
 	// Special case for exporting all metrics
 	if exportListString == "__ALL__" {
@@ -161,9 +307,21 @@ func temporalMetricsFilteringView() sdkmetric.View {
 	}
 }
 
+// componentMetricsRenamingView renames the metrics to include the component name and any prefix
+func componentMetricsRenamingView(componentName string) sdkmetric.View {
+	return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
+		stream := sdkmetric.Stream{
+			Name:        BuildMetricName(componentName + "." + instrument.Name),
+			Description: instrument.Description,
+			Unit:        instrument.Unit,
+		}
+		return stream, true
+	}
+}
+
 func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
-	otlpMetricProtocol := peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
-		peerdbenv.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
+	otlpMetricProtocol := internal.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
+		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
 	var metricExporter sdkmetric.Exporter
 	var err error
 	switch otlpMetricProtocol {
@@ -194,18 +352,26 @@ func setupMetricsProvider(ctx context.Context, otelResource *resource.Resource, 
 	return meterProvider, nil
 }
 
-func SetupPeerDBMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvider, error) {
+func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string) (*sdkmetric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(context.Background(), otelResource)
+	return setupMetricsProvider(ctx, otelResource)
 }
 
-func SetupTemporalMetricsProvider(otelServiceName string) (*sdkmetric.MeterProvider, error) {
+func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string) (*sdkmetric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(context.Background(), otelResource, temporalMetricsFilteringView())
+	return setupMetricsProvider(ctx, otelResource, temporalMetricsFilteringView())
+}
+
+func SetupComponentMetricsProvider(ctx context.Context, otelServiceName string, componentName string) (*sdkmetric.MeterProvider, error) {
+	otelResource, err := newOtelResource(otelServiceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
+	}
+	return setupMetricsProvider(ctx, otelResource, componentMetricsRenamingView(componentName))
 }

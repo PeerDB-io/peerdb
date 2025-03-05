@@ -7,9 +7,9 @@ import (
 
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 type QRecordAvroConverter struct {
@@ -31,7 +31,7 @@ func NewQRecordAvroConverter(
 	var unboundedNumericAsString bool
 	if targetDWH == protos.DBType_CLICKHOUSE {
 		var err error
-		unboundedNumericAsString, err = peerdbenv.PeerDBEnableClickHouseNumericAsString(ctx, env)
+		unboundedNumericAsString, err = internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 		if err != nil {
 			return nil, err
 		}
@@ -46,15 +46,12 @@ func NewQRecordAvroConverter(
 	}, nil
 }
 
-func (qac *QRecordAvroConverter) Convert(qrecord []qvalue.QValue) (map[string]any, error) {
+func (qac *QRecordAvroConverter) Convert(ctx context.Context, env map[string]string, qrecord []qvalue.QValue) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
 		avroVal, err := qvalue.QValueToAvro(
-			val,
-			&qac.Schema.Fields[idx],
-			qac.TargetDWH,
-			qac.logger,
-			qac.UnboundedNumericAsString,
+			ctx, env, val,
+			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
@@ -98,7 +95,7 @@ func GetAvroSchemaDefinition(
 		}
 
 		if qField.Nullable {
-			avroType = []interface{}{"null", avroType}
+			avroType = []any{"null", avroType}
 		}
 
 		avroFields = append(avroFields, QRecordAvroField{

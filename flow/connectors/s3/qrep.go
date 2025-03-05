@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 func (c *S3Connector) SyncQRepRecords(
@@ -17,7 +17,10 @@ func (c *S3Connector) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int, error) {
-	schema := stream.Schema()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 
 	dstTableName := config.DestinationTableIdentifier
 	avroSchema, err := getAvroSchema(ctx, config.Env, dstTableName, schema)

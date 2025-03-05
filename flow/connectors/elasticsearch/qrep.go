@@ -14,10 +14,10 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v8/esutil"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,
@@ -42,7 +42,10 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 ) (int, error) {
 	startTime := time.Now()
 
-	schema := stream.Schema()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 
 	var bulkIndexFatalError error
 	var bulkIndexErrors []error

@@ -12,13 +12,13 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
-	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/pua"
-	"github.com/PeerDB-io/peer-flow/shared"
+	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pua"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type PubSubConnector struct {
@@ -46,7 +46,7 @@ func NewPubSubConnector(
 	return &PubSubConnector{
 		client:           client,
 		PostgresMetadata: pgMetadata,
-		logger:           shared.LoggerFromCtx(ctx),
+		logger:           internal.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -141,7 +141,7 @@ func (c *PubSubConnector) createPool(
 	publish chan<- publishResult,
 	queueErr func(error),
 ) (*utils.LPool[poolResult], error) {
-	maxSize, err := peerdbenv.PeerDBQueueParallelism(ctx, env)
+	maxSize, err := internal.PeerDBQueueParallelism(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get parallelism: %w", err)
 	}
@@ -165,7 +165,7 @@ func (c *PubSubConnector) createPool(
 					topicClient.EnableMessageOrdering = true
 				}
 
-				force, envErr := peerdbenv.PeerDBQueueForceTopicCreation(ctx, env)
+				force, envErr := internal.PeerDBQueueForceTopicCreation(ctx, env)
 				if envErr != nil {
 					return nil, envErr
 				}
@@ -277,7 +277,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 
 	flushLoopDone := make(chan struct{})
 	go func() {
-		flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+		flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 		if err != nil {
 			c.logger.Warn("[pubsub] failed to get flush timeout, no periodic flushing", slog.Any("error", err))
 			return
@@ -295,7 +295,7 @@ func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecord
 			case <-ticker.C:
 				lastSeen := lastSeenLSN.Load()
 				if lastSeen > req.ConsumedOffset.Load() {
-					if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeen); err != nil {
+					if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeen}); err != nil {
 						c.logger.Warn("[pubsub] SetLastOffset error", slog.Any("error", err))
 					} else {
 						shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
@@ -378,10 +378,10 @@ Loop:
 	}
 
 	return &model.SyncResponse{
-		CurrentSyncBatchID:     req.SyncBatchID,
-		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       numRecords.Load(),
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		CurrentSyncBatchID:   req.SyncBatchID,
+		LastSyncedCheckpoint: lastCheckpoint,
+		NumRecordsSynced:     numRecords.Load(),
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }

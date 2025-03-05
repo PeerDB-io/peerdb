@@ -16,10 +16,10 @@ import (
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func encVal(val any) ([]byte, error) {
@@ -45,11 +45,11 @@ type cdcStore[Items model.Items] struct {
 }
 
 func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, flowJobName string) (*cdcStore[Items], error) {
-	numRecordsSwitchThreshold, err := peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(ctx, env)
+	numRecordsSwitchThreshold, err := internal.PeerDBCDCDiskSpillRecordsThreshold(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill records threshold: %w", err)
 	}
-	memPercent, err := peerdbenv.PeerDBCDCDiskSpillMemPercentThreshold(ctx, env)
+	memPercent, err := internal.PeerDBCDCDiskSpillMemPercentThreshold(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill memory percent threshold: %w", err)
 	}
@@ -62,7 +62,7 @@ func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, 
 		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
 		numRecordsSwitchThreshold: int(numRecordsSwitchThreshold),
 		memThresholdBytes: func() uint64 {
-			maxMemBytes := peerdbenv.PeerDBFlowWorkerMaxMemBytes()
+			maxMemBytes := internal.PeerDBFlowWorkerMaxMemBytes()
 			if memPercent > 0 && maxMemBytes > 0 {
 				return maxMemBytes * uint64(memPercent) / 100
 			}
@@ -81,9 +81,14 @@ func init() {
 	gob.Register(qvalue.QValueInvalid{})
 	gob.Register(qvalue.QValueFloat32{})
 	gob.Register(qvalue.QValueFloat64{})
+	gob.Register(qvalue.QValueInt8{})
 	gob.Register(qvalue.QValueInt16{})
 	gob.Register(qvalue.QValueInt32{})
 	gob.Register(qvalue.QValueInt64{})
+	gob.Register(qvalue.QValueUInt8{})
+	gob.Register(qvalue.QValueUInt16{})
+	gob.Register(qvalue.QValueUInt32{})
+	gob.Register(qvalue.QValueUInt64{})
 	gob.Register(qvalue.QValueBoolean{})
 	gob.Register(qvalue.QValueStruct{})
 	gob.Register(qvalue.QValueQChar{})
@@ -143,7 +148,7 @@ func (c *cdcStore[T]) initPebbleDB() error {
 }
 
 func (c *cdcStore[T]) diskSpillThresholdsExceeded() bool {
-	if len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
+	if c.numRecordsSwitchThreshold >= 0 && len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
 		c.thresholdReason = fmt.Sprintf("more than %d primary keys read, spilling to disk",
 			c.numRecordsSwitchThreshold)
 		return true
@@ -217,8 +222,7 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 			}
 		}
 		defer func() {
-			err := closer.Close()
-			if err != nil {
+			if err := closer.Close(); err != nil {
 				slog.Warn("failed to close database",
 					slog.Any("error", err),
 					slog.String("flowName", c.flowJobName))
@@ -248,13 +252,11 @@ func (c *cdcStore[T]) IsEmpty() bool {
 func (c *cdcStore[T]) Close() error {
 	c.inMemoryRecords = nil
 	if c.pebbleDB != nil {
-		err := c.pebbleDB.Close()
-		if err != nil {
+		if err := c.pebbleDB.Close(); err != nil {
 			return fmt.Errorf("failed to close database: %w", err)
 		}
 	}
-	err := os.RemoveAll(c.dbFolderName)
-	if err != nil {
+	if err := os.RemoveAll(c.dbFolderName); err != nil {
 		return fmt.Errorf("failed to delete database file: %w", err)
 	}
 	return nil

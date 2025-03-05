@@ -4,10 +4,16 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { BarList } from '@tremor/react';
 import { useState } from 'react';
-export const RowDataFormatter = (number: number) =>
-  `${Intl.NumberFormat('en-US').format(number).toString()}`;
 
-const RowsDisplay = ({ totalRowsData }: { totalRowsData: CDCRowCounts }) => {
+export function RowDataFormatter(number: number) {
+  return `${Intl.NumberFormat('en-US').format(number).toString()}`;
+}
+
+export default function RowsDisplay({
+  totalRowsData,
+}: {
+  totalRowsData: CDCRowCounts;
+}) {
   const [show, setShow] = useState(false);
   const rowsHero = [
     { name: 'Inserts', value: totalRowsData.insertsCount },
@@ -43,6 +49,4 @@ const RowsDisplay = ({ totalRowsData }: { totalRowsData: CDCRowCounts }) => {
       )}
     </div>
   );
-};
-
-export default RowsDisplay;
+}

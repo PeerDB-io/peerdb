@@ -13,12 +13,12 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 type EventhubsSuite struct {
@@ -34,6 +34,10 @@ func (s EventhubsSuite) T() *testing.T {
 
 func (s EventhubsSuite) Connector() *connpostgres.PostgresConnector {
 	return s.conn
+}
+
+func (s EventhubsSuite) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
 }
 
 func (s EventhubsSuite) Conn() *pgx.Conn {
@@ -94,11 +98,11 @@ func (s EventhubsSuite) GetEventhubName() string {
 	return eventhubName
 }
 
-func (s EventhubsSuite) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s EventhubsSuite) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 	creds, err := EventhubsCreds()
 	require.NoError(s.t, err)
-	err = DeleteEventhub(context.Background(), s.GetEventhubName(), creds)
+	err = DeleteEventhub(ctx, s.GetEventhubName(), creds)
 	require.NoError(s.t, err)
 }
 
@@ -112,7 +116,7 @@ func SetupSuite(t *testing.T) EventhubsSuite {
 
 	return EventhubsSuite{
 		t:          t,
-		conn:       conn,
+		conn:       conn.PostgresConnector,
 		suffix:     suffix,
 		timeSuffix: tsSuffix,
 	}
@@ -126,7 +130,7 @@ func Test_Eventhubs(t *testing.T) {
 func (s EventhubsSuite) Test_EH_Simple() {
 	srcTableName := e2e.AttachSchema(s, "eh_simple")
 
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			val text
@@ -137,7 +141,7 @@ func (s EventhubsSuite) Test_EH_Simple() {
 	ehCreds, err := EventhubsCreds()
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
 	('e2e_eh_simple_script', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
@@ -150,20 +154,20 @@ func (s EventhubsSuite) Test_EH_Simple() {
 		TableNameMapping: map[string]string{srcTableName: scopedEventhubName},
 		Destination:      destinationPeer.Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "e2e_eh_simple_script"
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s (id, val) VALUES (1, 'testval')
 	`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
 	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "eventhubs message check", func() bool {
 		messages, err := ConsumeAllMessages(
-			context.Background(),
+			s.t.Context(),
 			ehCreds.Namespace,
 			s.GetEventhubName(),
 			1,
@@ -178,6 +182,6 @@ func (s EventhubsSuite) Test_EH_Simple() {
 		return msgCountIsOne && msgValueCheck
 	})
 
-	env.Cancel()
+	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }

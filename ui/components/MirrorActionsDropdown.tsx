@@ -1,7 +1,7 @@
 'use client';
 import { getMirrorState } from '@/app/mirrors/[mirrorId]/handlers';
 import EditButton from '@/components/EditButton';
-import { ResyncDialog } from '@/components/ResyncDialog';
+import ResyncDialog from '@/components/ResyncDialog';
 import { FlowStatus } from '@/grpc_generated/flow';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
@@ -29,12 +29,12 @@ const menuStyle: CSSProperties = {
   boxShadow: '0 0 5px rgba(0,0,0,0.2)',
 };
 
-const MirrorActions = ({
+export default function MirrorActions({
   mirrorName,
   editLink,
   canResync,
   isNotPaused,
-}: MirrorActionsProps) => {
+}: MirrorActionsProps) {
   const [mirrorStatus, setMirrorStatus] = useState<FlowStatus>();
   const [mounted, setMounted] = useState(false);
 
@@ -48,8 +48,8 @@ const MirrorActions = ({
     setMounted(true);
   }, [mirrorName]);
 
-  if (mounted)
-    return (
+  return (
+    mounted && (
       <div
         style={{
           position: 'relative',
@@ -78,8 +78,6 @@ const MirrorActions = ({
           </div>
         )}
       </div>
-    );
-  return <></>;
-};
-
-export default MirrorActions;
+    )
+  );
+}

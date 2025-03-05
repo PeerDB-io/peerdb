@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pglogrepl"
@@ -13,20 +14,20 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/lib/pq/oid"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/metric"
-	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/log"
 
-	connmetadata "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	geo "github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/otel_metrics"
-	"github.com/PeerDB-io/peer-flow/shared"
+	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
+	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PostgresCDCSource struct {
@@ -37,14 +38,13 @@ type PostgresCDCSource struct {
 	relationMessageMapping model.RelationMessageMapping
 	slot                   string
 	publication            string
-	typeMap                *pgtype.Map
 	commitLock             *pglogrepl.BeginMessage
 
 	// for partitioned tables, maps child relid to parent relid
 	childToParentRelIDMapping map[uint32]uint32
 
 	// for storing schema delta audit logs to catalog
-	catalogPool                  *pgxpool.Pool
+	catalogPool                  shared.CatalogPool
 	otelManager                  *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected map[uint32]struct{}
@@ -52,7 +52,7 @@ type PostgresCDCSource struct {
 }
 
 type PostgresCDCConfig struct {
-	CatalogPool            *pgxpool.Pool
+	CatalogPool            shared.CatalogPool
 	OtelManager            *otel_metrics.OtelManager
 	SrcTableIDNameMapping  map[uint32]string
 	TableNameMapping       map[string]model.NameAndExclude
@@ -74,7 +74,6 @@ func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *
 		relationMessageMapping:       cdcConfig.RelationMessageMapping,
 		slot:                         cdcConfig.Slot,
 		publication:                  cdcConfig.Publication,
-		typeMap:                      pgtype.NewMap(),
 		commitLock:                   nil,
 		childToParentRelIDMapping:    cdcConfig.ChildToParentRelIDMap,
 		catalogPool:                  cdcConfig.CatalogPool,
@@ -307,7 +306,7 @@ func PullCdcRecords[Items model.Items](
 	processor replProcessor[Items],
 	replLock *sync.Mutex,
 ) error {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {
@@ -325,8 +324,8 @@ func PullCdcRecords[Items model.Items](
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	var clientXLogPos pglogrepl.LSN
-	if req.LastOffset > 0 {
-		clientXLogPos = pglogrepl.LSN(req.LastOffset)
+	if req.LastOffset.ID > 0 {
+		clientXLogPos = pglogrepl.LSN(req.LastOffset.ID)
 		if err := sendStandbyAfterReplLock("initial-flush"); err != nil {
 			return err
 		}
@@ -352,8 +351,7 @@ func PullCdcRecords[Items model.Items](
 	})
 	defer shutdown()
 
-	standbyMessageTimeout := req.IdleTimeout
-	nextStandbyMessageDeadline := time.Now().Add(standbyMessageTimeout)
+	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
 		if err := cdcRecordsStorage.Set(logger, key, rec); err != nil {
@@ -365,33 +363,28 @@ func PullCdcRecords[Items model.Items](
 
 		if cdcRecordsStorage.Len() == 1 {
 			records.SignalAsNotEmpty()
-			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
+			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
 		return nil
 	}
 
-	var fetchedBytesCounter metric.Int64Counter
-	if p.otelManager != nil {
-		var err error
-		fetchedBytesCounter, err = p.otelManager.GetOrInitInt64Counter(otel_metrics.BuildMetricName(otel_metrics.FetchedBytesCounterName),
-			metric.WithUnit("By"), metric.WithDescription("Bytes received of CopyData over replication slot"))
-		if err != nil {
-			return fmt.Errorf("could not get FetchedBytesCounter: %w", err)
-		}
-	}
-
 	pkmRequiresResponse := false
 	waitingForCommit := false
 
+	pkmEmptyBatchThrottleThresholdSeconds, err := internal.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
+	if err != nil {
+		logger.Error("failed to get PeerDBPKMEmptyBatchThrottleThresholdSeconds", slog.Any("error", err))
+	}
+	lastEmptyBatchPkmSentTime := time.Now()
 	for {
 		if pkmRequiresResponse {
 			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
-				metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-				if err := metadata.SetLastOffset(ctx, req.FlowJobName, int64(clientXLogPos)); err != nil {
+				err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos)
+				if err != nil {
 					return err
 				}
-				req.ConsumedOffset.Store(int64(clientXLogPos))
+				lastEmptyBatchPkmSentTime = time.Now()
 			}
 
 			if err := sendStandbyAfterReplLock("pkm-response"); err != nil {
@@ -407,8 +400,7 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if p.commitLock == nil {
-			cdclen := cdcRecordsStorage.Len()
-			if cdclen >= 0 && uint32(cdclen) >= req.MaxBatchSize {
+			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
 				return nil
 			}
 
@@ -442,7 +434,7 @@ func PullCdcRecords[Items model.Items](
 					p.flowJobName),
 				)
 			}
-			nextStandbyMessageDeadline = time.Now().Add(standbyMessageTimeout)
+			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 		}
 
 		var receiveCtx context.Context
@@ -473,167 +465,179 @@ func PullCdcRecords[Items model.Items](
 			}
 		}
 
-		if errMsg, ok := rawMsg.(*pgproto3.ErrorResponse); ok {
-			return shared.LogError(logger, fmt.Errorf("received Postgres WAL error: %+v", errMsg))
-		}
-
-		msg, ok := rawMsg.(*pgproto3.CopyData)
-		if !ok {
-			continue
-		}
-
-		if fetchedBytesCounter != nil {
-			fetchedBytesCounter.Add(ctx, int64(len(msg.Data)), metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowNameKey, req.FlowJobName),
-			)))
-		}
-
-		switch msg.Data[0] {
-		case pglogrepl.PrimaryKeepaliveMessageByteID:
-			pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
-			if err != nil {
-				return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
+		switch msg := rawMsg.(type) {
+		case *pgproto3.ErrorResponse:
+			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
+		case *pgproto3.CopyData:
+			if p.otelManager != nil {
+				p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
+				p.otelManager.Metrics.InstantaneousFetchedBytesGauge.Record(ctx, int64(len(msg.Data)))
 			}
+			switch msg.Data[0] {
+			case pglogrepl.PrimaryKeepaliveMessageByteID:
+				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
+				if err != nil {
+					return fmt.Errorf("ParsePrimaryKeepaliveMessage failed: %w", err)
+				}
 
-			logger.Debug("Primary Keepalive Message", slog.Bool("replyRequested", pkm.ReplyRequested),
-				slog.String("ServerWALEnd", pkm.ServerWALEnd.String()), slog.String("ServerTime", pkm.ServerTime.String()))
+				if pkm.ServerWALEnd > clientXLogPos {
+					clientXLogPos = pkm.ServerWALEnd
+				}
 
-			if pkm.ServerWALEnd > clientXLogPos {
-				clientXLogPos = pkm.ServerWALEnd
-			}
-			pkmRequiresResponse = true
+				if pkm.ReplyRequested || (pkmEmptyBatchThrottleThresholdSeconds != -1 &&
+					time.Since(lastEmptyBatchPkmSentTime) >= time.Duration(pkmEmptyBatchThrottleThresholdSeconds)*time.Second) {
+					pkmRequiresResponse = true
+				}
 
-		case pglogrepl.XLogDataByteID:
-			xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
-			if err != nil {
-				return fmt.Errorf("ParseXLogData failed: %w", err)
-			}
+			case pglogrepl.XLogDataByteID:
+				xld, err := pglogrepl.ParseXLogData(msg.Data[1:])
+				if err != nil {
+					return fmt.Errorf("ParseXLogData failed: %w", err)
+				}
 
-			logger.Debug("XLogData",
-				slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Any("ServerTime", xld.ServerTime))
-			rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
-			if err != nil {
-				return fmt.Errorf("error processing message: %w", err)
-			}
+				logger.Debug("XLogData",
+					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Any("ServerTime", xld.ServerTime))
+				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
+				if err != nil {
+					return fmt.Errorf("error processing message: %w", err)
+				}
 
-			if xld.WALStart > clientXLogPos {
-				clientXLogPos = xld.WALStart
-			}
+				if xld.WALStart > clientXLogPos {
+					clientXLogPos = xld.WALStart
+				}
 
-			if rec != nil {
-				tableName := rec.GetDestinationTableName()
-				switch r := rec.(type) {
-				case *model.UpdateRecord[Items]:
-					// tableName here is destination tableName.
-					// should be ideally sourceTableName as we are in PullRecords.
-					// will change in future
-					// TODO: replident is cached here, should not cache since it can change
-					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
-					if isFullReplica {
-						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
-							return err
-						}
-					} else {
-						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
-						if err != nil {
-							return err
-						}
-
-						latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
-						if err != nil {
-							return err
-						}
-						if ok {
-							// iterate through unchanged toast cols and set them in new record
-							updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
-							for _, col := range updatedCols {
-								delete(r.UnchangedToastColumns, col)
-							}
-						}
-						if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
-							return err
-						}
-					}
-
-				case *model.InsertRecord[Items]:
-					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
-					if isFullReplica {
-						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
-							return err
-						}
-					} else {
-						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
-						if err != nil {
-							return err
-						}
-
-						if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
-							return err
-						}
-					}
-				case *model.DeleteRecord[Items]:
-					isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
-					if isFullReplica {
-						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
-							return err
-						}
-					} else {
-						tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
-						if err != nil {
-							return err
-						}
-
-						latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
-						if err != nil {
-							return err
-						}
-						if ok {
-							r.Items = latestRecord.GetItems()
-							if updateRecord, ok := latestRecord.(*model.UpdateRecord[Items]); ok {
-								r.UnchangedToastColumns = updateRecord.UnchangedToastColumns
-							}
-						} else {
-							// there is nothing to backfill the items in the delete record with,
-							// so don't update the row with this record
-							// add sentinel value to prevent update statements from selecting
-							r.UnchangedToastColumns = map[string]struct{}{
-								"_peerdb_not_backfilled_delete": {},
-							}
-						}
-
-						// A delete can only be followed by an INSERT, which does not need backfilling
-						// No need to store DeleteRecords in memory or disk.
-						if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
-							return err
-						}
-					}
-
-				case *model.RelationRecord[Items]:
-					tableSchemaDelta := r.TableSchemaDelta
-					if len(tableSchemaDelta.AddedColumns) > 0 {
-						logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
-							tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
-						records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
-					}
-
-				case *model.MessageRecord[Items]:
-					// if cdc store empty, we can move lsn,
-					// otherwise push to records so destination can ack once all previous messages processed
-					if cdcRecordsStorage.IsEmpty() {
-						if int64(clientXLogPos) > req.ConsumedOffset.Load() {
-							metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
-							if err := metadata.SetLastOffset(ctx, req.FlowJobName, int64(clientXLogPos)); err != nil {
+				if rec != nil {
+					tableName := rec.GetDestinationTableName()
+					switch r := rec.(type) {
+					case *model.UpdateRecord[Items]:
+						// tableName here is destination tableName.
+						// should be ideally sourceTableName as we are in PullRecords.
+						// will change in future
+						// TODO: replident is cached here, should not cache since it can change
+						isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+						if isFullReplica {
+							if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
 								return err
 							}
-							req.ConsumedOffset.Store(int64(clientXLogPos))
+						} else {
+							tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
+							if err != nil {
+								return err
+							}
+
+							latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
+							if err != nil {
+								return err
+							}
+							if ok {
+								// iterate through unchanged toast cols and set them in new record
+								updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
+								for _, col := range updatedCols {
+									delete(r.UnchangedToastColumns, col)
+								}
+							}
+							if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
+								return err
+							}
 						}
-					} else if err := records.AddRecord(ctx, rec); err != nil {
-						return err
+
+					case *model.InsertRecord[Items]:
+						isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+						if isFullReplica {
+							if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
+								return err
+							}
+						} else {
+							tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
+							if err != nil {
+								return err
+							}
+
+							if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
+								return err
+							}
+						}
+					case *model.DeleteRecord[Items]:
+						isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
+						if isFullReplica {
+							if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
+								return err
+							}
+						} else {
+							tablePkeyVal, err := model.RecToTablePKey(req.TableNameSchemaMapping, rec)
+							if err != nil {
+								return err
+							}
+
+							latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
+							if err != nil {
+								return err
+							}
+							if ok {
+								r.Items = latestRecord.GetItems()
+								if updateRecord, ok := latestRecord.(*model.UpdateRecord[Items]); ok {
+									r.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+								}
+							} else {
+								// there is nothing to backfill the items in the delete record with,
+								// so don't update the row with this record
+								// add sentinel value to prevent update statements from selecting
+								r.UnchangedToastColumns = map[string]struct{}{
+									"_peerdb_not_backfilled_delete": {},
+								}
+							}
+
+							// A delete can only be followed by an INSERT, which does not need backfilling
+							// No need to store DeleteRecords in memory or disk.
+							if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {
+								return err
+							}
+						}
+
+					case *model.RelationRecord[Items]:
+						tableSchemaDelta := r.TableSchemaDelta
+						if len(tableSchemaDelta.AddedColumns) > 0 {
+							logger.Info(fmt.Sprintf("Detected schema change for table %s, addedColumns: %v",
+								tableSchemaDelta.SrcTableName, tableSchemaDelta.AddedColumns))
+							records.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
+						}
+
+					case *model.MessageRecord[Items]:
+						// if cdc store empty, we can move lsn,
+						// otherwise push to records so destination can ack once all previous messages processed
+						if cdcRecordsStorage.IsEmpty() {
+							if int64(clientXLogPos) > req.ConsumedOffset.Load() {
+								err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos)
+								if err != nil {
+									return err
+								}
+							}
+						} else if err := records.AddRecord(ctx, rec); err != nil {
+							return err
+						}
 					}
 				}
 			}
 		}
 	}
+}
+
+func (p *PostgresCDCSource) updateConsumedOffset(
+	ctx context.Context,
+	logger log.Logger,
+	flowJobName string,
+	consumedOffset *atomic.Int64,
+	clientXLogPos pglogrepl.LSN,
+) error {
+	metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, p.catalogPool)
+	if err := metadata.SetLastOffset(ctx, flowJobName, model.CdcCheckpoint{ID: int64(clientXLogPos)}); err != nil {
+		return err
+	}
+	consumedOffset.Store(int64(clientXLogPos))
+	if p.otelManager != nil {
+		p.otelManager.Metrics.CommittedLSNGauge.Record(ctx, int64(clientXLogPos))
+	}
+	return nil
 }
 
 func (p *PostgresCDCSource) baseRecord(lsn pglogrepl.LSN) model.BaseRecord {
@@ -655,7 +659,7 @@ func processMessage[Items model.Items](
 	currentClientXlogPos pglogrepl.LSN,
 	processor replProcessor[Items],
 ) (model.Record[Items], error) {
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	logicalMsg, err := pglogrepl.Parse(xld.WALData)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)
@@ -678,7 +682,7 @@ func processMessage[Items model.Items](
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
 		logger.Debug("CommitMessage", slog.Any("CommitLSN", msg.CommitLSN), slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
-		batch.UpdateLatestCheckpoint(int64(msg.CommitLSN))
+		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
 		// treat all relation messages as corresponding to parent if partitioned.
@@ -704,7 +708,7 @@ func processMessage[Items model.Items](
 			slog.String("Prefix", msg.Prefix),
 			slog.String("LSN", msg.LSN.String()))
 		if !msg.Transactional {
-			batch.UpdateLatestCheckpoint(int64(msg.LSN))
+			batch.UpdateLatestCheckpointID(int64(msg.LSN))
 		}
 		return &model.MessageRecord[Items]{
 			BaseRecord: p.baseRecord(msg.LSN),
@@ -852,22 +856,6 @@ func processDeleteMessage[Items model.Items](
 	}, nil
 }
 
-func auditSchemaDelta[Items model.Items](ctx context.Context, p *PostgresCDCSource, rec *model.RelationRecord[Items]) error {
-	activityInfo := activity.GetInfo(ctx)
-	workflowID := activityInfo.WorkflowExecution.ID
-	runID := activityInfo.WorkflowExecution.RunID
-
-	_, err := p.catalogPool.Exec(ctx,
-		`INSERT INTO
-		 peerdb_stats.schema_deltas_audit_log(flow_job_name,workflow_id,run_id,delta_info)
-		 VALUES($1,$2,$3,$4)`,
-		p.flowJobName, workflowID, runID, rec)
-	if err != nil {
-		return fmt.Errorf("failed to insert row into table: %w", err)
-	}
-	return nil
-}
-
 // processRelationMessage processes a RelationMessage and returns a TableSchemaDelta
 func processRelationMessage[Items model.Items](
 	ctx context.Context,
@@ -923,10 +911,11 @@ func processRelationMessage[Items model.Items](
 	}
 
 	schemaDelta := &protos.TableSchemaDelta{
-		SrcTableName: p.srcTableIDNameMapping[currRel.RelationID],
-		DstTableName: p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
-		AddedColumns: nil,
-		System:       prevSchema.System,
+		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
+		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
+		AddedColumns:    nil,
+		System:          prevSchema.System,
+		NullableEnabled: prevSchema.NullableEnabled,
 	}
 	for _, column := range currRel.Columns {
 		// not present in previous relation message, but in current one, so added.
@@ -937,8 +926,8 @@ func processRelationMessage[Items model.Items](
 					Name:         column.Name,
 					Type:         currRelMap[column.Name],
 					TypeModifier: column.TypeModifier,
-				},
-				)
+					Nullable:     column.Flags == 0, // pg does not send nullable info, only whether column is part of primary key
+				})
 			}
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
@@ -962,7 +951,7 @@ func processRelationMessage[Items model.Items](
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
 		}
-		return rec, auditSchemaDelta(ctx, p, rec)
+		return rec, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
 }

@@ -1,6 +1,7 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { blankBigquerySetting } from '@/app/peers/create/[peerType]/helpers/bq';
+import InfoPopover from '@/components/InfoPopover';
 import { BigqueryConfig } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
@@ -8,7 +9,6 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useState } from 'react';
-import { InfoPopover } from '../InfoPopover';
 
 interface BQProps {
   setter: PeerSetter;

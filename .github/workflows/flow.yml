@@ -24,13 +24,25 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+      mysql:
+        image: mysql:oracle@sha256:146682692a3aa409eae7b7dc6a30f637c6cb49b6ca901c2cd160becc81127d3b
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: cipass
+          #mariadb:
+          #  image: mariadb:lts-ubi
+          #  ports:
+          #    - 3300:3306
+          #  env:
+          #    MARIADB_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:46ed8144e64aae1991cf439f96a05196425997a77abdf21941f0ff44ef7c5be0
+        image: redpandadata/redpanda@sha256:04baa40ed34edf86028396f762be802f3b6b0acaab65e9de696a3f15d54c550f
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:8.17.0@sha256:0681af5779b516b0652df86aa1db52e225f2d4e68bb3a3099534377b7f788739
+        image: elasticsearch:8.17.2@sha256:f388389127fe71274ff82493748e26677b88ff599785875f088627e0ca0e4c28
         ports:
           - 9200:9200
         env:
@@ -38,7 +50,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2024.12.18@sha256:cce234b4381a169d80836584d966bb5c82365e5f7f0becfcf2d1cf8c57be754b
+        image: bitnami/minio:2025.2.28@sha256:ca31735c5a8e6a85de77c63bea09d8780a788ca9bbf7f1d730610c5da84a5796
         ports:
           - 9999:9999
         env:
@@ -56,7 +68,7 @@ jobs:
 
       - uses: ubicloud/setup-go@6ea6c4fb36acc657571a53f4a7471e75f5fa80ad # v5
         with:
-          go-version: '1.23.0'
+          go-version: '1.24.0'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos

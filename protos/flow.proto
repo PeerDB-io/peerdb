@@ -5,6 +5,11 @@ import "peers.proto";
 
 package peerdb_flow;
 
+message AlertInput {
+  string flow_name = 1;
+  string message = 2;
+}
+
 message TableNameMapping {
   string source_table_name = 1;
   string destination_table_name = 2;
@@ -332,6 +337,8 @@ message DropFlowInput {
   string flow_job_name = 1;
   bool drop_flow_stats = 4;
   FlowConnectionConfigs flow_connection_configs = 5;
+  bool skip_destination_drop = 6;
+  bool skip_source_drop = 7;
 }
 
 message TableSchemaDelta {
@@ -486,4 +493,37 @@ message MaintenanceMirror {
 
 message MaintenanceMirrors {
   repeated MaintenanceMirror mirrors = 1;
+}
+
+message PeerContextMetadata {
+  string name = 1;
+  peerdb_peers.DBType type = 2;
+}
+
+message FlowContextMetadataInput {
+  string flow_name = 1;
+  string source_name = 2;
+  string destination_name = 3;
+  FlowStatus status = 4;
+  bool is_resync = 5;
+}
+
+enum FlowOperation {
+  FLOW_OPERATION_UNKNOWN = 0;
+  FLOW_OPERATION_SYNC = 1;
+  FLOW_OPERATION_NORMALIZE = 2;
+}
+
+// FlowContextMetadata has contextual information of a flow and is universal at the flow level, it cannot be different for children context
+// it is referenced via pointer
+message FlowContextMetadata{
+  string flow_name = 1;
+  PeerContextMetadata source = 2;
+  PeerContextMetadata destination = 3;
+  FlowStatus status = 4;
+  bool is_resync = 5;
+}
+
+message AdditionalContextMetadata{
+  FlowOperation operation = 1;
 }

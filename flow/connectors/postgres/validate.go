@@ -8,9 +8,23 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
+
+func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return err
+	}
+
+	if pgversion < shared.POSTGRES_12 {
+		return fmt.Errorf("postgres must be of PG12 or above. Current version: %d", pgversion)
+	}
+	return nil
+}
 
 func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 	tableNames []*utils.SchemaTable, pubName string, noCDC bool,
@@ -25,7 +39,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 	for _, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
-			QuoteLiteral(parsedTable.Schema), QuoteLiteral(parsedTable.Table)))
+			utils.QuoteLiteral(parsedTable.Schema), utils.QuoteLiteral(parsedTable.Table)))
 
 		selectedColumnsStr := "*"
 		if _, ok := excludedColumnsMap[parsedTable.Schema+"."+parsedTable.Table]; ok {
@@ -35,17 +49,15 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 			}
 
 			for i, col := range selectedColumns {
-				selectedColumns[i] = QuoteIdentifier(col)
+				selectedColumns[i] = utils.QuoteIdentifier(col)
 			}
 
 			selectedColumnsStr = strings.Join(selectedColumns, ", ")
 		}
 		if err := c.conn.QueryRow(ctx,
-			fmt.Sprintf("SELECT %s FROM %s.%s LIMIT 0",
-				selectedColumnsStr, QuoteIdentifier(parsedTable.Schema),
-				QuoteIdentifier(parsedTable.Table)),
-		).Scan(&row); err != nil && err != pgx.ErrNoRows {
-			return fmt.Errorf("failed to select from table %s.%s: %w", parsedTable.Schema, parsedTable.Table, err)
+			fmt.Sprintf("SELECT %s FROM %s LIMIT 0", selectedColumnsStr, parsedTable),
+		).Scan(&row); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("failed to select from table %s: %w", parsedTable, err)
 		}
 	}
 
@@ -53,7 +65,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 		// Check if publication exists
 		var alltables bool
 		if err := c.conn.QueryRow(ctx, "SELECT puballtables FROM pg_publication WHERE pubname=$1", pubName).Scan(&alltables); err != nil {
-			if err == pgx.ErrNoRows {
+			if errors.Is(err, pgx.ErrNoRows) {
 				return fmt.Errorf("publication does not exist: %s", pubName)
 			}
 			return fmt.Errorf("error while checking for publication existence: %w", err)
@@ -82,7 +94,7 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 				if err := row.Scan(&schema, &table); err != nil {
 					return "", err
 				}
-				return fmt.Sprintf("%s.%s", QuoteIdentifier(schema), QuoteIdentifier(table)), nil
+				return fmt.Sprintf("%s.%s", utils.QuoteIdentifier(schema), utils.QuoteIdentifier(table)), nil
 			})
 			if err != nil {
 				return err
@@ -147,6 +159,20 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		return errors.New("max_wal_senders must be at least 2")
 	}
 
+	serverVersion, err := shared.GetMajorVersion(ctx, c.conn)
+	if err != nil {
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	if serverVersion < shared.POSTGRES_16 {
+		var recoveryRes bool
+		if err := c.conn.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&recoveryRes); err != nil {
+			return fmt.Errorf("failed to check if Postgres is in recovery: %w", err)
+		}
+		if recoveryRes {
+			return errors.New("cannot create replication slots on a standby server with version <16")
+		}
+	}
+
 	return nil
 }
 
@@ -174,5 +200,51 @@ func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Cont
 	if _, err := c.conn.Exec(ctx, "DROP PUBLICATION "+pubName); err != nil {
 		return fmt.Errorf("failed to drop publication: %v", err)
 	}
+	return nil
+}
+
+func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+	noCDC := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
+	if !noCDC {
+		// Check replication connectivity
+		if err := c.CheckReplicationConnectivity(ctx); err != nil {
+			return fmt.Errorf("unable to establish replication connectivity: %w", err)
+		}
+
+		// Check permissions of postgres peer
+		if err := c.CheckReplicationPermissions(ctx, c.Config.User); err != nil {
+			return fmt.Errorf("failed to check replication permissions: %w", err)
+		}
+	}
+
+	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
+	for _, tableMapping := range cfg.TableMappings {
+		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+		if parseErr != nil {
+			return fmt.Errorf("invalid source table identifier: %w", parseErr)
+		}
+
+		sourceTables = append(sourceTables, parsedTable)
+	}
+
+	pubName := cfg.PublicationName
+	if pubName == "" && !noCDC {
+		srcTableNames := make([]string, 0, len(sourceTables))
+		for _, srcTable := range sourceTables {
+			srcTableNames = append(srcTableNames, fmt.Sprintf(
+				`%s.%s`, utils.QuoteIdentifier(srcTable.Schema), utils.QuoteIdentifier(srcTable.Table),
+			))
+		}
+
+		if err := c.CheckPublicationCreationPermissions(ctx, srcTableNames); err != nil {
+			return fmt.Errorf("invalid publication creation permissions: %w", err)
+		}
+	}
+
+	excludedColumnsList := internal.ConstructExcludedColumnsList(cfg.TableMappings)
+	if err := c.CheckSourceTables(ctx, sourceTables, pubName, noCDC, excludedColumnsList); err != nil {
+		return fmt.Errorf("provided source tables invalidated: %w", err)
+	}
+
 	return nil
 }

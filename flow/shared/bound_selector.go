@@ -20,7 +20,7 @@ func NewBoundSelector(ctx workflow.Context, selectorName string, limit int) *Bou
 	}
 }
 
-func (s *BoundSelector) SpawnChild(ctx workflow.Context, w interface{}, futureCallback func(workflow.Future), args ...interface{}) {
+func (s *BoundSelector) SpawnChild(ctx workflow.Context, w any, futureCallback func(workflow.Future), args ...any) {
 	if s.limit > 0 && s.count >= s.limit {
 		s.waitOne(ctx)
 	}

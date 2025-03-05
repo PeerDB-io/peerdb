@@ -4,10 +4,12 @@ import { Label } from '@/lib/Label';
 import Image from 'next/image';
 import { DBTypeToImageMapping } from './PeerComponent';
 
-export const DBTypeToGoodText = (ptype?: DBType) => {
+export function DBTypeToGoodText(ptype?: DBType) {
   switch (dBTypeFromJSON(ptype)) {
     case DBType.POSTGRES:
       return 'PostgreSQL';
+    case DBType.MYSQL:
+      return 'MySQL';
     case DBType.SNOWFLAKE:
       return 'Snowflake';
     case DBType.EVENTHUBS:
@@ -31,7 +33,7 @@ export const DBTypeToGoodText = (ptype?: DBType) => {
     default:
       return 'Unrecognised';
   }
-};
+}
 
 export default function PeerTypeLabel({ ptype }: { ptype: DBType }) {
   return (

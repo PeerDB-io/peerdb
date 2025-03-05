@@ -14,20 +14,22 @@ import (
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/middleware"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/middleware"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 type APIServerParams struct {
@@ -35,6 +37,7 @@ type APIServerParams struct {
 	TemporalNamespace string
 	Port              uint16
 	GatewayPort       uint16
+	EnableOtelMetrics bool
 }
 
 type RecryptItem struct {
@@ -47,13 +50,13 @@ type RecryptItem struct {
 // updateSql should take id, field, keyId as parameters respectively
 func recryptDatabase(
 	ctx context.Context,
-	catalogPool *pgxpool.Pool,
+	catalogPool shared.CatalogPool,
 	tag string,
 	selectSql string,
 	updateSql string,
 ) {
-	newKeyID := peerdbenv.PeerDBCurrentEncKeyID()
-	keys := peerdbenv.PeerDBEncKeys(ctx)
+	newKeyID := internal.PeerDBCurrentEncKeyID()
+	keys := internal.PeerDBEncKeys(ctx)
 	if newKeyID == "" {
 		if len(keys) == 0 {
 			slog.Warn("Encryption disabled. This is not recommended.")
@@ -190,6 +193,15 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		Namespace: args.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
+	if args.EnableOtelMetrics {
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowApiServiceName)
+		if metricsErr != nil {
+			return metricsErr
+		}
+		clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
+			Meter: metricsProvider.Meter("temporal-sdk-go"),
+		})
+	}
 
 	tc, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
@@ -206,20 +218,32 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	requestLoggingMiddleware := middleware.RequestLoggingMiddleWare()
 
-	// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged
-	interceptors := grpc.ChainUnaryInterceptor(
-		authGrpcMiddleware,
-		requestLoggingMiddleware,
-	)
+	serverOptions := []grpc.ServerOption{
+		// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged
+		grpc.ChainUnaryInterceptor(
+			authGrpcMiddleware,
+			requestLoggingMiddleware,
+		),
+	}
 
-	grpcServer := grpc.NewServer(interceptors)
+	if args.EnableOtelMetrics {
+		componentManager, err := otel_metrics.SetupComponentMetricsProvider(ctx, otel_metrics.FlowApiServiceName, "grpc-api")
+		if err != nil {
+			return fmt.Errorf("unable to metrics provider for grpc api: %w", err)
+		}
+		serverOptions = append(serverOptions, grpc.StatsHandler(otelgrpc.NewServerHandler(
+			otelgrpc.WithMeterProvider(componentManager),
+		)))
+	}
 
-	catalogPool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	grpcServer := grpc.NewServer(serverOptions...)
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}
 
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	flowHandler := NewFlowRequestHandler(tc, catalogPool, taskQueue)
 
 	err = killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue)
@@ -294,7 +318,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 }
 
 func setupTemporalClient(ctx context.Context, clientOptions client.Options) (client.Client, error) {
-	if peerdbenv.PeerDBTemporalEnableCertAuth() {
+	if internal.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
 
 		certs, err := parseTemporalCertAndKey(ctx)

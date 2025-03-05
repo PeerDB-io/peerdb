@@ -6,7 +6,8 @@ import {
   blankSSHConfig,
   sshSetter,
   sshSetting,
-} from '@/app/peers/create/[peerType]/helpers/pg';
+} from '@/app/peers/create/[peerType]/helpers/ssh';
+import InfoPopover from '@/components/InfoPopover';
 import { SSHConfig } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
@@ -15,7 +16,6 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { InfoPopover } from '../InfoPopover';
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
@@ -30,8 +30,8 @@ export default function PostgresForm({
   type,
 }: ConfigProps) {
   const searchParams = useSearchParams();
-  const [showSSH, setShowSSH] = useState<boolean>(false);
-  const [sshConfig, setSSHConfig] = useState<SSHConfig>(blankSSHConfig);
+  const [showSSH, setShowSSH] = useState(false);
+  const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
   const handleFile = (
     file: File,
     setFile: (value: string, configSetter: sshSetter) => void

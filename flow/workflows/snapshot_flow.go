@@ -11,12 +11,11 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/activities"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/activities"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type snapshotType int8
@@ -32,7 +31,6 @@ type SnapshotFlowExecution struct {
 	logger log.Logger
 }
 
-// ensurePullability ensures that the source peer is pullable.
 func (s *SnapshotFlowExecution) setupReplication(
 	ctx workflow.Context,
 ) (*protos.SetupReplicationOutput, error) {
@@ -42,6 +40,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 4 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
 			MaximumAttempts: 20,
 		},
 	})
@@ -61,8 +60,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	}
 
 	res := &protos.SetupReplicationOutput{}
-	setupReplicationFuture := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput)
-	if err := setupReplicationFuture.Get(ctx, &res); err != nil {
+	if err := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput).Get(ctx, &res); err != nil {
 		return nil, fmt.Errorf("failed to setup replication on source peer: %w", err)
 	}
 
@@ -78,6 +76,9 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 15 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 
 	if err := workflow.ExecuteActivity(ctx, snapshot.CloseSlotKeepAlive, s.config.FlowJobName).Get(ctx, nil); err != nil {
@@ -110,7 +111,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	s.logger.Info(fmt.Sprintf("Obtained child id %s for source table %s and destination table %s",
 		childWorkflowID, srcName, dstName), cloneLog)
 
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	childCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
@@ -126,6 +127,9 @@ func (s *SnapshotFlowExecution) cloneTable(
 		schemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			StartToCloseTimeout: time.Minute,
 			WaitForCancellation: true,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval: 1 * time.Minute,
+			},
 		})
 		return workflow.ExecuteActivity(
 			schemaCtx,
@@ -148,7 +152,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		quotedColumns := make([]string, 0, len(tableSchema.Columns))
 		for _, col := range tableSchema.Columns {
 			if !slices.Contains(mapping.Exclude, col.Name) {
-				quotedColumns = append(quotedColumns, connpostgres.QuoteIdentifier(col.Name))
+				quotedColumns = append(quotedColumns, utils.QuoteIdentifier(col.Name))
 			}
 		}
 		from = strings.Join(quotedColumns, ",")
@@ -250,8 +254,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 		if v.PartitionKey == "" {
 			v.PartitionKey = defaultPartitionCol
 		}
-		err := s.cloneTable(ctx, boundSelector, snapshotName, v)
-		if err != nil {
+		if err := s.cloneTable(ctx, boundSelector, snapshotName, v); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
 			continue
 		}
@@ -311,30 +314,28 @@ func SnapshotFlowWorkflow(
 
 	numTablesInParallel := int(max(config.SnapshotNumTablesInParallel, 1))
 
-	if !config.DoInitialSnapshot {
-		_, err := se.setupReplication(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to setup replication: %w", err)
-		}
-
-		if err := se.closeSlotKeepAlive(ctx); err != nil {
-			return fmt.Errorf("failed to close slot keep alive: %w", err)
-		}
-
-		return nil
-	}
-
 	sessionOpts := &workflow.SessionOptions{
 		CreationTimeout:  5 * time.Minute,
 		ExecutionTimeout: time.Hour * 24 * 365 * 100, // 100 years
 		HeartbeatTimeout: time.Hour,
 	}
-
 	sessionCtx, err := workflow.CreateSession(ctx, sessionOpts)
 	if err != nil {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 	defer workflow.CompleteSession(sessionCtx)
+
+	if !config.DoInitialSnapshot {
+		if _, err := se.setupReplication(sessionCtx); err != nil {
+			return fmt.Errorf("failed to setup replication: %w", err)
+		}
+
+		if err := se.closeSlotKeepAlive(sessionCtx); err != nil {
+			return fmt.Errorf("failed to close slot keep alive: %w", err)
+		}
+
+		return nil
+	}
 
 	if config.InitialSnapshotOnly {
 		sessionInfo := workflow.GetSessionInfo(sessionCtx)
@@ -343,6 +344,9 @@ func SnapshotFlowWorkflow(
 			StartToCloseTimeout: sessionOpts.ExecutionTimeout,
 			HeartbeatTimeout:    10 * time.Minute,
 			WaitForCancellation: true,
+			RetryPolicy: &temporal.RetryPolicy{
+				InitialInterval: 1 * time.Minute,
+			},
 		})
 
 		fMaintain := workflow.ExecuteActivity(

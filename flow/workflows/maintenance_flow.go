@@ -10,19 +10,19 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func getMaintenanceWorkflowOptions(workflowIDPrefix string, taskQueueId shared.TaskQueueID) client.StartWorkflowOptions {
 	maintenanceWorkflowOptions := client.StartWorkflowOptions{
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		TaskQueue:                peerdbenv.PeerFlowTaskQueueName(taskQueueId),
+		TaskQueue:                internal.PeerFlowTaskQueueName(taskQueueId),
 		ID:                       workflowIDPrefix,
 	}
-	if deploymentUid := peerdbenv.PeerDBDeploymentUID(); deploymentUid != "" {
+	if deploymentUid := internal.PeerDBDeploymentUID(); deploymentUid != "" {
 		maintenanceWorkflowOptions.ID += "-" + deploymentUid
 	}
 	return maintenanceWorkflowOptions
@@ -291,15 +291,8 @@ func runBackgroundAlerter(ctx workflow.Context) workflow.CancelFunc {
 	return cancelActivity
 }
 
-func GetPeerDBVersion(wCtx workflow.Context) (string, error) {
-	activityCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
-		StartToCloseTimeout: time.Minute,
-	})
-	getVersionActivity := func(ctx context.Context) (string, error) {
-		return peerdbenv.PeerDBVersionShaShort(), nil
-	}
-	var version string
-	future := workflow.ExecuteLocalActivity(activityCtx, getVersionActivity)
-	err := future.Get(activityCtx, &version)
-	return version, err
+func GetPeerDBVersion(ctx workflow.Context) (string, error) {
+	return GetSideEffect(ctx, func(workflow.Context) string {
+		return internal.PeerDBVersionShaShort()
+	}), nil
 }

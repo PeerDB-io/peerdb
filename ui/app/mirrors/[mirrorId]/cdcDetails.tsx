@@ -141,9 +141,7 @@ export default function CdcDetails({
   );
 }
 
-const SyncIntervalLabel: React.FC<{ syncInterval?: number }> = ({
-  syncInterval,
-}) => {
+function SyncIntervalLabel({ syncInterval }: { syncInterval?: number }) {
   let formattedInterval: string;
 
   if (!syncInterval) {
@@ -159,4 +157,4 @@ const SyncIntervalLabel: React.FC<{ syncInterval?: number }> = ({
   }
 
   return <Label>{formattedInterval}</Label>;
-};
+}

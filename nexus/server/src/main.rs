@@ -1,6 +1,8 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Write,
+    fs::File,
+    io,
     sync::Arc,
     time::Duration,
 };
@@ -26,14 +28,13 @@ use pgwire::{
             AuthSource, LoginInfo, Password, ServerParameterProvider,
         },
         copy::NoopCopyHandler,
-        NoopErrorHandler,
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler},
         results::{
             DescribePortalResponse, DescribeResponse, DescribeStatementResponse, Response, Tag,
         },
         stmt::StoredStatement,
-        ClientInfo, PgWireServerHandlers, Type,
+        ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
@@ -43,9 +44,13 @@ use pt::{
     peerdb_peers::{peer::Config, Peer},
 };
 use rand::Rng;
+use rustls_pemfile::{certs, pkcs8_private_keys};
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
+use tokio_rustls::rustls::ServerConfig;
+use tokio_rustls::TlsAcceptor;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -67,7 +72,7 @@ impl AuthSource for FixedPasswordAuthSource {
         tracing::info!("login info: {:?}", login_info);
 
         // randomly generate a 4 byte salt
-        let salt = rand::thread_rng().gen::<[u8; 4]>();
+        let salt = rand::rng().random::<[u8; 4]>();
         let hash_password = gen_salted_password(&self.password, &salt, 4096);
         Ok(Password::new(Some(salt.to_vec()), hash_password))
     }
@@ -167,7 +172,7 @@ impl NexusBackend {
         }
     }
 
-    async fn create_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
+    async fn create_peer(&self, peer: &Peer) -> anyhow::Result<()> {
         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
 
         let create_request = pt::peerdb_route::CreatePeerRequest {
@@ -1016,8 +1021,8 @@ fn setup_tracing(log_dir: Option<&str>) -> TracerGuards {
     }
 }
 
-async fn run_migrations<'a>(
-    config: &CatalogConfig<'a>,
+async fn run_migrations(
+    config: &CatalogConfig<'_>,
     kms_key_id: &Option<Arc<String>>,
 ) -> anyhow::Result<()> {
     // retry connecting to the catalog 3 times with 30 seconds delay
@@ -1039,6 +1044,29 @@ async fn run_migrations<'a>(
     }
 
     Err(anyhow::anyhow!("Failed to connect to catalog"))
+}
+
+fn setup_tls(args: &Args) -> Result<Option<TlsAcceptor>, io::Error> {
+    if let (Some(tls_cert), Some(tls_key)) = (args.tls_cert.as_deref(), args.tls_key.as_deref()) {
+        let cert = certs(&mut io::BufReader::new(File::open(tls_cert)?))
+            .collect::<Result<Vec<CertificateDer>, io::Error>>()?;
+
+        let key = pkcs8_private_keys(&mut io::BufReader::new(File::open(tls_key)?))
+            .map(|key| key.map(PrivateKeyDer::from))
+            .collect::<Result<Vec<PrivateKeyDer>, io::Error>>()?
+            .remove(0);
+
+        let mut config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(cert, key)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+
+        config.alpn_protocols = vec![b"postgresql".to_vec()];
+
+        Ok(Some(TlsAcceptor::from(Arc::new(config))))
+    } else {
+        Ok(None)
+    }
 }
 
 pub struct Handlers {
@@ -1107,6 +1135,8 @@ pub async fn main() -> anyhow::Result<()> {
         Arc::new(NexusServerParameterProvider),
     );
 
+    let tls_acceptor = setup_tls(&args)?.map(Arc::new);
+
     let peer_conns = {
         let conn_str = catalog_config.to_pg_connection_string();
         let pconns = PeerConnections::new(&conn_str)?;
@@ -1137,6 +1167,7 @@ pub async fn main() -> anyhow::Result<()> {
         let authenticator = authenticator.clone();
         let pg_config = catalog_config.to_postgres_config();
         let kms_key_id = args.kms_key_id.clone();
+        let tls_acceptor = tls_acceptor.clone();
 
         tokio::task::spawn(async move {
             match Catalog::new(pg_config, &kms_key_id).await {
@@ -1152,7 +1183,7 @@ pub async fn main() -> anyhow::Result<()> {
                     ));
                     process_socket(
                         socket,
-                        None,
+                        tls_acceptor,
                         Arc::new(Handlers {
                             nexus,
                             authenticator,

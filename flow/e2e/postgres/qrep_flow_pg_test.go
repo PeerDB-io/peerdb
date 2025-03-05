@@ -1,7 +1,6 @@
 package e2e_postgres
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -12,12 +11,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
@@ -25,13 +23,13 @@ func TestPeerFlowE2ETestSuitePG(t *testing.T) {
 }
 
 func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
-	require.NoError(s.t, e2e.CreateTableForQRep(s.Conn(), s.suffix, tableName))
+	require.NoError(s.t, e2e.CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, tableName))
 	s.populateSourceTable(tableName, rowCount)
 }
 
 func (s PeerFlowE2ETestSuitePG) populateSourceTable(tableName string, rowCount int) {
 	if rowCount > 0 {
-		require.NoError(s.t, e2e.PopulateSourceTable(s.Conn(), s.suffix, tableName, rowCount))
+		require.NoError(s.t, e2e.PopulateSourceTable(s.t.Context(), s.Conn(), s.suffix, tableName, rowCount))
 	}
 }
 
@@ -50,7 +48,7 @@ func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualifie
 		"SELECT 1 FROM %s dst "+
 		"WHERE src.my_mood::text = dst.my_mood::text)) LIMIT 1;", srcSchemaQualified,
 		dstSchemaQualified)
-	err := s.Conn().QueryRow(context.Background(), query).Scan(&exists)
+	err := s.Conn().QueryRow(s.t.Context(), query).Scan(&exists)
 	if err != nil {
 		return err
 	}
@@ -64,7 +62,7 @@ func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualifie
 func (s PeerFlowE2ETestSuitePG) compareQuery(srcSchemaQualified, dstSchemaQualified, selector string) error {
 	query := fmt.Sprintf("SELECT %s FROM %s EXCEPT SELECT %s FROM %s", selector, srcSchemaQualified,
 		selector, dstSchemaQualified)
-	rows, err := s.Conn().Query(context.Background(), query, pgx.QueryExecModeExec)
+	rows, err := s.Conn().Query(s.t.Context(), query, pgx.QueryExecModeExec)
 	if err != nil {
 		return err
 	}
@@ -112,7 +110,7 @@ func (s PeerFlowE2ETestSuitePG) compareCounts(dstSchemaQualified string, expecte
 func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 	query := `SELECT "_PEERDB_SYNCED_AT" FROM ` + dstSchemaQualified
 
-	rows, _ := s.Conn().Query(context.Background(), query)
+	rows, _ := s.Conn().Query(s.t.Context(), query)
 
 	defer rows.Close()
 	for rows.Next() {
@@ -132,23 +130,23 @@ func (s PeerFlowE2ETestSuitePG) checkSyncedAt(dstSchemaQualified string) error {
 
 func (s PeerFlowE2ETestSuitePG) RunInt64Query(query string) (int64, error) {
 	var count pgtype.Int8
-	err := s.Conn().QueryRow(context.Background(), query).Scan(&count)
+	err := s.Conn().QueryRow(s.t.Context(), query).Scan(&count)
 	return count.Int64, err
 }
 
 func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
-	setupTx, err := s.Conn().Begin(context.Background())
+	setupTx, err := s.Conn().Begin(s.t.Context())
 	require.NoError(s.t, err)
 	// setup 3 tables in pgpeer_repl_test schema
 	// test_1, test_2, test_3, all have 5 columns all text, c1, c2, c3, c4, c5
 	tables := []string{"test_1", "test_2", "test_3"}
 	for _, table := range tables {
-		_, err = setupTx.Exec(context.Background(),
+		_, err = setupTx.Exec(s.t.Context(),
 			fmt.Sprintf("CREATE TABLE e2e_test_%s.%s (c1 text, c2 text, c3 text, c4 text, c5 text)", s.suffix, table))
 		require.NoError(s.t, err)
 	}
 
-	err = setupTx.Commit(context.Background())
+	err = setupTx.Commit(s.t.Context())
 	require.NoError(s.t, err)
 
 	flowJobName := "test_simple_slot_creation"
@@ -159,17 +157,14 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 		},
 	}
 
-	signal := connpostgres.NewSlotSignal()
-	go s.conn.SetupReplication(context.Background(), signal, setupReplicationInput)
-
 	s.t.Log("waiting for slot creation to complete: " + flowJobName)
-	slotInfo := <-signal.SlotCreated
-	s.t.Logf("slot creation complete: %v. Signaling clone complete in 2 seconds", slotInfo)
-	time.Sleep(2 * time.Second)
-	close(signal.CloneComplete)
+	slotInfo, err := s.conn.SetupReplication(s.t.Context(), setupReplicationInput)
+	require.NoError(s.t, err)
 
-	require.NoError(s.t, slotInfo.Err)
-	s.t.Logf("successfully setup replication: %s", flowJobName)
+	s.t.Logf("slot creation complete: %v", slotInfo)
+	if slotInfo.Conn != nil {
+		require.NoError(s.t, slotInfo.Conn.Close(s.t.Context()))
+	}
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
@@ -180,7 +175,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	dstTable := "test_qrep_flow_avro_pg_2"
 
-	err := e2e.CreateTableForQRep(s.Conn(), s.suffix, dstTable)
+	err := e2e.CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, dstTable)
 	require.NoError(s.t, err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
@@ -203,9 +198,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
 	require.NoError(s.t, err)
@@ -219,7 +214,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 
 	dstTable := "test_qrep_flow_pgpg_2"
 
-	err := e2e.CreateTableForQRep(s.Conn(), s.suffix, dstTable)
+	err := e2e.CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, dstTable)
 	require.NoError(s.t, err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
@@ -243,9 +238,9 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	qrepConfig.System = protos.TypeSystem_PG
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
 	require.NoError(s.t, err)
@@ -279,9 +274,9 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	require.NoError(s.t, s.checkSyncedAt(dstSchemaQualified))
 }
@@ -318,7 +313,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	qrepConfig.InitialCopyOnly = false
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
 		err := s.compareCounts(dstSchemaQualified, int64(numRows))
 		return err == nil
@@ -332,7 +327,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 		return err == nil
 	})
 
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
@@ -363,9 +358,9 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_Pause() {
@@ -397,11 +392,11 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 	config.InitialCopyOnly = false
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(tc, config)
-	e2e.SignalWorkflow(env, model.FlowSignal, model.PauseSignal)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, config)
+	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
-		response, err := env.Query(shared.QRepFlowStateQuery)
+		response, err := env.Query(s.t.Context(), shared.QRepFlowStateQuery)
 		if err != nil {
 			s.t.Log(err)
 			return false
@@ -413,9 +408,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 		}
 		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED
 	})
-	e2e.SignalWorkflow(env, model.FlowSignal, model.NoopSignal)
+	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.NoopSignal)
 	e2e.EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
-		response, err := env.Query(shared.QRepFlowStateQuery)
+		response, err := env.Query(s.t.Context(), shared.QRepFlowStateQuery)
 		if err != nil {
 			s.t.Fatal(err)
 		}
@@ -427,7 +422,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING
 	})
 
-	env.Cancel()
+	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -444,7 +439,7 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}", srcSchemaQualified)
 
-	_, err := s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	_, err := s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
 	('pgtransform', 'lua', 'function transformRow(row) row.myreal = 1729 end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
@@ -467,15 +462,15 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 	qrepConfig.Script = "pgtransform"
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
 		err := s.compareCounts(dstSchemaQualified, int64(numRows))
 		return err == nil
 	})
-	require.NoError(s.t, env.Error())
+	require.NoError(s.t, env.Error(s.t.Context()))
 
 	var exists bool
-	err = s.Conn().QueryRow(context.Background(),
+	err = s.Conn().QueryRow(s.t.Context(),
 		fmt.Sprintf("select exists(select * from %s where myreal <> 1729)", dstSchemaQualified)).Scan(&exists)
 	require.NoError(s.t, err)
 	require.False(s.t, exists)

@@ -7,7 +7,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
-async-recursion = "1.0.0"
 async-trait = "0.1.57"
 base64 = "0.22"
 catalog = { path = "../catalog" }
@@ -27,5 +26,4 @@ sha2 = "0.10"
 sqlparser.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-ureq = { version = "2", features = ["json", "charset"] }
 value = { path = "../value" }

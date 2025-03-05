@@ -8,13 +8,14 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 // Function to compare two values
-func compareValues(prevEnd interface{}, start interface{}) int {
+func compareValues(prevEnd any, start any) int {
 	switch v := start.(type) {
 	case int64:
 		return cmp.Compare(prevEnd.(int64), v)
@@ -42,7 +43,7 @@ func compareValues(prevEnd interface{}, start interface{}) int {
 }
 
 // Function to adjust start value
-func adjustStartValue(prevEnd interface{}, start interface{}) interface{} {
+func adjustStartValue(prevEnd any, start any) any {
 	switch start.(type) {
 	case int64:
 		return prevEnd.(int64) + 1
@@ -120,19 +121,21 @@ func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition 
 }
 
 type PartitionHelper struct {
-	prevStart  interface{}
-	prevEnd    interface{}
+	logger     log.Logger
+	prevStart  any
+	prevEnd    any
 	partitions []*protos.QRepPartition
 }
 
-func NewPartitionHelper() *PartitionHelper {
+func NewPartitionHelper(logger log.Logger) *PartitionHelper {
 	return &PartitionHelper{
+		logger:     logger,
 		partitions: make([]*protos.QRepPartition, 0),
 	}
 }
 
-func (p *PartitionHelper) AddPartition(start interface{}, end interface{}) error {
-	slog.Debug(fmt.Sprintf("adding partition - start: %v, end: %v", start, end))
+func (p *PartitionHelper) AddPartition(start any, end any) error {
+	p.logger.Info("adding partition", slog.Any("start", start), slog.Any("end", end))
 
 	// Skip partition if it's fully contained within the previous one
 	// If it's not fully contained but overlaps, adjust the start
@@ -142,9 +145,8 @@ func (p *PartitionHelper) AddPartition(start interface{}, end interface{}) error
 			// If end is also less than or equal to prevEnd, skip this partition
 			if compareValues(p.prevEnd, end) >= 0 {
 				// log the skipped partition
-				slog.Debug(fmt.Sprintf("skipping partition - start: %v, end: %v", start, end))
-				slog.Debug(fmt.Sprintf("fully contained within previous partition: start: %v, end: %v",
-					p.prevStart, p.prevEnd))
+				p.logger.Info("skipping partition, fully contained within previous partition",
+					slog.Any("start", start), slog.Any("end", end), slog.Any("prevStart", p.prevStart), slog.Any("prevEnd", p.prevEnd))
 				return nil
 			}
 			// If end is greater than prevEnd, adjust the start

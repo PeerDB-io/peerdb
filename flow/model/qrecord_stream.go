@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 type QRecordStream struct {
@@ -22,9 +22,9 @@ func NewQRecordStream(buffer int) *QRecordStream {
 	}
 }
 
-func (s *QRecordStream) Schema() qvalue.QRecordSchema {
+func (s *QRecordStream) Schema() (qvalue.QRecordSchema, error) {
 	<-s.schemaLatch
-	return s.schema
+	return s.schema, s.Err()
 }
 
 func (s *QRecordStream) SetSchema(schema qvalue.QRecordSchema) {
@@ -54,5 +54,8 @@ func (s *QRecordStream) Close(err error) {
 	if s.err == nil {
 		s.err = err
 		close(s.Records)
+	}
+	if !s.schemaSet {
+		s.SetSchema(qvalue.QRecordSchema{})
 	}
 }

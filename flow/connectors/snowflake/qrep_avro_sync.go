@@ -11,12 +11,12 @@ import (
 
 	_ "github.com/snowflakedb/gosnowflake"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type SnowflakeAvroSyncHandler struct {
@@ -44,7 +44,10 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
-	schema := stream.Schema()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, stream.Err()
+	}
 
 	s.logger.Info("sync function called and schema acquired", tableLog)
 
@@ -95,11 +98,13 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 
-	schema := stream.Schema()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 	s.logger.Info("sync function called and schema acquired", partitionLog)
 
-	err := s.addMissingColumns(ctx, config.Env, schema, dstTableSchema, dstTableName, partition)
-	if err != nil {
+	if err := s.addMissingColumns(ctx, config.Env, schema, dstTableSchema, dstTableName, partition); err != nil {
 		return 0, err
 	}
 
@@ -164,7 +169,7 @@ func (s *SnowflakeAvroSyncHandler) addMissingColumns(
 		}
 
 		for _, column := range newColumns {
-			sfColType, err := column.ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE)
+			sfColType, err := column.ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE, false)
 			if err != nil {
 				return fmt.Errorf("failed to convert QValueKind to Snowflake column type: %w", err)
 			}

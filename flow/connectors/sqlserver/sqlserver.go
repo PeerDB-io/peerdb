@@ -8,9 +8,9 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	"go.temporal.io/sdk/log"
 
-	peersql "github.com/PeerDB-io/peer-flow/connectors/sql"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	peersql "github.com/PeerDB-io/peerdb/flow/connectors/sql"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type SQLServerConnector struct {
@@ -35,7 +35,7 @@ func NewSQLServerConnector(ctx context.Context, config *protos.SqlServerConfig) 
 		return nil, err
 	}
 
-	logger := shared.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
 	genericExecutor := *peersql.NewGenericSQLQueryExecutor(
 		logger, db, sqlServerTypeToQValueKindMap, qValueKindToSQLServerTypeMap)

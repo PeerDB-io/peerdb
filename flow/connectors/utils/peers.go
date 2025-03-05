@@ -5,16 +5,16 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func CreatePeerNoValidate(
 	ctx context.Context,
-	pool *pgxpool.Pool,
+	pool shared.CatalogPool,
 	peer *protos.Peer,
 	allowUpdate bool,
 ) (*protos.CreatePeerResponse, error) {
@@ -114,13 +114,12 @@ func CreatePeerNoValidate(
 		onConflict = "UPDATE SET type = $2,options = $3,enc_key_id = $4"
 	}
 
-	_, err = pool.Exec(ctx, `
+	if _, err := pool.Exec(ctx, `
 		INSERT INTO peers (name, type, options, enc_key_id)
 		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (name) DO `+onConflict,
 		peer.Name, peerType, encryptedConfig, keyID,
-	)
-	if err != nil {
+	); err != nil {
 		return &protos.CreatePeerResponse{
 			Status: protos.CreatePeerStatus_FAILED,
 			Message: fmt.Sprintf("failed to upsert into peers table for %s peer %s: %s",
@@ -135,7 +134,7 @@ func CreatePeerNoValidate(
 }
 
 func encryptPeerOptions(ctx context.Context, peerOptions []byte) ([]byte, string, error) {
-	key, err := peerdbenv.PeerDBCurrentEncKey(ctx)
+	key, err := internal.PeerDBCurrentEncKey(ctx)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to get current encryption key: %w", err)
 	}

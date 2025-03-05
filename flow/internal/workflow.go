@@ -1,4 +1,4 @@
-package shared
+package internal
 
 import (
 	"context"
@@ -6,13 +6,13 @@ import (
 	"log/slog"
 
 	"go.temporal.io/sdk/client"
-	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func GetWorkflowStatus(ctx context.Context, temporalClient client.Client, workflowID string) (protos.FlowStatus, error) {
-	res, err := temporalClient.QueryWorkflow(ctx, workflowID, "", FlowStatusQuery)
+	res, err := temporalClient.QueryWorkflow(ctx, workflowID, "", shared.FlowStatusQuery)
 	if err != nil {
 		slog.Error("failed to query status in workflow with ID "+workflowID, slog.Any("error", err))
 		return protos.FlowStatus_STATUS_UNKNOWN,
@@ -25,10 +25,4 @@ func GetWorkflowStatus(ctx context.Context, temporalClient client.Client, workfl
 			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
 	}
 	return state, nil
-}
-
-func ShouldWorkflowContinueAsNew(ctx workflow.Context) bool {
-	info := workflow.GetInfo(ctx)
-	return info.GetContinueAsNewSuggested() &&
-		(info.GetCurrentHistoryLength() > 40960 || info.GetCurrentHistorySize() > 40*1024*1024)
 }

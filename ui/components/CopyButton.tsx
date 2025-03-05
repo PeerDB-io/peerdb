@@ -1,14 +1,14 @@
 'use client';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 
-export const CopyButton = ({ text }: { text: string }) => {
+export default function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
-  const handleClick = () => {
+  const handleClick = useCallback(() => {
     navigator.clipboard.writeText(text);
     setCopied(true);
-  };
+  }, [text]);
   return (
     <Button
       variant='normalBorderless'
@@ -21,4 +21,4 @@ export const CopyButton = ({ text }: { text: string }) => {
       <Icon name={copied ? 'check' : 'content_copy'} />
     </Button>
   );
-};
+}

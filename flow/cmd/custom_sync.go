@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 const (
@@ -58,7 +58,7 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 	}
 
 	// Parallel sync-normalise should not be enabled
-	parallelSyncNormaliseEnabled, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx, nil)
+	parallelSyncNormaliseEnabled, err := internal.PeerDBEnableParallelSyncNormalize(ctx, nil)
 	if err != nil {
 		return nil, errors.New("server error: unable to check if parallel sync-normalise is enabled")
 	}

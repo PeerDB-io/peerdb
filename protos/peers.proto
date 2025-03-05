@@ -133,6 +133,18 @@ message SqlServerConfig {
   string database = 5;
 }
 
+enum MySqlFlavor {
+  MYSQL_UNKNOWN = 0;
+  MYSQL_MYSQL = 1;
+  MYSQL_MARIA = 2;
+}
+
+enum MySqlReplicationMechanism {
+  MYSQL_AUTO = 0;
+  MYSQL_GTID = 1;
+  MYSQL_FILEPOS = 2;
+}
+
 message MySqlConfig {
   string host = 1;
   uint32 port = 2;
@@ -142,6 +154,10 @@ message MySqlConfig {
   repeated string setup = 6;
   uint32 compression = 7;
   bool disable_tls = 8;
+  MySqlFlavor flavor = 9;
+  optional SSHConfig ssh_config = 10;
+  MySqlReplicationMechanism replication_mechanism = 11;
+  optional string root_ca = 14 [(peerdb_redacted) = true];
 }
 
 message KafkaConfig {

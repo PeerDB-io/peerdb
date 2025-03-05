@@ -3,6 +3,7 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync/atomic"
@@ -10,21 +11,24 @@ import (
 
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/otel_metrics"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PeerType string
@@ -91,9 +95,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 			FlowName:         config.FlowJobName,
 			System:           config.System,
 		}); err != nil {
-			err = fmt.Errorf("failed to execute schema update at source: %w", err)
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return err
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}
 	}
 	return nil
@@ -109,12 +111,12 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncingBatchID *atomic.Int64,
 	syncState *atomic.Pointer[string],
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
-	pull func(TPull, context.Context, *pgxpool.Pool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
+	pull func(TPull, context.Context, shared.CatalogPool, *otel_metrics.OtelManager, *model.PullRecordsRequest[Items]) error,
 	sync func(TSync, context.Context, *model.SyncRecordsRequest[Items]) (*model.SyncResponse, error),
 ) (*model.SyncResponse, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
@@ -130,25 +132,28 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		batchSize = 250_000
 	}
 
-	lastOffset, err := func() (int64, error) {
-		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get destination connector: %w", err)
-		}
-		defer connectors.CloseConnector(ctx, dstConn)
+	lastOffset, err := func() (model.CdcCheckpoint, error) {
+		if myConn, isMy := any(srcConn).(*connmysql.MySqlConnector); isMy {
+			return myConn.GetLastOffset(ctx, config.FlowJobName)
+		} else {
+			dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+			if err != nil {
+				return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector: %w", err)
+			}
+			defer connectors.CloseConnector(ctx, dstConn)
 
-		return dstConn.GetLastOffset(ctx, config.FlowJobName)
+			return dstConn.GetLastOffset(ctx, config.FlowJobName)
+		}
 	}()
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, err
+		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
 	}
 
-	logger.Info("pulling records...", slog.Int64("LastOffset", lastOffset))
+	logger.Info("pulling records...", slog.Any("LastOffset", lastOffset))
 	consumedOffset := atomic.Int64{}
-	consumedOffset.Store(lastOffset)
+	consumedOffset.Store(lastOffset.ID)
 
-	channelBufferSize, err := peerdbenv.PeerDBCDCChannelBufferSize(ctx, config.Env)
+	channelBufferSize, err := internal.PeerDBCDCChannelBufferSize(ctx, config.Env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC channel buffer size: %w", err)
 	}
@@ -177,7 +182,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			LastOffset:            lastOffset,
 			ConsumedOffset:        &consumedOffset,
 			MaxBatchSize:          batchSize,
-			IdleTimeout: peerdbenv.PeerDBCDCIdleTimeoutSeconds(
+			IdleTimeout: internal.PeerDBCDCIdleTimeoutSeconds(
 				int(options.IdleTimeoutSeconds),
 			),
 			TableNameSchemaMapping:      tableNameSchemaMapping,
@@ -195,9 +200,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		// wait for the pull goroutine to finish
 		if err := errGroup.Wait(); err != nil {
 			// don't log flow error for "replState changed" and "slot is already active"
-			if !(temporal.IsApplicationError(err) ||
-				shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
-				a.Alerter.LogFlowError(ctx, flowName, err)
+			if !(temporal.IsApplicationError(err) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+				_ = a.Alerter.LogFlowError(ctx, flowName, err)
 			}
 			if temporal.IsApplicationError(err) {
 				return nil, err
@@ -221,7 +225,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
 	}
 
-	var syncStartTime time.Time
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
 		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
@@ -244,11 +247,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			BatchEndlSN: 0,
 			StartTime:   startTime,
 		}); err != nil {
-			a.Alerter.LogFlowError(ctx, flowName, err)
-			return err
+			return a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 
-		syncStartTime = time.Now()
 		res, err = sync(dstConn, errCtx, &model.SyncRecordsRequest[Items]{
 			SyncBatchID:            syncBatchID,
 			Records:                recordBatchSync,
@@ -260,42 +261,42 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			TableNameSchemaMapping: tableNameSchemaMapping,
 		})
 		if err != nil {
-			a.Alerter.LogFlowError(ctx, flowName, err)
-			return fmt.Errorf("failed to push records: %w", err)
+			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))
 		}
 
 		logger.Info("finished pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
 		return nil
 	})
 
+	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		if !(temporal.IsApplicationError(err) ||
-			shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
-			a.Alerter.LogFlowError(ctx, flowName, err)
+		if !(temporal.IsApplicationError(err) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		if temporal.IsApplicationError(err) {
 			return nil, err
 		} else {
-			return nil, fmt.Errorf("failed to pull records: %w", err)
+			return nil, fmt.Errorf("[cdc] failed to pull records: %w", err)
 		}
 	}
 	syncState.Store(shared.Ptr("bookkeeping"))
 
 	syncDuration := time.Since(syncStartTime)
 	lastCheckpoint := recordBatchSync.GetLastCheckpoint()
-	srcConn.UpdateReplStateLastOffset(lastCheckpoint)
+	logger.Info("batch synced", slog.Any("checkpoint", lastCheckpoint))
+	if err := srcConn.UpdateReplStateLastOffset(ctx, lastCheckpoint); err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
+	}
 
 	if err := monitoring.UpdateNumRowsAndEndLSNForCDCBatch(
 		ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, uint32(res.NumRecordsSynced), lastCheckpoint,
 	); err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, err
+		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
 	}
 
-	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint); err != nil {
-		a.Alerter.LogFlowError(ctx, flowName, err)
-		return nil, err
+	if err := monitoring.UpdateLatestLSNAtTargetForCDCFlow(ctx, a.CatalogPool, flowName, lastCheckpoint.ID); err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
 	}
 	if res.TableNameRowsMapping != nil {
 		if err := monitoring.AddCDCBatchTablesForFlow(
@@ -310,13 +311,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
 	if a.OtelManager != nil {
-		currentBatchID, err := a.OtelManager.GetOrInitInt64Gauge(
-			otel_metrics.BuildMetricName(otel_metrics.CurrentBatchIdGaugeName))
-		if err != nil {
-			logger.Error("Failed to get current batch id gauge", slog.Any("error", err))
-		} else {
-			currentBatchID.Record(ctx, res.CurrentSyncBatchID)
-		}
+		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 	}
 
 	syncState.Store(shared.Ptr("updating schema"))
@@ -325,7 +320,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if recordBatchSync.NeedsNormalize() {
-		parallel, err := peerdbenv.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
+		parallel, err := internal.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
 		if err != nil {
 			return nil, err
 		}
@@ -368,7 +363,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 			return nil, err
 		}
 
-		peerOptions, err := peerdbenv.Decrypt(ctx, encKeyID, encPeerOptions)
+		peerOptions, err := internal.Decrypt(ctx, encKeyID, encPeerOptions)
 		if err != nil {
 			return nil, err
 		}
@@ -387,7 +382,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 }
 
 // replicateQRepPartition replicates a QRepPartition from the source to the destination.
-func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
+func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.QRepConfig,
@@ -404,12 +399,11 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return fmt.Errorf("failed to get qrep destination connector: %w", err)
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep destination connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
@@ -418,8 +412,7 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		PartitionId: partition.PartitionId,
 	})
 	if err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return fmt.Errorf("failed to get fetch status of partition: %w", err)
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get fetch status of partition: %w", err))
 	}
 	if done {
 		logger.Info("no records to push for partition " + partition.PartitionId)
@@ -428,8 +421,7 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	}
 
 	if err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, time.Now()); err != nil {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return fmt.Errorf("failed to update start time for partition: %w", err)
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to update start time for partition: %w", err))
 	}
 
 	logger.Info("replicating partition " + partition.PartitionId)
@@ -439,15 +431,14 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	errGroup.Go(func() error {
 		srcConn, err := connectors.GetByNameAs[TPull](ctx, config.Env, a.CatalogPool, config.SourceName)
 		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to get qrep source connector: %w", err)
+			stream.Close(err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep source connector: %w", err))
 		}
 		defer connectors.CloseConnector(ctx, srcConn)
 
 		tmp, err := pullRecords(srcConn, errCtx, config, partition, stream)
 		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to pull records: %w", err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("[qrep] failed to pull records: %w", err))
 		}
 		numRecords := int64(tmp)
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
@@ -462,15 +453,13 @@ func replicateQRepPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		var err error
 		rowsSynced, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to sync records: %w", err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
 		}
 		return context.Canceled
 	})
 
 	if err := errGroup.Wait(); err != nil && err != context.Canceled {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return err
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
 	if rowsSynced > 0 {
@@ -502,17 +491,10 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
-
-	startTime := time.Now()
-
+	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("replicating xmin")
-	shutdown := heartbeatRoutine(ctx, func() string {
-		return "syncing xmin"
-	})
-	defer shutdown()
-
 	errGroup, errCtx := errgroup.WithContext(ctx)
+	startTime := time.Now()
 
 	var currentSnapshotXmin int64
 	var rowsSynced int
@@ -527,9 +509,8 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		var numRecords int
 		numRecords, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
 		if pullErr != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
 			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", pullErr))
-			return pullErr
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
 		}
 
 		// The first sync of an XMIN mirror will have a partition without a range
@@ -546,10 +527,10 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 				},
 			}
 		}
-		updateErr := monitoring.InitializeQRepRun(
-			ctx, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics}, config.ParentMirrorName)
-		if updateErr != nil {
-			return updateErr
+		if err := monitoring.InitializeQRepRun(
+			ctx, logger, a.CatalogPool, config, runUUID, []*protos.QRepPartition{partitionForMetrics}, config.ParentMirrorName,
+		); err != nil {
+			return err
 		}
 
 		if err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, startTime); err != nil {
@@ -575,15 +556,13 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 
 		rowsSynced, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
-			a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-			return fmt.Errorf("failed to sync records: %w", err)
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
 		}
 		return context.Canceled
 	})
 
 	if err := errGroup.Wait(); err != nil && err != context.Canceled {
-		a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-		return 0, err
+		return 0, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
 	if rowsSynced > 0 {
@@ -612,8 +591,7 @@ func (a *FlowableActivity) maintainReplConn(
 		select {
 		case <-ticker.C:
 			if err := srcConn.ReplPing(ctx); err != nil {
-				a.Alerter.LogFlowError(ctx, flowName, err)
-				return fmt.Errorf("connection to source down: %w", err)
+				return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("connection to source down: %w", err))
 			}
 		case <-syncDone:
 			return nil
@@ -621,6 +599,56 @@ func (a *FlowableActivity) maintainReplConn(
 			return nil
 		}
 	}
+}
+
+func (a *FlowableActivity) startNormalize(
+	ctx context.Context,
+	config *protos.FlowConnectionConfigs,
+	batchID int64,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+
+	dstConn, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
+		ctx,
+		config.Env,
+		a.CatalogPool,
+		config.DestinationName,
+	)
+	if errors.Is(err, errors.ErrUnsupported) {
+		return monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID)
+	} else if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get normalize connector: %w", err))
+	}
+	defer connectors.CloseConnector(ctx, dstConn)
+
+	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, config.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to get table name schema mapping: %w", err)
+	}
+
+	logger.Info("normalizing batch", slog.Int64("SyncBatchID", batchID))
+	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
+		FlowJobName:            config.FlowJobName,
+		Env:                    config.Env,
+		TableNameSchemaMapping: tableNameSchemaMapping,
+		TableMappings:          config.TableMappings,
+		SoftDeleteColName:      config.SoftDeleteColName,
+		SyncedAtColName:        config.SyncedAtColName,
+		SyncBatchID:            batchID,
+	})
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName,
+			exceptions.NewNormalizationError(fmt.Errorf("failed to normalized records: %w", err)))
+	}
+	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
+		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
+			return fmt.Errorf("failed to update end time for cdc batch: %w", err)
+		}
+	}
+
+	logger.Info("normalized batches", slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID))
+
+	return nil
 }
 
 // Suitable to be run as goroutine
@@ -640,11 +668,12 @@ func (a *FlowableActivity) normalizeLoop(
 		select {
 		case req := <-normalizeRequests:
 			normalizeWaiting.Store(false)
+			retryInterval := time.Minute
 		retryLoop:
 			for {
 				normalizingBatchID.Store(req.BatchID)
 				if err := a.startNormalize(ctx, config, req.BatchID); err != nil {
-					a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+					_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					for {
 						// update req to latest normalize request & retry
 						select {
@@ -656,7 +685,8 @@ func (a *FlowableActivity) normalizeLoop(
 							logger.Info("[normalize-loop] context closed before retry")
 							return
 						default:
-							time.Sleep(30 * time.Second)
+							time.Sleep(retryInterval)
+							retryInterval = min(retryInterval*2, 5*time.Minute)
 							continue retryLoop
 						}
 					}
@@ -664,13 +694,9 @@ func (a *FlowableActivity) normalizeLoop(
 					close(req.Done)
 				}
 				if a.OtelManager != nil {
-					lastNormalizedBatchID, err := a.OtelManager.GetOrInitInt64Gauge(
-						otel_metrics.BuildMetricName(otel_metrics.LastNormalizedBatchIdGaugeName))
-					if err != nil {
-						logger.Error("Failed to get normalized batch id gauge", slog.Any("error", err))
-					} else {
-						lastNormalizedBatchID.Record(ctx, req.BatchID)
-					}
+					a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+					)))
 				}
 				break
 			}

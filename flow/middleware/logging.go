@@ -6,11 +6,11 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func RequestLoggingMiddleWare() grpc.UnaryServerInterceptor {
-	if !peerdbenv.PeerDBRAPIRequestLoggingEnabled() {
+	if !internal.PeerDBRAPIRequestLoggingEnabled() {
 		slog.Info("Request Logging Interceptor is disabled")
 		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 			return handler(ctx, req)

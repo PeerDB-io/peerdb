@@ -1,4 +1,4 @@
-package peerdbenv
+package internal
 
 import (
 	"context"
@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 // This file contains functions to get the values of various peerdb environment
@@ -176,4 +176,13 @@ func PeerDBRAPIRequestLoggingEnabled() bool {
 // for too long
 func PeerDBMaintenanceModeWaitAlertSeconds() int {
 	return getEnvConvert("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600, strconv.Atoi)
+}
+
+func PeerDBTelemetryErrorActionBasedAlertingEnabled() bool {
+	enabled, err := strconv.ParseBool(GetEnvString("PEERDB_TELEMETRY_ERROR_ACTION_BASED_ALERTING_ENABLED", "false"))
+	if err != nil {
+		slog.Error("failed to parse PEERDB_TELEMETRY_ERROR_ACTION_BASED_ALERTING_ENABLED to bool", "error", err)
+		return false
+	}
+	return enabled
 }

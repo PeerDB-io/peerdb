@@ -34,7 +34,7 @@ type EditMirrorProps = {
   params: { mirrorId: string };
 };
 
-const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
+export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   const defaultBatchSize = blankCDCSetting.maxBatchSize;
   const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
 
@@ -115,6 +115,7 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
         cdcFlowConfigUpdate: { ...config, additionalTables, removedTables },
       },
       dropMirrorStats: false,
+      skipDestinationDrop: false,
     };
     const res = await fetch('/api/v1/mirrors/state_change', {
       method: 'POST',
@@ -247,6 +248,4 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
       <ToastContainer />
     </div>
   );
-};
-
-export default EditMirror;
+}

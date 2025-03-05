@@ -25,7 +25,7 @@ import {
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
-import { SchemaSettings } from './schemasettings';
+import SchemaSettings from './schemasettings';
 import {
   columnBoxDividerStyle,
   engineOptionStyles,
@@ -193,19 +193,25 @@ export default function SchemaBox({
         peerType,
         initialLoadOnly
       ).then((newRows) => {
-        for (const row of newRows) {
-          if (
-            alreadySelectedTables
-              ?.map((tableMap) => tableMap.sourceTableIdentifier)
-              .includes(row.source)
-          ) {
-            row.selected = true;
-            row.editingDisabled = true;
-            row.destination =
-              alreadySelectedTables?.find(
+        if (alreadySelectedTables) {
+          for (const row of newRows) {
+            if (
+              alreadySelectedTables
+                .map((tableMap) => tableMap.sourceTableIdentifier)
+                .includes(row.source)
+            ) {
+              const existingRow = alreadySelectedTables.find(
                 (tableMap) => tableMap.sourceTableIdentifier === row.source
-              )?.destinationTableIdentifier ?? '';
-            addTableColumns(row.source);
+              );
+              row.selected = true;
+              row.engine =
+                existingRow?.engine ??
+                TableEngine.CH_ENGINE_REPLACING_MERGE_TREE;
+              row.editingDisabled = true;
+              row.exclude = new Set(existingRow?.exclude ?? []);
+              row.destination = existingRow?.destinationTableIdentifier ?? '';
+              addTableColumns(row.source);
+            }
           }
         }
         setRows((oldRows) => {
@@ -369,6 +375,7 @@ export default function SchemaBox({
                               Engine:
                             </p>
                             <ReactSelect
+                              isDisabled={row.editingDisabled}
                               styles={engineOptionStyles}
                               options={engineOptions}
                               placeholder='ReplacingMergeTree (default)'

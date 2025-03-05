@@ -2,18 +2,19 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { s3Setting } from '@/app/peers/create/[peerType]/helpers/s3';
 import { GCS_ENDPOINT } from '@/app/utils/gcsEndpoint';
+import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
 import { RowWithRadiobutton, RowWithTextField } from '@/lib/Layout';
 import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useEffect, useState } from 'react';
-import { InfoPopover } from '../InfoPopover';
 
 interface S3Props {
   setter: PeerSetter;
 }
-const S3Form = ({ setter }: S3Props) => {
+
+export default function S3Form({ setter }: S3Props) {
   const [storageType, setStorageType] = useState<'S3' | 'GCS'>('S3');
   const displayCondition = (label: string) => {
     return !(
@@ -117,6 +118,4 @@ const S3Form = ({ setter }: S3Props) => {
       })}
     </div>
   );
-};
-
-export default S3Form;
+}

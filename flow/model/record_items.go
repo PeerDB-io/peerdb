@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 type Items interface {
@@ -77,8 +77,8 @@ func (r RecordItems) Len() int {
 	return len(r.ColToVal)
 }
 
-func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
-	jsonStruct := make(map[string]interface{}, len(r.ColToVal))
+func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
+	jsonStruct := make(map[string]any, len(r.ColToVal))
 	for col, qv := range r.ColToVal {
 		if qv == nil {
 			jsonStruct[col] = nil
@@ -102,9 +102,8 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 			if len(v.Val) > 15*1024*1024 {
 				jsonStruct[col] = "{}"
 			} else if _, ok := opts.UnnestColumns[col]; ok {
-				var unnestStruct map[string]interface{}
-				err := json.Unmarshal([]byte(v.Val), &unnestStruct)
-				if err != nil {
+				var unnestStruct map[string]any
+				if err := json.Unmarshal([]byte(v.Val), &unnestStruct); err != nil {
 					return nil, err
 				}
 
@@ -165,7 +164,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 			}
 		case qvalue.QValueArrayFloat64:
 			floatArr := v.Val
-			nullableFloatArr := make([]interface{}, 0, len(floatArr))
+			nullableFloatArr := make([]any, 0, len(floatArr))
 			for _, val := range floatArr {
 				if math.IsNaN(val) || math.IsInf(val, 0) {
 					nullableFloatArr = append(nullableFloatArr, nil)
@@ -176,7 +175,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 			jsonStruct[col] = nullableFloatArr
 		case qvalue.QValueArrayFloat32:
 			floatArr := v.Val
-			nullableFloatArr := make([]interface{}, 0, len(floatArr))
+			nullableFloatArr := make([]any, 0, len(floatArr))
 			for _, val := range floatArr {
 				if math.IsNaN(float64(val)) || math.IsInf(float64(val), 0) {
 					nullableFloatArr = append(nullableFloatArr, nil)
@@ -185,7 +184,6 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 				}
 			}
 			jsonStruct[col] = nullableFloatArr
-
 		default:
 			jsonStruct[col] = v.Value()
 		}

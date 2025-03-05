@@ -1,21 +1,22 @@
-package peerdbenv
+package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/aws/smithy-go/ptr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/exp/constraints"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 var DynamicSettings = [...]*protos.DynamicSetting{
@@ -31,7 +32,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Name: "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
 		Description: "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalizing, " +
 			"use with PEERDB_PARALLEL_SYNC_NORMALIZE",
-		DefaultValue:     "0",
+		DefaultValue:     "128",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -87,7 +88,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE",
 		Description:      "Enables parallel sync (moving rows to target) and normalize (updating rows in target table)",
-		DefaultValue:     "false",
+		DefaultValue:     "true",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -106,6 +107,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
+		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
+		DefaultValue:     "raw",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_SNOWFLAKE_MERGE_PARALLELISM",
@@ -173,6 +182,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_BIGQUERY,
 	},
 	{
+		Name: "PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING",
+		Description: "BigQuery only: controls number of unchanged toast columns merged per statement in normalization. " +
+			"Avoids statements growing too large",
+		DefaultValue:     "8",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_BIGQUERY,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE",
 		Description:      "Enable generating deletion records for updates in ClickHouse, avoids stale records when primary key updated",
 		DefaultValue:     "false",
@@ -228,6 +246,31 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name: "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS",
+		Description: "Throttle threshold seconds for always sending KeepAlive response when no records are processed, " +
+			"-1 disables always sending responses when no records are processed",
+		DefaultValue:     "60",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS",
+		Description:      "Chunk normalization into N queries, can help mitigate OOM issues on ClickHouse",
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION",
+		Description:      "Chunk partitions in initial load into N queries, can help mitigate OOM issues on ClickHouse",
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -238,6 +281,15 @@ var DynamicIndex = func() map[string]int {
 	return defaults
 }()
 
+type BinaryFormat int
+
+const (
+	BinaryFormatInvalid = iota
+	BinaryFormatRaw
+	BinaryFormatBase64
+	BinaryFormatHex
+)
+
 func dynLookup(ctx context.Context, env map[string]string, key string) (string, error) {
 	if val, ok := env[key]; ok {
 		return val, nil
@@ -245,23 +297,37 @@ func dynLookup(ctx context.Context, env map[string]string, key string) (string, 
 
 	conn, err := GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to get catalog connection pool", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get catalog connection pool: %w", err)
+	}
+
+	var setting *protos.DynamicSetting
+	if idx, ok := DynamicIndex[key]; ok {
+		setting = DynamicSettings[idx]
 	}
 
 	var value pgtype.Text
 	query := "SELECT config_value FROM dynamic_settings WHERE config_name=$1"
-	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && err != pgx.ErrNoRows {
-		shared.LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
+	if err := conn.QueryRow(ctx, query, key).Scan(&value); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		LoggerFromCtx(ctx).Error("Failed to get key", slog.Any("error", err))
 		return "", fmt.Errorf("failed to get key: %w", err)
 	}
 	if !value.Valid {
 		if val, ok := os.LookupEnv(key); ok {
+			if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
+				env[key] = val
+			}
 			return val, nil
 		}
-		if idx, ok := DynamicIndex[key]; ok {
-			return DynamicSettings[idx].DefaultValue, nil
+		if setting != nil {
+			if env != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
+				env[key] = setting.DefaultValue
+			}
+			return setting.DefaultValue, nil
 		}
+	}
+	if env != nil && setting != nil && setting.ApplyMode != protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE {
+		env[key] = value.String
 	}
 	return value.String, nil
 }
@@ -280,7 +346,7 @@ func dynamicConfSigned[T constraints.Signed](ctx context.Context, env map[string
 		return strconv.ParseInt(value, 10, 64)
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.String("key", key), slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.String("key", key), slog.Any("error", err))
 		return 0, fmt.Errorf("failed to parse %s as int64: %w", key, err)
 	}
 
@@ -292,7 +358,7 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 		return strconv.ParseUint(value, 10, 64)
 	})
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.String("key", key), slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.String("key", key), slog.Any("error", err))
 		return 0, fmt.Errorf("failed to parse %s as uint64: %w", key, err)
 	}
 
@@ -302,19 +368,19 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bool, error) {
 	value, err := dynLookupConvert(ctx, env, key, strconv.ParseBool)
 	if err != nil {
-		shared.LoggerFromCtx(ctx).Error("Failed to parse bool", slog.String("key", key), slog.Any("error", err))
+		LoggerFromCtx(ctx).Error("Failed to parse bool", slog.String("key", key), slog.Any("error", err))
 		return false, fmt.Errorf("failed to parse %s as bool: %w", key, err)
 	}
 
 	return value, nil
 }
 
-func UpdateDynamicSetting(ctx context.Context, pool *pgxpool.Pool, name string, value *string) error {
-	if pool == nil {
+func UpdateDynamicSetting(ctx context.Context, pool shared.CatalogPool, name string, value *string) error {
+	if pool.Pool == nil {
 		var err error
 		pool, err = GetCatalogConnectionPoolFromEnv(ctx)
 		if err != nil {
-			shared.LoggerFromCtx(ctx).Error("Failed to get catalog connection pool for dynamic setting update", slog.Any("error", err))
+			LoggerFromCtx(ctx).Error("Failed to get catalog connection pool for dynamic setting update", slog.Any("error", err))
 			return fmt.Errorf("failed to get catalog connection pool: %w", err)
 		}
 	}
@@ -348,6 +414,10 @@ func PeerDBOpenConnectionsAlertThreshold(ctx context.Context, env map[string]str
 // If false, the target tables will not be partitioned
 func PeerDBBigQueryEnableSyncedAtPartitioning(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_BIGQUERY_ENABLE_SYNCED_AT_PARTITIONING_BY_DAYS")
+}
+
+func PeerDBBigQueryToastMergeChunking(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING")
 }
 
 func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
@@ -398,6 +468,23 @@ func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
 }
 
+func PeerDBBinaryFormat(ctx context.Context, env map[string]string) (BinaryFormat, error) {
+	format, err := dynLookup(ctx, env, "PEERDB_CLICKHOUSE_BINARY_FORMAT")
+	if err != nil {
+		return 0, err
+	}
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "raw":
+		return BinaryFormatRaw, nil
+	case "hex":
+		return BinaryFormatHex, nil
+	case "base64":
+		return BinaryFormatBase64, nil
+	default:
+		return 0, fmt.Errorf("unknown binary format %s", format)
+	}
+}
+
 func PeerDBEnableClickHousePrimaryUpdate(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE")
 }
@@ -445,6 +532,18 @@ func PeerDBMaintenanceModeEnabled(ctx context.Context, env map[string]string) (b
 	return dynamicConfBool(ctx, env, "PEERDB_MAINTENANCE_MODE_ENABLED")
 }
 
-func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool *pgxpool.Pool, enabled bool) error {
+func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool shared.CatalogPool, enabled bool) error {
 	return UpdateDynamicSetting(ctx, pool, "PEERDB_MAINTENANCE_MODE_ENABLED", ptr.String(strconv.FormatBool(enabled)))
+}
+
+func PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS")
+}
+
+func PeerDBClickHouseNormalizationParts(ctx context.Context, env map[string]string) (uint64, error) {
+	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS")
+}
+
+func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[string]string) (uint64, error) {
+	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION")
 }

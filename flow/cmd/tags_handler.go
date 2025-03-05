@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/tags"
+	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func (h *FlowRequestHandler) flowExists(ctx context.Context, flowName string) (bool, error) {
@@ -66,7 +66,7 @@ func (h *FlowRequestHandler) GetFlowTags(ctx context.Context, in *protos.GetFlow
 		return nil, fmt.Errorf("flow %s does not exist", flowName)
 	}
 
-	tags, err := tags.GetTags(ctx, h.pool, flowName)
+	tags, err := alerting.GetTags(ctx, h.pool, flowName)
 	if err != nil {
 		slog.Error("error getting flow tags", slog.Any("error", err))
 		return nil, err

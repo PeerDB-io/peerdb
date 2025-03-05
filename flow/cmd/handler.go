@@ -10,35 +10,34 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peer-flow/alerting"
-	"github.com/PeerDB-io/peer-flow/connectors"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/alerting"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 // grpc server implementation
 type FlowRequestHandler struct {
 	protos.UnimplementedFlowServiceServer
 	temporalClient      client.Client
-	pool                *pgxpool.Pool
+	pool                shared.CatalogPool
 	alerter             *alerting.Alerter
 	peerflowTaskQueueID string
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool *pgxpool.Pool, taskQueue string) *FlowRequestHandler {
+func NewFlowRequestHandler(temporalClient client.Client, pool shared.CatalogPool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
 		temporalClient:      temporalClient,
 		pool:                pool,
 		peerflowTaskQueueID: taskQueue,
-		alerter:             alerting.NewAlerter(context.Background(), pool),
+		alerter:             alerting.NewAlerter(context.Background(), pool, nil),
 	}
 }
 
@@ -173,7 +172,7 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 	ctx context.Context,
 	cfg *protos.FlowConnectionConfigs,
 ) error {
-	return shared.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
+	return internal.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
 }
 
 func (h *FlowRequestHandler) CreateQRepFlow(
@@ -197,7 +196,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	if err != nil {
 		return nil, err
 	}
-	var workflowFn interface{}
+	var workflowFn any
 	if dbtype == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {
 		workflowFn = peerflow.XminFlowWorkflow
 	} else {
@@ -251,6 +250,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 	ctx context.Context,
 	flowJobName string,
 	deleteStats bool,
+	skipDestinationDrop bool,
 ) error {
 	workflowID, err := h.getWorkflowID(ctx, flowJobName)
 	if err != nil {
@@ -292,6 +292,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 			FlowJobName:           flowJobName,
 			DropFlowStats:         deleteStats,
 			FlowConnectionConfigs: cdcConfig,
+			SkipDestinationDrop:   skipDestinationDrop,
 		})
 	if err != nil {
 		slog.Error("unable to start DropFlow workflow", logs, slog.Any("error", err))
@@ -328,7 +329,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 ) (*protos.FlowStateChangeResponse, error) {
 	logs := slog.String("flowJobName", req.FlowJobName)
 	slog.Info("FlowStateChange called", logs, slog.Any("req", req))
-	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		slog.Error("unable to check maintenance mode", logs, slog.Any("error", err))
 		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
@@ -375,8 +376,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				"",
 				model.PauseSignal,
 			)
-		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING &&
-			currState == protos.FlowStatus_STATUS_PAUSED {
+		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING && currState == protos.FlowStatus_STATUS_PAUSED {
 			slog.Info("[flow-state-change] received resume request", logs)
 			err = model.FlowSignal.SignalClientWorkflow(
 				ctx,
@@ -385,10 +385,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 				"",
 				model.NoopSignal,
 			)
-		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED &&
-			(currState != protos.FlowStatus_STATUS_TERMINATED) {
+		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATED {
 			slog.Info("[flow-state-change] received drop mirror request", logs)
-			err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats)
+			err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
 		} else if req.RequestedFlowState != currState {
 			slog.Error("illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
 				slog.Any("currState", currState))
@@ -500,7 +499,7 @@ func (h *FlowRequestHandler) ResyncMirror(
 	ctx context.Context,
 	req *protos.ResyncMirrorRequest,
 ) (*protos.ResyncMirrorResponse, error) {
-	underMaintenance, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get maintenance mode status: %w", err)
 	}
@@ -530,7 +529,7 @@ func (h *FlowRequestHandler) ResyncMirror(
 		return nil, err
 	}
 
-	if err := h.shutdownFlow(ctx, req.FlowJobName, req.DropStats); err != nil {
+	if err := h.shutdownFlow(ctx, req.FlowJobName, req.DropStats, false); err != nil {
 		return nil, err
 	}
 
@@ -543,7 +542,7 @@ func (h *FlowRequestHandler) ResyncMirror(
 }
 
 func (h *FlowRequestHandler) GetInstanceInfo(ctx context.Context, in *protos.InstanceInfoRequest) (*protos.InstanceInfoResponse, error) {
-	enabled, err := peerdbenv.PeerDBMaintenanceModeEnabled(ctx, nil)
+	enabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		slog.Error("unable to get maintenance mode status", slog.Any("error", err))
 		return &protos.InstanceInfoResponse{

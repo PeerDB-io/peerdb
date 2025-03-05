@@ -14,43 +14,38 @@ import { useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import { notifyErr } from '../utils/notify';
 
-const ROWS_PER_PAGE = 7;
-
-const ApplyModeIconWithTooltip = ({ applyMode }: { applyMode: number }) => {
-  let tooltipText = '';
-
-  switch (applyMode.toString()) {
-    case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_IMMEDIATE].toString():
-      tooltipText = 'Changes to this configuration will apply immediately';
-      break;
-    case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_AFTER_RESUME].toString():
-      tooltipText = 'Changes to this configuration will apply after resume';
-      break;
-    case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_RESTART].toString():
-      tooltipText =
-        'Changes to this configuration will apply after server restart.';
-      break;
-    case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_NEW_MIRROR].toString():
-      tooltipText =
-        'Changes to this configuration will apply only to new mirrors';
-      break;
-    default:
-      tooltipText = 'Unknown apply mode';
-  }
+function ApplyModeIconWithTooltip({ applyMode }: { applyMode: number }) {
+  const tooltipText = useMemo(() => {
+    switch (applyMode.toString()) {
+      case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_IMMEDIATE].toString():
+        return 'Changes to this configuration will apply immediately';
+      case DynconfApplyMode[
+        DynconfApplyMode.APPLY_MODE_AFTER_RESUME
+      ].toString():
+        return 'Changes to this configuration will apply after resume';
+      case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_RESTART].toString():
+        return 'Changes to this configuration will apply after server restart.';
+      case DynconfApplyMode[DynconfApplyMode.APPLY_MODE_NEW_MIRROR].toString():
+        return 'Changes to this configuration will apply only to new mirrors';
+      default:
+        return 'Unknown apply mode';
+    }
+  }, [applyMode]);
 
   return (
     <div style={{ cursor: 'help' }}>
       <Label style={{ fontSize: 14, padding: 0 }}>{tooltipText}</Label>
     </div>
   );
-};
-const DynamicSettingItem = ({
+}
+
+function DynamicSettingItem({
   setting,
   onSettingUpdate,
 }: {
   setting: DynamicSetting;
   onSettingUpdate: () => void;
-}) => {
+}) {
   const [editMode, setEditMode] = useState(false);
   const [newValue, setNewValue] = useState(setting.value);
   const [showDescription, setShowDescription] = useState(false);
@@ -193,9 +188,9 @@ const DynamicSettingItem = ({
       </div>
     </div>
   );
-};
+}
 
-const SettingsPage = () => {
+export default function SettingsPage() {
   const [settings, setSettings] = useState<GetDynamicSettingsResponse>({
     settings: [],
   });
@@ -253,6 +248,4 @@ const SettingsPage = () => {
       </div>
     </div>
   );
-};
-
-export default SettingsPage;
+}

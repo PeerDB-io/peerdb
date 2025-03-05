@@ -192,6 +192,10 @@ message PeerInfoResponse {
   string version = 2;
 }
 
+message PeerTypeResponse {
+  string peer_type = 1;
+}
+
 message PeerListItem {
   string name = 1;
   peerdb_peers.DBType type = 2;
@@ -354,6 +358,7 @@ message FlowStateChangeRequest {
   // only can be sent in certain situations
   optional peerdb_flow.FlowConfigUpdate flow_config_update = 5;
   bool drop_mirror_stats = 6;
+  bool skip_destination_drop = 7;
 }
 message FlowStateChangeResponse {}
 
@@ -633,6 +638,12 @@ service FlowService {
   rpc GetPeerInfo(PeerInfoRequest) returns (PeerInfoResponse) {
     option (google.api.http) = {
       get : "/v1/peers/info/{peer_name}"
+    };
+  }
+
+  rpc GetPeerType(PeerInfoRequest) returns (PeerTypeResponse) {
+    option (google.api.http) = {
+      get : "/v1/peers/type/{peer_name}"
     };
   }
   rpc ListPeers(ListPeersRequest) returns (ListPeersResponse) {

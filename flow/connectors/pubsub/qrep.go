@@ -9,9 +9,9 @@ import (
 	"cloud.google.com/go/pubsub"
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/pua"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pua"
 )
 
 func (*PubSubConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {
@@ -25,11 +25,14 @@ func (c *PubSubConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int, error) {
 	startTime := time.Now()
-	numRecords := atomic.Int64{}
-	schema := stream.Schema()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
 	publish := make(chan publishResult, 32)
 	waitChan := make(chan struct{})
+	numRecords := atomic.Int64{}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, &topiccache, publish, queueErr)

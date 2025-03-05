@@ -1,6 +1,7 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
 import { TimeAggregateTypes, timeOptions } from '@/app/utils/graph';
+import useLocalStorage from '@/app/utils/useLocalStorage';
 import {
   GetSlotLagHistoryRequest,
   GetSlotLagHistoryResponse,
@@ -11,7 +12,6 @@ import { LineChart } from '@tremor/react';
 import moment from 'moment';
 import { useCallback, useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
-import { useLocalStorage } from 'usehooks-ts';
 import { getSlotData } from './helpers';
 
 type LagGraphProps = {

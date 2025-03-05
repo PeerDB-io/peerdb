@@ -85,6 +85,7 @@ impl FlowGrpcClient {
             requested_flow_state: state.into(),
             flow_config_update,
             drop_mirror_stats: false,
+            skip_destination_drop: false,
         };
         self.client.flow_state_change(state_change_req).await?;
         Ok(())
