@@ -795,11 +795,12 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				return
 			}
 			if a.OtelManager != nil {
-				a.OtelManager.Metrics.SyncedTablesGauge.Record(connCtx, int64(len(config.TableMappings)), metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-					attribute.String(otel_metrics.PeerNameKey, peerName),
-					attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
-				)))
+				a.OtelManager.Metrics.SyncedTablesGauge.Record(connCtx, int64(len(config.TableMappings)), metric.WithAttributeSet(
+					attribute.NewSet(
+						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+						attribute.String(otel_metrics.PeerNameKey, peerName),
+						attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
+					)))
 			}
 			if err := srcConn.HandleSlotInfo(connCtx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
 				FlowName: config.FlowJobName,
