@@ -20,8 +20,14 @@ func (k TemporalContextKey) HeaderKey() string {
 }
 
 const (
-	FlowMetadataKey TemporalContextKey = "x-peerdb-flow-metadata"
+	FlowMetadataKey       TemporalContextKey = "x-peerdb-flow-metadata"
+	AdditionalMetadataKey TemporalContextKey = "x-peerdb-additional-metadata"
 )
+
+// AdditionalContextMetadata has contextual information of a flow and is specific to a child context and is passed by copy
+type AdditionalContextMetadata struct {
+	Operation protos.FlowOperation
+}
 
 func GetFlowMetadata(ctx context.Context) *protos.FlowContextMetadata {
 	if metadata, ok := ctx.Value(FlowMetadataKey).(*protos.FlowContextMetadata); ok {
@@ -30,13 +36,15 @@ func GetFlowMetadata(ctx context.Context) *protos.FlowContextMetadata {
 	return nil
 }
 
+func GetAdditionalMetadata(ctx context.Context) AdditionalContextMetadata {
+	metadata, _ := ctx.Value(AdditionalMetadataKey).(AdditionalContextMetadata)
+	return metadata
+}
+
 func WithOperationContext(ctx context.Context, operation protos.FlowOperation) context.Context {
-	currentMetadata := GetFlowMetadata(ctx)
-	if currentMetadata == nil {
-		currentMetadata = &protos.FlowContextMetadata{}
-	}
+	currentMetadata := GetAdditionalMetadata(ctx)
 	currentMetadata.Operation = operation
-	return context.WithValue(ctx, FlowMetadataKey, currentMetadata)
+	return context.WithValue(ctx, AdditionalMetadataKey, currentMetadata)
 }
 
 type ContextPropagator[V any] struct {
@@ -108,6 +116,7 @@ func LoggerFromCtx(ctx context.Context) log.Logger {
 	if flowMetadata := GetFlowMetadata(ctx); flowMetadata != nil {
 		logger = log.With(logger, string(FlowMetadataKey), flowMetadata)
 	}
+	logger = log.With(logger, string(AdditionalMetadataKey), GetAdditionalMetadata(ctx))
 
 	return logger
 }

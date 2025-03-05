@@ -514,11 +514,16 @@ enum FlowOperation {
   FLOW_OPERATION_NORMALIZE = 2;
 }
 
+// FlowContextMetadata has contextual information of a flow and is universal at the flow level, it cannot be different for children context
+// it is referenced via pointer
 message FlowContextMetadata{
   string flow_name = 1;
   PeerContextMetadata source = 2;
   PeerContextMetadata destination = 3;
   FlowStatus status = 4;
   bool is_resync = 5;
-  FlowOperation operation = 6;
+}
+
+message AdditionalContextMetadata{
+  FlowOperation operation = 1;
 }
