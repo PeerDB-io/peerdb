@@ -37,10 +37,8 @@ func GetFlowMetadata(ctx context.Context) *protos.FlowContextMetadata {
 }
 
 func GetAdditionalMetadata(ctx context.Context) AdditionalContextMetadata {
-	if metadata, ok := ctx.Value(AdditionalMetadataKey).(AdditionalContextMetadata); ok {
-		return metadata
-	}
-	return AdditionalContextMetadata{}
+	metadata, _ := ctx.Value(AdditionalMetadataKey).(AdditionalContextMetadata)
+	return metadata
 }
 
 func WithOperationContext(ctx context.Context, operation protos.FlowOperation) context.Context {
