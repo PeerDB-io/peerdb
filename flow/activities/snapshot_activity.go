@@ -57,7 +57,7 @@ func (a *SnapshotActivity) SetupReplication(
 	config *protos.SetupReplicationInput,
 ) (*protos.SetupReplicationOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
 	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
@@ -124,7 +124,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	}
 	a.SnapshotStatesMutex.Unlock()
 
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	start := time.Now()
 	for {
 		logger.Info("maintaining export snapshot transaction", slog.Int64("seconds", int64(time.Since(start).Round(time.Second)/time.Second)))
@@ -139,7 +139,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 }
 
 func (a *SnapshotActivity) WaitForExportSnapshot(ctx context.Context, sessionID string) (*TxSnapshotState, error) {
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	attempt := 0
 	for {
 		a.SnapshotStatesMutex.Lock()
