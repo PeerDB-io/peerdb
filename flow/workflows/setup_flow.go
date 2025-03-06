@@ -220,7 +220,11 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	}
 	s.Info("finished creating normalized tables for peer flow")
 
-	if !flowConnectionConfigs.InitialSnapshotOnly {
+	dbtype, err := getPeerType(ctx, flowConnectionConfigs.DestinationName)
+	if err != nil {
+		return err
+	}
+	if !flowConnectionConfigs.InitialSnapshotOnly && dbtype == protos.DBType_CLICKHOUSE {
 		if err := workflow.ExecuteActivity(ctx, flowable.SetupNormalizeTableMetadata, setupConfig).Get(ctx, nil); err != nil {
 			s.Error("failed to setup normalized tables metadata", slog.Any("error", err))
 			return fmt.Errorf("failed to setup normalized tables metadata: %w", err)
