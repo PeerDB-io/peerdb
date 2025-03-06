@@ -172,6 +172,8 @@ func generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteString("ORDER BY (")
 		stmtBuilder.WriteString(orderByStr)
 		stmtBuilder.WriteString(") ")
+	} else {
+		stmtBuilder.WriteString("ORDER BY tuple()")
 	}
 
 	if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
