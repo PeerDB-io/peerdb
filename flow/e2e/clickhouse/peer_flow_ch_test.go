@@ -1029,3 +1029,34 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
+	srcTableName := "test_no_pkey"
+	srcFullName := s.attachSchemaSuffix("test_no_pkey")
+	dstTableName := "test_no_pkey_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT,
+			"key" TEXT NOT NULL
+		)
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_no_pkey"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+	e2e.EnvWaitForFinished(s.t, env, time.Minute)
+}
