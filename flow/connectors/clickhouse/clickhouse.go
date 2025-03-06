@@ -278,7 +278,6 @@ func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...an
 	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
 }
 
-//nolint:unparam
 func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string, args ...any) error {
 	return chvalidate.Exec(ctx, c.logger, conn, query, args...)
 }
