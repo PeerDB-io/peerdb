@@ -17,9 +17,7 @@ import (
 func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: 1 * time.Minute,
-		},
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 	ctx = workflow.WithDataConverter(ctx, converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
 
@@ -40,6 +38,9 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 				sourceTries += 1
 				var dropSourceFuture workflow.Future
 				if sourceTries < 50 {
+					if sourceTries > 1 {
+						_ = workflow.Sleep(ctx, time.Duration(sourceTries*sourceTries)*time.Second)
+					}
 					dropSourceFuture = workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
 						FlowJobName: input.FlowJobName,
 						PeerName:    input.FlowConnectionConfigs.SourceName,
@@ -51,7 +52,6 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 					})
 				}
 				selector.AddFuture(dropSourceFuture, dropSource)
-				_ = workflow.Sleep(ctx, time.Second)
 			}
 		}
 
@@ -72,6 +72,9 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 				destinationTries += 1
 				var dropDestinationFuture workflow.Future
 				if destinationTries < 50 {
+					if destinationTries > 1 {
+						_ = workflow.Sleep(ctx, time.Duration(destinationTries*destinationTries)*time.Second)
+					}
 					dropDestinationFuture = workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
 						FlowJobName: input.FlowJobName,
 						PeerName:    input.FlowConnectionConfigs.DestinationName,
@@ -83,7 +86,6 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 					})
 				}
 				selector.AddFuture(dropDestinationFuture, dropDestination)
-				_ = workflow.Sleep(ctx, time.Second)
 			}
 		}
 		dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
