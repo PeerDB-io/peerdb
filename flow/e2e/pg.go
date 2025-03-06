@@ -21,7 +21,7 @@ import (
 
 func cleanPostgres(ctx context.Context, conn *pgx.Conn, suffix string) error {
 	// drop the e2e_test schema with the given suffix if it exists
-	if _, err := conn.Exec(ctx, fmt.Sprintf("DROP SCHEMAIF EXISTS e2e_test_%s CASCADE", suffix)); err != nil {
+	if _, err := conn.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS e2e_test_%s CASCADE", suffix)); err != nil {
 		return fmt.Errorf("failed to drop e2e_test schema: %w", err)
 	}
 
