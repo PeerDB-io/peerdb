@@ -196,7 +196,3 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 
 	return batch, nil
 }
-
-func (s *MySqlSource) Query(ctx context.Context, query string) (*model.QRecordBatch, error) {
-	panic("Query not implemented for MySqlSource")
-}
