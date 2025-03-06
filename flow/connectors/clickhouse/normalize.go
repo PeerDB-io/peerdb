@@ -304,7 +304,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Int64("normalizeBatchId", normBatchID),
 					slog.String("query", query))
 
-				if err := chConn.Exec(errCtx, query); err != nil {
+				if err := c.execWithConnection(ctx, chConn, query); err != nil {
 					return fmt.Errorf("error while inserting into normalized table: %w", err)
 				}
 			}
