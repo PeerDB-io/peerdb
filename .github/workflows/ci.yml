@@ -11,7 +11,7 @@ jobs:
   build:
     strategy:
       matrix:
-        runner: [ubicloud-standard-2-ubuntu-2204-arm]
+        runner: [ubuntu-latest]
         postgres-version: [13, 14, 15, 16, 17]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
