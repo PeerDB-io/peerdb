@@ -283,28 +283,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	}, nil
 }
 
-// SetupNormalizeMetadata sets up the normalize metadata table.
-func (a *FlowableActivity) SetupNormalizeTableMetadata(
-	ctx context.Context,
-	config *protos.SetupNormalizedTableBatchInput,
-) error {
-	shutdown := heartbeatRoutine(ctx, func() string {
-		return "setting up normalize table metadata"
-	})
-	defer shutdown()
-
-	logger := activity.GetLogger(ctx)
-	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
-
-	dstTableNames := make([]string, 0, len(config.TableMappings))
-	for _, tableMapping := range config.TableMappings {
-		dstTableNames = append(dstTableNames, tableMapping.DestinationTableIdentifier)
-	}
-
-	return pgMetadata.SetupNormalizeMetadataTable(ctx, config.FlowName, dstTableNames)
-}
-
 func (a *FlowableActivity) SyncFlow(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
