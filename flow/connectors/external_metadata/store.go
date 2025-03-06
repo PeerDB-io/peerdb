@@ -75,13 +75,6 @@ func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) (bool, er
 // This is used to keep track of the last batch ID normalized for each target table.
 func (p *PostgresMetadata) SetupNormalizeMetadataTable(ctx context.Context, jobName string, destinationTableNames []string) error {
 	tableBatchIDData := make(map[string]int64)
-	for _, schemaQualifiedTableName := range destinationTableNames {
-		if _, ok := tableBatchIDData[schemaQualifiedTableName]; ok {
-			continue
-		}
-		tableBatchIDData[schemaQualifiedTableName] = 0
-	}
-
 	tableBatchIDDataJSON, err := json.Marshal(tableBatchIDData)
 	if err != nil {
 		p.logger.Error("failed to marshal table batch id data to json", "error", err)
