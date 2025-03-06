@@ -750,19 +750,18 @@ func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
 	system protos.TypeSystem,
-	tableIdentifiers []string,
-	excludedColumnsMap map[string][]string,
+	tableMapping []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
+	res := make(map[string]*protos.TableSchema, len(tableMapping))
 
-	for _, tableName := range tableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system, excludedColumnsMap[tableName])
+	for _, tm := range tableMapping {
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system)
 		if err != nil {
-			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
+			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
 		}
-		res[tableName] = tableSchema
-		c.logger.Info("fetched schema for table " + tableName)
+		res[tm.SourceTableIdentifier] = tableSchema
+		c.logger.Info("fetched schema", slog.String("table", tm.SourceTableIdentifier))
 	}
 
 	return res, nil
@@ -814,11 +813,10 @@ func (c *PostgresConnector) GetSelectedColumns(
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
-	tableName string,
+	tm *protos.TableMapping,
 	system protos.TypeSystem,
-	excludedColumns []string,
 ) (*protos.TableSchema, error) {
-	schemaTable, err := utils.ParseSchemaTable(tableName)
+	schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -854,8 +852,8 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	selectedColumnsStr := "*"
-	if len(excludedColumns) > 0 {
-		selectedColumns, err := c.GetSelectedColumns(ctx, schemaTable, excludedColumns)
+	if len(tm.Exclude) > 0 {
+		selectedColumns, err := c.GetSelectedColumns(ctx, schemaTable, tm.Exclude)
 		if err != nil {
 			return nil, err
 		}
@@ -926,7 +924,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier:       tableName,
+		TableIdentifier:       tm.SourceTableIdentifier,
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		Columns:               columns,

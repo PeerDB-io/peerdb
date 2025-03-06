@@ -2,20 +2,25 @@ package connsnowflake
 
 import (
 	"context"
+	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
-func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableName string) (*protos.TableSchema, error) {
-	columns, err := c.getColsFromTable(ctx, tableName)
+func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tm *protos.TableMapping) (*protos.TableSchema, error) {
+	columns, err := c.getColsFromTable(ctx, tm.SourceTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
 
 	colFields := make([]*protos.FieldDescription, 0, len(columns))
-	for i, sfColumn := range columns {
+	for _, sfColumn := range columns {
+		if slices.Contains(tm.Exclude, sfColumn.ColumnName) {
+			continue
+		}
+
 		genericColType, err := snowflakeTypeToQValueKind(sfColumn.ColumnType)
 		if err != nil {
 			// we use string for invalid types
@@ -23,14 +28,14 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tableNa
 		}
 
 		colFields = append(colFields, &protos.FieldDescription{
-			Name:         columns[i].ColumnName,
+			Name:         sfColumn.ColumnName,
 			Type:         string(genericColType),
 			TypeModifier: datatypes.MakeNumericTypmod(sfColumn.NumericPrecision, sfColumn.NumericScale),
 		})
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier: tableName,
+		TableIdentifier: tm.SourceTableIdentifier,
 		Columns:         colFields,
 		System:          protos.TypeSystem_Q,
 	}, nil
@@ -41,16 +46,15 @@ func (c *SnowflakeConnector) GetTableSchema(
 	ctx context.Context,
 	_env map[string]string,
 	_system protos.TypeSystem,
-	tableIdentifiers []string,
-	excludedColumnsMap map[string][]string,
+	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
-	for _, tableName := range tableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tableName)
+	res := make(map[string]*protos.TableSchema, len(tableMappings))
+	for _, tm := range tableMappings {
+		tableSchema, err := c.getTableSchemaForTable(ctx, tm)
 		if err != nil {
 			return nil, err
 		}
-		res[tableName] = tableSchema
+		res[tm.SourceTableIdentifier] = tableSchema
 	}
 
 	return res, nil

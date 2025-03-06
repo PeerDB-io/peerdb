@@ -72,7 +72,8 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q, []string{tableName}, nil)
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier:   tableName,
@@ -120,7 +121,8 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q, []string{tableName}, nil)
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
@@ -151,7 +153,8 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q, []string{tableName}, nil)
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
@@ -182,7 +185,8 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q, []string{tableName}, nil)
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }

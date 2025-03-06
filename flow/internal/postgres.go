@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
-	"slices"
 
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/proto"
@@ -70,12 +69,4 @@ func LoadTableSchemaFromCatalog(
 	}
 	tableSchema := &protos.TableSchema{}
 	return tableSchema, proto.Unmarshal(tableSchemaBytes, tableSchema)
-}
-
-func ConstructExcludedColumnsList(tableMappings []*protos.TableMapping) map[string][]string {
-	excludedColumns := make(map[string][]string, len(tableMappings))
-	for _, tm := range tableMappings {
-		excludedColumns[tm.SourceTableIdentifier] = tm.Exclude
-	}
-	return excludedColumns
 }

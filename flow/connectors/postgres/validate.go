@@ -10,7 +10,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -26,9 +25,12 @@ func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
 	return nil
 }
 
-func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
-	tableNames []*utils.SchemaTable, pubName string, noCDC bool,
-	excludedColumnsMap map[string][]string,
+func (c *PostgresConnector) CheckSourceTables(
+	ctx context.Context,
+	tableNames []*utils.SchemaTable,
+	tableMappings []*protos.TableMapping,
+	pubName string,
+	noCDC bool,
 ) error {
 	if c.conn == nil {
 		return errors.New("check tables: conn is nil")
@@ -36,14 +38,14 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 
 	// Check that we can select from all tables
 	tableArr := make([]string, 0, len(tableNames))
-	for _, parsedTable := range tableNames {
+	for idx, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
 			utils.QuoteLiteral(parsedTable.Schema), utils.QuoteLiteral(parsedTable.Table)))
 
 		selectedColumnsStr := "*"
-		if _, ok := excludedColumnsMap[parsedTable.Schema+"."+parsedTable.Table]; ok {
-			selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumnsMap[parsedTable.Schema+"."+parsedTable.Table])
+		if excludedColumns := tableMappings[idx].Exclude; len(excludedColumns) != 0 {
+			selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumns)
 			if err != nil {
 				return fmt.Errorf("failed to get selected columns for SELECT check: %w", err)
 			}
@@ -231,9 +233,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	if pubName == "" && !noCDC {
 		srcTableNames := make([]string, 0, len(sourceTables))
 		for _, srcTable := range sourceTables {
-			srcTableNames = append(srcTableNames, fmt.Sprintf(
-				`%s.%s`, utils.QuoteIdentifier(srcTable.Schema), utils.QuoteIdentifier(srcTable.Table),
-			))
+			srcTableNames = append(srcTableNames, srcTable.String())
 		}
 
 		if err := c.CheckPublicationCreationPermissions(ctx, srcTableNames); err != nil {
@@ -241,8 +241,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	excludedColumnsList := internal.ConstructExcludedColumnsList(cfg.TableMappings)
-	if err := c.CheckSourceTables(ctx, sourceTables, pubName, noCDC, excludedColumnsList); err != nil {
+	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
 		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 

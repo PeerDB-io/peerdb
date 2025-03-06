@@ -101,13 +101,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	srcTableNames := make([]string, 0, len(req.ConnectionConfigs.TableMappings))
-	for _, tableMapping := range req.ConnectionConfigs.TableMappings {
-		srcTableNames = append(srcTableNames, tableMapping.SourceTableIdentifier)
-	}
-
-	excludedColumns := internal.ConstructExcludedColumnsList(req.ConnectionConfigs.TableMappings)
-	res, err := srcConn.GetTableSchema(ctx, nil, req.ConnectionConfigs.System, srcTableNames, excludedColumns)
+	res, err := srcConn.GetTableSchema(ctx, nil, req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source table schema: %w", err)
 	}

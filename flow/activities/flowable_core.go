@@ -83,17 +83,11 @@ func (a *FlowableActivity) applySchemaDeltas(
 ) error {
 	tableSchemaDeltasCount := len(schemaDeltas)
 	if tableSchemaDeltasCount > 0 {
-		modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
-		for _, tableSchemaDelta := range schemaDeltas {
-			modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
-		}
-
 		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
-			PeerName:         config.SourceName,
-			TableIdentifiers: modifiedSrcTables,
-			TableMappings:    options.TableMappings,
-			FlowName:         config.FlowJobName,
-			System:           config.System,
+			PeerName:      config.SourceName,
+			TableMappings: options.TableMappings,
+			FlowName:      config.FlowJobName,
+			System:        config.System,
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}

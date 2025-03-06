@@ -180,8 +180,7 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	excludedColumns := internal.ConstructExcludedColumnsList(config.TableMappings)
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableIdentifiers, excludedColumns)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableMappings)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}

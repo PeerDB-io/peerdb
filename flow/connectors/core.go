@@ -60,8 +60,7 @@ type GetTableSchemaConnector interface {
 		ctx context.Context,
 		env map[string]string,
 		system protos.TypeSystem,
-		tableIdentifiers []string,
-		excludedColumnsMap map[string][]string,
+		tableIdentifiers []*protos.TableMapping,
 	) (map[string]*protos.TableSchema, error)
 }
 
