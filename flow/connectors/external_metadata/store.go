@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
 	"strconv"
 	"time"
 
@@ -69,58 +68,6 @@ func (p *PostgresMetadata) LogFlowInfo(ctx context.Context, flowName string, inf
 
 func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) (bool, error) {
 	return false, nil
-}
-
-// SetupNormalizeMetadataTable initializes the metadata table with the given destination table names.
-// This is used to keep track of the last batch ID normalized for each target table.
-func (p *PostgresMetadata) SetupNormalizeMetadataTable(ctx context.Context, jobName string, destinationTableNames []string) error {
-	tableBatchIDData := make(map[string]int64)
-	tableBatchIDDataJSON, err := json.Marshal(tableBatchIDData)
-	if err != nil {
-		p.logger.Error("failed to marshal table batch id data to json", "error", err)
-		return fmt.Errorf("failed to marshal table batch id data to json: %w", err)
-	}
-
-	var existingTableBatchIDDataJSON string
-	if err := p.pool.QueryRow(ctx,
-		`SELECT table_batch_id_data FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
-		jobName,
-	).Scan(&existingTableBatchIDDataJSON); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		p.logger.Error("failed to query existing table batch id data", "error", err)
-		return fmt.Errorf("failed to query existing table batch id data: %w", err)
-	}
-
-	if existingTableBatchIDDataJSON != "" {
-		var existingTableBatchIDData map[string]int64
-		if err := json.Unmarshal([]byte(existingTableBatchIDDataJSON), &existingTableBatchIDData); err != nil {
-			return fmt.Errorf("failed to unmarshal existing table batch id data: %w", err)
-		}
-
-		maps.Copy(existingTableBatchIDData, tableBatchIDData)
-
-		tableBatchIDDataJSON, err = json.Marshal(existingTableBatchIDData)
-		if err != nil {
-			p.logger.Error("failed to marshal updated table batch id data to json", "error", err)
-			return fmt.Errorf("failed to marshal updated table batch id data to json: %w", err)
-		}
-	}
-
-	if _, err := p.pool.Exec(ctx,
-		`INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, last_text, sync_batch_id, table_batch_id_data)
-		VALUES ($1, 0, '', 0, $2)
-		ON CONFLICT (job_name)
-		DO UPDATE SET
-			last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
-			last_text = excluded.last_text,
-			sync_batch_id = GREATEST(`+lastSyncStateTableName+`.sync_batch_id, excluded.sync_batch_id),
-			table_batch_id_data = excluded.table_batch_id_data,
-			updated_at = NOW()
-	`, jobName, tableBatchIDDataJSON); err != nil {
-		p.logger.Error("failed to insert into last_sync_state", "error", err)
-		return fmt.Errorf("failed to insert into last_sync_state: %w", err)
-	}
-
-	return nil
 }
 
 // GetLastSyncedBatchIDForTable returns the last batch ID normalized for the given target table.
