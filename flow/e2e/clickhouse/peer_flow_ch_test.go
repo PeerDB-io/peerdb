@@ -3,7 +3,6 @@ package e2e_clickhouse
 import (
 	"embed"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 	"testing"
@@ -1195,11 +1194,17 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 // Test_Normalize_Metadata_With_Retry tests the chunking normalization
 // with a push to ClickHouse thrown in via renaming a target table.
 func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
+	var pgSource *e2e.PostgresSource
+	var ok bool
+	if pgSource, ok = s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("todo: only applies to postgres for now")
+	}
+
 	srcTableName1 := "test_normalize_metadata_with_retry_1"
-	srcFullName1 := s.attachSchemaSuffix("test_normalize_metadata_with_retry_1")
+	srcFullName1 := s.attachSchemaSuffix(srcTableName1)
 	dstTableName1 := "test_normalize_metadata_with_retry_dst_1"
-	srcTableName1 = s.attachSchemaSuffix(srcTableName1)
-	srcFullName2 := s.attachSchemaSuffix("test_normalize_metadata_with_retry_2")
+	srcTableName2 := "test_normalize_metadata_with_retry_2"
+	srcFullName2 := s.attachSchemaSuffix(srcTableName2)
 	dstTableName2 := "test_normalize_metadata_with_retry_dst_2"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
@@ -1214,7 +1219,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 		id INT PRIMARY KEY,
 		"key" TEXT NOT NULL
 	);
-`, srcFullName2)))
+	`, srcFullName2)))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init'),(2,'two'),(3,'tri'),(4,'cry')`, srcFullName1)))
@@ -1237,15 +1242,17 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName1, dstTableName1, "id,\"key\"")
 
 	// Rename the table to simulate a push failure to ClickHouse
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	fakeDestination2 := "test_normalize_metadata_with_retry_dst_2_fake"
-	ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s`, dstTableName2, fakeDestination2))
+	renameErr := ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s`, dstTableName2, fakeDestination2))
+	require.NoError(s.t, renameErr)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update1'`, srcFullName2)))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=id+10, "key"='update'||id`, srcFullName2)))
-
-	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "waiting for sync to complete", func() bool {
-		rows, err := s.source.Query(s.t.Context(), fmt.Sprintf("SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name='%s'", flowConnConfig.FlowJobName))
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "waiting for first sync to complete", func() bool {
+		rows, err := pgSource.Query(s.t.Context(),
+			fmt.Sprintf("SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name='%s'",
+				flowConnConfig.FlowJobName))
 		if err != nil {
 			return false
 		}
@@ -1254,40 +1261,44 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 			return false
 		}
 
-		return rows.Records[0][0].Value() == 1
+		return rows.Records[0][0].Value().(int64) == 1
 	})
 
 	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "waiting for raw table push to complete", func() bool {
-		rows, err := s.GetRows("_peerdb_raw_"+flowConnConfig.FlowJobName, "_peerdb_uid")
+		rows, err := s.GetRows(s.connector.GetRawTableName(connectionGen.FlowJobName), "_peerdb_batch_id")
 		if err != nil {
 			return false
 		}
 
-		slog.Info("raw table values", slog.Any("rows", rows.Records))
-		return len(rows.Records) == 1
+		if len(rows.Records) != 4 {
+			return false
+		}
+
+		return rows.Records[0][0].Value().(int64) == 1
 	})
 
 	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "waiting for normalize error", func() bool {
-		rows, err := s.source.Query(s.t.Context(), fmt.Sprintf(`
+		rows, err := pgSource.Query(s.t.Context(), fmt.Sprintf(`
 		SELECT COUNT(*) FROM peerdb_stats.flow_errors
 		WHERE error_type='error' AND position('%s' in flow_name) > 0
-		AND error_message ILIKE '%error while inserting into normalized table%'`, flowConnConfig.FlowJobName))
+		AND error_message ILIKE '%%error while inserting into normalized table%%'`, flowConnConfig.FlowJobName))
 		if err != nil {
 			return false
 		}
 
-		slog.Info("flow_errors values values", slog.Any("rows", rows.Records))
-		return len(rows.Records) > 0
+		return rows.Records[0][0].Value().(int64) > 0
 	})
 
 	// Rename the table back to simulate a successful push to ClickHouse
-	ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s`, fakeDestination2, dstTableName2))
+	renameErr = ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s`, fakeDestination2, dstTableName2))
+	require.NoError(s.t, renameErr)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, srcFullName2)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, srcFullName1)))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=id+10, "key"='update'||id`, srcFullName2)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=id+10, "key"='update'||id`, srcFullName1)))
-
-	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "waiting for sync to complete", func() bool {
-		rows, err := s.source.Query(s.t.Context(), fmt.Sprintf("SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name='%s'", flowConnConfig.FlowJobName))
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "waiting for second sync to complete", func() bool {
+		rows, err := pgSource.Query(s.t.Context(),
+			fmt.Sprintf("SELECT sync_batch_id FROM metadata_last_sync_state WHERE job_name='%s'",
+				flowConnConfig.FlowJobName))
 		if err != nil {
 			return false
 		}
@@ -1296,22 +1307,24 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 			return false
 		}
 
-		return rows.Records[0][0].Value() == 1
+		return rows.Records[0][0].Value().(int64) == 2
 	})
 
 	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "waiting for second raw table push to complete", func() bool {
-		rows, err := s.GetRows("_peerdb_raw_"+flowConnConfig.FlowJobName, "_peerdb_uid")
+		rows, err := s.GetRows(s.connector.GetRawTableName(connectionGen.FlowJobName), "_peerdb_batch_id")
 		if err != nil {
 			return false
 		}
 
-		slog.Info("raw table values", slog.Any("rows", rows.Records))
-		return len(rows.Records) == 2
+		if len(rows.Records) != 12 {
+			return false
+		}
+		return true
 	})
 
 	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "check normalize table metadata after normalize", func() bool {
-		rows, err := s.source.Query(s.t.Context(), fmt.Sprintf(`
-		SELECT table_batch_id_data->>'%s'::bigint, table_batch_id_data->>'%s'::bigint
+		rows, err := pgSource.Query(s.t.Context(), fmt.Sprintf(`
+		SELECT (table_batch_id_data->>'%s')::bigint, (table_batch_id_data->>'%s')::bigint
 		FROM metadata_last_sync_state WHERE job_name='%s'`,
 			dstTableName1, dstTableName2, flowConnConfig.FlowJobName))
 		if err != nil {
@@ -1322,9 +1335,11 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 			return false
 		}
 
-		slog.Info("normalize table metadata values", slog.Any("rows", rows.Records))
 		return rows.Records[0][0].Value() == 2 && rows.Records[0][1].Value() == 2
 	})
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "after 2 batches of cdc for table 1", srcTableName1, dstTableName1, "id,\"key\"")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "after 2 batches of cdc for table 2", srcTableName2, dstTableName2, "id,\"key\"")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
