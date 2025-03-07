@@ -365,7 +365,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				}
 
 				if query.Part == numParts-1 {
-					err := c.SetLastSyncedBatchIDForTable(ctx, req.FlowJobName, query.TableName, req.SyncBatchID)
+					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, query.TableName, req.SyncBatchID)
 					if err != nil {
 						return fmt.Errorf("error while setting last synced batch id for table %s: %w", query.TableName, err)
 					}
@@ -376,7 +376,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	for _, tbl := range destinationTableNames {
-		normalizeBatchIDForTable, err := c.GetLastSyncedBatchIDForTable(ctx, req.FlowJobName, tbl)
+		normalizeBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
 		if err != nil {
 			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, "error", err)
 			return model.NormalizeResponse{}, err

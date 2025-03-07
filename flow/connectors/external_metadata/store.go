@@ -70,8 +70,8 @@ func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) (bool, er
 	return false, nil
 }
 
-// GetLastSyncedBatchIDForTable returns the last batch ID normalized for the given target table.
-func (p *PostgresMetadata) GetLastSyncedBatchIDForTable(ctx context.Context, jobName string, dstTableName string) (int64, error) {
+// GetLastNormalizedBatchIDForTable returns the last batch ID normalized for the given target table.
+func (p *PostgresMetadata) GetLastNormalizedBatchIDForTable(ctx context.Context, jobName string, dstTableName string) (int64, error) {
 	var tableBatchIDDataJSON string
 	if err := p.pool.QueryRow(ctx,
 		`SELECT table_batch_id_data FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
@@ -98,12 +98,12 @@ func (p *PostgresMetadata) GetLastSyncedBatchIDForTable(ctx context.Context, job
 	return lastSyncedBatchID, nil
 }
 
-// SetLastSyncedBatchIDForTable updates the last batch ID normalized for the given target table.
-func (p *PostgresMetadata) SetLastSyncedBatchIDForTable(ctx context.Context, jobName string, dstTableName string, batchID int64) error {
+// SetLastNormalizedBatchIDForTable updates the last batch ID normalized for the given target table.
+func (p *PostgresMetadata) SetLastNormalizedBatchIDForTable(ctx context.Context, jobName string, dstTableName string, batchID int64) error {
 	if _, err := p.pool.Exec(ctx,
 		`UPDATE `+lastSyncStateTableName+`
-		SET table_batch_id_data = jsonb_set(table_batch_id_data::jsonb, $2, $3::jsonb, true)
-		WHERE job_name = $1`, jobName, fmt.Sprintf(`{%s}`, dstTableName), strconv.FormatInt(batchID, 10),
+		SET table_batch_id_data = jsonb_set(table_batch_id_data::jsonb, ARRAY[$2], $3::jsonb, true)
+		WHERE job_name = $1`, jobName, dstTableName, strconv.FormatInt(batchID, 10),
 	); err != nil {
 		p.logger.Error("failed to update table batch id data", "error", err)
 		return fmt.Errorf("failed to update table batch id data: %w", err)
