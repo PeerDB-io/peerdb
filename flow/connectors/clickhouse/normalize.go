@@ -226,6 +226,12 @@ func getOrderedOrderByColumns(
 	return orderbyColumns
 }
 
+type TableNormalizeQuery struct {
+	TableName string
+	Query     string
+	Part      uint64
+}
+
 func (c *ClickHouseConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
@@ -244,7 +250,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID); err != nil {
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, req.SyncBatchID); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
@@ -282,8 +288,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 	numParts = max(numParts, 1)
 
-	queries := make(chan string)
-	rawTbl := c.getRawTableName(req.FlowJobName)
+	queries := make(chan TableNormalizeQuery)
+	rawTbl := c.GetRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
 	for i := range parallelNormalize {
@@ -304,10 +310,18 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				c.logger.Info("executing normalize query",
 					slog.Int64("syncBatchId", req.SyncBatchID),
 					slog.Int64("normalizeBatchId", normBatchID),
-					slog.String("query", query))
+					slog.String("query", query.Query),
+					slog.String("table", query.TableName))
 
 				if err := c.execWithConnection(ctx, chConn, query); err != nil {
 					return fmt.Errorf("error while inserting into normalized table: %w", err)
+				}
+
+				if query.Part == numParts-1 {
+					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, query.TableName, req.SyncBatchID)
+					if err != nil {
+						return fmt.Errorf("error while setting last synced batch id for table %s: %w", query.TableName, err)
+					}
 				}
 			}
 			return nil
@@ -315,8 +329,19 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	for _, tbl := range destinationTableNames {
+		normalizeBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
+		if err != nil {
+			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, "error", err)
+			return model.NormalizeResponse{}, err
+		}
+
+		if normalizeBatchIDForTable >= req.SyncBatchID {
+			c.logger.Info("[clickhouse] "+tbl+" already normalized, skipping",
+				"table", tbl, "batchIDForTable", normalizeBatchIDForTable, "syncBatchID", req.SyncBatchID)
+			continue
+		}
+
 		for numPart := range numParts {
-			// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
 			selectQuery := strings.Builder{}
 			selectQuery.WriteString("SELECT ")
 
@@ -495,7 +520,11 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			insertIntoSelectQuery.WriteString(selectQuery.String())
 
 			select {
-			case queries <- insertIntoSelectQuery.String():
+			case queries <- TableNormalizeQuery{
+				TableName: tbl,
+				Query:     insertIntoSelectQuery.String(),
+				Part:      numPart,
+			}:
 			case <-errCtx.Done():
 				close(queries)
 				c.logger.Error("[clickhouse] context canceled while normalizing",
@@ -528,7 +557,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	normalizeBatchID int64,
 	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
-	rawTbl := c.getRawTableName(flowJobName)
+	rawTbl := c.GetRawTableName(flowJobName)
 
 	q := fmt.Sprintf(
 		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d`,
@@ -579,11 +608,19 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context, fl
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, normBatchID, syncBatchID int64,
+	ctx context.Context, flowJobName string, syncBatchID int64,
 ) error {
-	for s := normBatchID + 1; s <= syncBatchID; s++ {
+	lastSyncedBatchIdInRawTable, err := c.GetLastBatchIDInRawTable(ctx, flowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to get last batch id in raw table: %w", err)
+	}
+
+	for s := lastSyncedBatchIdInRawTable + 1; s <= syncBatchID; s++ {
 		if err := c.copyAvroStageToDestination(ctx, flowJobName, s); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
+		}
+		if err := c.SetLastBatchIDInRawTable(ctx, flowJobName, s); err != nil {
+			return fmt.Errorf("failed to set last batch id in raw table: %w", err)
 		}
 	}
 	return nil

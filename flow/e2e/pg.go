@@ -229,3 +229,12 @@ func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableI
 
 	return nil
 }
+
+func (s *PostgresSource) Query(ctx context.Context, query string) (*model.QRecordBatch, error) {
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, "testflow", "testpart")
+	if err != nil {
+		return nil, err
+	}
+
+	return pgQueryExecutor.ExecuteAndProcessQuery(ctx, query)
+}
