@@ -20,7 +20,9 @@ ENV CGO_ENABLED=1
 RUN go build -ldflags="-s -w" -o /root/peer-flow
 
 FROM alpine:3.21@sha256:a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c AS flow-base
+ADD --checksum=sha256:05c6b4a9bf4daa95c888711481e19cc8e2e11aed4de8db759f51f4a6fce64917 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem
 RUN apk add --no-cache ca-certificates geos && \
+  update-ca-certificates && \
   adduser -s /bin/sh -D peerdb
 USER peerdb
 WORKDIR /home/peerdb
@@ -32,14 +34,7 @@ ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
 EXPOSE 8112 8113
-ENTRYPOINT [\
-  "./peer-flow",\
-  "api",\
-  "--port",\
-  "8112",\
-  "--gateway-port",\
-  "8113"\
-  ]
+ENTRYPOINT ["./peer-flow", "api", "--port", "8112", "--gateway-port", "8113"]
 
 FROM flow-base AS flow-worker
 
@@ -49,26 +44,17 @@ ENV OTEL_EXPORTER_OTLP_COMPRESSION=gzip
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
-ENTRYPOINT [\
-  "./peer-flow",\
-  "worker"\
-  ]
+ENTRYPOINT ["./peer-flow", "worker"]
 
 FROM flow-base AS flow-snapshot-worker
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-ENTRYPOINT [\
-  "./peer-flow",\
-  "snapshot-worker"\
-  ]
+ENTRYPOINT ["./peer-flow", "snapshot-worker"]
 
 
 FROM flow-base AS flow-maintenance
 
 ARG PEERDB_VERSION_SHA_SHORT
 ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
-ENTRYPOINT [\
-  "./peer-flow",\
-  "maintenance"\
-  ]
+ENTRYPOINT ["./peer-flow", "maintenance"]

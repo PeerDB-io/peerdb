@@ -209,23 +209,23 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
-	}
-	if config.Certificate != nil || config.PrivateKey != nil {
-		if config.Certificate == nil || config.PrivateKey == nil {
-			return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+		if config.Certificate != nil || config.PrivateKey != nil {
+			if config.Certificate == nil || config.PrivateKey == nil {
+				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+			}
+			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+			}
+			tlsSetting.Certificates = []tls.Certificate{cert}
 		}
-		cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+		if config.RootCa != nil {
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
+				return nil, errors.New("failed to parse provided root CA")
+			}
+			tlsSetting.RootCAs = caPool
 		}
-		tlsSetting.Certificates = []tls.Certificate{cert}
-	}
-	if config.RootCa != nil {
-		caPool := x509.NewCertPool()
-		if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-			return nil, errors.New("failed to parse provided root CA")
-		}
-		tlsSetting.RootCAs = caPool
 	}
 
 	settings := clickhouse.Settings{
@@ -276,6 +276,10 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 //nolint:unparam
 func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
 	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
+}
+
+func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string, args ...any) error {
+	return chvalidate.Exec(ctx, c.logger, conn, query, args...)
 }
 
 func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
@@ -354,9 +358,13 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	return clickhouseVersion.Version.String(), nil
 }
 
-func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*protos.TableSchema, error) {
+func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType) (*protos.TableSchema, error) {
 	colFields := make([]*protos.FieldDescription, 0, len(columns))
 	for _, column := range columns {
+		if slices.Contains(tm.Exclude, column.Name()) {
+			continue
+		}
+
 		var qkind qvalue.QValueKind
 		switch column.DatabaseTypeName() {
 		case "String", "Nullable(String)":
@@ -406,7 +414,7 @@ func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*pro
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier: tableName,
+		TableIdentifier: tm.SourceTableIdentifier,
 		Columns:         colFields,
 		System:          protos.TypeSystem_Q,
 	}, nil
@@ -416,21 +424,21 @@ func (c *ClickHouseConnector) GetTableSchema(
 	ctx context.Context,
 	_env map[string]string,
 	_system protos.TypeSystem,
-	tableIdentifiers []string,
+	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
-	for _, tableName := range tableIdentifiers {
-		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tableName))
+	res := make(map[string]*protos.TableSchema, len(tableMappings))
+	for _, tm := range tableMappings {
+		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tm.SourceTableIdentifier))
 		if err != nil {
 			return nil, err
 		}
 
-		tableSchema, err := GetTableSchemaForTable(tableName, rows.ColumnTypes())
+		tableSchema, err := GetTableSchemaForTable(tm, rows.ColumnTypes())
 		rows.Close()
 		if err != nil {
 			return nil, err
 		}
-		res[tableName] = tableSchema
+		res[tm.SourceTableIdentifier] = tableSchema
 	}
 
 	return res, nil

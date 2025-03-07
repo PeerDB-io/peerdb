@@ -172,6 +172,8 @@ func generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteString("ORDER BY (")
 		stmtBuilder.WriteString(orderByStr)
 		stmtBuilder.WriteString(") ")
+	} else {
+		stmtBuilder.WriteString("ORDER BY tuple()")
 	}
 
 	if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
@@ -304,7 +306,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Int64("normalizeBatchId", normBatchID),
 					slog.String("query", query))
 
-				if err := chConn.Exec(errCtx, query); err != nil {
+				if err := c.execWithConnection(ctx, chConn, query); err != nil {
 					return fmt.Errorf("error while inserting into normalized table: %w", err)
 				}
 			}

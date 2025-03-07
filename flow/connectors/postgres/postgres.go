@@ -34,27 +34,28 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-type PostgresConnector struct {
-	logger                 log.Logger
-	Config                 *protos.PostgresConfig
-	ssh                    utils.SSHTunnel
-	conn                   *pgx.Conn
-	replConn               *pgx.Conn
-	replState              *ReplState
-	customTypeMapping      map[uint32]string
-	hushWarnOID            map[uint32]struct{}
-	relationMessageMapping model.RelationMessageMapping
-	connStr                string
-	metadataSchema         string
-	replLock               sync.Mutex
-	pgVersion              shared.PGVersion
-}
-
 type ReplState struct {
 	Slot        string
 	Publication string
 	Offset      int64
 	LastOffset  atomic.Int64
+}
+
+type PostgresConnector struct {
+	logger                 log.Logger
+	customTypeMapping      map[uint32]string
+	ssh                    utils.SSHTunnel
+	conn                   *pgx.Conn
+	replConn               *pgx.Conn
+	replState              *ReplState
+	Config                 *protos.PostgresConfig
+	hushWarnOID            map[uint32]struct{}
+	relationMessageMapping model.RelationMessageMapping
+	typeMap                *pgtype.Map
+	connStr                string
+	metadataSchema         string
+	replLock               sync.Mutex
+	pgVersion              shared.PGVersion
 }
 
 func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
@@ -111,6 +112,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		metadataSchema:         metadataSchema,
 		replLock:               sync.Mutex{},
 		pgVersion:              0,
+		typeMap:                pgtype.NewMap(),
 	}, nil
 }
 
@@ -285,14 +287,13 @@ func (c *PostgresConnector) NeedsSetupMetadataTables(ctx context.Context) (bool,
 
 // SetupMetadataTables sets up the metadata tables.
 func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
-	err := c.createMetadataSchema(ctx)
-	if err != nil {
+	if err := c.createMetadataSchema(ctx); err != nil {
 		return err
 	}
 
-	_, err = c.conn.Exec(ctx, fmt.Sprintf(createMirrorJobsTableSQL,
-		c.metadataSchema, mirrorJobsTableIdentifier))
-	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
+	if _, err := c.conn.Exec(ctx,
+		fmt.Sprintf(createMirrorJobsTableSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+	); err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation, pgerrcode.DuplicateObject) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
 
@@ -748,29 +749,73 @@ func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
 	system protos.TypeSystem,
-	tableIdentifiers []string,
+	tableMapping []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
-	for _, tableName := range tableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)
+	res := make(map[string]*protos.TableSchema, len(tableMapping))
+
+	for _, tm := range tableMapping {
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system)
 		if err != nil {
-			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
+			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
 		}
-		res[tableName] = tableSchema
-		c.logger.Info("fetched schema for table " + tableName)
+		res[tm.SourceTableIdentifier] = tableSchema
+		c.logger.Info("fetched schema", slog.String("table", tm.SourceTableIdentifier))
 	}
 
 	return res, nil
 }
 
+func (c *PostgresConnector) GetSelectedColumns(
+	ctx context.Context,
+	sourceTable *utils.SchemaTable,
+	excludedColumns []string,
+) ([]string, error) {
+	quotedExcludedColumns := make([]string, 0, len(excludedColumns))
+	for _, col := range excludedColumns {
+		quotedExcludedColumns = append(quotedExcludedColumns, utils.QuoteLiteral(col))
+	}
+	excludedColumnsSQL := ""
+	if len(excludedColumns) > 0 {
+		excludedColumnsSQL = "AND attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
+	}
+
+	getColumnsSQL := `
+		SELECT attname AS column_name
+		FROM pg_attribute
+		WHERE attrelid = '%s.%s'::regclass
+		AND attnum > 0
+		AND NOT attisdropped
+		` + excludedColumnsSQL
+
+	rows, err := c.conn.Query(ctx, fmt.Sprintf(getColumnsSQL, sourceTable.Schema, sourceTable.Table))
+	if err != nil {
+		c.logger.Error("error getting selected columns",
+			slog.Any("error", err),
+			slog.String("table", sourceTable.String()),
+			slog.Any("excludedColumns", excludedColumns))
+		return nil, fmt.Errorf("error getting selected columns for table %s: %w", sourceTable, err)
+	}
+
+	columns := make([]string, 0)
+	for rows.Next() {
+		var columnName string
+		if err := rows.Scan(&columnName); err != nil {
+			return nil, fmt.Errorf("error scanning column while getting selected columns: %w", err)
+		}
+		columns = append(columns, columnName)
+	}
+
+	return columns, nil
+}
+
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
-	tableName string,
+	tm *protos.TableMapping,
 	system protos.TypeSystem,
 ) (*protos.TableSchema, error) {
-	schemaTable, err := utils.ParseSchemaTable(tableName)
+	schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -805,9 +850,26 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
+	selectedColumnsStr := "*"
+	if len(tm.Exclude) > 0 {
+		selectedColumns, err := c.GetSelectedColumns(ctx, schemaTable, tm.Exclude)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(selectedColumns) == 0 {
+			return nil, fmt.Errorf("no columns selected for table %s", schemaTable)
+		}
+
+		for i, col := range selectedColumns {
+			selectedColumns[i] = utils.QuoteIdentifier(col)
+		}
+		selectedColumnsStr = strings.Join(selectedColumns, ",")
+	}
+
 	// Get the column names and types
 	rows, err := c.conn.Query(ctx,
-		fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, schemaTable.String()),
+		fmt.Sprintf(`SELECT %s FROM %s LIMIT 0`, selectedColumnsStr, schemaTable.String()),
 		pgx.QueryExecModeSimpleProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
@@ -861,7 +923,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier:       tableName,
+		TableIdentifier:       tm.SourceTableIdentifier,
 		PrimaryKeyColumns:     pKeyCols,
 		IsReplicaIdentityFull: replicaIdentityType == ReplicaIdentityFull,
 		Columns:               columns,
@@ -1325,7 +1387,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		notPresentTables := shared.ArrayMinus(additionalSrcTables, tableNames)
 		if len(notPresentTables) > 0 {
 			return exceptions.NewPostgresSetupError(fmt.Errorf("some additional tables not present in custom publication: %s",
-				strings.Join(notPresentTables, ", ")))
+				strings.Join(notPresentTables, ",")))
 		}
 	} else {
 		for _, additionalSrcTable := range additionalSrcTables {

@@ -83,17 +83,12 @@ func (a *FlowableActivity) applySchemaDeltas(
 ) error {
 	tableSchemaDeltasCount := len(schemaDeltas)
 	if tableSchemaDeltasCount > 0 {
-		modifiedSrcTables := make([]string, 0, tableSchemaDeltasCount)
-		for _, tableSchemaDelta := range schemaDeltas {
-			modifiedSrcTables = append(modifiedSrcTables, tableSchemaDelta.SrcTableName)
-		}
-
 		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
-			PeerName:         config.SourceName,
-			TableIdentifiers: modifiedSrcTables,
-			TableMappings:    options.TableMappings,
-			FlowName:         config.FlowJobName,
-			System:           config.System,
+			PeerName:      config.SourceName,
+			TableMappings: options.TableMappings,
+			FlowName:      config.FlowJobName,
+			System:        config.System,
+			Env:           config.Env,
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}
@@ -116,7 +111,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 ) (*model.SyncResponse, error) {
 	flowName := config.FlowJobName
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
 	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
 	for _, v := range options.TableMappings {
@@ -399,7 +394,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := log.With(activity.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if err != nil {
@@ -491,7 +486,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	logger := activity.GetLogger(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("replicating xmin")
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	startTime := time.Now()

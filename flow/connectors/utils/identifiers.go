@@ -13,7 +13,7 @@ type SchemaTable struct {
 }
 
 func (t *SchemaTable) String() string {
-	return fmt.Sprintf(`"%s"."%s"`, t.Schema, t.Table)
+	return fmt.Sprintf("%s.%s", QuoteIdentifier(t.Schema), QuoteIdentifier(t.Table))
 }
 
 func (t *SchemaTable) MySQL() string {

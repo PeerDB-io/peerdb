@@ -114,9 +114,13 @@ func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
 			attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
 			attribute.Stringer(FlowStatusKey, flowMetadata.Status),
 			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync),
-			attribute.Stringer(FlowOperationKey, flowMetadata.Operation),
 		)
 	}
+	additionalMetadata := internal.GetAdditionalMetadata(ctx)
+	attributes = append(attributes,
+		attribute.Stringer(FlowOperationKey, additionalMetadata.Operation),
+	)
+
 	if activity.IsActivity(ctx) {
 		activityInfo := activity.GetInfo(ctx)
 		attributes = append(attributes,

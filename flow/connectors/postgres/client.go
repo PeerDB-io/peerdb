@@ -498,12 +498,11 @@ func generateCreateTableSQLForNormalizedTable(
 
 func (c *PostgresConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
 	var result pgtype.Int8
-	err := c.conn.QueryRow(ctx, fmt.Sprintf(
+	if err := c.conn.QueryRow(ctx, fmt.Sprintf(
 		getLastSyncBatchID_SQL,
 		c.metadataSchema,
 		mirrorJobsTableIdentifier,
-	), jobName).Scan(&result)
-	if err != nil {
+	), jobName).Scan(&result); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning 0")
 			return 0, nil
@@ -515,12 +514,11 @@ func (c *PostgresConnector) GetLastSyncBatchID(ctx context.Context, jobName stri
 
 func (c *PostgresConnector) GetLastNormalizeBatchID(ctx context.Context, jobName string) (int64, error) {
 	var result pgtype.Int8
-	err := c.conn.QueryRow(ctx, fmt.Sprintf(
+	if err := c.conn.QueryRow(ctx, fmt.Sprintf(
 		getLastNormalizeBatchID_SQL,
 		c.metadataSchema,
 		mirrorJobsTableIdentifier,
-	), jobName).Scan(&result)
-	if err != nil {
+	), jobName).Scan(&result); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning 0")
 			return 0, nil

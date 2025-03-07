@@ -11,15 +11,14 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
-		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: 1 * time.Minute,
-		},
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 	ctx = workflow.WithDataConverter(ctx, converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
 
@@ -31,8 +30,16 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 		canceled = true
 	})
 
-	var dropSource, dropDestination func(f workflow.Future)
+	var sleepSource, sleepDestination func(workflow.Future)
+	var dropSource, dropDestination func(workflow.Future)
 	if !input.SkipSourceDrop {
+		sleepSource = func(_ workflow.Future) {
+			dropSourceFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
+				FlowJobName: input.FlowJobName,
+				PeerName:    input.FlowConnectionConfigs.SourceName,
+			})
+			selector.AddFuture(dropSourceFuture, dropSource)
+		}
 		dropSource = func(f workflow.Future) {
 			sourceError = f.Get(ctx, nil)
 			sourceOk = sourceError == nil
@@ -40,18 +47,15 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 				sourceTries += 1
 				var dropSourceFuture workflow.Future
 				if sourceTries < 50 {
-					dropSourceFuture = workflow.ExecuteActivity(ctx, flowable.DropFlowSource, &protos.DropFlowActivityInput{
-						FlowJobName: input.FlowJobName,
-						PeerName:    input.FlowConnectionConfigs.SourceName,
-					})
+					sleep := model.SleepFuture(ctx, time.Duration(sourceTries*sourceTries)*time.Second)
+					selector.AddFuture(sleep, sleepSource)
 				} else {
 					dropSourceFuture = workflow.ExecuteActivity(ctx, flowable.Alert, &protos.AlertInput{
 						FlowName: input.FlowJobName,
 						Message:  "failed to drop source peer " + input.FlowConnectionConfigs.SourceName,
 					})
+					selector.AddFuture(dropSourceFuture, dropSource)
 				}
-				selector.AddFuture(dropSourceFuture, dropSource)
-				_ = workflow.Sleep(ctx, time.Second)
 			}
 		}
 
@@ -65,6 +69,13 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 	}
 
 	if !input.SkipDestinationDrop {
+		sleepDestination = func(_ workflow.Future) {
+			dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
+				FlowJobName: input.FlowJobName,
+				PeerName:    input.FlowConnectionConfigs.DestinationName,
+			})
+			selector.AddFuture(dropDestinationFuture, dropDestination)
+		}
 		dropDestination = func(f workflow.Future) {
 			destinationError = f.Get(ctx, nil)
 			destinationOk = destinationError == nil
@@ -72,18 +83,15 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 				destinationTries += 1
 				var dropDestinationFuture workflow.Future
 				if destinationTries < 50 {
-					dropDestinationFuture = workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
-						FlowJobName: input.FlowJobName,
-						PeerName:    input.FlowConnectionConfigs.DestinationName,
-					})
+					sleep := model.SleepFuture(ctx, time.Duration(destinationTries*destinationTries)*time.Second)
+					selector.AddFuture(sleep, sleepDestination)
 				} else {
 					dropDestinationFuture = workflow.ExecuteActivity(ctx, flowable.Alert, &protos.AlertInput{
 						FlowName: input.FlowJobName,
 						Message:  "failed to drop destination peer " + input.FlowConnectionConfigs.DestinationName,
 					})
+					selector.AddFuture(dropDestinationFuture, dropDestination)
 				}
-				selector.AddFuture(dropDestinationFuture, dropDestination)
-				_ = workflow.Sleep(ctx, time.Second)
 			}
 		}
 		dropDestinationFuture := workflow.ExecuteActivity(ctx, flowable.DropFlowDestination, &protos.DropFlowActivityInput{
