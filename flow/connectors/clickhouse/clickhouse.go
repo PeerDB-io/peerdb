@@ -278,6 +278,10 @@ func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...an
 	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
 }
 
+func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string, args ...any) error {
+	return chvalidate.Exec(ctx, c.logger, conn, query, args...)
+}
+
 func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
 	return chvalidate.Query(ctx, c.logger, c.database, query, args...)
 }
