@@ -305,9 +305,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second))
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
-	if a.OtelManager != nil {
-		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
-	}
+	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
 	syncState.Store(shared.Ptr("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
@@ -386,11 +384,11 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-		TPull,
-		context.Context, *protos.QRepConfig,
-		*protos.QRepPartition,
-		TWrite,
-	) (int, error),
+	TPull,
+	context.Context, *protos.QRepConfig,
+	*protos.QRepPartition,
+	TWrite,
+) (int, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -478,11 +476,11 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	stream TWrite,
 	outstream TRead,
 	pullRecords func(
-		*connpostgres.PostgresConnector,
-		context.Context, *protos.QRepConfig,
-		*protos.QRepPartition,
-		TWrite,
-	) (int, int64, error),
+	*connpostgres.PostgresConnector,
+	context.Context, *protos.QRepConfig,
+	*protos.QRepPartition,
+	TWrite,
+) (int, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -688,11 +686,9 @@ func (a *FlowableActivity) normalizeLoop(
 				} else if req.Done != nil {
 					close(req.Done)
 				}
-				if a.OtelManager != nil {
-					a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
-						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-					)))
-				}
+				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+				)))
 				break
 			}
 		case <-syncDone:
