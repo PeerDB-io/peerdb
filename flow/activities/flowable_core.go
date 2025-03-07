@@ -88,6 +88,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 			TableMappings: options.TableMappings,
 			FlowName:      config.FlowJobName,
 			System:        config.System,
+			Env:           config.Env,
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}
