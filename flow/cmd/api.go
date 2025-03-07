@@ -225,7 +225,9 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		),
 	}
 
-	componentManager, err := otel_metrics.SetupComponentMetricsProvider(ctx, otel_metrics.FlowApiServiceName, "grpc-api", args.EnableOtelMetrics)
+	componentManager, err := otel_metrics.SetupComponentMetricsProvider(ctx,
+		otel_metrics.FlowApiServiceName, "grpc-api", args.EnableOtelMetrics,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to metrics provider for grpc api: %w", err)
 	}

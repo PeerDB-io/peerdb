@@ -77,13 +77,13 @@ func BuildMetricName(baseName string) string {
 }
 
 type OtelManager struct {
-	Enabled            bool
 	MetricsProvider    metric.MeterProvider
 	Meter              metric.Meter
 	Float64GaugesCache map[string]metric.Float64Gauge
 	Int64GaugesCache   map[string]metric.Int64Gauge
 	Int64CountersCache map[string]metric.Int64Counter
 	Metrics            Metrics
+	Enabled            bool
 }
 
 func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*OtelManager, error) {
@@ -107,12 +107,10 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 }
 
 func (om *OtelManager) Close(ctx context.Context) error {
-	switch (om.MetricsProvider).(type) {
-	case *sdkmetric.MeterProvider:
-		return om.MetricsProvider.(*sdkmetric.MeterProvider).Shutdown(ctx)
+	if provider, ok := om.MetricsProvider.(*sdkmetric.MeterProvider); ok {
+		return provider.Shutdown(ctx)
 	}
 	return nil
-
 }
 
 func getOrInitMetric[M any, O any](
@@ -346,7 +344,12 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	return metricExporter, err
 }
 
-func setupMetricsProvider(ctx context.Context, otelResource *resource.Resource, enabled bool, views ...sdkmetric.View) (metric.MeterProvider, error) {
+func setupMetricsProvider(
+	ctx context.Context,
+	otelResource *resource.Resource,
+	enabled bool,
+	views ...sdkmetric.View,
+) (metric.MeterProvider, error) {
 	if !enabled {
 		return noop.NewMeterProvider(), nil
 	}
@@ -379,7 +382,12 @@ func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, e
 	return setupMetricsProvider(ctx, otelResource, enabled, temporalMetricsFilteringView())
 }
 
-func SetupComponentMetricsProvider(ctx context.Context, otelServiceName string, componentName string, enabled bool) (metric.MeterProvider, error) {
+func SetupComponentMetricsProvider(
+	ctx context.Context,
+	otelServiceName string,
+	componentName string,
+	enabled bool,
+) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)

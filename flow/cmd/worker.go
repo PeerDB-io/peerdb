@@ -104,7 +104,9 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 		},
 	}
 
-	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(context.Background(), otel_metrics.FlowWorkerServiceName, opts.EnableOtelMetrics)
+	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(context.Background(),
+		otel_metrics.FlowWorkerServiceName, opts.EnableOtelMetrics,
+	)
 	if metricsErr != nil {
 		return nil, metricsErr
 	}
