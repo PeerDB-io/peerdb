@@ -1040,15 +1040,12 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
-			secret TEXT
+			"se'cret" TEXT
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (key, secret) VALUES
-	('init_initial_load', 'secret');
-	`, srcFullName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (key, "se'cret") VALUES ('init_initial_load', 'secret')`, srcFullName))
 	require.NoError(s.t, err)
 
 	err = e2e.RevokePermissionForTableColumns(s.t.Context(), s.Conn(), srcFullName, []string{"id", "key"})
@@ -1059,7 +1056,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
-			Exclude:                    []string{"secret"},
+			Exclude:                    []string{"se'cret"},
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -1071,10 +1068,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key")
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (key, secret) VALUES
-	('init_cdc', 'secret');
-	`, srcFullName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (key, "se'cret") VALUES ('init_cdc', 'secret')`, srcFullName))
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key")
 	env.Cancel(s.t.Context())
