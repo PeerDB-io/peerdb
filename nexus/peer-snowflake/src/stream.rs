@@ -114,7 +114,7 @@ impl SnowflakeRecordStream {
             auth,
             schema: schema.clone(),
         };
-        let stream = futures::stream::unfold(inner, |mut inner| async {
+        let stream = futures::stream::unfold(inner, async |mut inner| {
             inner.advance().await.map(|val| (val, inner))
         });
 
