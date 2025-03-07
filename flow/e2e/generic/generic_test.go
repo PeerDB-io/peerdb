@@ -186,7 +186,8 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 
@@ -221,7 +222,8 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c2,0) c2")
@@ -262,7 +264,8 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
@@ -303,7 +306,8 @@ func (s Generic) Test_Simple_Schema_Changes() {
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q, []string{dstTableName})
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")

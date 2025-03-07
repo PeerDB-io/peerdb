@@ -119,7 +119,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	batch := &model.QRecordBatch{}
 	types := rows.ColumnTypes()
 	row := make([]any, 0, len(types))
-	tableSchema, err := connclickhouse.GetTableSchemaForTable(table, types)
+	tableSchema, err := connclickhouse.GetTableSchemaForTable(&protos.TableMapping{SourceTableIdentifier: table}, types)
 	if err != nil {
 		return nil, err
 	}

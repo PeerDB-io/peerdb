@@ -25,8 +25,12 @@ func (c *PostgresConnector) ValidateCheck(ctx context.Context) error {
 	return nil
 }
 
-func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
-	tableNames []*utils.SchemaTable, pubName string, noCDC bool,
+func (c *PostgresConnector) CheckSourceTables(
+	ctx context.Context,
+	tableNames []*utils.SchemaTable,
+	tableMappings []*protos.TableMapping,
+	pubName string,
+	noCDC bool,
 ) error {
 	if c.conn == nil {
 		return errors.New("check tables: conn is nil")
@@ -34,14 +38,28 @@ func (c *PostgresConnector) CheckSourceTables(ctx context.Context,
 
 	// Check that we can select from all tables
 	tableArr := make([]string, 0, len(tableNames))
-	for _, parsedTable := range tableNames {
+	for idx, parsedTable := range tableNames {
 		var row pgx.Row
 		tableArr = append(tableArr, fmt.Sprintf(`(%s::text,%s::text)`,
 			utils.QuoteLiteral(parsedTable.Schema), utils.QuoteLiteral(parsedTable.Table)))
+
+		selectedColumnsStr := "*"
+		if excludedColumns := tableMappings[idx].Exclude; len(excludedColumns) != 0 {
+			selectedColumns, err := c.GetSelectedColumns(ctx, parsedTable, excludedColumns)
+			if err != nil {
+				return fmt.Errorf("failed to get selected columns for SELECT check: %w", err)
+			}
+
+			for i, col := range selectedColumns {
+				selectedColumns[i] = utils.QuoteIdentifier(col)
+			}
+
+			selectedColumnsStr = strings.Join(selectedColumns, ", ")
+		}
 		if err := c.conn.QueryRow(ctx,
-			fmt.Sprintf("SELECT * FROM %s.%s LIMIT 0", utils.QuoteIdentifier(parsedTable.Schema), utils.QuoteIdentifier(parsedTable.Table)),
+			fmt.Sprintf("SELECT %s FROM %s LIMIT 0", selectedColumnsStr, parsedTable),
 		).Scan(&row); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
+			return fmt.Errorf("failed to select from table %s: %w", parsedTable, err)
 		}
 	}
 
@@ -192,12 +210,12 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	if !noCDC {
 		// Check replication connectivity
 		if err := c.CheckReplicationConnectivity(ctx); err != nil {
-			return fmt.Errorf("unable to establish replication connectivity: %v", err)
+			return fmt.Errorf("unable to establish replication connectivity: %w", err)
 		}
 
 		// Check permissions of postgres peer
 		if err := c.CheckReplicationPermissions(ctx, c.Config.User); err != nil {
-			return fmt.Errorf("failed to check replication permissions: %v", err)
+			return fmt.Errorf("failed to check replication permissions: %w", err)
 		}
 	}
 
@@ -205,7 +223,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	for _, tableMapping := range cfg.TableMappings {
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
-			return fmt.Errorf("invalid source table identifier: %s", parseErr)
+			return fmt.Errorf("invalid source table identifier: %w", parseErr)
 		}
 
 		sourceTables = append(sourceTables, parsedTable)
@@ -215,18 +233,16 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	if pubName == "" && !noCDC {
 		srcTableNames := make([]string, 0, len(sourceTables))
 		for _, srcTable := range sourceTables {
-			srcTableNames = append(srcTableNames, fmt.Sprintf(
-				`%s.%s`, utils.QuoteIdentifier(srcTable.Schema), utils.QuoteIdentifier(srcTable.Table),
-			))
+			srcTableNames = append(srcTableNames, srcTable.String())
 		}
 
 		if err := c.CheckPublicationCreationPermissions(ctx, srcTableNames); err != nil {
-			return fmt.Errorf("invalid publication creation permissions: %v", err)
+			return fmt.Errorf("invalid publication creation permissions: %w", err)
 		}
 	}
 
-	if err := c.CheckSourceTables(ctx, sourceTables, pubName, noCDC); err != nil {
-		return fmt.Errorf("provided source tables invalidated: %v", err)
+	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
+		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 
 	return nil

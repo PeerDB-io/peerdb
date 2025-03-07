@@ -106,8 +106,7 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 	})
 
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
-		PeerName:         q.config.SourceName,
-		TableIdentifiers: []string{tableName},
+		PeerName: q.config.SourceName,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      tableName,
