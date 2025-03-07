@@ -181,8 +181,8 @@ message FieldDescription {
 }
 
 message SetupTableSchemaBatchInput {
+  reserved 2;
   map<string, string> env = 1;
-  repeated string table_identifiers = 2;
   string flow_name = 3;
   TypeSystem system = 4;
   string peer_name = 5;

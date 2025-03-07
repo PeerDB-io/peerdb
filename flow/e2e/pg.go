@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -202,4 +203,29 @@ func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table strin
 		ctx,
 		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
 	)
+}
+
+func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableIdentifier string, selectedColumns []string) error {
+	schemaTable, err := utils.ParseSchemaTable(tableIdentifier)
+	if err != nil {
+		return fmt.Errorf("failed to parse table identifier %s: %w", tableIdentifier, err)
+	}
+
+	// 1. Revoke all permissions on the table
+	if _, err := conn.Exec(ctx, fmt.Sprintf("REVOKE ALL ON TABLE %s FROM postgres", schemaTable)); err != nil {
+		return fmt.Errorf("failed to revoke permissions on table %s: %w", schemaTable, err)
+	}
+
+	columns := make([]string, len(selectedColumns))
+	for i, col := range selectedColumns {
+		columns[i] = utils.QuoteIdentifier(col)
+	}
+	columnStr := strings.Join(columns, ", ")
+
+	// 2. Grant SELECT permission on the columns
+	if _, err := conn.Exec(ctx, fmt.Sprintf("GRANT SELECT (%s) ON %s TO postgres", columnStr, schemaTable)); err != nil {
+		return fmt.Errorf("failed to grant SELECT permission on columns %s: %w", schemaTable, err)
+	}
+
+	return nil
 }

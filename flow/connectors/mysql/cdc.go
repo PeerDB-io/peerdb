@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -31,17 +32,17 @@ func (c *MySqlConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
 	system protos.TypeSystem,
-	tableIdentifiers []string,
+	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
-	for _, tableName := range tableIdentifiers {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tableName, system)
+	res := make(map[string]*protos.TableSchema, len(tableMappings))
+	for _, tm := range tableMappings {
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system)
 		if err != nil {
-			c.logger.Info("error fetching schema for table "+tableName, slog.Any("error", err))
+			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
 		}
-		res[tableName] = tableSchema
-		c.logger.Info("fetched schema for table", slog.String("table", tableName))
+		res[tm.SourceTableIdentifier] = tableSchema
+		c.logger.Info("fetched schema", slog.String("table", tm.SourceTableIdentifier))
 	}
 
 	return res, nil
@@ -50,10 +51,10 @@ func (c *MySqlConnector) GetTableSchema(
 func (c *MySqlConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
-	tableName string,
+	tm *protos.TableMapping,
 	system protos.TypeSystem,
 ) (*protos.TableSchema, error) {
-	schemaTable, err := utils.ParseSchemaTable(tableName)
+	schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
 	if err != nil {
 		return nil, err
 	}
@@ -77,6 +78,10 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
+		if slices.Contains(tm.Exclude, columnName) {
+			continue
+		}
+
 		dataType, err := rs.GetString(idx, 1)
 		if err != nil {
 			return nil, err
@@ -115,7 +120,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier:       tableName,
+		TableIdentifier:       tm.SourceTableIdentifier,
 		PrimaryKeyColumns:     primary,
 		IsReplicaIdentityFull: false,
 		System:                system,

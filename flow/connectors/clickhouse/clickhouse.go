@@ -354,9 +354,13 @@ func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
 	return clickhouseVersion.Version.String(), nil
 }
 
-func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*protos.TableSchema, error) {
+func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType) (*protos.TableSchema, error) {
 	colFields := make([]*protos.FieldDescription, 0, len(columns))
 	for _, column := range columns {
+		if slices.Contains(tm.Exclude, column.Name()) {
+			continue
+		}
+
 		var qkind qvalue.QValueKind
 		switch column.DatabaseTypeName() {
 		case "String", "Nullable(String)":
@@ -406,7 +410,7 @@ func GetTableSchemaForTable(tableName string, columns []driver.ColumnType) (*pro
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier: tableName,
+		TableIdentifier: tm.SourceTableIdentifier,
 		Columns:         colFields,
 		System:          protos.TypeSystem_Q,
 	}, nil
@@ -416,21 +420,21 @@ func (c *ClickHouseConnector) GetTableSchema(
 	ctx context.Context,
 	_env map[string]string,
 	_system protos.TypeSystem,
-	tableIdentifiers []string,
+	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableIdentifiers))
-	for _, tableName := range tableIdentifiers {
-		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tableName))
+	res := make(map[string]*protos.TableSchema, len(tableMappings))
+	for _, tm := range tableMappings {
+		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tm.SourceTableIdentifier))
 		if err != nil {
 			return nil, err
 		}
 
-		tableSchema, err := GetTableSchemaForTable(tableName, rows.ColumnTypes())
+		tableSchema, err := GetTableSchemaForTable(tm, rows.ColumnTypes())
 		rows.Close()
 		if err != nil {
 			return nil, err
 		}
-		res[tableName] = tableSchema
+		res[tm.SourceTableIdentifier] = tableSchema
 	}
 
 	return res, nil

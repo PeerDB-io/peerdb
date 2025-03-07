@@ -190,20 +190,17 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		},
 	})
 
-	sourceTables := slices.Sorted(maps.Keys(s.tableNameMapping))
-
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
-		PeerName:         flowConnectionConfigs.SourceName,
-		TableIdentifiers: sourceTables,
-		TableMappings:    flowConnectionConfigs.TableMappings,
-		FlowName:         s.cdcFlowName,
-		System:           flowConnectionConfigs.System,
-		Env:              flowConnectionConfigs.Env,
+		PeerName:      flowConnectionConfigs.SourceName,
+		TableMappings: flowConnectionConfigs.TableMappings,
+		FlowName:      s.cdcFlowName,
+		System:        flowConnectionConfigs.System,
+		Env:           flowConnectionConfigs.Env,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil); err != nil {
 		s.Error("failed to fetch schema for source tables", slog.Any("error", err))
-		return fmt.Errorf("failed to fetch schema for source table %s: %w", sourceTables, err)
+		return fmt.Errorf("failed to fetch schema for source tables: %w", err)
 	}
 
 	s.Info("setting up normalized tables on destination peer", slog.String("destination", flowConnectionConfigs.DestinationName))
