@@ -392,12 +392,10 @@ func (a *FlowableActivity) SyncFlow(
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
-			if a.OtelManager != nil {
-				a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
-				)))
-				a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
-			}
+			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
+			)))
+			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 		}
 		if (options.NumberOfSyncs > 0 && syncNum >= options.NumberOfSyncs) || (reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches) {
 			break
@@ -773,33 +771,31 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 	logger := internal.LoggerFromCtx(ctx)
 	slotMetricGauges := otel_metrics.SlotMetricGauges{}
-	if a.OtelManager != nil {
-		slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
-		slotMetricGauges.RestartLSNGauge = a.OtelManager.Metrics.RestartLSNGauge
-		slotMetricGauges.ConfirmedFlushLSNGauge = a.OtelManager.Metrics.ConfirmedFlushLSNGauge
+	slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
+	slotMetricGauges.RestartLSNGauge = a.OtelManager.Metrics.RestartLSNGauge
+	slotMetricGauges.ConfirmedFlushLSNGauge = a.OtelManager.Metrics.ConfirmedFlushLSNGauge
 
-		slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
+	slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
 
-		slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
+	slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
 
-		slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
+	slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
 
-		maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
-		instanceStatus := otel_metrics.InstanceStatusReady
-		if err != nil {
-			logger.Error("Failed to get maintenance mode status", slog.Any("error", err))
-			instanceStatus = otel_metrics.InstanceStatusUnknown
-		}
-		if maintenanceEnabled {
-			instanceStatus = otel_metrics.InstanceStatusMaintenance
-		}
-
-		a.OtelManager.Metrics.InstanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.InstanceStatusKey, instanceStatus),
-			attribute.String(otel_metrics.PeerDBVersionKey, internal.PeerDBVersionShaShort()),
-			attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
-		)))
+	maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
+	instanceStatus := otel_metrics.InstanceStatusReady
+	if err != nil {
+		logger.Error("Failed to get maintenance mode status", slog.Any("error", err))
+		instanceStatus = otel_metrics.InstanceStatusUnknown
 	}
+	if maintenanceEnabled {
+		instanceStatus = otel_metrics.InstanceStatusMaintenance
+	}
+
+	a.OtelManager.Metrics.InstanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.InstanceStatusKey, instanceStatus),
+		attribute.String(otel_metrics.PeerDBVersionKey, internal.PeerDBVersionShaShort()),
+		attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
+	)))
 	activeFlows := make([]*flowInformation, 0, len(infos))
 	for _, info := range infos {
 		func(ctx context.Context) {
@@ -821,13 +817,11 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			if _, info.isActive = activeFlowStatuses[status]; info.isActive {
 				activeFlows = append(activeFlows, info)
 			}
-			if a.OtelManager != nil {
-				a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
-				a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.FlowStatusKey, status.String()),
-					attribute.Bool(otel_metrics.IsFlowActiveKey, info.isActive),
-				)))
-			}
+			a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
+			a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowStatusKey, status.String()),
+				attribute.Bool(otel_metrics.IsFlowActiveKey, info.isActive),
+			)))
 			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {

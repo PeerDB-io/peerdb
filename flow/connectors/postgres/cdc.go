@@ -476,9 +476,7 @@ func PullCdcRecords[Items model.Items](
 		case *pgproto3.ErrorResponse:
 			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
 		case *pgproto3.CopyData:
-			if p.otelManager != nil {
-				p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
-			}
+			p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
 			switch msg.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
@@ -640,9 +638,7 @@ func (p *PostgresCDCSource) updateConsumedOffset(
 		return err
 	}
 	consumedOffset.Store(int64(clientXLogPos))
-	if p.otelManager != nil {
-		p.otelManager.Metrics.CommittedLSNGauge.Record(ctx, int64(clientXLogPos))
-	}
+	p.otelManager.Metrics.CommittedLSNGauge.Record(ctx, int64(clientXLogPos))
 	return nil
 }
 
