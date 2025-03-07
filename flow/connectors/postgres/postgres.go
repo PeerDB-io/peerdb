@@ -287,14 +287,13 @@ func (c *PostgresConnector) NeedsSetupMetadataTables(ctx context.Context) (bool,
 
 // SetupMetadataTables sets up the metadata tables.
 func (c *PostgresConnector) SetupMetadataTables(ctx context.Context) error {
-	err := c.createMetadataSchema(ctx)
-	if err != nil {
+	if err := c.createMetadataSchema(ctx); err != nil {
 		return err
 	}
 
-	_, err = c.conn.Exec(ctx, fmt.Sprintf(createMirrorJobsTableSQL,
-		c.metadataSchema, mirrorJobsTableIdentifier))
-	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
+	if _, err := c.conn.Exec(ctx,
+		fmt.Sprintf(createMirrorJobsTableSQL, c.metadataSchema, mirrorJobsTableIdentifier),
+	); err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation, pgerrcode.DuplicateObject) {
 		return fmt.Errorf("error creating table %s: %w", mirrorJobsTableIdentifier, err)
 	}
 
