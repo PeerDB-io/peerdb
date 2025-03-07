@@ -117,8 +117,8 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 }
 
 func (om *OtelManager) Close(ctx context.Context) error {
-	if omp, ok := om.MetricsProvider.(*sdkmetric.MeterProvider); ok {
-		return omp.Shutdown(ctx)
+	if provider, ok := om.MetricsProvider.(*sdkmetric.MeterProvider); ok {
+		return provider.Shutdown(ctx)
 	}
 	return nil
 }
@@ -391,7 +391,10 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 }
 
 func setupMetricsProvider(
-	ctx context.Context, otelResource *resource.Resource, enabled bool, views ...sdkmetric.View,
+	ctx context.Context,
+	otelResource *resource.Resource,
+	enabled bool,
+	views ...sdkmetric.View,
 ) (metric.MeterProvider, error) {
 	if !enabled {
 		return noop.NewMeterProvider(), nil
@@ -426,7 +429,10 @@ func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, e
 }
 
 func SetupComponentMetricsProvider(
-	ctx context.Context, otelServiceName string, componentName string, enabled bool,
+	ctx context.Context,
+	otelServiceName string,
+	componentName string,
+	enabled bool,
 ) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {

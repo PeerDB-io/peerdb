@@ -546,9 +546,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
 
-		if a.OtelManager != nil {
-			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
-		}
+		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, numRecords,
