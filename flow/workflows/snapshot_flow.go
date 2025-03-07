@@ -38,7 +38,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	s.logger.Info("setting up replication on source for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 4 * time.Hour,
+		StartToCloseTimeout: 4 * 24 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 			MaximumAttempts: 20,
