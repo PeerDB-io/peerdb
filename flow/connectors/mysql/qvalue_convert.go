@@ -150,6 +150,9 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 		}
 	case "vector":
 		return qvalue.QValueKindArrayFloat32, nil
+
+	case "geometry":
+		return qvalue.QValueKindGeometry, nil
 	default:
 		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
 	}
@@ -263,6 +266,9 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			return qvalue.QValueBytes{Val: slices.Clone(v)}, nil
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(v)}, nil
+		case qvalue.QValueKindGeometry:
+			// Handle geometry data as string (WKT format)
+			return qvalue.QValueGeometry{Val: string(v)}, nil
 		case qvalue.QValueKindNumeric:
 			val, err := decimal.NewFromString(unsafeString)
 			if err != nil {
@@ -366,7 +372,7 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(val)}, nil
 		case qvalue.QValueKindGeometry:
-			// TODO figure out mysql geo encoding
+			// Handle geometry data as binary (WKB format)
 			return qvalue.QValueGeometry{Val: string(val)}, nil
 		case qvalue.QValueKindArrayFloat32:
 			floats := make([]float32, 0, len(val)/4)
@@ -384,7 +390,7 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: val}, nil
 		case qvalue.QValueKindGeometry:
-			// TODO figure out mysql geo encoding
+			// Handle geometry data as string (WKT format)
 			return qvalue.QValueGeometry{Val: val}, nil
 		case qvalue.QValueKindTime:
 			val, err := time.Parse("15:04:05.999999", val)
