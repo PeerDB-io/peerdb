@@ -42,7 +42,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:8.17.2@sha256:f388389127fe71274ff82493748e26677b88ff599785875f088627e0ca0e4c28
+        image: elasticsearch:8.17.3@sha256:2cc40b15dff85281ac804e7ff27cbc07b31fdd542e94ea7a2bdb6470e3b6bb68
         ports:
           - 9200:9200
         env:
@@ -50,7 +50,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.2.28@sha256:ca31735c5a8e6a85de77c63bea09d8780a788ca9bbf7f1d730610c5da84a5796
+        image: bitnami/minio:2025.2.28@sha256:5175879456f619cf228e62066415e13be0540118d7de5ee6f6d477cca8743d25
         ports:
           - 9999:9999
         env:
