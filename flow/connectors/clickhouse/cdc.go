@@ -65,11 +65,12 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	}, nil
 }
 
-func (c *ClickHouseConnector) avroSyncMethod(flowJobName string) *ClickHouseAvroSyncMethod {
+func (c *ClickHouseConnector) avroSyncMethod(flowJobName string, env map[string]string) *ClickHouseAvroSyncMethod {
 	qrepConfig := &protos.QRepConfig{
 		StagingPath:                c.credsProvider.BucketPath,
 		FlowJobName:                flowJobName,
 		DestinationTableIdentifier: c.getRawTableName(flowJobName),
+		Env:                        env,
 	}
 	return NewClickHouseAvroSyncMethod(qrepConfig, c)
 }
@@ -86,7 +87,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
 
-	avroSyncer := c.avroSyncMethod(req.FlowJobName)
+	avroSyncer := c.avroSyncMethod(req.FlowJobName, req.Env)
 	numRecords, err := avroSyncer.SyncRecords(ctx, req.Env, stream, req.FlowJobName, syncBatchID)
 	if err != nil {
 		return nil, err
