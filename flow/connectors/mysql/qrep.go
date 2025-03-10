@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"text/template"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -143,21 +144,22 @@ func (c *MySqlConnector) PullQRepRecords(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, int64, error) {
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
 	query, err := BuildQuery(c.logger, config.Query)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
+		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	totalRecords := 0
+	var totalRecords int64
+	var totalBytes int64
 	onResult := func(rs *mysql.Result) error {
 		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields)
 		if err != nil {
@@ -166,8 +168,43 @@ func (c *MySqlConnector) PullQRepRecords(
 		stream.SetSchema(schema)
 		return nil
 	}
+	var rs mysql.Result
 	onRow := func(row []mysql.FieldValue) error {
-		totalRecords += 1 // TODO can this be batched in onResult or by checking rs at end?
+		totalRecords += 1
+		totalBytes += int64(len(row) / 8) // null bitmap
+		for idx, val := range row {
+			// TODO ideally go-mysql would give us row buffer, need upstream PR
+			// see mysql/rowdata.go in go-mysql for field sizes
+			// unfortunately we're using text protocol, so this is a weak estimate
+			switch rs.Fields[idx].Type {
+			case mysql.MYSQL_TYPE_NULL:
+				// 0
+			case mysql.MYSQL_TYPE_TINY, mysql.MYSQL_TYPE_SHORT, mysql.MYSQL_TYPE_INT24, mysql.MYSQL_TYPE_LONG, mysql.MYSQL_TYPE_LONGLONG:
+				var v uint64
+				if val.Type == mysql.FieldValueTypeUnsigned {
+					v = val.AsUint64()
+				} else {
+					signed := val.AsInt64()
+					if signed < 0 {
+						v = uint64(-signed)
+					} else {
+						v = uint64(signed)
+					}
+				}
+				if v < 10 {
+					totalBytes += 1
+				} else if v > 99999999999999 {
+					// math.log10(10**15-1) == 15.0, so pick boundary where we're accurate, cap at 15 for simplicity
+					totalBytes += 15
+				} else {
+					totalBytes += 1 + int64(math.Log10(float64(val.AsUint64())))
+				}
+			case mysql.MYSQL_TYPE_YEAR, mysql.MYSQL_TYPE_FLOAT, mysql.MYSQL_TYPE_DOUBLE:
+				totalBytes += 4
+			default:
+				totalBytes += int64(len(val.AsString()))
+			}
+		}
 		schema, err := stream.Schema()
 		if err != nil {
 			return err
@@ -186,9 +223,8 @@ func (c *MySqlConnector) PullQRepRecords(
 
 	if last.FullTablePartition {
 		// this is a full table partition, so just run the query
-		var rs mysql.Result
 		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	} else {
 		var rangeStart any
@@ -203,17 +239,16 @@ func (c *MySqlConnector) PullQRepRecords(
 			rangeStart = x.TimestampRange.Start.AsTime()
 			rangeEnd = x.TimestampRange.End.AsTime()
 		default:
-			return 0, fmt.Errorf("unknown range type: %v", x)
+			return 0, 0, fmt.Errorf("unknown range type: %v", x)
 		}
 
-		var rs mysql.Result
 		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult, rangeStart, rangeEnd); err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 
 	close(stream.Records)
-	return totalRecords, nil
+	return totalRecords, totalBytes, nil
 }
 
 func BuildQuery(logger log.Logger, query string) (string, error) {

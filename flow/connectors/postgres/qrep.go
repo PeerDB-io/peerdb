@@ -28,7 +28,7 @@ const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
 type QRepPullSink interface {
 	Close(error)
-	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...any) (int, error)
+	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...any) (int64, int64, error)
 }
 
 type QRepSyncSink interface {
@@ -286,7 +286,7 @@ func (c *PostgresConnector) PullQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, int64, error) {
 	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
 		QRecordStream: stream,
 	})
@@ -297,7 +297,7 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
-) (int, error) {
+) (int64, int64, error) {
 	return corePullQRepRecords(c, ctx, config, partition, stream)
 }
 
@@ -307,7 +307,7 @@ func corePullQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
-) (int, error) {
+) (int64, int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
 	if partition.FullTablePartition {
@@ -315,10 +315,9 @@ func corePullQRepRecords(
 		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.SnapshotName,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
-			return 0, fmt.Errorf("failed to create query executor: %w", err)
+			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 		}
-		_, err = executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
-		return 0, err
+		return executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
@@ -345,29 +344,29 @@ func corePullQRepRecords(
 			Valid:        true,
 		}
 	default:
-		return 0, fmt.Errorf("unknown range type: %v", x)
+		return 0, 0, fmt.Errorf("unknown range type: %v", x)
 	}
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
 	query, err := BuildQuery(c.logger, config.Query, config.FlowJobName)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.SnapshotName, config.FlowJobName,
 		partition.PartitionId)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create query executor: %w", err)
+		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
 
-	numRecords, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
+	numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
 	if err != nil {
-		return 0, err
+		return numRecords, numBytes, err
 	}
 
 	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords), partitionIdLog)
-	return numRecords, nil
+	return numRecords, numBytes, nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(
@@ -470,8 +469,7 @@ func syncQRepRecords(
 				utils.QuoteIdentifier(syncedAtCol),
 				utils.QuoteIdentifier(syncedAtCol),
 			)
-			_, err = tx.Exec(ctx, updateSyncedAtStmt)
-			if err != nil {
+			if _, err := tx.Exec(ctx, updateSyncedAtStmt); err != nil {
 				return -1, fmt.Errorf("failed to update synced_at column: %w", err)
 			}
 		}
@@ -483,8 +481,7 @@ func syncQRepRecords(
 
 		// From PG docs: The cost of setting a large value in sessions that do not actually need many
 		// temporary buffers is only a buffer descriptor, or about 64 bytes, per increment in temp_buffers.
-		_, err = tx.Exec(ctx, "SET temp_buffers = '4GB';")
-		if err != nil {
+		if _, err := tx.Exec(ctx, "SET temp_buffers = '4GB';"); err != nil {
 			return -1, fmt.Errorf("failed to set temp_buffers: %w", err)
 		}
 
@@ -496,8 +493,7 @@ func syncQRepRecords(
 
 		c.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
 			stagingTableName, createStagingTableStmt), syncLog)
-		_, err = c.execWithLoggingTx(ctx, createStagingTableStmt, tx)
-		if err != nil {
+		if _, err := c.execWithLoggingTx(ctx, createStagingTableStmt, tx); err != nil {
 			return -1, fmt.Errorf("failed to create staging table: %w", err)
 		}
 
@@ -614,7 +610,7 @@ func (c *PostgresConnector) PullXminRecordStream(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, int64, error) {
+) (int64, int64, int64, error) {
 	return pullXminRecordStream(c, ctx, config, partition, RecordStreamSink{
 		QRecordStream: stream,
 	})
@@ -625,7 +621,7 @@ func (c *PostgresConnector) PullXminPgRecordStream(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	pipe PgCopyWriter,
-) (int, int64, error) {
+) (int64, int64, int64, error) {
 	return pullXminRecordStream(c, ctx, config, partition, pipe)
 }
 
@@ -635,7 +631,7 @@ func pullXminRecordStream(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
-) (int, int64, error) {
+) (int64, int64, int64, error) {
 	query := config.Query
 	var queryArgs []any
 	if partition.Range != nil {
@@ -646,21 +642,21 @@ func pullXminRecordStream(
 	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.SnapshotName,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
+		return 0, 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
 
-	numRecords, currentSnapshotXmin, err := executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
+	numRecords, numBytes, currentSnapshotXmin, err := executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 		ctx,
 		sink,
 		query,
 		queryArgs...,
 	)
 	if err != nil {
-		return 0, currentSnapshotXmin, err
+		return numRecords, numBytes, currentSnapshotXmin, err
 	}
 
 	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords))
-	return numRecords, currentSnapshotXmin, nil
+	return numRecords, numBytes, currentSnapshotXmin, nil
 }
 
 func BuildQuery(logger log.Logger, query string, flowJobName string) (string, error) {
