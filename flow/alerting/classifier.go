@@ -237,6 +237,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrUnfinished,
 			chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
+		case chproto.ErrAuthenticationFailed:
+			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
@@ -246,6 +248,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				// notify if normalization hits error on destination
 				return ErrorNormalize, chErrorInfo
 			}
+			return ErrorOther, chErrorInfo
 		}
 	}
 
