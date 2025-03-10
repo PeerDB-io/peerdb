@@ -564,7 +564,12 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	return tableNames, nil
 }
 
-func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context, flowJobName string, syncBatchID int64, env map[string]string) error {
+func (c *ClickHouseConnector) copyAvroStageToDestination(
+	ctx context.Context,
+	flowJobName string,
+	syncBatchID int64,
+	env map[string]string,
+) error {
 	avroSyncMethod := c.avroSyncMethod(flowJobName, env)
 	avroFile, err := GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
