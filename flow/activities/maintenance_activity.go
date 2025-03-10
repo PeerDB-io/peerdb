@@ -162,20 +162,23 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 			logger.Info("Workflow execution already completed, checking for existing DropFlow")
 			// Check if we are actively trying to drop the mirror
 			response, wErr := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
-				Query: fmt.Sprintf("`MirrorName`=\"%s\" AND `WorkflowType`=\"DropFlowWorkflow\" AND `ExecutionStatus`=\"Running\"", mirror.MirrorName),
+				Query: fmt.Sprintf("`MirrorName`=\"%s\" AND `WorkflowType`=\"DropFlowWorkflow\" AND `ExecutionStatus`=\"Running\"",
+					mirror.MirrorName),
 			})
 			if wErr != nil {
 				logger.Error("Error checking for existing DropFlow", "error", wErr)
 				return false, wErr
 			}
-			logger.Info("Recieved response for DropFlow check", "len(executions)", len(response.Executions))
+			logger.Info("Received response for DropFlow check", "len(executions)", len(response.Executions))
 			if len(response.Executions) > 0 {
 				// We can skip if we find a running DropFlow
 				foundWorkflowIds := make([]string, len(response.Executions))
 				for i, exec := range response.Executions {
 					foundWorkflowIds[i] = exec.GetExecution().GetWorkflowId()
 				}
-				logger.Warn("Found existing DropFlow, skipping pause", "foundDropFlows", foundWorkflowIds, "len(foundDropFlows)", len(foundWorkflowIds))
+				logger.Warn("Found existing DropFlow, skipping pause", "foundDropFlows", foundWorkflowIds,
+					"len(foundDropFlows)", len(foundWorkflowIds),
+				)
 				return false, nil
 			} else {
 				// Maybe the drop flow is already completed, but relying on a completed state can be error-prone, so we check flows table
@@ -191,7 +194,6 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 					return false, nil
 				}
 			}
-
 		}
 		return false, err
 	}
