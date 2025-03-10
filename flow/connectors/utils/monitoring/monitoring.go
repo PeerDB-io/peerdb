@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
 type CDCBatchInfo struct {
@@ -218,48 +219,64 @@ func AppendSlotSizeInfo(
 	return nil
 }
 
+func isMySQLFullTablePartition(partition *protos.QRepPartition) bool {
+	if partition == nil {
+		return false
+	}
+	return partition.PartitionId == shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID
+}
+
 func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 	runUUID string, partition *protos.QRepPartition, parentMirrorName string,
 ) error {
-	if partition.Range == nil && partition.FullTablePartition {
-		internal.LoggerFromCtx(ctx).Info("partition"+partition.PartitionId+
+	if partition == nil {
+		internal.LoggerFromCtx(ctx).Info("cannot add nil partition to qrep run",
+			slog.String(string(shared.FlowNameKey), parentMirrorName))
+		return fmt.Errorf("cannot add nil partition to qrep run")
+	}
+	if partition.Range == nil && partition.FullTablePartition && !isMySQLFullTablePartition(partition) {
+		internal.LoggerFromCtx(ctx).Info("partition "+partition.PartitionId+
 			" is a full table partition. Metrics logging is skipped.",
-			slog.String(string(shared.FlowNameKey), flowJobName))
+			slog.String(string(shared.FlowNameKey), parentMirrorName))
 		return nil
 	}
 
 	var rangeStart, rangeEnd string
-	switch x := partition.Range.Range.(type) {
-	case *protos.PartitionRange_IntRange:
-		rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
-		rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
-	case *protos.PartitionRange_TimestampRange:
-		rangeStart = x.TimestampRange.Start.AsTime().String()
-		rangeEnd = x.TimestampRange.End.AsTime().String()
-	case *protos.PartitionRange_TidRange:
-		rangeStartValue, err := pgtype.TID{
-			BlockNumber:  x.TidRange.Start.BlockNumber,
-			OffsetNumber: uint16(x.TidRange.Start.OffsetNumber),
-			Valid:        true,
-		}.Value()
-		if err != nil {
-			return fmt.Errorf("unable to encode TID as string: %w", err)
-		}
-		rangeStart = rangeStartValue.(string)
+	if partition.Range != nil {
+		switch x := partition.Range.Range.(type) {
+		case *protos.PartitionRange_IntRange:
+			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
+			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
+		case *protos.PartitionRange_TimestampRange:
+			rangeStart = x.TimestampRange.Start.AsTime().String()
+			rangeEnd = x.TimestampRange.End.AsTime().String()
+		case *protos.PartitionRange_TidRange:
+			rangeStartValue, err := pgtype.TID{
+				BlockNumber:  x.TidRange.Start.BlockNumber,
+				OffsetNumber: uint16(x.TidRange.Start.OffsetNumber),
+				Valid:        true,
+			}.Value()
+			if err != nil {
+				return fmt.Errorf("unable to encode TID as string: %w", err)
+			}
+			rangeStart = rangeStartValue.(string)
 
-		rangeEndValue, err := pgtype.TID{
-			BlockNumber:  x.TidRange.End.BlockNumber,
-			OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
-			Valid:        true,
-		}.Value()
-		if err != nil {
-			return fmt.Errorf("unable to encode TID as string: %w", err)
+			rangeEndValue, err := pgtype.TID{
+				BlockNumber:  x.TidRange.End.BlockNumber,
+				OffsetNumber: uint16(x.TidRange.End.OffsetNumber),
+				Valid:        true,
+			}.Value()
+			if err != nil {
+				return fmt.Errorf("unable to encode TID as string: %w", err)
+			}
+			rangeEnd = rangeEndValue.(string)
+		default:
+			return fmt.Errorf("unknown range type: %v", x)
 		}
-		rangeEnd = rangeEndValue.(string)
-	default:
-		return fmt.Errorf("unknown range type: %v", x)
+	} else {
+		internal.LoggerFromCtx(ctx).Warn("[monitoring]: partition "+partition.PartitionId+" has nil range",
+			slog.String(string(shared.FlowNameKey), parentMirrorName))
 	}
-
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO peerdb_stats.qrep_partitions
 		(flow_name,run_uuid,partition_uuid,partition_start,partition_end,restart_count,parent_mirror_name)

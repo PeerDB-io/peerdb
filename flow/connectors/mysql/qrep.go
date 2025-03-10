@@ -9,13 +9,13 @@ import (
 	"text/template"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
-	"github.com/google/uuid"
 	"go.temporal.io/sdk/log"
 
 	utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
 func (c *MySqlConnector) GetQRepPartitions(
@@ -27,7 +27,8 @@ func (c *MySqlConnector) GetQRepPartitions(
 		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
-				PartitionId:        uuid.New().String(),
+				PartitionId:        shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID,
+				Range:              nil,
 				FullTablePartition: true,
 			},
 		}, nil
