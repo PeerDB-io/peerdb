@@ -141,14 +141,18 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	allCols := strings.Join([]string{
 		"c1", "c2", "c4",
 		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
-		"c21", "c29", "c33", "c34", "c35", "c36", "c37",
+		"c21", "c29", "c33", "c34", "c35", "c37",
 		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
 	}, ",")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
 		return s.comparePGTables(srcTableName, dstTableName, allCols) == nil
 	})
-	env.Cancel(s.t.Context())
+	// c36 lost tz info so does not compare equal
+	var c36 string
+	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(), "select c36 from "+dstTableName).Scan(&c36))
+	require.Equal(s.t, "09:25:00+00", c36)
 
+	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
