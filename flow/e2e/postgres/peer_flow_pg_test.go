@@ -123,7 +123,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 			true,'s','test','1.1.10.2'::cidr,
 			CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
 			'08:00:2b:01:02:03'::macaddr,
-			1,'test',now(),now(),now()::time,now()::timetz,
+			1,'test',now(),now(),now()::time,'09:25:00+03'::timetz,
 			'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,
 			ARRAY[10299301,2579827],
 			ARRAY[0.0003, 8902.0092],
