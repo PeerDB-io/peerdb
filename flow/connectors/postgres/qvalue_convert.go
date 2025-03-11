@@ -385,11 +385,18 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 		timeVal := value.(string)
 		// edge case, Postgres supports this extreme value for time
 		timeVal = strings.Replace(timeVal, "24:00:00.000000", "23:59:59.999999", 1)
-		if strings.HasSuffix(timeVal, "+00") {
-			// edge case, Postgres may print +0000 as +00
-			timeVal = strings.Replace(timeVal, "+00", "+0000", 1)
+		tzidx := strings.LastIndexAny(timeVal, "+-")
+		if tzidx > 0 {
+			// postgres may print +xx00 as +xx
+			if tzidx < len(timeVal)-5 && timeVal[tzidx+3] == ':' {
+				timeVal = timeVal[:tzidx+3] + timeVal[tzidx+4:]
+			} else if tzidx == len(timeVal)-3 {
+				timeVal += "00"
+			}
+			if timeVal[tzidx-1] == ' ' {
+				timeVal = timeVal[:tzidx-1] + timeVal[tzidx:]
+			}
 		}
-		timeVal = strings.Replace(timeVal, " +", "+", 1)
 
 		t, err := time.Parse("15:04:05.999999-0700", timeVal)
 		if err != nil {
