@@ -179,9 +179,7 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 		); err != nil {
 			return fmt.Errorf("error while updating aggregate statistics in cdc_table_aggregate_counts: %w", err)
 		}
-
 	}
-
 	if err := insertBatchTablesTx.Commit(ctx); err != nil {
 		return fmt.Errorf("error while committing transaction for inserting and updating statistics: %w", err)
 	}

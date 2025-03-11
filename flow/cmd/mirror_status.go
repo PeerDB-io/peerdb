@@ -616,19 +616,19 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	}
 
 	var totalCount protos.CDCRowCounts
-	
+
 	tableCounts, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCTableRowCounts, error) {
 		tableCount := &protos.CDCTableRowCounts{
 			Counts: &protos.CDCRowCounts{},
 		}
 		var totalRows int64
 		err := row.Scan(
-			&tableCount.TableName, 
+			&tableCount.TableName,
 			&tableCount.Counts.InsertsCount,
-			&tableCount.Counts.UpdatesCount, 
+			&tableCount.Counts.UpdatesCount,
 			&tableCount.Counts.DeletesCount,
 			&totalRows)
-		
+
 		// Use the pre-calculated total count
 		tableCount.Counts.TotalCount = totalRows
 
@@ -637,7 +637,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 		totalCount.InsertsCount += tableCount.Counts.InsertsCount
 		totalCount.UpdatesCount += tableCount.Counts.UpdatesCount
 		totalCount.DeletesCount += tableCount.Counts.DeletesCount
-		
+
 		return tableCount, err
 	})
 	if err != nil {
@@ -647,12 +647,12 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	if tableCounts == nil {
 		tableCounts = []*protos.CDCTableRowCounts{}
 	}
-	
+
 	response := &protos.CDCTableTotalCountsResponse{
-		TotalData: &totalCount, 
+		TotalData:  &totalCount,
 		TablesData: tableCounts,
 	}
-	
+
 	return response, nil
 }
 
