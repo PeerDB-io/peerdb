@@ -122,19 +122,68 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 		inserts := rowCounts.InsertCount.Load()
 		updates := rowCounts.UpdateCount.Load()
 		deletes := rowCounts.DeleteCount.Load()
+		totalRows := inserts + updates + deletes
+
+		// Insert into cdc_batch_table
 		if _, err := insertBatchTablesTx.Exec(ctx,
 			`INSERT INTO peerdb_stats.cdc_batch_table
 			(flow_name,batch_id,destination_table_name,num_rows,
 			insert_count,update_count,delete_count)
 			 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
 			flowJobName, batchID, destinationTableName,
-			inserts+updates+deletes, inserts, updates, deletes,
+			totalRows, inserts, updates, deletes,
 		); err != nil {
 			return fmt.Errorf("error while inserting statistics into cdc_batch_table: %w", err)
 		}
+		// Update the aggregated counts table
+		query := `
+			INSERT INTO peerdb_stats.cdc_table_aggregate_counts AS stats (
+				flow_name,
+				destination_table_name,
+				inserts_count,
+				updates_count,
+				deletes_count,
+				total_count,
+				latest_batch_id,
+				last_updated_at
+			)
+			VALUES (
+				$1,   -- flow_name
+				$2,   -- destination_table_name
+				$3,   -- inserts_count
+				$4,   -- updates_count
+				$5,   -- deletes_count
+				$6,   -- total_count
+				$7,   -- latest_batch_id
+				NOW() -- last_updated_at
+			)
+			ON CONFLICT (flow_name, destination_table_name)
+			DO UPDATE
+			SET
+				inserts_count     = stats.inserts_count + EXCLUDED.inserts_count,
+				updates_count     = stats.updates_count + EXCLUDED.updates_count,
+				deletes_count     = stats.deletes_count + EXCLUDED.deletes_count,
+				total_count       = stats.total_count + EXCLUDED.total_count,
+				latest_batch_id   = GREATEST(stats.latest_batch_id, EXCLUDED.latest_batch_id),
+				last_updated_at   = NOW()
+		`
+
+		if _, err := insertBatchTablesTx.Exec(ctx, query,
+			flowJobName,
+			destinationTableName,
+			inserts,
+			updates,
+			deletes,
+			totalRows,
+			batchID,
+		); err != nil {
+			return fmt.Errorf("error while updating aggregate statistics in cdc_table_aggregate_counts: %w", err)
+		}
+
 	}
+
 	if err := insertBatchTablesTx.Commit(ctx); err != nil {
-		return fmt.Errorf("error while committing transaction for inserting statistics into cdc_batch_table: %w", err)
+		return fmt.Errorf("error while committing transaction for inserting and updating statistics: %w", err)
 	}
 	return nil
 }
@@ -346,6 +395,10 @@ func DeleteMirrorStats(ctx context.Context, logger log.Logger, pool shared.Catal
 
 	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.cdc_batch_table WHERE flow_name = $1`, flowJobName); err != nil {
 		return fmt.Errorf("error while deleting cdc_batch_table: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.cdc_table_aggregate_counts WHERE flow_name = $1`, flowJobName); err != nil {
+		return fmt.Errorf("error while deleting cdc_table_aggregate_counts: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.cdc_flows WHERE flow_name = $1`, flowJobName); err != nil {
