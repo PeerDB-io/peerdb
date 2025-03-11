@@ -55,6 +55,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 	if err != nil {
 		return nil, fmt.Errorf("failed to read alerter config from catalog: %w", err)
 	}
+	defer rows.Close()
 
 	keys := internal.PeerDBEncKeys(ctx)
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (AlertSenderConfig, error) {

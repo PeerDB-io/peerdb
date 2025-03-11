@@ -100,6 +100,8 @@ func (h *FlowRequestHandler) ListPeers(
 		slog.Error("failed to query for peers", slog.Any("error", err))
 		return nil, err
 	}
+	defer rows.Close()
+
 	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.PeerListItem, error) {
 		var peer protos.PeerListItem
 		return &peer, row.Scan(&peer.Name, &peer.Type)
@@ -209,6 +211,8 @@ func (h *FlowRequestHandler) GetSlotLagHistory(
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
 	points, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.SlotLagPoint, error) {
 		var updatedAt time.Time
 		var slotSize int64
@@ -253,6 +257,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 		slog.Error("Failed to get stat info", slog.Any("error", err))
 		return nil, err
 	}
+	defer rows.Close()
 
 	statInfoRows, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.StatInfo, error) {
 		var pid int64
@@ -329,6 +334,7 @@ func (h *FlowRequestHandler) GetPublications(
 		slog.Info("failed to fetch publications", slog.Any("error", err))
 		return nil, err
 	}
+	defer rows.Close()
 
 	publications, err := pgx.CollectRows[string](rows, pgx.RowTo)
 	if err != nil {

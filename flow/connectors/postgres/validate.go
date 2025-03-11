@@ -90,6 +90,8 @@ func (c *PostgresConnector) CheckSourceTables(
 			if err != nil {
 				return err
 			}
+			defer rows.Close()
+
 			missing, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
 				var schema string
 				var table string

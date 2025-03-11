@@ -58,6 +58,7 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	var tableName string
 	var tableSchemaBytes []byte
@@ -349,6 +350,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 	if err != nil {
 		return nil, err
 	}
+	defer optionRows.Close()
 
 	return pgx.CollectRows(optionRows, func(row pgx.CollectableRow) (*protos.Peer, error) {
 		var peerName string

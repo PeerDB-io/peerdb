@@ -44,6 +44,7 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.Mainte
 	if err != nil {
 		return &protos.MaintenanceMirrors{}, err
 	}
+	defer rows.Close()
 
 	maintenanceMirrorItems, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.MaintenanceMirror, error) {
 		var info protos.MaintenanceMirror
@@ -193,6 +194,7 @@ func (a *MaintenanceActivity) GetBackedUpFlows(ctx context.Context) (*protos.Mai
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	maintenanceMirrorItems, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.MaintenanceMirror, error) {
 		var info protos.MaintenanceMirror

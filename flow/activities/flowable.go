@@ -718,6 +718,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	defer rows.Close()
 
 	configs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigs, error) {
 		var flowName string

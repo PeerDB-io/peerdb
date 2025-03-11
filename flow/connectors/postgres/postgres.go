@@ -1379,6 +1379,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		if err != nil {
 			return fmt.Errorf("failed to check tables in publication: %w", err)
 		}
+		defer rows.Close()
 
 		tableNames, err := pgx.CollectRows[string](rows, pgx.RowTo)
 		if err != nil {

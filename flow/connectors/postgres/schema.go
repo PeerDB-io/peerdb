@@ -35,6 +35,7 @@ func (c *PostgresConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemas
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	schemas, err := pgx.CollectRows[string](rows, pgx.RowTo)
 	if err != nil {
@@ -72,6 +73,7 @@ func (c *PostgresConnector) GetTablesInSchema(
 		c.logger.Info("failed to fetch tables", slog.Any("error", err))
 		return nil, err
 	}
+	defer rows.Close()
 
 	tables, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.TableResponse, error) {
 		var table pgtype.Text
@@ -118,6 +120,7 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, schema string, table
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
 		var columnName pgtype.Text

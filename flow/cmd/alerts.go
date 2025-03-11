@@ -15,6 +15,7 @@ func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.Ge
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
 	configs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.AlertConfig, error) {
 		var serviceConfigPayload []byte
