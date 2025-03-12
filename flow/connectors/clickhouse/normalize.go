@@ -281,7 +281,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, req.SyncBatchID, req.Env); err != nil {
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, req.SyncBatchID); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
