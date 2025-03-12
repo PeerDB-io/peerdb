@@ -1059,6 +1059,10 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 }
 
 func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
 	// This test is for checking that the flow can handle a table with columns that the user does not have SELECT privileges on
 	srcTableName := "test_unprivileged_columns"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -1108,12 +1112,8 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 	srcFullName := s.attachSchemaSuffix("test_no_pkey")
 	dstTableName := "test_no_pkey_dst"
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id INT,
-			"key" TEXT NOT NULL
-		)
-	`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT, "key" TEXT NOT NULL)`, srcFullName)))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
 
@@ -1132,4 +1132,36 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 	e2e.EnvWaitForFinished(s.t, env, time.Minute)
+}
+
+func (s ClickHouseSuite) Test_SkipSnapshotExport() {
+	srcTableName := "test_skip_snapshot"
+	srcFullName := s.attachSchemaSuffix("test_skip_snapshot")
+	dstTableName := "test_skip_snapshot"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_skip_snapshot"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_SKIP_SNAPSHOT_EXPORT": "true"}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
 }
