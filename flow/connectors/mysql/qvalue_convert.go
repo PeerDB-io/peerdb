@@ -9,6 +9,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/shopspring/decimal"
+	geom "github.com/twpayne/go-geos"
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -144,6 +145,9 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 		} else {
 			return qvalue.QValueKindInt64, nil
 		}
+
+	case "geometry":
+		return qvalue.QValueKindGeometry, nil
 	default:
 		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
 	}
@@ -183,6 +187,60 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 		})
 	}
 	return qvalue.QRecordSchema{Fields: schema}, nil
+}
+
+// Helper function to convert MySQL geometry binary data to WKT format
+func geometryValueFromBytes(wkbData []byte) (string, error) {
+	// Try to parse it as WKB with the MySQL header
+	g, err := geom.NewGeomFromWKB(wkbData)
+	if err != nil && len(wkbData) > 4 {
+		// If that fails, try skipping the first 4 bytes (MySQL header)
+		g, err = geom.NewGeomFromWKB(wkbData[4:])
+	}
+	
+	if err != nil {
+		return "", err
+	}
+	
+	// Convert to WKT format
+	wkt := g.ToWKT()
+	if srid := g.SRID(); srid != 0 {
+		wkt = fmt.Sprintf("SRID=%d;%s", srid, wkt)
+	}
+	return wkt, nil
+}
+
+// Helper function to check if a string is already in WKT format
+func isWKTFormat(strVal string) bool {
+	return strings.HasPrefix(strVal, "POINT") || 
+		strings.HasPrefix(strVal, "LINESTRING") || 
+		strings.HasPrefix(strVal, "POLYGON") || 
+		strings.HasPrefix(strVal, "MULTIPOINT") || 
+		strings.HasPrefix(strVal, "MULTILINESTRING") || 
+		strings.HasPrefix(strVal, "MULTIPOLYGON") || 
+		strings.HasPrefix(strVal, "GEOMETRYCOLLECTION") || 
+		strings.HasPrefix(strVal, "SRID=")
+}
+
+// Helper function to process geometry data and return a QValueGeometry
+func processGeometryData(data []byte) qvalue.QValueGeometry {
+	// For geometry data, we need to convert from MySQL's binary format to WKT
+	if len(data) > 4 {
+		wkt, err := geometryValueFromBytes(data)
+		if err == nil {
+			return qvalue.QValueGeometry{Val: wkt}
+		}
+	}
+	
+	// If we can't parse it as WKB, check if it's already in WKT format
+	strVal := string(data)
+	if isWKTFormat(strVal) {
+		// It's already in WKT format
+		return qvalue.QValueGeometry{Val: strVal}
+	}
+	
+	// Fallback to storing as string if parsing fails
+	return qvalue.QValueGeometry{Val: strVal}
 }
 
 func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
@@ -257,6 +315,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			return qvalue.QValueBytes{Val: slices.Clone(v)}, nil
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(v)}, nil
+		case qvalue.QValueKindGeometry:
+			return processGeometryData(v), nil
 		case qvalue.QValueKindNumeric:
 			val, err := decimal.NewFromString(unsafeString)
 			if err != nil {
@@ -354,8 +414,7 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(val)}, nil
 		case qvalue.QValueKindGeometry:
-			// TODO figure out mysql geo encoding
-			return qvalue.QValueGeometry{Val: string(val)}, nil
+			return processGeometryData(val), nil
 		}
 	case string:
 		switch qkind {
@@ -366,7 +425,22 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: val}, nil
 		case qvalue.QValueKindGeometry:
-			// TODO figure out mysql geo encoding
+			// For string representation of geometry
+			if isWKTFormat(val) {
+				// It's already in WKT format
+				return qvalue.QValueGeometry{Val: val}, nil
+			}
+			
+			// If it's not in WKT format, it might be a binary representation in string form
+			// Try to parse it as WKB (this is unlikely to succeed but we try anyway)
+			if len(val) > 4 {
+				wkt, err := geometryValueFromBytes([]byte(val))
+				if err == nil {
+					return qvalue.QValueGeometry{Val: wkt}, nil
+				}
+			}
+			
+			// Fallback to storing as string
 			return qvalue.QValueGeometry{Val: val}, nil
 		case qvalue.QValueKindTime:
 			val, err := time.Parse("15:04:05.999999", val)
