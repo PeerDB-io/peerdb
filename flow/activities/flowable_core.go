@@ -438,7 +438,6 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 
 		if a.OtelManager != nil {
 			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
-			a.OtelManager.Metrics.InstantaneousFetchedBytesGauge.Record(ctx, numBytes)
 		}
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
@@ -540,7 +539,6 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 
 		if a.OtelManager != nil {
 			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
-			a.OtelManager.Metrics.InstantaneousFetchedBytesGauge.Record(ctx, numBytes)
 		}
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
