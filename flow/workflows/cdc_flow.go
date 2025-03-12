@@ -521,7 +521,13 @@ func CDCFlowWorkflow(
 				if !temporal.IsApplicationError(err) || strings.Contains(err.Error(), "(SQLSTATE 55006)") {
 					sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
 				} else {
-					sleepFor = time.Duration(5+min(state.ErrorCount, 5)*15) * time.Minute
+					const (
+						baseDelay     = 5 * time.Second
+						maxRetries    = 5
+						retryMultiple = 30 * time.Second
+					)
+					cappedErrorCount := min(state.ErrorCount, maxRetries)
+					sleepFor = baseDelay + time.Duration(cappedErrorCount)*retryMultiple
 				}
 
 				logger.Error("error in sync flow", slog.Any("error", err), slog.Any("sleepFor", sleepFor))
