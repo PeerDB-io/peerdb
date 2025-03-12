@@ -255,6 +255,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *float64:
 				qrow = append(qrow, qvalue.QValueFloat64{Val: *v})
+			case *[]float32:
+				qrow = append(qrow, qvalue.QValueArrayFloat32{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}
