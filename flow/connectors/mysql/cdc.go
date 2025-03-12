@@ -187,6 +187,10 @@ func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
 }
 
 func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
+	logger, ok := c.logger.(*slog.Logger)
+	if !ok {
+		logger = slog.Default()
+	}
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:   rand.Uint32(),
@@ -195,7 +199,7 @@ func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
 		Port:       uint16(c.config.Port),
 		User:       c.config.User,
 		Password:   c.config.Password,
-		Logger:     BinlogLogger{Logger: c.logger},
+		Logger:     logger,
 		Dialer:     c.Dialer(),
 		UseDecimal: true,
 		ParseTime:  true,

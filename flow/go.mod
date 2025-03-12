@@ -28,7 +28,7 @@ require (
 	github.com/aws/smithy-go v1.22.3
 	github.com/cockroachdb/pebble v1.1.4
 	github.com/elastic/go-elasticsearch/v8 v8.17.1
-	github.com/go-mysql-org/go-mysql v1.11.0
+	github.com/go-mysql-org/go-mysql v1.11.1-0.20250312020242-8458ff6c4fb5
 	github.com/google/uuid v1.6.0
 	github.com/grafana/pyroscope-go v1.2.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3
@@ -82,6 +82,7 @@ require (
 	cloud.google.com/go/auth v0.15.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.7 // indirect
 	cloud.google.com/go/monitoring v1.24.0 // indirect
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/99designs/go-keychain v0.0.0-20191008050251-8e49817e8af4 // indirect
 	github.com/99designs/keyring v1.2.2 // indirect
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
@@ -177,7 +178,6 @@ require (
 	github.com/segmentio/asm v1.2.0 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
-	github.com/siddontang/go-log v0.0.0-20190221022429-1e957dd83bed // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tiancaiamao/gp v0.0.0-20230126082955-4f9e4f1ed9b5 // indirect
 	github.com/tikv/client-go/v2 v2.0.8-0.20250117034919-61e09c6539bd // indirect
