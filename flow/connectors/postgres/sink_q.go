@@ -23,14 +23,14 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	tx pgx.Tx,
 	query string,
 	args ...any,
-) (int, error) {
+) (int64, int64, error) {
 	defer shared.RollbackTx(tx, qe.logger)
 
 	if qe.snapshot != "" {
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
-			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
+			return 0, 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
 
@@ -45,21 +45,23 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	if _, err := tx.Exec(ctx, cursorQuery, args...); err != nil {
 		qe.logger.Info("[pg_query_executor] failed to declare cursor",
 			slog.String("cursorQuery", cursorQuery), slog.Any("error", err))
-		return 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
+		return 0, 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
 	}
 
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query))
 
-	totalRecordsFetched := 0
+	var totalNumRows int64
+	var totalNumBytes int64
 	for {
-		numRows, err := qe.processFetchedRows(ctx, query, tx, cursorName, fetchSize, stream.QRecordStream)
+		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, fetchSize, stream.QRecordStream)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))
-			return 0, err
+			return totalNumRows, totalNumBytes, err
 		}
 
 		qe.logger.Info(fmt.Sprintf("[pg_query_executor] fetched %d rows for query '%s'", numRows, query))
-		totalRecordsFetched += numRows
+		totalNumRows += numRows
+		totalNumBytes += numBytes
 
 		if numRows == 0 {
 			break
@@ -69,12 +71,12 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	qe.logger.Info("Committing transaction")
 	if err := tx.Commit(ctx); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to commit transaction", slog.Any("error", err))
-		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
+		return totalNumRows, totalNumBytes, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
-	qe.logger.Info(fmt.Sprintf("[pg_query_executor] committed transaction for query '%s', rows = %d",
-		query, totalRecordsFetched))
-	return totalRecordsFetched, nil
+	qe.logger.Info("[pg_query_executor] committed transaction for query",
+		slog.String("query", query), slog.Int64("rows", totalNumRows), slog.Int64("bytes", totalNumBytes))
+	return totalNumRows, totalNumBytes, nil
 }
 
 func (stream RecordStreamSink) CopyInto(ctx context.Context, _ *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
