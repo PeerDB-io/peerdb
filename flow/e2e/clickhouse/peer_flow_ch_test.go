@@ -1093,3 +1093,152 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 	e2e.EnvWaitForFinished(s.t, env, time.Minute)
 }
+
+func (s ClickHouseSuite) Test_Geometric_Types() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_geometric_types"
+	srcFullName := s.attachSchemaSuffix("test_geometric_types")
+	dstTableName := "test_geometric_types"
+
+	// Create a table with various PostgreSQL geometric types
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	CREATE TABLE IF NOT EXISTS %[1]s(
+		id serial PRIMARY KEY,
+		point_col POINT,
+		line_col LINE,
+		lseg_col LSEG,
+		box_col BOX,
+		path_col PATH,
+		polygon_col POLYGON,
+		circle_col CIRCLE
+	);
+	
+	-- Insert test data with various geometric types
+	INSERT INTO %[1]s (
+		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
+	) VALUES (
+		'(1,2)',                                -- POINT
+		'{1,2,3}',                              -- LINE
+		'((1,2),(3,4))',                        -- LSEG
+		'((1,2),(3,4))',                        -- BOX
+		'((1,2),(3,4),(5,6))',                  -- PATH
+		'((1,2),(3,4),(5,6),(1,2))',            -- POLYGON
+		'<(1,2),3>'                             -- CIRCLE
+	);
+	
+	-- Insert another row with different values
+	INSERT INTO %[1]s (
+		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
+	) VALUES (
+		'(10,20)',                              -- POINT
+		'{10,20,30}',                           -- LINE
+		'((10,20),(30,40))',                    -- LSEG
+		'((10,20),(30,40))',                    -- BOX
+		'((10,20),(30,40),(50,60))',            -- PATH
+		'((10,20),(30,40),(50,60),(10,20))',    -- POLYGON
+		'<(10,20),30>'                          -- CIRCLE
+	);`, srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_test_geometric_types"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	
+	// Wait for initial snapshot to complete
+	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 2)
+
+	// Insert a third row to test CDC
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	INSERT INTO %[1]s (
+		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
+	) VALUES (
+		'(100,200)',                            -- POINT
+		'{100,200,300}',                        -- LINE
+		'((100,200),(300,400))',                -- LSEG
+		'((100,200),(300,400))',                -- BOX
+		'((100,200),(300,400),(500,600))',      -- PATH
+		'((100,200),(300,400),(500,600),(100,200))', -- POLYGON
+		'<(100,200),300>'                       -- CIRCLE
+	);`, srcFullName))
+	require.NoError(s.t, err)
+	
+	// Wait for CDC to replicate the new row
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 3)
+
+	// Verify that the data was correctly replicated
+	rows, err := s.GetRows(dstTableName, "id, point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 3, "expected 3 rows")
+
+	// Check that the geometric data is in the expected format in ClickHouse
+	// All geometric types should be stored as strings in WKT format
+	for _, row := range rows.Records {
+		require.Len(s.t, row, 8, "expected 8 columns")
+		
+		// Verify point column format
+		pointVal := row[1].Value()
+		require.Contains(s.t, pointVal, "POINT", "point_col should be in WKT format")
+		
+		// Verify line column format
+		lineVal := row[2].Value()
+		require.Contains(s.t, lineVal, "LINE", "line_col should be in WKT format")
+		
+		// Verify other geometric columns
+		lsegVal := row[3].Value()
+		require.Contains(s.t, lsegVal, "LINESTRING", "lseg_col should be in WKT format")
+		
+		boxVal := row[4].Value()
+		require.Contains(s.t, boxVal, "POLYGON", "box_col should be in WKT format")
+		
+		pathVal := row[5].Value()
+		require.Contains(s.t, pathVal, "LINESTRING", "path_col should be in WKT format")
+		
+		polygonVal := row[6].Value()
+		require.Contains(s.t, polygonVal, "POLYGON", "polygon_col should be in WKT format")
+		
+		circleVal := row[7].Value()
+		require.Contains(s.t, circleVal, "POLYGON", "circle_col should be in WKT format")
+	}
+
+	// Update a row to test CDC updates with geometric types
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	UPDATE %[1]s SET 
+		point_col = '(5,5)',
+		line_col = '{5,5,5}',
+		lseg_col = '((5,5),(10,10))',
+		box_col = '((5,5),(10,10))',
+		path_col = '((5,5),(10,10),(15,15))',
+		polygon_col = '((5,5),(10,10),(15,15),(5,5))',
+		circle_col = '<(5,5),5>'
+	WHERE id = 1;`, srcFullName))
+	require.NoError(s.t, err)
+	
+	// Wait for the update to be replicated
+	time.Sleep(5 * time.Second)
+	
+	// Verify the update was replicated correctly
+	updatedRows, err := s.GetRows(dstTableName, "id, point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col WHERE id = 1")
+	require.NoError(s.t, err)
+	require.Len(s.t, updatedRows.Records, 1, "expected 1 updated row")
+	
+	// Verify the updated values
+	updatedRow := updatedRows.Records[0]
+	pointVal := updatedRow[1].Value()
+	require.Contains(s.t, pointVal, "POINT", "updated point_col should be in WKT format")
+	require.Contains(s.t, pointVal, "5", "updated point_col should contain the new coordinates")
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
