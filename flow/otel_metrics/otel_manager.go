@@ -32,7 +32,6 @@ const (
 	CommittedLSNGaugeName               = "committed_lsn"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
 	FetchedBytesCounterName             = "fetched_bytes"
-	InstantaneousFetchedBytesGaugeName  = "instantaneous_fetched_bytes"
 	ErrorEmittedGaugeName               = "error_emitted"
 	ErrorsEmittedCounterName            = "errors_emitted"
 	RecordsSyncedGaugeName              = "records_synced"
@@ -187,13 +186,6 @@ func (om *OtelManager) setupMetrics() error {
 	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
 		metric.WithUnit("By"),
 		metric.WithDescription("Bytes received of CopyData over replication slot"),
-	); err != nil {
-		return err
-	}
-
-	if om.Metrics.InstantaneousFetchedBytesGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(InstantaneousFetchedBytesGaugeName),
-		metric.WithUnit("By"),
-		metric.WithDescription("Bytes received of CopyData over replication slot (instantaneous)"),
 	); err != nil {
 		return err
 	}

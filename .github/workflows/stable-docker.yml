@@ -30,7 +30,7 @@ jobs:
           password: ${{secrets.GITHUB_TOKEN}}
 
       - name: Build (optionally publish) PeerDB Images
-        uses: depot/bake-action@143e50b965398f1f5dc8463be7dde6f62b9e9c21 # v1
+        uses: depot/bake-action@58d7160c6bfa64eb85e384209e6f2f5ad17948bb # v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
           files: ./docker-bake.hcl

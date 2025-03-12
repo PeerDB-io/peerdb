@@ -135,6 +135,7 @@ func (h *FlowRequestHandler) GetSchemas(
 	if err != nil {
 		return nil, err
 	}
+	defer connectors.CloseConnector(ctx, conn)
 	return conn.GetSchemas(ctx)
 }
 
@@ -146,6 +147,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 	if err != nil {
 		return nil, err
 	}
+	defer connectors.CloseConnector(ctx, conn)
 	return conn.GetTablesInSchema(ctx, req.SchemaName, req.CdcEnabled)
 }
 
@@ -158,6 +160,7 @@ func (h *FlowRequestHandler) GetAllTables(
 	if err != nil {
 		return nil, err
 	}
+	defer connectors.CloseConnector(ctx, conn)
 	return conn.GetAllTables(ctx)
 }
 
@@ -169,6 +172,7 @@ func (h *FlowRequestHandler) GetColumns(
 	if err != nil {
 		return nil, err
 	}
+	defer connectors.CloseConnector(ctx, conn)
 	return conn.GetColumns(ctx, req.SchemaName, req.TableName)
 }
 

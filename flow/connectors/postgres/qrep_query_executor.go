@@ -148,33 +148,36 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	stream *model.QRecordStream,
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
-) (int, error) {
-	numRows := 0
+) (int64, int64, error) {
+	var numRows int64
+	var numBytes int64
 	const heartBeatNumRows = 10000
 
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")
-			return numRows, err
+			return numRows, numBytes, err
 		}
 
 		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
-			return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
+			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
+		}
+		numRows++
+		for _, val := range rows.RawValues() {
+			numBytes += int64(len(val))
 		}
 
 		stream.Records <- record
 
 		if numRows%heartBeatNumRows == 0 {
-			qe.logger.Info("processing row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
+			qe.logger.Info("processing row stream", slog.String("cursor", cursorName), slog.Int64("records", numRows))
 		}
-
-		numRows++
 	}
 
-	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
-	return numRows, nil
+	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int64("records", numRows))
+	return numRows, numBytes, nil
 }
 
 func (qe *QRepQueryExecutor) processFetchedRows(
@@ -184,12 +187,12 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	cursorName string,
 	fetchSize int,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, int64, error) {
 	rows, err := qe.executeQueryInTx(ctx, tx, cursorName, fetchSize)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to execute query in tx",
 			slog.Any("error", err), slog.String("query", query))
-		return 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
+		return 0, 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
 	}
 	defer rows.Close()
 
@@ -199,19 +202,19 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		stream.SetSchema(schema)
 	}
 
-	numRows, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
+	numRows, numBytes, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to process rows", slog.Any("error", err))
-		return 0, fmt.Errorf("failed to process rows: %w", err)
+		return numRows, numBytes, fmt.Errorf("failed to process rows: %w", err)
 	}
 
 	if err := rows.Err(); err != nil {
 		qe.logger.Error("[pg_query_executor] row iteration failed",
 			slog.String("query", query), slog.Any("error", err))
-		return 0, fmt.Errorf("[pg_query_executor] row iteration failed '%s': %w", query, err)
+		return numRows, numBytes, fmt.Errorf("[pg_query_executor] row iteration failed '%s': %w", query, err)
 	}
 
-	return numRows, nil
+	return numRows, numBytes, nil
 }
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
@@ -227,8 +230,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
 		defer close(errors)
-		_, err := qe.ExecuteAndProcessQueryStream(ctx, stream, query, args...)
-		if err != nil {
+		if _, _, err := qe.ExecuteAndProcessQueryStream(ctx, stream, query, args...); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
 			errorsError = err
 		}
@@ -265,7 +267,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	stream *model.QRecordStream,
 	query string,
 	args ...any,
-) (int, error) {
+) (int64, int64, error) {
 	return qe.ExecuteQueryIntoSink(
 		ctx,
 		RecordStreamSink{QRecordStream: stream},
@@ -279,7 +281,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	sink QRepPullSink,
 	query string,
 	args ...any,
-) (int, error) {
+) (int64, int64, error) {
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer sink.Close(nil)
 
@@ -291,14 +293,14 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
 		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 		sink.Close(err)
-		return 0, err
+		return 0, 0, err
 	}
 
-	totalRecords, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
+	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
 	if err != nil {
 		sink.Close(err)
 	}
-	return totalRecords, err
+	return totalRecords, totalBytes, err
 }
 
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
@@ -306,7 +308,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	sink QRepPullSink,
 	query string,
 	args ...any,
-) (int, int64, error) {
+) (int64, int64, int64, error) {
 	var currentSnapshotXmin pgtype.Int8
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer sink.Close(nil)
@@ -319,20 +321,20 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
 		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 		sink.Close(err)
-		return 0, currentSnapshotXmin.Int64, err
+		return 0, 0, currentSnapshotXmin.Int64, err
 	}
 
 	if err := tx.QueryRow(ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to get current snapshot xmin", slog.Any("error", err))
 		sink.Close(err)
-		return 0, currentSnapshotXmin.Int64, err
+		return 0, 0, currentSnapshotXmin.Int64, err
 	}
 
-	totalRecordsFetched, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
+	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
 	if err != nil {
 		sink.Close(err)
 	}
-	return totalRecordsFetched, currentSnapshotXmin.Int64, err
+	return totalRecords, totalBytes, currentSnapshotXmin.Int64, err
 }
 
 func (qe *QRepQueryExecutor) mapRowToQRecord(
