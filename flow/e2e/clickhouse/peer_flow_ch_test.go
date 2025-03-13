@@ -1087,17 +1087,18 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 			"se'cret" TEXT,
 			"spacey column" TEXT,
 			"#sync_me!" BOOLEAN,
-			"2birds1stone" INT
+			"2birds1stone" INT,
+			"quo'te" TEXT
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone") 
-	VALUES ('init_initial_load', 'secret', 'neptune', 'true', 509 )`, srcFullName))
+	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone", "quo'te") 
+	VALUES ('init_initial_load', 'secret', 'neptune', 'true', 509, "abcd")`, srcFullName))
 	require.NoError(s.t, err)
 
-	err = e2e.RevokePermissionForTableColumns(s.t.Context(), s.Conn(), srcFullName, []string{"id", "key", "spacey column", "#sync_me!", "2birds1stone"})
+	err = e2e.RevokePermissionForTableColumns(s.t.Context(), s.Conn(), srcFullName, []string{"id", "key", "spacey column", "#sync_me!", "2birds1stone", "quo'te"})
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1116,15 +1117,13 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key,\"spacey column\",\"#sync_me!\",\"2birds1stone\"")
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (key, "se'cret") VALUES ('init_cdc', 'secret')`, srcFullName))
-	require.NoError(s.t, err)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone") 
-	VALUES ('init_initial_load', 'secret', 'pluto', 'false', 123324 )`, srcFullName))
+	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone","quo'te") 
+	VALUES ('cdc1', 'secret', 'pluto', 'false', 123324, "lwkfj")`, srcFullName))
 
 	require.NoError(s.t, err)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key,\"spacey column\",\"#sync_me!\",\"2birds1stone\"")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
