@@ -57,6 +57,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		DoInitialSnapshot:           s.config.DoInitialSnapshot,
 		ExistingPublicationName:     s.config.PublicationName,
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
+		Env:                         s.config.Env,
 	}
 
 	res := &protos.SetupReplicationOutput{}

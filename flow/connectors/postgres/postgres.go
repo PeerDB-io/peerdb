@@ -1178,6 +1178,12 @@ func (c *PostgresConnector) SetupReplication(
 		return model.SetupReplicationResult{}, err
 	}
 
+	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, req.Env)
+	if err != nil {
+		c.logger.Error("failed to check PEERDB_SKIP_SNAPSHOT_EXPORT, proceeding with export snapshot", slog.Any("error", err))
+		skipSnapshotExport = false
+	}
+
 	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
 	for k, v := range req.TableNameMapping {
 		tableNameMapping[k] = model.NameAndExclude{
@@ -1186,7 +1192,7 @@ func (c *PostgresConnector) SetupReplication(
 		}
 	}
 	// Create the replication slot and publication
-	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
+	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot, skipSnapshotExport)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
