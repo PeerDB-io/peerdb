@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -69,6 +70,24 @@ func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, tar
 		}
 	}
 	return num, nil
+}
+
+// ConvertToAvroCompatibleName converts a column name to a field name that is compatible with Avro.
+func ConvertToAvroCompatibleName(columnName string) string {
+	// Avro field names must:
+	// start with [A-Za-z_]
+	// subsequently contain only [A-Za-z0-9_]
+	if columnName == "" {
+		return "_"
+	}
+	// Ensure the first character is a letter or underscore
+	if columnName[0] >= '0' && columnName[0] <= '9' {
+		columnName = "_" + columnName
+	}
+	// Replace invalid characters with _
+	re := regexp.MustCompile(`[^A-Za-z0-9_]`)
+	columnName = re.ReplaceAllString(columnName, "_")
+	return columnName
 }
 
 // GetAvroSchemaFromQValueKind returns the Avro schema for a given QValueKind.

@@ -375,23 +375,23 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				case "Date32", "Nullable(Date32)":
 					projection.WriteString(fmt.Sprintf(
 						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6)) AS `%s`,",
-						colName, dstColName,
+						strings.ReplaceAll(colName, "'", "''"), dstColName,
 					))
 					if enablePrimaryUpdate {
 						projectionUpdate.WriteString(fmt.Sprintf(
 							"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6)) AS `%s`,",
-							colName, dstColName,
+							strings.ReplaceAll(colName, "'", "''"), dstColName,
 						))
 					}
 				case "DateTime64(6)", "Nullable(DateTime64(6))":
 					projection.WriteString(fmt.Sprintf(
 						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6) AS `%s`,",
-						colName, dstColName,
+						strings.ReplaceAll(colName, "'", "''"), dstColName,
 					))
 					if enablePrimaryUpdate {
 						projectionUpdate.WriteString(fmt.Sprintf(
 							"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6) AS `%s`,",
-							colName, dstColName,
+							strings.ReplaceAll(colName, "'", "''"), dstColName,
 						))
 					}
 				default:
@@ -405,21 +405,21 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						case internal.BinaryFormatRaw:
 							projection.WriteString(fmt.Sprintf(
 								"base64Decode(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
-								colName, dstColName,
+								strings.ReplaceAll(colName, "'", "''"), dstColName,
 							))
 							if enablePrimaryUpdate {
 								projectionUpdate.WriteString(fmt.Sprintf(
 									"base64Decode(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
-									colName, dstColName,
+									strings.ReplaceAll(colName, "'", "''"), dstColName,
 								))
 							}
 						case internal.BinaryFormatHex:
 							projection.WriteString(fmt.Sprintf("hex(base64Decode(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
-								colName, dstColName))
+								strings.ReplaceAll(colName, "'", "''"), dstColName))
 							if enablePrimaryUpdate {
 								projectionUpdate.WriteString(fmt.Sprintf(
 									"hex(base64Decode(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
-									colName, dstColName,
+									strings.ReplaceAll(colName, "'", "''"), dstColName,
 								))
 							}
 						}
@@ -429,12 +429,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					if projection.Len() == projLen {
 						projection.WriteString(fmt.Sprintf(
 							"JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,",
-							colName, clickHouseType, dstColName,
+							strings.ReplaceAll(colName, "'", "''"), clickHouseType, dstColName,
 						))
 						if enablePrimaryUpdate {
 							projectionUpdate.WriteString(fmt.Sprintf(
 								"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
-								colName, clickHouseType, dstColName,
+								strings.ReplaceAll(colName, "'", "''"), clickHouseType, dstColName,
 							))
 						}
 					}
