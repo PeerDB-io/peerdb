@@ -783,12 +783,12 @@ func (c *PostgresConnector) GetSelectedColumns(
 	getColumnsSQL := `
 		SELECT attname AS column_name
 		FROM pg_attribute
-		WHERE attrelid = '%s.%s'::regclass
+		WHERE attrelid = format('%I.%I', $1, $2)::regclass
 		AND attnum > 0
 		AND NOT attisdropped
-		` + excludedColumnsSQL
+	` + excludedColumnsSQL
 
-	rows, err := c.conn.Query(ctx, fmt.Sprintf(getColumnsSQL, sourceTable.Schema, sourceTable.Table))
+	rows, err := c.conn.Query(ctx, getColumnsSQL, sourceTable.Schema, sourceTable.Table)
 	if err != nil {
 		c.logger.Error("error getting selected columns",
 			slog.Any("error", err),
