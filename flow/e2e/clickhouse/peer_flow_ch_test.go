@@ -603,6 +603,10 @@ func (s ClickHouseSuite) Test_WeirdTable_Keyword() {
 	s.WeirdTable("table")
 }
 
+func (s ClickHouseSuite) Test_WeirdTable_MixedCase() {
+	s.WeirdTable("myMixedCaseTable")
+}
+
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {
 	s.t.SkipNow() // TODO fix avro errors by sanitizing names
 	s.WeirdTable("table-group")
