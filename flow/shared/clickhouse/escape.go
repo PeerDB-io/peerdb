@@ -1,7 +1,7 @@
 package clickhouse
 
 const BS = '\\'
-const mustEscape = "\t\n`'\\" // String constant instead of slice
+const mustEscape = "\t\n`'\\"
 
 func EscapeStr(value string) string {
 	result := ""
