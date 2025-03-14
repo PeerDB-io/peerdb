@@ -2,18 +2,19 @@ package clickhouse
 
 import "strings"
 
-const BS = '\\'
-const mustEscape = "\t\n`'\\"
+const (
+	BS         = '\\'
+	mustEscape = "\t\n`'\\"
+)
 
 func EscapeStr(value string) string {
-	result := ""
-
+	var result strings.Builder
 	for _, c := range value {
 		if strings.ContainsRune(mustEscape, c) {
-			result += string(BS)
+			result.WriteRune(BS)
 		}
-		result += string(c)
+		result.WriteRune(c)
 	}
 
-	return result
+	return result.String()
 }

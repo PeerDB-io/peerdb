@@ -3,8 +3,9 @@ package qvalue_test
 import (
 	"testing"
 
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 func TestColumnNameAvroFieldConvert(t *testing.T) {
