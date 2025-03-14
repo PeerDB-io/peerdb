@@ -75,6 +75,18 @@ message PostScriptResponse { int32 id = 1; }
 message DeleteScriptRequest { int32 id = 1; }
 message DeleteScriptResponse {}
 
+message Cert {
+  int32 id = 1;
+  string name = 2;
+  string source = 3;
+}
+message GetCertsRequest { int32 id = 1; }
+message GetCertsResponse { repeated Cert certs = 1; }
+message PostCertRequest { Cert cert = 1; }
+message PostCertResponse { int32 id = 1; }
+message DeleteCertRequest { int32 id = 1; }
+message DeleteCertResponse {}
+
 message ValidatePeerRequest { peerdb_peers.Peer peer = 1; }
 
 message CreatePeerRequest {
@@ -514,6 +526,23 @@ service FlowService {
   rpc DeleteScript(DeleteScriptRequest) returns (DeleteScriptResponse) {
     option (google.api.http) = {
       delete : "/v1/scripts/{id}"
+    };
+  }
+
+  rpc GetCerts(GetCertsRequest) returns (GetCertsResponse) {
+    option (google.api.http) = {
+      get : "/v1/certs/{id}"
+    };
+  }
+  rpc PostCert(PostCertRequest) returns (PostCertResponse) {
+    option (google.api.http) = {
+      post : "/v1/certs",
+      body : "*"
+    };
+  }
+  rpc DeleteCert(DeleteCertRequest) returns (DeleteCertResponse) {
+    option (google.api.http) = {
+      delete : "/v1/certs/{id}"
     };
   }
 
