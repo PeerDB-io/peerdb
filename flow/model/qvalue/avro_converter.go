@@ -21,6 +21,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
+var re = regexp.MustCompile(`[^A-Za-z0-9_]`)
+
 type AvroSchemaField struct {
 	Name        string `json:"name"`
 	Type        any    `json:"type"`
@@ -84,8 +86,8 @@ func ConvertToAvroCompatibleName(columnName string) string {
 	if columnName[0] >= '0' && columnName[0] <= '9' {
 		columnName = "_" + columnName
 	}
+
 	// Replace invalid characters with _
-	re := regexp.MustCompile(`[^A-Za-z0-9_]`)
 	columnName = re.ReplaceAllString(columnName, "_")
 	return columnName
 }
