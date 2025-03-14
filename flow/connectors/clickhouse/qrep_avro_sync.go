@@ -161,7 +161,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
 
-	hashColName := dstTableSchema[0].Name()
+	hashColName := columnNameAvroFieldMap[dstTableSchema[0].Name()]
 	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
 	if err != nil {
 		s.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
