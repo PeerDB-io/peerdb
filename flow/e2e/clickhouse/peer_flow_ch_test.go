@@ -1100,7 +1100,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	}
 
 	srcTableName := "test_geometric_types"
-	srcFullName := s.attachSchemaSuffix("test_geometric_types")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_geometric_types"
 
 	// Create a table with various PostgreSQL geometric types
