@@ -534,7 +534,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL
+			key TEXT NOT NULL,
 			"excludedColumn" TEXT
 		);
 	`, srcFullName))
