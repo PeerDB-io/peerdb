@@ -544,7 +544,8 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(tableName, "-", "_")),
+		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(
+			strings.ToLower(tableName), "-", "_")),
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
