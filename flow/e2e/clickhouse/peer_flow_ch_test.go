@@ -534,18 +534,26 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL
+			key TEXT NOT NULL,
+			"excludedColumn" TEXT
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key) VALUES ('init')", srcFullName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('init','excluded')", srcFullName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(tableName, "-", "_")),
-		TableNameMapping: map[string]string{s.attachSchemaSuffix(tableName): dstTableName},
-		Destination:      s.Peer().Name,
+		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(
+			strings.ToLower(tableName), "-", "_")),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"excludedColumn"},
+			},
+		},
+		Destination: s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
@@ -555,7 +563,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key) VALUES ('cdc')", srcFullName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('cdc','excluded')", srcFullName))
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
@@ -601,6 +609,10 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 
 func (s ClickHouseSuite) Test_WeirdTable_Keyword() {
 	s.WeirdTable("table")
+}
+
+func (s ClickHouseSuite) Test_WeirdTable_MixedCase() {
+	s.WeirdTable("myMixedCaseTable")
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {

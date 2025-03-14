@@ -777,18 +777,20 @@ func (c *PostgresConnector) GetSelectedColumns(
 	}
 	excludedColumnsSQL := ""
 	if len(excludedColumns) > 0 {
-		excludedColumnsSQL = "AND attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
+		excludedColumnsSQL = "AND a.attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
 	}
 
 	getColumnsSQL := `
-		SELECT attname AS column_name
-		FROM pg_attribute
-		WHERE attrelid = '%s.%s'::regclass
-		AND attnum > 0
-		AND NOT attisdropped
-		` + excludedColumnsSQL
+		SELECT a.attname AS column_name
+		FROM pg_attribute a
+		JOIN pg_class c ON a.attrelid = c.oid
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE n.nspname = $1
+		AND c.relname = $2
+		AND a.attnum > 0
+		AND NOT a.attisdropped ` + excludedColumnsSQL
 
-	rows, err := c.conn.Query(ctx, fmt.Sprintf(getColumnsSQL, sourceTable.Schema, sourceTable.Table))
+	rows, err := c.conn.Query(ctx, getColumnsSQL, sourceTable.Schema, sourceTable.Table)
 	if err != nil {
 		c.logger.Error("error getting selected columns",
 			slog.Any("error", err),
