@@ -313,11 +313,51 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t) VALUES
-		('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321'),
-		('init','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00')`,
+		('cdc','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321'),
+		('cdc','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00')`,
 		quotedSrcFullName)))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Vector() {
+	if mysource, ok := s.source.(*e2e.MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_vector"
+	srcFullName := s.attachSchemaSuffix("test_vector")
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_vector_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, val VECTOR);
+	`, quotedSrcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (val) VALUES (to_vector('[1.1,1.0]'))`, quotedSrcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,val")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (val) VALUES (to_vector('[2.718, 1.414]'))`, quotedSrcFullName)))
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,val")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
@@ -494,18 +534,26 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL
+			key TEXT NOT NULL,
+			"excludedColumn" TEXT
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key) VALUES ('init')", srcFullName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('init','excluded')", srcFullName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(tableName, "-", "_")),
-		TableNameMapping: map[string]string{s.attachSchemaSuffix(tableName): dstTableName},
-		Destination:      s.Peer().Name,
+		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(
+			strings.ToLower(tableName), "-", "_")),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"excludedColumn"},
+			},
+		},
+		Destination: s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
@@ -515,7 +563,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key) VALUES ('cdc')", srcFullName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('cdc','excluded')", srcFullName))
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
@@ -561,6 +609,10 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 
 func (s ClickHouseSuite) Test_WeirdTable_Keyword() {
 	s.WeirdTable("table")
+}
+
+func (s ClickHouseSuite) Test_WeirdTable_MixedCase() {
+	s.WeirdTable("myMixedCaseTable")
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {
@@ -1019,6 +1071,10 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 }
 
 func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
 	// This test is for checking that the flow can handle a table with columns that the user does not have SELECT privileges on
 	srcTableName := "test_unprivileged_columns"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -1068,12 +1124,8 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 	srcFullName := s.attachSchemaSuffix("test_no_pkey")
 	dstTableName := "test_no_pkey_dst"
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id INT,
-			"key" TEXT NOT NULL
-		)
-	`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT, "key" TEXT NOT NULL)`, srcFullName)))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
 
@@ -1154,7 +1206,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	
+
 	// Wait for initial snapshot to complete
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 2)
 
@@ -1172,7 +1224,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		'<(100,200),300>'                       -- CIRCLE
 	);`, srcFullName))
 	require.NoError(s.t, err)
-	
+
 	// Wait for CDC to replicate the new row
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 3)
 
@@ -1185,28 +1237,28 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	// All geometric types should be stored as strings in WKT format
 	for _, row := range rows.Records {
 		require.Len(s.t, row, 8, "expected 8 columns")
-		
+
 		// Verify point column format
 		pointVal := row[1].Value()
 		require.Contains(s.t, pointVal, "POINT", "point_col should be in WKT format")
-		
+
 		// Verify line column format
 		lineVal := row[2].Value()
 		require.Contains(s.t, lineVal, "LINE", "line_col should be in WKT format")
-		
+
 		// Verify other geometric columns
 		lsegVal := row[3].Value()
 		require.Contains(s.t, lsegVal, "LINESTRING", "lseg_col should be in WKT format")
-		
+
 		boxVal := row[4].Value()
 		require.Contains(s.t, boxVal, "POLYGON", "box_col should be in WKT format")
-		
+
 		pathVal := row[5].Value()
 		require.Contains(s.t, pathVal, "LINESTRING", "path_col should be in WKT format")
-		
+
 		polygonVal := row[6].Value()
 		require.Contains(s.t, polygonVal, "POLYGON", "polygon_col should be in WKT format")
-		
+
 		circleVal := row[7].Value()
 		require.Contains(s.t, circleVal, "POLYGON", "circle_col should be in WKT format")
 	}
@@ -1223,15 +1275,15 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		circle_col = '<(5,5),5>'
 	WHERE id = 1;`, srcFullName))
 	require.NoError(s.t, err)
-	
+
 	// Wait for the update to be replicated
 	time.Sleep(5 * time.Second)
-	
+
 	// Verify the update was replicated correctly
 	updatedRows, err := s.GetRows(dstTableName, "id, point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col WHERE id = 1")
 	require.NoError(s.t, err)
 	require.Len(s.t, updatedRows.Records, 1, "expected 1 updated row")
-	
+
 	// Verify the updated values
 	updatedRow := updatedRows.Records[0]
 	pointVal := updatedRow[1].Value()
@@ -1241,4 +1293,38 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	// Clean up
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
-}
+}    
+    
+    
+ 
+func (s ClickHouseSuite) Test_SkipSnapshotExport() {
+	srcTableName := "test_skip_snapshot"
+	srcFullName := s.attachSchemaSuffix("test_skip_snapshot")
+	dstTableName := "test_skip_snapshot"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_skip_snapshot"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_SKIP_SNAPSHOT_EXPORT": "true"}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}    

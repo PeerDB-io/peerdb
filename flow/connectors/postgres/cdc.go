@@ -471,7 +471,6 @@ func PullCdcRecords[Items model.Items](
 		case *pgproto3.CopyData:
 			if p.otelManager != nil {
 				p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
-				p.otelManager.Metrics.InstantaneousFetchedBytesGauge.Record(ctx, int64(len(msg.Data)))
 			}
 			switch msg.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:

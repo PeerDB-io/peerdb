@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
+	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -141,18 +144,57 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 	if err != nil {
 		return false, err
 	}
+	logger := slog.With("mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
 
-	slog.Info("Checking if mirror is running", "mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status", mirrorStatus.String())
+	logger.Info("Checking if mirror is running", "status", mirrorStatus.String())
 
 	if mirrorStatus != protos.FlowStatus_STATUS_RUNNING {
 		return false, nil
 	}
 
-	slog.Info("Pausing mirror for maintenance", "mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
+	logger.Info("Pausing mirror for maintenance")
 
 	if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal); err != nil {
-		slog.Error("Error signaling mirror running to pause for maintenance",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "error", err)
+		logger.Error("Error signaling mirror to pause for maintenance", "error", err)
+		// Is the CDC flow missing?
+		var notFoundErr *serviceerror.NotFound
+		if errors.As(err, &notFoundErr) && notFoundErr.Message == "workflow execution already completed" {
+			logger.Info("Workflow execution already completed, checking for existing DropFlow")
+			// Check if we are actively trying to drop the mirror
+			response, wErr := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+				Query: fmt.Sprintf("`MirrorName`=\"%s\" AND `WorkflowType`=\"DropFlowWorkflow\" AND `ExecutionStatus`=\"Running\"",
+					mirror.MirrorName),
+			})
+			if wErr != nil {
+				logger.Error("Error checking for existing DropFlow", "error", wErr)
+				return false, wErr
+			}
+			logger.Info("Received response for DropFlow check", "len(executions)", len(response.Executions))
+			if len(response.Executions) > 0 {
+				// We can skip if we find a running DropFlow
+				foundWorkflowIds := make([]string, len(response.Executions))
+				for i, exec := range response.Executions {
+					foundWorkflowIds[i] = exec.GetExecution().GetWorkflowId()
+				}
+				logger.Warn("Found existing DropFlow, skipping pause", "foundDropFlows", foundWorkflowIds,
+					"len(foundDropFlows)", len(foundWorkflowIds),
+				)
+				return false, nil
+			} else {
+				// Maybe the drop flow is already completed, but relying on a completed state can be error-prone, so we check flows table
+				logger.Warn("No running DropFlow found, checking if mirror exists in flows table")
+				var exists bool
+				err := a.CatalogPool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM flows WHERE name = $1)", mirror.MirrorName).Scan(&exists)
+				if err != nil {
+					logger.Error("Error checking if flow exists", "error", err)
+					return false, err
+				}
+				if !exists {
+					logger.Warn("Mirror does not exist in flows table, skipping pause")
+					return false, nil
+				}
+			}
+		}
 		return false, err
 	}
 

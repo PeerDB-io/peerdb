@@ -397,6 +397,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = qvalue.QValueKindFloat32
 		case "Float64", "Nullable(Float64)":
 			qkind = qvalue.QValueKindFloat64
+		case "Array(Float32)":
+			qkind = qvalue.QValueKindArrayFloat32
 		default:
 			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
 				qkind = qvalue.QValueKindNumeric
