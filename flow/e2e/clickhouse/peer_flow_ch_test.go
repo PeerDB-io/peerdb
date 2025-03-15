@@ -1286,9 +1286,9 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		require.Equal(s.t, "{[{1 2} {3 4} {5 6} {1 2}] true}", polygonVal, "polygon_col should be in expected format")
 
 		circleVal := row[7].Value()
-		for i, c := range circleVal.([]string) {
-			fmt.Printf("Circle: Index %d: Char '%c' (Hex: %x)\n", i, c, c)
-		}
+		// for i, c := range circleVal.([]string) {
+		// 	fmt.Printf("Circle: Index %d: Char '%c' (Hex: %x)\n", i, c, c)
+		// }
 		require.Equal(s.t, "{1 2} 3 true}", circleVal, "circle_col should be in expected format")
 
 	}
