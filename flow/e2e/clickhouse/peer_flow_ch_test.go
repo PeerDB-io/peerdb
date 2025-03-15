@@ -1293,10 +1293,8 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	// Clean up
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
-}    
-    
-    
- 
+}
+
 func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 	srcTableName := "test_skip_snapshot"
 	srcFullName := s.attachSchemaSuffix("test_skip_snapshot")
@@ -1327,4 +1325,4 @@ func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
-}    
+}
