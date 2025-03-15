@@ -1273,23 +1273,23 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 
 		lsegVal := row[3].Value()
 		// require.Contains(s.t, lsegVal, "LINESTRING", "lseg_col should be in WKT format")
-		require.Equal(s.t, lsegVal, "{[{1 2} {3 4}] true }", "lseg_col should be in expected format")
+		require.Equal(s.t, "{[{1 2} {3 4}] true }", lsegVal, "lseg_col should be in expected format")
 
 		boxVal := row[4].Value()
 		// require.Contains(s.t, boxVal, "POLYGON", "box_col should be in WKT format")
-		require.Equal(s.t, boxVal, "{[{3 4} {1 2}] true}", "box_col should be in expected format")
+		require.Equal(s.t, "{[{3 4} {1 2}] true}", boxVal, "box_col should be in expected format")
 
 		pathVal := row[5].Value()
-		require.Equal(s.t, pathVal, "{[{1 2} {3 4} {5 6}] true true}", "path_col should be in expected format")
+		require.Equal(s.t, "{[{1 2} {3 4} {5 6}] true true}", pathVal, "path_col should be in expected format")
 
 		polygonVal := row[6].Value()
-		require.Equal(s.t, polygonVal, "{[{1 2} {3 4} {5 6} {1 2}] true}", "polygon_col should be in expected format")
+		require.Equal(s.t, "{[{1 2} {3 4} {5 6} {1 2}] true}", polygonVal, "polygon_col should be in expected format")
 
 		circleVal := row[7].Value()
 		for i, c := range circleVal.([]string) {
 			fmt.Printf("Circle: Index %d: Char '%c' (Hex: %x)\n", i, c, c)
 		}
-		require.Equal(s.t, circleVal, "{1 2} 3 true}", "circle_col should be in expected format")
+		require.Equal(s.t, "{1 2} 3 true}", circleVal, "circle_col should be in expected format")
 
 	}
 
