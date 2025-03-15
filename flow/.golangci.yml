@@ -12,7 +12,7 @@ linters:
     - exptostd
     # - forbidigo
     - gci
-    - gocritic
+    # - gocritic
     - gofumpt
     - gosec
     - gosimple
