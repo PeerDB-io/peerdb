@@ -1246,7 +1246,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		// where A, B, C are the coefficients of the line equation (Ax + By + C = 0)
 		// and D is a boolean
 		lineVal := row[2].Value().(string)
-		fmt.Printf("**************** lineVal1: %v, Type: %T\n", lineVal, lineVal)
+		fmt.Printf("**************** lineVal1: %v, Type: %T, TypeConst: %T\n", lineVal, lineVal, "***1 2 3 true***")
 
 		require.Equal(s.t, "***1 2 3 true***", lineVal, "lineVal should match expected format")
 
