@@ -1242,9 +1242,12 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		pointVal := row[1].Value()
 		require.Contains(s.t, pointVal, "POINT", "point_col should be in WKT format")
 
-		// Verify line column format
-		lineVal := row[2].Value()
-		require.Contains(s.t, lineVal, "LINE", "line_col should be in WKT format")
+		// Verify line column format - PostgreSQL LINE is represented as "***A B C D***"
+		// where A, B, C are the coefficients of the line equation (Ax + By + C = 0)
+		// and D is a boolean
+		lineVal := row[2].Value().(string)
+		require.Regexp(s.t, `\*\*\*[-\d.]+ [-\d.]+ [-\d.]+ (true|false)\*\*\*`, lineVal, 
+			"line_col should match the expected format '***A B C D***'")
 
 		// Verify other geometric columns
 		lsegVal := row[3].Value()
@@ -1279,7 +1282,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	// Wait for the update to be replicated
 	time.Sleep(5 * time.Second)
 
-	// Verify the update was replicated correctly
+	// Verify the updated values
 	updatedRows, err := s.GetRows(dstTableName, "id, point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col WHERE id = 1")
 	require.NoError(s.t, err)
 	require.Len(s.t, updatedRows.Records, 1, "expected 1 updated row")
@@ -1289,6 +1292,11 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	pointVal := updatedRow[1].Value()
 	require.Contains(s.t, pointVal, "POINT", "updated point_col should be in WKT format")
 	require.Contains(s.t, pointVal, "5", "updated point_col should contain the new coordinates")
+	
+	// Verify updated line column format
+	lineVal := updatedRow[2].Value().(string)
+	require.Regexp(s.t, `\*\*\*[-\d.]+ [-\d.]+ [-\d.]+ (true|false)\*\*\*`, lineVal, 
+		"updated line_col should match the expected format '***A B C D***'")
 
 	// Clean up
 	env.Cancel(s.t.Context())
