@@ -1146,6 +1146,191 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 	e2e.EnvWaitForFinished(s.t, env, time.Minute)
 }
 
+func (s ClickHouseSuite) Test_Geometric_Types() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_geometric_types"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_geometric_types"
+
+	// Create a table with various PostgreSQL geometric types
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	CREATE TABLE IF NOT EXISTS %[1]s(
+		id serial PRIMARY KEY,
+		point_col POINT,
+		line_col LINE,
+		lseg_col LSEG,
+		box_col BOX,
+		path_col PATH,
+		polygon_col POLYGON,
+		circle_col CIRCLE
+	);
+	
+	-- Insert test data with various geometric types
+	INSERT INTO %[1]s (
+		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
+	) VALUES (
+		'(1,2)',                                -- POINT
+		'{1,2,3}',                              -- LINE
+		'((1,2),(3,4))',                        -- LSEG
+		'((1,2),(3,4))',                        -- BOX
+		'((1,2),(3,4),(5,6))',                  -- PATH
+		'((1,2),(3,4),(5,6),(1,2))',            -- POLYGON
+		'<(1,2),3>'                             -- CIRCLE
+	);
+	
+	-- Insert another row with different values
+	INSERT INTO %[1]s (
+		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
+	) VALUES (
+		'(10,20)',                              -- POINT
+		'{10,20,30}',                           -- LINE
+		'((10,20),(30,40))',                    -- LSEG
+		'((10,20),(30,40))',                    -- BOX
+		'((10,20),(30,40),(50,60))',            -- PATH
+		'((10,20),(30,40),(50,60),(10,20))',    -- POLYGON
+		'<(10,20),30>'                          -- CIRCLE
+	);`, srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_test_geometric_types"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Wait for initial snapshot to complete
+	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 2)
+
+	// Insert a third row to test CDC
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	INSERT INTO %[1]s (
+		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
+	) VALUES (
+		'(100,200)',                            -- POINT
+		'{100,200,300}',                        -- LINE
+		'((100,200),(300,400))',                -- LSEG
+		'((100,200),(300,400))',                -- BOX
+		'((100,200),(300,400),(500,600))',      -- PATH
+		'((100,200),(300,400),(500,600),(100,200))', -- POLYGON
+		'<(100,200),300>'                       -- CIRCLE
+	);`, srcFullName))
+	require.NoError(s.t, err)
+
+	// Wait for CDC to replicate the new row
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 3)
+
+	// Verify that the data was correctly replicated
+	rows, err := s.GetRows(dstTableName, "id, point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 3, "expected 3 rows")
+
+	// Check that the geometric data is in the expected format in ClickHouse
+	// All geometric types should be stored as strings in WKT format
+	for _, row := range rows.Records {
+		require.Len(s.t, row, 8, "expected 8 columns")
+
+		// Verify point column format
+		pointVal := row[1].Value()
+		require.Contains(s.t, pointVal, "POINT", "point_col should be in WKT format")
+
+		// Verify line column format - PostgreSQL LINE is represented as "***A B C D***"
+		// where A, B, C are the coefficients of the line equation (Ax + By + C = 0)
+		// and D is a boolean
+		lineVal := row[2].Value().(string)
+		fmt.Printf("**************** lineVal1: %v, Type: %T, TypeConst: %T\n", lineVal, lineVal, "***1 2 3 true***")
+		fmt.Printf("**************** LineString lseg_col: %v, Type: %T\n", row[3].Value(), row[3].Value())
+		fmt.Printf("**************** POLYGON box_col: %v, Type: %T\n", row[4].Value(), row[4].Value())
+		fmt.Printf("**************** LineString path_col: %v, Type: %T\n", row[5].Value(), row[5].Value())
+		fmt.Printf("**************** POLYGON polygon_col: %v, Type: %T\n", row[6].Value(), row[6].Value())
+		fmt.Printf("**************** POLYGON circle col: %v, Type: %T\n", row[7].Value(), row[7].Value())
+
+		// 2025-03-15T11:50:43.7014162Z **************** lineVal1: ***1 2 3 true***, Type: string, TypeConst: string
+		// 2025-03-15T11:50:43.7014621Z **************** LineString lseg_col: ***[***1 2*** ***3 4***] true***, Type: string
+		// 2025-03-15T11:50:43.7015050Z **************** POLYGON box_col: ***[***3 4*** ***1 2***] true***, Type: string
+		// 2025-03-15T11:50:43.7015662Z **************** LineString path_col: ***[***1 2*** ***3 4*** ***5 6***] true true***, Type: string
+		// 2025-03-15T11:50:43.7016344Z **************** POLYGON polygon_col: ***[***1 2*** ***3 4*** ***5 6*** ***1 2***] true***, Type: string
+		// 2025-03-15T11:50:43.7016782Z **************** POLYGON circle col: ***1 2*** 3 true***, Type: string
+		// for i, c := range lineVal {
+		// 	fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
+		// }
+		// for i, c := range "{1 2 3 true}" {
+		// 	fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
+		// }
+
+		require.Equal(s.t, "{1 2 3 true}", lineVal, "lineVal should match expected format")
+
+		// require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
+		// 	"line_col should match the expected format '***A B C D***'")
+
+		lsegVal := row[3].Value()
+		// require.Contains(s.t, lsegVal, "LINESTRING", "lseg_col should be in WKT format")
+		require.Equal(s.t, "{[{1 2} {3 4}] true}", lsegVal, "lseg_col should be in expected format")
+
+		boxVal := row[4].Value()
+		// require.Contains(s.t, boxVal, "POLYGON", "box_col should be in WKT format")
+		require.Equal(s.t, "{[{3 4} {1 2}] true}", boxVal, "box_col should be in expected format")
+
+		pathVal := row[5].Value()
+		require.Equal(s.t, "{[{1 2} {3 4} {5 6}] true true}", pathVal, "path_col should be in expected format")
+
+		polygonVal := row[6].Value()
+		require.Equal(s.t, "{[{1 2} {3 4} {5 6} {1 2}] true}", polygonVal, "polygon_col should be in expected format")
+
+		circleVal := row[7].Value()
+		// for i, c := range circleVal.([]string) {
+		// 	fmt.Printf("Circle: Index %d: Char '%c' (Hex: %x)\n", i, c, c)
+		// }
+		require.Equal(s.t, "{1 2} 3 true}", circleVal, "circle_col should be in expected format")
+	}
+
+	// Update a row to test CDC updates with geometric types
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	UPDATE %[1]s SET 
+		point_col = '(5,5)',
+		line_col = '{5,5,5}',
+		lseg_col = '((5,5),(10,10))',
+		box_col = '((5,5),(10,10))',
+		path_col = '((5,5),(10,10),(15,15))',
+		polygon_col = '((5,5),(10,10),(15,15),(5,5))',
+		circle_col = '<(5,5),5>'
+	WHERE id = 1;`, srcFullName))
+	require.NoError(s.t, err)
+
+	// Wait for the update to be replicated
+	time.Sleep(5 * time.Second)
+
+	// Verify the updated values
+	updatedRows, err := s.GetRows(dstTableName, "id, point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col WHERE id = 1")
+	require.NoError(s.t, err)
+	require.Len(s.t, updatedRows.Records, 1, "expected 1 updated row")
+
+	// Verify the updated values
+	updatedRow := updatedRows.Records[0]
+	pointVal := updatedRow[1].Value()
+	require.Contains(s.t, pointVal, "POINT", "updated point_col should be in WKT format")
+	require.Contains(s.t, pointVal, "5", "updated point_col should contain the new coordinates")
+
+	// Verify updated line column format
+	lineVal := updatedRow[2].Value().(string)
+	fmt.Printf("**************** lineVal2: %v, Type: %T\n", lineVal, lineVal)
+
+	require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
+		"updated line_col should match the expected format '***A B C D***'")
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 	srcTableName := "test_skip_snapshot"
 	srcFullName := s.attachSchemaSuffix("test_skip_snapshot")
