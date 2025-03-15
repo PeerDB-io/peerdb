@@ -1259,8 +1259,12 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 
 		// require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
 		// 	"line_col should match the expected format '***A B C D***'")
+		fmt.Printf("**************** LineString lseg_col: %v, Type: %T\n", row[3].Value(), row[3].Value())
+		fmt.Printf("**************** POLYGON box_col: %v, Type: %T\n", row[4].Value(), row[4].Value())
+		fmt.Printf("**************** LineString path_col: %v, Type: %T\n", row[5].Value(), row[5].Value())
+		fmt.Printf("**************** POLYGON polygon_col: %v, Type: %T\n", row[6].Value(), row[6].Value())
+		fmt.Printf("**************** POLYGON circle col: %v, Type: %T\n", row[7].Value(), row[7].Value())
 
-		// Verify other geometric columns
 		lsegVal := row[3].Value()
 		require.Contains(s.t, lsegVal, "LINESTRING", "lseg_col should be in WKT format")
 
