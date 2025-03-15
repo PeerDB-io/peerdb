@@ -1246,7 +1246,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		// where A, B, C are the coefficients of the line equation (Ax + By + C = 0)
 		// and D is a boolean
 		lineVal := row[2].Value().(string)
-		fmt.Printf("**************** lineVal: %v, Type: %T\n", lineVal, lineVal)
+		fmt.Printf("**************** lineVal1: %v, Type: %T\n", lineVal, lineVal)
 
 		require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
 			"line_col should match the expected format '***A B C D***'")
@@ -1297,6 +1297,8 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 
 	// Verify updated line column format
 	lineVal := updatedRow[2].Value().(string)
+	fmt.Printf("**************** lineVal2: %v, Type: %T\n", lineVal, lineVal)
+
 	require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
 		"updated line_col should match the expected format '***A B C D***'")
 
