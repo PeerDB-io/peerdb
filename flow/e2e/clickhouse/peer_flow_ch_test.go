@@ -1246,8 +1246,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		// where A, B, C are the coefficients of the line equation (Ax + By + C = 0)
 		// and D is a boolean
 		lineVal := row[2].Value().(string)
-		require.Regexp(s.t, `\*\*\*[-\d.]+ [-\d.]+ [-\d.]+ (true|false)\*\*\*`, lineVal, 
-			"line_col should match the expected format '***A B C D***'")
+		require.Regexp(s.t, `\*\*\*[-\d.]+ [-\d.]+ [-\d.]+ (true|false)\*\*\*`, lineVal, "line_col should match the expected format '***A B C D***'")
 
 		// Verify other geometric columns
 		lsegVal := row[3].Value()
@@ -1292,10 +1291,10 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	pointVal := updatedRow[1].Value()
 	require.Contains(s.t, pointVal, "POINT", "updated point_col should be in WKT format")
 	require.Contains(s.t, pointVal, "5", "updated point_col should contain the new coordinates")
-	
+
 	// Verify updated line column format
 	lineVal := updatedRow[2].Value().(string)
-	require.Regexp(s.t, `\*\*\*[-\d.]+ [-\d.]+ [-\d.]+ (true|false)\*\*\*`, lineVal, 
+	require.Regexp(s.t, `\*\*\*[-\d.]+ [-\d.]+ [-\d.]+ (true|false)\*\*\*`, lineVal,
 		"updated line_col should match the expected format '***A B C D***'")
 
 	// Clean up
