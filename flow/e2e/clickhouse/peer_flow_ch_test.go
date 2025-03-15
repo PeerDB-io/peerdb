@@ -1248,8 +1248,10 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		lineVal := row[2].Value().(string)
 		fmt.Printf("**************** lineVal1: %v, Type: %T\n", lineVal, lineVal)
 
-		require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
-			"line_col should match the expected format '***A B C D***'")
+		require.Equal(s.t, "***1 2 3 true***", lineVal, "lineVal should match expected format")
+
+		// require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
+		// 	"line_col should match the expected format '***A B C D***'")
 
 		// Verify other geometric columns
 		lsegVal := row[3].Value()
