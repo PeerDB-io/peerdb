@@ -1248,6 +1248,13 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		lineVal := row[2].Value().(string)
 		fmt.Printf("**************** lineVal1: %v, Type: %T, TypeConst: %T\n", lineVal, lineVal, "***1 2 3 true***")
 
+		for i, c := range lineVal {
+			fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
+		}
+		for i, c := range "***1 2 3 true***" {
+			fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
+		}
+
 		require.Equal(s.t, "***1 2 3 true***", lineVal, "lineVal should match expected format")
 
 		// require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
