@@ -1246,7 +1246,8 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		// where A, B, C are the coefficients of the line equation (Ax + By + C = 0)
 		// and D is a boolean
 		lineVal := row[2].Value().(string)
-		require.Regexp(s.t, `\*\*\*[-\d.]+ [-\d.]+ [-\d.]+ (true|false)\*\*\*`, lineVal, "line_col should match the expected format '***A B C D***'")
+		require.Regexp(s.t, `\*\*\*[-\d.]+ [-\d.]+ [-\d.]+ (true|false)\*\*\*`, lineVal,
+			"line_col should match the expected format '***A B C D***'")
 
 		// Verify other geometric columns
 		lsegVal := row[3].Value()
