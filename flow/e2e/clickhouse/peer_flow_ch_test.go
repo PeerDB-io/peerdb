@@ -1273,7 +1273,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 
 		lsegVal := row[3].Value()
 		// require.Contains(s.t, lsegVal, "LINESTRING", "lseg_col should be in WKT format")
-		require.Equal(s.t, "{[{1 2} {3 4}] true }", lsegVal, "lseg_col should be in expected format")
+		require.Equal(s.t, "{[{1 2} {3 4}] true}", lsegVal, "lseg_col should be in expected format")
 
 		boxVal := row[4].Value()
 		// require.Contains(s.t, boxVal, "POLYGON", "box_col should be in WKT format")
