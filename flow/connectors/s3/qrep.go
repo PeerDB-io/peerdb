@@ -42,7 +42,8 @@ func getAvroSchema(
 	dstTableName string,
 	schema qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_S3)
+	// TODO: Support avro-incompatible column names
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_S3, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}

@@ -203,7 +203,8 @@ func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 	dstTableName string,
 	schema qvalue.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_SNOWFLAKE)
+	// TODO: Support avroNameMap for avro-incompatible column name support
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_SNOWFLAKE, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}

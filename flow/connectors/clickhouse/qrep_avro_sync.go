@@ -76,7 +76,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	s.logger.Info("sync function called and schema acquired",
 		slog.String("dstTable", dstTableName))
 
-	avroSchema, err := s.getAvroSchema(ctx, env, dstTableName, schema)
+	avroSchema, err := s.getAvroSchema(ctx, env, dstTableName, schema, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -116,7 +116,8 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema)
+	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
+	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
 		return 0, err
 	}
@@ -139,7 +140,8 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	endpoint := s.credsProvider.Provider.GetEndpointURL()
 	region := s.credsProvider.Provider.GetRegion()
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
-	selector := make([]string, 0, len(dstTableSchema))
+	selectedColumnNames := make([]string, 0, len(dstTableSchema))
+	insertedColumnNames := make([]string, 0, len(dstTableSchema))
 	for _, col := range dstTableSchema {
 		colName := col.Name()
 		if strings.EqualFold(colName, config.SoftDeleteColName) ||
@@ -149,16 +151,17 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 			continue
 		}
 
-		selector = append(selector, "`"+colName+"`")
+		selectedColumnNames = append(selectedColumnNames, "`"+columnNameAvroFieldMap[colName]+"`")
+		insertedColumnNames = append(insertedColumnNames, "`"+colName+"`")
 	}
-	selectorStr := strings.Join(selector, ",")
-
+	selectorStr := strings.Join(selectedColumnNames, ",")
+	insertedStr := strings.Join(insertedColumnNames, ",")
 	sessionTokenPart := ""
 	if creds.AWS.SessionToken != "" {
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
 
-	hashColName := dstTableSchema[0].Name()
+	hashColName := columnNameAvroFieldMap[dstTableSchema[0].Name()]
 	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
 	if err != nil {
 		s.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
@@ -173,7 +176,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		}
 		query := fmt.Sprintf(
 			"INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
-			config.DestinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
+			config.DestinationTableIdentifier, insertedStr, selectorStr, avroFileUrl,
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
 		s.logger.Info("inserting part",
 			slog.String("query", query),
@@ -202,8 +205,9 @@ func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 	env map[string]string,
 	dstTableName string,
 	schema qvalue.QRecordSchema,
+	avroNameMap map[string]string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_CLICKHOUSE)
+	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_CLICKHOUSE, avroNameMap)
 	if err != nil {
 		return nil, fmt.Errorf("failed to define Avro schema: %w", err)
 	}

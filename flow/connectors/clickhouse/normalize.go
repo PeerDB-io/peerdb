@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 )
 
 const (
@@ -375,23 +376,23 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				case "Date32", "Nullable(Date32)":
 					projection.WriteString(fmt.Sprintf(
 						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6)) AS `%s`,",
-						colName, dstColName,
+						peerdb_clickhouse.EscapeStr(colName), dstColName,
 					))
 					if enablePrimaryUpdate {
 						projectionUpdate.WriteString(fmt.Sprintf(
 							"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6)) AS `%s`,",
-							colName, dstColName,
+							peerdb_clickhouse.EscapeStr(colName), dstColName,
 						))
 					}
 				case "DateTime64(6)", "Nullable(DateTime64(6))":
 					projection.WriteString(fmt.Sprintf(
 						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6) AS `%s`,",
-						colName, dstColName,
+						peerdb_clickhouse.EscapeStr(colName), dstColName,
 					))
 					if enablePrimaryUpdate {
 						projectionUpdate.WriteString(fmt.Sprintf(
 							"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6) AS `%s`,",
-							colName, dstColName,
+							peerdb_clickhouse.EscapeStr(colName), dstColName,
 						))
 					}
 				default:
@@ -405,21 +406,21 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						case internal.BinaryFormatRaw:
 							projection.WriteString(fmt.Sprintf(
 								"base64Decode(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
-								colName, dstColName,
+								peerdb_clickhouse.EscapeStr(colName), dstColName,
 							))
 							if enablePrimaryUpdate {
 								projectionUpdate.WriteString(fmt.Sprintf(
 									"base64Decode(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
-									colName, dstColName,
+									peerdb_clickhouse.EscapeStr(colName), dstColName,
 								))
 							}
 						case internal.BinaryFormatHex:
 							projection.WriteString(fmt.Sprintf("hex(base64Decode(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
-								colName, dstColName))
+								peerdb_clickhouse.EscapeStr(colName), dstColName))
 							if enablePrimaryUpdate {
 								projectionUpdate.WriteString(fmt.Sprintf(
 									"hex(base64Decode(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
-									colName, dstColName,
+									peerdb_clickhouse.EscapeStr(colName), dstColName,
 								))
 							}
 						}
@@ -429,12 +430,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					if projection.Len() == projLen {
 						projection.WriteString(fmt.Sprintf(
 							"JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,",
-							colName, clickHouseType, dstColName,
+							peerdb_clickhouse.EscapeStr(colName), clickHouseType, dstColName,
 						))
 						if enablePrimaryUpdate {
 							projectionUpdate.WriteString(fmt.Sprintf(
 								"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
-								colName, clickHouseType, dstColName,
+								peerdb_clickhouse.EscapeStr(colName), clickHouseType, dstColName,
 							))
 						}
 					}
