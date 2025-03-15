@@ -1247,23 +1247,23 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		// and D is a boolean
 		lineVal := row[2].Value().(string)
 		fmt.Printf("**************** lineVal1: %v, Type: %T, TypeConst: %T\n", lineVal, lineVal, "***1 2 3 true***")
-
-		for i, c := range lineVal {
-			fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
-		}
-		for i, c := range "{1 2 3 true}" {
-			fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
-		}
-
-		require.Equal(s.t, "{1 2 3 true}", lineVal, "lineVal should match expected format")
-
-		// require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
-		// 	"line_col should match the expected format '***A B C D***'")
 		fmt.Printf("**************** LineString lseg_col: %v, Type: %T\n", row[3].Value(), row[3].Value())
 		fmt.Printf("**************** POLYGON box_col: %v, Type: %T\n", row[4].Value(), row[4].Value())
 		fmt.Printf("**************** LineString path_col: %v, Type: %T\n", row[5].Value(), row[5].Value())
 		fmt.Printf("**************** POLYGON polygon_col: %v, Type: %T\n", row[6].Value(), row[6].Value())
 		fmt.Printf("**************** POLYGON circle col: %v, Type: %T\n", row[7].Value(), row[7].Value())
+
+		// for i, c := range lineVal {
+		// 	fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
+		// }
+		// for i, c := range "{1 2 3 true}" {
+		// 	fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
+		// }
+
+		require.Equal(s.t, "{1 2 3 true}", lineVal, "lineVal should match expected format")
+
+		// require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
+		// 	"line_col should match the expected format '***A B C D***'")
 
 		lsegVal := row[3].Value()
 		require.Contains(s.t, lsegVal, "LINESTRING", "lseg_col should be in WKT format")
