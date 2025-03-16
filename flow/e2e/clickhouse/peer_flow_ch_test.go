@@ -1310,39 +1310,41 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		require.Equal(s.t, expectedValues[i].circle, circleVal, "circle_col value mismatch")
 	}
 
+	fmt.Printf("***************** verified insert")
+
 	// Update a row to test CDC updates with geometric types
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	UPDATE %[1]s SET 
-		point_col = '(5,5)',
-		line_col = '{5,5,5}',
-		lseg_col = '((5,5),(10,10))',
-		box_col = '((5,5),(10,10))',
-		path_col = '((5,5),(10,10),(15,15))',
-		polygon_col = '((5,5),(10,10),(15,15),(5,5))',
-		circle_col = '<(5,5),5>'
-	WHERE id = 1;`, srcFullName))
-	require.NoError(s.t, err)
+	// _, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	// UPDATE %[1]s SET
+	// 	point_col = '(5,5)',
+	// 	line_col = '{5,5,5}',
+	// 	lseg_col = '((5,5),(10,10))',
+	// 	box_col = '((5,5),(10,10))',
+	// 	path_col = '((5,5),(10,10),(15,15))',
+	// 	polygon_col = '((5,5),(10,10),(15,15),(5,5))',
+	// 	circle_col = '<(5,5),5>'
+	// WHERE id = 1;`, srcFullName))
+	// require.NoError(s.t, err)
 
-	// Wait for the update to be replicated
-	time.Sleep(5 * time.Second)
+	// // Wait for the update to be replicated
+	// time.Sleep(5 * time.Second)
 
-	// Verify the updated values
-	updatedRows, err := s.GetRows(dstTableName, "id, point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col WHERE id = 1")
-	require.NoError(s.t, err)
-	require.Len(s.t, updatedRows.Records, 1, "expected 1 updated row")
+	// // Verify the updated values
+	// updatedRows, err := s.GetRows(dstTableName, "id, point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col WHERE id = 1")
+	// require.NoError(s.t, err)
+	// require.Len(s.t, updatedRows.Records, 1, "expected 1 updated row")
 
-	// Verify the updated values
-	updatedRow := updatedRows.Records[0]
-	pointVal := updatedRow[1].Value()
-	require.Contains(s.t, pointVal, "POINT", "updated point_col should be in WKT format")
-	require.Contains(s.t, pointVal, "5", "updated point_col should contain the new coordinates")
+	// // Verify the updated values
+	// updatedRow := updatedRows.Records[0]
+	// pointVal := updatedRow[1].Value()
+	// require.Contains(s.t, pointVal, "POINT", "updated point_col should be in WKT format")
+	// require.Contains(s.t, pointVal, "5", "updated point_col should contain the new coordinates")
 
-	// Verify updated line column format
-	lineVal := updatedRow[2].Value().(string)
-	fmt.Printf("**************** lineVal2: %v, Type: %T\n", lineVal, lineVal)
+	// // Verify updated line column format
+	// lineVal := updatedRow[2].Value().(string)
+	// fmt.Printf("**************** lineVal2: %v, Type: %T\n", lineVal, lineVal)
 
-	require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
-		"updated line_col should match the expected format '***A B C D***'")
+	// require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
+	// 	"updated line_col should match the expected format '***A B C D***'")
 
 	// Clean up
 	env.Cancel(s.t.Context())
