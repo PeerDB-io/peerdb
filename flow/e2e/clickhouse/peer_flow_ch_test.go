@@ -1256,7 +1256,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 			id:      1,
 		},
 		{
-			point:   "POINT(10 20)",
+			point:   "POINT(10.000000 20.000000)",
 			line:    "{10 20 30 true}",
 			lseg:    "{[{10 20} {30 40}] true}",
 			box:     "{[{30 40} {10 20}] true}",
@@ -1266,7 +1266,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 			id:      2,
 		},
 		{
-			point:   "POINT(100 200)",
+			point:   "POINT(100.000000 200.000000)",
 			line:    "{100 200 300 true}",
 			lseg:    "{[{100 200} {300 400}] true}",
 			box:     "{[{300 400} {100 200}] true}",
