@@ -1303,7 +1303,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		// for i, c := range circleVal.([]string) {
 		// 	fmt.Printf("Circle: Index %d: Char '%c' (Hex: %x)\n", i, c, c)
 		// }
-		require.Equal(s.t, "{1 2} 3 true}", circleVal, "circle_col should be in expected format")
+		require.Equal(s.t, "{{1 2} 3 true}", circleVal, "circle_col should be in expected format")
 	}
 
 	// Update a row to test CDC updates with geometric types
