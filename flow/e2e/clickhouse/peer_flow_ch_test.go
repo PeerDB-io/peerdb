@@ -1246,7 +1246,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		id      int
 	}{
 		{
-			point:   "POINT(1 2)",
+			point:   "POINT(1.000000 2.000000)",
 			line:    "{1 2 3 true}",
 			lseg:    "{[{1 2} {3 4}] true}",
 			box:     "{[{3 4} {1 2}] true}",
