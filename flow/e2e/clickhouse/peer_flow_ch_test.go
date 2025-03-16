@@ -1288,6 +1288,18 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		circleVal := row[7].Value()
 		fmt.Printf("***************circleVal type: %T\n", circleVal)
 
+		str, ok := circleVal.(string)
+		if !ok {
+			fmt.Printf("circleVal is not a string, found: %T\n", circleVal)
+			return
+		}
+
+		// Print hex values of each character
+		for _, char := range str {
+			fmt.Printf("%02x ", char)
+		}
+		fmt.Println()
+
 		// for i, c := range circleVal.([]string) {
 		// 	fmt.Printf("Circle: Index %d: Char '%c' (Hex: %x)\n", i, c, c)
 		// }
