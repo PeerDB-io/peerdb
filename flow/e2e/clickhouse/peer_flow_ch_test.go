@@ -1235,75 +1235,79 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 
 	// Check that the geometric data is in the expected format in ClickHouse
 	// All geometric types should be stored as strings in WKT format
-	for _, row := range rows.Records {
+	expectedValues := []struct {
+		id      int
+		point   string
+		line    string
+		lseg    string
+		box     string
+		path    string
+		polygon string
+		circle  string
+	}{
+		{
+			id:      1,
+			point:   "POINT(1 2)",
+			line:    "{1 2 3 true}",
+			lseg:    "{[{1 2} {3 4}] true}",
+			box:     "{[{3 4} {1 2}] true}",
+			path:    "{[{1 2} {3 4} {5 6}] true true}",
+			polygon: "{[{1 2} {3 4} {5 6} {1 2}] true}",
+			circle:  "{{1 2} 3 true}",
+		},
+		{
+			id:      2,
+			point:   "POINT(10 20)",
+			line:    "{10 20 30 true}",
+			lseg:    "{[{10 20} {30 40}] true}",
+			box:     "{[{30 40} {10 20}] true}",
+			path:    "{[{10 20} {30 40} {50 60}] true true}",
+			polygon: "{[{10 20} {30 40} {50 60} {10 20}] true}",
+			circle:  "{{10 20} 30 true}",
+		},
+		{
+			id:      3,
+			point:   "POINT(100 200)",
+			line:    "{100 200 300 true}",
+			lseg:    "{[{100 200} {300 400}] true}",
+			box:     "{[{300 400} {100 200}] true}",
+			path:    "{[{100 200} {300 400} {500 600}] true true}",
+			polygon: "{[{100 200} {300 400} {500 600} {100 200}] true}",
+			circle:  "{{100 200} 300 true}",
+		},
+	}
+
+	for i, row := range rows.Records {
 		require.Len(s.t, row, 8, "expected 8 columns")
 
 		// Verify point column format
 		pointVal := row[1].Value()
 		require.Contains(s.t, pointVal, "POINT", "point_col should be in WKT format")
+		require.Equal(s.t, expectedValues[i].point, pointVal, "point_col value mismatch")
 
-		// Verify line column format - PostgreSQL LINE is represented as "***A B C D***"
-		// where A, B, C are the coefficients of the line equation (Ax + By + C = 0)
-		// and D is a boolean
+		// Verify line column format
 		lineVal := row[2].Value().(string)
-		fmt.Printf("**************** lineVal1: %v, Type: %T, TypeConst: %T\n", lineVal, lineVal, "***1 2 3 true***")
-		fmt.Printf("**************** LineString lseg_col: %v, Type: %T\n", row[3].Value(), row[3].Value())
-		fmt.Printf("**************** POLYGON box_col: %v, Type: %T\n", row[4].Value(), row[4].Value())
-		fmt.Printf("**************** LineString path_col: %v, Type: %T\n", row[5].Value(), row[5].Value())
-		fmt.Printf("**************** POLYGON polygon_col: %v, Type: %T\n", row[6].Value(), row[6].Value())
-		fmt.Printf("**************** POLYGON circle col: %v, Type: %T\n", row[7].Value(), row[7].Value())
+		require.Equal(s.t, expectedValues[i].line, lineVal, "line_col value mismatch")
 
-		// 2025-03-15T11:50:43.7014162Z **************** lineVal1: ***1 2 3 true***, Type: string, TypeConst: string
-		// 2025-03-15T11:50:43.7014621Z **************** LineString lseg_col: ***[***1 2*** ***3 4***] true***, Type: string
-		// 2025-03-15T11:50:43.7015050Z **************** POLYGON box_col: ***[***3 4*** ***1 2***] true***, Type: string
-		// 2025-03-15T11:50:43.7015662Z **************** LineString path_col: ***[***1 2*** ***3 4*** ***5 6***] true true***, Type: string
-		// 2025-03-15T11:50:43.7016344Z **************** POLYGON polygon_col: ***[***1 2*** ***3 4*** ***5 6*** ***1 2***] true***, Type: string
-		// 2025-03-15T11:50:43.7016782Z **************** POLYGON circle col: ***1 2*** 3 true***, Type: string
-		// for i, c := range lineVal {
-		// 	fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
-		// }
-		// for i, c := range "{1 2 3 true}" {
-		// 	fmt.Printf("Index %d: Char '%c' (Hex: %x)\n", i, c, c)
-		// }
-
-		require.Equal(s.t, "{1 2 3 true}", lineVal, "lineVal should match expected format")
-
-		// require.Regexp(s.t, `\*\*\*[0-9.-]+ [0-9.-]+ [0-9.-]+ (true|false)\*\*\*`, lineVal,
-		// 	"line_col should match the expected format '***A B C D***'")
-
+		// Verify lseg column format
 		lsegVal := row[3].Value()
-		// require.Contains(s.t, lsegVal, "LINESTRING", "lseg_col should be in WKT format")
-		require.Equal(s.t, "{[{1 2} {3 4}] true}", lsegVal, "lseg_col should be in expected format")
+		require.Equal(s.t, expectedValues[i].lseg, lsegVal, "lseg_col value mismatch")
 
+		// Verify box column format
 		boxVal := row[4].Value()
-		// require.Contains(s.t, boxVal, "POLYGON", "box_col should be in WKT format")
-		require.Equal(s.t, "{[{3 4} {1 2}] true}", boxVal, "box_col should be in expected format")
+		require.Equal(s.t, expectedValues[i].box, boxVal, "box_col value mismatch")
 
+		// Verify path column format
 		pathVal := row[5].Value()
-		require.Equal(s.t, "{[{1 2} {3 4} {5 6}] true true}", pathVal, "path_col should be in expected format")
+		require.Equal(s.t, expectedValues[i].path, pathVal, "path_col value mismatch")
 
+		// Verify polygon column format
 		polygonVal := row[6].Value()
-		require.Equal(s.t, "{[{1 2} {3 4} {5 6} {1 2}] true}", polygonVal, "polygon_col should be in expected format")
+		require.Equal(s.t, expectedValues[i].polygon, polygonVal, "polygon_col value mismatch")
 
+		// Verify circle column format
 		circleVal := row[7].Value()
-		fmt.Printf("***************circleVal type: %T\n", circleVal)
-
-		str, ok := circleVal.(string)
-		if !ok {
-			fmt.Printf("circleVal is not a string, found: %T\n", circleVal)
-			return
-		}
-
-		// Print hex values of each character
-		for _, char := range str {
-			fmt.Printf("%02x ", char)
-		}
-		fmt.Println()
-
-		// for i, c := range circleVal.([]string) {
-		// 	fmt.Printf("Circle: Index %d: Char '%c' (Hex: %x)\n", i, c, c)
-		// }
-		require.Equal(s.t, "{{10 20} 30 true}", circleVal, "circle_col should be in expected format")
+		require.Equal(s.t, expectedValues[i].circle, circleVal, "circle_col value mismatch")
 	}
 
 	// Update a row to test CDC updates with geometric types
