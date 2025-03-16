@@ -1236,46 +1236,44 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	// Check that the geometric data is in the expected format in ClickHouse
 	// All geometric types should be stored as strings in WKT format
 	expectedValues := []struct {
-		// strings (largest)
-		point     string
-		line      string
-		lseg      string
-		box       string
-		path      string
-		polygon   string
-		circle    string
-		// int (smallest)
-		id        int
+		point   string
+		line    string
+		lseg    string
+		box     string
+		path    string
+		polygon string
+		circle  string
+		id      int
 	}{
 		{
-			point:     "POINT(1 2)",
-			line:      "{1 2 3 true}",
-			lseg:      "{[{1 2} {3 4}] true}",
-			box:       "{[{3 4} {1 2}] true}",
-			path:      "{[{1 2} {3 4} {5 6}] true true}",
-			polygon:   "{[{1 2} {3 4} {5 6} {1 2}] true}",
-			circle:    "{{1 2} 3 true}",
-			id:        1,
+			point:   "POINT(1 2)",
+			line:    "{1 2 3 true}",
+			lseg:    "{[{1 2} {3 4}] true}",
+			box:     "{[{3 4} {1 2}] true}",
+			path:    "{[{1 2} {3 4} {5 6}] true true}",
+			polygon: "{[{1 2} {3 4} {5 6} {1 2}] true}",
+			circle:  "{{1 2} 3 true}",
+			id:      1,
 		},
 		{
-			point:     "POINT(10 20)",
-			line:      "{10 20 30 true}",
-			lseg:      "{[{10 20} {30 40}] true}",
-			box:       "{[{30 40} {10 20}] true}",
-			path:      "{[{10 20} {30 40} {50 60}] true true}",
-			polygon:   "{[{10 20} {30 40} {50 60} {10 20}] true}",
-			circle:    "{{10 20} 30 true}",
-			id:        2,
+			point:   "POINT(10 20)",
+			line:    "{10 20 30 true}",
+			lseg:    "{[{10 20} {30 40}] true}",
+			box:     "{[{30 40} {10 20}] true}",
+			path:    "{[{10 20} {30 40} {50 60}] true true}",
+			polygon: "{[{10 20} {30 40} {50 60} {10 20}] true}",
+			circle:  "{{10 20} 30 true}",
+			id:      2,
 		},
 		{
-			point:     "POINT(100 200)",
-			line:      "{100 200 300 true}",
-			lseg:      "{[{100 200} {300 400}] true}",
-			box:       "{[{300 400} {100 200}] true}",
-			path:      "{[{100 200} {300 400} {500 600}] true true}",
-			polygon:   "{[{100 200} {300 400} {500 600} {100 200}] true}",
-			circle:    "{{100 200} 300 true}",
-			id:        3,
+			point:   "POINT(100 200)",
+			line:    "{100 200 300 true}",
+			lseg:    "{[{100 200} {300 400}] true}",
+			box:     "{[{300 400} {100 200}] true}",
+			path:    "{[{100 200} {300 400} {500 600}] true true}",
+			polygon: "{[{100 200} {300 400} {500 600} {100 200}] true}",
+			circle:  "{{100 200} 300 true}",
+			id:      3,
 		},
 	}
 
