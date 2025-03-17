@@ -198,7 +198,7 @@ jobs:
           CI_PG_VERSION: ${{ matrix.postgres-version }}
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           working-directory: ./flow
