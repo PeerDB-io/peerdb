@@ -23,12 +23,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install libgeos-dev
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5
         with:
-          go-version: '1.24.0'
+          go-version: '1.24.1'
           cache: false
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@2226d7cb06a077cd73e56eedd38eecad18e5d837 # v6
+        uses: golangci/golangci-lint-action@4696ba8babb6127d732c3c6dde519db15edab9ea # v6
         with:
           version: v1.64
           working-directory: ./flow
