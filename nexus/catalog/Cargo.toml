@@ -7,8 +7,8 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
-aws-config = "1.5.5"
-aws-sdk-kms = "1.40.0"
+aws-config = "1"
+aws-sdk-kms = "1"
 async-trait = "0.1"
 base64 = "0.22"
 chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
