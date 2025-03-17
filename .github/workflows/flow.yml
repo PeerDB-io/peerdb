@@ -152,6 +152,7 @@ jobs:
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
           go test -cover -p 32 ./... -timeout 900s
+          go tool covdata textfmt -i=coverage -o coverage.out
         working-directory: ./flow
         env:
           GOCOVERDIR: coverage
@@ -192,10 +193,6 @@ jobs:
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.postgres-version }}
-
-      - name: convert coverage
-        working-directory: ./flow
-        run: "go tool covdata textfmt -i=coverage -o coverage.out"
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
