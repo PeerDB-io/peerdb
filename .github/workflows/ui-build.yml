@@ -12,7 +12,7 @@ jobs:
     name: Build & Test UI
     strategy:
       matrix:
-        runner: [ubicloud-standard-2-ubuntu-2204-arm]
+        runner: [ubuntu-24.04]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: checkout
