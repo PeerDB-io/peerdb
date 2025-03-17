@@ -10,9 +10,9 @@ linters:
     - durationcheck
     - errcheck
     - exptostd
-    # - forbidigo
+    - forbidigo
     - gci
-    # - gocritic
+    - gocritic
     - gofumpt
     - gosec
     - gosimple
