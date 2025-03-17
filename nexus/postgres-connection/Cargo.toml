@@ -9,7 +9,7 @@ edition = "2024"
 anyhow = "1"
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 pt = { path = "../pt" }
-rustls = { version = "0.23", default-features = false, features = ["ring"] }
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
 ssh2.workspace = true
 tokio.workspace = true
 tokio-postgres = "0.7.2"

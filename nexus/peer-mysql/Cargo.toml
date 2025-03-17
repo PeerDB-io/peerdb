@@ -10,7 +10,7 @@ anyhow = "1.0"
 async-trait = "0.1"
 chrono.workspace = true
 futures = { version = "0.3.28", features = ["executor"] }
-mysql_async = { version = "0.35", default-features = false, features = ["minimal-rust", "rust_decimal", "chrono", "rustls-tls", "ring"] }
+mysql_async = { version = "0.35", default-features = false, features = ["minimal-rust", "rust_decimal", "chrono", "rustls-tls", "aws-lc-rs"] }
 peer-ast = { path = "../peer-ast" }
 peer-cursor = { path = "../peer-cursor" }
 peer-connections = { path = "../peer-connections" }
