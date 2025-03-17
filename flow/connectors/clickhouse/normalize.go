@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 )
 
 const (
@@ -244,7 +245,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID); err != nil {
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID, req.Env); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
@@ -375,23 +376,23 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				case "Date32", "Nullable(Date32)":
 					projection.WriteString(fmt.Sprintf(
 						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6)) AS `%s`,",
-						colName, dstColName,
+						peerdb_clickhouse.EscapeStr(colName), dstColName,
 					))
 					if enablePrimaryUpdate {
 						projectionUpdate.WriteString(fmt.Sprintf(
 							"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6)) AS `%s`,",
-							colName, dstColName,
+							peerdb_clickhouse.EscapeStr(colName), dstColName,
 						))
 					}
 				case "DateTime64(6)", "Nullable(DateTime64(6))":
 					projection.WriteString(fmt.Sprintf(
 						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6) AS `%s`,",
-						colName, dstColName,
+						peerdb_clickhouse.EscapeStr(colName), dstColName,
 					))
 					if enablePrimaryUpdate {
 						projectionUpdate.WriteString(fmt.Sprintf(
 							"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6) AS `%s`,",
-							colName, dstColName,
+							peerdb_clickhouse.EscapeStr(colName), dstColName,
 						))
 					}
 				default:
@@ -405,21 +406,21 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						case internal.BinaryFormatRaw:
 							projection.WriteString(fmt.Sprintf(
 								"base64Decode(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
-								colName, dstColName,
+								peerdb_clickhouse.EscapeStr(colName), dstColName,
 							))
 							if enablePrimaryUpdate {
 								projectionUpdate.WriteString(fmt.Sprintf(
 									"base64Decode(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
-									colName, dstColName,
+									peerdb_clickhouse.EscapeStr(colName), dstColName,
 								))
 							}
 						case internal.BinaryFormatHex:
 							projection.WriteString(fmt.Sprintf("hex(base64Decode(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
-								colName, dstColName))
+								peerdb_clickhouse.EscapeStr(colName), dstColName))
 							if enablePrimaryUpdate {
 								projectionUpdate.WriteString(fmt.Sprintf(
 									"hex(base64Decode(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
-									colName, dstColName,
+									peerdb_clickhouse.EscapeStr(colName), dstColName,
 								))
 							}
 						}
@@ -429,12 +430,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					if projection.Len() == projLen {
 						projection.WriteString(fmt.Sprintf(
 							"JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,",
-							colName, clickHouseType, dstColName,
+							peerdb_clickhouse.EscapeStr(colName), clickHouseType, dstColName,
 						))
 						if enablePrimaryUpdate {
 							projectionUpdate.WriteString(fmt.Sprintf(
 								"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
-								colName, clickHouseType, dstColName,
+								peerdb_clickhouse.EscapeStr(colName), clickHouseType, dstColName,
 							))
 						}
 					}
@@ -564,8 +565,13 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	return tableNames, nil
 }
 
-func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context, flowJobName string, syncBatchID int64) error {
-	avroSyncMethod := c.avroSyncMethod(flowJobName)
+func (c *ClickHouseConnector) copyAvroStageToDestination(
+	ctx context.Context,
+	flowJobName string,
+	syncBatchID int64,
+	env map[string]string,
+) error {
+	avroSyncMethod := c.avroSyncMethod(flowJobName, env)
 	avroFile, err := GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
@@ -579,10 +585,10 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(ctx context.Context, fl
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, normBatchID, syncBatchID int64,
+	ctx context.Context, flowJobName string, normBatchID, syncBatchID int64, env map[string]string,
 ) error {
 	for s := normBatchID + 1; s <= syncBatchID; s++ {
-		if err := c.copyAvroStageToDestination(ctx, flowJobName, s); err != nil {
+		if err := c.copyAvroStageToDestination(ctx, flowJobName, s, env); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}
 	}

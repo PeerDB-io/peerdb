@@ -777,18 +777,20 @@ func (c *PostgresConnector) GetSelectedColumns(
 	}
 	excludedColumnsSQL := ""
 	if len(excludedColumns) > 0 {
-		excludedColumnsSQL = "AND attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
+		excludedColumnsSQL = "AND a.attname NOT IN (" + strings.Join(quotedExcludedColumns, ",") + ")"
 	}
 
 	getColumnsSQL := `
-		SELECT attname AS column_name
-		FROM pg_attribute
-		WHERE attrelid = '%s.%s'::regclass
-		AND attnum > 0
-		AND NOT attisdropped
-		` + excludedColumnsSQL
+		SELECT a.attname AS column_name
+		FROM pg_attribute a
+		JOIN pg_class c ON a.attrelid = c.oid
+		JOIN pg_namespace n ON c.relnamespace = n.oid
+		WHERE n.nspname = $1
+		AND c.relname = $2
+		AND a.attnum > 0
+		AND NOT a.attisdropped ` + excludedColumnsSQL
 
-	rows, err := c.conn.Query(ctx, fmt.Sprintf(getColumnsSQL, sourceTable.Schema, sourceTable.Table))
+	rows, err := c.conn.Query(ctx, getColumnsSQL, sourceTable.Schema, sourceTable.Table)
 	if err != nil {
 		c.logger.Error("error getting selected columns",
 			slog.Any("error", err),
@@ -1094,7 +1096,22 @@ func (c *PostgresConnector) EnsurePullability(
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
 }
 
-func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context, env map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+	pgversion, err := c.MajorVersion(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
+	}
+
+	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, env)
+	if err != nil {
+		c.logger.Error("failed to check PEERDB_SKIP_SNAPSHOT_EXPORT, proceeding with export snapshot", slog.Any("error", err))
+	} else if skipSnapshotExport {
+		return &protos.ExportTxSnapshotOutput{
+			SnapshotName:     "",
+			SupportsTidScans: pgversion >= shared.POSTGRES_13,
+		}, nil, err
+	}
+
 	var snapshotName string
 	tx, err := c.conn.Begin(ctx)
 	if err != nil {
@@ -1115,11 +1132,6 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 		return nil, nil, fmt.Errorf("[export-snapshot] error setting lock_timeout: %w", err)
 	}
 
-	pgversion, err := c.MajorVersion(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
-	}
-
 	if err := tx.QueryRow(ctx, "SELECT pg_export_snapshot()").Scan(&snapshotName); err != nil {
 		return nil, nil, err
 	}
@@ -1133,6 +1145,9 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context) (*protos.Expor
 }
 
 func (c *PostgresConnector) FinishExport(tx any) error {
+	if tx == nil {
+		return nil
+	}
 	pgtx := tx.(pgx.Tx)
 	timeout, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
@@ -1165,6 +1180,12 @@ func (c *PostgresConnector) SetupReplication(
 		return model.SetupReplicationResult{}, err
 	}
 
+	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, req.Env)
+	if err != nil {
+		c.logger.Error("failed to check PEERDB_SKIP_SNAPSHOT_EXPORT, proceeding with export snapshot", slog.Any("error", err))
+		skipSnapshotExport = false
+	}
+
 	tableNameMapping := make(map[string]model.NameAndExclude, len(req.TableNameMapping))
 	for k, v := range req.TableNameMapping {
 		tableNameMapping[k] = model.NameAndExclude{
@@ -1173,7 +1194,7 @@ func (c *PostgresConnector) SetupReplication(
 		}
 	}
 	// Create the replication slot and publication
-	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot)
+	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot, skipSnapshotExport)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {

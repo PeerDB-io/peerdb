@@ -135,7 +135,7 @@ func (c *MySqlConnector) EnsurePullability(
 	return nil, nil
 }
 
-func (c *MySqlConnector) ExportTxSnapshot(context.Context) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *MySqlConnector) ExportTxSnapshot(context.Context, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
 	// https://dev.mysql.com/doc/refman/8.4/en/replication-howto-masterstatus.html
 	return nil, nil, nil
 }
@@ -187,6 +187,10 @@ func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
 }
 
 func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
+	logger, ok := c.logger.(*slog.Logger)
+	if !ok {
+		logger = slog.Default()
+	}
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:   rand.Uint32(),
@@ -195,7 +199,7 @@ func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
 		Port:       uint16(c.config.Port),
 		User:       c.config.User,
 		Password:   c.config.Password,
-		Logger:     BinlogLogger{Logger: c.logger},
+		Logger:     logger,
 		Dialer:     c.Dialer(),
 		UseDecimal: true,
 		ParseTime:  true,
@@ -345,7 +349,6 @@ func (c *MySqlConnector) PullRecords(
 
 		if otelManager != nil {
 			otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
-			otelManager.Metrics.InstantaneousFetchedBytesGauge.Record(ctx, int64(len(event.RawData)))
 		}
 
 		if gset == nil && event.Header.LogPos > 0 {

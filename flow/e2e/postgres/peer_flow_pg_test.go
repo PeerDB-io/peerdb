@@ -99,7 +99,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
 		c14 INET,c15 INTEGER,c21 MACADDR,
 		c29 SMALLINT,c32 TEXT,
-		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,
+		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ, c37 TIMETZ,
 		c40 UUID, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 UUID[],
 		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[], c50 SMALLINT[]);
 	`, srcTableName))
@@ -123,7 +123,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 			true,'s','test','1.1.10.2'::cidr,
 			CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
 			'08:00:2b:01:02:03'::macaddr,
-			1,'test',now(),now(),now()::time,now()::timetz,
+			1,'test',now(),now(),now()::time,'09:25:00+03'::timetz,'21:00:00 +00:00'::timetz,
 			'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,
 			ARRAY[10299301,2579827],
 			ARRAY[0.0003, 8902.0092],
@@ -141,14 +141,18 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	allCols := strings.Join([]string{
 		"c1", "c2", "c4",
 		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
-		"c21", "c29", "c33", "c34", "c35", "c36",
+		"c21", "c29", "c33", "c34", "c35", "c37",
 		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
 	}, ",")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
 		return s.comparePGTables(srcTableName, dstTableName, allCols) == nil
 	})
-	env.Cancel(s.t.Context())
+	// c36 lost tz info so does not compare equal
+	var c36 string
+	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(), "select c36 from "+dstTableName).Scan(&c36))
+	require.Equal(s.t, "09:25:00+00", c36)
 
+	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
 

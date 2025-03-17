@@ -38,7 +38,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	s.logger.Info("setting up replication on source for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 4 * time.Hour,
+		StartToCloseTimeout: 4 * 24 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 			MaximumAttempts: 20,
@@ -57,6 +57,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		DoInitialSnapshot:           s.config.DoInitialSnapshot,
 		ExistingPublicationName:     s.config.PublicationName,
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
+		Env:                         s.config.Env,
 	}
 
 	res := &protos.SetupReplicationOutput{}
@@ -229,11 +230,9 @@ func (s *SnapshotFlowExecution) cloneTables(
 	maxParallelClones int,
 ) error {
 	if snapshotType == SNAPSHOT_TYPE_SLOT {
-		s.logger.Info(fmt.Sprintf("cloning tables for slot name %s and snapshotName %s",
-			slotName, snapshotName))
+		s.logger.Info("cloning tables for slot", slog.String("slot", slotName), slog.String("snapshot", snapshotName))
 	} else if snapshotType == SNAPSHOT_TYPE_TX {
-		s.logger.Info("cloning tables in txn snapshot mode with snapshotName " +
-			snapshotName)
+		s.logger.Info("cloning tables in tx snapshot mode", slog.String("snapshot", snapshotName))
 	}
 
 	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)
@@ -354,6 +353,7 @@ func SnapshotFlowWorkflow(
 			snapshot.MaintainTx,
 			sessionInfo.SessionID,
 			config.SourceName,
+			config.Env,
 		)
 
 		fExportSnapshot := workflow.ExecuteActivity(

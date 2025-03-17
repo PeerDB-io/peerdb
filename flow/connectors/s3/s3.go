@@ -93,6 +93,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                req.FlowJobName,
 		DestinationTableIdentifier: "raw_table_" + req.FlowJobName,
+		Env:                        req.Env,
 	}
 	partition := &protos.QRepPartition{
 		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),

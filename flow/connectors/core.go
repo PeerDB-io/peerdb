@@ -82,7 +82,7 @@ type CDCPullConnectorCore interface {
 
 	// For InitialSnapshotOnly correctness without replication slot
 	// `any` is for returning transaction if necessary
-	ExportTxSnapshot(context.Context) (*protos.ExportTxSnapshotOutput, any, error)
+	ExportTxSnapshot(context.Context, map[string]string) (*protos.ExportTxSnapshotOutput, any, error)
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
 	FinishExport(any) error
@@ -243,14 +243,14 @@ type QRepPullConnector interface {
 	QRepPullConnectorCore
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int, error)
+	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int64, int64, error)
 }
 
 type QRepPullPgConnector interface {
 	QRepPullConnectorCore
 
 	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int, error)
+	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int64, int64, error)
 }
 
 type QRepSyncConnectorCore interface {

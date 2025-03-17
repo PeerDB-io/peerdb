@@ -70,8 +70,7 @@ func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
 
 func GetMajorVersion(ctx context.Context, conn *pgx.Conn) (PGVersion, error) {
 	var version int32
-	err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version)
-	if err != nil {
+	if err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version); err != nil {
 		return 0, fmt.Errorf("failed to get server version: %w", err)
 	}
 

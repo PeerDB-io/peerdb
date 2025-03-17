@@ -156,12 +156,12 @@ func (c *SQLServerConnector) PullQRepRecords(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, int64, error) {
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
 	query, err := BuildQuery(c.logger, config.Query)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 
 	var qbatch *model.QRecordBatch
@@ -170,7 +170,7 @@ func (c *SQLServerConnector) PullQRepRecords(
 		var err error
 		qbatch, err = c.ExecuteAndProcessQuery(ctx, query)
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	} else {
 		var rangeStart any
@@ -185,7 +185,7 @@ func (c *SQLServerConnector) PullQRepRecords(
 			rangeStart = x.TimestampRange.Start.AsTime()
 			rangeEnd = x.TimestampRange.End.AsTime()
 		default:
-			return 0, fmt.Errorf("unknown range type: %v", x)
+			return 0, 0, fmt.Errorf("unknown range type: %v", x)
 		}
 
 		var err error
@@ -194,12 +194,12 @@ func (c *SQLServerConnector) PullQRepRecords(
 			"endRange":   rangeEnd,
 		})
 		if err != nil {
-			return 0, err
+			return 0, 0, err
 		}
 	}
 
 	qbatch.FeedToQRecordStream(stream)
-	return len(qbatch.Records), nil
+	return int64(len(qbatch.Records)), 0, nil
 }
 
 func BuildQuery(logger log.Logger, query string) (string, error) {

@@ -367,6 +367,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	publication string,
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
+	skipSnapshotExport bool,
 ) (model.SetupReplicationResult, error) {
 	// iterate through source tables and create publication,
 	// expecting tablenames to be schema qualified
@@ -421,6 +422,15 @@ func (c *PostgresConnector) createSlotAndPublication(
 		}
 
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
+		if skipSnapshotExport {
+			conn.Close(ctx)
+			return model.SetupReplicationResult{
+				Conn:             nil,
+				SlotName:         res.SlotName,
+				SnapshotName:     "",
+				SupportsTIDScans: pgversion >= shared.POSTGRES_13,
+			}, nil
+		}
 		return model.SetupReplicationResult{
 			Conn:             conn,
 			SlotName:         res.SlotName,
