@@ -152,6 +152,8 @@ jobs:
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
           go test -cover -p 32 ./... -timeout 900s
+          killall peer-flow
+          sleep 1
           go tool covdata textfmt -i=coverage -o coverage.out
         working-directory: ./flow
         env:
