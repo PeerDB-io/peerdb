@@ -33,7 +33,7 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
             message,
             cert,
             dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            &rustls::crypto::aws_lc_rs::default_provider().signature_verification_algorithms,
         )
     }
 
@@ -47,12 +47,12 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
             message,
             cert,
             dss,
-            &rustls::crypto::ring::default_provider().signature_verification_algorithms,
+            &rustls::crypto::aws_lc_rs::default_provider().signature_verification_algorithms,
         )
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        rustls::crypto::ring::default_provider()
+        rustls::crypto::aws_lc_rs::default_provider()
             .signature_verification_algorithms
             .supported_schemes()
     }
@@ -156,7 +156,7 @@ pub async fn connect_postgres(
     } else {
         let connection_string = get_pg_connection_string(config);
 
-        let mut tls_config = ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        let mut tls_config = ClientConfig::builder_with_provider(Arc::new(rustls::crypto::aws_lc_rs::default_provider()))
             .with_protocol_versions(&[&rustls::version::TLS13])?
             .with_root_certificates(RootCertStore::empty())
             .with_no_client_auth();
