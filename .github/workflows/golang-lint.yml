@@ -12,7 +12,7 @@ permissions:
 jobs:
   golangci:
     name: lint
-    runs-on: [ubicloud-standard-4-ubuntu-2204-arm]
+    runs-on: [ubuntu-24.04]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
@@ -23,7 +23,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install libgeos-dev
-      - uses: ubicloud/setup-go@6ea6c4fb36acc657571a53f4a7471e75f5fa80ad # v5
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.24.0'
           cache: false
