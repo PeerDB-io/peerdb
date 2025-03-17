@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -81,11 +82,21 @@ func (a *FlowableActivity) applySchemaDeltas(
 	options *protos.SyncFlowOptions,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
-	tableSchemaDeltasCount := len(schemaDeltas)
-	if tableSchemaDeltasCount > 0 {
+	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
+	for _, tableMapping := range options.TableMappings {
+		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
+			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
+				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
+		}) {
+			filteredTableMappings = append(filteredTableMappings, tableMapping)
+		}
+	}
+
+	a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("filteredTableMappings: %v", filteredTableMappings))
+	if len(schemaDeltas) > 0 {
 		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
 			PeerName:      config.SourceName,
-			TableMappings: options.TableMappings,
+			TableMappings: filteredTableMappings,
 			FlowName:      config.FlowJobName,
 			System:        config.System,
 			Env:           config.Env,
