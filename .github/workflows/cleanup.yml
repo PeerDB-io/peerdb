@@ -12,9 +12,9 @@ jobs:
       - name: checkout sources
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5
         with:
-          go-version: '1.24.0'
+          go-version: '1.24.1'
           cache-dependency-path: e2e_cleanup/go.sum
 
       - name: download go modules

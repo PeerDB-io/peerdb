@@ -6,7 +6,7 @@ runs:
     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
     - name: check cache
       id: cache
-      uses: actions/cache@v4
+      uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
       with:
         path: |
           ./flow/generated/protos
@@ -15,7 +15,7 @@ runs:
         key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
 
     - if: steps.cache.outputs.cache-hit != 'true'
-      uses: bufbuild/buf-action@b46cbc051dd8fd10a3c2213e784498790d3fe388 # v1
+      uses: bufbuild/buf-action@1b8e0a0e793562b7850d7e6ff0228b5c0b16111c # v1
       with:
         setup_only: true
         github_token: ${{ github.token }}

@@ -25,7 +25,7 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
       mysql:
-        image: mysql:oracle@sha256:146682692a3aa409eae7b7dc6a30f637c6cb49b6ca901c2cd160becc81127d3b
+        image: mysql:oracle@sha256:9b9d0aab4860798acff13d2a0ece3bc26639fe18b83fa5cd3e3d0e16b3ed05dd
         ports:
           - 3306:3306
         env:
@@ -37,7 +37,7 @@ jobs:
           #  env:
           #    MARIADB_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:04baa40ed34edf86028396f762be802f3b6b0acaab65e9de696a3f15d54c550f
+        image: redpandadata/redpanda@sha256:f3049dcb004ce1ccc0a8b3dc3c7d6ca1f32cb4d6d1da98a47874457dd8cb9907
         ports:
           - 9092:9092
           - 9644:9644
@@ -50,7 +50,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.2.28@sha256:5175879456f619cf228e62066415e13be0540118d7de5ee6f6d477cca8743d25
+        image: bitnami/minio:2025.3.12@sha256:7c92dd1ba1f48e1009079c5e3f0a98e3c5a34387fc474007f1a887db7643e2c2
         ports:
           - 9999:9999
         env:
@@ -66,9 +66,9 @@ jobs:
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5
         with:
-          go-version: '1.24.0'
+          go-version: '1.24.1'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
@@ -126,7 +126,7 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
         id: cache-clickhouse
         with:
           path: ./clickhouse
