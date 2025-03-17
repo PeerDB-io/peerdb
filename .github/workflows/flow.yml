@@ -147,13 +147,14 @@ jobs:
       - name: run tests
         run: |
           temporal server start-dev --namespace default --headless &
-          go build -ldflags="-s -w" -o peer-flow
+          go build -cover -ldflags="-s -w" -o peer-flow
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
-          go test -p 32 ./... -timeout 900s
+          go test -cover -p 32 ./... -timeout 900s
         working-directory: ./flow
         env:
+          GOCOVERDIR: coverage
           AWS_ENDPOINT_URL_S3: http://localhost:9999
           AWS_ACCESS_KEY_ID: minio
           AWS_SECRET_ACCESS_KEY: miniosecret
@@ -191,3 +192,13 @@ jobs:
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.postgres-version }}
+
+      - name: convert coverage
+        working-directory: ./flow
+        run: "go tool covdata textfmt -i=coverage -o coverage.out"
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        working-directory: ./flow
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
