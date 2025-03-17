@@ -92,7 +92,6 @@ func (a *FlowableActivity) applySchemaDeltas(
 		}
 	}
 
-	a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("filteredTableMappings: %v", filteredTableMappings))
 	if len(schemaDeltas) > 0 {
 		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
 			PeerName:      config.SourceName,
