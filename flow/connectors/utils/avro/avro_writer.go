@@ -3,6 +3,7 @@ package utils
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -127,19 +128,33 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error
 	return ocfWriter, nil
 }
 
-func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *goavro.OCFWriter) (int64, error) {
-	logger := internal.LoggerFromCtx(ctx)
-	schema, err := p.stream.Schema()
-	if err != nil {
-		return 0, err
+func (p *peerDBOCFWriter) getAvroFieldNamesFromSchemaJSON() ([]string, error) {
+	var avroSchema model.QRecordAvroSchema
+	if err := json.Unmarshal([]byte(p.avroSchema.Schema), &avroSchema); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal Avro schema: %w", err)
 	}
 
+	avroFieldNames := make([]string, len(avroSchema.Fields))
+	for i, field := range avroSchema.Fields {
+		avroFieldNames[i] = field.Name
+	}
+
+	return avroFieldNames, nil
+}
+
+func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *goavro.OCFWriter) (int64, error) {
+	logger := internal.LoggerFromCtx(ctx)
+
+	avroFieldNames, err := p.getAvroFieldNamesFromSchemaJSON()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get Avro field names from schema JSON: %w", err)
+	}
 	avroConverter, err := model.NewQRecordAvroConverter(
 		ctx,
 		env,
 		p.avroSchema,
 		p.targetDWH,
-		schema.GetColumnNames(),
+		avroFieldNames,
 		logger,
 	)
 	if err != nil {
