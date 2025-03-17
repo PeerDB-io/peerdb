@@ -156,7 +156,8 @@ pub async fn connect_postgres(
     } else {
         let connection_string = get_pg_connection_string(config);
 
-        let mut tls_config = ClientConfig::builder()
+        let mut tls_config = ClientConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+            .with_protocol_versions(&[&rustls::version::TLS13])?
             .with_root_certificates(RootCertStore::empty())
             .with_no_client_auth();
         tls_config
