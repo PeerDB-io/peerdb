@@ -1158,6 +1158,175 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 	e2e.EnvWaitForFinished(s.t, env, time.Minute)
 }
 
+func (s ClickHouseSuite) Test_Geometric_Types() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_geometric_types"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_geometric_types"
+
+	// Create a table with various PostgreSQL geometric types
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	CREATE TABLE IF NOT EXISTS %[1]s(
+		id serial PRIMARY KEY,
+		point_col POINT,
+		line_col LINE,
+		lseg_col LSEG,
+		box_col BOX,
+		path_col PATH,
+		polygon_col POLYGON,
+		circle_col CIRCLE
+	);
+	
+	-- Insert test data with various geometric types
+	INSERT INTO %[1]s (
+		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
+	) VALUES (
+		'(1,2)',                                -- POINT
+		'{1,2,3}',                              -- LINE
+		'((1,2),(3,4))',                        -- LSEG
+		'((1,2),(3,4))',                        -- BOX
+		'((1,2),(3,4),(5,6))',                  -- PATH
+		'((1,2),(3,4),(5,6),(1,2))',            -- POLYGON
+		'<(1,2),3>'                             -- CIRCLE
+	);
+	
+	-- Insert another row with different values
+	INSERT INTO %[1]s (
+		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
+	) VALUES (
+		'(10,20)',                              -- POINT
+		'{10,20,30}',                           -- LINE
+		'((10,20),(30,40))',                    -- LSEG
+		'((10,20),(30,40))',                    -- BOX
+		'((10,20),(30,40),(50,60))',            -- PATH
+		'((10,20),(30,40),(50,60),(10,20))',    -- POLYGON
+		'<(10,20),30>'                          -- CIRCLE
+	);`, srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_test_geometric_types"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Wait for initial snapshot to complete
+	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 2)
+
+	// Insert a third row to test CDC
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	INSERT INTO %[1]s (
+		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
+	) VALUES (
+		'(100,200)',                            -- POINT
+		'{100,200,300}',                        -- LINE
+		'((100,200),(300,400))',                -- LSEG
+		'((100,200),(300,400))',                -- BOX
+		'((100,200),(300,400),(500,600))',      -- PATH
+		'((100,200),(300,400),(500,600),(100,200))', -- POLYGON
+		'<(100,200),300>'                       -- CIRCLE
+	);`, srcFullName))
+	require.NoError(s.t, err)
+
+	// Wait for CDC to replicate the new row
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 3)
+
+	// Verify that the data was correctly replicated
+	rows, err := s.GetRows(dstTableName, "id, point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 3, "expected 3 rows")
+
+	// Check that the geometric data is in the expected format in ClickHouse
+	// All geometric types should be stored as strings in WKT format
+	expectedValues := []struct {
+		point   string
+		line    string
+		lseg    string
+		box     string
+		path    string
+		polygon string
+		circle  string
+		id      int
+	}{
+		{
+			point:   "POINT(1.000000 2.000000)",
+			line:    "{1 2 3 true}",
+			lseg:    "{[{1 2} {3 4}] true}",
+			box:     "{[{3 4} {1 2}] true}",
+			path:    "{[{1 2} {3 4} {5 6}] true true}",
+			polygon: "{[{1 2} {3 4} {5 6} {1 2}] true}",
+			circle:  "{{1 2} 3 true}",
+			id:      1,
+		},
+		{
+			point:   "POINT(10.000000 20.000000)",
+			line:    "{10 20 30 true}",
+			lseg:    "{[{10 20} {30 40}] true}",
+			box:     "{[{30 40} {10 20}] true}",
+			path:    "{[{10 20} {30 40} {50 60}] true true}",
+			polygon: "{[{10 20} {30 40} {50 60} {10 20}] true}",
+			circle:  "{{10 20} 30 true}",
+			id:      2,
+		},
+		{
+			point:   "POINT(100.000000 200.000000)",
+			line:    "{100 200 300 true}",
+			lseg:    "{[{100 200} {300 400}] true}",
+			box:     "{[{300 400} {100 200}] true}",
+			path:    "{[{100 200} {300 400} {500 600}] true true}",
+			polygon: "{[{100 200} {300 400} {500 600} {100 200}] true}",
+			circle:  "{{100 200} 300 true}",
+			id:      3,
+		},
+	}
+
+	for i, row := range rows.Records {
+		require.Len(s.t, row, 8, "expected 8 columns")
+
+		// Verify point column format
+		pointVal := row[1].Value()
+		require.Contains(s.t, pointVal, "POINT", "point_col should be in WKT format")
+		require.Equal(s.t, expectedValues[i].point, pointVal, "point_col value mismatch")
+
+		// Verify line column format
+		lineVal := row[2].Value().(string)
+		require.Equal(s.t, expectedValues[i].line, lineVal, "line_col value mismatch")
+
+		// Verify lseg column format
+		lsegVal := row[3].Value()
+		require.Equal(s.t, expectedValues[i].lseg, lsegVal, "lseg_col value mismatch")
+
+		// Verify box column format
+		boxVal := row[4].Value()
+		require.Equal(s.t, expectedValues[i].box, boxVal, "box_col value mismatch")
+
+		// Verify path column format
+		pathVal := row[5].Value()
+		require.Equal(s.t, expectedValues[i].path, pathVal, "path_col value mismatch")
+
+		// Verify polygon column format
+		polygonVal := row[6].Value()
+		require.Equal(s.t, expectedValues[i].polygon, polygonVal, "polygon_col value mismatch")
+
+		// Verify circle column format
+		circleVal := row[7].Value()
+		require.Equal(s.t, expectedValues[i].circle, circleVal, "circle_col value mismatch")
+	}
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 	srcTableName := "test_skip_snapshot"
 	srcFullName := s.attachSchemaSuffix("test_skip_snapshot")
