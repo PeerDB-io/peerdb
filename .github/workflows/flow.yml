@@ -147,6 +147,7 @@ jobs:
       - name: run tests
         run: |
           temporal server start-dev --namespace default --headless &
+          mkdir coverage
           go build -cover -ldflags="-s -w" -o peer-flow
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
