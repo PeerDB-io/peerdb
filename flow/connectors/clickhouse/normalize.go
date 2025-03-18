@@ -150,7 +150,7 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	// add _peerdb_source_schema_name column
-	if peerdbenv.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
+	if internal.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
 		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", sourceSchemaColName, sourceSchemaColType))
 	}
 
@@ -170,7 +170,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
 
-	if peerdbenv.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
+	if internal.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
 		orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
 	}
 
