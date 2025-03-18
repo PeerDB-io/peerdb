@@ -124,10 +124,6 @@ func (s Generic) Test_Simple_Flow() {
 func (s Generic) Test_Simple_Schema_Changes() {
 	t := s.T()
 
-	if _, ok := s.Source().(*e2e.MySqlSource); ok {
-		t.Skip("mysql connector does not support schema changes yet")
-	}
-
 	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
 	if !ok {
 		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
@@ -377,10 +373,6 @@ func (s Generic) Test_Partitioned_Table() {
 
 func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	t := s.T()
-
-	if _, ok := s.Source().(*e2e.MySqlSource); ok {
-		t.Skip("mysql connector does not support schema changes yet")
-	}
 
 	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
 	if !ok {
