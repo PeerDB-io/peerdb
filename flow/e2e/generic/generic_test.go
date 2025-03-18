@@ -374,3 +374,138 @@ func (s Generic) Test_Partitioned_Table() {
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }
+
+func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
+	t := s.T()
+
+	if _, ok := s.Source().(*e2e.MySqlSource); ok {
+		t.Skip("mysql connector does not support schema changes yet")
+	}
+
+	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
+	if !ok {
+		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
+	}
+
+	srcTable1 := "test_schema_changes_cutoff_bug1"
+	dstTable1 := "test_schema_changes_cutoff_bug_dst1"
+	srcTable2 := "test_schema_changes_cutoff_bug2"
+	dstTable2 := "test_schema_changes_cutoff_bug_dst2"
+	srcTableName1 := e2e.AttachSchema(s, srcTable1)
+	dstTableName1 := s.DestinationTable(dstTable1)
+	srcTableName2 := e2e.AttachSchema(s, srcTable2)
+	dstTableName2 := s.DestinationTable(dstTable2)
+
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %[1]s (
+			id SERIAL PRIMARY KEY,
+			c1 BIGINT
+		);
+		CREATE TABLE IF NOT EXISTS %[2]s (
+			id SERIAL PRIMARY KEY,
+			c1 BIGINT
+		);
+		INSERT INTO %[1]s(c1) VALUES(1);
+		INSERT INTO %[2]s(c1) VALUES(1);
+	`, srcTableName1, srcTableName2)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable1),
+		TableMappings: e2e.TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 2
+
+	// wait for PeerFlowStatusQuery to finish setup
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %[2]s(c1) VALUES(2);
+		ALTER TABLE %[1]s ADD COLUMN c2 BIGINT;
+		ALTER TABLE %[2]s ADD COLUMN c2 BIGINT;
+		INSERT INTO %[1]s(c1, c2) VALUES(2, 2);`,
+		srcTableName1, srcTableName2)))
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "table1 added column", srcTable1, dstTable1, "id,c1,coalesce(c2,0) c2")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "table2 not added column", srcTable2, dstTable2, "id,c1")
+
+	expectedTableSchema1 := &protos.TableSchema{
+		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable1),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
+				Type:         string(qvalue.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
+				Type:         string(qvalue.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "c2"),
+				Type:         string(qvalue.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_IS_DELETED",
+				Type:         string(qvalue.QValueKindBoolean),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_SYNCED_AT",
+				Type:         string(qvalue.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+		},
+	}
+	expectedTableSchema2 := &protos.TableSchema{
+		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable1),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
+				Type:         string(qvalue.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
+				Type:         string(qvalue.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_IS_DELETED",
+				Type:         string(qvalue.QValueKindBoolean),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_SYNCED_AT",
+				Type:         string(qvalue.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+		},
+	}
+	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
+	e2e.EnvNoError(t, env, err)
+	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
+	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema2, output[dstTableName2]))
+
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		`INSERT INTO %[1]s(c1,c2) VALUES (3, 3);
+		INSERT INTO %[2]s(c1,c2) VALUES (2, 2);`,
+		srcTableName1, srcTableName2)))
+
+	// verify we got our two rows, if schema did not match up it will error.
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "table1 added column", srcTable1, dstTable1, "id,c1,coalesce(c2,0) c2")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "table2 added column", srcTable2, dstTable2, "id,c1,coalesce(c2,0) c2")
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
+	e2e.EnvNoError(t, env, err)
+	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
+	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema1, output[dstTableName2]))
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
