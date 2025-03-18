@@ -248,6 +248,8 @@ func parseUUID(value any) (uuid.UUID, error) {
 		return uuid.UUID(v), nil
 	case uuid.UUID:
 		return v, nil
+	case nil:
+		return uuid.UUID{}, nil
 	default:
 		return uuid.UUID{}, fmt.Errorf("unsupported type for UUID: %T", value)
 	}
