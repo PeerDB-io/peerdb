@@ -602,7 +602,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 	ctx context.Context,
 	req *protos.CDCTableTotalCountsRequest,
 ) (*protos.CDCTableTotalCountsResponse, error) {
-	rows, err := h.pool.Query(ctx, `SELECT 
+	rows, err := h.pool.Query(ctx, `SELECT
 			destination_table_name,
 			inserts_count,
 			updates_count,
@@ -628,6 +628,9 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 			&tableCount.Counts.UpdatesCount,
 			&tableCount.Counts.DeletesCount,
 			&totalRows)
+		if err != nil {
+			return nil, err
+		}
 
 		// Use the pre-calculated total count
 		tableCount.Counts.TotalCount = totalRows
