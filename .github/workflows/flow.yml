@@ -152,7 +152,7 @@ jobs:
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
-          go test -p 32 ./... -timeout 900s
+          go test -cover -p 32 ./... -timeout 900s -args -test.gocoverdir=coverage
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o coverage.out
