@@ -159,7 +159,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		from = strings.Join(quotedColumns, ",")
 	}
 
-	if peerdbenv.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
+	if internal.PeerDBSourceSchemaAsDestinationColumn() {
 		from = fmt.Sprintf("%s, '%s' AS _peerdb_source_schema_name", from, parsedSrcTable.Schema)
 	}
 

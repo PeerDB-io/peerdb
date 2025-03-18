@@ -163,10 +163,6 @@ func PeerDBGetIncidentIoToken() string {
 	return GetEnvString("PEERDB_INCIDENTIO_TOKEN", "")
 }
 
-func PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() bool {
-	return strings.EqualFold(GetEnvString("PEERDB_ENABLE_SOURCE_SCHEMA_NAME_IN_CLICKHOUSE_NORMALIZED_TABLES", "true"), "true")
-}
-
 func PeerDBRAPIRequestLoggingEnabled() bool {
 	requestLoggingEnabled, err := strconv.ParseBool(GetEnvString("PEERDB_API_REQUEST_LOGGING_ENABLED", "false"))
 	if err != nil {
@@ -176,8 +172,7 @@ func PeerDBRAPIRequestLoggingEnabled() bool {
 	return requestLoggingEnabled
 }
 
-// PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS tells how long to wait before alerting that peerdb has been stuck in maintenance mode
-// for too long
+// PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS is how long to wait before alerting that peerdb's been stuck in maintenance mode too long
 func PeerDBMaintenanceModeWaitAlertSeconds() int {
 	return getEnvConvert("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600, strconv.Atoi)
 }
