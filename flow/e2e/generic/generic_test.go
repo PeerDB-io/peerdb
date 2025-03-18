@@ -388,18 +388,10 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	srcTableName2 := e2e.AttachSchema(s, srcTable2)
 	dstTableName2 := s.DestinationTable(dstTable2)
 
-	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %[1]s (
-			id SERIAL PRIMARY KEY,
-			c1 BIGINT
-		);
-		CREATE TABLE IF NOT EXISTS %[2]s (
-			id SERIAL PRIMARY KEY,
-			c1 BIGINT
-		);
-		INSERT INTO %[1]s(c1) VALUES(1);
-		INSERT INTO %[2]s(c1) VALUES(1);
-	`, srcTableName1, srcTableName2)))
+	require.NoError(t, s.Source().Exec(t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 BIGINT)", srcTableName1)))
+	require.NoError(t, s.Source().Exec(t.Context(),
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 BIGINT)", srcTableName2)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable1),
@@ -413,12 +405,10 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		`INSERT INTO %[2]s(c1) VALUES(2);
-		ALTER TABLE %[1]s ADD COLUMN c2 BIGINT;
-		ALTER TABLE %[2]s ADD COLUMN c2 BIGINT;
-		INSERT INTO %[1]s(c1, c2) VALUES(2, 2);`,
-		srcTableName1, srcTableName2)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(2)`, srcTableName2)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName1)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName2)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES(2,2)`, srcTableName1)))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "table1 added column", srcTable1, dstTable1, "id,c1,coalesce(c2,0) c2")
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "table2 not added column", srcTable2, dstTable2, "id,c1")
@@ -484,10 +474,8 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema2, output[dstTableName2]))
 
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		`INSERT INTO %[1]s(c1,c2) VALUES (3, 3);
-		INSERT INTO %[2]s(c1,c2) VALUES (2, 2);`,
-		srcTableName1, srcTableName2)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES (3, 3)`, srcTableName1)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c2) VALUES (2, 2)`, srcTableName2)))
 
 	// verify we got our two rows, if schema did not match up it will error.
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "table1 added column", srcTable1, dstTable1, "id,c1,coalesce(c2,0) c2")
