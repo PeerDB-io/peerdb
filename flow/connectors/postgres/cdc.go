@@ -308,11 +308,6 @@ func PullCdcRecords[Items model.Items](
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	if internal.PeerDBEnableSourceSchemaNameInClickhouseNormalizedTables() {
-		logger.Error("source schema name in clickhouse normalized tables is not supported for CDC")
-		return errors.New("source schema name in clickhouse normalized tables is not supported for CDC")
-	}
-
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {

@@ -146,7 +146,8 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		colName := col.Name()
 		if strings.EqualFold(colName, signColName) ||
 			strings.EqualFold(colName, config.SyncedAtColName) ||
-			strings.EqualFold(colName, versionColName) {
+			strings.EqualFold(colName, versionColName) ||
+			strings.EqualFold(colName, sourceSchemaColName) {
 			continue
 		}
 
