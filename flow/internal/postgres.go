@@ -59,7 +59,7 @@ func LoadTableSchemaFromCatalog(
 	tableName string,
 ) (*protos.TableSchema, error) {
 	var tableSchemaBytes []byte
-	if err := pool.Pool.QueryRow(
+	if err := pool.QueryRow(
 		ctx,
 		"select table_schema from table_schema_mapping where flow_name = $1 and table_name = $2",
 		flowName,
