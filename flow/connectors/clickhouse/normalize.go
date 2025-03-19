@@ -363,7 +363,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				if err != nil {
 					return model.NormalizeResponse{}, err
 				}
-				escapedSourceSchema = peerdb_clickhouse.EscapeStr(schemaTable.Schema)
+				escapedSourceSchema = fmt.Sprintf("'%s'", peerdb_clickhouse.EscapeStr(schemaTable.Schema))
 			}
 
 			projection := strings.Builder{}
