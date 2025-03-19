@@ -176,7 +176,9 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		}
 
 		var hsFeedbackRes bool
-		if err := c.conn.QueryRow(ctx, "SELECT setting FROM pg_settings WHERE name='hot_standby_feedback'").Scan(&hsFeedbackRes); err != nil {
+		if err := c.conn.QueryRow(
+			ctx, "SELECT setting FROM pg_settings WHERE name='hot_standby_feedback'",
+		).Scan(&hsFeedbackRes); err != nil {
 			return fmt.Errorf("failed to check hot_standby_feedback: %w", err)
 		}
 		if !hsFeedbackRes {
