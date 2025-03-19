@@ -342,7 +342,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			selectQuery.WriteString("SELECT ")
 
 			colSelector := strings.Builder{}
-			colSelector.WriteRune('(')
+			colSelector.WriteByte('(')
 
 			schema := req.TableNameSchemaMapping[tbl]
 
@@ -354,7 +354,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				}
 			}
 
-			var escapedSourceSchema string
+			var escapedSourceSchemaSelectorFragment string
 			if sourceSchemaAsDestinationColumn {
 				if tableMapping == nil {
 					return model.NormalizeResponse{}, errors.New("could not look up source schema info")
@@ -363,7 +363,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				if err != nil {
 					return model.NormalizeResponse{}, err
 				}
-				escapedSourceSchema = fmt.Sprintf("'%s'", peerdb_clickhouse.EscapeStr(schemaTable.Schema))
+				escapedSourceSchemaSelectorFragment = fmt.Sprintf("'%s' AS `%s`,",
+					peerdb_clickhouse.EscapeStr(schemaTable.Schema), sourceSchemaColName)
 			}
 
 			projection := strings.Builder{}
@@ -475,8 +476,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}
 
 			if sourceSchemaAsDestinationColumn {
-				projection.WriteString(escapedSourceSchema)
-				projection.WriteString(fmt.Sprintf(" AS `%s`,", sourceSchemaColName))
+				projection.WriteString(escapedSourceSchemaSelectorFragment)
 				colSelector.WriteString(fmt.Sprintf("`%s`,", sourceSchemaColName))
 			}
 
@@ -505,8 +505,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 			if enablePrimaryUpdate {
 				if sourceSchemaAsDestinationColumn {
-					projectionUpdate.WriteString(escapedSourceSchema)
-					projectionUpdate.WriteString(fmt.Sprintf(" AS `%s`,", sourceSchemaColName))
+					projectionUpdate.WriteString(escapedSourceSchemaSelectorFragment)
 				}
 
 				// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
