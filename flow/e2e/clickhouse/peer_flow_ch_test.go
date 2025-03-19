@@ -1381,7 +1381,7 @@ func (s ClickHouseSuite) Test_SchemaAsColumn() {
 
 	rows, err := s.GetRows(dstTableName, "_peerdb_source_schema")
 	require.NoError(s.t, err, "error selecting schema column")
-	require.Len(s.t, rows, 2, "expected 2 rows")
+	require.Len(s.t, rows.Records, 2, "expected 2 rows")
 	for _, row := range rows.Records {
 		require.Equal(s.t, "e2e_test_"+s.suffix, row[0].Value(), "schema column incorrectly populated")
 	}
