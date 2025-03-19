@@ -27,7 +27,7 @@ const (
 	signColType         = "Int8"
 	versionColName      = "_peerdb_version"
 	versionColType      = "Int64"
-	sourceSchemaColName = "_peerdb_source_schema_name"
+	sourceSchemaColName = "_peerdb_source_schema"
 	sourceSchemaColType = "LowCardinality(String)"
 )
 
