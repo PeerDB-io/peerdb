@@ -359,7 +359,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				if tableMapping == nil {
 					return model.NormalizeResponse{}, errors.New("could not look up source schema info")
 				}
-				schemaTable, err := utils.ParseSchemaTable(tableMapping.DestinationTableIdentifier)
+				schemaTable, err := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
 				if err != nil {
 					return model.NormalizeResponse{}, err
 				}
