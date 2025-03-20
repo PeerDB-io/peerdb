@@ -199,7 +199,6 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 func geometryValueFromBytes(wkbData []byte) (string, error) {
 	// Try to parse it as WKB with the MySQL header
 	g, err := geom.NewGeomFromWKB(wkbData)
-
 	if err != nil {
 		return "", err
 	}
