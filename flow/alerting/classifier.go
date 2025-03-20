@@ -311,6 +311,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		}
 	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "net.DNSError",
+		}
+	}
 
 	return ErrorOther, ErrorInfo{
 		Source: ErrorSourceOther,
