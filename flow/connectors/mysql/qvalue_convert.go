@@ -233,7 +233,7 @@ func processGeometryData(data []byte) qvalue.QValueGeometry {
 			return qvalue.QValueGeometry{Val: wkt}
 		}
 	}
-
+	strVal := string(data)
 	return qvalue.QValueGeometry{Val: strVal}
 }
 
