@@ -398,7 +398,7 @@ func (a *Alerter) sendTelemetryMessage(
 		if response, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
 			logger.Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
 		} else {
-			logger.Info("received response from snsTelemetrySender", slog.String("response", response))
+			logger.Debug("received response from snsTelemetrySender", slog.String("response", response))
 		}
 	}
 
@@ -406,7 +406,7 @@ func (a *Alerter) sendTelemetryMessage(
 		if status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
 			logger.Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
 		} else {
-			logger.Info("received response from incident.io", slog.String("response", status))
+			logger.Debug("received response from incident.io", slog.String("response", status))
 		}
 	}
 }
