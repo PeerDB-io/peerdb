@@ -175,12 +175,13 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 			return errors.New("cannot create replication slots on a standby server with version <16")
 		}
 
-		var hsFeedbackRes bool
-		if err := c.conn.QueryRow(ctx,
-			"SELECT setting::bool FROM pg_settings WHERE name='hot_standby_feedback'").Scan(&hsFeedbackRes); err != nil {
+		var hsFeedback bool
+		if err := c.conn.QueryRow(
+			ctx, "SELECT setting::bool FROM pg_settings WHERE name='hot_standby_feedback'",
+		).Scan(&hsFeedback); err != nil {
 			return fmt.Errorf("failed to check hot_standby_feedback: %w", err)
 		}
-		if !hsFeedbackRes {
+		if !hsFeedback {
 			return errors.New("hot_standby_feedback setting must be enabled on standby servers")
 		}
 	}

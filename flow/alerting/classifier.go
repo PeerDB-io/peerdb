@@ -58,6 +58,9 @@ type ErrorClass struct {
 }
 
 var (
+	ErrorNotifyDestinationModified = ErrorClass{
+		Class: "NOTIFY_DESTINATION_MODIFIED", action: NotifyUser,
+	}
 	ErrorNotifyOOM = ErrorClass{
 		Class: "NOTIFY_OOM", action: NotifyUser,
 	}
@@ -223,6 +226,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(chException.Code)),
 		}
 		switch chproto.Error(chException.Code) {
+		case chproto.ErrUnknownTable:
+			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
 		case chproto.ErrCannotInsertNullInOrdinaryColumn,
