@@ -212,18 +212,6 @@ func geometryValueFromBytes(wkbData []byte) (string, error) {
 	return wkt, nil
 }
 
-// Helper function to check if a string is already in WKT format
-func isWKTFormat(strVal string) bool {
-	return strings.HasPrefix(strVal, "POINT") ||
-		strings.HasPrefix(strVal, "LINESTRING") ||
-		strings.HasPrefix(strVal, "POLYGON") ||
-		strings.HasPrefix(strVal, "MULTIPOINT") ||
-		strings.HasPrefix(strVal, "MULTILINESTRING") ||
-		strings.HasPrefix(strVal, "MULTIPOLYGON") ||
-		strings.HasPrefix(strVal, "GEOMETRYCOLLECTION") ||
-		strings.HasPrefix(strVal, "SRID=")
-}
-
 // Helper function to process geometry data and return a QValueGeometry
 func processGeometryData(data []byte) qvalue.QValueGeometry {
 	// For geometry data, we need to convert from MySQL's binary format to WKT
