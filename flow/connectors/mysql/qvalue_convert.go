@@ -199,10 +199,6 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 func geometryValueFromBytes(wkbData []byte) (string, error) {
 	// Try to parse it as WKB with the MySQL header
 	g, err := geom.NewGeomFromWKB(wkbData)
-	if err != nil && len(wkbData) > 4 {
-		// If that fails, try skipping the first 4 bytes (MySQL header)
-		g, err = geom.NewGeomFromWKB(wkbData[4:])
-	}
 
 	if err != nil {
 		return "", err
@@ -238,14 +234,6 @@ func processGeometryData(data []byte) qvalue.QValueGeometry {
 		}
 	}
 
-	// If we can't parse it as WKB, check if it's already in WKT format
-	strVal := string(data)
-	if isWKTFormat(strVal) {
-		// It's already in WKT format
-		return qvalue.QValueGeometry{Val: strVal}
-	}
-
-	// Fallback to storing as string if parsing fails
 	return qvalue.QValueGeometry{Val: strVal}
 }
 
@@ -443,24 +431,6 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			return qvalue.QValueString{Val: val}, nil
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: val}, nil
-		case qvalue.QValueKindGeometry:
-			// For string representation of geometry
-			if isWKTFormat(val) {
-				// It's already in WKT format
-				return qvalue.QValueGeometry{Val: val}, nil
-			}
-
-			// If it's not in WKT format, it might be a binary representation in string form
-			// Try to parse it as WKB (this is unlikely to succeed but we try anyway)
-			if len(val) > 4 {
-				wkt, err := geometryValueFromBytes([]byte(val))
-				if err == nil {
-					return qvalue.QValueGeometry{Val: wkt}, nil
-				}
-			}
-
-			// Fallback to storing as string
-			return qvalue.QValueGeometry{Val: val}, nil
 		case qvalue.QValueKindTime:
 			val, err := time.Parse("15:04:05.999999", val)
 			if err != nil {
