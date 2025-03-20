@@ -11,6 +11,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/shopspring/decimal"
+	geom "github.com/twpayne/go-geos"
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -150,6 +151,9 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 		}
 	case "vector":
 		return qvalue.QValueKindArrayFloat32, nil
+
+	case "geometry":
+		return qvalue.QValueKindGeometry, nil
 	default:
 		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
 	}
@@ -189,6 +193,35 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 		})
 	}
 	return qvalue.QRecordSchema{Fields: schema}, nil
+}
+
+// Helper function to convert MySQL geometry binary data to WKT format
+func geometryValueFromBytes(wkbData []byte) (string, error) {
+	// Try to parse it as WKB with the MySQL header
+	g, err := geom.NewGeomFromWKB(wkbData)
+	if err != nil {
+		return "", err
+	}
+
+	// Convert to WKT format
+	wkt := g.ToWKT()
+	if srid := g.SRID(); srid != 0 {
+		wkt = fmt.Sprintf("SRID=%d;%s", srid, wkt)
+	}
+	return wkt, nil
+}
+
+// Helper function to process geometry data and return a QValueGeometry
+func processGeometryData(data []byte) qvalue.QValueGeometry {
+	// For geometry data, we need to convert from MySQL's binary format to WKT
+	if len(data) > 4 {
+		wkt, err := geometryValueFromBytes(data)
+		if err == nil {
+			return qvalue.QValueGeometry{Val: wkt}
+		}
+	}
+	strVal := string(data)
+	return qvalue.QValueGeometry{Val: strVal}
 }
 
 func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
@@ -263,6 +296,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			return qvalue.QValueBytes{Val: slices.Clone(v)}, nil
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(v)}, nil
+		case qvalue.QValueKindGeometry:
+			return processGeometryData(v), nil
 		case qvalue.QValueKindNumeric:
 			val, err := decimal.NewFromString(unsafeString)
 			if err != nil {
@@ -366,8 +401,8 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(val)}, nil
 		case qvalue.QValueKindGeometry:
-			// TODO figure out mysql geo encoding
-			return qvalue.QValueGeometry{Val: string(val)}, nil
+			// Handle geometry data as binary (WKB format)
+			return processGeometryData(val), nil
 		case qvalue.QValueKindArrayFloat32:
 			floats := make([]float32, 0, len(val)/4)
 			for i := 0; i < len(val); i += 4 {
@@ -383,9 +418,6 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			return qvalue.QValueString{Val: val}, nil
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: val}, nil
-		case qvalue.QValueKindGeometry:
-			// TODO figure out mysql geo encoding
-			return qvalue.QValueGeometry{Val: val}, nil
 		case qvalue.QValueKindTime:
 			val, err := time.Parse("15:04:05.999999", val)
 			if err != nil {
