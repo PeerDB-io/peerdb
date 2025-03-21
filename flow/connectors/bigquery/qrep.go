@@ -58,6 +58,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	tableSchemaDelta := &protos.TableSchemaDelta{
 		SrcTableName: config.WatermarkTable,
 		DstTableName: config.DestinationTableIdentifier,
+		System:       config.System,
 	}
 
 	for _, col := range srcSchema.Fields {
