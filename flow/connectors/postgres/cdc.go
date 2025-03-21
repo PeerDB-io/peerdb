@@ -865,7 +865,7 @@ func processRelationMessage[Items model.Items](
 	// not present in tables to sync, return immediately
 	currRelName, ok := p.srcTableIDNameMapping[currRel.RelationID]
 	if !ok {
-		p.logger.Info("relid not present in srcTableIDNameMapping, skipping relation message",
+		p.logger.Warn("relid not present in srcTableIDNameMapping, skipping relation message",
 			slog.Uint64("relId", uint64(currRel.RelationID)))
 		return nil, nil
 	}
@@ -874,14 +874,21 @@ func processRelationMessage[Items model.Items](
 		return nil, err
 	}
 
+	p.logger.Info("processing RelationMessage",
+		slog.Any("LSN", lsn),
+		slog.Any("RelationName", currRelName))
 	// retrieve current TableSchema for table changed, mapping uses dst table name as key, need to translate source name
 	currRelDstInfo, ok := p.tableNameMapping[currRelName]
 	if !ok {
+		p.logger.Error("Detected relation message for table, but not in table name mapping",
+			slog.String("tableName", currRelName))
 		return nil, fmt.Errorf("cannot find table name mapping for %s", currRelName)
 	}
 
 	prevSchema, ok := p.tableNameSchemaMapping[currRelDstInfo.Name]
 	if !ok {
+		p.logger.Error("Detected relation message for table, but not in table schema mapping",
+			slog.String("tableName", currRelDstInfo.Name))
 		return nil, fmt.Errorf("cannot find table schema for %s", currRelDstInfo.Name)
 	}
 
@@ -927,6 +934,13 @@ func processRelationMessage[Items model.Items](
 					TypeModifier: column.TypeModifier,
 					Nullable:     column.Flags == 0, // pg does not send nullable info, only whether column is part of primary key
 				})
+				p.logger.Info("Detected added column",
+					slog.String("columnName", column.Name),
+					slog.String("columnType", currRelMap[column.Name]),
+					slog.String("relationName", schemaDelta.SrcTableName))
+			} else {
+				p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
+					column.Name, schemaDelta.SrcTableName))
 			}
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
