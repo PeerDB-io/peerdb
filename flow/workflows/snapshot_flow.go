@@ -158,6 +158,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 		from = strings.Join(quotedColumns, ",")
 	}
+
 	var query string
 	if mapping.PartitionKey == "" {
 		query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())

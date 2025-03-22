@@ -367,7 +367,7 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 
 		var qkind qvalue.QValueKind
 		switch column.DatabaseTypeName() {
-		case "String", "Nullable(String)":
+		case "String", "Nullable(String)", "LowCardinality(String)":
 			qkind = qvalue.QValueKindString
 		case "Bool", "Nullable(Bool)":
 			qkind = qvalue.QValueKindBoolean

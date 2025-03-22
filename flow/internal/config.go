@@ -172,8 +172,7 @@ func PeerDBRAPIRequestLoggingEnabled() bool {
 	return requestLoggingEnabled
 }
 
-// PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS tells how long to wait before alerting that peerdb has been stuck in maintenance mode
-// for too long
+// PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS is how long to wait before alerting that peerdb's been stuck in maintenance mode too long
 func PeerDBMaintenanceModeWaitAlertSeconds() int {
 	return getEnvConvert("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600, strconv.Atoi)
 }
