@@ -152,10 +152,11 @@ jobs:
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
+          ./peer-flow api --port 8112 --gateway-port 8113 &
           go test -cover -p 32 ./... -timeout 900s
           killall peer-flow
           sleep 1
-          go tool covdata textfmt -i=coverage -o coverage.out
+          go tool covdata textfmt -i=coverage -o ../coverage.out
         working-directory: ./flow
         env:
           GOCOVERDIR: coverage
@@ -201,4 +202,3 @@ jobs:
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          working-directory: ./flow
