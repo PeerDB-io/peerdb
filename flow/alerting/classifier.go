@@ -194,6 +194,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			pgerrcode.InvalidPassword,
 			pgerrcode.InsufficientPrivilege,
 			pgerrcode.UndefinedTable,
+			pgerrcode.UndefinedObject,
 			pgerrcode.CannotConnectNow:
 			return ErrorNotifyConnectivity, pgErrorInfo
 		case pgerrcode.AdminShutdown:
