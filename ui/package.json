@@ -31,7 +31,7 @@
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "classnames": "^2.5.1",
-    "lucide-react": "^0.482.0",
+    "lucide-react": "^0.483.0",
     "material-symbols": "^0.29.0",
     "moment": "^2.30.1",
     "moment-timezone": "^0.5.46",
@@ -49,7 +49,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "4.0.14",
+    "@tailwindcss/postcss": "^4.0.15",
     "copy-webpack-plugin": "13.0.0",
     "eslint": "8.57.1",
     "eslint-config-next": "14.2.17",
@@ -59,7 +59,7 @@
     "prettier": "3.5.3",
     "prettier-plugin-organize-imports": "4.1.0",
     "string-width": "7.2.0",
-    "tailwindcss": "4.0.14",
+    "tailwindcss": "^4.0.15",
     "tailwindcss-animate": "1.0.7",
     "typescript": "5.8.2",
     "webpack": "5.98.0"
