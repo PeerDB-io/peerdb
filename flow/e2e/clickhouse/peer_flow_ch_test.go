@@ -80,22 +80,12 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
-	getFlowStatus := func() protos.FlowStatus {
-		var flowStatus protos.FlowStatus
-		val, err := env.Query(s.t.Context(), shared.FlowStatusQuery)
-		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvNoError(s.t, env, val.Get(&flowStatus))
-
-		return flowStatus
-	}
-
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, srcTableName)))
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert", "test_table_add_remove", dstTableName, "id,\"key\"")
 	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
-		flowStatus := getFlowStatus()
-		return flowStatus == protos.FlowStatus_STATUS_PAUSED
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
@@ -126,8 +116,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	})
 
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "adding table", func() bool {
-		flowStatus := getFlowStatus()
-		return flowStatus == protos.FlowStatus_STATUS_RUNNING
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	afterAddRunID := e2e.EnvGetRunID(s.t, env)
 	require.NotEqual(s.t, runID, afterAddRunID)
@@ -136,8 +125,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert to added table", "test_table_add_remove_added", addedDstTableName, "id,\"key\"")
 	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing again for removing table", func() bool {
-		flowStatus := getFlowStatus()
-		return flowStatus == protos.FlowStatus_STATUS_PAUSED
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
@@ -167,8 +155,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	})
 
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "removing table", func() bool {
-		flowStatus := getFlowStatus()
-		return flowStatus == protos.FlowStatus_STATUS_RUNNING
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	afterRemoveRunID := e2e.EnvGetRunID(s.t, env)
 	require.NotEqual(s.t, runID, afterRemoveRunID)
@@ -1094,7 +1081,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone", "quo'te") 
+	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone", "quo'te")
 	VALUES ('init_initial_load', 'secret', 'neptune', 'true', 509, 'abcd')`, srcFullName))
 	require.NoError(s.t, err)
 
@@ -1121,7 +1108,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName,
 		"id,key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone","quo'te") 
+	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone","quo'te")
 	VALUES ('cdc1', 'secret', 'pluto', 'false', 123324, 'lwkfj')`, srcFullName))
 
 	require.NoError(s.t, err)
@@ -1179,7 +1166,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		polygon_col POLYGON,
 		circle_col CIRCLE
 	);
-	
+
 	-- Insert test data with various geometric types
 	INSERT INTO %[1]s (
 		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
@@ -1192,7 +1179,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		'((1,2),(3,4),(5,6),(1,2))',            -- POLYGON
 		'<(1,2),3>'                             -- CIRCLE
 	);
-	
+
 	-- Insert another row with different values
 	INSERT INTO %[1]s (
 		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
@@ -1342,9 +1329,9 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		id serial PRIMARY KEY,
 		geometry_col GEOMETRY
 	);
-	
+
 	-- Insert test data with various geometric types
-	INSERT INTO %[1]s (geometry_col) VALUES 
+	INSERT INTO %[1]s (geometry_col) VALUES
 		(ST_GeomFromText('POINT(1 2)')),
 		(ST_GeomFromText('LINESTRING(1 2, 3 4)')),
 		(ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))')),
@@ -1371,7 +1358,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 
 	// Insert additional rows to test CDC
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %[1]s (geometry_col) VALUES 
+	INSERT INTO %[1]s (geometry_col) VALUES
 		(ST_GeomFromText('POINT(10 20)')),
 		(ST_GeomFromText('LINESTRING(10 20, 30 40)')),
 		(ST_GeomFromText('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))'));`, srcFullName))
