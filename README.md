@@ -44,10 +44,9 @@ If your ClickHouse DB runs outside Docker (e.g., on VMs or ClickHouse Cloud), it
 
 PeerDB stages PostgreSQL data in MinIO within the Docker stack. Since ClickHouse is outside Docker, it needs a resolvable hostname for MinIO.
 
-Update `docker-compose.yml` and set `AWS_ENDPOINT_URL_S3` to MinIO's accessible IP:
+Update `docker-compose.yml` and set `AWS_ENDPOINT_URL_S3` to MinIO's accessible IP (from both PeerDB and ClickHouse):
 ```yaml
-AWS_ENDPOINT_URL_S3: http://172.31.26.57:9001
-```
+AWS_ENDPOINT_URL_S3: http://172.31.26.57:9001 # Change this to IP/host which is accessible by both PeerDB and ClickHouse
 
 Rerun Docker Compose to apply changes. On AWS/GCP/Azure, also ensure the security group allows inbound access to MinIO.
 
