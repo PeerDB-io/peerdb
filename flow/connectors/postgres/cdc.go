@@ -92,7 +92,7 @@ func GetChildToParentRelIDMap(ctx context.Context,
 		FROM pg_inherits
 		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
 		JOIN pg_class child ON pg_inherits.inhrelid = child.oid
-		WHERE parent.relkind IN ('p','r') AND parent.oid=ANY($1);
+		WHERE parent.relkind = 'p' AND parent.oid=ANY($1);
 	`
 
 	rows, err := conn.Query(ctx, query, parentTableOIDs)
