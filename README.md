@@ -38,6 +38,19 @@ psql "port=9900 host=localhost password=peerdb"
 
 <img src="images/peerdb-demo.gif" width="512" />
 
+### **IMPORTANT: Ensuring ClickHouse Access to MinIO**
+
+If your ClickHouse DB runs outside Docker (e.g., on VMs or ClickHouse Cloud), it may not access MinIO, which is used to stage files before loading them. Ensure ClickHouse has network access to MinIO.
+
+PeerDB stages PostgreSQL data in MinIO within the Docker stack. Since ClickHouse is outside Docker, it needs a resolvable hostname for MinIO.
+
+Update `docker-compose.yml` and set `AWS_ENDPOINT_URL_S3` to MinIO's accessible IP:
+```yaml
+AWS_ENDPOINT_URL_S3: http://172.31.26.57:9001
+```
+
+Rerun Docker Compose to apply changes. On AWS/GCP/Azure, ensure the security group allows inbound access to MinIO.
+
 Follow this 5-minute [Quickstart Guide](https://docs.peerdb.io/quickstart#quickstart) to see PeerDB in action i.e. streaming data in real-time across stores.
 
 ## Why PeerDB
