@@ -90,6 +90,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			return nil, fmt.Errorf("unable to determine if mirror %s is of type CDC: %w", req.FlowJobName, err)
 		}
 		if cdcFlow {
+			req.ExcludeBatches = true
 			cdcStatus, err := h.cdcFlowStatus(ctx, req)
 			if err != nil {
 				slog.Error("unable to obtain CDC information for mirror", slog.Any("error", err))
