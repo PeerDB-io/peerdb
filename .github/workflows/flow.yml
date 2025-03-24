@@ -37,7 +37,7 @@ jobs:
           #  env:
           #    MARIADB_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:f3049dcb004ce1ccc0a8b3dc3c7d6ca1f32cb4d6d1da98a47874457dd8cb9907
+        image: redpandadata/redpanda@sha256:623a07b44f3b6508b327a4d18cdba8c9e7881dd9b3a362393e9a8df428c9294e
         ports:
           - 9092:9092
           - 9644:9644
@@ -66,7 +66,7 @@ jobs:
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
         with:
           go-version: '1.24.1'
           cache-dependency-path: flow/go.sum
@@ -126,7 +126,7 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         id: cache-clickhouse
         with:
           path: ./clickhouse
