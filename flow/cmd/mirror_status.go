@@ -178,7 +178,7 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 
 	var cdcBatches []*protos.CDCBatch
 	if !req.ExcludeBatches {
-		cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{FlowJobName: req.FlowJobName})
+		cdcBatchesResponse, err := h.GetCDCBatches(ctx, &protos.GetCDCBatchesRequest{FlowJobName: req.FlowJobName, Limit: 10})
 		if err != nil {
 			return nil, err
 		}
