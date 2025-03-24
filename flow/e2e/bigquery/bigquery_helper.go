@@ -136,17 +136,6 @@ func (b *BigQueryTestHelper) DropDataset(ctx context.Context, datasetName string
 	return nil
 }
 
-// RunCommand runs the given command.
-func (b *BigQueryTestHelper) RunCommand(ctx context.Context, command string) error {
-	q := b.client.Query(command)
-	q.DisableQueryCache = true
-	if _, err := q.Read(ctx); err != nil {
-		return fmt.Errorf("failed to run command: %w", err)
-	}
-
-	return nil
-}
-
 // countRows(tableName) returns the number of rows in the given table.
 func (b *BigQueryTestHelper) countRows(ctx context.Context, tableName string) (int, error) {
 	return b.countRowsWithDataset(ctx, b.Config.DatasetId, tableName, "")
@@ -187,14 +176,8 @@ func (b *BigQueryTestHelper) countRowsWithDataset(ctx context.Context, dataset, 
 func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 	// Based on the real type of the bigquery.Value, we create a qvalue.QValue
 	switch v := bqValue.(type) {
-	case int:
-		return qvalue.QValueInt32{Val: int32(v)}, nil
-	case int32:
-		return qvalue.QValueInt32{Val: v}, nil
 	case int64:
 		return qvalue.QValueInt64{Val: v}, nil
-	case float32:
-		return qvalue.QValueFloat32{Val: v}, nil
 	case float64:
 		return qvalue.QValueFloat64{Val: v}, nil
 	case string:
@@ -221,24 +204,12 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 
 		firstElement := v[0]
 		switch et := firstElement.(type) {
-		case int, int32:
-			var arr []int32
-			for _, val := range v {
-				arr = append(arr, val.(int32))
-			}
-			return qvalue.QValueArrayInt32{Val: arr}, nil
 		case int64:
 			var arr []int64
 			for _, val := range v {
 				arr = append(arr, val.(int64))
 			}
 			return qvalue.QValueArrayInt64{Val: arr}, nil
-		case float32:
-			var arr []float32
-			for _, val := range v {
-				arr = append(arr, val.(float32))
-			}
-			return qvalue.QValueArrayFloat32{Val: arr}, nil
 		case float64:
 			var arr []float64
 			for _, val := range v {
@@ -302,11 +273,10 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(ctx context.Context, query s
 	var records [][]qvalue.QValue
 	for {
 		var row []bigquery.Value
-		err := it.Next(&row)
-		if err == iterator.Done {
-			break
-		}
-		if err != nil {
+		if err := it.Next(&row); err != nil {
+			if err == iterator.Done {
+				break
+			}
 			return nil, fmt.Errorf("failed to iterate over query results: %w", err)
 		}
 
@@ -392,64 +362,6 @@ func (b *BigQueryTestHelper) SelectRow(ctx context.Context, tableName string, co
 	}
 }
 
-func qValueKindToBqColTypeString(val qvalue.QValueKind) (string, error) {
-	switch val {
-	case qvalue.QValueKindInt16:
-		return "INT64", nil
-	case qvalue.QValueKindInt32:
-		return "INT64", nil
-	case qvalue.QValueKindInt64:
-		return "INT64", nil
-	case qvalue.QValueKindFloat32:
-		return "FLOAT64", nil
-	case qvalue.QValueKindFloat64:
-		return "FLOAT64", nil
-	case qvalue.QValueKindString:
-		return "STRING", nil
-	case qvalue.QValueKindBoolean:
-		return "BOOL", nil
-	case qvalue.QValueKindTimestamp:
-		return "TIMESTAMP", nil
-	case qvalue.QValueKindBytes:
-		return "BYTES", nil
-	case qvalue.QValueKindNumeric:
-		return "NUMERIC", nil
-	case qvalue.QValueKindArrayString:
-		return "ARRAY<STRING>", nil
-	case qvalue.QValueKindArrayInt32:
-		return "ARRAY<INT64>", nil
-	case qvalue.QValueKindArrayInt64:
-		return "ARRAY<INT64>", nil
-	case qvalue.QValueKindArrayFloat32:
-		return "ARRAY<FLOAT64>", nil
-	case qvalue.QValueKindArrayFloat64:
-		return "ARRAY<FLOAT64>", nil
-	case qvalue.QValueKindJSON:
-		return "STRING", nil
-	default:
-		return "", fmt.Errorf("[bq] unsupported QValueKind: %v", val)
-	}
-}
-
-func (b *BigQueryTestHelper) CreateTable(ctx context.Context, tableName string, schema *qvalue.QRecordSchema) error {
-	fields := make([]string, 0, len(schema.Fields))
-	for _, field := range schema.Fields {
-		bqType, err := qValueKindToBqColTypeString(field.Type)
-		if err != nil {
-			return err
-		}
-		fields = append(fields, fmt.Sprintf("`%s` %s", field.Name, bqType))
-	}
-
-	command := fmt.Sprintf("CREATE TABLE %s.%s (%s)", b.Config.DatasetId, tableName, strings.Join(fields, ", "))
-
-	if err := b.RunCommand(ctx, command); err != nil {
-		return fmt.Errorf("failed to create table: %w", err)
-	}
-
-	return nil
-}
-
 func (b *BigQueryTestHelper) RunInt64Query(ctx context.Context, query string) (int64, error) {
 	recordBatch, err := b.ExecuteAndProcessQuery(ctx, query)
 	if err != nil {
@@ -459,12 +371,7 @@ func (b *BigQueryTestHelper) RunInt64Query(ctx context.Context, query string) (i
 		return 0, fmt.Errorf("expected only 1 record, got %d", len(recordBatch.Records))
 	}
 
-	switch v := recordBatch.Records[0][0].(type) {
-	case qvalue.QValueInt16:
-		return int64(v.Val), nil
-	case qvalue.QValueInt32:
-		return int64(v.Val), nil
-	case qvalue.QValueInt64:
+	if v, ok := recordBatch.Records[0][0].(qvalue.QValueInt64); ok {
 		return v.Val, nil
 	}
 	return 0, fmt.Errorf("non-integer result: %T", recordBatch.Records[0][0])
