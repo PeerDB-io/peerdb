@@ -93,7 +93,7 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 		cancelCurrentChild()
 	})
 	workflow.Go(ctx, func(ctx workflow.Context) {
-		for {
+		for ctx.Err() == nil {
 			maintenanceSelector.Select(ctx)
 		}
 	})
@@ -117,10 +117,9 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 				maintenance.WaitForRunningSnapshots,
 				skippedFlows,
 			)
-			if err := waitSnapshotsFuture.Get(snapshotWaitCtx, nil); err != nil {
-				// It is ok to always ignore cancellation and always retry
-				// if more information is needed, we can maintain some state whether we cancelled it or someone else
-				if errors.Is(err, workflow.ErrCanceled) {
+			if err := waitSnapshotsFuture.Get(snapshotWaitCancelCtx, nil); err != nil {
+				// If the activity is cancelled but workflow is fine, it means that we cancelled it via `cancelCurrentChild`
+				if errors.Is(err, workflow.ErrCanceled) && snapshotWaitCtx.Err() == nil {
 					logger.Warn("this cancellation should be retried")
 					continue
 				}
