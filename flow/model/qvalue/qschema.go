@@ -1,6 +1,7 @@
 package qvalue
 
 import (
+	"slices"
 	"strings"
 )
 
@@ -23,17 +24,9 @@ func NewQRecordSchema(fields []QField) QRecordSchema {
 
 // EqualNames returns true if the field names are equal.
 func (q QRecordSchema) EqualNames(other QRecordSchema) bool {
-	if len(q.Fields) != len(other.Fields) {
-		return false
-	}
-
-	for i, field := range q.Fields {
-		if !strings.EqualFold(field.Name, other.Fields[i].Name) {
-			return false
-		}
-	}
-
-	return true
+	return slices.EqualFunc(q.Fields, other.Fields, func(x QField, y QField) bool {
+		return strings.EqualFold(x.Name, y.Name)
+	})
 }
 
 // GetColumnNames returns a slice of column names.
