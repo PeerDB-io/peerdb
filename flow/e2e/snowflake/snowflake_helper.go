@@ -20,9 +20,9 @@ type SnowflakeTestHelper struct {
 	// config is the Snowflake config.
 	Config *protos.SnowflakeConfig
 	// connection to another database, to manage the test database
-	adminClient *connsnowflake.SnowflakeClient
+	adminClient *connsnowflake.SnowflakeConnector
 	// connection to the test database
-	testClient *connsnowflake.SnowflakeClient
+	testClient *connsnowflake.SnowflakeConnector
 	// testSchemaName is the schema to use for testing.
 	testSchemaName string
 	// dbName is the database used for testing.
@@ -51,11 +51,11 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 	runID := rand.Uint64()
 	testDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
 
-	adminClient, err := connsnowflake.NewSnowflakeClient(t.Context(), config)
+	adminClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
-	err = adminClient.ExecuteQuery(
+	_, err = adminClient.ExecContext(
 		t.Context(),
 		fmt.Sprintf("CREATE TRANSIENT DATABASE %s DATA_RETENTION_TIME_IN_DAYS = 0", testDatabaseName),
 	)
@@ -64,7 +64,7 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 	}
 
 	config.Database = testDatabaseName
-	testClient, err := connsnowflake.NewSnowflakeClient(t.Context(), config)
+	testClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
@@ -83,7 +83,7 @@ func (s *SnowflakeTestHelper) Cleanup(ctx context.Context) error {
 	if err := s.testClient.Close(); err != nil {
 		return err
 	}
-	if err := s.adminClient.ExecuteQuery(ctx, "DROP DATABASE "+s.testDatabaseName); err != nil {
+	if _, err := s.adminClient.ExecContext(ctx, "DROP DATABASE "+s.testDatabaseName); err != nil {
 		return err
 	}
 	return s.adminClient.Close()
@@ -91,7 +91,8 @@ func (s *SnowflakeTestHelper) Cleanup(ctx context.Context) error {
 
 // RunCommand runs the given command.
 func (s *SnowflakeTestHelper) RunCommand(ctx context.Context, command string) error {
-	return s.testClient.ExecuteQuery(ctx, command)
+	_, err := s.testClient.ExecContext(ctx, command)
+	return err
 }
 
 // CountRows(tableName) returns the number of rows in the given table.
