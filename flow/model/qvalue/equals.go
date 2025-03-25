@@ -264,55 +264,55 @@ func (v QValueStruct) compareStruct(value2 QValueStruct) bool {
 	return true
 }
 
-func compareNumericArrays(value1, value2 any) bool {
-	// Helper function to convert a value to float64
-	convertToFloat64 := func(val any) []float64 {
-		switch v := val.(type) {
-		case []int16:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []int32:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []int64:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []float32:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []float64:
-			return v
-		default:
+func convertNumericArrayToFloat64Array(val any) []float64 {
+	switch v := val.(type) {
+	case []int16:
+		result := make([]float64, len(v))
+		for i, value := range v {
+			result[i] = float64(value)
+		}
+		return result
+	case []int32:
+		result := make([]float64, len(v))
+		for i, value := range v {
+			result[i] = float64(value)
+		}
+		return result
+	case []int64:
+		result := make([]float64, len(v))
+		for i, value := range v {
+			result[i] = float64(value)
+		}
+		return result
+	case []float32:
+		result := make([]float64, len(v))
+		for i, value := range v {
+			result[i] = float64(value)
+		}
+		return result
+	case []float64:
+		return v
+	case string:
+		var val []float64
+		if err := json.Unmarshal([]byte(v), &val); err != nil {
 			return nil
 		}
+		return val
+	default:
+		return nil
 	}
+}
 
-	array1 := convertToFloat64(value1)
-	array2 := convertToFloat64(value2)
-
-	if array1 == nil || array2 == nil || len(array1) != len(array2) {
+func compareNumericArrays(value1, value2 any) bool {
+	array1 := convertNumericArrayToFloat64Array(value1)
+	array2 := convertNumericArrayToFloat64Array(value2)
+	if array1 == nil || array2 == nil {
 		return false
 	}
 
-	for i := range array1 {
-		if math.Abs(array1[i]-array2[i]) >= 1e9 {
-			return false
-		}
-	}
-
-	return true
+	return slices.EqualFunc(array1, array2, func(x float64, y float64) bool {
+		return math.Abs(x-y) < 1e9
+	})
 }
 
 func compareDateArrays(array1 []time.Time, value2 any) bool {
