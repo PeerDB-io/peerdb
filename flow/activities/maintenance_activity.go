@@ -64,7 +64,7 @@ func (a *MaintenanceActivity) getMirrorStatus(ctx context.Context, mirror *proto
 	return internal.GetWorkflowStatus(ctx, a.TemporalClient, mirror.WorkflowId)
 }
 
-func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context) (*protos.MaintenanceMirrors, error) {
+func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context, skippedFlows map[string]struct{}) (*protos.MaintenanceMirrors, error) {
 	mirrors, err := a.GetAllMirrors(ctx)
 	if err != nil {
 		return &protos.MaintenanceMirrors{}, err
@@ -73,6 +73,10 @@ func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context) (*pro
 	slog.Info("Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
 
 	for _, mirror := range mirrors.Mirrors {
+		if _, shouldSkip := skippedFlows[mirror.MirrorName]; shouldSkip {
+			slog.Warn("Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
+			continue
+		}
 		lastStatus, err := a.checkAndWaitIfSnapshot(ctx, mirror, 2*time.Minute)
 		if err != nil {
 			return &protos.MaintenanceMirrors{}, err

@@ -2,16 +2,20 @@ package peerflow
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"maps"
 	"time"
 
 	tEnums "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -72,19 +76,59 @@ func StartMaintenanceWorkflow(ctx workflow.Context, input *protos.StartMaintenan
 }
 
 func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMaintenanceFlowOutput, error) {
+	signalChan := model.StartMaintenanceSignal.GetSignalChannel(ctx)
+	maintenanceSelector := workflow.NewNamedSelector(ctx, "MaintenanceLoop")
+	skippedFlows := make(map[string]struct{})
+	cancelCurrentChild := func() {}
+
+	signalChan.AddToSelector(maintenanceSelector, func(maintenanceSignal *protos.StartMaintenanceSignal, _ bool) {
+		logger.Info("Received StartMaintenance Signal", slog.Any("signal", maintenanceSignal))
+		newSkippedFlows := make(map[string]struct{})
+		maps.Copy(newSkippedFlows, skippedFlows)
+		for _, flow := range maintenanceSignal.SkippedSnapshotWaitFlows {
+			newSkippedFlows[flow] = struct{}{}
+		}
+		skippedFlows = newSkippedFlows
+		cancelCurrentChild()
+	})
+	workflow.Go(ctx, func(ctx workflow.Context) {
+		for {
+			maintenanceSelector.Select(ctx)
+		}
+	})
+
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * time.Hour,
 	})
 
 	snapshotWaitCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 24 * time.Hour,
+		StartToCloseTimeout: 2 * 24 * time.Hour,
 		HeartbeatTimeout:    1 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumInterval: 10 * time.Second,
+		},
 	})
-	waitSnapshotsFuture := workflow.ExecuteActivity(snapshotWaitCtx,
-		maintenance.WaitForRunningSnapshots,
-	)
-	err := waitSnapshotsFuture.Get(snapshotWaitCtx, nil)
-	if err != nil {
+	waitForSnapshotsWithSignalCheck := func() error {
+		for {
+			var snapshotWaitCancelCtx workflow.Context
+			snapshotWaitCancelCtx, cancelCurrentChild = workflow.WithCancel(snapshotWaitCtx)
+			waitSnapshotsFuture := workflow.ExecuteActivity(snapshotWaitCancelCtx,
+				maintenance.WaitForRunningSnapshots,
+				skippedFlows,
+			)
+			if err := waitSnapshotsFuture.Get(snapshotWaitCtx, nil); err != nil {
+				// It is ok to always ignore cancellation and always retry
+				// if more information is needed, we can maintain some state whether we cancelled it or someone else
+				if errors.Is(err, workflow.ErrCanceled) {
+					logger.Warn("this cancellation should be retried")
+					continue
+				}
+				return err
+			}
+			return nil
+		}
+	}
+	if err := waitForSnapshotsWithSignalCheck(); err != nil {
 		return nil, err
 	}
 
@@ -98,11 +142,7 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 	}
 
 	logger.Info("Waiting for all snapshot mirrors to finish snapshotting")
-	waitSnapshotsPostEnableFuture := workflow.ExecuteActivity(snapshotWaitCtx,
-		maintenance.WaitForRunningSnapshots,
-	)
-
-	if err := waitSnapshotsPostEnableFuture.Get(snapshotWaitCtx, nil); err != nil {
+	if err := waitForSnapshotsWithSignalCheck(); err != nil {
 		return nil, err
 	}
 

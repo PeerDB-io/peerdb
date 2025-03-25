@@ -130,6 +130,10 @@ var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
 	Name: "cdc-dynamic-properties",
 }
 
+var StartMaintenanceSignal = TypedSignal[*protos.StartMaintenanceSignal]{
+	Name: "start-maintenance-signal",
+}
+
 func SleepFuture(ctx workflow.Context, d time.Duration) workflow.Future {
 	f, set := workflow.NewFuture(ctx)
 	workflow.Go(ctx, func(ctx workflow.Context) {
