@@ -80,6 +80,7 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 	maintenanceSelector := workflow.NewNamedSelector(ctx, "MaintenanceLoop")
 	skippedFlows := make(map[string]struct{})
 	cancelCurrentChild := func() {}
+	maintenanceSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 
 	signalChan.AddToSelector(maintenanceSelector, func(maintenanceSignal *protos.StartMaintenanceSignal, _ bool) {
 		logger.Info("Received StartMaintenance Signal", slog.Any("signal", maintenanceSignal))
