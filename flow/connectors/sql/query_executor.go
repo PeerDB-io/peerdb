@@ -21,14 +21,9 @@ import (
 
 //nolint:iface
 type SQLQueryExecutor interface {
-	ConnectionActive(context.Context) error
 	Close() error
 
 	CreateSchema(ctx context.Context, schemaName string) error
-	DropSchema(ctx context.Context, schemaName string) error
-	CheckSchemaExists(ctx context.Context, schemaName string) (bool, error)
-	RecreateSchema(ctx context.Context, schemaName string) error
-
 	CreateTable(ctx context.Context, schema *qvalue.QRecordSchema, schemaName string, tableName string) error
 	CountRows(ctx context.Context, schemaName string, tableName string) (int64, error)
 
@@ -59,11 +54,6 @@ func NewGenericSQLQueryExecutor(
 	}
 }
 
-func (g *GenericSQLQueryExecutor) ConnectionActive(ctx context.Context) bool {
-	err := g.db.PingContext(ctx)
-	return err == nil
-}
-
 func (g *GenericSQLQueryExecutor) Close() error {
 	return g.db.Close()
 }
@@ -71,34 +61,6 @@ func (g *GenericSQLQueryExecutor) Close() error {
 func (g *GenericSQLQueryExecutor) CreateSchema(ctx context.Context, schemaName string) error {
 	_, err := g.db.ExecContext(ctx, "CREATE SCHEMA "+schemaName)
 	return err
-}
-
-func (g *GenericSQLQueryExecutor) DropSchema(ctx context.Context, schemaName string) error {
-	_, err := g.db.ExecContext(ctx, "DROP SCHEMA IF EXISTS "+schemaName+" CASCADE")
-	return err
-}
-
-// the SQL query this function executes appears to be MySQL/MariaDB specific.
-func (g *GenericSQLQueryExecutor) CheckSchemaExists(ctx context.Context, schemaName string) (bool, error) {
-	var exists pgtype.Bool
-	// use information schemata to check if schema exists
-	err := g.db.QueryRowxContext(ctx,
-		"SELECT EXISTS(SELECT 1 FROM information_schema.schemata WHERE schema_name = $1)", schemaName).Scan(&exists)
-	return exists.Bool, err
-}
-
-func (g *GenericSQLQueryExecutor) RecreateSchema(ctx context.Context, schemaName string) error {
-	err := g.DropSchema(ctx, schemaName)
-	if err != nil {
-		return fmt.Errorf("failed to drop schema: %w", err)
-	}
-
-	err = g.CreateSchema(ctx, schemaName)
-	if err != nil {
-		return fmt.Errorf("failed to create schema: %w", err)
-	}
-
-	return nil
 }
 
 func (g *GenericSQLQueryExecutor) CreateTable(ctx context.Context, schema *qvalue.QRecordSchema, schemaName string, tableName string) error {

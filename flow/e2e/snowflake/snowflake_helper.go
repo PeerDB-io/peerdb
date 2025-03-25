@@ -116,10 +116,6 @@ func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(ctx context.Context, query 
 	return s.testClient.ExecuteAndProcessQuery(ctx, query)
 }
 
-func (s *SnowflakeTestHelper) CreateTable(ctx context.Context, tableName string, schema *qvalue.QRecordSchema) error {
-	return s.testClient.CreateTable(ctx, schema, s.testSchemaName, tableName)
-}
-
 // runs a query that returns an int result
 func (s *SnowflakeTestHelper) RunIntQuery(ctx context.Context, query string) (int, error) {
 	rows, err := s.testClient.ExecuteAndProcessQuery(ctx, query)
