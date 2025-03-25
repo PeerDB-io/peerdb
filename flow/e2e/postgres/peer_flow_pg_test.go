@@ -922,7 +922,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	if !s.t.Failed() {
 		e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-			return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 		})
 
 		_, err = s.Conn().Exec(s.t.Context(),
@@ -946,7 +946,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		})
 
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
-			return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_RUNNING
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 		})
 		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize 18 records - first table", func() bool {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
@@ -992,21 +992,21 @@ func (s PeerFlowE2ETestSuitePG) Test_CustomSync() {
 
 	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	e2e.SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		NumberOfSyncs: 1,
 	})
 	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_RUNNING
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
 		"INSERT INTO %s(key, value) VALUES ('test_key', 'test_value')", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "paused workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	require.NoError(s.t, s.comparePGTables(srcTableName, dstTableName, "id,key,value"))
