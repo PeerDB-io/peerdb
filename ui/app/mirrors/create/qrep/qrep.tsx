@@ -100,18 +100,18 @@ export default function QRepConfigForm({
     fetchColumns(mirrorConfig.sourceName, schema, table, setLoading).then(
       (cols) => {
         const filteredCols = cols?.filter((col) =>
-          allowedTypesForWatermarkColumn.includes(col.split(':')[1])
+          allowedTypesForWatermarkColumn.includes(col.type)
         );
         setAllColumns(
           cols.map((col) => ({
-            value: col.split(':')[0],
-            label: `${col.split(':')[0]} (${col.split(':')[1]})`,
+            value: col.name,
+            label: `${col.name} (${col.type})`,
           }))
         );
         setWatermarkColumns(
           filteredCols.map((col) => ({
-            value: col.split(':')[0],
-            label: `${col.split(':')[0]} (${col.split(':')[1]})`,
+            value: col.name,
+            label: `${col.name} (${col.type})`,
           }))
         );
       }

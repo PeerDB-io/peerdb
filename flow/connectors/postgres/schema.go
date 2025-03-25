@@ -2,7 +2,6 @@ package connpostgres
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -119,14 +118,18 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, schema string, table
 		return nil, err
 	}
 
-	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
+	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.ColumnsItem, error) {
 		var columnName pgtype.Text
 		var datatype pgtype.Text
 		var isPkey pgtype.Bool
 		if err := rows.Scan(&columnName, &datatype, &isPkey); err != nil {
-			return "", err
+			return nil, err
 		}
-		return fmt.Sprintf("%s:%s:%v", columnName.String, datatype.String, isPkey.Bool), nil
+		return &protos.ColumnsItem{
+			Name:  columnName.String,
+			Type:  datatype.String,
+			IsKey: isPkey.Bool,
+		}, nil
 	})
 	if err != nil {
 		return nil, err

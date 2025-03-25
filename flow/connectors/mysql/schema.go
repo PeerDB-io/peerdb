@@ -2,7 +2,6 @@ package connmysql
 
 import (
 	"context"
-	"fmt"
 	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -82,7 +81,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, schema string, table st
 		return nil, err
 	}
 
-	columns := make([]string, 0, rs.RowNumber())
+	columns := make([]*protos.ColumnsItem, 0, rs.RowNumber())
 	for idx := range rs.RowNumber() {
 		columnName, err := rs.GetString(idx, 0)
 		if err != nil {
@@ -96,7 +95,11 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, schema string, table st
 		if err != nil {
 			return nil, err
 		}
-		columns = append(columns, fmt.Sprintf("%s:%s:%v", columnName, columnType, columnKey == "PRI"))
+		columns = append(columns, &protos.ColumnsItem{
+			Name:  columnName,
+			Type:  columnType,
+			IsKey: columnKey == "PRI",
+		})
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil
 }
