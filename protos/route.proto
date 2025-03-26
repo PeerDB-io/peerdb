@@ -181,7 +181,14 @@ message TableColumnsRequest {
   string table_name = 3;
 }
 
-message TableColumnsResponse { repeated string columns = 1; }
+message ColumnsItem {
+  string name = 1;
+  string type = 2;
+  bool is_key = 3;
+}
+message TableColumnsResponse {
+  repeated ColumnsItem columns = 1;
+}
 
 message PostgresPeerActivityInfoRequest { string peer_name = 1; }
 
