@@ -30,6 +30,8 @@ const (
 	OpenConnectionsGaugeName            = "open_connections"
 	OpenReplicationConnectionsGaugeName = "open_replication_connections"
 	CommittedLSNGaugeName               = "committed_lsn"
+	RestartLSNGaugeName                 = "restart_lsn"
+	ConfirmedFlushLSNGaugeName          = "confirmed_flush_lsn"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
 	FetchedBytesCounterName             = "fetched_bytes"
 	ErrorEmittedGaugeName               = "error_emitted"
@@ -48,6 +50,8 @@ type Metrics struct {
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	CommittedLSNGauge               metric.Int64Gauge
+	RestartLSNGauge                 metric.Int64Gauge
+	ConfirmedFlushLSNGauge          metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
 	FetchedBytesCounter             metric.Int64Counter
 	InstantaneousFetchedBytesGauge  metric.Int64Gauge
@@ -62,6 +66,8 @@ type Metrics struct {
 
 type SlotMetricGauges struct {
 	SlotLagGauge                    metric.Float64Gauge
+	RestartLSNGauge                 metric.Int64Gauge
+	ConfirmedFlushLSNGauge          metric.Int64Gauge
 	CurrentBatchIdGauge             metric.Int64Gauge
 	LastNormalizedBatchIdGauge      metric.Int64Gauge
 	OpenConnectionsGauge            metric.Int64Gauge
@@ -172,6 +178,18 @@ func (om *OtelManager) setupMetrics() error {
 
 	if om.Metrics.CommittedLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommittedLSNGaugeName),
 		metric.WithDescription("Committed LSN of the replication slot"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.RestartLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(RestartLSNGaugeName),
+		metric.WithDescription("Restart LSN of the replication slot"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ConfirmedFlushLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ConfirmedFlushLSNGaugeName),
+		metric.WithDescription("Confirmed flush LSN of the replication slot"),
 	); err != nil {
 		return err
 	}
