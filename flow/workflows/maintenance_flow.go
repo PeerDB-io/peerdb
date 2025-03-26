@@ -69,7 +69,7 @@ func StartMaintenanceWorkflow(ctx workflow.Context, input *protos.StartMaintenan
 
 	maintenanceFlowOutput, err := startMaintenance(ctx, logger)
 	if err != nil {
-		slog.Error("Error in StartMaintenance workflow", "error", err)
+		logger.Error("Error in StartMaintenance workflow", "error", err)
 		return nil, err
 	}
 	return maintenanceFlowOutput, nil
@@ -237,7 +237,7 @@ func EndMaintenanceWorkflow(ctx workflow.Context, input *protos.EndMaintenanceFl
 
 	flowOutput, err := endMaintenance(ctx, logger)
 	if err != nil {
-		slog.Error("Error in EndMaintenance workflow", "error", err)
+		logger.Error("Error in EndMaintenance workflow", "error", err)
 		return nil, err
 	}
 	return flowOutput, nil
