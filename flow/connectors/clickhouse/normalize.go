@@ -193,7 +193,10 @@ func getOrderedOrderByColumns(
 	sourcePkeys []string,
 	colNameMap map[string]string,
 ) []string {
-	pkeys := slices.Clone(sourcePkeys)
+	pkeys := make([]string, len(sourcePkeys))
+	for idx, pk := range sourcePkeys {
+		pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(pk)
+	}
 	if len(sourcePkeys) > 0 {
 		if len(colNameMap) > 0 {
 			for idx, pk := range sourcePkeys {
