@@ -477,6 +477,10 @@ message StartMaintenanceFlowOutput {
   string version = 1;
 }
 
+message StartMaintenanceSignal {
+  repeated string skipped_snapshot_wait_flows = 1;
+}
+
 message EndMaintenanceFlowInput {
 }
 
