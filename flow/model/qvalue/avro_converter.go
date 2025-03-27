@@ -108,9 +108,7 @@ func GetAvroSchemaFromQValueKind(
 	scale int16,
 ) (any, error) {
 	switch kind {
-	case QValueKindString:
-		return "string", nil
-	case QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
+	case QValueKindString, QValueKindEnum, QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
 		return "string", nil
 	case QValueKindInterval:
 		return "string", nil
