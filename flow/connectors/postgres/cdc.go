@@ -121,7 +121,7 @@ type replProcessor[Items model.Items] interface {
 		p *PostgresCDCSource,
 		tuple *pglogrepl.TupleDataColumn,
 		col *pglogrepl.RelationMessageColumn,
-		customTypeMapping map[uint32]string,
+		customTypeMapping map[uint32]shared.CustomDataType,
 	) error
 }
 
@@ -136,7 +136,7 @@ func (pgProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -167,7 +167,7 @@ func (qProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -199,7 +199,7 @@ func processTuple[Items model.Items](
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
 	exclude map[string]struct{},
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (Items, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
@@ -227,8 +227,8 @@ func processTuple[Items model.Items](
 	return items, unchangedToastColumns, nil
 }
 
-func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32,
-	formatCode int16, customTypeMapping map[uint32]string,
+func (p *PostgresCDCSource) decodeColumnData(
+	data []byte, dataType uint32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType,
 ) (qvalue.QValue, error) {
 	var parsedData any
 	var err error
@@ -260,13 +260,13 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32,
 			}
 			return nil, err
 		}
-		retVal, err := p.parseFieldFromPostgresOID(dataType, parsedData)
+		retVal, err := p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping)
 		if err != nil {
 			return nil, err
 		}
 		return retVal, nil
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
-		retVal, err := p.parseFieldFromPostgresOID(dataType, string(data))
+		retVal, err := p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
 		if err != nil {
 			return nil, err
 		}
@@ -730,7 +730,7 @@ func processInsertMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -766,7 +766,7 @@ func processUpdateMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -824,7 +824,7 @@ func processDeleteMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -901,7 +901,7 @@ func processRelationMessage[Items model.Items](
 	for _, column := range currRel.Columns {
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
-			qKind := p.postgresOIDToQValueKind(column.DataType)
+			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping)
 			if qKind == qvalue.QValueKindInvalid {
 				typeName, ok := customTypeMapping[column.DataType]
 				if ok {
@@ -910,7 +910,11 @@ func processRelationMessage[Items model.Items](
 			}
 			currRelMap[column.Name] = string(qKind)
 		case protos.TypeSystem_PG:
-			currRelMap[column.Name] = p.postgresOIDToName(column.DataType)
+			typeName, err := p.postgresOIDToName(column.DataType, customTypeMapping)
+			if err != nil {
+				return nil, err
+			}
+			currRelMap[column.Name] = typeName
 		default:
 			panic(fmt.Sprintf("cannot process schema changes for unknown type system %s", prevSchema.System))
 		}

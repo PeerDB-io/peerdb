@@ -28,6 +28,7 @@ const (
 	QValueKindStruct      QValueKind = "struct"
 	QValueKindQChar       QValueKind = "qchar"
 	QValueKindString      QValueKind = "string"
+	QValueKindEnum        QValueKind = "enum"
 	QValueKindTimestamp   QValueKind = "timestamp"
 	QValueKindTimestampTZ QValueKind = "timestamptz"
 	QValueKindDate        QValueKind = "date"
@@ -57,6 +58,7 @@ const (
 	QValueKindArrayInt32       QValueKind = "array_int32"
 	QValueKindArrayInt64       QValueKind = "array_int64"
 	QValueKindArrayString      QValueKind = "array_string"
+	QValueKindArrayEnum        QValueKind = "array_enum"
 	QValueKindArrayDate        QValueKind = "array_date"
 	QValueKindArrayTimestamp   QValueKind = "array_timestamp"
 	QValueKindArrayTimestampTZ QValueKind = "array_timestamptz"
@@ -84,6 +86,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindFloat64:     "FLOAT",
 	QValueKindQChar:       "CHAR",
 	QValueKindString:      "STRING",
+	QValueKindEnum:        "STRING",
 	QValueKindJSON:        "VARIANT",
 	QValueKindJSONB:       "VARIANT",
 	QValueKindTimestamp:   "TIMESTAMP_NTZ",
@@ -108,6 +111,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindArrayInt64:       "VARIANT",
 	QValueKindArrayInt16:       "VARIANT",
 	QValueKindArrayString:      "VARIANT",
+	QValueKindArrayEnum:        "VARIANT",
 	QValueKindArrayDate:        "VARIANT",
 	QValueKindArrayTimestamp:   "VARIANT",
 	QValueKindArrayTimestampTZ: "VARIANT",
@@ -131,6 +135,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindFloat64:     "Float64",
 	QValueKindQChar:       "FixedString(1)",
 	QValueKindString:      "String",
+	QValueKindEnum:        "LowCardinality(String)",
 	QValueKindJSON:        "String",
 	QValueKindTimestamp:   "DateTime64(6)",
 	QValueKindTimestampTZ: "DateTime64(6)",
@@ -150,6 +155,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindArrayInt32:       "Array(Int32)",
 	QValueKindArrayInt64:       "Array(Int64)",
 	QValueKindArrayString:      "Array(String)",
+	QValueKindArrayEnum:        "Array(LowCardinality(String))",
 	QValueKindArrayBoolean:     "Array(Bool)",
 	QValueKindArrayDate:        "Array(Date)",
 	QValueKindArrayTimestamp:   "Array(DateTime64(6))",

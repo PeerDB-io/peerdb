@@ -145,15 +145,7 @@ func TestAllDataTypes(t *testing.T) {
 	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 	// Select the row back out of the table
-	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	rows, err := qe.ExecuteQuery(t.Context(), query)
-	require.NoError(t, err, "error while executing query")
-	defer rows.Close()
-
-	// Use rows.FieldDescriptions() to get field descriptions
-	fieldDescriptions := rows.FieldDescriptions()
-
-	batch, err := qe.ProcessRows(ctx, rows, fieldDescriptions)
+	batch, err := qe.ExecuteAndProcessQuery(t.Context(), fmt.Sprintf("SELECT * FROM %s.test;", schemaName))
 	require.NoError(t, err, "error while processing rows")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 
