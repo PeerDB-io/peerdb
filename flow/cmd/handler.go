@@ -287,13 +287,12 @@ func (h *FlowRequestHandler) shutdownFlow(
 		TypedSearchAttributes: shared.NewSearchAttributes(flowJobName),
 	}
 
-	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,
-		peerflow.DropFlowWorkflow, &protos.DropFlowInput{
-			FlowJobName:           flowJobName,
-			DropFlowStats:         deleteStats,
-			FlowConnectionConfigs: cdcConfig,
-			SkipDestinationDrop:   skipDestinationDrop,
-		})
+	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowJobName,
+		DropFlowStats:         deleteStats,
+		FlowConnectionConfigs: cdcConfig,
+		SkipDestinationDrop:   skipDestinationDrop,
+	})
 	if err != nil {
 		slog.Error("unable to start DropFlow workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
@@ -352,43 +351,37 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
-		err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
+		if err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
 			h.temporalClient,
 			workflowID,
 			"",
 			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
-		)
-		if err != nil {
+		); err != nil {
 			slog.Error("unable to signal workflow", logs, slog.Any("error", err))
 			return nil, fmt.Errorf("unable to signal workflow: %w", err)
 		}
 	}
 
-	if req.RequestedFlowState != protos.FlowStatus_STATUS_UNKNOWN {
-		if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
-			currState == protos.FlowStatus_STATUS_RUNNING {
-			slog.Info("[flow-state-change] received pause request", logs)
-			err = model.FlowSignal.SignalClientWorkflow(
-				ctx,
-				h.temporalClient,
-				workflowID,
-				"",
-				model.PauseSignal,
-			)
-		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING && currState == protos.FlowStatus_STATUS_PAUSED {
-			slog.Info("[flow-state-change] received resume request", logs)
-			err = model.FlowSignal.SignalClientWorkflow(
-				ctx,
-				h.temporalClient,
-				workflowID,
-				"",
-				model.NoopSignal,
-			)
-		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATED {
-			slog.Info("[flow-state-change] received drop mirror request", logs)
-			err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
-		} else if req.RequestedFlowState != currState {
+	slog.Info("[flow-state-change] received request", logs,
+		slog.Any("requestedFlowState", req.RequestedFlowState), slog.Any("currState", currState))
+	if req.RequestedFlowState != currState {
+		switch req.RequestedFlowState {
+		case protos.FlowStatus_STATUS_PAUSED:
+			if currState == protos.FlowStatus_STATUS_RUNNING {
+				err = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
+			}
+		case protos.FlowStatus_STATUS_RUNNING:
+			if currState == protos.FlowStatus_STATUS_PAUSED {
+				err = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
+			}
+		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_RESYNC:
+			err = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+		case protos.FlowStatus_STATUS_TERMINATED:
+			if currState != protos.FlowStatus_STATUS_TERMINATED {
+				err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
+			}
+		default:
 			slog.Error("illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
 				slog.Any("currState", currState))
 			return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
