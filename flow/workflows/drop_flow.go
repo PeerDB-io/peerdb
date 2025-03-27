@@ -22,6 +22,16 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 	})
 	ctx = workflow.WithDataConverter(ctx, converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
 
+	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+		if input.Resync {
+			return protos.FlowStatus_STATUS_RESYNC, nil
+		} else {
+			return protos.FlowStatus_STATUS_TERMINATING, nil
+		}
+	}); err != nil {
+		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
+	}
+
 	var sourceError, destinationError error
 	var sourceOk, destinationOk, canceled bool
 	var sourceTries, destinationTries int
@@ -106,8 +116,17 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 	for !sourceOk || !destinationOk {
 		selector.Select(ctx)
 		if canceled {
+			if input.Resync {
+				break
+			}
 			return errors.Join(ctx.Err(), sourceError, destinationError)
 		}
+	}
+	if input.Resync {
+		input.FlowConnectionConfigs.Resync = true
+		input.FlowConnectionConfigs.DoInitialSnapshot = true
+		// TODO need to update catalog etc, copy FlowRequestHandler CreateCDCFlow logic to activity
+		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, input.FlowConnectionConfigs, nil)
 	}
 	return nil
 }
