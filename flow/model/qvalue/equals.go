@@ -79,6 +79,8 @@ func Equals(qv QValue, other QValue) bool {
 		return false
 	case QValueString:
 		return compareString(q.Val, otherValue)
+	case QValueEnum:
+		return compareString(q.Val, otherValue)
 	case QValueINET:
 		return compareString(q.Val, otherValue)
 	case QValueCIDR:
