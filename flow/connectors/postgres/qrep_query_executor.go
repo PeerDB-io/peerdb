@@ -315,38 +315,12 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	}
 
 	for i, fd := range fds {
-		// Check if it's a custom type first
-		typeName, ok := qe.customTypeMapping[fd.DataTypeOID]
-		if !ok {
-			tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i], qe.customTypeMapping)
-			if err != nil {
-				qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
-				return nil, fmt.Errorf("failed to parse field: %w", err)
-			}
-			record[i] = tmp
-		} else {
-			customQKind := customTypeToQKind(typeName)
-			if values[i] == nil {
-				record[i] = qvalue.QValueNull(customQKind)
-			} else {
-				switch customQKind {
-				case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
-					wkbString, ok := values[i].(string)
-					wkt, err := datatypes.GeoValidate(wkbString)
-					if err != nil || !ok {
-						record[i] = qvalue.QValueNull(qvalue.QValueKindGeography)
-					} else if customQKind == qvalue.QValueKindGeography {
-						record[i] = qvalue.QValueGeography{Val: wkt}
-					} else {
-						record[i] = qvalue.QValueGeometry{Val: wkt}
-					}
-				case qvalue.QValueKindHStore:
-					record[i] = qvalue.QValueHStore{Val: fmt.Sprint(values[i])}
-				case qvalue.QValueKindString:
-					record[i] = qvalue.QValueString{Val: fmt.Sprint(values[i])}
-				}
-			}
+		tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i], qe.customTypeMapping)
+		if err != nil {
+			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to parse field: %w", err)
 		}
+		record[i] = tmp
 	}
 
 	return record, nil

@@ -53,7 +53,7 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 
 	values := make([]any, len(src.currentRecord))
 	for i, qValue := range src.currentRecord {
-		if qValue.Value() == nil {
+		if qValue == nil || qValue.Value() == nil {
 			values[i] = nil
 			continue
 		}
