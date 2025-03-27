@@ -143,6 +143,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	if input.FlowConnectionConfigs != nil {
 		contextMetadataInput.SourceName = input.FlowConnectionConfigs.SourceName
 		contextMetadataInput.DestinationName = input.FlowConnectionConfigs.DestinationName
+		contextMetadataInput.IsResync = input.Resync
 	}
 	ctx, err := GetFlowMetadataContext(ctx, contextMetadataInput)
 	if err != nil {
