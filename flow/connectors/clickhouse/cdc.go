@@ -225,12 +225,20 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	if err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName); err != nil {
 		return fmt.Errorf("[clickhouse] unable to clear metadata for sync flow cleanup: %w", err)
 	}
+	c.logger.Info("successfully cleared metadata for flow " + jobName)
 
 	// delete raw table if exists
 	rawTableIdentifier := c.getRawTableName(jobName)
 	if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier)); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
+	c.logger.Info("successfully dropped raw table " + rawTableIdentifier)
+
+	// clear avro stage for this flow
+	if err := DeleteAvroStageForFlow(ctx, jobName); err != nil {
+		return fmt.Errorf("[clickhouse] unable to clear avro stage: %w", err)
+	}
+	c.logger.Info("successfully cleared avro stage for flow " + jobName)
 
 	return nil
 }

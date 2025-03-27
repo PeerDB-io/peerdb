@@ -66,3 +66,20 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (*
 
 	return &avroFile, nil
 }
+
+func DeleteAvroStageForFlow(ctx context.Context, flowJobName string) error {
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get connection for clearing avro stage: %w", err)
+	}
+
+	if _, err := conn.Exec(ctx, `
+		DELETE FROM ch_s3_stage
+		WHERE flow_job_name = $1`,
+		flowJobName,
+	); err != nil {
+		return fmt.Errorf("failed to clear avro stage for flow %s: %w", flowJobName, err)
+	}
+
+	return nil
+}
