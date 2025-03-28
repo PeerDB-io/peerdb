@@ -149,11 +149,15 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 				return qvalue.QValueKindString
 			}
 		} else {
+			colType := qvalue.QValueKindString
+			if typeData, ok := customTypeMapping[recvOID]; ok {
+				colType = customTypeToQKind(typeData)
+			}
 			if _, warned := c.hushWarnOID[recvOID]; !warned {
-				c.logger.Warn(fmt.Sprintf("unsupported field type: %d - type name - %s; returning as string", recvOID, typeName.Name))
+				c.logger.Warn(fmt.Sprintf("unsupported field type: %d - type name - %s; returning as %s", recvOID, typeName.Name, colType))
 				c.hushWarnOID[recvOID] = struct{}{}
 			}
-			return qvalue.QValueKindString
+			return colType
 		}
 	}
 }
