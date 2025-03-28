@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"strings"
@@ -124,40 +125,30 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	case pgtype.TstzrangeOID:
 		return qvalue.QValueKindTSTZRange
 	default:
-		typeName, ok := c.typeMap.TypeForOID(recvOID)
-		if !ok {
+		if typeName, ok := c.typeMap.TypeForOID(recvOID); ok {
+			colType := qvalue.QValueKindString
+			if typeData, ok := customTypeMapping[recvOID]; ok {
+				colType = customTypeToQKind(typeData)
+			}
+			if _, warned := c.hushWarnOID[recvOID]; !warned {
+				c.logger.Warn("unsupported field type",
+					slog.Int64("oid", int64(recvOID)), slog.String("typeName", typeName.Name), slog.String("mapping", string(colType)))
+				c.hushWarnOID[recvOID] = struct{}{}
+			}
+			return colType
+		} else {
 			// workaround for some types not being defined by pgtype
 			switch oid.Oid(recvOID) {
 			case oid.T_timetz:
 				return qvalue.QValueKindTimeTZ
 			case oid.T_point:
 				return qvalue.QValueKindPoint
-			case oid.T_xml:
-				return qvalue.QValueKindString
-			case oid.T_money:
-				return qvalue.QValueKindString
-			case oid.T_txid_snapshot:
-				return qvalue.QValueKindString
-			case oid.T_tsvector:
-				return qvalue.QValueKindString
-			case oid.T_tsquery:
-				return qvalue.QValueKindString
 			default:
 				if typeData, ok := customTypeMapping[recvOID]; ok {
 					return customTypeToQKind(typeData)
 				}
 				return qvalue.QValueKindString
 			}
-		} else {
-			colType := qvalue.QValueKindString
-			if typeData, ok := customTypeMapping[recvOID]; ok {
-				colType = customTypeToQKind(typeData)
-			}
-			if _, warned := c.hushWarnOID[recvOID]; !warned {
-				c.logger.Warn(fmt.Sprintf("unsupported field type: %d - type name - %s; returning as %s", recvOID, typeName.Name, colType))
-				c.hushWarnOID[recvOID] = struct{}{}
-			}
-			return colType
 		}
 	}
 }
@@ -178,7 +169,7 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "DOUBLE PRECISION"
 	case qvalue.QValueKindQChar:
 		return "\"char\""
-	case qvalue.QValueKindString:
+	case qvalue.QValueKindString, qvalue.QValueKindEnum:
 		return "TEXT"
 	case qvalue.QValueKindBytes:
 		return "BYTEA"
@@ -228,7 +219,7 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "TIMESTAMPTZ[]"
 	case qvalue.QValueKindArrayBoolean:
 		return "BOOLEAN[]"
-	case qvalue.QValueKindArrayString:
+	case qvalue.QValueKindArrayString, qvalue.QValueKindArrayEnum:
 		return "TEXT[]"
 	case qvalue.QValueKindArrayJSON:
 		return "JSON[]"
@@ -453,6 +444,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 	case qvalue.QValueKindString:
 		// handling all unsupported types with strings as well for now.
 		return qvalue.QValueString{Val: fmt.Sprint(value)}, nil
+	case qvalue.QValueKindEnum:
+		return qvalue.QValueEnum{Val: fmt.Sprint(value)}, nil
 	case qvalue.QValueKindUUID:
 		tmp, err := parseUUID(value)
 		if err != nil {
@@ -559,6 +552,12 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 			return nil, err
 		}
 		return qvalue.QValueArrayString{Val: a}, nil
+	case qvalue.QValueKindArrayEnum:
+		a, err := convertToArray[string](qvalueKind, value)
+		if err != nil {
+			return nil, err
+		}
+		return qvalue.QValueArrayEnum{Val: a}, nil
 	case qvalue.QValueKindPoint:
 		coord := value.(pgtype.Point).P
 		return qvalue.QValuePoint{
