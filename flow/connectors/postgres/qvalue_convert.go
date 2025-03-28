@@ -146,7 +146,7 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 				if typeData, ok := customTypeMapping[recvOID]; ok {
 					return customTypeToQKind(typeData)
 				}
-				return qvalue.QValueKindInvalid
+				return qvalue.QValueKindString
 			}
 		} else {
 			if _, warned := c.hushWarnOID[recvOID]; !warned {

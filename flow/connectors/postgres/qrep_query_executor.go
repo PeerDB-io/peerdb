@@ -73,33 +73,22 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) qvalue.QRecordSchema {
 	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
-		cname := fd.Name
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping)
-		if ctype == qvalue.QValueKindInvalid {
-			typeName, ok := qe.customTypeMapping[fd.DataTypeOID]
-			if ok {
-				ctype = customTypeToQKind(typeName)
-			} else {
-				ctype = qvalue.QValueKindString
-			}
-		}
 		// there isn't a way to know if a column is nullable or not
-		// TODO fix this.
-		cnullable := true
 		if ctype == qvalue.QValueKindNumeric {
 			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = qvalue.QField{
-				Name:      cname,
+				Name:      fd.Name,
 				Type:      ctype,
-				Nullable:  cnullable,
+				Nullable:  true,
 				Precision: precision,
 				Scale:     scale,
 			}
 		} else {
 			qfields[i] = qvalue.QField{
-				Name:     cname,
+				Name:     fd.Name,
 				Type:     ctype,
-				Nullable: cnullable,
+				Nullable: true,
 			}
 		}
 	}
