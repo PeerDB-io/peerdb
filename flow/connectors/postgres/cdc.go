@@ -233,48 +233,38 @@ func (p *PostgresCDCSource) decodeColumnData(
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
-		if dt.Name == "uuid" || dt.Name == "cidr" || dt.Name == "inet" || dt.Name == "macaddr" || dt.Name == "xml" {
+		dtOid := oid.Oid(dt.OID)
+		if dtOid == oid.T_cidr || dtOid == oid.T_inet || dtOid == oid.T_macaddr || dtOid == oid.T_xml {
 			// below is required to decode above types to string
 			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
 		} else {
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
 		if err != nil {
-			if dt.Name == "time" || dt.Name == "timetz" ||
-				dt.Name == "timestamp" || dt.Name == "timestamptz" {
+			if dtOid == oid.T_time || dtOid == oid.T_timetz ||
+				dtOid == oid.T_timestamp || dtOid == oid.T_timestamptz {
 				// indicates year is more than 4 digits or something similar,
 				// which you can insert into postgres,
 				// but not representable by time.Time
 				p.logger.Warn(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
 					dt.Name, string(data)))
-				switch dt.Name {
-				case "time":
+				switch dtOid {
+				case oid.T_time:
 					return qvalue.QValueNull(qvalue.QValueKindTime), nil
-				case "timetz":
+				case oid.T_timetz:
 					return qvalue.QValueNull(qvalue.QValueKindTimeTZ), nil
-				case "timestamp":
+				case oid.T_timestamp:
 					return qvalue.QValueNull(qvalue.QValueKindTimestamp), nil
-				case "timestamptz":
+				case oid.T_timestamptz:
 					return qvalue.QValueNull(qvalue.QValueKindTimestampTZ), nil
 				}
 			}
 			return nil, err
 		}
-		retVal, err := p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping)
-		if err != nil {
-			return nil, err
-		}
-		return retVal, nil
+		return p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping)
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
-		retVal, err := p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
-		if err != nil {
-			return nil, err
-		}
-		return retVal, nil
-	}
-
-	typeName, ok := customTypeMapping[dataType]
-	if ok {
+		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
+	} else if typeName, ok := customTypeMapping[dataType]; ok {
 		customQKind := customTypeToQKind(typeName)
 		switch customQKind {
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
@@ -290,6 +280,8 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return qvalue.QValueHStore{Val: string(data)}, nil
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(data)}, nil
+		case qvalue.QValueKindEnum:
+			return qvalue.QValueEnum{Val: string(data)}, nil
 		default:
 			return nil, fmt.Errorf("unknown custom qkind: %s", customQKind)
 		}
