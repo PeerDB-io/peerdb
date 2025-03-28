@@ -108,9 +108,7 @@ func GetAvroSchemaFromQValueKind(
 	scale int16,
 ) (any, error) {
 	switch kind {
-	case QValueKindString:
-		return "string", nil
-	case QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
+	case QValueKindString, QValueKindEnum, QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
 		return "string", nil
 	case QValueKindInterval:
 		return "string", nil
@@ -252,7 +250,7 @@ func GetAvroSchemaFromQValueKind(
 		}, nil
 	case QValueKindArrayJSON, QValueKindArrayJSONB:
 		return "string", nil
-	case QValueKindArrayString:
+	case QValueKindArrayString, QValueKindArrayEnum:
 		return AvroSchemaArray{
 			Type:  "array",
 			Items: "string",
@@ -380,7 +378,7 @@ func QValueToAvro(
 		return t, nil
 	case QValueQChar:
 		return c.processNullableUnion("string", string(v.Val))
-	case QValueString, QValueCIDR, QValueINET, QValueMacaddr, QValueInterval, QValueTSTZRange:
+	case QValueString, QValueCIDR, QValueINET, QValueMacaddr, QValueInterval, QValueTSTZRange, QValueEnum:
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
 			slog.Warn("Clearing TEXT value > 15MB for Snowflake!")
@@ -438,6 +436,8 @@ func QValueToAvro(
 	case QValueArrayInt64:
 		return c.processArrayInt64(v.Val), nil
 	case QValueArrayString:
+		return c.processArrayString(v.Val), nil
+	case QValueArrayEnum:
 		return c.processArrayString(v.Val), nil
 	case QValueArrayBoolean:
 		return c.processArrayBoolean(v.Val), nil

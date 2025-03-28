@@ -247,6 +247,8 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		}
 	case qvalue.QValueKindString:
 		newqv = qvalue.QValueString{Val: lua.LVAsString(val)}
+	case qvalue.QValueKindEnum:
+		newqv = qvalue.QValueEnum{Val: lua.LVAsString(val)}
 	case qvalue.QValueKindTimestamp:
 		newqv = qvalue.QValueTimestamp{Val: LVAsTime(ls, val)}
 	case qvalue.QValueKindTimestampTZ:
@@ -320,6 +322,14 @@ func LuaRowNewIndex(ls *lua.LState) int {
 	case qvalue.QValueKindArrayString:
 		if tbl, ok := val.(*lua.LTable); ok {
 			newqv = qvalue.QValueArrayString{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) string {
+					return lua.LVAsString(v)
+				}),
+			}
+		}
+	case qvalue.QValueKindArrayEnum:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayEnum{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) string {
 					return lua.LVAsString(v)
 				}),

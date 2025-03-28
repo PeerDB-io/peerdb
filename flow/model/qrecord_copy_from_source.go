@@ -5,25 +5,19 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
 	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
-func constructArray[T any](qValue qvalue.QValue, typeName string) (*pgtype.Array[T], error) {
-	v, ok := qValue.Value().([]T)
-	if !ok {
-		return nil, fmt.Errorf("invalid %s value", typeName)
-	}
+func constructArray[T any](v []T) *pgtype.Array[T] {
 	return &pgtype.Array[T]{
 		Elements: v,
 		Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
 		Valid:    true,
-	}, nil
+	}
 }
 
 type QRecordCopyFromSource struct {
@@ -53,7 +47,7 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 
 	values := make([]any, len(src.currentRecord))
 	for i, qValue := range src.currentRecord {
-		if qValue.Value() == nil {
+		if qValue == nil || qValue.Value() == nil {
 			values[i] = nil
 			continue
 		}
@@ -85,12 +79,14 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 			values[i] = rune(v.Val)
 		case qvalue.QValueString:
 			values[i] = v.Val
-		case qvalue.QValueCIDR, qvalue.QValueINET, qvalue.QValueMacaddr:
-			str, ok := v.Value().(string)
-			if !ok {
-				return nil, errors.New("invalid INET/CIDR/MACADDR value")
-			}
-			values[i] = str
+		case qvalue.QValueEnum:
+			values[i] = v.Val
+		case qvalue.QValueCIDR:
+			values[i] = v.Val
+		case qvalue.QValueINET:
+			values[i] = v.Val
+		case qvalue.QValueMacaddr:
+			values[i] = v.Val
 		case qvalue.QValueTime:
 			values[i] = pgtype.Time{Microseconds: v.Val.UnixMicro(), Valid: true}
 		case qvalue.QValueTSTZRange:
@@ -101,12 +97,6 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 			values[i] = pgtype.Timestamptz{Time: v.Val, Valid: true}
 		case qvalue.QValueUUID:
 			values[i] = v.Val
-		case qvalue.QValueArrayUUID:
-			a, err := constructArray[uuid.UUID](qValue, "ArrayUUID")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
 		case qvalue.QValueNumeric:
 			values[i] = v.Val
 		case qvalue.QValueBytes:
@@ -135,69 +125,39 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 
 			values[i] = wkb
 		case qvalue.QValueArrayString:
-			a, err := constructArray[string](qValue, "ArrayString")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
-		case qvalue.QValueArrayDate, qvalue.QValueArrayTimestamp, qvalue.QValueArrayTimestampTZ:
-			a, err := constructArray[time.Time](qValue, "ArrayTime")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
+			values[i] = constructArray(v.Val)
+		case qvalue.QValueArrayEnum:
+			values[i] = constructArray(v.Val)
+		case qvalue.QValueArrayDate:
+			values[i] = constructArray(v.Val)
+		case qvalue.QValueArrayTimestamp:
+			values[i] = constructArray(v.Val)
+		case qvalue.QValueArrayTimestampTZ:
+			values[i] = constructArray(v.Val)
 		case qvalue.QValueArrayInt16:
-			a, err := constructArray[int16](qValue, "ArrayInt16")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
+			values[i] = constructArray(v.Val)
 		case qvalue.QValueArrayInt32:
-			a, err := constructArray[int32](qValue, "ArrayInt32")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
+			values[i] = constructArray(v.Val)
 		case qvalue.QValueArrayInt64:
-			a, err := constructArray[int64](qValue, "ArrayInt64")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
+			values[i] = constructArray(v.Val)
 		case qvalue.QValueArrayFloat32:
-			a, err := constructArray[float32](qValue, "ArrayFloat32")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
+			values[i] = constructArray(v.Val)
 		case qvalue.QValueArrayFloat64:
-			a, err := constructArray[float64](qValue, "ArrayFloat64")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
+			values[i] = constructArray(v.Val)
 		case qvalue.QValueArrayBoolean:
-			a, err := constructArray[bool](qValue, "ArrayBool")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
+			values[i] = constructArray(v.Val)
+		case qvalue.QValueArrayUUID:
+			values[i] = constructArray(v.Val)
 		case qvalue.QValueJSON:
 			if v.IsArray {
 				var arrayJ []any
-				if err := json.Unmarshal([]byte(v.Value().(string)), &arrayJ); err != nil {
+				if err := json.Unmarshal([]byte(v.Val), &arrayJ); err != nil {
 					return nil, fmt.Errorf("failed to unmarshal JSON array: %v", err)
 				}
 
 				values[i] = arrayJ
 			} else {
-				values[i] = v.Value()
+				values[i] = v.Val
 			}
 		// And so on for the other types...
 		default:
