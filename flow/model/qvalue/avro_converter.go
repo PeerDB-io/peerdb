@@ -250,7 +250,7 @@ func GetAvroSchemaFromQValueKind(
 		}, nil
 	case QValueKindArrayJSON, QValueKindArrayJSONB:
 		return "string", nil
-	case QValueKindArrayString:
+	case QValueKindArrayString, QValueKindArrayEnum:
 		return AvroSchemaArray{
 			Type:  "array",
 			Items: "string",
