@@ -36,7 +36,7 @@ type CustomDataType struct {
 
 func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomDataType, error) {
 	rows, err := conn.Query(ctx, `
-		SELECT t.oid, t.typname, t.typtype, coalesce(at.typdelim, 0::"char")
+		SELECT t.oid, t.typname, coalesce(at.typtype, t.typtype), coalesce(at.typdelim, 0::"char")
 		FROM pg_catalog.pg_type t
 		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
 		LEFT JOIN pg_catalog.pg_class c ON c.oid = t.typrelid
