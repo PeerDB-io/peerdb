@@ -308,7 +308,10 @@ func convertToArray[T any](kind qvalue.QValueKind, value any) ([]T, error) {
 	return nil, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
 
-func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.QValue, error) {
+func (c *PostgresConnector) parseFieldFromPostgresOID(
+	oid uint32, value any, customTypeMapping map[uint32]shared.CustomDataType,
+) (qvalue.QValue, error) {
+	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping)
 	if value == nil {
 		return qvalue.QValueNull(qvalueKind), nil
 	}
@@ -547,17 +550,33 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 		}
 		return qvalue.QValueArrayBoolean{Val: a}, nil
 	case qvalue.QValueKindArrayString:
-		a, err := convertToArray[string](qvalueKind, value)
-		if err != nil {
-			return nil, err
+		if str, ok := value.(string); ok {
+			delim := byte(',')
+			if typeData, ok := customTypeMapping[oid]; ok {
+				delim = typeData.Delim
+			}
+			return qvalue.QValueArrayString{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
+		} else {
+			a, err := convertToArray[string](qvalueKind, value)
+			if err != nil {
+				return nil, err
+			}
+			return qvalue.QValueArrayString{Val: a}, nil
 		}
-		return qvalue.QValueArrayString{Val: a}, nil
 	case qvalue.QValueKindArrayEnum:
-		a, err := convertToArray[string](qvalueKind, value)
-		if err != nil {
-			return nil, err
+		if str, ok := value.(string); ok {
+			delim := byte(',')
+			if typeData, ok := customTypeMapping[oid]; ok {
+				delim = typeData.Delim
+			}
+			return qvalue.QValueArrayString{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
+		} else {
+			a, err := convertToArray[string](qvalueKind, value)
+			if err != nil {
+				return nil, err
+			}
+			return qvalue.QValueArrayEnum{Val: a}, nil
 		}
-		return qvalue.QValueArrayEnum{Val: a}, nil
 	case qvalue.QValueKindPoint:
 		coord := value.(pgtype.Point).P
 		return qvalue.QValuePoint{
@@ -583,12 +602,6 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 
 	// parsing into pgtype failed.
 	return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
-}
-
-func (c *PostgresConnector) parseFieldFromPostgresOID(
-	oid uint32, value any, customTypeMapping map[uint32]shared.CustomDataType,
-) (qvalue.QValue, error) {
-	return parseFieldFromQValueKind(c.postgresOIDToQValueKind(oid, customTypeMapping), value)
 }
 
 func numericToDecimal(numVal pgtype.Numeric) (qvalue.QValue, error) {
