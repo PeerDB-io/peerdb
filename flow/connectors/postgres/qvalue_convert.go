@@ -573,8 +573,7 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 			return qvalue.QValueGeometry{Val: wkt}, nil
 		}
 	default:
-		textVal, ok := value.(string)
-		if ok {
+		if textVal, ok := value.(string); ok {
 			return qvalue.QValueString{Val: textVal}, nil
 		}
 	}
@@ -603,14 +602,14 @@ func numericToDecimal(numVal pgtype.Numeric) (qvalue.QValue, error) {
 
 func customTypeToQKind(typeData shared.CustomDataType) qvalue.QValueKind {
 	if typeData.Type == 'e' {
-		if typeData.IsArray {
+		if typeData.Delim != 0 {
 			return qvalue.QValueKindArrayEnum
 		} else {
 			return qvalue.QValueKindEnum
 		}
 	}
 
-	if typeData.IsArray {
+	if typeData.Delim != 0 {
 		return qvalue.QValueKindArrayString
 	}
 

@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -28,14 +29,14 @@ const (
 )
 
 type CustomDataType struct {
-	Name    string
-	Type    byte
-	IsArray bool
+	Name  string
+	Type  byte
+	Delim byte // non-zero character for arrays
 }
 
 func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomDataType, error) {
 	rows, err := conn.Query(ctx, `
-		SELECT t.oid, t.typname, t.typtype, (at.oid is not null) as isarr
+		SELECT t.oid, t.typname, t.typtype, coalesce(at.typdelim, 0::"char")
 		FROM pg_catalog.pg_type t
 		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
 		LEFT JOIN pg_catalog.pg_class c ON c.oid = t.typrelid
@@ -50,7 +51,7 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomD
 	customTypeMap := map[uint32]CustomDataType{}
 	var typeID pgtype.Uint32
 	var cdt CustomDataType
-	if _, err := pgx.ForEachRow(rows, []any{&typeID, &cdt.Name, &cdt.Type, &cdt.IsArray}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&typeID, &cdt.Name, &cdt.Type, &cdt.Delim}, func() error {
 		customTypeMap[typeID.Uint32] = cdt
 		return nil
 	}); err != nil {
@@ -265,4 +266,76 @@ func (tx CatalogTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.R
 
 func (tx CatalogTx) Conn() *pgx.Conn {
 	return tx.Tx.Conn()
+}
+
+const (
+	psSearch = iota
+	psSearch2
+	psQuoted
+	psQuotedEscape
+	psUnquoted
+	psUnquotedEscape
+)
+
+// see array_in from postgres
+func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
+	var result []string
+	var sb []byte
+	ps := psSearch
+	var i int
+	for ; i < len(data); i++ {
+		ch := data[i]
+		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\v' || ch == '\f' || ch == '\r' {
+			continue
+		} else if ch == '[' {
+			i = bytes.IndexByte(data, ']')
+			break
+		}
+	}
+	for ; i < len(data); i++ {
+		ch := data[i]
+		switch ps {
+		case psSearch:
+			if ch == delim {
+				result = append(result, "")
+			} else if ch == '{' || ch == '}' || ch == ' ' || ch == '\t' || ch == '\n' || ch == '\v' || ch == '\f' || ch == '\r' {
+			} else if ch == '}' {
+				ps = psSearch2
+			} else {
+				sb = append(sb, ch)
+				ps = psUnquoted
+			}
+		case psSearch2:
+			if ch == '{' {
+				ps = psSearch
+			}
+		case psQuoted:
+			if ch == '\\' {
+				ps = psQuotedEscape
+			} else if ch == '"' {
+				ps = psUnquoted
+			} else {
+				sb = append(sb, ch)
+			}
+		case psUnquoted:
+			if ch == '\\' {
+				ps = psUnquotedEscape
+			} else if ch == '"' {
+				ps = psQuoted
+			} else if ch == delim || ch == '}' {
+				result = append(result, string(sb))
+				sb = sb[:0]
+				ps = psSearch
+			} else {
+				sb = append(sb, ch)
+			}
+		case psQuotedEscape:
+			sb = append(sb, ch)
+			ps = psQuoted
+		case psUnquotedEscape:
+			sb = append(sb, ch)
+			ps = psUnquoted
+		}
+	}
+	return result
 }

@@ -236,7 +236,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 		dtOid := oid.Oid(dt.OID)
 		if dtOid == oid.T_cidr || dtOid == oid.T_inet || dtOid == oid.T_macaddr || dtOid == oid.T_xml {
 			// below is required to decode above types to string
-			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
+			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, formatCode, data)
 		} else {
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
@@ -264,8 +264,8 @@ func (p *PostgresCDCSource) decodeColumnData(
 		return p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping)
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
 		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
-	} else if typeName, ok := customTypeMapping[dataType]; ok {
-		customQKind := customTypeToQKind(typeName)
+	} else if typeData, ok := customTypeMapping[dataType]; ok {
+		customQKind := customTypeToQKind(typeData)
 		switch customQKind {
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
@@ -282,6 +282,10 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return qvalue.QValueString{Val: string(data)}, nil
 		case qvalue.QValueKindEnum:
 			return qvalue.QValueEnum{Val: string(data)}, nil
+		case qvalue.QValueKindArrayString:
+			return qvalue.QValueArrayString{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
+		case qvalue.QValueKindArrayEnum:
+			return qvalue.QValueArrayEnum{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
 		default:
 			return nil, fmt.Errorf("unknown custom qkind: %s", customQKind)
 		}
