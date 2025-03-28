@@ -211,7 +211,11 @@ func (kind QValueKind) ToDWHColumnType(
 			colType = "String"
 		}
 		if nullableEnabled && column.Nullable && !kind.IsArray() {
-			colType = fmt.Sprintf("Nullable(%s)", colType)
+			if colType == "LowCardinality(String)" {
+				colType = "LowCardinality(Nullable(String))"
+			} else {
+				colType = fmt.Sprintf("Nullable(%s)", colType)
+			}
 		}
 	default:
 		return "", fmt.Errorf("unknown dwh type: %v", dwhType)
