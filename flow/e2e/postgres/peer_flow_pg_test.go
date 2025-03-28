@@ -188,9 +188,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-			INSERT INTO %s(my_mood, my_null_mood, moods) VALUES ('happy',null,'{happy,angry}')
-			`, srcTableName))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(my_mood, my_null_mood, moods) VALUES ('happy',null,'{happy,angry}')`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Inserted enums into the source table")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize enum", func() bool {
