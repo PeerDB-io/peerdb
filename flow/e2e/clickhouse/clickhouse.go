@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
@@ -257,6 +258,10 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				qrow = append(qrow, qvalue.QValueFloat64{Val: *v})
 			case *[]float32:
 				qrow = append(qrow, qvalue.QValueArrayFloat32{Val: *v})
+			case *uuid.UUID:
+				qrow = append(qrow, qvalue.QValueUUID{Val: *v})
+			case *[]uuid.UUID:
+				qrow = append(qrow, qvalue.QValueArrayUUID{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}
