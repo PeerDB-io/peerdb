@@ -278,6 +278,10 @@ const (
 )
 
 // see array_in from postgres
+func ParsePgArrayStringToStringSlice(data string, delim byte) []string {
+	return ParsePgArrayToStringSlice(UnsafeFastStringToReadOnlyBytes(data), delim)
+}
+
 func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 	var result []string
 	var sb []byte
