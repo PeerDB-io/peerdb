@@ -142,6 +142,16 @@ func Equals(qv QValue, other QValue) bool {
 		}
 
 		return compareArrays(q.Val, otherValue)
+	case QValueArrayEnum:
+		if qjson, ok := other.(QValueJSON); ok {
+			var val []string
+			if err := json.Unmarshal([]byte(qjson.Val), &val); err != nil {
+				return false
+			}
+			otherValue = val
+		}
+
+		return compareArrays(q.Val, otherValue)
 	default:
 		return false
 	}
