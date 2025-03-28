@@ -79,12 +79,14 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 			values[i] = rune(v.Val)
 		case qvalue.QValueString:
 			values[i] = v.Val
-		case qvalue.QValueCIDR, qvalue.QValueINET, qvalue.QValueMacaddr:
-			str, ok := v.Value().(string)
-			if !ok {
-				return nil, errors.New("invalid INET/CIDR/MACADDR value")
-			}
-			values[i] = str
+		case qvalue.QValueEnum:
+			values[i] = v.Val
+		case qvalue.QValueCIDR:
+			values[i] = v.Val
+		case qvalue.QValueINET:
+			values[i] = v.Val
+		case qvalue.QValueMacaddr:
+			values[i] = v.Val
 		case qvalue.QValueTime:
 			values[i] = pgtype.Time{Microseconds: v.Val.UnixMicro(), Valid: true}
 		case qvalue.QValueTSTZRange:

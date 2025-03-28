@@ -378,7 +378,7 @@ func QValueToAvro(
 		return t, nil
 	case QValueQChar:
 		return c.processNullableUnion("string", string(v.Val))
-	case QValueString, QValueCIDR, QValueINET, QValueMacaddr, QValueInterval, QValueTSTZRange:
+	case QValueString, QValueCIDR, QValueINET, QValueMacaddr, QValueInterval, QValueTSTZRange, QValueEnum:
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
 			slog.Warn("Clearing TEXT value > 15MB for Snowflake!")
@@ -436,6 +436,8 @@ func QValueToAvro(
 	case QValueArrayInt64:
 		return c.processArrayInt64(v.Val), nil
 	case QValueArrayString:
+		return c.processArrayString(v.Val), nil
+	case QValueArrayEnum:
 		return c.processArrayString(v.Val), nil
 	case QValueArrayBoolean:
 		return c.processArrayBoolean(v.Val), nil
