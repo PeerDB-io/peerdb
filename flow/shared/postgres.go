@@ -320,7 +320,11 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 			} else if ch == delim || ch == '}' {
 				result = append(result, string(sb))
 				sb = sb[:0]
-				ps = psSearch
+				if ch == '}' {
+					ps = psSearch2
+				} else {
+					ps = psSearch
+				}
 			} else {
 				sb = append(sb, ch)
 			}
