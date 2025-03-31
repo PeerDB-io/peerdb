@@ -286,9 +286,7 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 	var result []string
 	var sb []byte
 	ps := psSearch2
-	var i int
-	for i = 0; i < len(data); i++ {
-		ch := data[i]
+	for _, ch := range data {
 		switch ps {
 		case psSearch:
 			if ch == delim {
