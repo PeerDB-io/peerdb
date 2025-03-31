@@ -37,7 +37,7 @@ jobs:
           #  env:
           #    MARIADB_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:f3049dcb004ce1ccc0a8b3dc3c7d6ca1f32cb4d6d1da98a47874457dd8cb9907
+        image: redpandadata/redpanda@sha256:623a07b44f3b6508b327a4d18cdba8c9e7881dd9b3a362393e9a8df428c9294e
         ports:
           - 9092:9092
           - 9644:9644
@@ -66,7 +66,7 @@ jobs:
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@f111f3307d8850f501ac008e886eec1fd1932a34 # v5
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
         with:
           go-version: '1.24.1'
           cache-dependency-path: flow/go.sum
@@ -126,7 +126,7 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         id: cache-clickhouse
         with:
           path: ./clickhouse
@@ -152,10 +152,11 @@ jobs:
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
-          go test -cover -p 32 ./... -timeout 900s
+          ./peer-flow api --port 8112 --gateway-port 8113 &
+          go test -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
-          go tool covdata textfmt -i=coverage -o coverage.out
+          go tool covdata textfmt -i=coverage -o ../coverage.out
         working-directory: ./flow
         env:
           GOCOVERDIR: coverage
@@ -182,12 +183,6 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ENABLE_SQLSERVER_TESTS: "true"
-          SQLSERVER_HOST: ${{ secrets.SQLSERVER_HOST }}
-          SQLSERVER_PORT: ${{ secrets.SQLSERVER_PORT }}
-          SQLSERVER_USER: ${{ secrets.SQLSERVER_USER }}
-          SQLSERVER_PASSWORD: ${{ secrets.SQLSERVER_PASSWORD }}
-          SQLSERVER_DB: ${{ secrets.SQLSERVER_DB }}
           PEERDB_CATALOG_HOST: localhost
           PEERDB_CATALOG_PORT: 5432
           PEERDB_CATALOG_USER: postgres
@@ -201,4 +196,3 @@ jobs:
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          working-directory: ./flow

@@ -7,6 +7,7 @@ import {
   TableMapping,
 } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
+import { ColumnsItem } from '@/grpc_generated/route';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -44,9 +45,9 @@ interface SchemaBoxProps {
   schema: string;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
-  tableColumns: { tableName: string; columns: string[] }[];
+  tableColumns: { tableName: string; columns: ColumnsItem[] }[];
   setTableColumns: Dispatch<
-    SetStateAction<{ tableName: string; columns: string[] }[]>
+    SetStateAction<{ tableName: string; columns: ColumnsItem[] }[]>
   >;
   peerType?: DBType;
   alreadySelectedTables: TableMapping[] | undefined;
@@ -116,14 +117,14 @@ export default function SchemaBox({
 
   const addTableColumns = useCallback(
     (table: string) => {
-      const schemaName = table.split('.')[0];
-      const tableName = table.split('.')[1];
+      const [schemaName, tableName] = table.split('.');
 
       fetchColumns(sourcePeer, schemaName, tableName, setColumnsLoading).then(
         (res) => {
-          setTableColumns((prev) => {
-            return [...prev, { tableName: table, columns: res }];
-          });
+          setTableColumns((prev) => [
+            ...prev,
+            { tableName: table, columns: res },
+          ]);
         }
       );
     },
@@ -444,14 +445,7 @@ export default function SchemaBox({
                                 />
                                 <SelectSortingKeys
                                   columns={
-                                    columns?.map((column) => {
-                                      const [
-                                        columnName,
-                                        columnType,
-                                        isPkeyStr,
-                                      ] = column.split(':');
-                                      return columnName;
-                                    }) ?? []
+                                    columns?.map((column) => column.name) ?? []
                                   }
                                   loading={columnsLoading}
                                   tableRow={row}

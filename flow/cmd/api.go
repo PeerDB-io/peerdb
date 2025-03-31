@@ -148,17 +148,15 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 	}
 
 	gwmux := runtime.NewServeMux()
-	err = protos.RegisterFlowServiceHandler(context.Background(), gwmux, conn)
-	if err != nil {
+	if err := protos.RegisterFlowServiceHandler(context.Background(), gwmux, conn); err != nil {
 		return nil, fmt.Errorf("unable to register gateway: %w", err)
 	}
 
-	server := &http.Server{
+	return &http.Server{
 		Addr:              fmt.Sprintf(":%d", args.GatewayPort),
 		Handler:           gwmux,
 		ReadHeaderTimeout: 5 * time.Minute,
-	}
-	return server, nil
+	}, nil
 }
 
 func killExistingScheduleFlows(
@@ -178,9 +176,9 @@ func killExistingScheduleFlows(
 	slog.Info("Requesting cancellation of pre-existing scheduler flows")
 	for _, workflow := range listRes.Executions {
 		slog.Info("Cancelling workflow", slog.String("workflowId", workflow.Execution.WorkflowId))
-		err := tc.CancelWorkflow(ctx,
-			workflow.Execution.WorkflowId, workflow.Execution.RunId)
-		if err != nil && err.Error() != "workflow execution already completed" {
+		if err := tc.CancelWorkflow(
+			ctx, workflow.Execution.WorkflowId, workflow.Execution.RunId,
+		); err != nil && err.Error() != "workflow execution already completed" {
 			return fmt.Errorf("unable to cancel workflow: %w", err)
 		}
 	}
@@ -246,8 +244,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	flowHandler := NewFlowRequestHandler(tc, catalogPool, taskQueue)
 
-	err = killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue)
-	if err != nil {
+	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue); err != nil {
 		return fmt.Errorf("unable to kill existing scheduler flows: %w", err)
 	}
 
@@ -257,12 +254,11 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		TaskQueue: taskQueue,
 	}
 
-	_, err = flowHandler.temporalClient.ExecuteWorkflow(
+	if _, err := flowHandler.temporalClient.ExecuteWorkflow(
 		ctx,
 		workflowOptions,
 		peerflow.GlobalScheduleManagerWorkflow,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("unable to start scheduler workflow: %w", err)
 	}
 

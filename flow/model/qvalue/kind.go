@@ -175,7 +175,6 @@ func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]strin
 	return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
 }
 
-// SEE ALSO: QField ToDWHColumnType
 func (kind QValueKind) ToDWHColumnType(
 	ctx context.Context, env map[string]string, dwhType protos.DBType, column *protos.FieldDescription, nullableEnabled bool,
 ) (string, error) {

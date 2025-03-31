@@ -80,22 +80,12 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
-	getFlowStatus := func() protos.FlowStatus {
-		var flowStatus protos.FlowStatus
-		val, err := env.Query(s.t.Context(), shared.FlowStatusQuery)
-		e2e.EnvNoError(s.t, env, err)
-		e2e.EnvNoError(s.t, env, val.Get(&flowStatus))
-
-		return flowStatus
-	}
-
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, srcTableName)))
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert", "test_table_add_remove", dstTableName, "id,\"key\"")
 	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "pausing for add table", func() bool {
-		flowStatus := getFlowStatus()
-		return flowStatus == protos.FlowStatus_STATUS_PAUSED
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
@@ -126,8 +116,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	})
 
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "adding table", func() bool {
-		flowStatus := getFlowStatus()
-		return flowStatus == protos.FlowStatus_STATUS_RUNNING
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	afterAddRunID := e2e.EnvGetRunID(s.t, env)
 	require.NotEqual(s.t, runID, afterAddRunID)
@@ -136,8 +125,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert to added table", "test_table_add_remove_added", addedDstTableName, "id,\"key\"")
 	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing again for removing table", func() bool {
-		flowStatus := getFlowStatus()
-		return flowStatus == protos.FlowStatus_STATUS_PAUSED
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
@@ -167,8 +155,7 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	})
 
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "removing table", func() bool {
-		flowStatus := getFlowStatus()
-		return flowStatus == protos.FlowStatus_STATUS_RUNNING
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	afterRemoveRunID := e2e.EnvGetRunID(s.t, env)
 	require.NotEqual(s.t, runID, afterRemoveRunID)
@@ -1082,13 +1069,15 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
+			id SERIAL,
+			"id number" SERIAL,
 			key TEXT NOT NULL,
 			"se'cret" TEXT,
 			"spacey column" TEXT,
 			"#sync_me!" BOOLEAN,
 			"2birds1stone" INT,
-			"quo'te" TEXT
+			"quo'te" TEXT,
+			PRIMARY KEY (id, "id number")
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
@@ -1099,7 +1088,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	require.NoError(s.t, err)
 
 	err = e2e.RevokePermissionForTableColumns(s.t.Context(), s.Conn(), srcFullName,
-		[]string{"id", "key", "spacey column", "#sync_me!", "2birds1stone", "quo'te"})
+		[]string{"id", "id number", "key", "spacey column", "#sync_me!", "2birds1stone", "quo'te"})
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1119,14 +1108,14 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName,
-		"id,key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
+		"id,\"id number\",key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone","quo'te")
 	VALUES ('cdc1', 'secret', 'pluto', 'false', 123324, 'lwkfj')`, srcFullName))
 
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName,
-		"id,key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
+		"id,\"id number\",key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
@@ -1312,6 +1301,89 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		// Verify circle column format
 		circleVal := row[7].Value()
 		require.Equal(s.t, expectedValues[i].circle, circleVal, "circle_col value mismatch")
+	}
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
+	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_mysql_geometric_types"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_mysql_geometric_types"
+
+	// Create a table with a geometry column that can store any geometric type
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	CREATE TABLE IF NOT EXISTS %[1]s(
+		id serial PRIMARY KEY,
+		geometry_col GEOMETRY
+	);
+
+	-- Insert test data with various geometric types
+	INSERT INTO %[1]s (geometry_col) VALUES
+		(ST_GeomFromText('POINT(1 2)')),
+		(ST_GeomFromText('LINESTRING(1 2, 3 4)')),
+		(ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))')),
+		(ST_GeomFromText('MULTIPOINT((1 2), (3 4))')),
+		(ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))')),
+		(ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))')),
+		(ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))'));`, srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_geometric_types"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Wait for initial snapshot to complete
+	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 7)
+
+	// Insert additional rows to test CDC
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	INSERT INTO %[1]s (geometry_col) VALUES
+		(ST_GeomFromText('POINT(10 20)')),
+		(ST_GeomFromText('LINESTRING(10 20, 30 40)')),
+		(ST_GeomFromText('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))'));`, srcFullName))
+	require.NoError(s.t, err)
+
+	// Wait for CDC to replicate the new rows
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 10)
+
+	// Verify that the data was correctly replicated
+	rows, err := s.GetRows(dstTableName, "id, geometry_col")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 10, "expected 10 rows")
+
+	// Expected WKT format values for each geometric type
+	expectedValues := []string{
+		"POINT(1 2)",
+		"LINESTRING(1 2, 3 4)",
+		"POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))",
+		"MULTIPOINT((1 2), (3 4))",
+		"MULTILINESTRING((1 2, 3 4), (5 6, 7 8))",
+		"MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
+		"GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))",
+		"POINT(10 20)",
+		"LINESTRING(10 20, 30 40)",
+		"POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))",
+	}
+
+	for i, row := range rows.Records {
+		require.Len(s.t, row, 2, "expected 2 columns")
+		geometryVal := row[1].Value()
+		require.Equal(s.t, expectedValues[i], geometryVal, "geometry_col value mismatch at row %d", i+1)
 	}
 
 	// Clean up

@@ -194,9 +194,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			pgerrcode.InvalidPassword,
 			pgerrcode.InsufficientPrivilege,
 			pgerrcode.UndefinedTable,
+			pgerrcode.UndefinedObject,
 			pgerrcode.CannotConnectNow:
 			return ErrorNotifyConnectivity, pgErrorInfo
-		case pgerrcode.AdminShutdown:
+		case pgerrcode.AdminShutdown, pgerrcode.IdleSessionTimeout:
 			return ErrorNotifyTerminate, pgErrorInfo
 		case pgerrcode.ObjectNotInPrerequisiteState:
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") {
@@ -226,7 +227,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(chException.Code)),
 		}
 		switch chproto.Error(chException.Code) {
-		case chproto.ErrUnknownTable:
+		case chproto.ErrUnknownTable, chproto.ErrNoSuchColumnInTable:
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
@@ -309,6 +310,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: ErrorSourcePostgres,
 				Code:   pgWalErr.Msg.Code,
 			}
+		}
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "net.DNSError",
 		}
 	}
 

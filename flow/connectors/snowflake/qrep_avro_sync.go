@@ -104,10 +104,6 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	}
 	s.logger.Info("sync function called and schema acquired", partitionLog)
 
-	if err := s.addMissingColumns(ctx, config.Env, schema, dstTableSchema, dstTableName, partition); err != nil {
-		return 0, err
-	}
-
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema)
 	if err != nil {
 		return 0, err
@@ -131,70 +127,6 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	}
 
 	return avroFile.NumRecords, nil
-}
-
-func (s *SnowflakeAvroSyncHandler) addMissingColumns(
-	ctx context.Context,
-	env map[string]string,
-	schema qvalue.QRecordSchema,
-	dstTableSchema []*sql.ColumnType,
-	dstTableName string,
-	partition *protos.QRepPartition,
-) error {
-	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
-	// check if avro schema has additional columns compared to destination table
-	// if so, we need to add those columns to the destination table
-	var newColumns []qvalue.QField
-	for _, col := range schema.Fields {
-		hasColumn := false
-		// check ignoring case
-		for _, dstCol := range dstTableSchema {
-			if strings.EqualFold(col.Name, dstCol.Name()) {
-				hasColumn = true
-				break
-			}
-		}
-
-		if !hasColumn {
-			s.logger.Info(fmt.Sprintf("adding column %s to destination table %s",
-				col.Name, dstTableName), partitionLog)
-			newColumns = append(newColumns, col)
-		}
-	}
-
-	if len(newColumns) > 0 {
-		tx, err := s.database.Begin()
-		if err != nil {
-			return fmt.Errorf("failed to begin transaction: %w", err)
-		}
-
-		for _, column := range newColumns {
-			sfColType, err := column.ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE, false)
-			if err != nil {
-				return fmt.Errorf("failed to convert QValueKind to Snowflake column type: %w", err)
-			}
-			upperCasedColName := strings.ToUpper(column.Name)
-			alterTableCmd := fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s;", dstTableName, upperCasedColName, sfColType)
-
-			s.logger.Info(fmt.Sprintf("altering destination table %s with command `%s`",
-				dstTableName, alterTableCmd), partitionLog)
-
-			if _, err := tx.ExecContext(ctx, alterTableCmd); err != nil {
-				return fmt.Errorf("failed to alter destination table: %w", err)
-			}
-		}
-
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("failed to commit transaction: %w", err)
-		}
-
-		s.logger.Info("successfully added missing columns to destination table "+
-			dstTableName, partitionLog)
-	} else {
-		s.logger.Info("no missing columns found in destination table "+dstTableName, partitionLog)
-	}
-
-	return nil
 }
 
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
@@ -271,7 +203,7 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile 
 
 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
 
-	if _, err := s.database.ExecContext(ctx, putCmd); err != nil {
+	if _, err := s.ExecContext(ctx, putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
 	}
 

@@ -18,3 +18,11 @@ func EscapeStr(value string) string {
 
 	return result.String()
 }
+
+func QuoteLiteral(value string) string {
+	return "'" + EscapeStr(value) + "'"
+}
+
+func QuoteIdentifier(value string) string {
+	return "`" + EscapeStr(value) + "`"
+}

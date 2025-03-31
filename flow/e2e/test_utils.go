@@ -620,6 +620,13 @@ func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any)
 	return env.c.QueryWorkflow(ctx, env.GetID(), "", queryType, args...)
 }
 
+func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
+	t.Helper()
+	flowStatus, err := internal.GetWorkflowStatus(t.Context(), env.c, env.GetID())
+	EnvNoError(t, env, err)
+	return flowStatus
+}
+
 func SignalWorkflow[T any](ctx context.Context, env WorkflowRun, signal model.TypedSignal[T], value T) {
 	err := env.c.SignalWorkflow(ctx, env.GetID(), "", signal.Name, value)
 	if err != nil {
@@ -717,13 +724,4 @@ func EnvGetRunID(t *testing.T, env WorkflowRun) string {
 	execData, err := env.c.DescribeWorkflowExecution(t.Context(), env.GetID(), "")
 	require.NoError(t, err)
 	return execData.WorkflowExecutionInfo.Execution.RunId
-}
-
-func EnvGetFlowStatus(t *testing.T, env WorkflowRun) protos.FlowStatus {
-	t.Helper()
-	var flowStatus protos.FlowStatus
-	val, err := env.Query(t.Context(), shared.FlowStatusQuery)
-	EnvNoError(t, env, err)
-	EnvNoError(t, env, val.Get(&flowStatus))
-	return flowStatus
 }
