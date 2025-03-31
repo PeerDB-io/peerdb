@@ -126,3 +126,20 @@ func TestAdjustNumPartitions(t *testing.T) {
 		}
 	}
 }
+
+func TestParsePgArray(t *testing.T) {
+	tests := []struct {
+		input  string
+		output []string
+	}{
+		{"[1:2]{1,2,\\\"3}", {"1", "2", "\"3"}},
+		{"{  1,  \"a\\\"b\", 3\"2\"}", {"1", "a\"b", "32"}},
+		{"{{1,2},{3,{4,5},6},{7,8},9}", {"1", "2", "3", "4", "5", "6", "7", "8", "9"}},
+	}
+	for _, tc := range tests {
+		got := ParsePgArrayStringToStringSlice(tc.input)
+		if got != tc.output {
+			t.Errorf("parsed %s to %v instead of %v", tc.input, got, tc.output)
+		}
+	}
+}

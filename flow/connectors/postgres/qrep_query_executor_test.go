@@ -26,7 +26,7 @@ func setupDB(t *testing.T) (*PostgresConnector, string) {
 
 	// Create the schema
 	_, err = connector.conn.Exec(t.Context(),
-		fmt.Sprintf("CREATE SCHEMA %s", utils.QuoteIdentifier(schemaName)))
+		"CREATE SCHEMA "+utils.QuoteIdentifier(schemaName))
 	require.NoError(t, err, "error while creating schema")
 
 	return connector, schemaName
