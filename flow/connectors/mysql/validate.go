@@ -143,7 +143,7 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 		if binlogRetentionHours, err := strconv.Atoi(binlogRetentionHoursStr); err != nil {
 			return errors.New("failed to parse RDS/Aurora setting 'binlog retention hours': " + err.Error())
 		} else if binlogRetentionHours < 24 {
-			return errors.New("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently " + fmt.Sprint(binlogRetentionHoursStr))
+			return errors.New("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently " + binlogRetentionHoursStr)
 		}
 	} else {
 		slog.Warn("binlog retention hours returned nothing, skipping Aurora/RDS binlog retention check")
@@ -189,7 +189,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 }
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
-	if rs, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
+	if _, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
 		var mErr *mysql.MyError
 		// seems to be MariaDB
 		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
@@ -199,9 +199,6 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		} else {
 			return fmt.Errorf("failed to check GTID mode: %w", err)
 		}
-	} else if len(rs.Values) > 0 {
-		gtidMode := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
-		slog.Warn("GTID mode is set to " + gtidMode)
 	}
 
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
