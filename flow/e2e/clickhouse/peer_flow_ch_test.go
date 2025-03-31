@@ -1182,12 +1182,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		'((1,2),(3,4),(5,6))',                  -- PATH
 		'((1,2),(3,4),(5,6),(1,2))',            -- POLYGON
 		'<(1,2),3>'                             -- CIRCLE
-	);
-
-	-- Insert another row with different values
-	INSERT INTO %[1]s (
-		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
-	) VALUES (
+	), (
 		'(10,20)',                              -- POINT
 		'{10,20,30}',                           -- LINE
 		'((10,20),(30,40))',                    -- LSEG
@@ -1246,7 +1241,6 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		path    string
 		polygon string
 		circle  string
-		id      int
 	}{
 		{
 			point:   "POINT(1.000000 2.000000)",
@@ -1256,7 +1250,6 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 			path:    "{[{1 2} {3 4} {5 6}] true true}",
 			polygon: "{[{1 2} {3 4} {5 6} {1 2}] true}",
 			circle:  "{{1 2} 3 true}",
-			id:      1,
 		},
 		{
 			point:   "POINT(10.000000 20.000000)",
@@ -1266,7 +1259,6 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 			path:    "{[{10 20} {30 40} {50 60}] true true}",
 			polygon: "{[{10 20} {30 40} {50 60} {10 20}] true}",
 			circle:  "{{10 20} 30 true}",
-			id:      2,
 		},
 		{
 			point:   "POINT(100.000000 200.000000)",
@@ -1276,10 +1268,10 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 			path:    "{[{100 200} {300 400} {500 600}] true true}",
 			polygon: "{[{100 200} {300 400} {500 600} {100 200}] true}",
 			circle:  "{{100 200} 300 true}",
-			id:      3,
 		},
 	}
 
+	require.Len(s.t, rows.Records, 3, "expected 3 rows")
 	for i, row := range rows.Records {
 		require.Len(s.t, row, 8, "expected 8 columns")
 
@@ -1428,6 +1420,45 @@ func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_SchemaAsColumn() {
+	srcTableName := "test_schema_as_column"
+	srcFullName := s.attachSchemaSuffix("test_schema_as_column")
+	dstTableName := "test_schema_as_column"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_schema_as_column"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "true"}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	rows, err := s.GetRows(dstTableName, "_peerdb_source_schema")
+	require.NoError(s.t, err, "error selecting schema column")
+	require.Len(s.t, rows.Records, 2, "expected 2 rows")
+	for _, row := range rows.Records {
+		require.Equal(s.t, "e2e_test_"+s.suffix, row[0].Value(), "schema column incorrectly populated")
+	}
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

@@ -76,7 +76,8 @@ func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string,
 			return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 		}
 
-		c.logger.Info(fmt.Sprintf("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
+		prefix := fmt.Sprintf("%s/%s", s3o.Prefix, job)
+		c.logger.Info("Deleting contents of bucket", slog.String("bucket", s3o.Bucket), slog.String("prefix", prefix))
 
 		// deleting the contents of the bucket with prefix
 		s3svc, err := utils.CreateS3Client(ctx, c.credsProvider.Provider)
@@ -88,7 +89,7 @@ func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string,
 		// Create a list of all objects with the defined prefix in the bucket
 		pages := s3.NewListObjectsV2Paginator(s3svc, &s3.ListObjectsV2Input{
 			Bucket: aws.String(s3o.Bucket),
-			Prefix: aws.String(fmt.Sprintf("%s/%s", s3o.Prefix, job)),
+			Prefix: aws.String(prefix),
 		})
 		for pages.HasMorePages() {
 			page, err := pages.NextPage(ctx)
@@ -109,9 +110,9 @@ func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string,
 			}
 		}
 
-		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
+		c.logger.Info("Deleted contents of bucket", slog.String("bucket", s3o.Bucket), slog.String("prefix", prefix))
 	}
 
-	c.logger.Info("Dropped stage " + stagingPath)
+	c.logger.Info("Dropped stage", slog.String("path", stagingPath))
 	return nil
 }

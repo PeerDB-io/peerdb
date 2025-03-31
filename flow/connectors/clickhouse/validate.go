@@ -34,7 +34,15 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 
 	// In the case of resync, we don't need to check the content or structure of the original tables;
 	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
-	if !cfg.Resync {
+	disallowEmpty := !cfg.Resync
+	if !disallowEmpty {
+		sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, cfg.Env)
+		if err != nil {
+			return err
+		}
+		disallowEmpty = !sourceSchemaAsDestinationColumn
+	}
+	if disallowEmpty {
 		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
 			dstTableNames, cfg.DoInitialSnapshot, internal.PeerDBOnlyClickHouseAllowed()); err != nil {
 			return err

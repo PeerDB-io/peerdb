@@ -303,6 +303,7 @@ func PullCdcRecords[Items model.Items](
 	replLock *sync.Mutex,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
+
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {
