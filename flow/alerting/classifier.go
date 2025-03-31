@@ -245,6 +245,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrAuthenticationFailed:
 			return ErrorRetryRecoverable, chErrorInfo
+		case chproto.ErrTooManySimultaneousQueries:
+			return ErrorIgnoreConnTemporary, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
