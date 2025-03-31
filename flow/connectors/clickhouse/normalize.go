@@ -14,6 +14,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -22,10 +23,12 @@ import (
 )
 
 const (
-	signColName    = "_peerdb_is_deleted"
-	signColType    = "Int8"
-	versionColName = "_peerdb_version"
-	versionColType = "Int64"
+	signColName         = "_peerdb_is_deleted"
+	signColType         = "Int8"
+	versionColName      = "_peerdb_version"
+	versionColType      = "Int64"
+	sourceSchemaColName = "_peerdb_source_schema"
+	sourceSchemaColType = "LowCardinality(String)"
 )
 
 func (c *ClickHouseConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
@@ -147,6 +150,15 @@ func generateCreateTableSQLForNormalizedTable(
 		stmtBuilder.WriteString(fmt.Sprintf("`%s` DateTime64(9) DEFAULT now64(), ", colName))
 	}
 
+	// add _peerdb_source_schema_name column
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
+	if err != nil {
+		return "", err
+	}
+	if sourceSchemaAsDestinationColumn {
+		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", sourceSchemaColName, sourceSchemaColType))
+	}
+
 	var engine string
 	if tableMapping == nil {
 		engine = fmt.Sprintf("ReplacingMergeTree(`%s`)", versionColName)
@@ -157,11 +169,14 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	// add sign and version columns
-	stmtBuilder.WriteString(fmt.Sprintf(
-		"`%s` %s, `%s` %s) ENGINE = %s",
+	stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, `%s` %s) ENGINE = %s",
 		signColName, signColType, versionColName, versionColType, engine))
 
 	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
+
+	if sourceSchemaAsDestinationColumn {
+		orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
+	}
 
 	if len(orderByColumns) > 0 {
 		orderByStr := strings.Join(orderByColumns, ",")
@@ -269,6 +284,11 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return model.NormalizeResponse{}, err
+	}
+
 	parallelNormalize, err := internal.PeerDBClickHouseParallelNormalize(ctx, req.Env)
 	if err != nil {
 		return model.NormalizeResponse{}, err
@@ -325,7 +345,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			selectQuery.WriteString("SELECT ")
 
 			colSelector := strings.Builder{}
-			colSelector.WriteRune('(')
+			colSelector.WriteByte('(')
 
 			schema := req.TableNameSchemaMapping[tbl]
 
@@ -335,6 +355,19 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					tableMapping = tm
 					break
 				}
+			}
+
+			var escapedSourceSchemaSelectorFragment string
+			if sourceSchemaAsDestinationColumn {
+				if tableMapping == nil {
+					return model.NormalizeResponse{}, errors.New("could not look up source schema info")
+				}
+				schemaTable, err := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
+				if err != nil {
+					return model.NormalizeResponse{}, err
+				}
+				escapedSourceSchemaSelectorFragment = fmt.Sprintf("'%s' AS `%s`,",
+					peerdb_clickhouse.EscapeStr(schemaTable.Schema), sourceSchemaColName)
 			}
 
 			projection := strings.Builder{}
@@ -445,6 +478,11 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				}
 			}
 
+			if sourceSchemaAsDestinationColumn {
+				projection.WriteString(escapedSourceSchemaSelectorFragment)
+				colSelector.WriteString(fmt.Sprintf("`%s`,", sourceSchemaColName))
+			}
+
 			// add _peerdb_sign as _peerdb_record_type / 2
 			projection.WriteString(fmt.Sprintf("intDiv(_peerdb_record_type, 2) AS `%s`,", signColName))
 			colSelector.WriteString(fmt.Sprintf("`%s`,", signColName))
@@ -463,12 +501,16 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
 			selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
 			selectQuery.WriteString(tbl)
-			selectQuery.WriteString("'")
+			selectQuery.WriteByte('\'')
 			if numParts > 1 {
 				selectQuery.WriteString(fmt.Sprintf(" AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart))
 			}
 
 			if enablePrimaryUpdate {
+				if sourceSchemaAsDestinationColumn {
+					projectionUpdate.WriteString(escapedSourceSchemaSelectorFragment)
+				}
+
 				// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
 				projectionUpdate.WriteString(fmt.Sprintf("1 AS `%s`,", signColName))
 				// decrement timestamp by 1 so delete is ordered before latest data,
