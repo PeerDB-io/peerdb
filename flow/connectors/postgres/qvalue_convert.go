@@ -569,7 +569,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			if typeData, ok := customTypeMapping[oid]; ok {
 				delim = typeData.Delim
 			}
-			return qvalue.QValueArrayString{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
+			return qvalue.QValueArrayEnum{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
 		} else {
 			a, err := convertToArray[string](qvalueKind, value)
 			if err != nil {

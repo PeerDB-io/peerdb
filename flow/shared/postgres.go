@@ -1,7 +1,6 @@
 package shared
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -283,29 +282,20 @@ func ParsePgArrayStringToStringSlice(data string, delim byte) []string {
 }
 
 func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
+	slog.Warn("QQQ", slog.Any("data", data), slog.String("delim", string(delim)))
 	var result []string
 	var sb []byte
-	ps := psSearch
+	ps := psSearch2
 	var i int
-	for ; i < len(data); i++ {
-		ch := data[i]
-		if ch == ' ' || ch == '\t' || ch == '\n' || ch == '\v' || ch == '\f' || ch == '\r' {
-			continue
-		} else if ch == '[' {
-			i = bytes.IndexByte(data, ']')
-			break
-		}
-	}
-	for ; i < len(data); i++ {
+	for i = 0; i < len(data); i++ {
 		ch := data[i]
 		switch ps {
 		case psSearch:
 			if ch == delim {
 				result = append(result, "")
-			} else if ch == '{' || ch == '}' || ch == ' ' || ch == '\t' || ch == '\n' || ch == '\v' || ch == '\f' || ch == '\r' {
 			} else if ch == '}' {
 				ps = psSearch2
-			} else {
+			} else if ch != '{' && ch != ' ' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r' {
 				sb = append(sb, ch)
 				ps = psUnquoted
 			}
