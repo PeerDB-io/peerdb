@@ -282,7 +282,6 @@ func ParsePgArrayStringToStringSlice(data string, delim byte) []string {
 }
 
 func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
-	slog.Warn("QQQ", slog.Any("data", data), slog.String("delim", string(delim)))
 	var result []string
 	var sb []byte
 	ps := psSearch2
@@ -329,5 +328,6 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 			ps = psUnquoted
 		}
 	}
+	slog.Warn("QQQ", slog.Any("data", data), slog.String("delim", string(delim)), slog.Any("result", result))
 	return result
 }
