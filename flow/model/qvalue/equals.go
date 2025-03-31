@@ -79,6 +79,8 @@ func Equals(qv QValue, other QValue) bool {
 		return false
 	case QValueString:
 		return compareString(q.Val, otherValue)
+	case QValueEnum:
+		return compareString(q.Val, otherValue)
 	case QValueINET:
 		return compareString(q.Val, otherValue)
 	case QValueCIDR:
@@ -131,6 +133,16 @@ func Equals(qv QValue, other QValue) bool {
 	case QValueArrayUUID:
 		return compareArrays(q.Val, otherValue)
 	case QValueArrayString:
+		if qjson, ok := other.(QValueJSON); ok {
+			var val []string
+			if err := json.Unmarshal([]byte(qjson.Val), &val); err != nil {
+				return false
+			}
+			otherValue = val
+		}
+
+		return compareArrays(q.Val, otherValue)
+	case QValueArrayEnum:
 		if qjson, ok := other.(QValueJSON); ok {
 			var val []string
 			if err := json.Unmarshal([]byte(qjson.Val), &val); err != nil {

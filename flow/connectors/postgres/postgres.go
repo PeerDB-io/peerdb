@@ -28,7 +28,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -43,7 +42,7 @@ type ReplState struct {
 
 type PostgresConnector struct {
 	logger                 log.Logger
-	customTypeMapping      map[uint32]string
+	customTypeMapping      map[uint32]shared.CustomDataType
 	ssh                    utils.SSHTunnel
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
@@ -116,7 +115,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	}, nil
 }
 
-func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]string, error) {
+func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]shared.CustomDataType, error) {
 	if c.customTypeMapping == nil {
 		customTypeMapping, err := shared.GetCustomDataTypes(ctx, c.conn)
 		if err != nil {
@@ -883,27 +882,16 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	columns := make([]*protos.FieldDescription, 0, len(fields))
 	for _, fieldDescription := range fields {
 		var colType string
+		var err error
 		switch system {
 		case protos.TypeSystem_PG:
-			colType = c.postgresOIDToName(fieldDescription.DataTypeOID)
-			if colType == "" {
-				typeName, ok := customTypeMapping[fieldDescription.DataTypeOID]
-				if !ok {
-					return nil, fmt.Errorf("error getting type name for %d", fieldDescription.DataTypeOID)
-				}
-				colType = typeName
-			}
+			colType, err = c.postgresOIDToName(fieldDescription.DataTypeOID, customTypeMapping)
 		case protos.TypeSystem_Q:
-			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID)
-			if qColType == qvalue.QValueKindInvalid {
-				typeName, ok := customTypeMapping[fieldDescription.DataTypeOID]
-				if ok {
-					qColType = customTypeToQKind(typeName)
-				} else {
-					qColType = qvalue.QValueKindString
-				}
-			}
+			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID, customTypeMapping)
 			colType = string(qColType)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error getting type name for %d: %w", fieldDescription.DataTypeOID, err)
 		}
 
 		columnNames = append(columnNames, fieldDescription.Name)

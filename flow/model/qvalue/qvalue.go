@@ -278,6 +278,22 @@ func (v QValueString) LValue(ls *lua.LState) lua.LValue {
 	return lua.LString(v.Val)
 }
 
+type QValueEnum struct {
+	Val string
+}
+
+func (QValueEnum) Kind() QValueKind {
+	return QValueKindEnum
+}
+
+func (v QValueEnum) Value() any {
+	return v.Val
+}
+
+func (v QValueEnum) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
 type QValueTimestamp struct {
 	Val time.Time
 }
@@ -762,5 +778,23 @@ func (v QValueArrayBoolean) Value() any {
 func (v QValueArrayBoolean) LValue(ls *lua.LState) lua.LValue {
 	return shared.SliceToLTable(ls, v.Val, func(x bool) lua.LValue {
 		return lua.LBool(x)
+	})
+}
+
+type QValueArrayEnum struct {
+	Val []string
+}
+
+func (QValueArrayEnum) Kind() QValueKind {
+	return QValueKindArrayEnum
+}
+
+func (v QValueArrayEnum) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayEnum) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x string) lua.LValue {
+		return lua.LString(x)
 	})
 }

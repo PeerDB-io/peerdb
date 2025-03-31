@@ -121,7 +121,7 @@ type replProcessor[Items model.Items] interface {
 		p *PostgresCDCSource,
 		tuple *pglogrepl.TupleDataColumn,
 		col *pglogrepl.RelationMessageColumn,
-		customTypeMapping map[uint32]string,
+		customTypeMapping map[uint32]shared.CustomDataType,
 	) error
 }
 
@@ -136,7 +136,7 @@ func (pgProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -167,7 +167,7 @@ func (qProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -199,7 +199,7 @@ func processTuple[Items model.Items](
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
 	exclude map[string]struct{},
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (Items, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
@@ -227,55 +227,45 @@ func processTuple[Items model.Items](
 	return items, unchangedToastColumns, nil
 }
 
-func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32,
-	formatCode int16, customTypeMapping map[uint32]string,
+func (p *PostgresCDCSource) decodeColumnData(
+	data []byte, dataType uint32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType,
 ) (qvalue.QValue, error) {
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
-		if dt.Name == "uuid" || dt.Name == "cidr" || dt.Name == "inet" || dt.Name == "macaddr" || dt.Name == "xml" {
+		dtOid := oid.Oid(dt.OID)
+		if dtOid == oid.T_cidr || dtOid == oid.T_inet || dtOid == oid.T_macaddr || dtOid == oid.T_xml {
 			// below is required to decode above types to string
-			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
+			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, formatCode, data)
 		} else {
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
 		if err != nil {
-			if dt.Name == "time" || dt.Name == "timetz" ||
-				dt.Name == "timestamp" || dt.Name == "timestamptz" {
+			if dtOid == oid.T_time || dtOid == oid.T_timetz ||
+				dtOid == oid.T_timestamp || dtOid == oid.T_timestamptz {
 				// indicates year is more than 4 digits or something similar,
 				// which you can insert into postgres,
 				// but not representable by time.Time
 				p.logger.Warn(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
 					dt.Name, string(data)))
-				switch dt.Name {
-				case "time":
+				switch dtOid {
+				case oid.T_time:
 					return qvalue.QValueNull(qvalue.QValueKindTime), nil
-				case "timetz":
+				case oid.T_timetz:
 					return qvalue.QValueNull(qvalue.QValueKindTimeTZ), nil
-				case "timestamp":
+				case oid.T_timestamp:
 					return qvalue.QValueNull(qvalue.QValueKindTimestamp), nil
-				case "timestamptz":
+				case oid.T_timestamptz:
 					return qvalue.QValueNull(qvalue.QValueKindTimestampTZ), nil
 				}
 			}
 			return nil, err
 		}
-		retVal, err := p.parseFieldFromPostgresOID(dataType, parsedData)
-		if err != nil {
-			return nil, err
-		}
-		return retVal, nil
+		return p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping)
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
-		retVal, err := p.parseFieldFromPostgresOID(dataType, string(data))
-		if err != nil {
-			return nil, err
-		}
-		return retVal, nil
-	}
-
-	typeName, ok := customTypeMapping[dataType]
-	if ok {
-		customQKind := customTypeToQKind(typeName)
+		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
+	} else if typeData, ok := customTypeMapping[dataType]; ok {
+		customQKind := customTypeToQKind(typeData)
 		switch customQKind {
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
@@ -290,6 +280,12 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32,
 			return qvalue.QValueHStore{Val: string(data)}, nil
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(data)}, nil
+		case qvalue.QValueKindEnum:
+			return qvalue.QValueEnum{Val: string(data)}, nil
+		case qvalue.QValueKindArrayString:
+			return qvalue.QValueArrayString{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
+		case qvalue.QValueKindArrayEnum:
+			return qvalue.QValueArrayEnum{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
 		default:
 			return nil, fmt.Errorf("unknown custom qkind: %s", customQKind)
 		}
@@ -731,7 +727,7 @@ func processInsertMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -767,7 +763,7 @@ func processUpdateMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -825,7 +821,7 @@ func processDeleteMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -902,7 +898,7 @@ func processRelationMessage[Items model.Items](
 	for _, column := range currRel.Columns {
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
-			qKind := p.postgresOIDToQValueKind(column.DataType)
+			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping)
 			if qKind == qvalue.QValueKindInvalid {
 				typeName, ok := customTypeMapping[column.DataType]
 				if ok {
@@ -911,7 +907,11 @@ func processRelationMessage[Items model.Items](
 			}
 			currRelMap[column.Name] = string(qKind)
 		case protos.TypeSystem_PG:
-			currRelMap[column.Name] = p.postgresOIDToName(column.DataType)
+			typeName, err := p.postgresOIDToName(column.DataType, customTypeMapping)
+			if err != nil {
+				return nil, err
+			}
+			currRelMap[column.Name] = typeName
 		default:
 			panic(fmt.Sprintf("cannot process schema changes for unknown type system %s", prevSchema.System))
 		}

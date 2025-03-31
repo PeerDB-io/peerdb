@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
@@ -151,6 +152,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *string:
 				qrow = append(qrow, qvalue.QValueString{Val: *v})
+			case *[]string:
+				qrow = append(qrow, qvalue.QValueArrayString{Val: *v})
 			case **int8:
 				if *v == nil {
 					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt8))
@@ -175,6 +178,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *int32:
 				qrow = append(qrow, qvalue.QValueInt32{Val: *v})
+			case *[]int32:
+				qrow = append(qrow, qvalue.QValueArrayInt32{Val: *v})
 			case **int64:
 				if *v == nil {
 					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt64))
@@ -247,6 +252,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *float32:
 				qrow = append(qrow, qvalue.QValueFloat32{Val: *v})
+			case *[]float32:
+				qrow = append(qrow, qvalue.QValueArrayFloat32{Val: *v})
 			case **float64:
 				if *v == nil {
 					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindFloat64))
@@ -255,8 +262,12 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *float64:
 				qrow = append(qrow, qvalue.QValueFloat64{Val: *v})
-			case *[]float32:
-				qrow = append(qrow, qvalue.QValueArrayFloat32{Val: *v})
+			case *[]float64:
+				qrow = append(qrow, qvalue.QValueArrayFloat64{Val: *v})
+			case *uuid.UUID:
+				qrow = append(qrow, qvalue.QValueUUID{Val: *v})
+			case *[]uuid.UUID:
+				qrow = append(qrow, qvalue.QValueArrayUUID{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}
