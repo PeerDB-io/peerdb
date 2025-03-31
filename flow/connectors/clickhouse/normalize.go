@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -104,9 +103,7 @@ func generateCreateTableSQLForNormalizedTable(
 	if !config.IsResync {
 		stmtBuilder.WriteString("IF NOT EXISTS ")
 	}
-	stmtBuilder.WriteString("`")
-	stmtBuilder.WriteString(tableIdentifier)
-	stmtBuilder.WriteString("` (")
+	fmt.Fprintf(&stmtBuilder, "%s (", peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
 
 	colNameMap := make(map[string]string)
 	for _, column := range tableSchema.Columns {
@@ -141,13 +138,13 @@ func generateCreateTableSQLForNormalizedTable(
 			}
 		}
 
-		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", dstColName, clickHouseType))
+		fmt.Fprintf(&stmtBuilder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
 	}
 	// TODO support soft delete
 	// synced at column will be added to all normalized tables
 	if config.SyncedAtColName != "" {
 		colName := strings.ToLower(config.SyncedAtColName)
-		stmtBuilder.WriteString(fmt.Sprintf("`%s` DateTime64(9) DEFAULT now64(), ", colName))
+		fmt.Fprintf(&stmtBuilder, "%s DateTime64(9) DEFAULT now64(), ", peerdb_clickhouse.QuoteIdentifier(colName))
 	}
 
 	// add _peerdb_source_schema_name column
@@ -156,21 +153,21 @@ func generateCreateTableSQLForNormalizedTable(
 		return "", err
 	}
 	if sourceSchemaAsDestinationColumn {
-		stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, ", sourceSchemaColName, sourceSchemaColType))
+		fmt.Fprintf(&stmtBuilder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName), sourceSchemaColType)
 	}
 
 	var engine string
 	if tableMapping == nil {
-		engine = fmt.Sprintf("ReplacingMergeTree(`%s`)", versionColName)
+		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
 	} else if tableMapping.Engine == protos.TableEngine_CH_ENGINE_MERGE_TREE {
 		engine = "MergeTree()"
 	} else {
-		engine = fmt.Sprintf("ReplacingMergeTree(`%s`)", versionColName)
+		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
 	}
 
 	// add sign and version columns
-	stmtBuilder.WriteString(fmt.Sprintf("`%s` %s, `%s` %s) ENGINE = %s",
-		signColName, signColType, versionColName, versionColType, engine))
+	fmt.Fprintf(&stmtBuilder, "%s %s, %s %s) ENGINE = %s",
+		peerdb_clickhouse.QuoteIdentifier(signColName), signColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType, engine)
 
 	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
 
@@ -181,15 +178,9 @@ func generateCreateTableSQLForNormalizedTable(
 	if len(orderByColumns) > 0 {
 		orderByStr := strings.Join(orderByColumns, ",")
 
-		stmtBuilder.WriteString("PRIMARY KEY (")
-		stmtBuilder.WriteString(orderByStr)
-		stmtBuilder.WriteString(") ")
-
-		stmtBuilder.WriteString("ORDER BY (")
-		stmtBuilder.WriteString(orderByStr)
-		stmtBuilder.WriteString(") ")
+		fmt.Fprintf(&stmtBuilder, " PRIMARY KEY (%[1]s) ORDER BY (%[1]s)", orderByStr)
 	} else {
-		stmtBuilder.WriteString("ORDER BY tuple()")
+		stmtBuilder.WriteString(" ORDER BY tuple()")
 	}
 
 	if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
@@ -366,8 +357,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				if err != nil {
 					return model.NormalizeResponse{}, err
 				}
-				escapedSourceSchemaSelectorFragment = fmt.Sprintf("'%s' AS `%s`,",
-					peerdb_clickhouse.EscapeStr(schemaTable.Schema), sourceSchemaColName)
+				escapedSourceSchemaSelectorFragment = fmt.Sprintf("%s AS %s,",
+					peerdb_clickhouse.QuoteLiteral(schemaTable.Schema), peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
 			}
 
 			projection := strings.Builder{}
@@ -396,7 +387,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					}
 				}
 
-				colSelector.WriteString(fmt.Sprintf("`%s`,", dstColName))
+				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
 				if clickHouseType == "" {
 					var err error
 					clickHouseType, err = colType.ToDWHColumnType(
@@ -410,26 +401,30 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 				switch clickHouseType {
 				case "Date32", "Nullable(Date32)":
-					projection.WriteString(fmt.Sprintf(
-						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6)) AS `%s`,",
-						peerdb_clickhouse.EscapeStr(colName), dstColName,
-					))
+					fmt.Fprintf(&projection,
+						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6)) AS %s,",
+						peerdb_clickhouse.QuoteLiteral(colName),
+						peerdb_clickhouse.QuoteIdentifier(dstColName),
+					)
 					if enablePrimaryUpdate {
-						projectionUpdate.WriteString(fmt.Sprintf(
-							"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6)) AS `%s`,",
-							peerdb_clickhouse.EscapeStr(colName), dstColName,
-						))
+						fmt.Fprintf(&projectionUpdate,
+							"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6)) AS %s,",
+							peerdb_clickhouse.QuoteLiteral(colName),
+							peerdb_clickhouse.QuoteIdentifier(dstColName),
+						)
 					}
 				case "DateTime64(6)", "Nullable(DateTime64(6))":
-					projection.WriteString(fmt.Sprintf(
-						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, '%s'),6) AS `%s`,",
-						peerdb_clickhouse.EscapeStr(colName), dstColName,
-					))
+					fmt.Fprintf(&projection,
+						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6) AS %s,",
+						peerdb_clickhouse.QuoteLiteral(colName),
+						peerdb_clickhouse.QuoteIdentifier(dstColName),
+					)
 					if enablePrimaryUpdate {
-						projectionUpdate.WriteString(fmt.Sprintf(
-							"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, '%s'),6) AS `%s`,",
-							peerdb_clickhouse.EscapeStr(colName), dstColName,
-						))
+						fmt.Fprintf(&projectionUpdate,
+							"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6) AS %s,",
+							peerdb_clickhouse.QuoteLiteral(colName),
+							peerdb_clickhouse.QuoteIdentifier(dstColName),
+						)
 					}
 				default:
 					projLen := projection.Len()
@@ -440,39 +435,50 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						}
 						switch format {
 						case internal.BinaryFormatRaw:
-							projection.WriteString(fmt.Sprintf(
-								"base64Decode(JSONExtractString(_peerdb_data, '%s')) AS `%s`,",
-								peerdb_clickhouse.EscapeStr(colName), dstColName,
-							))
+							fmt.Fprintf(&projection,
+								"base64Decode(JSONExtractString(_peerdb_data, %s)) AS %s,",
+								peerdb_clickhouse.QuoteLiteral(colName),
+								peerdb_clickhouse.QuoteIdentifier(dstColName),
+							)
 							if enablePrimaryUpdate {
-								projectionUpdate.WriteString(fmt.Sprintf(
-									"base64Decode(JSONExtractString(_peerdb_match_data, '%s')) AS `%s`,",
-									peerdb_clickhouse.EscapeStr(colName), dstColName,
-								))
+								fmt.Fprintf(&projectionUpdate,
+									"base64Decode(JSONExtractString(_peerdb_match_data, %s)) AS %s,",
+									peerdb_clickhouse.QuoteLiteral(colName),
+									peerdb_clickhouse.QuoteIdentifier(dstColName),
+								)
 							}
 						case internal.BinaryFormatHex:
-							projection.WriteString(fmt.Sprintf("hex(base64Decode(JSONExtractString(_peerdb_data, '%s'))) AS `%s`,",
-								peerdb_clickhouse.EscapeStr(colName), dstColName))
+							fmt.Fprintf(&projection, "hex(base64Decode(JSONExtractString(_peerdb_data, %s))) AS %s,",
+								peerdb_clickhouse.QuoteLiteral(colName),
+								peerdb_clickhouse.QuoteIdentifier(dstColName),
+							)
 							if enablePrimaryUpdate {
-								projectionUpdate.WriteString(fmt.Sprintf(
-									"hex(base64Decode(JSONExtractString(_peerdb_match_data, '%s'))) AS `%s`,",
-									peerdb_clickhouse.EscapeStr(colName), dstColName,
-								))
+								fmt.Fprintf(&projectionUpdate,
+									"hex(base64Decode(JSONExtractString(_peerdb_match_data, %s))) AS %s,",
+									peerdb_clickhouse.QuoteLiteral(colName),
+									peerdb_clickhouse.QuoteIdentifier(dstColName),
+								)
 							}
 						}
 					}
 
 					// proceed with default logic if logic above didn't add any sql
 					if projection.Len() == projLen {
-						projection.WriteString(fmt.Sprintf(
-							"JSONExtract(_peerdb_data, '%s', '%s') AS `%s`,",
-							peerdb_clickhouse.EscapeStr(colName), clickHouseType, dstColName,
-						))
+						fmt.Fprintf(
+							&projection,
+							"JSONExtract(_peerdb_data, %s, %s) AS %s,",
+							peerdb_clickhouse.QuoteLiteral(colName),
+							peerdb_clickhouse.QuoteLiteral(clickHouseType),
+							peerdb_clickhouse.QuoteIdentifier(dstColName),
+						)
 						if enablePrimaryUpdate {
-							projectionUpdate.WriteString(fmt.Sprintf(
-								"JSONExtract(_peerdb_match_data, '%s', '%s') AS `%s`,",
-								peerdb_clickhouse.EscapeStr(colName), clickHouseType, dstColName,
-							))
+							fmt.Fprintf(
+								&projectionUpdate,
+								"JSONExtract(_peerdb_match_data, %s, %s) AS %s,",
+								peerdb_clickhouse.QuoteLiteral(colName),
+								peerdb_clickhouse.QuoteLiteral(clickHouseType),
+								peerdb_clickhouse.QuoteIdentifier(dstColName),
+							)
 						}
 					}
 				}
@@ -480,30 +486,23 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 			if sourceSchemaAsDestinationColumn {
 				projection.WriteString(escapedSourceSchemaSelectorFragment)
-				colSelector.WriteString(fmt.Sprintf("`%s`,", sourceSchemaColName))
+				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
 			}
 
 			// add _peerdb_sign as _peerdb_record_type / 2
-			projection.WriteString(fmt.Sprintf("intDiv(_peerdb_record_type, 2) AS `%s`,", signColName))
-			colSelector.WriteString(fmt.Sprintf("`%s`,", signColName))
+			fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
+			fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(signColName))
 
 			// add _peerdb_timestamp as _peerdb_version
-			projection.WriteString(fmt.Sprintf("_peerdb_timestamp AS `%s`", versionColName))
-			colSelector.WriteString(versionColName)
-			colSelector.WriteString(") ")
+			fmt.Fprintf(&projection, "_peerdb_timestamp AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
+			fmt.Fprintf(&colSelector, "%s) ", peerdb_clickhouse.QuoteIdentifier(versionColName))
 
 			selectQuery.WriteString(projection.String())
-			selectQuery.WriteString(" FROM ")
-			selectQuery.WriteString(rawTbl)
-			selectQuery.WriteString(" WHERE _peerdb_batch_id > ")
-			selectQuery.WriteString(strconv.FormatInt(normBatchID, 10))
-			selectQuery.WriteString(" AND _peerdb_batch_id <= ")
-			selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
-			selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
-			selectQuery.WriteString(tbl)
-			selectQuery.WriteByte('\'')
+			fmt.Fprintf(&selectQuery,
+				" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
+				peerdb_clickhouse.QuoteIdentifier(rawTbl), normBatchID, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
 			if numParts > 1 {
-				selectQuery.WriteString(fmt.Sprintf(" AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart))
+				fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart)
 			}
 
 			if enablePrimaryUpdate {
@@ -512,36 +511,26 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				}
 
 				// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
-				projectionUpdate.WriteString(fmt.Sprintf("1 AS `%s`,", signColName))
+				fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
 				// decrement timestamp by 1 so delete is ordered before latest data,
 				// could be same if deletion records were only generated when ordering updated
-				projectionUpdate.WriteString(fmt.Sprintf("_peerdb_timestamp - 1 AS `%s`", versionColName))
+				fmt.Fprintf(&projectionUpdate, "_peerdb_timestamp - 1 AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
 
 				selectQuery.WriteString(" UNION ALL SELECT ")
 				selectQuery.WriteString(projectionUpdate.String())
-				selectQuery.WriteString(" FROM ")
-				selectQuery.WriteString(rawTbl)
-				selectQuery.WriteString(" WHERE _peerdb_match_data != '' AND _peerdb_batch_id > ")
-				selectQuery.WriteString(strconv.FormatInt(normBatchID, 10))
-				selectQuery.WriteString(" AND _peerdb_batch_id <= ")
-				selectQuery.WriteString(strconv.FormatInt(req.SyncBatchID, 10))
-				selectQuery.WriteString(" AND _peerdb_destination_table_name = '")
-				selectQuery.WriteString(tbl)
-				selectQuery.WriteString("' AND _peerdb_record_type = 1")
+				fmt.Fprintf(&selectQuery,
+					" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
+						" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
+					peerdb_clickhouse.QuoteIdentifier(rawTbl), normBatchID, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
 				if numParts > 1 {
-					selectQuery.WriteString(fmt.Sprintf(" AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart))
+					fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart)
 				}
 			}
 
-			insertIntoSelectQuery := strings.Builder{}
-			insertIntoSelectQuery.WriteString("INSERT INTO `")
-			insertIntoSelectQuery.WriteString(tbl)
-			insertIntoSelectQuery.WriteString("` ")
-			insertIntoSelectQuery.WriteString(colSelector.String())
-			insertIntoSelectQuery.WriteString(selectQuery.String())
-
+			insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
+				peerdb_clickhouse.QuoteIdentifier(tbl), colSelector.String(), selectQuery.String())
 			select {
-			case queries <- insertIntoSelectQuery.String():
+			case queries <- insertIntoSelectQuery:
 			case <-errCtx.Done():
 				close(queries)
 				c.logger.Error("[clickhouse] context canceled while normalizing",
@@ -577,7 +566,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	rawTbl := c.getRawTableName(flowJobName)
 
 	q := fmt.Sprintf(
-		`SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d`,
+		"SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",
 		rawTbl, normalizeBatchID, syncBatchID)
 
 	rows, err := c.query(ctx, q)
