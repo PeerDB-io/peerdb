@@ -24,23 +24,30 @@ func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*ut
 	return nil
 }
 
+func checkGrantCommand(command []byte) error {
+	grant := shared.UnsafeFastReadOnlyBytesToString(command)
+	if strings.Contains(grant, "REPLICATION SLAVE") || strings.Contains(grant, "REPLICATION CLIENT") {
+		return nil
+	}
+	return errors.New("MySQL user does not have replication privileges")
+}
+
 func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error {
 	rs, err := c.Execute(ctx, "SHOW GRANTS FOR CURRENT_USER()")
 	if err != nil {
 		return fmt.Errorf("failed to check replication privileges: %w", err)
 	}
 
-	for _, row := range rs.Values {
-		grant := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
-		for permission := range strings.FieldsFuncSeq(grant, func(r rune) bool { return r == ',' }) {
-			permission = strings.TrimSpace(permission)
-			if permission == "REPLICATION SLAVE" || permission == "REPLICATION CLIENT" {
-				return nil
-			}
-		}
+	if len(rs.Values) == 0 {
+		return errors.New("no grants found for current user")
 	}
 
-	return errors.New("MySQL user does not have replication privileges")
+	for _, row := range rs.Values {
+		if err := checkGrantCommand(row[0].AsString()); err != nil {
+			return fmt.Errorf("failed to check replication privileges: %w", err)
+		}
+	}
+	return nil
 }
 
 func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
