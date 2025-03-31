@@ -292,6 +292,10 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 				result = append(result, "")
 			} else if ch == '}' {
 				ps = psSearch2
+			} else if ch == '"' {
+				ps = psQuoted
+			} else if ch == '\\' {
+				ps = psUnquotedEscape
 			} else if ch != '{' && ch != ' ' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r' {
 				sb = append(sb, ch)
 				ps = psUnquoted
