@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -57,25 +58,25 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 
 func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMetadata bool) error {
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
-		return nil
+		cmp, err := c.CompareServerVersion(ctx, "8.0.1")
+		if err != nil {
+			return fmt.Errorf("failed to get server version: %w", err)
+		}
+		if cmp < 0 {
+			c.logger.Warn("cannot validate mysql prior to 8.0.1")
+			return nil
+		}
 	}
 
-	cmp, err := c.CompareServerVersion(ctx, "8.0.1")
-	if err != nil {
-		return fmt.Errorf("failed to get server version: %w", err)
-	}
-	if cmp < 0 {
-		c.logger.Warn("cannot validate mysql prior to 8.0.1")
-		return nil
-	}
 	query := "SELECT @@binlog_expire_logs_seconds, @@binlog_format, @@binlog_row_image, @@binlog_row_metadata"
 
 	checkRowValueOptions := false
-	cmp, err = c.CompareServerVersion(ctx, "8.0.3")
+	cmp, err := c.CompareServerVersion(ctx, "8.0.3")
 	if err != nil {
 		return fmt.Errorf("failed to get server version: %w", err)
 	}
-	if cmp >= 0 {
+	// Don't see this setting on any MariaDB version
+	if cmp >= 0 && c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
 		checkRowValueOptions = true
 		query += ", @@binlog_row_value_options"
 	}
@@ -100,11 +101,10 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 		return errors.New("binlog_format must be set to 'ROW', currently " + binlogFormat)
 	}
 
-	if checkRowValueOptions {
-		binlogRowValueOptions := shared.UnsafeFastReadOnlyBytesToString(row[4].AsString())
-		if binlogRowValueOptions != "" {
-			return errors.New("binlog_row_value_options must be disabled, currently " + binlogRowValueOptions)
-		}
+	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[2].AsString())
+	if binlogRowImage != "FULL" {
+		c.logger.Warn("binlog_row_image should be set to 'FULL' to avoid missing data",
+			slog.String("binlog_row_image", strings.Clone(binlogRowImage)))
 	}
 
 	binlogRowMetadata := shared.UnsafeFastReadOnlyBytesToString(row[3].AsString())
@@ -117,10 +117,36 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 		}
 	}
 
-	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[2].AsString())
-	if binlogRowImage != "FULL" {
-		c.logger.Warn("binlog_row_image should be set to 'FULL' to avoid missing data",
-			slog.String("binlog_row_image", strings.Clone(binlogRowImage)))
+	if checkRowValueOptions {
+		binlogRowValueOptions := shared.UnsafeFastReadOnlyBytesToString(row[4].AsString())
+		if binlogRowValueOptions != "" {
+			return errors.New("binlog_row_value_options must be disabled, currently " + binlogRowValueOptions)
+		}
+	}
+
+	// AWS RDS/Aurora has its own binlog retention setting that we need to check, minimum 24h
+	// check RDS/Aurora binlog retention setting
+	if rs, err := c.Execute(ctx, "SELECT value FROM mysql.rds_configuration WHERE name='binlog retention hours'"); err != nil {
+		var mErr *mysql.MyError
+		if errors.As(err, &mErr) && mErr.Code == mysql.ER_NO_SUCH_TABLE {
+			// Table doesn't exist, which means this is not RDS/Aurora
+			slog.Warn("mysql.rds_configuration table does not exist, skipping Aurora/RDS binlog retention check")
+			return nil
+		}
+		return errors.New("failed to check RDS/Aurora binlog retention hours: " + err.Error())
+	} else if len(rs.Values) > 0 {
+		binlogRetentionHoursStr := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
+		if binlogRetentionHoursStr == "" {
+			return errors.New("RDS/Aurora setting 'binlog retention hours' should be atleast 24, currently unset")
+		}
+		slog.Info("binlog retention hours", "binlogRetentionHours", binlogRetentionHoursStr)
+		if binlogRetentionHours, err := strconv.Atoi(binlogRetentionHoursStr); err != nil {
+			return errors.New("failed to parse RDS/Aurora setting 'binlog retention hours': " + err.Error())
+		} else if binlogRetentionHours < 24 {
+			return errors.New("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently " + fmt.Sprint(binlogRetentionHoursStr))
+		}
+	} else {
+		slog.Warn("binlog retention hours returned nothing, skipping Aurora/RDS binlog retention check")
 	}
 
 	return nil
@@ -163,18 +189,22 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 }
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
-	if _, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
+	if rs, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
 		var mErr *mysql.MyError
 		// seems to be MariaDB
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE && c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
-			return errors.New("server appears to be MariaDB but flavor is not set to MariaDB")
+		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+				return errors.New("server appears to be MariaDB but flavor is not set to MariaDB")
+			}
 		} else {
-			return nil
+			return fmt.Errorf("failed to check GTID mode: %w", err)
 		}
+	} else if len(rs.Values) > 0 {
+		gtidMode := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
+		slog.Warn("GTID mode is set to " + gtidMode)
 	}
-	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		return errors.New("flavor is set to MariaDB but the server appears to be MySQL")
-	} else if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
+
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
 		return errors.New("flavor is set to unknown")
 	}
 
