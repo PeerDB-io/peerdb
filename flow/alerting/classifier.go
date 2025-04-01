@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -72,6 +73,9 @@ var (
 	}
 	ErrorNotifySlotInvalid = ErrorClass{
 		Class: "NOTIFY_SLOT_INVALID", action: NotifyUser,
+	}
+	ErrorNotifyPublicationMissing = ErrorClass{
+		Class: "NOTIFY_PUBLICATION_MISSING", action: NotifyUser,
 	}
 	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
 		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
@@ -309,6 +313,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// could not read from reorderbuffer spill file: Bad address
 			// could not read from reorderbuffer spill file: Bad file descriptor
 			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   pgWalErr.Msg.Code,
+			}
+		}
+		// &{Severity:ERROR Code:42704 Message:publication "custom_pub" does not exist}
+		publicationNotExistRe := regexp.MustCompile(`publication ".*?" does not exist`)
+		if pgWalErr.Msg.Severity == "ERROR" && pgWalErr.Msg.Code == pgerrcode.UndefinedObject &&
+			publicationNotExistRe.MatchString(pgWalErr.Msg.Message) {
+			return ErrorNotifyPublicationMissing, ErrorInfo{
 				Source: ErrorSourcePostgres,
 				Code:   pgWalErr.Msg.Code,
 			}
