@@ -298,7 +298,9 @@ func (s Suite) TestMySQLBinlogValidation_Pass() {
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
 	require.Equal(s.t,
-		"failed to validate peer mysql: binlog configuration error: RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset",
+		"failed to validate peer mysql: binlog configuration error: "+
+			"RDS/Aurora setting 'binlog retention hours' should be at least 24, "+
+			"currently unset",
 		response.Message)
 
 	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours';")
@@ -310,7 +312,9 @@ func (s Suite) TestMySQLBinlogValidation_Pass() {
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
 	require.Equal(s.t,
-		"failed to validate peer mysql: binlog configuration error: RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1",
+		"failed to validate peer mysql: binlog configuration error: "+
+			"RDS/Aurora setting 'binlog retention hours' should be at least 24, "+
+			"currently 1",
 		response.Message)
 
 	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';")
