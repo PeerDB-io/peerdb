@@ -50,7 +50,6 @@ func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
 	// Simulate an Avro decimal error
 	err := &clickhouse.Exception{
 		Code: int32(chproto.ErrIllegalTypeOfArgument),
-		//nolint:lll
 		Message: `Nested type Array(String) cannot be inside Nullable type: In scope SELECT
 				col1, col2, col3 AS some_other_col, _peerdb_synced_at, _peerdb_is_deleted, _peerdb_version
 				FROM    db_name_xyz.error_table_name_abc AS inp ARRAY JOIN JSONExtractArrayRaw(some_json_data) AS s ARRAY JOIN
