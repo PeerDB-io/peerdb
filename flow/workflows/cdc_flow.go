@@ -374,7 +374,7 @@ func CDCFlowWorkflow(
 				return state, err
 			}
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, cfg, state.DropFlowInput)
+				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 
 			if state.FlowConfigUpdate != nil {
@@ -631,7 +631,7 @@ func CDCFlowWorkflow(
 			}
 
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
-				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, cfg, state.DropFlowInput)
+				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 		}
