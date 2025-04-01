@@ -276,7 +276,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 					return ErrorNotifyMVOrView, chErrorInfo
 				}
 				return ErrorOther, chErrorInfo
-
 			}
 		default:
 			if isClickHouseMvError(chException) {
