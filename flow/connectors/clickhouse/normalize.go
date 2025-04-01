@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
@@ -19,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 )
 
@@ -304,6 +306,17 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		c.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
 		numParts = 1
 	}
+
+	// This is for cases where currently normalizing can take a looooong time
+	// there is no other indication of progress, so we log every 5 minutes.
+	periodicLogger := shared.Interval(ctx, 5*time.Minute, func() {
+		c.logger.Info("[clickhouse] normalizing batch...",
+			slog.Int64("StartBatchID", normBatchID),
+			slog.Int64("EndBatchID", req.SyncBatchID),
+			slog.Int("connections", parallelNormalize))
+	})
+	defer periodicLogger()
+
 	numParts = max(numParts, 1)
 
 	queries := make(chan string)
