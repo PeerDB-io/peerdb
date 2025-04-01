@@ -3,7 +3,9 @@ package alerting
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
@@ -259,6 +261,22 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`).
 				MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
+			}
+		case chproto.ErrIllegalTypeOfArgument:
+			var qrepSyncError *exceptions.QRepSyncError
+			if errors.As(err, &qrepSyncError) {
+				unexpectedSelectRe, reErr := regexp.Compile(
+					fmt.Sprintf(`FROM\s+(%s\.)?%s`,
+						regexp.QuoteMeta(qrepSyncError.DestinationDatabase), regexp.QuoteMeta(qrepSyncError.DestinationTable)))
+				if reErr != nil {
+					slog.Error("regexp compilation error while checking for err", "err", reErr, "original_err", err)
+					return ErrorOther, chErrorInfo
+				}
+				if unexpectedSelectRe.MatchString(chException.Message) {
+					// Select query from destination table in QRepSync = MV error
+					return ErrorNotifyMVOrView, chErrorInfo
+				}
+				return ErrorOther, chErrorInfo
 			}
 		default:
 			if isClickHouseMvError(chException) {
