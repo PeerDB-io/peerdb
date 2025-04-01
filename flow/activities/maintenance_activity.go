@@ -51,8 +51,7 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.Mainte
 
 	maintenanceMirrorItems, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.MaintenanceMirror, error) {
 		var info protos.MaintenanceMirror
-		var createdAt time.Time
-		var updatedAt time.Time
+		var createdAt, updatedAt time.Time
 		err := row.Scan(&info.MirrorId, &info.MirrorName, &info.WorkflowId, &createdAt, &updatedAt, &info.IsCdc)
 		info.MirrorCreatedAt = timestamppb.New(createdAt)
 		info.MirrorUpdatedAt = timestamppb.New(updatedAt)

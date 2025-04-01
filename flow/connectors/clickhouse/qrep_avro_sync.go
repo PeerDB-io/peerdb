@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type ClickHouseAvroSyncMethod struct {
@@ -204,7 +205,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 				slog.Uint64("part", i),
 				slog.Uint64("numParts", numParts),
 				slog.Any("error", err))
-			return 0, err
+			return 0, exceptions.NewQRepSyncError(config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database, err)
 		}
 	}
 
