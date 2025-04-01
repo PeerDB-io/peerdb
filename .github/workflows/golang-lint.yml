@@ -28,8 +28,8 @@ jobs:
           go-version: '1.24.1'
           cache: false
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@55c2c1448f86e01eaae002a5a3a9624417608d84 # v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: v1.64
+          version: v2.0.2
           working-directory: ./flow
-          args: --timeout=10m --out-format=github-actions
+          args: --timeout=10m

@@ -127,7 +127,7 @@ func (p *hstoreParser) consumeDoubleQuotedWithEscapes(firstBackslash int) (strin
 			if end {
 				return "", errEOSInQuoted
 			}
-			if !(nextB == '\\' || nextB == '"') {
+			if nextB != '\\' && nextB != '"' {
 				return "", fmt.Errorf("unexpected escape in quoted string: found '%#v'", nextB)
 			}
 			builder.WriteByte(nextB)
