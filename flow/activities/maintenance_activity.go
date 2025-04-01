@@ -220,16 +220,17 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 				return false, wErr
 			}
 			logger.Info("Received response for ANY existing Workflows check", "len(executions)", len(response.Executions))
-			if len(response.Executions) != 0 {
-				foundWorkflowIds := make([]string, len(response.Executions))
-				for i, exec := range response.Executions {
-					logger.Info("Found existing CDCFlow", "workflowId", exec.GetExecution().GetWorkflowId())
-					foundWorkflowIds[i] = exec.GetExecution().GetWorkflowId()
-				}
-				logger.Warn("Found some existing CDCFlow, this is unexpected and should be investigated",
-					"foundWorkflows", foundWorkflowIds)
+			if len(response.Executions) == 0 {
+				logger.Warn("No existing workflows found, skipping pause")
 				return false, nil
 			}
+			foundWorkflowIds := make([]string, len(response.Executions))
+			for i, exec := range response.Executions {
+				logger.Info("Found existing CDCFlow", "workflowId", exec.GetExecution().GetWorkflowId())
+				foundWorkflowIds[i] = exec.GetExecution().GetWorkflowId()
+			}
+			logger.Warn("Found some existing CDCFlow, this is unexpected and should be investigated",
+				"foundWorkflows", foundWorkflowIds)
 		}
 		return false, err
 	}
