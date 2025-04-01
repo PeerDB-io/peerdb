@@ -24,16 +24,10 @@ func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*ut
 	return nil
 }
 
-func checkGrantCommand(command []byte) error {
-	grant := shared.UnsafeFastReadOnlyBytesToString(command)
-	if strings.Contains(grant, "REPLICATION SLAVE") || strings.Contains(grant, "REPLICATION CLIENT") {
-		return nil
-	}
-	return errors.New("MySQL user does not have replication privileges")
-}
-
 func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error {
-	rs, err := c.Execute(ctx, "SHOW GRANTS FOR CURRENT_USER()")
+	// substring since current_user() returns user@host and we only need user
+	rs, err := c.Execute(ctx,
+		"SELECT Repl_slave_priv='Y' AND Repl_client_priv='Y' FROM mysql.user WHERE user=SUBSTRING_INDEX(current_user(),'@',1);")
 	if err != nil {
 		return fmt.Errorf("failed to check replication privileges: %w", err)
 	}
@@ -43,8 +37,8 @@ func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error 
 	}
 
 	for _, row := range rs.Values {
-		if err := checkGrantCommand(row[0].AsString()); err != nil {
-			return fmt.Errorf("failed to check replication privileges: %w", err)
+		if row[0].AsInt64() != 1 {
+			return errors.New("user does not have needed replication privileges (REPLICATION SLAVE and REPLICATION CLIENT)")
 		}
 	}
 	return nil
@@ -169,12 +163,12 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		sourceTables = append(sourceTables, parsedTable)
 	}
 
-	if err := c.CheckReplicationConnectivity(ctx); err != nil {
-		return fmt.Errorf("unable to establish replication connectivity: %w", err)
-	}
-
 	if err := c.CheckReplicationPermissions(ctx); err != nil {
 		return fmt.Errorf("failed to check replication permissions: %w", err)
+	}
+
+	if err := c.CheckReplicationConnectivity(ctx); err != nil {
+		return fmt.Errorf("unable to establish replication connectivity: %w", err)
 	}
 
 	if err := c.CheckSourceTables(ctx, sourceTables); err != nil {
@@ -216,12 +210,12 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		}
 	}
 
-	if err := c.CheckReplicationConnectivity(ctx); err != nil {
-		return fmt.Errorf("unable to establish replication connectivity: %w", err)
-	}
-
 	if err := c.CheckReplicationPermissions(ctx); err != nil {
 		return fmt.Errorf("failed to check replication permissions: %w", err)
+	}
+
+	if err := c.CheckReplicationConnectivity(ctx); err != nil {
+		return fmt.Errorf("unable to establish replication connectivity: %w", err)
 	}
 
 	if err := c.CheckBinlogSettings(ctx, false); err != nil {
