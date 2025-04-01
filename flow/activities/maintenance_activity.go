@@ -149,6 +149,8 @@ func (a *MaintenanceActivity) BackupAllPreviouslyRunningFlows(ctx context.Contex
 	return tx.Commit(ctx)
 }
 
+var workflowNotFoundMessageRe = regexp.MustCompile("workflow not found for ID: (.+)")
+
 func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *protos.MaintenanceMirror) (bool, error) {
 	mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 	if err != nil {
@@ -204,7 +206,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 					return false, nil
 				}
 			}
-		} else if errors.As(err, &notFoundErr) && regexp.MustCompile("workflow not found for ID: (.+)").MatchString(notFoundErr.Message) &&
+		} else if errors.As(err, &notFoundErr) && workflowNotFoundMessageRe.MatchString(notFoundErr.Message) &&
 			// This is max temporal retention period, but this is mirror update time, not deletion time, so it is not accurate
 			mirror.MirrorUpdatedAt.AsTime().Before(time.Now().Add(-90*24*time.Hour)) &&
 			// We are in Temporal Cloud
