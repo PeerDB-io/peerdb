@@ -1,9 +1,9 @@
 package exceptions
 
 type QRepSyncError struct {
+	error
 	DestinationTable    string
 	DestinationDatabase string
-	error
 }
 
 func (e *QRepSyncError) Error() string {
@@ -14,6 +14,6 @@ func (e *QRepSyncError) Unwrap() error {
 	return e.error
 }
 
-func NewQRepSyncError(destinationTable string, destinationDatabase string, err error) *QRepSyncError {
-	return &QRepSyncError{destinationTable, destinationDatabase, err}
+func NewQRepSyncError(err error, destinationTable string, destinationDatabase string) *QRepSyncError {
+	return &QRepSyncError{err, destinationTable, destinationDatabase}
 }

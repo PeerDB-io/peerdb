@@ -57,7 +57,7 @@ func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
 				JSONExtractArrayRaw(JSONExtractRaw(s, 'more_data')) AS md SETTINGS final = 1`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w",
-		exceptions.NewQRepSyncError("error_table_name_abc", "db_name_xyz", err)))
+		exceptions.NewQRepSyncError(err, "error_table_name_abc", "db_name_xyz")))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,

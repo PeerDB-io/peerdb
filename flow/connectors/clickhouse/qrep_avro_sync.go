@@ -205,7 +205,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 				slog.Uint64("part", i),
 				slog.Uint64("numParts", numParts),
 				slog.Any("error", err))
-			return 0, exceptions.NewQRepSyncError(config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database, err)
+			return 0, exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database)
 		}
 	}
 
