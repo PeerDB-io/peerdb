@@ -189,7 +189,11 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 }
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
-	if _, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
+		return errors.New("flavor is set to unknown")
+	}
+
+	if rs, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
 		var mErr *mysql.MyError
 		// seems to be MariaDB
 		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
@@ -199,10 +203,10 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		} else {
 			return fmt.Errorf("failed to check GTID mode: %w", err)
 		}
-	}
-
-	if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
-		return errors.New("flavor is set to unknown")
+	} else if len(rs.Values) > 0 {
+		if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+			return errors.New("server appears to be MySQL but flavor is set to MariaDB")
+		}
 	}
 
 	if err := c.CheckReplicationConnectivity(ctx); err != nil {
