@@ -44,6 +44,30 @@ func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
 	}
 }
 
+func RunSuiteNoParallel[T Suite](t *testing.T, setup func(t *testing.T) T) {
+	t.Helper()
+
+	typ := reflect.TypeFor[T]()
+	mcount := typ.NumMethod()
+	for i := range mcount {
+		m := typ.Method(i)
+		if strings.HasPrefix(m.Name, "Test") {
+			if m.Type.NumIn() == 1 && m.Type.NumOut() == 0 {
+				t.Run(m.Name, func(subtest *testing.T) {
+					suite := setup(subtest)
+					subtest.Cleanup(func() {
+						//nolint
+						ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+						defer cancel()
+						suite.Teardown(ctx)
+					})
+					m.Func.Call([]reflect.Value{reflect.ValueOf(suite)})
+				})
+			}
+		}
+	}
+}
+
 // ReadFileToBytes reads a file to a byte array.
 func ReadFileToBytes(path string) ([]byte, error) {
 	f, err := os.Open(path)

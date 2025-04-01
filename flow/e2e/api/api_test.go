@@ -65,7 +65,7 @@ func testApi[TSource e2e.SuiteSource](
 	setup func(*testing.T, string) (TSource, error),
 ) {
 	t.Helper()
-	e2eshared.RunSuite(t, func(t *testing.T) Suite {
+	e2eshared.RunSuiteNoParallel(t, func(t *testing.T) Suite {
 		t.Helper()
 
 		suffix := "api_" + strings.ToLower(shared.RandomString(8))
@@ -286,7 +286,7 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 
-	err = s.source.Exec(s.t.Context(), "CREATE TABLE mysql.rds_configuration(name TEXT, value TEXT);")
+	err = s.source.Exec(s.t.Context(), "CREATE TABLE IF NOT EXISTS mysql.rds_configuration(name TEXT, value TEXT);")
 	require.NoError(s.t, err)
 	err = s.source.Exec(s.t.Context(), "INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL);")
 	require.NoError(s.t, err)
@@ -326,7 +326,7 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 
-	err = s.source.Exec(s.t.Context(), "DROP TABLE mysql.rds_configuration;")
+	err = s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;")
 	require.NoError(s.t, err)
 }
 
