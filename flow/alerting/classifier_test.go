@@ -30,7 +30,8 @@ func TestClickHouseAvroDecimalErrorShouldBeUnsupportedDatatype(t *testing.T) {
 	for _, code := range errCodes {
 		t.Run(strconv.Itoa(code), func(t *testing.T) {
 			exception := clickhouse.Exception{
-				Code:    int32(code),
+				Code: int32(code),
+				// nolint:lll
 				Message: "Cannot parse type Decimal(76, 38), expected non-empty binary data with size equal to or less than 32, got 57: (at row 72423)....",
 			}
 			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w", &exception))
