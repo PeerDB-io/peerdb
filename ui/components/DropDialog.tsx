@@ -37,17 +37,16 @@ async function handleDropMirror(
   setLoading(true);
   const res = await changeFlowState(
     dropArgs.flowJobName,
-    FlowStatus.STATUS_TERMINATED,
+    FlowStatus.STATUS_TERMINATING,
     dropStats
   );
   setLoading(false);
   if (res.status !== 200) {
-    setMsg(`Unable to drop mirror ${dropArgs.flowJobName}.`);
+    setMsg(`Unable to start dropping mirror ${dropArgs.flowJobName}.`);
     return false;
   }
 
-  setMsg('Mirror dropped successfully.');
-  window.location.reload();
+  setMsg('Mirror began dropping successfully.');
 
   return true;
 }
