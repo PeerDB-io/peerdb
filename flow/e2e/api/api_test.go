@@ -10,9 +10,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
-	"github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
+	e2e_clickhouse "github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -272,4 +272,52 @@ func (s Suite) TestScripts() {
 			require.Fail(s.t, "script not deleted")
 		}
 	}
+}
+
+func (s Suite) TestMySQLBinlogValidation_Pass() {
+	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+		s.t.Skip("only for MySQL")
+	}
+
+	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
+		Peer: s.source.GeneratePeer(s.t),
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
+
+	err = s.source.Exec(s.t.Context(), "CREATE TABLE mysql.rds_configuration(name TEXT, value TEXT);")
+	require.NoError(s.t, err)
+	err = s.source.Exec(s.t.Context(), "INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL);")
+	require.NoError(s.t, err)
+
+	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
+		Peer: s.source.GeneratePeer(s.t),
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
+	require.Equal(s.t, "RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset", response.Message)
+
+	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours';")
+	require.NoError(s.t, err)
+	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
+		Peer: s.source.GeneratePeer(s.t),
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
+	require.Equal(s.t, "RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1", response.Message)
+
+	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';")
+	require.NoError(s.t, err)
+	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
+		Peer: s.source.GeneratePeer(s.t),
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
+
+	err = s.source.Exec(s.t.Context(), "DROP TABLE mysql.rds_configuration;")
+	require.NoError(s.t, err)
 }

@@ -137,7 +137,7 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 	} else if len(rs.Values) > 0 {
 		binlogRetentionHoursStr := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
 		if binlogRetentionHoursStr == "" {
-			return errors.New("RDS/Aurora setting 'binlog retention hours' should be atleast 24, currently unset")
+			return errors.New("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset")
 		}
 		slog.Info("binlog retention hours", "binlogRetentionHours", binlogRetentionHoursStr)
 		if binlogRetentionHours, err := strconv.Atoi(binlogRetentionHoursStr); err != nil {
