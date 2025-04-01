@@ -29,6 +29,11 @@ func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error 
 	rs, err := c.Execute(ctx,
 		"SELECT Repl_slave_priv='Y' AND Repl_client_priv='Y' FROM mysql.user WHERE user=SUBSTRING_INDEX(current_user(),'@',1);")
 	if err != nil {
+		var myErr *mysql.MyError
+		if errors.As(err, &myErr) && myErr.Code == 1142 {
+			c.logger.Warn("do not have permissions to check mysql.user")
+			return nil
+		}
 		return fmt.Errorf("failed to check replication privileges: %w", err)
 	}
 
