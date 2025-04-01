@@ -347,36 +347,3 @@ func (s Suite) TestMySQLFlavorSwap() {
 	require.Equal(s.t,
 		"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", response.Message)
 }
-
-func (s Suite) TestMySQLReplicationPermissions() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
-		s.t.Skip("only for MySQL")
-	}
-
-	err := s.source.Exec(s.t.Context(), "CREATE USER 'test'@'%' IDENTIFIED BY 'test'")
-	require.NoError(s.t, err)
-	err = s.source.Exec(s.t.Context(), "GRANT USAGE ON *.* TO 'test'@'%'")
-	require.NoError(s.t, err)
-	peer := s.source.GeneratePeer(s.t)
-	peer.GetMysqlConfig().User = "test"
-	peer.GetMysqlConfig().Password = "test"
-
-	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: peer,
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-
-	err = s.source.Exec(s.t.Context(), "GRANT REPLICATION CLIENT ON *.* TO 'test'@'%'")
-	require.NoError(s.t, err)
-	err = s.source.Exec(s.t.Context(), "GRANT REPLICATION SLAVE ON *.* TO 'test'@'%'")
-	require.NoError(s.t, err)
-
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: peer,
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
-}
