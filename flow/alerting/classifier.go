@@ -266,7 +266,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				unexpectedSelectRe, reErr := regexp.Compile(
-					fmt.Sprintf(`FROM\s+(%s\.)?%s`, qrepSyncError.DestinationDatabase, qrepSyncError.DestinationTable))
+					fmt.Sprintf(`FROM\s+(%s\.)?%s`, regexp.QuoteMeta(qrepSyncError.DestinationDatabase), regexp.QuoteMeta(qrepSyncError.DestinationTable)))
 				if reErr != nil {
 					slog.Error("regexp compilation error while checking for err", "err", reErr, "original_err", err)
 					return ErrorOther, chErrorInfo
