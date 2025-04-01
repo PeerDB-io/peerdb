@@ -377,7 +377,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_RESYNC:
 			err = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
-		case protos.FlowStatus_STATUS_TERMINATED:
+		case protos.FlowStatus_STATUS_TERMINATED: // backwards compat, causes grpc timeouts
 			if currState != protos.FlowStatus_STATUS_TERMINATED {
 				err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
 			}
