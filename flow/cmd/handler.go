@@ -75,14 +75,14 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	}
 
 	for _, v := range req.ConnectionConfigs.TableMappings {
-		_, err := h.pool.Exec(ctx, `
+		if _, err := h.pool.Exec(ctx, `
 		INSERT INTO flows (workflow_id, name, source_peer, destination_peer, description,
 		source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`, workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID,
 			"Mirror created via GRPC",
 			schemaForTableIdentifier(v.SourceTableIdentifier, sourePeerType),
-			schemaForTableIdentifier(v.DestinationTableIdentifier, destinationPeerType))
-		if err != nil {
+			schemaForTableIdentifier(v.DestinationTableIdentifier, destinationPeerType),
+		); err != nil {
 			return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
 				req.ConnectionConfigs.FlowJobName, v.SourceTableIdentifier, err)
 		}
@@ -131,10 +131,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// For resync, we validate the mirror before dropping it and getting to this step.
 	// There is no point validating again here if it's a resync - the mirror is dropped already
 	if !cfg.Resync {
-		_, validateErr := h.ValidateCDCMirror(ctx, req)
-		if validateErr != nil {
-			slog.Error("validate mirror error", slog.Any("error", validateErr))
-			return nil, fmt.Errorf("invalid mirror: %w", validateErr)
+		if _, err := h.ValidateCDCMirror(ctx, req); err != nil {
+			slog.Error("validate mirror error", slog.Any("error", err))
+			return nil, fmt.Errorf("invalid mirror: %w", err)
 		}
 	}
 
@@ -145,20 +144,17 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
 
-	err := h.createCdcJobEntry(ctx, req, workflowID)
-	if err != nil {
+	if err := h.createCdcJobEntry(ctx, req, workflowID); err != nil {
 		slog.Error("unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	err = h.updateFlowConfigInCatalog(ctx, cfg)
-	if err != nil {
+	if err := h.updateFlowConfigInCatalog(ctx, cfg); err != nil {
 		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	_, err = h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil)
-	if err != nil {
+	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
@@ -375,7 +371,30 @@ func (h *FlowRequestHandler) FlowStateChange(
 			if currState == protos.FlowStatus_STATUS_PAUSED {
 				err = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
 			}
-		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_RESYNC:
+		case protos.FlowStatus_STATUS_RESYNC:
+			isCDC, err := h.isCDCFlow(ctx, req.FlowJobName)
+			if err != nil {
+				return nil, err
+			}
+			if !isCDC {
+				return nil, errors.New("resync is only supported for CDC mirrors")
+			}
+			// getting config before dropping the flow since the flow entry is deleted unconditionally
+			config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+			if err != nil {
+				return nil, err
+			}
+
+			config.Resync = true
+			config.DoInitialSnapshot = true
+			// validate mirror first because once the mirror is dropped, there's no going back
+			if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
+				ConnectionConfigs: config,
+			}); err != nil {
+				return nil, err
+			}
+			err = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+		case protos.FlowStatus_STATUS_TERMINATING:
 			err = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 		case protos.FlowStatus_STATUS_TERMINATED: // backwards compat, causes grpc timeouts
 			if currState != protos.FlowStatus_STATUS_TERMINATED {
