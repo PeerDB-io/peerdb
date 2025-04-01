@@ -24,41 +24,21 @@ func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*ut
 	return nil
 }
 
-func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error {
-	// substring since current_user() returns user@host and we only need user
-	rs, err := c.Execute(ctx,
-		"SELECT Repl_slave_priv='Y' AND Repl_client_priv='Y' FROM mysql.user WHERE user=SUBSTRING_INDEX(current_user(),'@',1);")
-	if err != nil {
-		var myErr *mysql.MyError
-		if errors.As(err, &myErr) && myErr.Code == 1142 {
-			c.logger.Warn("do not have permissions to check mysql.user")
-			return nil
-		}
-		return fmt.Errorf("failed to check replication privileges: %w", err)
-	}
-
-	if len(rs.Values) == 0 {
-		return errors.New("no grants found for current user")
-	}
-
-	for _, row := range rs.Values {
-		if row[0].AsInt64() != 1 {
-			return errors.New("user does not have needed replication privileges (REPLICATION SLAVE and REPLICATION CLIENT)")
-		}
-	}
-	return nil
-}
-
 func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
-	namePos, err := c.GetMasterPos(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to check replication status: %w", err)
-	}
+	if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID {
+		if _, err := c.GetMasterGTIDSet(ctx); err != nil {
+			return fmt.Errorf("failed to check replication status: %w", err)
+		}
+	} else {
+		namePos, err := c.GetMasterPos(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to check replication status: %w", err)
+		}
 
-	if namePos.Name == "" || namePos.Pos <= 0 {
-		return errors.New("invalid replication status: missing log file or position")
+		if namePos.Name == "" || namePos.Pos <= 0 {
+			return errors.New("invalid replication status: missing log file or position")
+		}
 	}
-
 	return nil
 }
 
@@ -134,9 +114,9 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 	// check RDS/Aurora binlog retention setting
 	if rs, err := c.Execute(ctx, "SELECT value FROM mysql.rds_configuration WHERE name='binlog retention hours'"); err != nil {
 		var mErr *mysql.MyError
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_NO_SUCH_TABLE {
+		if errors.As(err, &mErr) && mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR {
 			// Table doesn't exist, which means this is not RDS/Aurora
-			slog.Warn("mysql.rds_configuration table does not exist, skipping Aurora/RDS binlog retention check")
+			slog.Warn("mysql.rds_configuration table does not exist, skipping Aurora/RDS binlog retention check", slog.Any("error", err))
 			return nil
 		}
 		return errors.New("failed to check RDS/Aurora binlog retention hours: " + err.Error())
@@ -166,10 +146,6 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
 		}
 		sourceTables = append(sourceTables, parsedTable)
-	}
-
-	if err := c.CheckReplicationPermissions(ctx); err != nil {
-		return fmt.Errorf("failed to check replication permissions: %w", err)
 	}
 
 	if err := c.CheckReplicationConnectivity(ctx); err != nil {
@@ -213,10 +189,6 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 			return errors.New("server appears to be MySQL but flavor is set to MariaDB")
 		}
-	}
-
-	if err := c.CheckReplicationPermissions(ctx); err != nil {
-		return fmt.Errorf("failed to check replication permissions: %w", err)
 	}
 
 	if err := c.CheckReplicationConnectivity(ctx); err != nil {

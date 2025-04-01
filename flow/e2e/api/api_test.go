@@ -367,24 +367,12 @@ func (s Suite) TestMySQLReplicationPermissions() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Equal(s.t,
-		"failed to check replication permissions: user does not have needed replication privileges (REPLICATION SLAVE and REPLICATION CLIENT)",
-		response.Message)
 
 	err = s.source.Exec(s.t.Context(), "GRANT REPLICATION CLIENT ON *.* TO 'test'@'%'")
 	require.NoError(s.t, err)
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: peer,
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Equal(s.t,
-		"failed to check replication permissions: user does not have needed replication privileges (REPLICATION SLAVE and REPLICATION CLIENT)",
-		response.Message)
-
 	err = s.source.Exec(s.t.Context(), "GRANT REPLICATION SLAVE ON *.* TO 'test'@'%'")
 	require.NoError(s.t, err)
+
 	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: peer,
 	})
