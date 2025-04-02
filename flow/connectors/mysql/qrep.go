@@ -214,7 +214,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		for idx, val := range row {
 			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, val)
 			if err != nil {
-				return err
+				return fmt.Errorf("could not convert mysql value for %s: %w", schema.Fields[idx].Name, err)
 			}
 			record = append(record, qv)
 		}

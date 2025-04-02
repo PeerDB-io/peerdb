@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -41,7 +42,7 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.Mainte
 	rows, err := a.CatalogPool.Query(ctx, `
 	select distinct on(name)
 	  id, name, workflow_id,
-	  created_at, coalesce(query_string, '')='' is_cdc
+	  created_at, updated_at, coalesce(query_string, '')='' is_cdc
 	from flows
 	`)
 	if err != nil {
@@ -50,9 +51,10 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.Mainte
 
 	maintenanceMirrorItems, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.MaintenanceMirror, error) {
 		var info protos.MaintenanceMirror
-		var createdAt time.Time
-		err := row.Scan(&info.MirrorId, &info.MirrorName, &info.WorkflowId, &createdAt, &info.IsCdc)
+		var createdAt, updatedAt time.Time
+		err := row.Scan(&info.MirrorId, &info.MirrorName, &info.WorkflowId, &createdAt, &updatedAt, &info.IsCdc)
 		info.MirrorCreatedAt = timestamppb.New(createdAt)
+		info.MirrorUpdatedAt = timestamppb.New(updatedAt)
 		return &info, err
 	})
 	return &protos.MaintenanceMirrors{
@@ -64,7 +66,10 @@ func (a *MaintenanceActivity) getMirrorStatus(ctx context.Context, mirror *proto
 	return internal.GetWorkflowStatus(ctx, a.TemporalClient, mirror.WorkflowId)
 }
 
-func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context) (*protos.MaintenanceMirrors, error) {
+func (a *MaintenanceActivity) WaitForRunningSnapshots(
+	ctx context.Context,
+	skippedFlows map[string]struct{},
+) (*protos.MaintenanceMirrors, error) {
 	mirrors, err := a.GetAllMirrors(ctx)
 	if err != nil {
 		return &protos.MaintenanceMirrors{}, err
@@ -73,6 +78,10 @@ func (a *MaintenanceActivity) WaitForRunningSnapshots(ctx context.Context) (*pro
 	slog.Info("Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
 
 	for _, mirror := range mirrors.Mirrors {
+		if _, shouldSkip := skippedFlows[mirror.MirrorName]; shouldSkip {
+			slog.Warn("Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
+			continue
+		}
 		lastStatus, err := a.checkAndWaitIfSnapshot(ctx, mirror, 2*time.Minute)
 		if err != nil {
 			return &protos.MaintenanceMirrors{}, err
@@ -139,6 +148,8 @@ func (a *MaintenanceActivity) BackupAllPreviouslyRunningFlows(ctx context.Contex
 	return tx.Commit(ctx)
 }
 
+var workflowNotFoundMessageRe = regexp.MustCompile("workflow not found for ID: (.+)")
+
 func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *protos.MaintenanceMirror) (bool, error) {
 	mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 	if err != nil {
@@ -194,6 +205,33 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 					return false, nil
 				}
 			}
+		} else if errors.As(err, &notFoundErr) && workflowNotFoundMessageRe.MatchString(notFoundErr.Message) &&
+			// This is max temporal retention period, but this is mirror update time, not deletion time, so it is not accurate
+			mirror.MirrorUpdatedAt.AsTime().Before(time.Now().Add(-90*24*time.Hour)) &&
+			// We are in Temporal Cloud
+			internal.PeerDBTemporalEnableCertAuth() {
+			// workflow not found for ID: mirror_d1e3f532__8adb__4f79__9d00__01e44b6bcbfb-peerflow-27144d2c-06ce-4552-87e5-696b3a909702
+			logger.Warn("Workflow not found in Temporal Cloud and mirror update_at is older than 90 days, checking for existing workflows")
+			response, wErr := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
+				Query: fmt.Sprintf("`MirrorName`=\"%s\"",
+					mirror.MirrorName),
+			})
+			if wErr != nil {
+				logger.Error("Error checking for ANY existing Workflows", "error", wErr)
+				return false, wErr
+			}
+			logger.Info("Received response for ANY existing Workflows check", "len(executions)", len(response.Executions))
+			if len(response.Executions) == 0 {
+				logger.Warn("No existing workflows found, skipping pause")
+				return false, nil
+			}
+			foundWorkflowIds := make([]string, len(response.Executions))
+			for i, exec := range response.Executions {
+				logger.Info("Found existing CDCFlow", "workflowId", exec.GetExecution().GetWorkflowId())
+				foundWorkflowIds[i] = exec.GetExecution().GetWorkflowId()
+			}
+			logger.Warn("Found some existing CDCFlow, this is unexpected and should be investigated",
+				"foundWorkflows", foundWorkflowIds)
 		}
 		return false, err
 	}

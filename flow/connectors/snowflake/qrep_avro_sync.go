@@ -203,7 +203,7 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile 
 
 	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
 
-	if _, err := s.database.ExecContext(ctx, putCmd); err != nil {
+	if _, err := s.ExecContext(ctx, putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
 	}
 

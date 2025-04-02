@@ -73,7 +73,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.27@sha256:b76fb70af37ef50084d97e1559822ab223ed59e74ac9e3679f4930b5e34d7eee
+    image: temporalio/auto-setup:1.27@sha256:b44cbfeb43dbeae42db113b44fb8414c3452f05643b3d6b1592f955277d73526
     ports:
       - 7233:7233
     volumes:
@@ -83,7 +83,7 @@ services:
 
   pyroscope:
     container_name: pyroscope
-    image: grafana/pyroscope:latest@sha256:89e6601057736b5279bf59204a6cf530574932db9a26fb3108f1772b3f22f0f8
+    image: grafana/pyroscope:latest@sha256:4cd8579d46951aca1253c3529615d14d79592b396818e5d92bc921d759624b33
     ports:
       - 4040:4040
 
@@ -116,7 +116,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.36.0@sha256:59283f21d6c3b1f5f939666da532bc8756ea345114a82fe1b469303a90d675f0
+    image: temporalio/ui:2.36.1@sha256:7c879a07fa8b478f4a415297db7c24ec21cbf9e1ee29689b1a5b371a2196f6b0
     ports:
       - 8085:8080
 

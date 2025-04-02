@@ -79,7 +79,7 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 	case mysql.MYSQL_TYPE_DECIMAL, mysql.MYSQL_TYPE_NEWDECIMAL:
 		return qvalue.QValueKindNumeric, nil
 	case mysql.MYSQL_TYPE_ENUM:
-		return qvalue.QValueKindString, nil
+		return qvalue.QValueKindEnum, nil
 	case mysql.MYSQL_TYPE_SET:
 		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_TINY_BLOB, mysql.MYSQL_TYPE_MEDIUM_BLOB, mysql.MYSQL_TYPE_LONG_BLOB, mysql.MYSQL_TYPE_BLOB:
@@ -143,7 +143,9 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 		} else {
 			return qvalue.QValueKindInt32, nil
 		}
-	case "bigint", "bit":
+	case "bit":
+		return qvalue.QValueKindUInt64, nil
+	case "bigint":
 		if isUnsigned {
 			return qvalue.QValueKindUInt64, nil
 		} else {
@@ -290,7 +292,15 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		v := fv.AsString()
 		unsafeString := shared.UnsafeFastReadOnlyBytesToString(v)
 		switch qkind {
+		case qvalue.QValueKindUInt64: // bit
+			var bit uint64
+			for _, b := range v {
+				bit = (bit << 8) | uint64(b)
+			}
+			return qvalue.QValueUInt64{Val: bit}, nil
 		case qvalue.QValueKindString:
+			return qvalue.QValueString{Val: string(v)}, nil
+		case qvalue.QValueKindEnum:
 			return qvalue.QValueString{Val: string(v)}, nil
 		case qvalue.QValueKindBytes:
 			return qvalue.QValueBytes{Val: slices.Clone(v)}, nil
@@ -398,6 +408,8 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			return qvalue.QValueBytes{Val: val}, nil
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(val)}, nil
+		case qvalue.QValueKindEnum:
+			return qvalue.QValueEnum{Val: string(val)}, nil
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(val)}, nil
 		case qvalue.QValueKindGeometry:
@@ -416,6 +428,8 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			return qvalue.QValueBytes{Val: shared.UnsafeFastStringToReadOnlyBytes(val)}, nil
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: val}, nil
+		case qvalue.QValueKindEnum:
+			return qvalue.QValueEnum{Val: val}, nil
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: val}, nil
 		case qvalue.QValueKindTime:

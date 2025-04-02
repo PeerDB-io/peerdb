@@ -48,8 +48,7 @@ func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualifie
 		"SELECT 1 FROM %s dst "+
 		"WHERE src.my_mood::text = dst.my_mood::text)) LIMIT 1;", srcSchemaQualified,
 		dstSchemaQualified)
-	err := s.Conn().QueryRow(s.t.Context(), query).Scan(&exists)
-	if err != nil {
+	if err := s.Conn().QueryRow(s.t.Context(), query).Scan(&exists); err != nil {
 		return err
 	}
 

@@ -606,6 +606,8 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		}
 	}
 	if tableSchemaDelta.AddedColumns != nil {
+		c.logger.Info("Column added detected",
+			slog.String("table", destinationTableName), slog.Any("columns", tableSchemaDelta.AddedColumns))
 		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
 	}

@@ -3,8 +3,11 @@ package alerting
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"net"
+	"regexp"
 	"strconv"
 	"strings"
 	"syscall"
@@ -72,6 +75,12 @@ var (
 	}
 	ErrorNotifySlotInvalid = ErrorClass{
 		Class: "NOTIFY_SLOT_INVALID", action: NotifyUser,
+	}
+	ErrorNotifyPublicationMissing = ErrorClass{
+		Class: "NOTIFY_PUBLICATION_MISSING", action: NotifyUser,
+	}
+	ErrorUnsupportedDatatype = ErrorClass{
+		Class: "NOTIFY_UNSUPPORTED_DATATYPE", action: NotifyUser,
 	}
 	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
 		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
@@ -245,6 +254,30 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorInternalClickHouse, chErrorInfo
 		case chproto.ErrAuthenticationFailed:
 			return ErrorRetryRecoverable, chErrorInfo
+		case chproto.ErrTooManySimultaneousQueries:
+			return ErrorIgnoreConnTemporary, chErrorInfo
+		case chproto.ErrCannotParseUUID, chproto.ErrValueIsOutOfRangeOfDataType: // https://github.com/ClickHouse/ClickHouse/pull/78540
+			if regexp.MustCompile(
+				`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`).
+				MatchString(chException.Message) {
+				return ErrorUnsupportedDatatype, chErrorInfo
+			}
+		case chproto.ErrIllegalTypeOfArgument:
+			var qrepSyncError *exceptions.QRepSyncError
+			if errors.As(err, &qrepSyncError) {
+				unexpectedSelectRe, reErr := regexp.Compile(
+					fmt.Sprintf(`FROM\s+(%s\.)?%s`,
+						regexp.QuoteMeta(qrepSyncError.DestinationDatabase), regexp.QuoteMeta(qrepSyncError.DestinationTable)))
+				if reErr != nil {
+					slog.Error("regexp compilation error while checking for err", "err", reErr, "original_err", err)
+					return ErrorOther, chErrorInfo
+				}
+				if unexpectedSelectRe.MatchString(chException.Message) {
+					// Select query from destination table in QRepSync = MV error
+					return ErrorNotifyMVOrView, chErrorInfo
+				}
+				return ErrorOther, chErrorInfo
+			}
 		default:
 			if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
@@ -307,6 +340,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// could not read from reorderbuffer spill file: Bad address
 			// could not read from reorderbuffer spill file: Bad file descriptor
 			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   pgWalErr.Msg.Code,
+			}
+		}
+		// &{Severity:ERROR Code:42704 Message:publication "custom_pub" does not exist}
+		publicationNotExistRe := regexp.MustCompile(`publication ".*?" does not exist`)
+		if pgWalErr.Msg.Severity == "ERROR" && pgWalErr.Msg.Code == pgerrcode.UndefinedObject &&
+			publicationNotExistRe.MatchString(pgWalErr.Msg.Message) {
+			return ErrorNotifyPublicationMissing, ErrorInfo{
 				Source: ErrorSourcePostgres,
 				Code:   pgWalErr.Msg.Code,
 			}

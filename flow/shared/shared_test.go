@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"slices"
 	"testing"
 )
 
@@ -123,6 +124,25 @@ func TestAdjustNumPartitions(t *testing.T) {
 		if got.AdjustedNumRowsPerPartition != tc.expectedRowsPerPartition {
 			t.Errorf("AdjustNumPartitions(totalRows=%d, desiredRowsPerPartition=%d).AdjustedNumRowsPerPartition = %d; want %d",
 				tc.totalRows, tc.desiredRowsPerPartition, got.AdjustedNumRowsPerPartition, tc.expectedRowsPerPartition)
+		}
+	}
+}
+
+func TestParsePgArray(t *testing.T) {
+	tests := []struct {
+		input  string
+		output []string
+	}{
+		{"[1:2]{1,2,\\\"3}", []string{"1", "2", "\"3"}},
+		{"{  1,  \"a\\\"b\", 3\"2\"\\\\}", []string{"1", "a\"b", "32\\"}},
+		{"{{1,2},{3},{4,5},{{6,7,8},{9}}}", []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}},
+		{"{}", nil},
+		{"{,}", []string{""}},
+	}
+	for _, tc := range tests {
+		got := ParsePgArrayStringToStringSlice(tc.input, ',')
+		if !slices.Equal(got, tc.output) {
+			t.Errorf("parsed %s to %v instead of %v", tc.input, got, tc.output)
 		}
 	}
 }

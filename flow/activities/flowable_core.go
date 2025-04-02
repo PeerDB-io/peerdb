@@ -276,7 +276,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		if !(temporal.IsApplicationError(err) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+		var applicationError *temporal.ApplicationError
+		if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		if temporal.IsApplicationError(err) {
@@ -652,7 +653,7 @@ func (a *FlowableActivity) startNormalize(
 	})
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName,
-			exceptions.NewNormalizationError(fmt.Errorf("failed to normalized records: %w", err)))
+			exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
 	}
 	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
 		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {

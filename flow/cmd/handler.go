@@ -564,8 +564,8 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 	if in.UsePeerflowTaskQueue {
 		taskQueueId = shared.PeerFlowTaskQueue
 	}
-	switch {
-	case in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_START:
+	switch in.Status {
+	case protos.MaintenanceStatus_MAINTENANCE_STATUS_START:
 		workflowRun, err := peerflow.RunStartMaintenanceWorkflow(ctx, h.temporalClient, &protos.StartMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
 			return nil, err
@@ -574,7 +574,7 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 			WorkflowId: workflowRun.GetID(),
 			RunId:      workflowRun.GetRunID(),
 		}, nil
-	case in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_END:
+	case protos.MaintenanceStatus_MAINTENANCE_STATUS_END:
 		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, h.temporalClient, &protos.EndMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
 			return nil, err

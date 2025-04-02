@@ -477,6 +477,10 @@ message StartMaintenanceFlowOutput {
   string version = 1;
 }
 
+message StartMaintenanceSignal {
+  repeated string skipped_snapshot_wait_flows = 1;
+}
+
 message EndMaintenanceFlowInput {
 }
 
@@ -490,6 +494,7 @@ message MaintenanceMirror {
   string workflow_id = 3;
   bool is_cdc = 4;
   google.protobuf.Timestamp mirror_created_at = 5;
+  google.protobuf.Timestamp mirror_updated_at = 6;
 }
 
 message MaintenanceMirrors {

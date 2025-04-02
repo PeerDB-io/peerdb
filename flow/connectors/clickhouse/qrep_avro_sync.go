@@ -16,6 +16,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type ClickHouseAvroSyncMethod struct {
@@ -137,6 +139,11 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
+	if err != nil {
+		return 0, err
+	}
+
 	endpoint := s.credsProvider.Provider.GetEndpointURL()
 	region := s.credsProvider.Provider.GetRegion()
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
@@ -146,13 +153,24 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		colName := col.Name()
 		if strings.EqualFold(colName, signColName) ||
 			strings.EqualFold(colName, config.SyncedAtColName) ||
-			strings.EqualFold(colName, versionColName) {
+			strings.EqualFold(colName, versionColName) ||
+			(sourceSchemaAsDestinationColumn && strings.EqualFold(colName, sourceSchemaColName)) {
 			continue
 		}
 
 		selectedColumnNames = append(selectedColumnNames, "`"+columnNameAvroFieldMap[colName]+"`")
 		insertedColumnNames = append(insertedColumnNames, "`"+colName+"`")
 	}
+	if sourceSchemaAsDestinationColumn {
+		schemaTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+		if err != nil {
+			return 0, err
+		}
+
+		selectedColumnNames = append(selectedColumnNames, fmt.Sprintf("'%s'", peerdb_clickhouse.EscapeStr(schemaTable.Schema)))
+		insertedColumnNames = append(insertedColumnNames, sourceSchemaColName)
+	}
+
 	selectorStr := strings.Join(selectedColumnNames, ",")
 	insertedStr := strings.Join(insertedColumnNames, ",")
 	sessionTokenPart := ""
@@ -187,7 +205,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 				slog.Uint64("part", i),
 				slog.Uint64("numParts", numParts),
 				slog.Any("error", err))
-			return 0, err
+			return 0, exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database)
 		}
 	}
 

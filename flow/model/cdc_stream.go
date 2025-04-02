@@ -102,12 +102,12 @@ func (r *CDCStream[T]) WaitAndCheckEmpty() bool {
 
 func (r *CDCStream[T]) Close() {
 	if !r.lastCheckpointSet {
+		r.lastCheckpointSet = true
+		close(r.records)
 		if !r.emptySet {
 			r.emptySet = true
 			close(r.emptySignal)
 		}
-		close(r.records)
-		r.lastCheckpointSet = true
 	}
 }
 

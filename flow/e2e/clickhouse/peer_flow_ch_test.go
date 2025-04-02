@@ -310,6 +310,51 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_Bit() {
+	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_bit"
+	srcFullName := s.attachSchemaSuffix("test_bit")
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_bit_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			"key" TEXT NOT NULL,
+			b1 bit(1) NOT NULL,
+			b20 bit(20) NOT NULL
+		);
+	`, quotedSrcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",b1,b20) VALUES
+		('init',b'1',b'11100011100011100011'), ('init',b'0',b'00011100011100011100')`, quotedSrcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",b1,b20")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",b1,b20) VALUES
+		('cdc','1','11100011100011100011'), ('cdc','0','00011100011100011100')`, quotedSrcFullName)))
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",b1,b20")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Vector() {
 	if mysource, ok := s.source.(*e2e.MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 		s.t.Skip("only applies to mysql")
@@ -796,10 +841,9 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	srcFullName := s.attachSchemaSuffix("test_types")
 	dstTableName := "test_types"
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
-	_, enumErr := s.Conn().Exec(s.t.Context(), createMoodEnum)
-	if enumErr != nil &&
-		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
-		require.NoError(s.t, enumErr)
+	if _, err := s.Conn().Exec(s.t.Context(), createMoodEnum); err != nil &&
+		!shared.IsSQLStateError(err, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
+		require.NoError(s.t, err)
 	}
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -808,7 +852,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME,c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
-		c39 TXID_SNAPSHOT,c40 UUID,c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
+		c39 TXID_SNAPSHOT,c40 UUID, c41 mood[], c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
 		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[]);
 		INSERT INTO %[1]s SELECT 2,2,b'1',b'101',
 		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
@@ -820,6 +864,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
 		txid_current_snapshot(),
 		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,
+		'{happy,angry}',
 		ARRAY[10299301,2579827],
 		ARRAY[0.0003, 8902.0092],
 		ARRAY['hello','bye'],'happy',
@@ -844,7 +889,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45")
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 3,2,b'1',b'101',
@@ -857,6 +902,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
 		txid_current_snapshot(),
 		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,
+		'{sad,happy}',
 		ARRAY[10299301,2579827],
 		ARRAY[0.0003, 8902.0092],
 		ARRAY['hello','bye'],'happy',
@@ -869,7 +915,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45")
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		UPDATE %[1]s SET c1=3,c32='testery' WHERE id=2;
@@ -884,6 +930,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
 		txid_current_snapshot(),
 		'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,
+		'{angry}',
 		ARRAY[10299301,2579827],
 		ARRAY[0.0003, 8902.0092],
 		ARRAY['hello','bye'],'happy',
@@ -896,7 +943,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 3", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
@@ -1069,13 +1116,15 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
+			id SERIAL,
+			"id number" SERIAL,
 			key TEXT NOT NULL,
 			"se'cret" TEXT,
 			"spacey column" TEXT,
 			"#sync_me!" BOOLEAN,
 			"2birds1stone" INT,
-			"quo'te" TEXT
+			"quo'te" TEXT,
+			PRIMARY KEY (id, "id number")
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
@@ -1086,7 +1135,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	require.NoError(s.t, err)
 
 	err = e2e.RevokePermissionForTableColumns(s.t.Context(), s.Conn(), srcFullName,
-		[]string{"id", "key", "spacey column", "#sync_me!", "2birds1stone", "quo'te"})
+		[]string{"id", "id number", "key", "spacey column", "#sync_me!", "2birds1stone", "quo'te"})
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1106,14 +1155,14 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName,
-		"id,key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
+		"id,\"id number\",key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone","quo'te")
 	VALUES ('cdc1', 'secret', 'pluto', 'false', 123324, 'lwkfj')`, srcFullName))
 
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName,
-		"id,key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
+		"id,\"id number\",key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
@@ -1178,12 +1227,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		'((1,2),(3,4),(5,6))',                  -- PATH
 		'((1,2),(3,4),(5,6),(1,2))',            -- POLYGON
 		'<(1,2),3>'                             -- CIRCLE
-	);
-
-	-- Insert another row with different values
-	INSERT INTO %[1]s (
-		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
-	) VALUES (
+	), (
 		'(10,20)',                              -- POINT
 		'{10,20,30}',                           -- LINE
 		'((10,20),(30,40))',                    -- LSEG
@@ -1242,7 +1286,6 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		path    string
 		polygon string
 		circle  string
-		id      int
 	}{
 		{
 			point:   "POINT(1.000000 2.000000)",
@@ -1252,7 +1295,6 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 			path:    "{[{1 2} {3 4} {5 6}] true true}",
 			polygon: "{[{1 2} {3 4} {5 6} {1 2}] true}",
 			circle:  "{{1 2} 3 true}",
-			id:      1,
 		},
 		{
 			point:   "POINT(10.000000 20.000000)",
@@ -1262,7 +1304,6 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 			path:    "{[{10 20} {30 40} {50 60}] true true}",
 			polygon: "{[{10 20} {30 40} {50 60} {10 20}] true}",
 			circle:  "{{10 20} 30 true}",
-			id:      2,
 		},
 		{
 			point:   "POINT(100.000000 200.000000)",
@@ -1272,10 +1313,10 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 			path:    "{[{100 200} {300 400} {500 600}] true true}",
 			polygon: "{[{100 200} {300 400} {500 600} {100 200}] true}",
 			circle:  "{{100 200} 300 true}",
-			id:      3,
 		},
 	}
 
+	require.Len(s.t, rows.Records, 3, "expected 3 rows")
 	for i, row := range rows.Records {
 		require.Len(s.t, row, 8, "expected 8 columns")
 
@@ -1424,6 +1465,45 @@ func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_SchemaAsColumn() {
+	srcTableName := "test_schema_as_column"
+	srcFullName := s.attachSchemaSuffix("test_schema_as_column")
+	dstTableName := "test_schema_as_column"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_schema_as_column"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN": "true"}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	rows, err := s.GetRows(dstTableName, "_peerdb_source_schema")
+	require.NoError(s.t, err, "error selecting schema column")
+	require.Len(s.t, rows.Records, 2, "expected 2 rows")
+	for _, row := range rows.Records {
+		require.Equal(s.t, "e2e_test_"+s.suffix, row[0].Value(), "schema column incorrectly populated")
+	}
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
