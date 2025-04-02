@@ -21,6 +21,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 	ctx = workflow.WithDataConverter(ctx, converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
+	logger := workflow.GetLogger(ctx)
 
 	var sourceError, destinationError error
 	var sourceOk, destinationOk, canceled bool
@@ -107,13 +108,15 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 		selector.Select(ctx)
 		if canceled {
 			if input.Resync {
+				if err := errors.Join(ctx.Err(), sourceError, destinationError); err != nil {
+					logger.Warn("resync failed drop, proceeding with cdc flow", slog.Any("error", err))
+				}
 				break
 			}
 			return errors.Join(ctx.Err(), sourceError, destinationError)
 		}
 	}
 	if input.Resync {
-		logger := workflow.GetLogger(ctx)
 		input.FlowConnectionConfigs.Resync = true
 		input.FlowConnectionConfigs.DoInitialSnapshot = true
 
