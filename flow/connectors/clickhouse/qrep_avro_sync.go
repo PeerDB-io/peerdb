@@ -146,6 +146,11 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	selectedColumnNames := make([]string, 0, len(schema.Fields))
 	insertedColumnNames := make([]string, 0, len(schema.Fields))
 	for _, colName := range schema.GetColumnNames() {
+		for _, excludedColumn := range config.Exclude {
+			if colName == excludedColumn {
+				continue
+			}
+		}
 		avroColName, ok := columnNameAvroFieldMap[colName]
 		if !ok {
 			s.logger.Error("destination column not found in avro schema",
