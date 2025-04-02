@@ -143,7 +143,9 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 		} else {
 			return qvalue.QValueKindInt32, nil
 		}
-	case "bigint", "bit":
+	case "bit":
+		return qvalue.QValueKindUInt64, nil
+	case "bigint":
 		if isUnsigned {
 			return qvalue.QValueKindUInt64, nil
 		} else {
@@ -290,6 +292,12 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		v := fv.AsString()
 		unsafeString := shared.UnsafeFastReadOnlyBytesToString(v)
 		switch qkind {
+		case qvalue.QValueKindUInt64: // bit
+			var bit uint64
+			for _, b := range v {
+				bit = (bit << 8) | uint64(b)
+			}
+			return qvalue.QValueUInt64{Val: bit}, nil
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(v)}, nil
 		case qvalue.QValueKindEnum:
