@@ -372,11 +372,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 				err = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
-			isCDC, err := h.isCDCFlow(ctx, req.FlowJobName)
-			if err != nil {
+			if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, err
-			}
-			if !isCDC {
+			} else if !isCDC {
 				return nil, errors.New("resync is only supported for CDC mirrors")
 			}
 			// getting config before dropping the flow since the flow entry is deleted unconditionally
