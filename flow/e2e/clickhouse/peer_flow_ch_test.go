@@ -430,7 +430,7 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 	`, quotedSrcFullName)))
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",e,s) VALUES
-		('init','b''s','a,b')`, quotedSrcFullName)))
+		('init','b''s','a,b'),('init','','')`, quotedSrcFullName)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
@@ -447,7 +447,7 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",e,s")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",e,s) VALUES
-		('cdc','b''s','a,b')`, quotedSrcFullName)))
+		('cdc','b''s','a,b'),('cdc','','')`, quotedSrcFullName)))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",e,s")
 

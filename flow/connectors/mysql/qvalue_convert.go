@@ -400,7 +400,11 @@ func QValueFromMysqlRowEvent(
 			}
 			return qvalue.QValueString{Val: strings.Join(set, ",")}, nil
 		case qvalue.QValueKindEnum: // enum
-			return qvalue.QValueEnum{Val: enums[int(val)]}, nil
+			if val == 0 {
+				return qvalue.QValueEnum{Val: ""}, nil
+			} else {
+				return qvalue.QValueEnum{Val: enums[int(val)-1]}, nil
+			}
 		}
 	case float32:
 		return qvalue.QValueFloat32{Val: val}, nil
