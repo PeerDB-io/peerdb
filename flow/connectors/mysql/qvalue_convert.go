@@ -3,6 +3,7 @@ package connmysql
 import (
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math"
 	"slices"
 	"strings"
@@ -353,8 +354,8 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 }
 
 func QValueFromMysqlRowEvent(
-	mytype byte, qkind qvalue.QValueKind, val any,
-	enums []string, sets []string,
+	mytype byte, enums []string, sets []string,
+	qkind qvalue.QValueKind, val any,
 ) (qvalue.QValue, error) {
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
@@ -391,8 +392,10 @@ func QValueFromMysqlRowEvent(
 		case qvalue.QValueKindInt64:
 			return qvalue.QValueInt64{Val: val}, nil
 		case qvalue.QValueKindString: // set
+			slog.Warn("QQQset", slog.Any("sets", sets), slog.Int64("val", val))
 			return qvalue.QValueString{Val: sets[int(val)]}, nil
 		case qvalue.QValueKindEnum: // enum
+			slog.Warn("QQQenum", slog.Any("enums", enums), slog.Int64("val", val))
 			return qvalue.QValueEnum{Val: enums[int(val)]}, nil
 		}
 	case float32:
