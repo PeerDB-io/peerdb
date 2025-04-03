@@ -102,11 +102,13 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
 	ct, param, _ := strings.Cut(ct, "(")
-	switch ct {
+	switch strings.ToLower(ct) {
 	case "json":
 		return qvalue.QValueKindJSON, nil
-	case "char", "varchar", "text", "enum", "set", "tinytext", "mediumtext", "longtext":
+	case "char", "varchar", "text", "set", "tinytext", "mediumtext", "longtext":
 		return qvalue.QValueKindString, nil
+	case "enum":
+		return qvalue.QValueKindEnum, nil
 	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob":
 		return qvalue.QValueKindBytes, nil
 	case "date":
@@ -151,7 +153,6 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 		}
 	case "vector":
 		return qvalue.QValueKindArrayFloat32, nil
-
 	case "geometry", "point", "polygon", "linestring", "multipoint", "multipolygon", "geomcollection":
 		return qvalue.QValueKindGeometry, nil
 	default:
