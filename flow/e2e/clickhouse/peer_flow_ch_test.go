@@ -355,6 +355,59 @@ func (s ClickHouseSuite) Test_MySQL_Bit() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_MySQL_Blobs() {
+	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	srcTableName := "test_blobs"
+	srcFullName := s.attachSchemaSuffix("test_blobs")
+	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
+	dstTableName := "test_blobs_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			"key" TEXT NOT NULL,
+			tb tinyblob NOT NULL,
+			mb mediumblob NOT NULL,
+			lb longblob NOT NULL,
+			bi binary(6),
+			vb varbinary(100) NOT NULL,
+			tt tinytext NOT NULL,
+			mt mediumtext NOT NULL,
+			lt longtext NOT NULL,
+			ch char(4),
+			vc varchar(100) NOT NULL
+		);
+	`, quotedSrcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",tb,mb,lb,bi,vb,tt,mt,lt,ch,vc) VALUES
+		('init','tinyblob','mediumblob','longblob','binary','varbinary','tinytext','mediumtext','longtext','char','varchar')`, quotedSrcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix(srcTableName),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",tb,mb,lb,vb,tt,mt,lt,vc")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",tb,mb,lb,bi,vb,tt,mt,lt,ch,vc) VALUES
+		('cdc','tinyblob','mediumblob','longblob','binary','varbinary','tinytext','mediumtext','longtext','char','varchar')`, quotedSrcFullName)))
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",tb,mb,lb,vb,tt,mt,lt,vc")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_MySQL_Vector() {
 	if mysource, ok := s.source.(*e2e.MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 		s.t.Skip("only applies to mysql")
