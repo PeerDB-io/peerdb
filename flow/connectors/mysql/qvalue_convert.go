@@ -300,7 +300,7 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(v)}, nil
 		case qvalue.QValueKindEnum:
-			return qvalue.QValueString{Val: string(v)}, nil
+			return qvalue.QValueEnum{Val: string(v)}, nil
 		case qvalue.QValueKindBytes:
 			return qvalue.QValueBytes{Val: slices.Clone(v)}, nil
 		case qvalue.QValueKindJSON:
@@ -352,7 +352,10 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 	}
 }
 
-func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qvalue.QValue, error) {
+func QValueFromMysqlRowEvent(
+	mytype byte, qkind qvalue.QValueKind, val any,
+	enums []string, sets []string,
+) (qvalue.QValue, error) {
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
 	case nil:
@@ -382,10 +385,15 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			return qvalue.QValueInt32{Val: val}, nil
 		}
 	case int64:
-		if qkind == qvalue.QValueKindUInt64 {
+		switch qkind {
+		case qvalue.QValueKindUInt64:
 			return qvalue.QValueUInt64{Val: uint64(val)}, nil
-		} else {
+		case qvalue.QValueKindInt64:
 			return qvalue.QValueInt64{Val: val}, nil
+		case qvalue.QValueKindString: // set
+			return qvalue.QValueString{Val: sets[int(val)]}, nil
+		case qvalue.QValueKindEnum: // enum
+			return qvalue.QValueEnum{Val: enums[int(val)]}, nil
 		}
 	case float32:
 		return qvalue.QValueFloat32{Val: val}, nil

@@ -395,6 +395,8 @@ func (c *MySqlConnector) PullRecords(
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
 				inTx = true
+				enumMap := ev.Table.EnumStrValueMap()
+				setMap := ev.Table.SetStrValueMap()
 				getFd := func(idx int) *protos.FieldDescription {
 					if ev.Table.ColumnName != nil {
 						unsafeName := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
@@ -429,7 +431,7 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val, enumMap[idx], setMap[idx])
 							if err != nil {
 								return err
 							}
@@ -462,7 +464,7 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val, enumMap[idx], setMap[idx])
 							if err != nil {
 								return err
 							}
@@ -475,7 +477,7 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val, enumMap[idx], setMap[idx])
 							if err != nil {
 								return err
 							}
@@ -509,7 +511,7 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val, enumMap[idx], setMap[idx])
 							if err != nil {
 								return err
 							}
