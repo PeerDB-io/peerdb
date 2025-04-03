@@ -105,9 +105,9 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 	switch ct {
 	case "json":
 		return qvalue.QValueKindJSON, nil
-	case "char", "varchar", "text", "enum", "set":
+	case "char", "varchar", "text", "enum", "set", "tinytext", "mediumtext", "longtext":
 		return qvalue.QValueKindString, nil
-	case "binary", "varbinary", "blob":
+	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob":
 		return qvalue.QValueKindBytes, nil
 	case "date":
 		return qvalue.QValueKindDate, nil
@@ -154,7 +154,7 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 	case "vector":
 		return qvalue.QValueKindArrayFloat32, nil
 
-	case "geometry":
+	case "geometry", "point", "polygon", "linestring", "multipoint", "multipolygon", "geomcollection":
 		return qvalue.QValueKindGeometry, nil
 	default:
 		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
