@@ -3,8 +3,8 @@ package connmysql
 import (
 	"encoding/binary"
 	"fmt"
-	"log/slog"
 	"math"
+	"math/bits"
 	"slices"
 	"strings"
 	"time"
@@ -392,10 +392,14 @@ func QValueFromMysqlRowEvent(
 		case qvalue.QValueKindInt64:
 			return qvalue.QValueInt64{Val: val}, nil
 		case qvalue.QValueKindString: // set
-			slog.Warn("QQQset", slog.Any("sets", sets), slog.Int64("val", val))
-			return qvalue.QValueString{Val: sets[int(val)]}, nil
+			var set []string
+			for val != 0 {
+				idx := bits.TrailingZeros64(uint64(val))
+				set = append(set, sets[idx])
+				val ^= int64(1) << idx
+			}
+			return qvalue.QValueString{Val: strings.Join(set, ",")}, nil
 		case qvalue.QValueKindEnum: // enum
-			slog.Warn("QQQenum", slog.Any("enums", enums), slog.Int64("val", val))
 			return qvalue.QValueEnum{Val: enums[int(val)]}, nil
 		}
 	case float32:
