@@ -123,7 +123,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
-				tlsSetting := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: c.config.Host}
+				tlsSetting := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: c.config.Host}
 				if c.config.RootCa != nil {
 					caPool := x509.NewCertPool()
 					if !caPool.AppendCertsFromPEM([]byte(*c.config.RootCa)) {
