@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type MySqlConnector struct {
@@ -123,13 +124,21 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
-				tlsSetting := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: c.config.Host}
+				tlsSetting := &tls.Config{MinVersion: tls.VersionTLS12}
 				if c.config.RootCa != nil {
 					caPool := x509.NewCertPool()
 					if !caPool.AppendCertsFromPEM([]byte(*c.config.RootCa)) {
 						return errors.New("failed to parse provided root CA")
 					}
 					tlsSetting.RootCAs = caPool
+				}
+				if net.ParseIP(c.config.Host) == nil {
+					tlsSetting.ServerName = c.config.Host
+				} else {
+					tlsSetting.InsecureSkipVerify = true
+					if tlsSetting.RootCAs != nil {
+						tlsSetting.VerifyPeerCertificate = shared.VerifyPeerCertificateWithoutHostname(tlsSetting.RootCAs)
+					}
 				}
 				conn.SetTLSConfig(tlsSetting)
 			}

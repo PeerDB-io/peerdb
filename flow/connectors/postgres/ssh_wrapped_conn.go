@@ -32,7 +32,7 @@ func NewPostgresConnFromPostgresConfig(
 	}
 	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
 
-	connConfig, err := pgx.ParseConfig(connectionString)
+	connConfig, err := ParseConfig(connectionString, pgConfig)
 	if err != nil {
 		return nil, err
 	}

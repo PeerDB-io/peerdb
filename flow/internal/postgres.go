@@ -30,6 +30,9 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) str
 		pgConfig.Database,
 		applicationName,
 	)
+	if !pgConfig.DisableTls {
+		connString += "&sslmode=require"
+	}
 	return connString
 }
 
