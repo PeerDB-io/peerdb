@@ -158,7 +158,14 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 			continue
 		}
 
-		selectedColumnNames = append(selectedColumnNames, "`"+columnNameAvroFieldMap[colName]+"`")
+		avroColName, ok := columnNameAvroFieldMap[colName]
+		if !ok {
+			s.logger.Error("destination column not found in avro schema",
+				slog.String("columnName", colName),
+				slog.String("avroFieldName", avroColName))
+			return 0, fmt.Errorf("destination column %s not found in avro schema", colName)
+		}
+		selectedColumnNames = append(selectedColumnNames, "`"+avroColName+"`")
 		insertedColumnNames = append(insertedColumnNames, "`"+colName+"`")
 	}
 	if sourceSchemaAsDestinationColumn {
