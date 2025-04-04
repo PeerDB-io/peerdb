@@ -46,6 +46,14 @@ export const postgresSetting: PeerSetting[] = [
       'https://www.postgresql.org/docs/current/sql-createdatabase.html',
   },
   {
+    label: 'Disable TLS?',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, disableTls: value as boolean })),
+    type: 'switch',
+    tips: 'If you are using a non-TLS connection, check this box.',
+    optional: true,
+  },
+  {
     label: 'Root Certificate',
     stateHandler: (value, setter) => {
       if (!value) {
@@ -68,4 +76,5 @@ export const blankPostgresSetting: PostgresConfig = {
   user: '',
   password: '',
   database: '',
+  disableTls: false,
 };

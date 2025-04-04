@@ -92,6 +92,7 @@ impl CatalogConfig<'_> {
             metadata_schema: Some("".to_string()),
             ssh_config: None,
             root_ca: None,
+            disable_tls: true,
         }
     }
 

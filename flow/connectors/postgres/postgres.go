@@ -64,7 +64,7 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
-	if pgConfig.RootCa != nil {
+	if !pgConfig.DisableTls && pgConfig.RootCa != nil {
 		caPool := x509.NewCertPool()
 		if !caPool.AppendCertsFromPEM([]byte(*pgConfig.RootCa)) {
 			return nil, errors.New("failed to parse provided root CA")

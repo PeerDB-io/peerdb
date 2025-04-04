@@ -28,10 +28,6 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
   const [showSSH, setShowSSH] = useState(false);
   const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
 
-  const handleSwitchChange = (val: string | boolean, setting: PeerSetting) => {
-    setting.stateHandler(val, setter);
-  };
-
   const handleCa = (
     file: File,
     setFile: (value: string, setter: PeerSetter) => void
@@ -101,7 +97,7 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
   return (
     <>
       {settings.map((setting, id) => {
-        return setting.type == 'switch' ? (
+        return setting.type === 'switch' ? (
           <RowWithSwitch
             key={id}
             label={
@@ -122,8 +118,8 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
             action={
               <div>
                 <Switch
-                  onCheckedChange={(state: boolean) =>
-                    handleSwitchChange(state, setting)
+                  onCheckedChange={(val: boolean) =>
+                    setting.stateHandler(val, setter)
                   }
                 />
                 {setting.tips && (
