@@ -91,7 +91,26 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 	case mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING:
 		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_GEOMETRY:
-		return qvalue.QValueKindGeometry, nil
+		// Check the column type name to determine specific geometry type
+		colType := strings.ToLower(field.Name)
+		switch {
+		case strings.Contains(colType, "point"):
+			return qvalue.QValueKindPoint, nil
+		case strings.Contains(colType, "linestring"):
+			return qvalue.QValueKindLineString, nil
+		case strings.Contains(colType, "polygon"):
+			return qvalue.QValueKindPolygon, nil
+		case strings.Contains(colType, "multipoint"):
+			return qvalue.QValueKindMultiPoint, nil
+		case strings.Contains(colType, "multilinestring"):
+			return qvalue.QValueKindMultiLineString, nil
+		case strings.Contains(colType, "multipolygon"):
+			return qvalue.QValueKindMultiPolygon, nil
+		case strings.Contains(colType, "geometrycollection"):
+			return qvalue.QValueKindGeometryCollection, nil
+		default:
+			return qvalue.QValueKindGeometry, nil
+		}
 	case mysql.MYSQL_TYPE_VECTOR:
 		return qvalue.QValueKindArrayFloat32, nil
 	default:
@@ -156,6 +175,20 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 
 	case "geometry":
 		return qvalue.QValueKindGeometry, nil
+	case "point":
+		return qvalue.QValueKindPoint, nil
+	case "linestring":
+		return qvalue.QValueKindLineString, nil
+	case "polygon":
+		return qvalue.QValueKindPolygon, nil
+	case "multipoint":
+		return qvalue.QValueKindMultiPoint, nil
+	case "multilinestring":
+		return qvalue.QValueKindMultiLineString, nil
+	case "multipolygon":
+		return qvalue.QValueKindMultiPolygon, nil
+	case "geometrycollection":
+		return qvalue.QValueKindGeometryCollection, nil
 	default:
 		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
 	}
@@ -213,17 +246,51 @@ func geometryValueFromBytes(wkbData []byte) (string, error) {
 	return wkt, nil
 }
 
-// Helper function to process geometry data and return a QValueGeometry
-func processGeometryData(data []byte) qvalue.QValueGeometry {
+// Helper function to process geometry data and return a QValue
+func processGeometryData(data []byte, qkind qvalue.QValueKind) qvalue.QValue {
 	// For geometry data, we need to convert from MySQL's binary format to WKT
 	if len(data) > 4 {
 		wkt, err := geometryValueFromBytes(data)
 		if err == nil {
-			return qvalue.QValueGeometry{Val: wkt}
+			switch qkind {
+			case qvalue.QValueKindPoint:
+				return qvalue.QValuePoint{Val: wkt}
+			case qvalue.QValueKindLineString:
+				return qvalue.QValueLineString{Val: wkt}
+			case qvalue.QValueKindPolygon:
+				return qvalue.QValuePolygon{Val: wkt}
+			case qvalue.QValueKindMultiPoint:
+				return qvalue.QValueMultiPoint{Val: wkt}
+			case qvalue.QValueKindMultiLineString:
+				return qvalue.QValueMultiLineString{Val: wkt}
+			case qvalue.QValueKindMultiPolygon:
+				return qvalue.QValueMultiPolygon{Val: wkt}
+			case qvalue.QValueKindGeometryCollection:
+				return qvalue.QValueGeometryCollection{Val: wkt}
+			default:
+				return qvalue.QValueGeometry{Val: wkt}
+			}
 		}
 	}
 	strVal := string(data)
-	return qvalue.QValueGeometry{Val: strVal}
+	switch qkind {
+	case qvalue.QValueKindPoint:
+		return qvalue.QValuePoint{Val: strVal}
+	case qvalue.QValueKindLineString:
+		return qvalue.QValueLineString{Val: strVal}
+	case qvalue.QValueKindPolygon:
+		return qvalue.QValuePolygon{Val: strVal}
+	case qvalue.QValueKindMultiPoint:
+		return qvalue.QValueMultiPoint{Val: strVal}
+	case qvalue.QValueKindMultiLineString:
+		return qvalue.QValueMultiLineString{Val: strVal}
+	case qvalue.QValueKindMultiPolygon:
+		return qvalue.QValueMultiPolygon{Val: strVal}
+	case qvalue.QValueKindGeometryCollection:
+		return qvalue.QValueGeometryCollection{Val: strVal}
+	default:
+		return qvalue.QValueGeometry{Val: strVal}
+	}
 }
 
 func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
@@ -306,8 +373,10 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			return qvalue.QValueBytes{Val: slices.Clone(v)}, nil
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: string(v)}, nil
-		case qvalue.QValueKindGeometry:
-			return processGeometryData(v), nil
+		case qvalue.QValueKindGeometry, qvalue.QValueKindPoint, qvalue.QValueKindLineString,
+			qvalue.QValueKindPolygon, qvalue.QValueKindMultiPoint, qvalue.QValueKindMultiLineString,
+			qvalue.QValueKindMultiPolygon, qvalue.QValueKindGeometryCollection:
+			return processGeometryData(v, qkind), nil
 		case qvalue.QValueKindNumeric:
 			val, err := decimal.NewFromString(unsafeString)
 			if err != nil {
@@ -414,7 +483,7 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			return qvalue.QValueJSON{Val: string(val)}, nil
 		case qvalue.QValueKindGeometry:
 			// Handle geometry data as binary (WKB format)
-			return processGeometryData(val), nil
+			return processGeometryData(val, qkind), nil
 		case qvalue.QValueKindArrayFloat32:
 			floats := make([]float32, 0, len(val)/4)
 			for i := 0; i < len(val); i += 4 {

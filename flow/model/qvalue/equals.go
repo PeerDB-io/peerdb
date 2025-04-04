@@ -118,6 +118,20 @@ func Equals(qv QValue, other QValue) bool {
 		return compareGeometry(q.Val, otherValue)
 	case QValueGeography:
 		return compareGeometry(q.Val, otherValue)
+	case QValuePoint:
+		return compareGeometry(q.Val, otherValue)
+	case QValueLineString:
+		return compareGeometry(q.Val, otherValue)
+	case QValuePolygon:
+		return compareGeometry(q.Val, otherValue)
+	case QValueMultiPoint:
+		return compareGeometry(q.Val, otherValue)
+	case QValueMultiLineString:
+		return compareGeometry(q.Val, otherValue)
+	case QValueMultiPolygon:
+		return compareGeometry(q.Val, otherValue)
+	case QValueGeometryCollection:
+		return compareGeometry(q.Val, otherValue)
 	case QValueHStore:
 		return compareHStore(q.Val, otherValue)
 	case QValueArrayInt32, QValueArrayInt16, QValueArrayInt64, QValueArrayFloat32, QValueArrayFloat64:

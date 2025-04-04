@@ -798,3 +798,99 @@ func (v QValueArrayEnum) LValue(ls *lua.LState) lua.LValue {
 		return lua.LString(x)
 	})
 }
+
+type QValueLineString struct {
+	Val string
+}
+
+func (QValueLineString) Kind() QValueKind {
+	return QValueKindLineString
+}
+
+func (v QValueLineString) Value() any {
+	return v.Val
+}
+
+func (v QValueLineString) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValuePolygon struct {
+	Val string
+}
+
+func (QValuePolygon) Kind() QValueKind {
+	return QValueKindPolygon
+}
+
+func (v QValuePolygon) Value() any {
+	return v.Val
+}
+
+func (v QValuePolygon) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueMultiPoint struct {
+	Val string
+}
+
+func (QValueMultiPoint) Kind() QValueKind {
+	return QValueKindMultiPoint
+}
+
+func (v QValueMultiPoint) Value() any {
+	return v.Val
+}
+
+func (v QValueMultiPoint) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueMultiLineString struct {
+	Val string
+}
+
+func (QValueMultiLineString) Kind() QValueKind {
+	return QValueKindMultiLineString
+}
+
+func (v QValueMultiLineString) Value() any {
+	return v.Val
+}
+
+func (v QValueMultiLineString) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueMultiPolygon struct {
+	Val string
+}
+
+func (QValueMultiPolygon) Kind() QValueKind {
+	return QValueKindMultiPolygon
+}
+
+func (v QValueMultiPolygon) Value() any {
+	return v.Val
+}
+
+func (v QValueMultiPolygon) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueGeometryCollection struct {
+	Val string
+}
+
+func (QValueGeometryCollection) Kind() QValueKind {
+	return QValueKindGeometryCollection
+}
+
+func (v QValueGeometryCollection) Value() any {
+	return v.Val
+}
+
+func (v QValueGeometryCollection) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
