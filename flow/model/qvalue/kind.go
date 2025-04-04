@@ -45,6 +45,12 @@ const (
 	QValueKindGeography   QValueKind = "geography"
 	QValueKindGeometry    QValueKind = "geometry"
 	QValueKindPoint       QValueKind = "point"
+	QValueKindLineString  QValueKind = "linestring"
+	QValueKindPolygon     QValueKind = "polygon"
+	QValueKindMultiPoint  QValueKind = "multipoint"
+	QValueKindMultiLineString QValueKind = "multilinestring"
+	QValueKindMultiPolygon QValueKind = "multipolygon"
+	QValueKindGeometryCollection QValueKind = "geometrycollection"
 
 	// network types
 	QValueKindCIDR    QValueKind = "cidr"
