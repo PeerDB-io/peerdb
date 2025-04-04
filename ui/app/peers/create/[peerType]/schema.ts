@@ -95,6 +95,12 @@ export const pgSchema = z.object({
     .string()
     .max(100, 'Transaction snapshot too long (100 char limit)')
     .optional(),
+  rootCa: z
+    .string({
+      invalid_type_error: 'Root CA must be a string',
+    })
+    .optional()
+    .transform((e) => (e === '' ? undefined : e)),
   sshConfig: sshSchema,
 });
 export const mySchema = z.object({

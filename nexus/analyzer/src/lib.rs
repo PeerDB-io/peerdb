@@ -698,6 +698,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .to_string(),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 ssh_config: ssh_fields,
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
             };
 
             Config::PostgresConfig(postgres_config)

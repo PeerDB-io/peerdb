@@ -68,6 +68,7 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
       };
     }
   };
+
   const handleTextFieldChange = (
     e: React.ChangeEvent<HTMLInputElement>,
     setting: PeerSetting

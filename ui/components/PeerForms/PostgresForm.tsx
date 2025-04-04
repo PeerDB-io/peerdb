@@ -4,7 +4,6 @@ import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import {
   SSHSetting,
   blankSSHConfig,
-  sshSetter,
   sshSetting,
 } from '@/app/peers/create/[peerType]/helpers/ssh';
 import InfoPopover from '@/components/InfoPopover';
@@ -32,24 +31,31 @@ export default function PostgresForm({
   const searchParams = useSearchParams();
   const [showSSH, setShowSSH] = useState(false);
   const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
-  const handleFile = (
+
+  const handleCa = (
     file: File,
-    setFile: (value: string, configSetter: sshSetter) => void
+    setFile: (value: string, setter: PeerSetter) => void
   ) => {
     if (file) {
       const reader = new FileReader();
       reader.readAsText(file);
       reader.onload = () => {
-        const fileContents = reader.result as string;
-        const base64EncodedContents = Buffer.from(
-          fileContents,
-          'utf-8'
-        ).toString('base64');
-        setFile(base64EncodedContents, setSSHConfig);
+        setFile(reader.result as string, setter);
       };
       reader.onerror = (error) => {
         console.log(error);
       };
+    }
+  };
+
+  const handleTextFieldChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setting: PeerSetting
+  ) => {
+    if (setting.type === 'file') {
+      if (e.target.files) handleCa(e.target.files[0], setting.stateHandler);
+    } else {
+      setting.stateHandler(e.target.value, setter);
     }
   };
 
@@ -58,7 +64,24 @@ export default function PostgresForm({
     setting: SSHSetting
   ) => {
     if (setting.type === 'file') {
-      if (e.target.files) handleFile(e.target.files[0], setting.stateHandler);
+      if (e.target.files) {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.readAsText(file);
+          reader.onload = () => {
+            const fileContents = reader.result as string;
+            const base64EncodedContents = Buffer.from(
+              fileContents,
+              'utf-8'
+            ).toString('base64');
+            setting.stateHandler(base64EncodedContents, setSSHConfig);
+          };
+          reader.onerror = (error) => {
+            console.log(error);
+          };
+        }
+      }
     } else {
       setting.stateHandler(e.target.value, setSSHConfig);
     }
@@ -109,13 +132,15 @@ export default function PostgresForm({
               >
                 <TextField
                   variant='simple'
+                  style={
+                    setting.type === 'file'
+                      ? { border: 'none', height: 'auto' }
+                      : { border: 'auto' }
+                  }
                   type={setting.type}
                   defaultValue={setting.default}
-                  value={
-                    setting.field && config[setting.field as keyof PeerConfig]
-                  }
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setting.stateHandler(e.target.value, setter)
+                    handleTextFieldChange(e, setting)
                   }
                 />
                 {setting.tips && (
