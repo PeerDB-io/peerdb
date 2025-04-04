@@ -44,7 +44,7 @@ func syncStatusToCatalog(
 	})
 
 	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateFlowStatusInCatalogActivity,
-		logger, workflow.GetInfo(ctx).WorkflowExecution.ID, state.CurrentFlowStatus)
+		workflow.GetInfo(ctx).WorkflowExecution.ID, state.CurrentFlowStatus)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
 	}
