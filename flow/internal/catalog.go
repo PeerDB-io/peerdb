@@ -44,10 +44,11 @@ func GetCatalogConnectionStringFromEnv(ctx context.Context) string {
 
 func GetCatalogPostgresConfigFromEnv(ctx context.Context) *protos.PostgresConfig {
 	return &protos.PostgresConfig{
-		Host:     PeerDBCatalogHost(),
-		Port:     uint32(PeerDBCatalogPort()),
-		User:     PeerDBCatalogUser(),
-		Password: PeerDBCatalogPassword(ctx),
-		Database: PeerDBCatalogDatabase(),
+		Host:       PeerDBCatalogHost(),
+		Port:       uint32(PeerDBCatalogPort()),
+		User:       PeerDBCatalogUser(),
+		Password:   PeerDBCatalogPassword(ctx),
+		Database:   PeerDBCatalogDatabase(),
+		DisableTls: PeerDBCatalogDisableTls(),
 	}
 }

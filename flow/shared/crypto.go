@@ -3,6 +3,7 @@ package shared
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
@@ -119,4 +120,29 @@ func (key PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
 
 	ciphertext := aead.Seal(nonce, nonce, plaintext, nil)
 	return ciphertext, nil
+}
+
+// modified from https://github.com/golang/go/blob/master/src/crypto/tls/example_test.go
+func VerifyPeerCertificateWithoutHostname(rootCAs *x509.CertPool) func(certificates [][]byte, _ [][]*x509.Certificate) error {
+	return func(certificates [][]byte, _ [][]*x509.Certificate) error {
+		opts := x509.VerifyOptions{
+			Roots:         rootCAs,
+			DNSName:       "",
+			Intermediates: x509.NewCertPool(),
+		}
+		var cert0 *x509.Certificate
+		for i, asn1Data := range certificates {
+			cert, err := x509.ParseCertificate(asn1Data)
+			if err != nil {
+				return fmt.Errorf("tls: failed to parse certificate from server: %w", err)
+			}
+			if i == 0 {
+				cert0 = cert
+			} else {
+				opts.Intermediates.AddCert(cert)
+			}
+		}
+		_, err := cert0.Verify(opts)
+		return err
+	}
 }

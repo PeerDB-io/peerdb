@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -69,10 +70,18 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 		if !caPool.AppendCertsFromPEM([]byte(*pgConfig.RootCa)) {
 			return nil, errors.New("failed to parse provided root CA")
 		}
+
 		connConfig.TLSConfig = &tls.Config{
 			MinVersion: tls.VersionTLS12,
-			ServerName: connConfig.Host,
 			RootCAs:    caPool,
+		}
+		if net.ParseIP(connConfig.Host) == nil {
+			connConfig.TLSConfig.ServerName = connConfig.Host
+		} else {
+			connConfig.TLSConfig.InsecureSkipVerify = true
+			if connConfig.TLSConfig.RootCAs != nil {
+				connConfig.TLSConfig.VerifyPeerCertificate = shared.VerifyPeerCertificateWithoutHostname(connConfig.TLSConfig.RootCAs)
+			}
 		}
 	}
 	return connConfig, nil
