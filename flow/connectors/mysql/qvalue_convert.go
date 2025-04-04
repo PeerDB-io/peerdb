@@ -92,7 +92,7 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 		return qvalue.QValueKindString, nil
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		// Check the column type name to determine specific geometry type
-		colType := strings.ToLower(field.Name)
+		colType := strings.ToLower(string(field.Name))
 		switch {
 		case strings.Contains(colType, "point"):
 			return qvalue.QValueKindPoint, nil
@@ -248,31 +248,19 @@ func geometryValueFromBytes(wkbData []byte) (string, error) {
 
 // Helper function to process geometry data and return a QValue
 func processGeometryData(data []byte, qkind qvalue.QValueKind) qvalue.QValue {
+	var strVal string
 	// For geometry data, we need to convert from MySQL's binary format to WKT
 	if len(data) > 4 {
 		wkt, err := geometryValueFromBytes(data)
 		if err == nil {
-			switch qkind {
-			case qvalue.QValueKindPoint:
-				return qvalue.QValuePoint{Val: wkt}
-			case qvalue.QValueKindLineString:
-				return qvalue.QValueLineString{Val: wkt}
-			case qvalue.QValueKindPolygon:
-				return qvalue.QValuePolygon{Val: wkt}
-			case qvalue.QValueKindMultiPoint:
-				return qvalue.QValueMultiPoint{Val: wkt}
-			case qvalue.QValueKindMultiLineString:
-				return qvalue.QValueMultiLineString{Val: wkt}
-			case qvalue.QValueKindMultiPolygon:
-				return qvalue.QValueMultiPolygon{Val: wkt}
-			case qvalue.QValueKindGeometryCollection:
-				return qvalue.QValueGeometryCollection{Val: wkt}
-			default:
-				return qvalue.QValueGeometry{Val: wkt}
-			}
+			strVal = wkt
+		} else {
+			strVal = string(data)
 		}
+	} else {
+		strVal = string(data)
 	}
-	strVal := string(data)
+
 	switch qkind {
 	case qvalue.QValueKindPoint:
 		return qvalue.QValuePoint{Val: strVal}
