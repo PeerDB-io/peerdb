@@ -34,13 +34,35 @@ type CDCFlowWorkflowState struct {
 	CurrentFlowStatus protos.FlowStatus
 }
 
+func syncStatusToCatalog(
+	ctx workflow.Context,
+	logger log.Logger,
+	state *CDCFlowWorkflowState,
+) {
+	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 1 * time.Minute,
+	})
+
+	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateFlowStatusInCatalogActivity,
+		logger, workflow.GetInfo(ctx).WorkflowExecution.ID, state.CurrentFlowStatus)
+	if err := updateFuture.Get(updateCtx, nil); err != nil {
+		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
+	}
+}
+
+func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Logger, newStatus protos.FlowStatus) {
+	s.CurrentFlowStatus = newStatus
+	// update the status in the catalog
+	syncStatusToCatalog(ctx, logger, s)
+}
+
 // returns a new empty PeerFlowState
-func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflowState {
+func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflowState {
 	tableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		tableMappings = append(tableMappings, shared.CloneProto(tableMapping))
 	}
-	return &CDCFlowWorkflowState{
+	state := CDCFlowWorkflowState{
 		ActiveSignal:      model.NoopSignal,
 		CurrentFlowStatus: protos.FlowStatus_STATUS_SETUP,
 		FlowConfigUpdate:  nil,
@@ -51,6 +73,8 @@ func NewCDCFlowWorkflowState(cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflow
 			NumberOfSyncs:      0,
 		},
 	}
+	syncStatusToCatalog(ctx, workflow.GetLogger(ctx), &state)
+	return &state
 }
 
 func GetUUID(ctx workflow.Context) string {
@@ -69,6 +93,27 @@ func GetChildWorkflowID(
 
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
+
+func syncStateToConfigProtoInCatalog(
+	ctx workflow.Context,
+	logger log.Logger,
+	cfg *protos.FlowConnectionConfigs,
+	state *CDCFlowWorkflowState,
+) {
+	cloneCfg := shared.CloneProto(cfg)
+	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
+	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
+	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
+
+	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+
+	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, logger, cloneCfg)
+	if err := updateFuture.Get(updateCtx, nil); err != nil {
+		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
+	}
+}
 
 func processCDCFlowConfigUpdate(
 	ctx workflow.Context,
@@ -144,7 +189,7 @@ func processTableAdditions(
 		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
 		return nil
 	}
-	state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
+	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
 
 	logger.Info("altering publication for additional tables")
 	alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -257,27 +302,6 @@ func processTableRemovals(
 	return nil
 }
 
-func syncStateToConfigProtoInCatalog(
-	ctx workflow.Context,
-	logger log.Logger,
-	cfg *protos.FlowConnectionConfigs,
-	state *CDCFlowWorkflowState,
-) {
-	cloneCfg := shared.CloneProto(cfg)
-	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
-	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
-	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
-
-	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
-
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, logger, cloneCfg)
-	if err := updateFuture.Get(updateCtx, nil); err != nil {
-		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
-	}
-}
-
 func addCdcPropertiesSignalListener(
 	ctx workflow.Context,
 	logger log.Logger,
@@ -308,11 +332,11 @@ func CDCFlowWorkflow(
 		return nil, errors.New("invalid connection configs")
 	}
 
+	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	if state == nil {
-		state = NewCDCFlowWorkflowState(cfg)
+		state = NewCDCFlowWorkflowState(ctx, logger, cfg)
 	}
 
-	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
 	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
 		return *state, nil
@@ -339,7 +363,7 @@ func CDCFlowWorkflow(
 		})
 		addCdcPropertiesSignalListener(ctx, logger, selector, state)
 		startTime := workflow.Now(ctx)
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSED)
 
 		for state.ActiveSignal == model.PauseSignal {
 			// only place we block on receive, so signal processing is immediate
@@ -363,7 +387,7 @@ func CDCFlowWorkflow(
 		}
 
 		logger.Info(fmt.Sprintf("mirror has been resumed after %s", time.Since(startTime).Round(time.Second)))
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
 
@@ -419,7 +443,7 @@ func CDCFlowWorkflow(
 			return state, fmt.Errorf("failed to execute setup workflow: %w", err)
 		}
 		state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_SNAPSHOT
+		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID := GetChildWorkflowID("snapshot-flow", cfg.FlowJobName, originalRunID)
@@ -477,10 +501,10 @@ func CDCFlowWorkflow(
 		// if initial_copy_only is opted for, we end the flow here.
 		if cfg.InitialSnapshotOnly {
 			logger.Info("initial snapshot only, ending flow")
-			state.CurrentFlowStatus = protos.FlowStatus_STATUS_COMPLETED
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_COMPLETED)
 		} else {
 			logger.Info("executed setup flow and snapshot flow, start running")
-			state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 		}
 		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
@@ -552,7 +576,7 @@ func CDCFlowWorkflow(
 
 	addCdcPropertiesSignalListener(ctx, logger, mainLoopSelector, state)
 
-	state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 	for {
 		mainLoopSelector.Select(ctx)
 		for ctx.Err() == nil && mainLoopSelector.HasPending() {
@@ -574,6 +598,7 @@ func CDCFlowWorkflow(
 
 			if err := ctx.Err(); err != nil {
 				logger.Info("mirror canceled", slog.Any("error", err))
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 
