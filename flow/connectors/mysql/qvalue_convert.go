@@ -173,22 +173,25 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 	case "vector":
 		return qvalue.QValueKindArrayFloat32, nil
 
-	case "geometry":
-		return qvalue.QValueKindGeometry, nil
-	case "point":
-		return qvalue.QValueKindPoint, nil
-	case "linestring":
-		return qvalue.QValueKindLineString, nil
-	case "polygon":
-		return qvalue.QValueKindPolygon, nil
-	case "multipoint":
-		return qvalue.QValueKindMultiPoint, nil
-	case "multilinestring":
-		return qvalue.QValueKindMultiLineString, nil
-	case "multipolygon":
-		return qvalue.QValueKindMultiPolygon, nil
-	case "geometrycollection":
-		return qvalue.QValueKindGeometryCollection, nil
+	case "geometry", "point", "linestring", "polygon", "multipoint", "multilinestring", "multipolygon", "geometrycollection":
+		switch ct {
+		case "point":
+			return qvalue.QValueKindPoint, nil
+		case "linestring":
+			return qvalue.QValueKindLineString, nil
+		case "polygon":
+			return qvalue.QValueKindPolygon, nil
+		case "multipoint":
+			return qvalue.QValueKindMultiPoint, nil
+		case "multilinestring":
+			return qvalue.QValueKindMultiLineString, nil
+		case "multipolygon":
+			return qvalue.QValueKindMultiPolygon, nil
+		case "geometrycollection":
+			return qvalue.QValueKindGeometryCollection, nil
+		default:
+			return qvalue.QValueKindGeometry, nil
+		}
 	default:
 		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
 	}
