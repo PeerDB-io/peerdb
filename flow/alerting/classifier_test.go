@@ -7,7 +7,9 @@ import (
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -61,5 +63,22 @@ func TestClickHouseSelectFromDestinationDuringQrepAsMvError(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   strconv.Itoa(int(chproto.ErrIllegalTypeOfArgument)),
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresWalRemovedErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a WAL removed error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "requested WAL segment 000000010001337F0000002E has already been removed",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
 	}, errInfo, "Unexpected error info")
 }
