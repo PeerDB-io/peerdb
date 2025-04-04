@@ -316,6 +316,7 @@ message QRepConfig {
   map<string, string> env = 24;
 
   string parent_mirror_name = 25;
+  repeated string exclude = 26;
 }
 
 message QRepPartition {

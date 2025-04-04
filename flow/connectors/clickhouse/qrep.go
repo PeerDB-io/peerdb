@@ -33,15 +33,11 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	tblSchema, err := c.getTableSchema(ctx, destTable)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
-	}
-	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
+	c.logger.Info("Called QRep sync function", flowLog)
 
 	avroSync := NewClickHouseAvroSyncMethod(config, c)
 
-	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
+	return avroSync.SyncQRepRecords(ctx, config, partition, stream)
 }
 
 func (c *ClickHouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
