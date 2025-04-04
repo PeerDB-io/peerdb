@@ -237,7 +237,7 @@ func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 	}
 
 	_, err = h.pool.Exec(ctx,
-		"UPDATE flows SET config_proto = $1 WHERE name = $2",
+		"UPDATE flows SET config_proto=$1,updated_at=now() WHERE name=$2",
 		cfgBytes, cfg.FlowJobName)
 	if err != nil {
 		return fmt.Errorf("unable to update qrep config in catalog: %w", err)
@@ -345,7 +345,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		slog.Error("[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
 		return nil, err
 	}
-	err, currState := h.getWorkflowStatus(ctx, workflowID)
+	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
 		slog.Error("[flow-state-change] unable to get workflow status", logs, slog.Any("error", err))
 		return nil, err
