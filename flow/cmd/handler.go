@@ -211,8 +211,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
-	err = h.updateQRepConfigInCatalog(ctx, cfg)
-	if err != nil {
+	if err := h.updateQRepConfigInCatalog(ctx, cfg); err != nil {
 		slog.Error("unable to update qrep config in catalog",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, fmt.Errorf("unable to update qrep config in catalog: %w", err)
@@ -324,13 +323,10 @@ func (h *FlowRequestHandler) FlowStateChange(
 ) (*protos.FlowStateChangeResponse, error) {
 	logs := slog.String("flowJobName", req.FlowJobName)
 	slog.Info("FlowStateChange called", logs, slog.Any("req", req))
-	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
-	if err != nil {
+	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
 		slog.Error("unable to check maintenance mode", logs, slog.Any("error", err))
 		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
-	}
-
-	if underMaintenance {
+	} else if underMaintenance {
 		slog.Warn("Flow state change request denied due to maintenance", logs)
 		return nil, errors.New("PeerDB is under maintenance")
 	}
@@ -362,14 +358,15 @@ func (h *FlowRequestHandler) FlowStateChange(
 	slog.Info("[flow-state-change] received request", logs,
 		slog.Any("requestedFlowState", req.RequestedFlowState), slog.Any("currState", currState))
 	if req.RequestedFlowState != currState {
+		var changeErr error
 		switch req.RequestedFlowState {
 		case protos.FlowStatus_STATUS_PAUSED:
 			if currState == protos.FlowStatus_STATUS_RUNNING {
-				err = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
+				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
 			}
 		case protos.FlowStatus_STATUS_RUNNING:
 			if currState == protos.FlowStatus_STATUS_PAUSED {
-				err = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
+				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
 			if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
@@ -391,12 +388,12 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}); err != nil {
 				return nil, err
 			}
-			err = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+			changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 		case protos.FlowStatus_STATUS_TERMINATING:
-			err = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+			changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 		case protos.FlowStatus_STATUS_TERMINATED: // backwards compat, causes grpc timeouts
 			if currState != protos.FlowStatus_STATUS_TERMINATED {
-				err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
+				changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
 			}
 		default:
 			slog.Error("illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
@@ -404,9 +401,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 			return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
 				req.RequestedFlowState, currState)
 		}
-		if err != nil {
-			slog.Error("unable to signal workflow", logs, slog.Any("error", err))
-			return nil, fmt.Errorf("unable to signal workflow: %w", err)
+		if changeErr != nil {
+			slog.Error("unable to signal workflow", logs, slog.Any("error", changeErr))
+			return nil, fmt.Errorf("unable to signal workflow: %w", changeErr)
 		}
 	}
 
@@ -509,11 +506,9 @@ func (h *FlowRequestHandler) ResyncMirror(
 	ctx context.Context,
 	req *protos.ResyncMirrorRequest,
 ) (*protos.ResyncMirrorResponse, error) {
-	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
-	if err != nil {
+	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
 		return nil, fmt.Errorf("unable to get maintenance mode status: %w", err)
-	}
-	if underMaintenance {
+	} else if underMaintenance {
 		return nil, errors.New("PeerDB is under maintenance")
 	}
 
