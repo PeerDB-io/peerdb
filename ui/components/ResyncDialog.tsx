@@ -1,5 +1,6 @@
 'use client';
-import { ResyncMirrorRequest } from '@/grpc_generated/route';
+import { FlowStatus } from '@/grpc_generated/flow';
+import { FlowStateChangeRequest } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Label } from '@/lib/Label';
@@ -30,12 +31,13 @@ export default function ResyncDialog({ mirrorName }: ResyncDialogProps) {
       msg: 'Requesting a resync. You can close this dialog and check the status',
       color: 'base',
     });
-    const resyncResponse = await fetch('/api/v1/mirrors/resync', {
+    const resyncResponse = await fetch('/api/v1/mirrors/state_change', {
       method: 'POST',
       body: JSON.stringify({
         flowJobName: mirrorName,
-        dropStats: true,
-      } as ResyncMirrorRequest),
+        requestedFlowState: FlowStatus.STATUS_RESYNC,
+        dropMirrorStats: true,
+      } as FlowStateChangeRequest),
     });
     if (resyncResponse.ok) {
       setMsg({

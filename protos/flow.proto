@@ -340,6 +340,7 @@ message DropFlowInput {
   FlowConnectionConfigs flow_connection_configs = 5;
   bool skip_destination_drop = 6;
   bool skip_source_drop = 7;
+  bool resync = 8;
 }
 
 message TableSchemaDelta {
@@ -369,11 +370,7 @@ message GetOpenConnectionsForUserResult {
 }
 
 // UI reads current workflow status and also requests status changes using same enum
-// UI can request STATUS_PAUSED, STATUS_RUNNING and STATUS_TERMINATED
-// STATUS_RUNNING -> STATUS_PAUSED/STATUS_TERMINATED
-// STATUS_PAUSED -> STATUS_RUNNING/STATUS_TERMINATED
-// UI can read everything except STATUS_UNKNOWN
-// terminate button should always be enabled
+// see flow/cmd/handler.go FlowStateChange
 enum FlowStatus {
   // should never be read by UI, bail
   STATUS_UNKNOWN = 0;
@@ -389,6 +386,7 @@ enum FlowStatus {
   STATUS_TERMINATING = 6;
   STATUS_TERMINATED = 7;
   STATUS_COMPLETED = 8;
+  STATUS_RESYNC = 9;
 }
 
 message CDCFlowConfigUpdate {

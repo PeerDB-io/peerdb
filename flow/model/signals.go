@@ -30,13 +30,7 @@ func (self TypedSignal[T]) SignalClientWorkflow(
 	runID string,
 	value T,
 ) error {
-	return c.SignalWorkflow(
-		ctx,
-		workflowID,
-		runID,
-		self.Name,
-		value,
-	)
+	return c.SignalWorkflow(ctx, workflowID, runID, self.Name, value)
 }
 
 func (self TypedSignal[T]) SignalChildWorkflow(
@@ -100,6 +94,8 @@ const (
 	NoopSignal CDCFlowSignal = iota
 	_
 	PauseSignal
+	TerminateSignal
+	ResyncSignal
 )
 
 func FlowSignalHandler(activeSignal CDCFlowSignal,
@@ -118,12 +114,20 @@ func FlowSignalHandler(activeSignal CDCFlowSignal,
 			logger.Info("workflow was paused, resuming it")
 			return v
 		}
+	case TerminateSignal:
+		return v
+	case ResyncSignal:
+		return v
 	}
 	return activeSignal
 }
 
 var FlowSignal = TypedSignal[CDCFlowSignal]{
 	Name: "peer-flow-signal",
+}
+
+var FlowSignalStateChange = TypedSignal[*protos.FlowStateChangeRequest]{
+	Name: "flow-state-change-signal",
 }
 
 var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
