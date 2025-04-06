@@ -1176,16 +1176,20 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	srcTableName := "test_mysql_geometric_types"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_mysql_geometric_types"
+	dbName := fmt.Sprintf("e2e_test_%s", s.suffix)
 
-	// Set MySQL system variables for proper geometry handling
-	err := s.source.Exec(s.t.Context(), "SET SESSION sql_mode = ''")
+	// Set MySQL system variables and select database
+	err := s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		SET SESSION sql_mode = '';
+		USE %s;
+	`, dbName))
 	require.NoError(s.t, err)
 
 	// Create a table with both generic geometry and specific geometry type columns
 	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s(
 		id serial PRIMARY KEY,
 		geometry_col GEOMETRY SRID 0
-	)`, srcFullName))
+	)`, srcTableName))
 	require.NoError(s.t, err)
 
 	// Insert test data with various geometric types in the generic geometry column
@@ -1196,7 +1200,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		(ST_GeomFromWKT('MULTIPOINT((1 2), (3 4))', 0)),
 		(ST_GeomFromWKT('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))', 0)),
 		(ST_GeomFromWKT('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))', 0)),
-		(ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))', 0))`, srcFullName))
+		(ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))', 0))`, srcTableName))
 	require.NoError(s.t, err)
 
 	// Insert additional rows to test CDC with different geometry types
@@ -1207,7 +1211,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		(ST_GeomFromWKT('MULTIPOINT((10 20), (30 40))', 0)),
 		(ST_GeomFromWKT('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))', 0)),
 		(ST_GeomFromWKT('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))', 0)),
-		(ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcFullName))
+		(ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1233,7 +1237,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		(ST_GeomFromWKT('MULTIPOINT((10 20), (30 40))', 0)),
 		(ST_GeomFromWKT('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))', 0)),
 		(ST_GeomFromWKT('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))', 0)),
-		(ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcFullName))
+		(ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcTableName))
 	require.NoError(s.t, err)
 
 	// Wait for CDC to replicate the new rows
@@ -1457,9 +1461,13 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	srcTableName := "test_mysql_specific_geometric_types"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_mysql_specific_geometric_types"
+	dbName := fmt.Sprintf("e2e_test_%s", s.suffix)
 
-	// Set MySQL system variables for proper geometry handling
-	err := s.source.Exec(s.t.Context(), "SET SESSION sql_mode = ''")
+	// Set MySQL system variables and select database
+	err := s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		SET SESSION sql_mode = '';
+		USE %s;
+	`, dbName))
 	require.NoError(s.t, err)
 
 	// Create a table with specific geometry type columns
@@ -1473,7 +1481,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		multilinestring_col MULTILINESTRING SRID 0,
 		multipolygon_col MULTIPOLYGON SRID 0,
 		geometrycollection_col GEOMETRYCOLLECTION SRID 0
-	)`, srcFullName))
+	)`, srcTableName))
 	require.NoError(s.t, err)
 
 	// Insert test data with specific geometric types
@@ -1491,7 +1499,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		 ST_GeomFromWKT('MULTIPOINT((5 6), (7 8))', 0),
 		 ST_GeomFromWKT('MULTILINESTRING((5 6, 7 8), (9 10, 11 12))', 0),
 		 ST_GeomFromWKT('MULTIPOLYGON(((5 5, 7 5, 7 7, 5 7, 5 5)), ((8 8, 10 8, 10 10, 8 10, 8 8)))', 0),
-		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(5 6), LINESTRING(5 6, 7 8))', 0))`, srcFullName))
+		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(5 6), LINESTRING(5 6, 7 8))', 0))`, srcTableName))
 	require.NoError(s.t, err)
 
 	// Insert additional rows to test CDC
@@ -1502,7 +1510,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		 ST_GeomFromWKT('MULTIPOINT((10 20), (30 40))', 0),
 		 ST_GeomFromWKT('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))', 0),
 		 ST_GeomFromWKT('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))', 0),
-		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcFullName))
+		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1529,7 +1537,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		 ST_GeomFromWKT('MULTIPOINT((10 20), (30 40))', 0),
 		 ST_GeomFromWKT('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))', 0),
 		 ST_GeomFromWKT('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))', 0),
-		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcFullName))
+		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcTableName))
 	require.NoError(s.t, err)
 
 	// Wait for CDC to replicate the new rows
