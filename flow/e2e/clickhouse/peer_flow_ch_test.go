@@ -1188,7 +1188,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	// Create a table with both generic geometry and specific geometry type columns
 	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %[1]s(
 		id serial PRIMARY KEY,
-		geometry_col GEOMETRY SRID 0
+		geometry_col GEOMETRY NOT NULL SRID 0
 	)`, srcTableName))
 	require.NoError(s.t, err)
 
@@ -1203,16 +1203,33 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		(ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))', 0))`, srcTableName))
 	require.NoError(s.t, err)
 
-	// Insert additional rows to test CDC with different geometry types
-	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %[1]s (geometry_col) VALUES 
-		(ST_GeomFromWKT('POINT(10 20)', 0)),
-		(ST_GeomFromWKT('LINESTRING(10 20, 30 40)', 0)),
-		(ST_GeomFromWKT('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))', 0)),
-		(ST_GeomFromWKT('MULTIPOINT((10 20), (30 40))', 0)),
-		(ST_GeomFromWKT('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))', 0)),
-		(ST_GeomFromWKT('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))', 0)),
-		(ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcTableName))
+	// Verify the data was inserted correctly in MySQL
+	rows, err := s.source.Query(s.t.Context(), fmt.Sprintf(`
+		SELECT id, ST_AsWKT(geometry_col) as wkt
+		FROM %s
+		ORDER BY id`, srcTableName))
 	require.NoError(s.t, err)
+	defer rows.Close()
+
+	var id int
+	var wkt string
+	expectedGeometries := []string{
+		"POINT(1 2)",
+		"LINESTRING(1 2,3 4)",
+		"POLYGON((1 1,3 1,3 3,1 3,1 1))",
+		"MULTIPOINT((1 2),(3 4))",
+		"MULTILINESTRING((1 2,3 4),(5 6,7 8))",
+		"MULTIPOLYGON(((1 1,3 1,3 3,1 3,1 1)),((4 4,6 4,6 6,4 6,4 4)))",
+		"GEOMETRYCOLLECTION(POINT(1 2),LINESTRING(1 2,3 4))",
+	}
+	i := 0
+	for rows.Next() {
+		err = rows.Scan(&id, &wkt)
+		require.NoError(s.t, err)
+		require.Equal(s.t, expectedGeometries[i], wkt, "MySQL geometry value mismatch at row %d", i+1)
+		i++
+	}
+	require.NoError(s.t, rows.Err())
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_geometric_types"),
@@ -1221,6 +1238,10 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_DEVELOPMENT": "true",
+		"PEERDB_LOG_LEVEL":   "debug",
+	}
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -1229,7 +1250,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	// Wait for initial snapshot to complete
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 7)
 
-	// Insert additional rows to test CDC with different geometry types
+	// Insert additional rows to test CDC
 	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %[1]s (geometry_col) VALUES 
 		(ST_GeomFromWKT('POINT(10 20)', 0)),
 		(ST_GeomFromWKT('LINESTRING(10 20, 30 40)', 0)),
@@ -1240,11 +1261,38 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		(ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcTableName))
 	require.NoError(s.t, err)
 
+	// Verify the CDC data was inserted correctly in MySQL
+	rows, err = s.source.Query(s.t.Context(), fmt.Sprintf(`
+		SELECT id, ST_AsWKT(geometry_col) as wkt
+		FROM %s
+		WHERE id > 7
+		ORDER BY id`, srcTableName))
+	require.NoError(s.t, err)
+	defer rows.Close()
+
+	expectedGeometries = []string{
+		"POINT(10 20)",
+		"LINESTRING(10 20,30 40)",
+		"POLYGON((10 10,30 10,30 30,10 30,10 10))",
+		"MULTIPOINT((10 20),(30 40))",
+		"MULTILINESTRING((10 20,30 40),(50 60,70 80))",
+		"MULTIPOLYGON(((10 10,30 10,30 30,10 30,10 10)),((40 40,60 40,60 60,40 60,40 40)))",
+		"GEOMETRYCOLLECTION(POINT(10 20),LINESTRING(10 20,30 40))",
+	}
+	i = 0
+	for rows.Next() {
+		err = rows.Scan(&id, &wkt)
+		require.NoError(s.t, err)
+		require.Equal(s.t, expectedGeometries[i], wkt, "MySQL CDC geometry value mismatch at row %d", i+1)
+		i++
+	}
+	require.NoError(s.t, rows.Err())
+
 	// Wait for CDC to replicate the new rows
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 14)
 
 	// Verify that the data was correctly replicated
-	rows, err := s.GetRows(dstTableName, "id, geometry_col")
+	rows, err = s.GetRows(dstTableName, "id, geometry_col")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 14, "expected 14 rows")
 
@@ -1474,13 +1522,13 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %[1]s(
 		id serial PRIMARY KEY,
-		point_col POINT SRID 0,
-		linestring_col LINESTRING SRID 0,
-		polygon_col POLYGON SRID 0,
-		multipoint_col MULTIPOINT SRID 0,
-		multilinestring_col MULTILINESTRING SRID 0,
-		multipolygon_col MULTIPOLYGON SRID 0,
-		geometrycollection_col GEOMETRYCOLLECTION SRID 0
+		point_col POINT NOT NULL SRID 0,
+		linestring_col LINESTRING NOT NULL SRID 0,
+		polygon_col POLYGON NOT NULL SRID 0,
+		multipoint_col MULTIPOINT NOT NULL SRID 0,
+		multilinestring_col MULTILINESTRING NOT NULL SRID 0,
+		multipolygon_col MULTIPOLYGON NOT NULL SRID 0,
+		geometrycollection_col GEOMETRYCOLLECTION NOT NULL SRID 0
 	)`, srcTableName))
 	require.NoError(s.t, err)
 
@@ -1492,15 +1540,67 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		 ST_GeomFromWKT('MULTIPOINT((1 2), (3 4))', 0),
 		 ST_GeomFromWKT('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))', 0),
 		 ST_GeomFromWKT('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))', 0),
-		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))', 0)),
-		(ST_GeomFromWKT('POINT(5 6)', 0),
-		 ST_GeomFromWKT('LINESTRING(5 6, 7 8)', 0),
-		 ST_GeomFromWKT('POLYGON((5 5, 7 5, 7 7, 5 7, 5 5))', 0),
-		 ST_GeomFromWKT('MULTIPOINT((5 6), (7 8))', 0),
-		 ST_GeomFromWKT('MULTILINESTRING((5 6, 7 8), (9 10, 11 12))', 0),
-		 ST_GeomFromWKT('MULTIPOLYGON(((5 5, 7 5, 7 7, 5 7, 5 5)), ((8 8, 10 8, 10 10, 8 10, 8 8)))', 0),
-		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(5 6), LINESTRING(5 6, 7 8))', 0))`, srcTableName))
+		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))', 0))`, srcTableName))
 	require.NoError(s.t, err)
+
+	// Verify the data was inserted correctly in MySQL
+	rows, err := s.source.Query(s.t.Context(), fmt.Sprintf(`
+		SELECT id, 
+			ST_AsWKT(point_col) as point_wkt,
+			ST_AsWKT(linestring_col) as linestring_wkt,
+			ST_AsWKT(polygon_col) as polygon_wkt,
+			ST_AsWKT(multipoint_col) as multipoint_wkt,
+			ST_AsWKT(multilinestring_col) as multilinestring_wkt,
+			ST_AsWKT(multipolygon_col) as multipolygon_wkt,
+			ST_AsWKT(geometrycollection_col) as geometrycollection_wkt
+		FROM %s
+		ORDER BY id`, srcTableName))
+	require.NoError(s.t, err)
+	defer rows.Close()
+
+	var (
+		id                    int
+		pointWKT             string
+		linestringWKT        string
+		polygonWKT           string
+		multipointWKT        string
+		multilinestringWKT   string
+		multipolygonWKT      string
+		geometrycollectionWKT string
+	)
+
+	for rows.Next() {
+		err = rows.Scan(&id, &pointWKT, &linestringWKT, &polygonWKT, &multipointWKT,
+			&multilinestringWKT, &multipolygonWKT, &geometrycollectionWKT)
+		require.NoError(s.t, err)
+		require.Equal(s.t, "POINT(1 2)", pointWKT, "MySQL point value mismatch")
+		require.Equal(s.t, "LINESTRING(1 2,3 4)", linestringWKT, "MySQL linestring value mismatch")
+		require.Equal(s.t, "POLYGON((1 1,3 1,3 3,1 3,1 1))", polygonWKT, "MySQL polygon value mismatch")
+		require.Equal(s.t, "MULTIPOINT((1 2),(3 4))", multipointWKT, "MySQL multipoint value mismatch")
+		require.Equal(s.t, "MULTILINESTRING((1 2,3 4),(5 6,7 8))", multilinestringWKT, "MySQL multilinestring value mismatch")
+		require.Equal(s.t, "MULTIPOLYGON(((1 1,3 1,3 3,1 3,1 1)),((4 4,6 4,6 6,4 6,4 4)))", multipolygonWKT, "MySQL multipolygon value mismatch")
+		require.Equal(s.t, "GEOMETRYCOLLECTION(POINT(1 2),LINESTRING(1 2,3 4))", geometrycollectionWKT, "MySQL geometrycollection value mismatch")
+	}
+	require.NoError(s.t, rows.Err())
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_specific_geometric_types"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_DEVELOPMENT": "true",
+		"PEERDB_LOG_LEVEL":   "debug",
+	}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Wait for initial snapshot to complete
+	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 
 	// Insert additional rows to test CDC
 	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %[1]s (point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col) VALUES 
@@ -1513,41 +1613,43 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcTableName))
 	require.NoError(s.t, err)
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_specific_geometric_types"),
-		TableNameMapping: map[string]string{srcFullName: dstTableName},
-		Destination:      s.Peer().Name,
-	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.DoInitialSnapshot = true
-
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-
-	// Wait for initial snapshot to complete
-	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 2)
-
-	// Insert additional rows to test CDC
-	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %[1]s (point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col) VALUES
-		(ST_GeomFromWKT('POINT(10 20)', 0),
-		 ST_GeomFromWKT('LINESTRING(10 20, 30 40)', 0),
-		 ST_GeomFromWKT('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))', 0),
-		 ST_GeomFromWKT('MULTIPOINT((10 20), (30 40))', 0),
-		 ST_GeomFromWKT('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))', 0),
-		 ST_GeomFromWKT('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))', 0),
-		 ST_GeomFromWKT('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))', 0))`, srcTableName))
+	// Verify the CDC data was inserted correctly in MySQL
+	rows, err = s.source.Query(s.t.Context(), fmt.Sprintf(`
+		SELECT id, 
+			ST_AsWKT(point_col) as point_wkt,
+			ST_AsWKT(linestring_col) as linestring_wkt,
+			ST_AsWKT(polygon_col) as polygon_wkt,
+			ST_AsWKT(multipoint_col) as multipoint_wkt,
+			ST_AsWKT(multilinestring_col) as multilinestring_wkt,
+			ST_AsWKT(multipolygon_col) as multipolygon_wkt,
+			ST_AsWKT(geometrycollection_col) as geometrycollection_wkt
+		FROM %s
+		WHERE id > 1
+		ORDER BY id`, srcTableName))
 	require.NoError(s.t, err)
+	defer rows.Close()
+
+	for rows.Next() {
+		err = rows.Scan(&id, &pointWKT, &linestringWKT, &polygonWKT, &multipointWKT,
+			&multilinestringWKT, &multipolygonWKT, &geometrycollectionWKT)
+		require.NoError(s.t, err)
+		require.Equal(s.t, "POINT(10 20)", pointWKT, "MySQL CDC point value mismatch")
+		require.Equal(s.t, "LINESTRING(10 20,30 40)", linestringWKT, "MySQL CDC linestring value mismatch")
+		require.Equal(s.t, "POLYGON((10 10,30 10,30 30,10 30,10 10))", polygonWKT, "MySQL CDC polygon value mismatch")
+		require.Equal(s.t, "MULTIPOINT((10 20),(30 40))", multipointWKT, "MySQL CDC multipoint value mismatch")
+		require.Equal(s.t, "MULTILINESTRING((10 20,30 40),(50 60,70 80))", multilinestringWKT, "MySQL CDC multilinestring value mismatch")
+		require.Equal(s.t, "MULTIPOLYGON(((10 10,30 10,30 30,10 30,10 10)),((40 40,60 40,60 60,40 60,40 40)))", multipolygonWKT, "MySQL CDC multipolygon value mismatch")
+		require.Equal(s.t, "GEOMETRYCOLLECTION(POINT(10 20),LINESTRING(10 20,30 40))", geometrycollectionWKT, "MySQL CDC geometrycollection value mismatch")
+	}
+	require.NoError(s.t, rows.Err())
 
 	// Wait for CDC to replicate the new rows
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 3)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 
 	// Verify that the data was correctly replicated
-	rows, err := s.GetRows(dstTableName,
-		"id, point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col")
+	rows, err = s.GetRows(dstTableName, "id, point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col")
 	require.NoError(s.t, err)
-	require.Len(s.t, rows.Records, 3, "expected 3 rows")
+	require.Len(s.t, rows.Records, 2, "expected 2 rows")
 
 	// Expected WKT format values for each geometric type
 	expectedValues := []struct {
@@ -1567,15 +1669,6 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 			multilinestring:    "MULTILINESTRING((1 2, 3 4), (5 6, 7 8))",
 			multipolygon:       "MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
 			geometrycollection: "GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))",
-		},
-		{
-			point:              "POINT(5 6)",
-			linestring:         "LINESTRING(5 6, 7 8)",
-			polygon:            "POLYGON((5 5, 7 5, 7 7, 5 7, 5 5))",
-			multipoint:         "MULTIPOINT((5 6), (7 8))",
-			multilinestring:    "MULTILINESTRING((5 6, 7 8), (9 10, 11 12))",
-			multipolygon:       "MULTIPOLYGON(((5 5, 7 5, 7 7, 5 7, 5 5)), ((8 8, 10 8, 10 10, 8 10, 8 8)))",
-			geometrycollection: "GEOMETRYCOLLECTION(POINT(5 6), LINESTRING(5 6, 7 8))",
 		},
 		{
 			point:              "POINT(10 20)",
