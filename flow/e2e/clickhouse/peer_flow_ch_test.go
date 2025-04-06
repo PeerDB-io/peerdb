@@ -1544,44 +1544,26 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	require.NoError(s.t, err)
 
 	// Verify the data was inserted correctly in MySQL
-	rows, err := s.source.Query(s.t.Context(), fmt.Sprintf(`
-		SELECT id, 
-			ST_AsWKT(point_col) as point_wkt,
-			ST_AsWKT(linestring_col) as linestring_wkt,
-			ST_AsWKT(polygon_col) as polygon_wkt,
-			ST_AsWKT(multipoint_col) as multipoint_wkt,
-			ST_AsWKT(multilinestring_col) as multilinestring_wkt,
-			ST_AsWKT(multipolygon_col) as multipolygon_wkt,
-			ST_AsWKT(geometrycollection_col) as geometrycollection_wkt
-		FROM %s
-		ORDER BY id`, srcTableName))
+	rows, err := s.source.GetRows(srcTableName, `
+		id, 
+		ST_AsWKT(point_col) as point_wkt,
+		ST_AsWKT(linestring_col) as linestring_wkt,
+		ST_AsWKT(polygon_col) as polygon_wkt,
+		ST_AsWKT(multipoint_col) as multipoint_wkt,
+		ST_AsWKT(multilinestring_col) as multilinestring_wkt,
+		ST_AsWKT(multipolygon_col) as multipolygon_wkt,
+		ST_AsWKT(geometrycollection_col) as geometrycollection_wkt`)
 	require.NoError(s.t, err)
-	defer rows.Close()
+	require.Len(s.t, rows.Records, 1, "expected 1 row")
 
-	var (
-		id                    int
-		pointWKT             string
-		linestringWKT        string
-		polygonWKT           string
-		multipointWKT        string
-		multilinestringWKT   string
-		multipolygonWKT      string
-		geometrycollectionWKT string
-	)
-
-	for rows.Next() {
-		err = rows.Scan(&id, &pointWKT, &linestringWKT, &polygonWKT, &multipointWKT,
-			&multilinestringWKT, &multipolygonWKT, &geometrycollectionWKT)
-		require.NoError(s.t, err)
-		require.Equal(s.t, "POINT(1 2)", pointWKT, "MySQL point value mismatch")
-		require.Equal(s.t, "LINESTRING(1 2,3 4)", linestringWKT, "MySQL linestring value mismatch")
-		require.Equal(s.t, "POLYGON((1 1,3 1,3 3,1 3,1 1))", polygonWKT, "MySQL polygon value mismatch")
-		require.Equal(s.t, "MULTIPOINT((1 2),(3 4))", multipointWKT, "MySQL multipoint value mismatch")
-		require.Equal(s.t, "MULTILINESTRING((1 2,3 4),(5 6,7 8))", multilinestringWKT, "MySQL multilinestring value mismatch")
-		require.Equal(s.t, "MULTIPOLYGON(((1 1,3 1,3 3,1 3,1 1)),((4 4,6 4,6 6,4 6,4 4)))", multipolygonWKT, "MySQL multipolygon value mismatch")
-		require.Equal(s.t, "GEOMETRYCOLLECTION(POINT(1 2),LINESTRING(1 2,3 4))", geometrycollectionWKT, "MySQL geometrycollection value mismatch")
-	}
-	require.NoError(s.t, rows.Err())
+	row := rows.Records[0]
+	require.Equal(s.t, "POINT(1 2)", row[1].Value(), "MySQL point value mismatch")
+	require.Equal(s.t, "LINESTRING(1 2,3 4)", row[2].Value(), "MySQL linestring value mismatch")
+	require.Equal(s.t, "POLYGON((1 1,3 1,3 3,1 3,1 1))", row[3].Value(), "MySQL polygon value mismatch")
+	require.Equal(s.t, "MULTIPOINT((1 2),(3 4))", row[4].Value(), "MySQL multipoint value mismatch")
+	require.Equal(s.t, "MULTILINESTRING((1 2,3 4),(5 6,7 8))", row[5].Value(), "MySQL multilinestring value mismatch")
+	require.Equal(s.t, "MULTIPOLYGON(((1 1,3 1,3 3,1 3,1 1)),((4 4,6 4,6 6,4 6,4 4)))", row[6].Value(), "MySQL multipolygon value mismatch")
+	require.Equal(s.t, "GEOMETRYCOLLECTION(POINT(1 2),LINESTRING(1 2,3 4))", row[7].Value(), "MySQL geometrycollection value mismatch")
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_specific_geometric_types"),
@@ -1614,34 +1596,26 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	require.NoError(s.t, err)
 
 	// Verify the CDC data was inserted correctly in MySQL
-	rows, err = s.source.Query(s.t.Context(), fmt.Sprintf(`
-		SELECT id, 
-			ST_AsWKT(point_col) as point_wkt,
-			ST_AsWKT(linestring_col) as linestring_wkt,
-			ST_AsWKT(polygon_col) as polygon_wkt,
-			ST_AsWKT(multipoint_col) as multipoint_wkt,
-			ST_AsWKT(multilinestring_col) as multilinestring_wkt,
-			ST_AsWKT(multipolygon_col) as multipolygon_wkt,
-			ST_AsWKT(geometrycollection_col) as geometrycollection_wkt
-		FROM %s
-		WHERE id > 1
-		ORDER BY id`, srcTableName))
+	rows, err = s.source.GetRows(srcTableName, `
+		id, 
+		ST_AsWKT(point_col) as point_wkt,
+		ST_AsWKT(linestring_col) as linestring_wkt,
+		ST_AsWKT(polygon_col) as polygon_wkt,
+		ST_AsWKT(multipoint_col) as multipoint_wkt,
+		ST_AsWKT(multilinestring_col) as multilinestring_wkt,
+		ST_AsWKT(multipolygon_col) as multipolygon_wkt,
+		ST_AsWKT(geometrycollection_col) as geometrycollection_wkt`)
 	require.NoError(s.t, err)
-	defer rows.Close()
+	require.Len(s.t, rows.Records, 2, "expected 2 rows")
 
-	for rows.Next() {
-		err = rows.Scan(&id, &pointWKT, &linestringWKT, &polygonWKT, &multipointWKT,
-			&multilinestringWKT, &multipolygonWKT, &geometrycollectionWKT)
-		require.NoError(s.t, err)
-		require.Equal(s.t, "POINT(10 20)", pointWKT, "MySQL CDC point value mismatch")
-		require.Equal(s.t, "LINESTRING(10 20,30 40)", linestringWKT, "MySQL CDC linestring value mismatch")
-		require.Equal(s.t, "POLYGON((10 10,30 10,30 30,10 30,10 10))", polygonWKT, "MySQL CDC polygon value mismatch")
-		require.Equal(s.t, "MULTIPOINT((10 20),(30 40))", multipointWKT, "MySQL CDC multipoint value mismatch")
-		require.Equal(s.t, "MULTILINESTRING((10 20,30 40),(50 60,70 80))", multilinestringWKT, "MySQL CDC multilinestring value mismatch")
-		require.Equal(s.t, "MULTIPOLYGON(((10 10,30 10,30 30,10 30,10 10)),((40 40,60 40,60 60,40 60,40 40)))", multipolygonWKT, "MySQL CDC multipolygon value mismatch")
-		require.Equal(s.t, "GEOMETRYCOLLECTION(POINT(10 20),LINESTRING(10 20,30 40))", geometrycollectionWKT, "MySQL CDC geometrycollection value mismatch")
-	}
-	require.NoError(s.t, rows.Err())
+	row = rows.Records[1] // Check the second row (CDC data)
+	require.Equal(s.t, "POINT(10 20)", row[1].Value(), "MySQL CDC point value mismatch")
+	require.Equal(s.t, "LINESTRING(10 20,30 40)", row[2].Value(), "MySQL CDC linestring value mismatch")
+	require.Equal(s.t, "POLYGON((10 10,30 10,30 30,10 30,10 10))", row[3].Value(), "MySQL CDC polygon value mismatch")
+	require.Equal(s.t, "MULTIPOINT((10 20),(30 40))", row[4].Value(), "MySQL CDC multipoint value mismatch")
+	require.Equal(s.t, "MULTILINESTRING((10 20,30 40),(50 60,70 80))", row[5].Value(), "MySQL CDC multilinestring value mismatch")
+	require.Equal(s.t, "MULTIPOLYGON(((10 10,30 10,30 30,10 30,10 10)),((40 40,60 40,60 60,40 60,40 40)))", row[6].Value(), "MySQL CDC multipolygon value mismatch")
+	require.Equal(s.t, "GEOMETRYCOLLECTION(POINT(10 20),LINESTRING(10 20,30 40))", row[7].Value(), "MySQL CDC geometrycollection value mismatch")
 
 	// Wait for CDC to replicate the new rows
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
