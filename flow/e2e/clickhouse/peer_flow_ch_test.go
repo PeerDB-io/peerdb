@@ -1512,45 +1512,46 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 3)
 
 	// Verify that the data was correctly replicated
-	rows, err := s.GetRows(dstTableName, "id, point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col")
+	rows, err := s.GetRows(dstTableName,
+		"id, point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 3, "expected 3 rows")
 
 	// Expected WKT format values for each geometric type
 	expectedValues := []struct {
-		point             string
-		linestring        string
-		polygon           string
-		multipoint        string
-		multilinestring   string
-		multipolygon      string
+		point              string
+		linestring         string
+		polygon            string
+		multipoint         string
+		multilinestring    string
+		multipolygon       string
 		geometrycollection string
 	}{
 		{
-			point:             "POINT(1 2)",
-			linestring:        "LINESTRING(1 2, 3 4)",
-			polygon:           "POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))",
-			multipoint:        "MULTIPOINT((1 2), (3 4))",
-			multilinestring:   "MULTILINESTRING((1 2, 3 4), (5 6, 7 8))",
-			multipolygon:      "MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
+			point:              "POINT(1 2)",
+			linestring:         "LINESTRING(1 2, 3 4)",
+			polygon:            "POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))",
+			multipoint:         "MULTIPOINT((1 2), (3 4))",
+			multilinestring:    "MULTILINESTRING((1 2, 3 4), (5 6, 7 8))",
+			multipolygon:       "MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
 			geometrycollection: "GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))",
 		},
 		{
-			point:             "POINT(5 6)",
-			linestring:        "LINESTRING(5 6, 7 8)",
-			polygon:           "POLYGON((5 5, 7 5, 7 7, 5 7, 5 5))",
-			multipoint:        "MULTIPOINT((5 6), (7 8))",
-			multilinestring:   "MULTILINESTRING((5 6, 7 8), (9 10, 11 12))",
-			multipolygon:      "MULTIPOLYGON(((5 5, 7 5, 7 7, 5 7, 5 5)), ((8 8, 10 8, 10 10, 8 10, 8 8)))",
+			point:              "POINT(5 6)",
+			linestring:         "LINESTRING(5 6, 7 8)",
+			polygon:            "POLYGON((5 5, 7 5, 7 7, 5 7, 5 5))",
+			multipoint:         "MULTIPOINT((5 6), (7 8))",
+			multilinestring:    "MULTILINESTRING((5 6, 7 8), (9 10, 11 12))",
+			multipolygon:       "MULTIPOLYGON(((5 5, 7 5, 7 7, 5 7, 5 5)), ((8 8, 10 8, 10 10, 8 10, 8 8)))",
 			geometrycollection: "GEOMETRYCOLLECTION(POINT(5 6), LINESTRING(5 6, 7 8))",
 		},
 		{
-			point:             "POINT(10 20)",
-			linestring:        "LINESTRING(10 20, 30 40)",
-			polygon:           "POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))",
-			multipoint:        "MULTIPOINT((10 20), (30 40))",
-			multilinestring:   "MULTILINESTRING((10 20, 30 40), (50 60, 70 80))",
-			multipolygon:      "MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))",
+			point:              "POINT(10 20)",
+			linestring:         "LINESTRING(10 20, 30 40)",
+			polygon:            "POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))",
+			multipoint:         "MULTIPOINT((10 20), (30 40))",
+			multilinestring:    "MULTILINESTRING((10 20, 30 40), (50 60, 70 80))",
+			multipolygon:       "MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))",
 			geometrycollection: "GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))",
 		},
 	}
