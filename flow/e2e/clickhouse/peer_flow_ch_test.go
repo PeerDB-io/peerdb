@@ -1178,7 +1178,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	dstTableName := "test_mysql_geometric_types"
 
 	// Create a table with both generic geometry and specific geometry type columns
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	_, err := s.source.Exec(s.t.Context(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %[1]s(
 		id serial PRIMARY KEY,
 		geometry_col GEOMETRY
@@ -1211,7 +1211,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 7)
 
 	// Insert additional rows to test CDC with different geometry types
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	_, err = s.source.Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %[1]s (geometry_col) VALUES
 		(ST_GeomFromText('POINT(10 20)')),
 		(ST_GeomFromText('LINESTRING(10 20, 30 40)')),
@@ -1342,7 +1342,7 @@ func (s ClickHouseSuite) Test_MySQL_Generic_Geometric_Types() {
 	dstTableName := "test_mysql_generic_geometric_types"
 
 	// Create a table with a generic GEOMETRY column
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	_, err := s.source.Exec(s.t.Context(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %[1]s(
 		id serial PRIMARY KEY,
 		geometry_col GEOMETRY
@@ -1375,7 +1375,7 @@ func (s ClickHouseSuite) Test_MySQL_Generic_Geometric_Types() {
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 7)
 
 	// Insert additional rows to test CDC with different geometry types
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	_, err = s.source.Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %[1]s (geometry_col) VALUES
 		(ST_GeomFromText('POINT(10 20)')),
 		(ST_GeomFromText('LINESTRING(10 20, 30 40)')),
@@ -1435,7 +1435,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	dstTableName := "test_mysql_specific_geometric_types"
 
 	// Create a table with specific geometry type columns
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	_, err := s.source.Exec(s.t.Context(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %[1]s(
 		id serial PRIMARY KEY,
 		point_col POINT,
@@ -1489,7 +1489,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 2)
 
 	// Insert additional rows to test CDC
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	_, err = s.source.Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %[1]s (
 		point_col,
 		linestring_col,
