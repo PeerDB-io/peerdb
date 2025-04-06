@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/bits"
 	"slices"
 	"strings"
 	"time"
@@ -121,20 +122,20 @@ func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
 func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
 	ct, param, _ := strings.Cut(ct, "(")
-	switch ct {
+	switch strings.ToLower(ct) {
 	case "json":
 		return qvalue.QValueKindJSON, nil
-	case "char", "varchar", "text", "enum", "set":
+	case "char", "varchar", "text", "set", "tinytext", "mediumtext", "longtext":
 		return qvalue.QValueKindString, nil
-	case "binary", "varbinary", "blob":
+	case "enum":
+		return qvalue.QValueKindEnum, nil
+	case "binary", "varbinary", "blob", "tinyblob", "mediumblob", "longblob":
 		return qvalue.QValueKindBytes, nil
 	case "date":
 		return qvalue.QValueKindDate, nil
 	case "time":
 		return qvalue.QValueKindTime, nil
-	case "datetime":
-		return qvalue.QValueKindTimestamp, nil
-	case "timestamp":
+	case "datetime", "timestamp":
 		return qvalue.QValueKindTimestamp, nil
 	case "decimal", "numeric":
 		return qvalue.QValueKindNumeric, nil
@@ -172,7 +173,6 @@ func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
 		}
 	case "vector":
 		return qvalue.QValueKindArrayFloat32, nil
-
 	case "geometry", "point", "linestring", "polygon", "multipoint", "multilinestring", "multipolygon", "geometrycollection":
 		switch ct {
 		case "point":
@@ -359,7 +359,7 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(v)}, nil
 		case qvalue.QValueKindEnum:
-			return qvalue.QValueString{Val: string(v)}, nil
+			return qvalue.QValueEnum{Val: string(v)}, nil
 		case qvalue.QValueKindBytes:
 			return qvalue.QValueBytes{Val: slices.Clone(v)}, nil
 		case qvalue.QValueKindJSON:
@@ -413,7 +413,10 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 	}
 }
 
-func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qvalue.QValue, error) {
+func QValueFromMysqlRowEvent(
+	mytype byte, enums []string, sets []string,
+	qkind qvalue.QValueKind, val any,
+) (qvalue.QValue, error) {
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
 	case nil:
@@ -443,10 +446,31 @@ func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qva
 			return qvalue.QValueInt32{Val: val}, nil
 		}
 	case int64:
-		if qkind == qvalue.QValueKindUInt64 {
+		switch qkind {
+		case qvalue.QValueKindUInt64:
 			return qvalue.QValueUInt64{Val: uint64(val)}, nil
-		} else {
+		case qvalue.QValueKindInt64:
 			return qvalue.QValueInt64{Val: val}, nil
+		case qvalue.QValueKindString: // set
+			var set []string
+			for val != 0 {
+				idx := bits.TrailingZeros64(uint64(val))
+				if idx < len(sets) {
+					set = append(set, sets[idx])
+					val ^= int64(1) << idx
+				} else {
+					return nil, fmt.Errorf("set value out of range %d", idx)
+				}
+			}
+			return qvalue.QValueString{Val: strings.Join(set, ",")}, nil
+		case qvalue.QValueKindEnum: // enum
+			if val == 0 {
+				return qvalue.QValueEnum{Val: ""}, nil
+			} else if int(val)-1 < len(enums) {
+				return qvalue.QValueEnum{Val: enums[int(val)-1]}, nil
+			} else {
+				return nil, fmt.Errorf("enum value out of range %d", val)
+			}
 		}
 	case float32:
 		return qvalue.QValueFloat32{Val: val}, nil
