@@ -352,7 +352,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				// could not read from reorderbuffer spill file: Bad file descriptor
 				return ErrorRetryRecoverable, errorInfo
 			}
-			// &{Severity:ERROR SeverityUnlocalized:ERROR Code:XX000 Message:requested WAL segment 000000010001337F0000002E has already been removed}
+			// &{Severity:ERROR SeverityUnlocalized:ERROR Code:XX000 Message:requested WAL segment 000000010001337F0000002E
+			// has already been removed}
 			if pgWalErr.Msg.Code == pgerrcode.InternalError && PostgresWalSegmentRemovedRe.MatchString(pgWalErr.Msg.Message) {
 				return ErrorRetryRecoverable, errorInfo
 			}
