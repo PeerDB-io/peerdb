@@ -331,7 +331,8 @@ func (s Suite) TestMySQLBinlogValidation() {
 }
 
 func (s Suite) TestMySQLFlavorSwap() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	my, ok := s.source.(*e2e.MySqlSource)
+	if !ok {
 		s.t.Skip("only for MySQL")
 	}
 
@@ -343,7 +344,9 @@ func (s Suite) TestMySQLFlavorSwap() {
 
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Equal(s.t,
-		"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", response.Message)
+	if my.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
+		require.Equal(s.t,
+			"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", response.Message)
+	}
 }
