@@ -190,9 +190,13 @@ func (s Suite) TestSchemaEndpoints() {
 	require.Len(s.t, columns.Columns, 2)
 	require.Equal(s.t, "id", columns.Columns[0].Name)
 	require.True(s.t, columns.Columns[0].IsKey)
-	switch s.source.(type) {
+	switch source := s.source.(type) {
 	case *e2e.MySqlSource:
-		require.Equal(s.t, "int", columns.Columns[0].Type)
+		if source.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+			require.Equal(s.t, "int(11)", columns.Columns[0].Type)
+		} else {
+			require.Equal(s.t, "int", columns.Columns[0].Type)
+		}
 	case *e2e.PostgresSource:
 		require.Equal(s.t, "integer", columns.Columns[0].Type)
 	default:
