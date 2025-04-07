@@ -300,6 +300,15 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name: "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES",
+		Description: "For Postgres CDC: attempt to fetch/remap child tables for tables that aren't partitioned by Postgres." +
+			"Useful for tables that are partitioned by extensions",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -587,4 +596,8 @@ func PeerDBSkipSnapshotExport(ctx context.Context, env map[string]string) (bool,
 
 func PeerDBSourceSchemaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN")
+}
+
+func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES")
 }
