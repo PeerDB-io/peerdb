@@ -34,6 +34,8 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 
 	// In the case of resync, we don't need to check the content or structure of the original tables;
 	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
+	// also in case of this setting; multiple source tables can be mapped to the same destination table
+	// so ignore the check in this case as well
 	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, cfg.Env)
 	if err != nil {
 		return err
