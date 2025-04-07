@@ -1204,12 +1204,9 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	require.NoError(s.t, err)
 
 	// Verify the data was inserted correctly in MySQL
-	rows, err := s.source.Query(s.t.Context(), fmt.Sprintf(`
-		SELECT id, ST_AsWKT(geometry_col) as wkt
-		FROM %s
-		ORDER BY id`, srcTableName))
+	rows, err := s.source.GetRows(s.t.Context(), s.suffix, srcTableName, `
+		id, ST_AsWKT(geometry_col) as wkt`)
 	require.NoError(s.t, err)
-	defer rows.Close()
 
 	var id int
 	var wkt string
@@ -1262,13 +1259,9 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	require.NoError(s.t, err)
 
 	// Verify the CDC data was inserted correctly in MySQL
-	rows, err = s.source.Query(s.t.Context(), fmt.Sprintf(`
-		SELECT id, ST_AsWKT(geometry_col) as wkt
-		FROM %s
-		WHERE id > 7
-		ORDER BY id`, srcTableName))
+	rows, err = s.source.GetRows(s.t.Context(), s.suffix, srcTableName, `
+		id, ST_AsWKT(geometry_col) as wkt`)
 	require.NoError(s.t, err)
-	defer rows.Close()
 
 	expectedGeometries = []string{
 		"POINT(10 20)",
@@ -1425,24 +1418,36 @@ func (s ClickHouseSuite) Test_MySQL_Generic_Geometric_Types() {
 		(ST_GeomCollFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))'))`, srcFullName))
 	require.NoError(s.t, err)
 
-	// Insert additional rows to test CDC with different geometry types
-	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %[1]s (geometry_col) VALUES 
-		(ST_PointFromText('POINT(10 20)')),
-		(ST_LineFromText('LINESTRING(10 20, 30 40)')),
-		(ST_PolygonFromText('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))')),
-		(ST_MPointFromText('MULTIPOINT((10 20), (30 40))')),
-		(ST_MLineFromText('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))')),
-		(ST_MPolyFromText('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))')),
-		(ST_GeomCollFromText('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))'))`, srcFullName))
+	// Verify the data was inserted correctly in MySQL
+	rows, err := s.source.GetRows(s.t.Context(), s.suffix, srcTableName, `id, ST_AsWKT(geometry_col) as wkt`)
 	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 7, "expected 7 rows")
+
+	expectedGeometries := []string{
+		"POINT(1 2)",
+		"LINESTRING(1 2,3 4)",
+		"POLYGON((1 1,3 1,3 3,1 3,1 1))",
+		"MULTIPOINT((1 2),(3 4))",
+		"MULTILINESTRING((1 2,3 4),(5 6,7 8))",
+		"MULTIPOLYGON(((1 1,3 1,3 3,1 3,1 1)),((4 4,6 4,6 6,4 6,4 4)))",
+		"GEOMETRYCOLLECTION(POINT(1 2),LINESTRING(1 2,3 4))",
+	}
+
+	for i, row := range rows.Records {
+		require.Equal(s.t, expectedGeometries[i], row[1].Value(), "MySQL geometry value mismatch at row %d", i+1)
+	}
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_generic_geometric_types"),
+		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_geometric_types"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_DEVELOPMENT": "true",
+		"PEERDB_LOG_LEVEL":   "debug",
+	}
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -1451,7 +1456,7 @@ func (s ClickHouseSuite) Test_MySQL_Generic_Geometric_Types() {
 	// Wait for initial snapshot to complete
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 7)
 
-	// Insert additional rows to test CDC with different geometry types
+	// Insert additional rows to test CDC
 	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %[1]s (geometry_col) VALUES 
 		(ST_PointFromText('POINT(10 20)')),
 		(ST_LineFromText('LINESTRING(10 20, 30 40)')),
@@ -1462,11 +1467,31 @@ func (s ClickHouseSuite) Test_MySQL_Generic_Geometric_Types() {
 		(ST_GeomCollFromText('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))'))`, srcFullName))
 	require.NoError(s.t, err)
 
+	// Verify the CDC data was inserted correctly in MySQL
+	rows, err = s.source.GetRows(s.t.Context(), s.suffix, srcTableName, `id, ST_AsWKT(geometry_col) as wkt`)
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 14, "expected 14 rows")
+
+	expectedGeometries = []string{
+		"POINT(10 20)",
+		"LINESTRING(10 20,30 40)",
+		"POLYGON((10 10,30 10,30 30,10 30,10 10))",
+		"MULTIPOINT((10 20),(30 40))",
+		"MULTILINESTRING((10 20,30 40),(50 60,70 80))",
+		"MULTIPOLYGON(((10 10,30 10,30 30,10 30,10 10)),((40 40,60 40,60 60,40 60,40 40)))",
+		"GEOMETRYCOLLECTION(POINT(10 20),LINESTRING(10 20,30 40))",
+	}
+
+	// Check only the new rows (index 7 onwards)
+	for i, row := range rows.Records[7:] {
+		require.Equal(s.t, expectedGeometries[i], row[1].Value(), "MySQL CDC geometry value mismatch at row %d", i+8)
+	}
+
 	// Wait for CDC to replicate the new rows
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 14)
 
 	// Verify that the data was correctly replicated
-	rows, err := s.GetRows(dstTableName, "id, geometry_col")
+	rows, err = s.GetRows(dstTableName, "id, geometry_col")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 14, "expected 14 rows")
 
@@ -1544,7 +1569,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	require.NoError(s.t, err)
 
 	// Verify the data was inserted correctly in MySQL
-	rows, err := s.source.GetRows(srcTableName, `
+	rows, err := s.source.GetRows(s.t.Context(), s.suffix, srcTableName, `
 		id, 
 		ST_AsWKT(point_col) as point_wkt,
 		ST_AsWKT(linestring_col) as linestring_wkt,
@@ -1596,7 +1621,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	require.NoError(s.t, err)
 
 	// Verify the CDC data was inserted correctly in MySQL
-	rows, err = s.source.GetRows(srcTableName, `
+	rows, err = s.source.GetRows(s.t.Context(), s.suffix, srcTableName, `
 		id, 
 		ST_AsWKT(point_col) as point_wkt,
 		ST_AsWKT(linestring_col) as linestring_wkt,
