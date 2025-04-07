@@ -284,6 +284,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				}
 				return ErrorOther, chErrorInfo
 			}
+		case chproto.ErrQueryWasCancelled:
+			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
