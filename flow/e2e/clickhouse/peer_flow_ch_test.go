@@ -1068,7 +1068,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 
 	// Insert a third row to test CDC
 	_, err = s.Conn().Exec(s.t.Context(), `
-	INSERT INTO`+srcFullName+`(
+	INSERT INTO `+srcFullName+`(
 		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
 	) VALUES (
 		'(100,200)',                            -- POINT
