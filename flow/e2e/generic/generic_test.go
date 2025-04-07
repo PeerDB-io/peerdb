@@ -520,8 +520,8 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 			CREATE TABLE %[1]s_2024q3
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-07-01') TO ('2024-10-01');
-			CREATE PUBLICATION %[1]s_pub FOR TABLE %[1]s_2024q1, %[1]s_2024q2, %[1]s_2024q3;
-	`, srcSchemaTable))
+			CREATE PUBLICATION %[2]s_pub FOR TABLE %[1]s_2024q1, %[1]s_2024q2, %[1]s_2024q3;
+	`, srcSchemaTable, srcTable))
 	require.NoError(t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -530,7 +530,7 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.PublicationName = fmt.Sprintf("%s_pub", srcSchemaTable)
+	flowConnConfig.PublicationName = srcTable + "_pub"
 
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
