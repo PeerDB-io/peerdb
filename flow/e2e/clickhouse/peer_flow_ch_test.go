@@ -1219,14 +1219,11 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		"MULTIPOLYGON(((1 1,3 1,3 3,1 3,1 1)),((4 4,6 4,6 6,4 6,4 4)))",
 		"GEOMETRYCOLLECTION(POINT(1 2),LINESTRING(1 2,3 4))",
 	}
-	i := 0
-	for rows.Next() {
-		err = rows.Scan(&id, &wkt)
-		require.NoError(s.t, err)
-		require.Equal(s.t, expectedGeometries[i], wkt, "MySQL geometry value mismatch at row %d", i+1)
+
+	for i, record := range rows.Records {
+		require.Equal(s.t, expectedGeometries[i], record[1], "MySQL geometry value mismatch at row %d", i+1)
 		i++
 	}
-	require.NoError(s.t, rows.Err())
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_geometric_types"),
@@ -1272,14 +1269,11 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		"MULTIPOLYGON(((10 10,30 10,30 30,10 30,10 10)),((40 40,60 40,60 60,40 60,40 40)))",
 		"GEOMETRYCOLLECTION(POINT(10 20),LINESTRING(10 20,30 40))",
 	}
-	i = 0
-	for rows.Next() {
-		err = rows.Scan(&id, &wkt)
-		require.NoError(s.t, err)
-		require.Equal(s.t, expectedGeometries[i], wkt, "MySQL CDC geometry value mismatch at row %d", i+1)
+
+	for i, record := range rows.Records {
+		require.Equal(s.t, expectedGeometries[i], record[1], "MySQL cdc geometry value mismatch at row %d", i+1)
 		i++
 	}
-	require.NoError(s.t, rows.Err())
 
 	// Wait for CDC to replicate the new rows
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 14)
