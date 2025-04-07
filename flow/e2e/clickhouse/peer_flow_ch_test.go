@@ -1067,8 +1067,8 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 2)
 
 	// Insert a third row to test CDC
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %[1]s (
+	_, err = s.Conn().Exec(s.t.Context(), `
+	INSERT INTO`+srcFullName+`(
 		point_col, line_col, lseg_col, box_col, path_col, polygon_col, circle_col
 	) VALUES (
 		'(100,200)',                            -- POINT
@@ -1078,7 +1078,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 		'((100,200),(300,400),(500,600))',      -- PATH
 		'((100,200),(300,400),(500,600),(100,200))', -- POLYGON
 		'<(100,200),300>'                       -- CIRCLE
-	);`, srcFullName))
+	);`)
 	require.NoError(s.t, err)
 
 	// Wait for CDC to replicate the new row
@@ -1220,7 +1220,6 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 
 	for i, record := range rows.Records {
 		require.Equal(s.t, expectedGeometries[i], record[1], "MySQL geometry value mismatch at row %d", i+1)
-		i++
 	}
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1270,7 +1269,6 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 
 	for i, record := range rows.Records {
 		require.Equal(s.t, expectedGeometries[i], record[1], "MySQL cdc geometry value mismatch at row %d", i+1)
-		i++
 	}
 
 	// Wait for CDC to replicate the new rows
@@ -1536,8 +1534,8 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	require.NoError(s.t, err)
 
 	// Create a table with specific geometry type columns
-	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`
-	CREATE TABLE IF NOT EXISTS %[1]s(
+	err = s.source.Exec(s.t.Context(), `
+	CREATE TABLE IF NOT EXISTS`+srcTableName+`(
 		id serial PRIMARY KEY,
 		point_col POINT NOT NULL SRID 0,
 		linestring_col LINESTRING NOT NULL SRID 0,
@@ -1546,11 +1544,12 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		multilinestring_col MULTILINESTRING NOT NULL SRID 0,
 		multipolygon_col MULTIPOLYGON NOT NULL SRID 0,
 		geometrycollection_col GEOMETRYCOLLECTION NOT NULL SRID 0
-	)`, srcTableName))
+	)`)
 	require.NoError(s.t, err)
 
 	// Insert test data with specific geometric types
-	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %[1]s (point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col) VALUES 
+	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %[1]s 
+		(point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col) VALUES 
 		(ST_GeomFromWKT('POINT(1 2)', 0),
 		 ST_GeomFromWKT('LINESTRING(1 2, 3 4)', 0),
 		 ST_GeomFromWKT('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))', 0),
@@ -1602,7 +1601,8 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 
 	// Insert additional rows to test CDC
-	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %[1]s (point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col) VALUES 
+	err = s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %[1]s 
+		(point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col) VALUES 
 		(ST_GeomFromWKT('POINT(10 20)', 0),
 		 ST_GeomFromWKT('LINESTRING(10 20, 30 40)', 0),
 		 ST_GeomFromWKT('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))', 0),
@@ -1631,14 +1631,17 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	require.Equal(s.t, "POLYGON((10 10,30 10,30 30,10 30,10 10))", row[3].Value(), "MySQL CDC polygon value mismatch")
 	require.Equal(s.t, "MULTIPOINT((10 20),(30 40))", row[4].Value(), "MySQL CDC multipoint value mismatch")
 	require.Equal(s.t, "MULTILINESTRING((10 20,30 40),(50 60,70 80))", row[5].Value(), "MySQL CDC multilinestring value mismatch")
-	require.Equal(s.t, "MULTIPOLYGON(((10 10,30 10,30 30,10 30,10 10)),((40 40,60 40,60 60,40 60,40 40)))", row[6].Value(), "MySQL CDC multipolygon value mismatch")
-	require.Equal(s.t, "GEOMETRYCOLLECTION(POINT(10 20),LINESTRING(10 20,30 40))", row[7].Value(), "MySQL CDC geometrycollection value mismatch")
+	require.Equal(s.t, "MULTIPOLYGON(((10 10,30 10,30 30,10 30,10 10)),((40 40,60 40,60 60,40 60,40 40)))",
+		row[6].Value(), "MySQL CDC multipolygon value mismatch")
+	require.Equal(s.t, "GEOMETRYCOLLECTION(POINT(10 20),LINESTRING(10 20,30 40))",
+		row[7].Value(), "MySQL CDC geometrycollection value mismatch")
 
 	// Wait for CDC to replicate the new rows
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 
 	// Verify that the data was correctly replicated
-	rows, err = s.GetRows(dstTableName, "id, point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col")
+	rows, err = s.GetRows(dstTableName, `id, point_col, linestring_col, polygon_col,
+	 multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col`)
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2, "expected 2 rows")
 
