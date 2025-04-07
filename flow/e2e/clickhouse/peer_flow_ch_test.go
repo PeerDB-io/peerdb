@@ -1208,8 +1208,6 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		id, ST_AsWKT(geometry_col) as wkt`)
 	require.NoError(s.t, err)
 
-	var id int
-	var wkt string
 	expectedGeometries := []string{
 		"POINT(1 2)",
 		"LINESTRING(1 2,3 4)",
