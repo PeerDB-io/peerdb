@@ -79,6 +79,8 @@ message PostgresConfig {
   // defaults to _peerdb_internal
   optional string metadata_schema = 7;
   optional SSHConfig ssh_config = 8;
+  optional string root_ca = 9 [(peerdb_redacted) = true];
+  bool require_tls = 10;
 }
 
 message EventHubConfig {
