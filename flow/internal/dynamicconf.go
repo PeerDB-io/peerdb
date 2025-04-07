@@ -19,6 +19,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+const (
+	DefaultPeerDBS3PartSize int64 = 50 * 1024 * 1024 // 50MiB
+)
+
 var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_CDC_CHANNEL_BUFFER_SIZE",
@@ -136,7 +140,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Name: "PEERDB_S3_PART_SIZE",
 		Description: "S3 upload part size in bytes, may need to increase for large batches. " +
 			"https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
-		DefaultValue:     "0",
+		DefaultValue:     strconv.FormatInt(DefaultPeerDBS3PartSize, 10),
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
