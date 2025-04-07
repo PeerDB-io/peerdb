@@ -153,8 +153,8 @@ var workflowNotFoundMessageRe = regexp.MustCompile("workflow not found for ID: (
 func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *protos.MaintenanceMirror) (bool, error) {
 	logger := slog.With("mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
 	mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
-
 	if err != nil {
+		logger.Error("Error getting mirror status", "error", err)
 		var notFoundErr *serviceerror.NotFound
 		if errors.As(err, &notFoundErr) && workflowNotFoundMessageRe.MatchString(notFoundErr.Message) &&
 			// This is max temporal retention period, but this is mirror update time, not deletion time, so it is not accurate
