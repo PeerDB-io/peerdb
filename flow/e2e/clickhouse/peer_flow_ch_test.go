@@ -1176,7 +1176,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	srcTableName := "test_mysql_geometric_types"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_mysql_geometric_types"
-	dbName := fmt.Sprintf("e2e_test_%s", s.suffix)
+	dbName := "e2e_test_" + s.suffix
 
 	// Set MySQL system variables and select database
 	err := s.source.Exec(s.t.Context(), fmt.Sprintf(`
@@ -1524,7 +1524,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	srcTableName := "test_mysql_specific_geometric_types"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_mysql_specific_geometric_types"
-	dbName := fmt.Sprintf("e2e_test_%s", s.suffix)
+	dbName := "e2e_test_" + s.suffix
 
 	// Set MySQL system variables and select database
 	err := s.source.Exec(s.t.Context(), fmt.Sprintf(`
