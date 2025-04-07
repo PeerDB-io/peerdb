@@ -95,7 +95,7 @@ export const pgSchema = z.object({
     .string()
     .max(100, 'Transaction snapshot too long (100 char limit)')
     .optional(),
-  disableTls: z.boolean(),
+  requireTls: z.boolean(),
   rootCa: z
     .string({
       invalid_type_error: 'Root CA must be a string',

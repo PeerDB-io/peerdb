@@ -49,6 +49,6 @@ func GetCatalogPostgresConfigFromEnv(ctx context.Context) *protos.PostgresConfig
 		User:       PeerDBCatalogUser(),
 		Password:   PeerDBCatalogPassword(ctx),
 		Database:   PeerDBCatalogDatabase(),
-		DisableTls: PeerDBCatalogDisableTls(),
+		RequireTls: PeerDBCatalogRequireTls(),
 	}
 }

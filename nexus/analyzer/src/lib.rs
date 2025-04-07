@@ -699,8 +699,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 ssh_config: ssh_fields,
                 root_ca: opts.get("root_ca").map(|s| s.to_string()),
-                disable_tls: opts
-                    .get("disable_tls")
+                require_tls: opts
+                    .get("require_tls")
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
             };

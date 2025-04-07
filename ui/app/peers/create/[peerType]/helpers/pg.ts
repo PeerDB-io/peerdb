@@ -46,11 +46,11 @@ export const postgresSetting: PeerSetting[] = [
       'https://www.postgresql.org/docs/current/sql-createdatabase.html',
   },
   {
-    label: 'Disable TLS?',
+    label: 'Require TLS?',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, disableTls: value as boolean })),
+      setter((curr) => ({ ...curr, requireTls: value as boolean })),
     type: 'switch',
-    tips: 'If you are using a non-TLS connection, check this box.',
+    tips: 'Use sslmode=require instead of sslmode=prefer',
     optional: true,
   },
   {
@@ -76,5 +76,5 @@ export const blankPostgresSetting: PostgresConfig = {
   user: '',
   password: '',
   database: '',
-  disableTls: false,
+  requireTls: false,
 };

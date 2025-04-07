@@ -83,8 +83,8 @@ func PeerDBCatalogDatabase() string {
 	return GetEnvString("PEERDB_CATALOG_DATABASE", "")
 }
 
-func PeerDBCatalogDisableTls() bool {
-	return getEnvConvert("PEERDB_CATALOG_DISABLE_TLS", true, strconv.ParseBool)
+func PeerDBCatalogRequireTls() bool {
+	return getEnvConvert("PEERDB_CATALOG_REQUIRE_TLS", false, strconv.ParseBool)
 }
 
 // PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN
