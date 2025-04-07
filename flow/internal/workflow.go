@@ -25,7 +25,9 @@ func getWorkflowStatusFromTemporal(ctx context.Context, temporalClient client.Cl
 	return state, nil
 }
 
-func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool, temporalClient client.Client, workflowID string) (protos.FlowStatus, error) {
+func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
+	temporalClient client.Client, workflowID string,
+) (protos.FlowStatus, error) {
 	var flowStatus protos.FlowStatus
 	err := pool.QueryRow(ctx, "SELECT status FROM flows WHERE workflow_id = $1", workflowID).Scan(&flowStatus)
 	if err != nil || flowStatus == protos.FlowStatus_STATUS_UNKNOWN {
