@@ -490,3 +490,63 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }
+
+func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
+	t := s.T()
+
+	pgSource, ok := s.Source().(*e2e.PostgresSource)
+	if !ok {
+		t.Skip("test only applies to postgres")
+	}
+	conn := pgSource.PostgresConnector
+
+	srcTable := "test_partition"
+	dstTable := "test_partition_dst"
+	srcSchemaTable := e2e.AttachSchema(s, srcTable)
+
+	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+			CREATE TABLE %[1]s(
+				id SERIAL NOT NULL,
+				name TEXT,
+				created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
+				PRIMARY KEY (created_at, id)
+			) PARTITION BY RANGE(created_at);
+			CREATE TABLE %[1]s_2024q1
+				PARTITION OF %[1]s
+				FOR VALUES FROM ('2024-01-01') TO ('2024-04-01');
+			CREATE TABLE %[1]s_2024q2
+				PARTITION OF %[1]s
+				FOR VALUES FROM ('2024-04-01') TO ('2024-07-01');
+			CREATE TABLE %[1]s_2024q3
+				PARTITION OF %[1]s
+				FOR VALUES FROM ('2024-07-01') TO ('2024-10-01');
+			CREATE PUBLICATION %[1]s_pub FOR TABLE %[1]s_2024q1, %[1]s_2024q2, %[1]s_2024q3;
+	`, srcSchemaTable))
+	require.NoError(t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, "test_partition"),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.PublicationName = fmt.Sprintf("%s_pub", srcSchemaTable)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	// insert 10 rows into the source table
+	for i := range 10 {
+		testName := fmt.Sprintf("test_name_%d", i)
+		_, err := conn.Conn().Exec(t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(name, created_at) VALUES ($1, '2024-%d-01')`,
+				srcSchemaTable, max(1, i)), testName)
+		e2e.EnvNoError(t, env, err)
+	}
+	t.Log("Inserted 10 rows into the source table")
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalizing 10 rows", srcTable, dstTable, `id,name,created_at`)
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
