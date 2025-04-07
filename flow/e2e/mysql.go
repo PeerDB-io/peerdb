@@ -130,16 +130,8 @@ func (s *MySqlSource) Teardown(t *testing.T, ctx context.Context, suffix string)
 func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 
-	name := "mysql"
-	if s.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		name = "maria"
-	}
-	if s.Config.ReplicationMechanism != protos.MySqlReplicationMechanism_MYSQL_GTID {
-		name = fmt.Sprintf("%s_%s", name, s.Config.ReplicationMechanism)
-	}
-
 	peer := &protos.Peer{
-		Name: name,
+		Name: "mysql",
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: s.Config,
