@@ -279,7 +279,8 @@ func (s Suite) TestScripts() {
 }
 
 func (s Suite) TestMySQLBinlogValidation() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	my, ok := s.source.(*e2e.MySqlSource)
+	if !ok {
 		s.t.Skip("only for MySQL")
 	}
 
@@ -290,11 +291,26 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 
-	err = s.source.Exec(s.t.Context(), "CREATE TABLE IF NOT EXISTS mysql.rds_configuration(name TEXT, value TEXT);")
-	require.NoError(s.t, err)
-	err = s.source.Exec(s.t.Context(), "INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL);")
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE TABLE IF NOT EXISTS mysql.rds_configuration(name TEXT, value TEXT)"))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL)"))
 
+	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
+		Peer: s.source.GeneratePeer(s.t),
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	if my.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
+		require.Equal(s.t,
+			"failed to validate peer mysql: binlog configuration error: "+
+				"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset",
+			response.Message)
+	} else {
+		require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
+		return
+	}
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours'"))
 	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: s.source.GeneratePeer(s.t),
 	})
@@ -303,22 +319,7 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
 	require.Equal(s.t,
 		"failed to validate peer mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, "+
-			"currently unset",
-		response.Message)
-
-	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours';")
-	require.NoError(s.t, err)
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: s.source.GeneratePeer(s.t),
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Equal(s.t,
-		"failed to validate peer mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, "+
-			"currently 1",
+			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1",
 		response.Message)
 
 	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';")
@@ -330,8 +331,7 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 
-	err = s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;")
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;"))
 }
 
 func (s Suite) TestMySQLFlavorSwap() {
