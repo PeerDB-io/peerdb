@@ -3,12 +3,10 @@ package connpostgres
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
 	"maps"
-	"net"
 	"slices"
 	"strings"
 	"sync"
@@ -65,24 +63,12 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
-	if pgConfig.RootCa != nil {
-		caPool := x509.NewCertPool()
-		if !caPool.AppendCertsFromPEM([]byte(*pgConfig.RootCa)) {
-			return nil, errors.New("failed to parse provided root CA")
+	if pgConfig.RequireTls || pgConfig.RootCa != nil {
+		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host)
+		if err != nil {
+			return nil, err
 		}
-
-		connConfig.TLSConfig = &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			RootCAs:    caPool,
-		}
-		if net.ParseIP(connConfig.Host) == nil {
-			connConfig.TLSConfig.ServerName = connConfig.Host
-		} else {
-			connConfig.TLSConfig.InsecureSkipVerify = true
-			if connConfig.TLSConfig.RootCAs != nil {
-				connConfig.TLSConfig.VerifyPeerCertificate = shared.VerifyPeerCertificateWithoutHostname(connConfig.TLSConfig.RootCAs)
-			}
-		}
+		connConfig.TLSConfig = tlsConfig
 	}
 	return connConfig, nil
 }

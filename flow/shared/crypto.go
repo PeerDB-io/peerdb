@@ -3,12 +3,14 @@ package shared
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
+	"net"
 
 	"github.com/youmark/pkcs8"
 	"golang.org/x/crypto/chacha20poly1305"
@@ -145,4 +147,22 @@ func VerifyPeerCertificateWithoutHostname(rootCAs *x509.CertPool) func(certifica
 		_, err := cert0.Verify(opts)
 		return err
 	}
+}
+
+func CreateTlsConfig(minVersion uint16, rootCAs *string, host string) (*tls.Config, error) {
+	config := &tls.Config{MinVersion: tls.VersionTLS12}
+	if rootCAs != nil {
+		caPool := x509.NewCertPool()
+		if !caPool.AppendCertsFromPEM(UnsafeFastStringToReadOnlyBytes(*rootCAs)) {
+			return nil, errors.New("failed to parse provided root CA")
+		}
+		config.RootCAs = caPool
+	}
+	if net.ParseIP(host) == nil {
+		config.ServerName = host
+	} else {
+		config.InsecureSkipVerify = true
+		config.VerifyPeerCertificate = VerifyPeerCertificateWithoutHostname(config.RootCAs)
+	}
+	return config, nil
 }
