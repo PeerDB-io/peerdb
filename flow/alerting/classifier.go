@@ -345,15 +345,16 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if pgWalErr.Msg.Code == pgerrcode.InternalError &&
 				(strings.HasPrefix(pgWalErr.Msg.Message, "could not read from reorderbuffer spill file") ||
 					(strings.HasPrefix(pgWalErr.Msg.Message, "could not stat file ") &&
-						strings.HasSuffix(pgWalErr.Msg.Message, "Stale file handle"))) {
+						strings.HasSuffix(pgWalErr.Msg.Message, "Stale file handle")) ||
+					// Below error is transient and Aurora Specific
+					(strings.HasPrefix(pgWalErr.Msg.Message, "Internal error encountered during logical decoding"))) {
 				// Example errors:
 				// could not stat file "pg_logical/snapshots/1B6-2A845058.snap": Stale file handle
 				// could not read from reorderbuffer spill file: Bad address
 				// could not read from reorderbuffer spill file: Bad file descriptor
 				return ErrorRetryRecoverable, errorInfo
 			}
-			//nolint:lll
-			// &{Severity:ERROR SeverityUnlocalized:ERROR Code:XX000 Message:requested WAL segment 000000010001337F0000002E has already been removed}
+			// &{Code:XX000 Message:requested WAL segment 000000010001337F0000002E has already been removed}
 			if pgWalErr.Msg.Code == pgerrcode.InternalError && PostgresWalSegmentRemovedRe.MatchString(pgWalErr.Msg.Message) {
 				return ErrorRetryRecoverable, errorInfo
 			}

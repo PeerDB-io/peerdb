@@ -82,3 +82,20 @@ func TestPostgresWalRemovedErrorShouldBeRecoverable(t *testing.T) {
 		Code:   pgerrcode.InternalError,
 	}, errInfo, "Unexpected error info")
 }
+
+func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate Aurora Internal WAL error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "Internal error encountered during logical decoding: 131",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
