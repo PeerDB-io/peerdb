@@ -154,10 +154,10 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 	logger := slog.With("mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
 	mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 	if err != nil {
-		logger.Error("Error getting mirror status", "error", err)
+		logger.Warn("Error getting mirror status", "error", err)
 		var notFoundErr *serviceerror.NotFound
 		if errors.As(err, &notFoundErr) && workflowNotFoundMessageRe.MatchString(notFoundErr.Message) {
-			logger.Error("Received a workflow not found error, checking if the workflow is missing and if it is older than 90 days",
+			logger.Warn("Received a workflow not found error, checking if the workflow is missing and if it is older than 90 days",
 				"error", err, "temporalCertAuth", internal.PeerDBTemporalEnableCertAuth())
 			// This is max temporal retention period, but this is mirror update time, not deletion time, so it is not accurate
 			if mirror.MirrorUpdatedAt.AsTime().Before(time.Now().Add(-90*24*time.Hour)) &&
