@@ -1354,7 +1354,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	var intervalSinceLastNormalize *time.Duration
 	if err := alerter.CatalogPool.QueryRow(
-		ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1", alertKeys.FlowName,
+		ctx, "SELECT now()-last_updated_at FROM peerdb_stats.cdc_table_aggregate_counts WHERE flow_name=$1", alertKeys.FlowName,
 	).Scan(&intervalSinceLastNormalize); err != nil {
 		logger.Warn("failed to get interval since last normalize", slog.Any("error", err))
 	}
