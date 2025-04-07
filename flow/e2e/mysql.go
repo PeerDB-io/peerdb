@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -21,13 +22,19 @@ type MySqlSource struct {
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	return SetupMyCore(t, suffix, false, protos.MySqlReplicationMechanism_MYSQL_GTID)
-}
-
-func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
-	t.Helper()
-	t.Skip("skipping until working out how to not have port conflict in GH actions")
-	return SetupMyCore(t, suffix, true, protos.MySqlReplicationMechanism_MYSQL_GTID)
+	myVersion := os.Getenv("CI_MYSQL_VERSION")
+	if myVersion == "" {
+		t.Skip()
+	}
+	mode, isMySQL := strings.CutPrefix(myVersion, "mysql-")
+	replicationMode := protos.MySqlReplicationMechanism_MYSQL_GTID
+	if mode == "pos" {
+		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	}
+	if !isMySQL && myVersion != "maria" {
+		t.Error("unknown mysql version", myVersion)
+	}
+	return SetupMyCore(t, suffix, !isMySQL, replicationMode)
 }
 
 func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism protos.MySqlReplicationMechanism) (*MySqlSource, error) {
