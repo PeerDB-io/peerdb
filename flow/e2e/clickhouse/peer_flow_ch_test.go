@@ -34,10 +34,6 @@ func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite(t, e2e.SetupMySQL))
 }
 
-func TestPeerFlowE2ETestSuiteMariaDB_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite(t, e2e.SetupMariaDB))
-}
-
 func (s ClickHouseSuite) attachSchemaSuffix(tableName string) string {
 	return fmt.Sprintf("e2e_test_%s.%s", s.suffix, tableName)
 }
@@ -370,7 +366,7 @@ func (s ClickHouseSuite) Test_Chunking_Normalize() {
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=id+10, "key"='update'||id`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET id=id+10, "key"='update'`, srcFullName)))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
 

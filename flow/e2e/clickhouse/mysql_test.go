@@ -67,7 +67,7 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 	}
 
 	srcTableName := "test_datetime"
-	srcFullName := s.attachSchemaSuffix("test_datetime")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
 	dstTableName := "test_datetime_dst"
 
@@ -118,7 +118,7 @@ func (s ClickHouseSuite) Test_MySQL_Bit() {
 	}
 
 	srcTableName := "test_bit"
-	srcFullName := s.attachSchemaSuffix("test_bit")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
 	dstTableName := "test_bit_dst"
 
@@ -163,7 +163,7 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 	}
 
 	srcTableName := "test_blobs"
-	srcFullName := s.attachSchemaSuffix("test_blobs")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
 	dstTableName := "test_blobs_dst"
 
@@ -218,10 +218,10 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 		s.t.Skip("only applies to mysql")
 	}
 
-	srcTableName := "test_blobs"
-	srcFullName := s.attachSchemaSuffix("test_blobs")
+	srcTableName := "test_my_enum"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
-	dstTableName := "test_blobs_dst"
+	dstTableName := "test_my_enum_dst"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -264,7 +264,7 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 	}
 
 	srcTableName := "test_vector"
-	srcFullName := s.attachSchemaSuffix("test_vector")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
 	dstTableName := "test_vector_dst"
 
@@ -304,7 +304,7 @@ func (s ClickHouseSuite) Test_MySQL_Numbers() {
 	}
 
 	srcTableName := "test_float"
-	srcFullName := s.attachSchemaSuffix("test_float")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	quotedSrcFullName := "\"" + strings.ReplaceAll(srcFullName, ".", "\".\"") + "\""
 	dstTableName := "test_float_dst"
 
