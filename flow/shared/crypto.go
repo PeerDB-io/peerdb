@@ -150,7 +150,7 @@ func VerifyPeerCertificateWithoutHostname(rootCAs *x509.CertPool) func(certifica
 }
 
 func CreateTlsConfig(minVersion uint16, rootCAs *string, host string) (*tls.Config, error) {
-	config := &tls.Config{MinVersion: tls.VersionTLS12}
+	config := &tls.Config{MinVersion: minVersion}
 	if rootCAs != nil {
 		caPool := x509.NewCertPool()
 		if !caPool.AppendCertsFromPEM(UnsafeFastStringToReadOnlyBytes(*rootCAs)) {
