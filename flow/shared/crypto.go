@@ -125,7 +125,7 @@ func (key PeerDBEncKey) Encrypt(plaintext []byte) ([]byte, error) {
 }
 
 // modified from https://github.com/golang/go/blob/master/src/crypto/tls/example_test.go
-func VerifyPeerCertificateWithoutHostname(rootCAs *x509.CertPool) func(certificates [][]byte, _ [][]*x509.Certificate) error {
+func verifyPeerCertificateWithoutHostname(rootCAs *x509.CertPool) func(certificates [][]byte, _ [][]*x509.Certificate) error {
 	return func(certificates [][]byte, _ [][]*x509.Certificate) error {
 		opts := x509.VerifyOptions{
 			Roots:         rootCAs,
@@ -162,7 +162,7 @@ func CreateTlsConfig(minVersion uint16, rootCAs *string, host string) (*tls.Conf
 		config.ServerName = host
 	} else {
 		config.InsecureSkipVerify = true
-		config.VerifyPeerCertificate = VerifyPeerCertificateWithoutHostname(config.RootCAs)
+		config.VerifyPeerCertificate = verifyPeerCertificateWithoutHostname(config.RootCAs)
 	}
 	return config, nil
 }
