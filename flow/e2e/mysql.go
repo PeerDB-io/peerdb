@@ -108,9 +108,16 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 			connector.Close()
 			return nil, err
 		}
-	} else if _, err := connector.Execute(t.Context(), "set global binlog_format=row"); err != nil {
-		connector.Close()
-		return nil, err
+	} else {
+		for _, sql := range []string{
+			"set global binlog_format=row",
+			"set global binlog_row_metadata=full",
+		} {
+			if _, err := connector.Execute(t.Context(), sql); err != nil {
+				connector.Close()
+				return nil, err
+			}
+		}
 	}
 
 	return &MySqlSource{MySqlConnector: connector, Config: config}, nil
