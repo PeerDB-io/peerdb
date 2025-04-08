@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/bits"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -393,6 +394,9 @@ func QValueFromMysqlRowEvent(
 			return qvalue.QValueInt64{Val: val}, nil
 		case qvalue.QValueKindString: // set
 			var set []string
+			if sets == nil {
+				return qvalue.QValueString{Val: strconv.FormatInt(val, 10)}, nil
+			}
 			for val != 0 {
 				idx := bits.TrailingZeros64(uint64(val))
 				if idx < len(sets) {
@@ -408,6 +412,8 @@ func QValueFromMysqlRowEvent(
 				return qvalue.QValueEnum{Val: ""}, nil
 			} else if int(val)-1 < len(enums) {
 				return qvalue.QValueEnum{Val: enums[int(val)-1]}, nil
+			} else if enums == nil {
+				return qvalue.QValueEnum{Val: strconv.FormatInt(val, 10)}, nil
 			} else {
 				return nil, fmt.Errorf("enum value out of range %d %v", val, enums)
 			}
