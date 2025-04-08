@@ -399,7 +399,7 @@ func QValueFromMysqlRowEvent(
 					set = append(set, sets[idx])
 					val ^= int64(1) << idx
 				} else {
-					return nil, fmt.Errorf("set value out of range %d", idx)
+					return nil, fmt.Errorf("set value out of range %d %v", idx, sets)
 				}
 			}
 			return qvalue.QValueString{Val: strings.Join(set, ",")}, nil
@@ -409,7 +409,7 @@ func QValueFromMysqlRowEvent(
 			} else if int(val)-1 < len(enums) {
 				return qvalue.QValueEnum{Val: enums[int(val)-1]}, nil
 			} else {
-				return nil, fmt.Errorf("enum value out of range %d", val)
+				return nil, fmt.Errorf("enum value out of range %d %v", val, enums)
 			}
 		}
 	case float32:
