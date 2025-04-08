@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -57,6 +58,21 @@ type PostgresConnector struct {
 	pgVersion              shared.PGVersion
 }
 
+func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
+	connConfig, err := pgx.ParseConfig(connectionString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+	if pgConfig.RequireTls || pgConfig.RootCa != nil {
+		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host)
+		if err != nil {
+			return nil, err
+		}
+		connConfig.TLSConfig = tlsConfig
+	}
+	return connConfig, nil
+}
+
 func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
@@ -68,10 +84,9 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
 	}
 	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
-
-	connConfig, err := pgx.ParseConfig(connectionString)
+	connConfig, err := ParseConfig(connectionString, pgConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+		return nil, err
 	}
 
 	runtimeParams := connConfig.Config.RuntimeParams
@@ -129,7 +144,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
 	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
-	replConfig, err := pgx.ParseConfig(c.connStr)
+	replConfig, err := ParseConfig(c.connStr, c.Config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
@@ -1339,7 +1354,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	var intervalSinceLastNormalize *time.Duration
 	if err := alerter.CatalogPool.QueryRow(
-		ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1", alertKeys.FlowName,
+		ctx, "SELECT now()-last_updated_at FROM peerdb_stats.cdc_table_aggregate_counts WHERE flow_name=$1", alertKeys.FlowName,
 	).Scan(&intervalSinceLastNormalize); err != nil {
 		logger.Warn("failed to get interval since last normalize", slog.Any("error", err))
 	}

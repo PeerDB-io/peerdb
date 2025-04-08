@@ -3,7 +3,6 @@ package connmysql
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"iter"
@@ -20,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type MySqlConnector struct {
@@ -123,15 +123,11 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
-				tlsSetting := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: c.config.Host}
-				if c.config.RootCa != nil {
-					caPool := x509.NewCertPool()
-					if !caPool.AppendCertsFromPEM([]byte(*c.config.RootCa)) {
-						return errors.New("failed to parse provided root CA")
-					}
-					tlsSetting.RootCAs = caPool
+				config, err := shared.CreateTlsConfig(tls.VersionTLS12, c.config.RootCa, c.config.Host)
+				if err != nil {
+					return err
 				}
-				conn.SetTLSConfig(tlsSetting)
+				conn.SetTLSConfig(config)
 			}
 			return nil
 		}}

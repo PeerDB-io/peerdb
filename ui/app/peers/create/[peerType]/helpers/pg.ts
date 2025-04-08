@@ -45,6 +45,29 @@ export const postgresSetting: PeerSetting[] = [
     helpfulLink:
       'https://www.postgresql.org/docs/current/sql-createdatabase.html',
   },
+  {
+    label: 'Require TLS?',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, requireTls: value as boolean })),
+    type: 'switch',
+    tips: 'Use sslmode=require instead of sslmode=prefer',
+    optional: true,
+  },
+  {
+    label: 'Root Certificate',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          delete (curr as PostgresConfig)['rootCa'];
+          return curr;
+        });
+      } else setter((curr) => ({ ...curr, rootCa: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'If not provided, host CA roots will be used.',
+  },
 ];
 
 export const blankPostgresSetting: PostgresConfig = {
@@ -53,4 +76,5 @@ export const blankPostgresSetting: PostgresConfig = {
   user: '',
   password: '',
   database: '',
+  requireTls: false,
 };
