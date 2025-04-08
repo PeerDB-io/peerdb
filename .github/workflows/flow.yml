@@ -110,7 +110,7 @@ jobs:
 
       - name: MariaDB
         if: matrix.db-version.mysql == 'maria'
-        run: docker run -d --rm --name mariadb -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi --log-bin=maria
+        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts-ubi --log-bin=maria
 
       - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >

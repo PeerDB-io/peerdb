@@ -292,7 +292,8 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE TABLE IF NOT EXISTS mysql.rds_configuration(name TEXT, value TEXT)"))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), "INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL)"))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		"INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL)"))
 
 	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: s.source.GeneratePeer(s.t),
