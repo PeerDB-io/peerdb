@@ -46,7 +46,7 @@ func (a *MaintenanceActivity) GetAllMirrors(ctx context.Context) (*protos.Mainte
 	from flows
 	`)
 	if err != nil {
-		return &protos.MaintenanceMirrors{}, err
+		return nil, err
 	}
 
 	maintenanceMirrorItems, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.MaintenanceMirror, error) {
@@ -72,7 +72,7 @@ func (a *MaintenanceActivity) WaitForRunningSnapshots(
 ) (*protos.MaintenanceMirrors, error) {
 	mirrors, err := a.GetAllMirrors(ctx)
 	if err != nil {
-		return &protos.MaintenanceMirrors{}, err
+		return nil, err
 	}
 
 	slog.Info("Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
@@ -84,7 +84,7 @@ func (a *MaintenanceActivity) WaitForRunningSnapshots(
 		}
 		lastStatus, err := a.checkAndWaitIfSnapshot(ctx, mirror, 2*time.Minute)
 		if err != nil {
-			return &protos.MaintenanceMirrors{}, err
+			return nil, err
 		}
 		slog.Info("Finished checking and waiting for snapshot",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
@@ -108,16 +108,14 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 	}
 
 	flowStatus, err := RunEveryIntervalUntilFinish(ctx, func() (bool, protos.FlowStatus, error) {
-		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName))
+		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to be ready", mirror.MirrorName))
 		mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
-		if err != nil {
+		if err != nil || mirrorStatus == protos.FlowStatus_STATUS_SNAPSHOT || mirrorStatus == protos.FlowStatus_STATUS_SETUP ||
+			mirrorStatus == protos.FlowStatus_STATUS_RESYNC {
 			return false, mirrorStatus, err
 		}
-		if mirrorStatus == protos.FlowStatus_STATUS_SNAPSHOT || mirrorStatus == protos.FlowStatus_STATUS_SETUP {
-			return false, mirrorStatus, nil
-		}
 		return true, mirrorStatus, nil
-	}, 10*time.Second, fmt.Sprintf("Waiting for mirror %s to finish snapshot", mirror.MirrorName), logEvery, true)
+	}, 10*time.Second, fmt.Sprintf("Waiting for mirror %s to be ready", mirror.MirrorName), logEvery, true)
 	return flowStatus, err
 }
 
