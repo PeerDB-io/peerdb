@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -500,8 +501,8 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	}
 	conn := pgSource.PostgresConnector
 
-	srcTable := "test_partition"
-	dstTable := "test_partition_dst"
+	srcTable := "test_partition_noroot"
+	dstTable := "test_partition_noroot_dst"
 	srcSchemaTable := e2e.AttachSchema(s, srcTable)
 	srcPublicationName := fmt.Sprintf("%s_%s_pub", srcTable, s.Suffix())
 
@@ -521,12 +522,89 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 			CREATE TABLE %[1]s_2024q3
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-07-01') TO ('2024-10-01');
-			CREATE PUBLICATION %[2]s FOR TABLE %[1]s_2024q1, %[1]s_2024q2, %[1]s_2024q3;
-	`, srcSchemaTable, srcPublicationName))
+			CREATE PUBLICATION %[2]s FOR TABLES IN SCHEMA %[3]s;
+	`, srcSchemaTable, srcPublicationName, e2e.Schema(s)))
 	require.NoError(t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, "test_partition"),
+		FlowJobName:   e2e.AddSuffix(s, "test_partition_noroot"),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.PublicationName = srcPublicationName
+	flowConnConfig.IdleTimeoutSeconds = 60
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	// add a partition to the source table after CDC is running to test if
+	// the partition is picked up by the flow.
+	go func() {
+		time.Sleep(15 * time.Second)
+		_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s_2024q4
+			PARTITION OF %[1]s
+			FOR VALUES FROM ('2024-10-01') TO ('2025-01-01');`, srcSchemaTable))
+		e2e.EnvNoError(t, env, err)
+		_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-12-01');
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-01-01');`,
+			srcSchemaTable))
+		e2e.EnvNoError(t, env, err)
+	}()
+	// insert 10 rows into the source table
+	for i := range 10 {
+		testName := fmt.Sprintf("test_name_%d", i)
+		_, err := conn.Conn().Exec(t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(name, created_at) VALUES ($1, '2024-%d-01')`,
+				srcSchemaTable, max(1, i)), testName)
+		e2e.EnvNoError(t, env, err)
+	}
+	t.Log("Inserted 13 rows into the source table")
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalizing 13 rows", srcTable, dstTable, `id,name,created_at`)
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s Generic) Test_Inheritance_Table_Without_Dynamic_Setting() {
+	t := s.T()
+
+	pgSource, ok := s.Source().(*e2e.PostgresSource)
+	if !ok {
+		t.Skip("test only applies to postgres")
+	}
+	conn := pgSource.PostgresConnector
+
+	srcTable := "test_inheritance"
+	dstTable := "test_inheritance_dst"
+	srcSchemaTable := e2e.AttachSchema(s, srcTable)
+	srcPublicationName := fmt.Sprintf("%s_%s_pub", srcTable, s.Suffix())
+
+	_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+			CREATE TABLE %[1]s(
+				id SERIAL NOT NULL,
+				name TEXT,
+				created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
+				PRIMARY KEY (created_at, id)
+			);
+			CREATE TABLE %[1]s_child1() INHERITS (%[1]s);
+			CREATE TABLE %[1]s_child2() INHERITS (%[1]s);
+			CREATE PUBLICATION %[2]s FOR TABLES IN SCHEMA %[3]s;
+	`, srcSchemaTable, srcPublicationName, e2e.Schema(s)))
+	require.NoError(t, err)
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
+	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2024-12-01');
+	INSERT INTO %[1]s_child2(name, created_at) VALUES ('test_name', '2025-01-01');`,
+		srcSchemaTable))
+	require.NoError(t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, "test_inheritance"),
 		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
@@ -537,17 +615,15 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-	// insert 10 rows into the source table
-	for i := range 10 {
-		testName := fmt.Sprintf("test_name_%d", i)
-		_, err := conn.Conn().Exec(t.Context(),
-			fmt.Sprintf(`INSERT INTO %s(name, created_at) VALUES ($1, '2024-%d-01')`,
-				srcSchemaTable, max(1, i)), testName)
-		e2e.EnvNoError(t, env, err)
-	}
-	t.Log("Inserted 10 rows into the source table")
+	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
+	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2024-12-01');
+	INSERT INTO %[1]s_child2(name, created_at) VALUES ('test_name', '2025-01-01');`,
+		srcSchemaTable))
+	e2e.EnvNoError(t, env, err)
+	t.Log("Inserted 3 rows into the source table during CDC")
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalizing 10 rows", srcTable, dstTable, `id,name,created_at`)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "only 1 row should be present", srcTable, dstTable, `id,name,created_at`)
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }

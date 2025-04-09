@@ -59,6 +59,10 @@ type GenericSuite interface {
 	DestinationTable(table string) string
 }
 
+func Schema(s Suite) string {
+	return fmt.Sprintf("e2e_test_%s", s.Suffix())
+}
+
 func AttachSchema(s Suite, table string) string {
 	return fmt.Sprintf("e2e_test_%s.%s", s.Suffix(), table)
 }
