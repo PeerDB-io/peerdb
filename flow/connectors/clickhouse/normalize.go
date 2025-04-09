@@ -292,12 +292,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		slog.Int64("EndBatchID", req.SyncBatchID),
 		slog.Int("connections", parallelNormalize))
 
-	numParts, err := internal.PeerDBClickHouseNormalizationParts(ctx, req.Env)
-	if err != nil {
-		c.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
-		numParts = 1
-	}
-
 	// This is for cases where currently normalizing can take a looooong time
 	// there is no other indication of progress, so we log every 5 minutes.
 	periodicLogger := shared.Interval(ctx, 5*time.Minute, func() {
@@ -307,8 +301,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			slog.Int("connections", parallelNormalize))
 	})
 	defer periodicLogger()
-
-	numParts = max(numParts, 1)
 
 	queries := make(chan string)
 	rawTbl := c.getRawTableName(req.FlowJobName)
@@ -343,6 +335,12 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	for _, tbl := range destinationTableNames {
+		numParts, err := internal.PeerDBClickHouseNormalizationParts(ctx, req.Env)
+		if err != nil {
+			c.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
+			numParts = 1
+		}
+		numParts = max(numParts, 1)
 		for numPart := range numParts {
 			// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
 			selectQuery := strings.Builder{}
