@@ -192,7 +192,9 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		}
 
 		if err := executeCDCDropActivities(ctx, input); err != nil {
-			workflow.GetLogger(ctx).Error("failed to drop CDC flow", slog.Any("error", err))
+			if !workflow.IsContinueAsNewError(err) {
+				workflow.GetLogger(ctx).Error("failed to drop CDC flow", slog.Any("error", err))
+			}
 			return err
 		}
 		workflow.GetLogger(ctx).Info("CDC flow dropped successfully")

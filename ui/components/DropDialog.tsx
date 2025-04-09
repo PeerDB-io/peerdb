@@ -46,7 +46,7 @@ async function handleDropMirror(
     return false;
   }
 
-  setMsg('Mirror began dropping successfully.');
+  setMsg('Request to drop mirror sent successfully.');
 
   return true;
 }
