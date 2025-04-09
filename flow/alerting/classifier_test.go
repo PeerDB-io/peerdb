@@ -123,3 +123,17 @@ func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
 		Code:   pgerrcode.InternalError,
 	}, errInfo, "Unexpected error info")
 }
+
+func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a ClickHouse access entity not found error
+	err := &clickhouse.Exception{
+		Code:    492,
+		Message: "ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "492",
+	}, errInfo, "Unexpected error info")
+}
