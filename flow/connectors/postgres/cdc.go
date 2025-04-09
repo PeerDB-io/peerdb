@@ -337,14 +337,14 @@ func PullCdcRecords[Items model.Items](
 		if cdcRecordsStorage.IsEmpty() {
 			records.SignalAsEmpty()
 		}
-		logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", cdcRecordsStorage.Len()))
+		logger.Info("[finished] PullRecords", slog.Int("records", cdcRecordsStorage.Len()))
 		if err := cdcRecordsStorage.Close(); err != nil {
 			logger.Warn("failed to clean up records storage", slog.Any("error", err))
 		}
 	}()
 
 	shutdown := shared.Interval(ctx, time.Minute, func() {
-		logger.Info(fmt.Sprintf("pulling records, currently have %d records", cdcRecordsStorage.Len()))
+		logger.Info("pulling records", slog.Int("records", cdcRecordsStorage.Len()))
 	})
 	defer shutdown()
 
@@ -390,8 +390,8 @@ func PullCdcRecords[Items model.Items](
 			pkmRequiresResponse = false
 
 			if time.Since(standByLastLogged) > 10*time.Second {
-				numRowsProcessedMessage := fmt.Sprintf("processed %d rows", cdcRecordsStorage.Len())
-				logger.Info("Sent Standby status message. " + numRowsProcessedMessage)
+				logger.Info("Sent Standby status message",
+					slog.Int("records", cdcRecordsStorage.Len()))
 				standByLastLogged = time.Now()
 			}
 		}
@@ -402,11 +402,8 @@ func PullCdcRecords[Items model.Items](
 			}
 
 			if waitingForCommit {
-				logger.Info(fmt.Sprintf(
-					"[%s] commit received, returning currently accumulated records - %d",
-					p.flowJobName,
-					cdcRecordsStorage.Len()),
-				)
+				logger.Info("commit received, returning currently accumulated records",
+					slog.Int("records", cdcRecordsStorage.Len()))
 				return nil
 			}
 		}
@@ -414,22 +411,19 @@ func PullCdcRecords[Items model.Items](
 		// if we are past the next standby deadline (?)
 		if time.Now().After(nextStandbyMessageDeadline) {
 			if !cdcRecordsStorage.IsEmpty() {
-				logger.Info(fmt.Sprintf("standby deadline reached, have %d records", cdcRecordsStorage.Len()))
+				logger.Info("standby deadline reached", slog.Int("records", cdcRecordsStorage.Len()))
 
 				if p.commitLock == nil {
-					logger.Info(
-						fmt.Sprintf("no commit lock, returning currently accumulated records - %d",
-							cdcRecordsStorage.Len()))
+					logger.Info("no commit lock, returning currently accumulated records",
+						slog.Int("records", cdcRecordsStorage.Len()))
 					return nil
 				} else {
-					logger.Info(fmt.Sprintf("commit lock, waiting for commit to return records - %d",
-						cdcRecordsStorage.Len()))
+					logger.Info("commit lock, waiting for commit to return records",
+						slog.Int("records", cdcRecordsStorage.Len()))
 					waitingForCommit = true
 				}
 			} else {
-				logger.Info(fmt.Sprintf("[%s] standby deadline reached, no records accumulated, continuing to wait",
-					p.flowJobName),
-				)
+				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
 			}
 			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 		}
@@ -454,8 +448,8 @@ func PullCdcRecords[Items model.Items](
 
 		if err != nil && p.commitLock == nil {
 			if pgconn.Timeout(err) {
-				logger.Info(fmt.Sprintf("Stand-by deadline reached, returning currently accumulated records - %d",
-					cdcRecordsStorage.Len()))
+				logger.Info("Stand-by deadline reached, returning currently accumulated records",
+					slog.Int("records", cdcRecordsStorage.Len()))
 				return nil
 			} else {
 				return fmt.Errorf("ReceiveMessage failed: %w", err)

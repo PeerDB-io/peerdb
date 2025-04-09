@@ -331,6 +331,12 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
+	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
+	if err != nil {
+		connectors.CloseConnector(ctx, srcConn)
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+
 	// syncDone will be closed by SyncFlow,
 	// whereas normalizeDone will be closed by normalizing goroutine
 	// Wait on normalizeDone at end to not interrupt final normalize
@@ -353,7 +359,8 @@ func (a *FlowableActivity) SyncFlow(
 	})
 
 	for groupCtx.Err() == nil {
-		logger.Info("executing sync flow", slog.Int64("count", int64(currentSyncFlowNum.Add(1))))
+		syncNum := currentSyncFlowNum.Add(1)
+		logger.Info("executing sync flow", slog.Int64("count", int64(syncNum)))
 
 		var syncResponse *model.SyncResponse
 		var syncErr error
@@ -385,7 +392,7 @@ func (a *FlowableActivity) SyncFlow(
 				a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 			}
 		}
-		if options.NumberOfSyncs > 0 && currentSyncFlowNum.Load() >= options.NumberOfSyncs {
+		if (options.NumberOfSyncs > 0 && syncNum >= options.NumberOfSyncs) || (reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches) {
 			break
 		}
 	}
@@ -764,6 +771,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 		a.OtelManager.Metrics.InstanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.InstanceStatusKey, instanceStatus),
+			attribute.String(otel_metrics.PeerDBVersionKey, internal.PeerDBVersionShaShort()),
 		)))
 	}
 	for _, config := range configs {

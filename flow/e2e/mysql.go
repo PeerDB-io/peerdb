@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -21,13 +22,19 @@ type MySqlSource struct {
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	return SetupMyCore(t, suffix, false, protos.MySqlReplicationMechanism_MYSQL_GTID)
-}
-
-func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
-	t.Helper()
-	t.Skip("skipping until working out how to not have port conflict in GH actions")
-	return SetupMyCore(t, suffix, true, protos.MySqlReplicationMechanism_MYSQL_GTID)
+	myVersion := os.Getenv("CI_MYSQL_VERSION")
+	if myVersion == "" {
+		t.Skip()
+	}
+	mode, isMySQL := strings.CutPrefix(myVersion, "mysql-")
+	replicationMode := protos.MySqlReplicationMechanism_MYSQL_GTID
+	if mode == "pos" {
+		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	}
+	if !isMySQL && myVersion != "maria" {
+		t.Error("unknown mysql version", myVersion)
+	}
+	return SetupMyCore(t, suffix, !isMySQL, replicationMode)
 }
 
 func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism protos.MySqlReplicationMechanism) (*MySqlSource, error) {
@@ -101,6 +108,16 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 			connector.Close()
 			return nil, err
 		}
+	} else {
+		for _, sql := range []string{
+			"set global binlog_format=row",
+			"set global binlog_row_metadata=full",
+		} {
+			if _, err := connector.Execute(t.Context(), sql); err != nil {
+				connector.Close()
+				return nil, err
+			}
+		}
 	}
 
 	return &MySqlSource{MySqlConnector: connector, Config: config}, nil
@@ -123,16 +140,8 @@ func (s *MySqlSource) Teardown(t *testing.T, ctx context.Context, suffix string)
 func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 
-	name := "mysql"
-	if s.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		name = "maria"
-	}
-	if s.Config.ReplicationMechanism != protos.MySqlReplicationMechanism_MYSQL_GTID {
-		name = fmt.Sprintf("%s_%s", name, s.Config.ReplicationMechanism)
-	}
-
 	peer := &protos.Peer{
-		Name: name,
+		Name: "mysql",
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: s.Config,

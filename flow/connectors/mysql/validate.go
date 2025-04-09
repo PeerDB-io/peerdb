@@ -77,7 +77,7 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 	row := rs.Values[0]
 
 	binlogExpireLogsSeconds := row[0].AsUint64()
-	if binlogExpireLogsSeconds < 86400 {
+	if binlogExpireLogsSeconds < 86400 && binlogExpireLogsSeconds != 0 {
 		c.logger.Warn("binlog_expire_logs_seconds should be at least 24 hours",
 			slog.Uint64("binlog_expire_logs_seconds", binlogExpireLogsSeconds))
 	}

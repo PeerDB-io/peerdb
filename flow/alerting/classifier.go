@@ -229,6 +229,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var pgConnErr *pgconn.ConnectError
+	if errors.As(err, &pgConnErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNKNOWN",
+		}
+	}
+
 	var myErr *mysql.MyError
 	if errors.As(err, &myErr) {
 		return ErrorOther, ErrorInfo{
