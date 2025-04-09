@@ -205,6 +205,19 @@ func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table strin
 	)
 }
 
+// to avoid fetching rows from "child" tables ala Postgres table inheritance
+func (s *PostgresSource) GetRowsOnly(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, "testflow", "testpart")
+	if err != nil {
+		return nil, err
+	}
+
+	return pgQueryExecutor.ExecuteAndProcessQuery(
+		ctx,
+		fmt.Sprintf(`SELECT %s FROM ONLY e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
+	)
+}
+
 func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableIdentifier string, selectedColumns []string) error {
 	schemaTable, err := utils.ParseSchemaTable(tableIdentifier)
 	if err != nil {
