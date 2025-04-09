@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"testing"
 
@@ -25,6 +26,17 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   "UNKNOWN",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
+	hostName := "non-existent.domain.name.here"
+	_, err := net.Dial("tcp", hostName+":123")
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceNet,
+		Code:   "lookup " + hostName + ": no such host",
 	}, errInfo, "Unexpected error info")
 }
 
