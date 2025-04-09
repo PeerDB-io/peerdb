@@ -28,6 +28,20 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestNeonConnectivityErrorShouldBeConnectivity(t *testing.T) {
+	t.Skip("Not a good idea to run this test in CI as it goes to Neon, maybe we need a better mock")
+	config, err := pgx.ParseConfig("postgres://random-endpoint-id-here.us-east-2.aws.neon.tech:5432/db?options=endpoint%3Dtest_endpoint")
+	require.NoError(t, err)
+	_, err = pgx.ConnectConfig(t.Context(), config)
+	t.Logf("Error: %v", err)
+	errorClass, errInfo := GetErrorClass(t.Context(), err)
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   "UNKNOWN",
+	}, errInfo, "Unexpected error info")
+}
+
 func TestClickHouseAvroDecimalErrorShouldBeUnsupportedDatatype(t *testing.T) {
 	// Simulate an Avro decimal error
 	errCodes := []int{int(chproto.ErrCannotParseUUID), int(chproto.ErrValueIsOutOfRangeOfDataType)}
