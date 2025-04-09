@@ -34,10 +34,8 @@ func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
 	_, err := net.Dial("tcp", hostName+":123")
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourceNet,
-		Code:   "lookup " + hostName + ": no such host",
-	}, errInfo, "Unexpected error info")
+	assert.Equal(t, ErrorSourceNet, errInfo.Source, "Unexpected error source")
+	assert.Regexp(t, "^lookup "+hostName+"( on [\\w\\d\\.:]*)?: no such host$", errInfo.Code, "Unexpected error code")
 }
 
 func TestNeonConnectivityErrorShouldBeConnectivity(t *testing.T) {
