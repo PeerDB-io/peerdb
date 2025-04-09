@@ -104,6 +104,7 @@ type FlowServiceClient interface {
 	GetPeerType(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerTypeResponse, error)
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
 	GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error)
+	// Deprecated: Do not use.
 	ResyncMirror(ctx context.Context, in *ResyncMirrorRequest, opts ...grpc.CallOption) (*ResyncMirrorResponse, error)
 	GetInstanceInfo(ctx context.Context, in *InstanceInfoRequest, opts ...grpc.CallOption) (*InstanceInfoResponse, error)
 	Maintenance(ctx context.Context, in *MaintenanceRequest, opts ...grpc.CallOption) (*MaintenanceResponse, error)
@@ -452,6 +453,7 @@ func (c *flowServiceClient) GetVersion(ctx context.Context, in *PeerDBVersionReq
 	return out, nil
 }
 
+// Deprecated: Do not use.
 func (c *flowServiceClient) ResyncMirror(ctx context.Context, in *ResyncMirrorRequest, opts ...grpc.CallOption) (*ResyncMirrorResponse, error) {
 	out := new(ResyncMirrorResponse)
 	err := c.cc.Invoke(ctx, FlowService_ResyncMirror_FullMethodName, in, out, opts...)
@@ -538,6 +540,7 @@ type FlowServiceServer interface {
 	GetPeerType(context.Context, *PeerInfoRequest) (*PeerTypeResponse, error)
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
 	GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error)
+	// Deprecated: Do not use.
 	ResyncMirror(context.Context, *ResyncMirrorRequest) (*ResyncMirrorResponse, error)
 	GetInstanceInfo(context.Context, *InstanceInfoRequest) (*InstanceInfoResponse, error)
 	Maintenance(context.Context, *MaintenanceRequest) (*MaintenanceResponse, error)
