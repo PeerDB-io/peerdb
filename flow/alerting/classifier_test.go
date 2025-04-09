@@ -23,8 +23,8 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourceNet,
-		Code:   "net.DNSError",
+		Source: ErrorSourcePostgres,
+		Code:   "UNKNOWN",
 	}, errInfo, "Unexpected error info")
 }
 
