@@ -166,6 +166,41 @@ func EnvWaitForEqualTablesWithNames(
 	})
 }
 
+func EnvWaitForEqualTablesWithNames_Only(
+	env WorkflowRun,
+	suite RowSource,
+	reason string,
+	srcTable string,
+	dstTable string,
+	cols string,
+) {
+	t := suite.T()
+	pgSource, ok := suite.Source().(*PostgresSource)
+	if !ok {
+		t.Fatal("EnvWaitForEqualTablesWithNames_Only only works with PostgresSource")
+	}
+
+	t.Helper()
+
+	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+		t.Helper()
+
+		sourceRows, err := pgSource.GetRowsOnly(t.Context(), suite.Suffix(), srcTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		rows, err := suite.GetRows(dstTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		return e2eshared.CheckEqualRecordBatches(t, sourceRows, rows)
+	})
+}
+
 func EnvWaitForCount(
 	env WorkflowRun,
 	suite RowSource,

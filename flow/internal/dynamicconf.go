@@ -303,7 +303,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name: "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES",
 		Description: "For Postgres CDC: attempt to fetch/remap child tables for tables that aren't partitioned by Postgres." +
-			"Useful for tables that are partitioned by extensions",
+			"Useful for tables that are partitioned by extensions or table inheritance",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
