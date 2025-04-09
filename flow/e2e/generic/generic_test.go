@@ -549,9 +549,9 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 			FOR VALUES FROM ('2024-10-01') TO ('2025-01-01');`, srcSchemaTable))
 		e2e.EnvNoError(t, env, err)
 		_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-10-01');
 		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-12-01');
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-01-01');`,
+		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-12-01');`,
 			srcSchemaTable))
 		e2e.EnvNoError(t, env, err)
 	}()
@@ -597,9 +597,9 @@ func (s Generic) Test_Inheritance_Table_Without_Dynamic_Setting() {
 	`, srcSchemaTable, srcPublicationName, e2e.Schema(s)))
 	require.NoError(t, err)
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
-	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2024-12-01');
-	INSERT INTO %[1]s_child2(name, created_at) VALUES ('test_name', '2025-01-01');`,
+	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-01-01');
+	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2024-02-01');
+	INSERT INTO %[1]s_child2(name, created_at) VALUES ('test_name', '2024-03-01');`,
 		srcSchemaTable))
 	require.NoError(t, err)
 
@@ -616,9 +616,9 @@ func (s Generic) Test_Inheritance_Table_Without_Dynamic_Setting() {
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2024-11-01');
-	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2024-12-01');
-	INSERT INTO %[1]s_child2(name, created_at) VALUES ('test_name', '2025-01-01');`,
+	INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-01-01');
+	INSERT INTO %[1]s_child1(name, created_at) VALUES ('test_name', '2025-02-01');
+	INSERT INTO %[1]s_child2(name, created_at) VALUES ('test_name', '2025-03-01');`,
 		srcSchemaTable))
 	e2e.EnvNoError(t, env, err)
 	t.Log("Inserted 3 rows into the source table during CDC")
