@@ -364,7 +364,7 @@ func (c *MySqlConnector) PullRecords(
 			}
 			inTx = false
 		case *replication.RotateEvent:
-			if gset == nil && event.Header.Timestamp != 0 {
+			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
 				pos.Name = string(ev.NextLogName)
 				pos.Pos = uint32(ev.Position)
 				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
