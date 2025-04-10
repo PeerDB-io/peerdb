@@ -571,6 +571,16 @@ type WorkflowRun struct {
 	c client.Client
 }
 
+func GetPeerflow(ctx context.Context, catalog *pgx.Conn, tc client.Client, flowName string) (WorkflowRun, error) {
+	var workflowID string
+	if err := catalog.QueryRow(
+		ctx, "select workflow_id from flows where name = $1", flowName,
+	).Scan(&workflowID); err != nil {
+		return WorkflowRun{}, nil
+	}
+	return WorkflowRun{WorkflowRun: tc.GetWorkflow(ctx, workflowID, ""), c: tc}, nil
+}
+
 func ExecutePeerflow(ctx context.Context, tc client.Client, wf any, args ...any) WorkflowRun {
 	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, wf, args...)
 }

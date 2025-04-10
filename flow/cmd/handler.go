@@ -369,28 +369,38 @@ func (h *FlowRequestHandler) FlowStateChange(
 				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
-			if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
+			if currState == protos.FlowStatus_STATUS_COMPLETED {
+				_, changeErr = h.ResyncMirror(ctx, &protos.ResyncMirrorRequest{
+					FlowJobName: req.FlowJobName,
+					DropStats:   req.DropMirrorStats,
+				})
+			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, err
 			} else if !isCDC {
 				return nil, errors.New("resync is only supported for CDC mirrors")
-			}
-			// getting config before dropping the flow since the flow entry is deleted unconditionally
-			config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
-			if err != nil {
-				return nil, err
-			}
+			} else {
+				// getting config before dropping the flow since the flow entry is deleted unconditionally
+				config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+				if err != nil {
+					return nil, err
+				}
 
-			config.Resync = true
-			config.DoInitialSnapshot = true
-			// validate mirror first because once the mirror is dropped, there's no going back
-			if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
-				ConnectionConfigs: config,
-			}); err != nil {
-				return nil, err
+				config.Resync = true
+				config.DoInitialSnapshot = true
+				// validate mirror first because once the mirror is dropped, there's no going back
+				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
+					ConnectionConfigs: config,
+				}); err != nil {
+					return nil, err
+				}
+				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 			}
-			changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 		case protos.FlowStatus_STATUS_TERMINATING:
-			changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+			if currState == protos.FlowStatus_STATUS_COMPLETED {
+				changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
+			} else {
+				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+			}
 		case protos.FlowStatus_STATUS_TERMINATED: // backwards compat, causes grpc timeouts
 			if currState != protos.FlowStatus_STATUS_TERMINATED {
 				changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)

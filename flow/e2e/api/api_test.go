@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -78,8 +80,8 @@ func testApi[TSource e2e.SuiteSource](
 			t:                 t,
 			pg:                pg,
 			source:            source,
-			ch: e2e_clickhouse.SetupSuite(t, func(*testing.T, string) (TSource, error) {
-				return source, nil
+			ch: e2e_clickhouse.SetupSuite(t, func(*testing.T) (TSource, string, error) {
+				return source, suffix, nil
 			})(t),
 			suffix: suffix,
 		}
@@ -349,4 +351,77 @@ func (s Suite) TestMySQLFlavorSwap() {
 		require.Equal(s.t,
 			"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", response.Message)
 	}
+}
+
+func (s Suite) TestResyncCompleted() {
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "valid"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "valid"))))
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      "resync_completed_" + s.suffix,
+		TableNameMapping: map[string]string{e2e.AttachSchema(s, "valid"): "valid"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := e2e.NewTemporalClient(s.t)
+	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	e2e.RequireEqualTables(s.ch, "valid", "id,val")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", e2e.AttachSchema(s, "valid"))))
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+	})
+	require.NoError(s.t, err)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	e2e.RequireEqualTables(s.ch, "valid", "id,val")
+}
+
+func (s Suite) TestDropCompleted() {
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "valid"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "valid"))))
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      "drop_completed_" + s.suffix,
+		TableNameMapping: map[string]string{e2e.AttachSchema(s, "valid"): "valid"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := e2e.NewTemporalClient(s.t)
+	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	e2e.RequireEqualTables(s.ch, "valid", "id,val")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "drop", func() bool {
+		var workflowID string
+		return s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
+		).Scan(&workflowID) == pgx.ErrNoRows
+	})
 }
