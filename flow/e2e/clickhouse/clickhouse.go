@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
@@ -21,7 +20,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type ClickHouseSuite struct {
@@ -280,14 +278,13 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 
 func SetupSuite[TSource e2e.SuiteSource](
 	t *testing.T,
-	setupSource func(*testing.T, string) (TSource, error),
+	setupSource func(*testing.T) (TSource, string, error),
 ) func(*testing.T) ClickHouseSuite {
 	t.Helper()
 	return func(t *testing.T) ClickHouseSuite {
 		t.Helper()
 
-		suffix := "ch_" + strings.ToLower(shared.RandomString(8))
-		source, err := setupSource(t, suffix)
+		source, suffix, err := setupSource(t)
 		require.NoError(t, err, "failed to setup postgres")
 
 		s3Helper, err := e2e_s3.NewS3TestHelper(t.Context(), e2e_s3.Minio)
