@@ -669,15 +669,14 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-	// add a partition to the source table after CDC is running to test if
-	// the partition is picked up by the flow.
+	// add a child table after CDC is running to test if is picked up by the flow.
 	go func() {
 		time.Sleep(15 * time.Second)
 		_, err := conn.Conn().Exec(t.Context(), fmt.Sprintf(`CREATE TABLE %[1]s_child3() INHERITS (%[1]s);`, srcSchemaTable))
 		e2e.EnvNoError(t, env, err)
 		_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-04-01');
-		INSERT INTO %[1]s(name, created_at) VALUES ('test_name', '2025-05-01');`,
+		INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-04-01');
+		INSERT INTO %[1]s_child3(name, created_at) VALUES ('test_name', '2025-05-01');`,
 			srcSchemaTable))
 		e2e.EnvNoError(t, env, err)
 		t.Log("Inserted 2 rows into child table created during CDC")
@@ -690,7 +689,7 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	e2e.EnvNoError(t, env, err)
 	t.Log("Inserted 3 rows into the source table during CDC")
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "rows from 3 child tables should be present", srcTable, dstTable, `id,name,created_at`)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "rows from parent and 3 child tables should be present", srcTable, dstTable, `id,name,created_at`)
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }
