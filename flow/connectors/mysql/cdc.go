@@ -351,8 +351,8 @@ func (c *MySqlConnector) PullRecords(
 			otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 		}
 
-		if gset == nil && event.Header.LogPos > 0 {
-			pos.Pos = max(pos.Pos, event.Header.LogPos)
+		if gset == nil && event.Header.LogPos > pos.Pos {
+			pos.Pos = event.Header.LogPos
 			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 		}
 
