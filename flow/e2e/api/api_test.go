@@ -385,8 +385,10 @@ func (s Suite) TestResyncCompleted() {
 		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	e2e.RequireEqualTables(s.ch, "valid", "id,val")
+	e2e.EnvWaitForEqualTables(env, s.ch, "resync", "valid", "id,val")
+	env, err = e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.EnvWaitForFinished(s.t, env, time.Minute)
 }
 
 func (s Suite) TestDropCompleted() {
@@ -418,7 +420,7 @@ func (s Suite) TestDropCompleted() {
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "drop", func() bool {
+	e2e.EnvWaitFor(s.t, env, time.Minute, "drop", func() bool {
 		var workflowID string
 		return s.pg.PostgresConnector.Conn().QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
