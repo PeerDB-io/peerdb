@@ -664,6 +664,7 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	flowConnConfig.PublicationName = srcPublicationName
 	flowConnConfig.Env = map[string]string{"PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES": "true"}
 	flowConnConfig.IdleTimeoutSeconds = 60
+	flowConnConfig.DoInitialSnapshot = true
 
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -689,7 +690,8 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	e2e.EnvNoError(t, env, err)
 	t.Log("Inserted 3 rows into the source table during CDC")
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "rows from parent and 3 child tables should be present", srcTable, dstTable, `id,name,created_at`)
+	e2e.EnvWaitForEqualTablesWithNames(env, s,
+		"rows from parent and 3 child tables should be present", srcTable, dstTable, `id,name,created_at`)
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }
