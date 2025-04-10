@@ -104,7 +104,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 ) (int64, int64, error) {
 	var numRows int64
 	var numBytes int64
-	const heartBeatNumRows = 10000
+	const logPerRows = 10000
 
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
@@ -117,19 +117,19 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
 		}
+		stream.Records <- record
 		numRows++
 		for _, val := range rows.RawValues() {
 			numBytes += int64(len(val))
 		}
 
-		stream.Records <- record
-
-		if numRows%heartBeatNumRows == 0 {
-			qe.logger.Info("processing row stream", slog.String("cursor", cursorName), slog.Int64("records", numRows))
+		if numRows%logPerRows == 0 {
+			qe.logger.Info("processing row stream", slog.String("cursor", cursorName),
+				slog.Int64("records", numRows), slog.Int64("bytes", numBytes))
 		}
 	}
 
-	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int64("records", numRows))
+	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int64("records", numRows), slog.Int64("bytes", numBytes))
 	return numRows, numBytes, nil
 }
 

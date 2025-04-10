@@ -190,9 +190,13 @@ func (s Suite) TestSchemaEndpoints() {
 	require.Len(s.t, columns.Columns, 2)
 	require.Equal(s.t, "id", columns.Columns[0].Name)
 	require.True(s.t, columns.Columns[0].IsKey)
-	switch s.source.(type) {
+	switch source := s.source.(type) {
 	case *e2e.MySqlSource:
-		require.Equal(s.t, "int", columns.Columns[0].Type)
+		if source.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+			require.Equal(s.t, "int(11)", columns.Columns[0].Type)
+		} else {
+			require.Equal(s.t, "int", columns.Columns[0].Type)
+		}
 	case *e2e.PostgresSource:
 		require.Equal(s.t, "integer", columns.Columns[0].Type)
 	default:
@@ -275,7 +279,8 @@ func (s Suite) TestScripts() {
 }
 
 func (s Suite) TestMySQLBinlogValidation() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	_, ok := s.source.(*e2e.MySqlSource)
+	if !ok {
 		s.t.Skip("only for MySQL")
 	}
 
@@ -286,10 +291,9 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 
-	err = s.source.Exec(s.t.Context(), "CREATE TABLE IF NOT EXISTS mysql.rds_configuration(name TEXT, value TEXT);")
-	require.NoError(s.t, err)
-	err = s.source.Exec(s.t.Context(), "INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL);")
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE TABLE IF NOT EXISTS mysql.rds_configuration(name TEXT, value TEXT)"))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		"INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL)"))
 
 	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: s.source.GeneratePeer(s.t),
@@ -299,12 +303,10 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
 	require.Equal(s.t,
 		"failed to validate peer mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, "+
-			"currently unset",
+			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset",
 		response.Message)
 
-	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours';")
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours'"))
 	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: s.source.GeneratePeer(s.t),
 	})
@@ -313,8 +315,7 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
 	require.Equal(s.t,
 		"failed to validate peer mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, "+
-			"currently 1",
+			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1",
 		response.Message)
 
 	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';")
@@ -326,12 +327,12 @@ func (s Suite) TestMySQLBinlogValidation() {
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 
-	err = s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;")
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;"))
 }
 
 func (s Suite) TestMySQLFlavorSwap() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	my, ok := s.source.(*e2e.MySqlSource)
+	if !ok {
 		s.t.Skip("only for MySQL")
 	}
 
@@ -343,7 +344,9 @@ func (s Suite) TestMySQLFlavorSwap() {
 
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Equal(s.t,
-		"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", response.Message)
+	if my.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
+		require.Equal(s.t,
+			"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", response.Message)
+	}
 }

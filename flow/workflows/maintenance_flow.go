@@ -160,14 +160,11 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 		StartToCloseTimeout: 2 * time.Minute,
 	})
 	future := workflow.ExecuteActivity(backupCtx, maintenance.BackupAllPreviouslyRunningFlows, runningMirrors)
-
 	if err := future.Get(backupCtx, nil); err != nil {
 		return nil, err
 	}
-	version, err := GetPeerDBVersion(ctx)
-	if err != nil {
-		return nil, err
-	}
+
+	version := GetPeerDBVersion(ctx)
 	logger.Info("StartMaintenance workflow completed", "version", version)
 	return &protos.StartMaintenanceFlowOutput{
 		Version: version,
@@ -184,8 +181,8 @@ func pauseAndGetRunningMirrors(
 		HeartbeatTimeout:    1 * time.Minute,
 	})
 	selector := workflow.NewSelector(ctx)
-	runningMirrors := make([]bool, len(mirrorsList.Mirrors))
-	for i, mirror := range mirrorsList.Mirrors {
+	runningMirrors := make([]*protos.MaintenanceMirror, 0, len(mirrorsList.Mirrors))
+	for _, mirror := range mirrorsList.Mirrors {
 		f := workflow.ExecuteActivity(
 			ctx,
 			maintenance.PauseMirrorIfRunning,
@@ -194,29 +191,22 @@ func pauseAndGetRunningMirrors(
 
 		selector.AddFuture(f, func(f workflow.Future) {
 			var wasRunning bool
-			err := f.Get(ctx, &wasRunning)
-			if err != nil {
+			if err := f.Get(ctx, &wasRunning); err != nil {
 				logger.Error("Error checking and pausing mirror", "mirror", mirror, "error", err)
 			} else {
 				logger.Info("Finished check and pause for mirror", "mirror", mirror, "wasRunning", wasRunning)
-				runningMirrors[i] = wasRunning
+				runningMirrors = append(runningMirrors, mirror)
 			}
 		})
 	}
-	onlyRunningMirrors := make([]*protos.MaintenanceMirror, 0, len(mirrorsList.Mirrors))
 	for range mirrorsList.Mirrors {
 		selector.Select(ctx)
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 	}
-	for i, mirror := range mirrorsList.Mirrors {
-		if runningMirrors[i] {
-			onlyRunningMirrors = append(onlyRunningMirrors, mirror)
-		}
-	}
 	return &protos.MaintenanceMirrors{
-		Mirrors: onlyRunningMirrors,
+		Mirrors: runningMirrors,
 	}, nil
 }
 
@@ -264,17 +254,12 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 	disableCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
-
 	future := workflow.ExecuteActivity(disableCtx, maintenance.DisableMaintenanceMode)
 	if err := future.Get(disableCtx, nil); err != nil {
 		return nil, err
 	}
-	logger.Info("Disabled maintenance mode")
-	version, err := GetPeerDBVersion(ctx)
-	if err != nil {
-		return nil, err
-	}
 
+	version := GetPeerDBVersion(ctx)
 	logger.Info("EndMaintenance workflow completed", "version", version)
 	return &protos.EndMaintenanceFlowOutput{
 		Version: version,
@@ -331,8 +316,8 @@ func runBackgroundAlerter(ctx workflow.Context) workflow.CancelFunc {
 	return cancelActivity
 }
 
-func GetPeerDBVersion(ctx workflow.Context) (string, error) {
+func GetPeerDBVersion(ctx workflow.Context) string {
 	return GetSideEffect(ctx, func(workflow.Context) string {
 		return internal.PeerDBVersionShaShort()
-	}), nil
+	})
 }

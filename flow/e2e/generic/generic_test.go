@@ -39,17 +39,6 @@ func TestGenericCH_MySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, e2e.SetupMySQL)))
 }
 
-func TestGenericCH_MySQL_FilePos(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, func(t *testing.T, suffix string) (*e2e.MySqlSource, error) {
-		t.Helper()
-		return e2e.SetupMyCore(t, suffix, false, protos.MySqlReplicationMechanism_MYSQL_FILEPOS)
-	})))
-}
-
-func TestGenericCH_MariaDB(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, e2e.SetupMariaDB)))
-}
-
 type Generic struct {
 	e2e.GenericSuite
 }

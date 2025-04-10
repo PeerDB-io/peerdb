@@ -666,6 +666,7 @@ service FlowService {
   }
 
   rpc ResyncMirror(ResyncMirrorRequest) returns (ResyncMirrorResponse) {
+    option deprecated = true;
     option (google.api.http) = {
       post : "/v1/mirrors/resync",
       body : "*"

@@ -11,12 +11,12 @@ jobs:
     strategy:
       matrix:
         runner: [ubuntu-latest-16-cores]
-        postgres-version: [15, 16, 17]
+        db-version: [{pg: 15, mysql: 'mysql-gtid'}, {pg: 16, mysql: 'mysql-pos'}, {pg: 17, mysql: 'maria'}]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
       catalog:
-        image: imresamu/postgis:${{ matrix.postgres-version }}-3.5-alpine
+        image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
         ports:
           - 5432:5432
         env:
@@ -25,17 +25,11 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
       mysql:
-        image: mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2
+        image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
         ports:
           - 3306:3306
         env:
           MYSQL_ROOT_PASSWORD: cipass
-          #mariadb:
-          #  image: mariadb:lts-ubi
-          #  ports:
-          #    - 3300:3306
-          #  env:
-          #    MARIADB_ROOT_PASSWORD: cipass
       redpanda:
         image: redpandadata/redpanda@sha256:e52ef1cfa21307cdbed3a21826c0a004739fa679bda196fd6c84e7764f01274e
         ports:
@@ -114,6 +108,10 @@ jobs:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
 
+      - name: MariaDB
+        if: matrix.db-version.mysql == 'maria'
+        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
+
       - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >
           docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;"
@@ -190,7 +188,8 @@ jobs:
           PEERDB_CATALOG_DATABASE: postgres
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
-          CI_PG_VERSION: ${{ matrix.postgres-version }}
+          CI_PG_VERSION: ${{ matrix.db-version.pg }}
+          CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5
