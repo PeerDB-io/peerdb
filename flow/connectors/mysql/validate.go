@@ -49,8 +49,12 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 			return fmt.Errorf("failed to get server version: %w", err)
 		}
 		if cmp < 0 {
-			c.logger.Warn("cannot validate mysql prior to 8.0.1")
-			return nil
+			if requireRowMetadata {
+				return errors.New("mysql version predates binlog_row_metadata")
+			} else {
+				c.logger.Warn("cannot validate mysql prior to 8.0.1")
+				return nil
+			}
 		}
 	}
 
@@ -139,6 +143,10 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 }
 
 func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+	if err := c.CheckReplicationConnectivity(ctx); err != nil {
+		return fmt.Errorf("unable to establish replication connectivity: %w", err)
+	}
+
 	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
@@ -146,10 +154,6 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
 		}
 		sourceTables = append(sourceTables, parsedTable)
-	}
-
-	if err := c.CheckReplicationConnectivity(ctx); err != nil {
-		return fmt.Errorf("unable to establish replication connectivity: %w", err)
 	}
 
 	if err := c.CheckSourceTables(ctx, sourceTables); err != nil {
@@ -171,6 +175,15 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 }
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
+	cmp, err := c.CompareServerVersion(ctx, "8.0.1")
+	if err != nil {
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	if cmp < 0 {
+		c.logger.Warn("cannot validate mysql prior to 8.0.1")
+		return nil
+	}
+
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
 		return errors.New("flavor is set to unknown")
 	}
