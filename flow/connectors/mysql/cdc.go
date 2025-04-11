@@ -383,7 +383,7 @@ func (c *MySqlConnector) PullRecords(
 			}
 			for _, stmt := range stmts {
 				if alterTableStmt, ok := stmt.(*ast.AlterTableStmt); ok {
-					if err := c.processAlterTableQuery(ctx, catalogPool, req, alterTableStmt, string(ev.Schema)); err != nil {
+					if err := c.processAlterTableQuery(ctx, catalogPool, req, ev.Query, alterTableStmt, string(ev.Schema)); err != nil {
 						return fmt.Errorf("failed to process ALTER TABLE query: %w", err)
 					}
 				}
@@ -542,7 +542,7 @@ func (c *MySqlConnector) PullRecords(
 }
 
 func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool shared.CatalogPool,
-	req *model.PullRecordsRequest[model.RecordItems], stmt *ast.AlterTableStmt, stmtSchema string,
+	req *model.PullRecordsRequest[model.RecordItems], query []byte, stmt *ast.AlterTableStmt, stmtSchema string,
 ) error {
 	// if ALTER TABLE doesn't have database/schema name, use one attached to event
 	var sourceSchemaName string
@@ -573,6 +573,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 			// these are added columns
 			for _, col := range spec.NewColumns {
 				if col.Tp == nil {
+					c.logger.Info("type info missing from new column", slog.String("query", string(query)), slog.Any("col", col))
 					continue
 				}
 				qkind, err := qkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
