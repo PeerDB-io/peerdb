@@ -283,7 +283,7 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 		return nil, fmt.Errorf("failed to check gtid mode: %w", err)
 	}
 	if !gtidOn {
-		return nil, fmt.Errorf("gtid mode is not enabled")
+		return nil, errors.New("gtid mode is not enabled")
 	}
 
 	var query string
