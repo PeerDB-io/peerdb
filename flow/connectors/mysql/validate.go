@@ -55,9 +55,20 @@ func (c *MySqlConnector) checkMySQL5_BinlogSettings(ctx context.Context) error {
 
 	// MySQL 5.6.6 introduced GTIDs so they may work, no need to enforce filepos for now
 
+	query := "SELECT @@binlog_format"
+	checkBinlogRowImage := false
+	cmp, err = c.CompareServerVersion(ctx, "5.6.2")
+	if err != nil {
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	if cmp >= 0 {
+		query += ", @@binlog_row_image"
+		checkBinlogRowImage = true
+	}
+
 	// binlog_expire_logs_seconds was introduced in 8.0 https://dev.mysql.com/worklog/task/?id=10924
 	// since expire_logs_days has day granularity, all settings of it work for us so not checking
-	rs, err := c.Execute(ctx, "SELECT @@binlog_format")
+	rs, err := c.Execute(ctx, query)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve settings <5.7: %w", err)
 	}
@@ -70,6 +81,12 @@ func (c *MySqlConnector) checkMySQL5_BinlogSettings(ctx context.Context) error {
 	if binlogFormat != "ROW" {
 		return errors.New("binlog_format must be set to 'ROW', currently " + binlogFormat)
 	}
+	if checkBinlogRowImage {
+		binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[1].AsString())
+		if binlogRowImage != "FULL" {
+			return errors.New("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
+		}
+	}
 
 	return nil
 }
@@ -81,6 +98,12 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 			return fmt.Errorf("failed to get server version: %w", err)
 		}
 		if cmp < 0 {
+			if requireRowMetadata {
+				return errors.New(
+					"MySQL version too old for column exclusion support, " +
+						"please disable it or upgrade to >8.0.1 (binlog_row_metadata needed)",
+				)
+			}
 			c.logger.Warn("cannot validate mysql prior to 8.0.1, falling back to MySQL 5.7 check")
 			return c.checkMySQL5_BinlogSettings(ctx)
 		}
