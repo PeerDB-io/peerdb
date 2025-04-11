@@ -362,10 +362,6 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		geometrycollection_col GEOMETRYCOLLECTION
 	);
 
-	-- Set MySQL system variables for proper geometry handling
-	-- SET SESSION sql_mode = '';
-
-	-- Insert test data with specific geometric types
 	INSERT INTO %[1]s (
 		point_col,
 		linestring_col,
