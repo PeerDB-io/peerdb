@@ -59,6 +59,10 @@ type GenericSuite interface {
 	DestinationTable(table string) string
 }
 
+func Schema(s Suite) string {
+	return "e2e_test_" + s.Suffix()
+}
+
 func AttachSchema(s Suite, table string) string {
 	return fmt.Sprintf("e2e_test_%s.%s", s.Suffix(), table)
 }
@@ -147,6 +151,41 @@ func EnvWaitForEqualTablesWithNames(
 		t.Helper()
 
 		sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		rows, err := suite.GetRows(dstTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		return e2eshared.CheckEqualRecordBatches(t, sourceRows, rows)
+	})
+}
+
+func EnvWaitForEqualTablesWithNames_Only(
+	env WorkflowRun,
+	suite RowSource,
+	reason string,
+	srcTable string,
+	dstTable string,
+	cols string,
+) {
+	t := suite.T()
+	pgSource, ok := suite.Source().(*PostgresSource)
+	if !ok {
+		t.Fatal("EnvWaitForEqualTablesWithNames_Only only works with PostgresSource")
+	}
+
+	t.Helper()
+
+	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+		t.Helper()
+
+		sourceRows, err := pgSource.GetRowsOnly(t.Context(), suite.Suffix(), srcTable, cols)
 		if err != nil {
 			t.Log(err)
 			return false

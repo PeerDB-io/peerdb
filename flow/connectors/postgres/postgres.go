@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -415,11 +413,6 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return err
 	}
-	childToParentRelIDMap, err := GetChildToParentRelIDMap(ctx, c.conn, slices.Collect(maps.Keys(req.SrcTableIDNameMapping)))
-	if err != nil {
-		return fmt.Errorf("error getting child to parent relid map: %w", err)
-	}
-
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion); err != nil {
 		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
 		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
@@ -429,19 +422,27 @@ func pullCore[Items model.Items](
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
+	handleInheritanceForNonPartitionedTables, err := internal.PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get get setting for handleInheritanceForNonPartitionedTables: %v", err)
+	}
 
-	cdc := c.NewPostgresCDCSource(&PostgresCDCConfig{
-		CatalogPool:            catalogPool,
-		OtelManager:            otelManager,
-		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
-		TableNameMapping:       req.TableNameMapping,
-		TableNameSchemaMapping: req.TableNameSchemaMapping,
-		ChildToParentRelIDMap:  childToParentRelIDMap,
-		RelationMessageMapping: c.relationMessageMapping,
-		FlowJobName:            req.FlowJobName,
-		Slot:                   slotName,
-		Publication:            publicationName,
+	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
+		CatalogPool:                              catalogPool,
+		OtelManager:                              otelManager,
+		SrcTableIDNameMapping:                    req.SrcTableIDNameMapping,
+		TableNameMapping:                         req.TableNameMapping,
+		TableNameSchemaMapping:                   req.TableNameSchemaMapping,
+		RelationMessageMapping:                   c.relationMessageMapping,
+		FlowJobName:                              req.FlowJobName,
+		Slot:                                     slotName,
+		Publication:                              publicationName,
+		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
 	})
+	if err != nil {
+		c.logger.Error("error creating cdc source", slog.Any("error", err))
+		return err
+	}
 
 	if err := PullCdcRecords(ctx, cdc, req, processor, &c.replLock); err != nil {
 		c.logger.Error("error pulling records", slog.Any("error", err))
