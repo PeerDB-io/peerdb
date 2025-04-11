@@ -576,7 +576,8 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 				if col.Tp == nil {
 					// ignore, can be plain ALTER TABLE ... ALTER COLUMN ... DEFAULT ...
 					c.logger.Warn("ALTER TABLE with no column type detected, ignoring",
-						slog.String("columnName", col.Name.String()))
+						slog.String("columnName", col.Name.String()),
+						slog.String("tableName", sourceTableName))
 					continue
 				}
 				qkind, err := qkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
