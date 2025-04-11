@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
@@ -75,19 +76,34 @@ func (i *IncidentIoMessageSender) SendMessage(
 
 	level := ResolveIncidentIoLevels(attributes.Level)
 
+	alertMetadata := map[string]string{
+		"alias":          deduplicationHash,
+		"deploymentUUID": attributes.DeploymentUID,
+		"entity":         attributes.DeploymentUID,
+		"level":          string(level),
+		"tags":           strings.Join(attributes.Tags, ","),
+		"type":           attributes.Type,
+	}
+
+	flowMetadata := internal.GetFlowMetadata(ctx)
+	if flowMetadata != nil {
+		maps.Copy(alertMetadata, map[string]string{
+			"flowName":            flowMetadata.FlowName,
+			"sourcePeerType":      flowMetadata.Source.Type.String(),
+			"destinationPeerType": flowMetadata.Destination.Type.String(),
+			"sourcePeerName":      flowMetadata.Source.Name,
+			"destinationPeerName": flowMetadata.Destination.Name,
+			"flowStatus":          flowMetadata.Status.String(),
+			"isResync":            fmt.Sprintf("%t", flowMetadata.IsResync),
+		})
+	}
+
 	alert := IncidentIoAlert{
 		Title:            subject,
 		Description:      body,
 		DeduplicationKey: deduplicationHash,
 		Status:           "firing",
-		Metadata: map[string]string{
-			"alias":          deduplicationHash,
-			"deploymentUUID": attributes.DeploymentUID,
-			"entity":         attributes.DeploymentUID,
-			"level":          string(level),
-			"tags":           strings.Join(attributes.Tags, ","),
-			"type":           attributes.Type,
-		},
+		Metadata:         alertMetadata,
 	}
 
 	alertJSON, err := json.Marshal(alert)
