@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -94,7 +95,7 @@ func (i *IncidentIoMessageSender) SendMessage(
 			"sourcePeerName":      flowMetadata.Source.Name,
 			"destinationPeerName": flowMetadata.Destination.Name,
 			"flowStatus":          flowMetadata.Status.String(),
-			"isResync":            fmt.Sprintf("%t", flowMetadata.IsResync),
+			"isResync":            strconv.FormatBool(flowMetadata.IsResync),
 		})
 	}
 
