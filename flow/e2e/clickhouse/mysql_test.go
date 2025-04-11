@@ -375,13 +375,13 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 		multipolygon_col,
 		geometrycollection_col
 	) VALUES (
-		ST_PointFromText('POINT(1 2)'),
-		ST_LineFromText('LINESTRING(1 2, 3 4)'),
-		ST_PolygonFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))'),
-		ST_MPointFromText('MULTIPOINT((1 2), (3 4))'),
-		ST_MLineFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))'),
-		ST_MPolyFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
-		ST_GeomCollFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
+		ST_GeomFromText('POINT(1 2)'),
+		ST_GeomFromText('LINESTRING(1 2, 3 4)'),
+		ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))'),
+		ST_GeomFromText('MULTIPOINT((1 2), (3 4))'),
+		ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))'),
+		ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
+		ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
 	);`, srcFullName)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
