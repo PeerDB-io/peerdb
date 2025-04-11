@@ -5,6 +5,7 @@ import {
   EventHubConfig,
   EventHubGroupConfig,
   KafkaConfig,
+  MySqlConfig,
   PostgresConfig,
   PubSubConfig,
   S3Config,
@@ -13,6 +14,7 @@ import {
 
 export type PeerConfig =
   | PostgresConfig
+  | MySqlConfig
   | SnowflakeConfig
   | BigqueryConfig
   | ClickhouseConfig

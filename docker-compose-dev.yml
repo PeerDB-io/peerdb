@@ -116,7 +116,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.36.1@sha256:7c879a07fa8b478f4a415297db7c24ec21cbf9e1ee29689b1a5b371a2196f6b0
+    image: temporalio/ui:2.36.4@sha256:f969b2c6cefbf422ada4adb5bb738f51d51ca6a68c3413489063a2b136b67296
     ports:
       - 8085:8080
 

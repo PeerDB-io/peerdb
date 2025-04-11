@@ -42,9 +42,6 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
     }
   };
 
-  const handleSwitchChange = (val: string | boolean, setting: PeerSetting) => {
-    setting.stateHandler(val, setter);
-  };
   const handleTextFieldChange = (
     e: React.ChangeEvent<HTMLInputElement>,
     setting: PeerSetting
@@ -82,8 +79,8 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
               action={
                 <div>
                   <Switch
-                    onCheckedChange={(state: boolean) =>
-                      handleSwitchChange(state, setting)
+                    onCheckedChange={(val: boolean) =>
+                      setting.stateHandler(val, setter)
                     }
                   />
                   {setting.tips && (
@@ -202,7 +199,7 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
                   <TextField
                     variant='simple'
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      handleSwitchChange(e.target.value, setting)
+                      setting.stateHandler(e.target.value, setter)
                     }
                     type={setting.type}
                     placeholder={setting.placeholder}

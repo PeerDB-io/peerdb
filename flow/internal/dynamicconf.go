@@ -19,6 +19,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+const (
+	DefaultPeerDBS3PartSize int64 = 50 * 1024 * 1024 // 50MiB
+)
+
 var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_CDC_CHANNEL_BUFFER_SIZE",
@@ -94,6 +98,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_RECONNECT_AFTER_BATCHES",
+		Description:      "Force peerdb to reconnect connection to source after N batches",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:         "PEERDB_FULL_REFRESH_OVERWRITE_MODE",
 		Description:  "Enables full refresh mode for query replication mirrors of overwrite type",
 		DefaultValue: "false",
@@ -136,7 +148,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Name: "PEERDB_S3_PART_SIZE",
 		Description: "S3 upload part size in bytes, may need to increase for large batches. " +
 			"https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
-		DefaultValue:     "0",
+		DefaultValue:     strconv.FormatInt(DefaultPeerDBS3PartSize, 10),
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -475,6 +487,10 @@ func PeerDBWALHeartbeatQuery(ctx context.Context, env map[string]string) (string
 
 func PeerDBEnableParallelSyncNormalize(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
+}
+
+func PeerDBReconnectAfterBatches(ctx context.Context, env map[string]string) (int32, error) {
+	return dynamicConfSigned[int32](ctx, env, "PEERDB_RECONNECT_AFTER_BATCHES")
 }
 
 func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {

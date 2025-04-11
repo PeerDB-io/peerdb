@@ -30,6 +30,16 @@ const (
 	NotifyTelemetry ErrorAction = "notify_telemetry"
 )
 
+var (
+	ClickHouseDecimalParsingRe = regexp.MustCompile(
+		`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`,
+	)
+	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
+	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile(`ID\([a-z0-9-]+\) not found in user directories`)
+	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
+	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
+)
+
 func (e ErrorAction) String() string {
 	return string(e)
 }
@@ -221,6 +231,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var pgConnErr *pgconn.ConnectError
+	if errors.As(err, &pgConnErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNKNOWN",
+		}
+	}
+
 	var myErr *mysql.MyError
 	if errors.As(err, &myErr) {
 		return ErrorOther, ErrorInfo{
@@ -257,10 +275,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case chproto.ErrTooManySimultaneousQueries:
 			return ErrorIgnoreConnTemporary, chErrorInfo
 		case chproto.ErrCannotParseUUID, chproto.ErrValueIsOutOfRangeOfDataType: // https://github.com/ClickHouse/ClickHouse/pull/78540
-			if regexp.MustCompile(
-				`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`).
-				MatchString(chException.Message) {
+			if ClickHouseDecimalParsingRe.MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
+			}
+		case 492: // `ACCESS_ENTITY_NOT_FOUND` TBD via https://github.com/ClickHouse/ch-go/pull/1058
+			if ClickHouseNotFoundInUserDirsRe.MatchString(chException.Message) {
+				return ErrorRetryRecoverable, chErrorInfo
 			}
 		case chproto.ErrIllegalTypeOfArgument:
 			var qrepSyncError *exceptions.QRepSyncError
@@ -278,6 +298,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				}
 				return ErrorOther, chErrorInfo
 			}
+		case chproto.ErrQueryWasCancelled:
+			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
@@ -331,26 +353,31 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	}
 	var pgWalErr *exceptions.PostgresWalError
 	if errors.As(err, &pgWalErr) {
-		if pgWalErr.Msg.Severity == "ERROR" && pgWalErr.Msg.Code == pgerrcode.InternalError &&
-			(strings.HasPrefix(pgWalErr.Msg.Message, "could not read from reorderbuffer spill file") ||
-				(strings.HasPrefix(pgWalErr.Msg.Message, "could not stat file ") &&
-					strings.HasSuffix(pgWalErr.Msg.Message, "Stale file handle"))) {
-			// Example errors:
-			// could not stat file "pg_logical/snapshots/1B6-2A845058.snap": Stale file handle
-			// could not read from reorderbuffer spill file: Bad address
-			// could not read from reorderbuffer spill file: Bad file descriptor
-			return ErrorRetryRecoverable, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   pgWalErr.Msg.Code,
-			}
+		errorInfo := ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   pgWalErr.Msg.Code,
 		}
-		// &{Severity:ERROR Code:42704 Message:publication "custom_pub" does not exist}
-		publicationNotExistRe := regexp.MustCompile(`publication ".*?" does not exist`)
-		if pgWalErr.Msg.Severity == "ERROR" && pgWalErr.Msg.Code == pgerrcode.UndefinedObject &&
-			publicationNotExistRe.MatchString(pgWalErr.Msg.Message) {
-			return ErrorNotifyPublicationMissing, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   pgWalErr.Msg.Code,
+		if pgWalErr.Msg.Severity == "ERROR" {
+			if pgWalErr.Msg.Code == pgerrcode.InternalError &&
+				(strings.HasPrefix(pgWalErr.Msg.Message, "could not read from reorderbuffer spill file") ||
+					(strings.HasPrefix(pgWalErr.Msg.Message, "could not stat file ") &&
+						strings.HasSuffix(pgWalErr.Msg.Message, "Stale file handle")) ||
+					// Below error is transient and Aurora Specific
+					(strings.HasPrefix(pgWalErr.Msg.Message, "Internal error encountered during logical decoding"))) {
+				// Example errors:
+				// could not stat file "pg_logical/snapshots/1B6-2A845058.snap": Stale file handle
+				// could not read from reorderbuffer spill file: Bad address
+				// could not read from reorderbuffer spill file: Bad file descriptor
+				return ErrorRetryRecoverable, errorInfo
+			}
+			// &{Code:XX000 Message:requested WAL segment 000000010001337F0000002E has already been removed}
+			if pgWalErr.Msg.Code == pgerrcode.InternalError && PostgresWalSegmentRemovedRe.MatchString(pgWalErr.Msg.Message) {
+				return ErrorRetryRecoverable, errorInfo
+			}
+
+			// &{Severity:ERROR Code:42704 Message:publication "custom_pub" does not exist}
+			if pgWalErr.Msg.Code == pgerrcode.UndefinedObject && PostgresPublicationDoesNotExistRe.MatchString(pgWalErr.Msg.Message) {
+				return ErrorNotifyPublicationMissing, errorInfo
 			}
 		}
 	}
