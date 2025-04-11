@@ -42,6 +42,55 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 	return nil
 }
 
+// only for MySQL 5.7 and below
+func (c *MySqlConnector) checkMySQL5_BinlogSettings(ctx context.Context) error {
+	cmp, err := c.CompareServerVersion(ctx, "5.5.0")
+	if err != nil {
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	if cmp < 0 {
+		c.logger.Warn("cannot validate mysql prior to 5.5.0, uncharted territory")
+		return nil
+	}
+
+	// MySQL 5.6.6 introduced GTIDs so they may work, no need to enforce filepos for now
+
+	query := "SELECT @@binlog_format"
+	checkBinlogRowImage := false
+	cmp, err = c.CompareServerVersion(ctx, "5.6.2")
+	if err != nil {
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	if cmp >= 0 {
+		query += ", @@binlog_row_image"
+		checkBinlogRowImage = true
+	}
+
+	// binlog_expire_logs_seconds was introduced in 8.0 https://dev.mysql.com/worklog/task/?id=10924
+	// since expire_logs_days has day granularity, all settings of it work for us so not checking
+	rs, err := c.Execute(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve settings <5.7: %w", err)
+	}
+	if len(rs.Values) == 0 {
+		return errors.New("no value returned for settings <5.7")
+	}
+	row := rs.Values[0]
+
+	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
+	if binlogFormat != "ROW" {
+		return errors.New("binlog_format must be set to 'ROW', currently " + binlogFormat)
+	}
+	if checkBinlogRowImage {
+		binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[1].AsString())
+		if binlogRowImage != "FULL" {
+			return errors.New("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
+		}
+	}
+
+	return nil
+}
+
 func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMetadata bool) error {
 	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
 		cmp, err := c.CompareServerVersion(ctx, "8.0.1")
@@ -49,8 +98,14 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 			return fmt.Errorf("failed to get server version: %w", err)
 		}
 		if cmp < 0 {
-			c.logger.Warn("cannot validate mysql prior to 8.0.1")
-			return nil
+			if requireRowMetadata {
+				return errors.New(
+					"MySQL version too old for column exclusion support, " +
+						"please disable it or upgrade to >8.0.1 (binlog_row_metadata needed)",
+				)
+			}
+			c.logger.Warn("cannot validate mysql prior to 8.0.1, falling back to MySQL 5.7 check")
+			return c.checkMySQL5_BinlogSettings(ctx)
 		}
 	}
 
@@ -175,19 +230,20 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		return errors.New("flavor is set to unknown")
 	}
 
-	if rs, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
+	// MariaDB specific setting, introduced in MariaDB 10.0.3
+	if rs, err := c.Execute(ctx, "select @@gtid_strict_mode"); err != nil {
 		var mErr *mysql.MyError
-		// seems to be MariaDB
+		// seems to be MySQL
 		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
-			if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
-				return errors.New("server appears to be MariaDB but flavor is not set to MariaDB")
+			if c.config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+				return errors.New("server appears to be MySQL but flavor is not set to MySQL")
 			}
 		} else {
 			return fmt.Errorf("failed to check GTID mode: %w", err)
 		}
 	} else if len(rs.Values) > 0 {
-		if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-			return errors.New("server appears to be MySQL but flavor is set to MariaDB")
+		if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+			return errors.New("server appears to be MariaDB but flavor is not set to MariaDB")
 		}
 	}
 

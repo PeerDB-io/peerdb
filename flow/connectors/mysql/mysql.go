@@ -8,6 +8,7 @@ import (
 	"iter"
 	"log/slog"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -238,7 +239,7 @@ func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
 			return false, err
 		}
 
-		return gtid_mode == "ON", nil
+		return strings.HasPrefix(gtid_mode, "ON"), nil
 	} else {
 		// mariadb always enabled: https://mariadb.com/kb/en/gtid/#using-global-transaction-ids
 		cmp, err := c.CompareServerVersion(ctx, "10.0.2")
