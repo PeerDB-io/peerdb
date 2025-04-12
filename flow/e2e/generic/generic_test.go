@@ -604,6 +604,7 @@ func (s Generic) Test_Inheritance_Table_Without_Dynamic_Setting() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.PublicationName = srcPublicationName
+	flowConnConfig.Env = map[string]string{"PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES": "false"}
 
 	tc := e2e.NewTemporalClient(t)
 	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -662,7 +663,6 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.PublicationName = srcPublicationName
-	flowConnConfig.Env = map[string]string{"PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES": "true"}
 	flowConnConfig.IdleTimeoutSeconds = 60
 	flowConnConfig.DoInitialSnapshot = true
 
