@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,56 +46,70 @@ type PostgresCDCSource struct {
 	childToParentRelIDMapping map[uint32]uint32
 
 	// for storing schema delta audit logs to catalog
-	catalogPool                  shared.CatalogPool
-	otelManager                  *otel_metrics.OtelManager
-	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
-	hushWarnUnknownTableDetected map[uint32]struct{}
-	flowJobName                  string
+	catalogPool                              shared.CatalogPool
+	otelManager                              *otel_metrics.OtelManager
+	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
+	hushWarnUnknownTableDetected             map[uint32]struct{}
+	flowJobName                              string
+	handleInheritanceForNonPartitionedTables bool
 }
 
 type PostgresCDCConfig struct {
-	CatalogPool            shared.CatalogPool
-	OtelManager            *otel_metrics.OtelManager
-	SrcTableIDNameMapping  map[uint32]string
-	TableNameMapping       map[string]model.NameAndExclude
-	TableNameSchemaMapping map[string]*protos.TableSchema
-	ChildToParentRelIDMap  map[uint32]uint32
-	RelationMessageMapping model.RelationMessageMapping
-	FlowJobName            string
-	Slot                   string
-	Publication            string
+	CatalogPool                              shared.CatalogPool
+	OtelManager                              *otel_metrics.OtelManager
+	SrcTableIDNameMapping                    map[uint32]string
+	TableNameMapping                         map[string]model.NameAndExclude
+	TableNameSchemaMapping                   map[string]*protos.TableSchema
+	RelationMessageMapping                   model.RelationMessageMapping
+	FlowJobName                              string
+	Slot                                     string
+	Publication                              string
+	HandleInheritanceForNonPartitionedTables bool
 }
 
 // Create a new PostgresCDCSource
-func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
-	return &PostgresCDCSource{
-		PostgresConnector:            c,
-		srcTableIDNameMapping:        cdcConfig.SrcTableIDNameMapping,
-		tableNameMapping:             cdcConfig.TableNameMapping,
-		tableNameSchemaMapping:       cdcConfig.TableNameSchemaMapping,
-		relationMessageMapping:       cdcConfig.RelationMessageMapping,
-		slot:                         cdcConfig.Slot,
-		publication:                  cdcConfig.Publication,
-		commitLock:                   nil,
-		childToParentRelIDMapping:    cdcConfig.ChildToParentRelIDMap,
-		catalogPool:                  cdcConfig.CatalogPool,
-		otelManager:                  cdcConfig.OtelManager,
-		hushWarnUnhandledMessageType: make(map[pglogrepl.MessageType]struct{}),
-		hushWarnUnknownTableDetected: make(map[uint32]struct{}),
-		flowJobName:                  cdcConfig.FlowJobName,
+func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
+	childToParentRelIDMap, err := getChildToParentRelIDMap(ctx,
+		c.conn, slices.Collect(maps.Keys(cdcConfig.SrcTableIDNameMapping)),
+		cdcConfig.HandleInheritanceForNonPartitionedTables)
+	if err != nil {
+		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
+
+	return &PostgresCDCSource{
+		PostgresConnector:                        c,
+		srcTableIDNameMapping:                    cdcConfig.SrcTableIDNameMapping,
+		tableNameMapping:                         cdcConfig.TableNameMapping,
+		tableNameSchemaMapping:                   cdcConfig.TableNameSchemaMapping,
+		relationMessageMapping:                   cdcConfig.RelationMessageMapping,
+		slot:                                     cdcConfig.Slot,
+		publication:                              cdcConfig.Publication,
+		commitLock:                               nil,
+		childToParentRelIDMapping:                childToParentRelIDMap,
+		catalogPool:                              cdcConfig.CatalogPool,
+		otelManager:                              cdcConfig.OtelManager,
+		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
+		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
+		flowJobName:                              cdcConfig.FlowJobName,
+		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
+	}, nil
 }
 
-func GetChildToParentRelIDMap(ctx context.Context,
-	conn *pgx.Conn, parentTableOIDs []uint32,
+func getChildToParentRelIDMap(ctx context.Context,
+	conn *pgx.Conn, parentTableOIDs []uint32, handleInheritanceForNonPartitionedTables bool,
 ) (map[uint32]uint32, error) {
-	query := `
+	relkinds := "'p'"
+	if handleInheritanceForNonPartitionedTables {
+		relkinds = "'p', 'r'"
+	}
+
+	query := fmt.Sprintf(`
 		SELECT parent.oid AS parentrelid, child.oid AS childrelid
 		FROM pg_inherits
 		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
 		JOIN pg_class child ON pg_inherits.inhrelid = child.oid
-		WHERE parent.relkind IN ('p','r') AND parent.oid=ANY($1);
-	`
+		WHERE parent.relkind IN (%s) AND parent.oid=ANY($1);
+	`, relkinds)
 
 	rows, err := conn.Query(ctx, query, parentTableOIDs)
 	if err != nil {
@@ -671,7 +687,9 @@ func processMessage[Items model.Items](
 		return processDeleteMessage(p, xld.WALStart, msg, processor, customTypeMapping)
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
-		logger.Debug("CommitMessage", slog.Any("CommitLSN", msg.CommitLSN), slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
+		logger.Debug("CommitMessage",
+			slog.Any("CommitLSN", msg.CommitLSN),
+			slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
@@ -964,6 +982,10 @@ func processRelationMessage[Items model.Items](
 	return nil, nil
 }
 
+// getParentRelIDIfPartitioned checks if the relation ID is a child table
+// and returns the parent relation ID if it is.
+// If the relation ID is not a child table, it returns the original relation ID.
+// It also logs if the child table is detected for the first time.
 func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 	parentRelID, ok := p.childToParentRelIDMapping[relID]
 	if ok {
@@ -980,18 +1002,27 @@ func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 	return relID
 }
 
-// since we generate the child to parent mapping at the beginning of the CDC stream,
-// some tables could be created after the CDC stream starts,
+// since we generate the childToParent mapping at the beginning of the CDC stream
+// some child tables could be created after the CDC stream starts
 // and we need to check if they inherit from a known table
+// filtered by relkind; parent needs to be a partitioned table by default
 func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 	relID uint32,
 ) (uint32, error) {
 	relID = p.getParentRelIDIfPartitioned(relID)
+	relkinds := "'p'"
+	if p.handleInheritanceForNonPartitionedTables {
+		relkinds = "'p', 'r'"
+	}
 
 	if _, ok := p.srcTableIDNameMapping[relID]; !ok {
 		var parentRelID uint32
-		err := p.conn.QueryRow(ctx,
-			`SELECT inhparent FROM pg_inherits WHERE inhrelid=$1`, relID).Scan(&parentRelID)
+		err := p.conn.QueryRow(
+			ctx,
+			fmt.Sprintf(`SELECT inhparent FROM pg_inherits
+			JOIN pg_class c ON pg_inherits.inhparent=c.oid
+			WHERE inhrelid=$1 AND c.relkind IN (%s)`, relkinds),
+			relID).Scan(&parentRelID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return relID, nil
