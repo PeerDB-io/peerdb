@@ -1,16 +1,13 @@
-import z from 'zod';
+import * as z from 'zod/v4';
 
 const baseServiceConfigSchema = z.object({
   slot_lag_mb_alert_threshold: z
     .number({
-      invalid_type_error: 'Slot threshold must be a number',
+      error: () => 'Slot threshold must be a number',
     })
     .min(0, 'Slot threshold must be non-negative'),
   open_connections_alert_threshold: z
-    .number({
-      invalid_type_error: 'Threshold must be a number',
-    })
-    .int({ message: 'Connections threshold must be a valid integer' })
+    .int({ error: () => 'Threshold must be an integer' })
     .min(0, 'Connections threshold must be non-negative'),
 });
 
@@ -18,17 +15,14 @@ export const slackServiceConfigSchema = z.intersection(
   baseServiceConfigSchema,
   z.object({
     auth_token: z
-      .string({ required_error: 'Auth Token is needed.' })
+      .string({ error: () => 'Auth Token is needed.' })
       .min(1, { message: 'Auth Token cannot be empty' })
       .max(256, { message: 'Auth Token is too long' }),
     channel_ids: z
       .array(
-        z.string().trim().min(1, { message: 'Channel IDs cannot be empty' }),
-        {
-          required_error: 'We need a channel ID',
-        }
+        z.string().trim().min(1, { message: 'Channel IDs cannot be empty' })
       )
-      .min(1, { message: 'Atleast one channel ID is needed' }),
+      .min(1, { message: 'At least one channel ID is needed' }),
     members: z.array(z.string().trim()).optional(),
   })
 );
@@ -42,12 +36,9 @@ export const emailServiceConfigSchema = z.intersection(
           .string()
           .trim()
           .min(1, { message: 'Email Addresses cannot be empty' })
-          .includes('@'),
-        {
-          required_error: 'We need an Email Address',
-        }
+          .includes('@')
       )
-      .min(1, { message: 'Atleast one email address is needed' }),
+      .min(1, { message: 'At least one email address is needed' }),
   })
 );
 
@@ -56,9 +47,9 @@ export const serviceConfigSchema = z.union([
   emailServiceConfigSchema,
 ]);
 export const alertConfigReqSchema = z.object({
-  id: z.optional(z.number({ invalid_type_error: 'ID must be a valid number' })),
+  id: z.optional(z.number({ error: () => 'ID must be a valid number' })),
   serviceType: z.enum(['slack', 'email'], {
-    errorMap: (issue, ctx) => ({ message: 'Invalid service type' }),
+    error: () => ({ message: 'Invalid service type' }),
   }),
   serviceConfig: serviceConfigSchema,
   alertForMirrors: z.array(z.string().trim()).optional(),
