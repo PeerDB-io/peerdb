@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -720,16 +721,23 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	return nil
 }
 
+type flowInformation struct {
+	config     *protos.FlowConnectionConfigs
+	workflowID string
+	status     protos.FlowStatus
+}
+
 func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
-	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE query_string IS NULL")
+	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
 	if err != nil {
 		return err
 	}
 
-	configs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigs, error) {
+	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*flowInformation, error) {
 		var flowName string
 		var configProto []byte
-		err := rows.Scan(&flowName, &configProto)
+		var workflowID string
+		err := rows.Scan(&flowName, &configProto, &workflowID)
 		if err != nil {
 			return nil, err
 		}
@@ -740,7 +748,10 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			return nil, err
 		}
 
-		return &config, nil
+		return &flowInformation{
+			config:     &config,
+			workflowID: workflowID,
+		}, nil
 	})
 	if err != nil {
 		return err
@@ -774,56 +785,114 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			attribute.String(otel_metrics.PeerDBVersionKey, internal.PeerDBVersionShaShort()),
 		)))
 	}
-	for _, config := range configs {
-		func() {
+
+	for _, info := range infos {
+		func(ctx context.Context) {
 			flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-				FlowName:        config.FlowJobName,
-				SourceName:      config.SourceName,
-				DestinationName: config.DestinationName,
+				FlowName:        info.config.FlowJobName,
+				SourceName:      info.config.SourceName,
+				DestinationName: info.config.DestinationName,
 			})
 			if err != nil {
 				logger.Error("Failed to get flow metadata", slog.Any("error", err))
 			}
-			connCtx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-			logger = internal.LoggerFromCtx(connCtx)
-			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](connCtx, nil, a.CatalogPool, config.SourceName)
+			ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+			logger = internal.LoggerFromCtx(ctx)
+			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
 					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
 				}
 				return
 			}
-			defer connectors.CloseConnector(connCtx, srcConn)
+			defer connectors.CloseConnector(ctx, srcConn)
 
-			slotName := "peerflow_slot_" + config.FlowJobName
-			if config.ReplicationSlotName != "" {
-				slotName = config.ReplicationSlotName
+			slotName := "peerflow_slot_" + info.config.FlowJobName
+			if info.config.ReplicationSlotName != "" {
+				slotName = info.config.ReplicationSlotName
 			}
-			peerName := config.SourceName
+			peerName := info.config.SourceName
 
-			activity.RecordHeartbeat(connCtx, fmt.Sprintf("checking %s on %s", slotName, peerName))
-			if connCtx.Err() != nil {
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
+			if ctx.Err() != nil {
 				return
 			}
-			if a.OtelManager != nil {
-				a.OtelManager.Metrics.SyncedTablesGauge.Record(connCtx, int64(len(config.TableMappings)), metric.WithAttributeSet(
-					attribute.NewSet(
-						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-						attribute.String(otel_metrics.PeerNameKey, peerName),
-						attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
-					)))
+			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, nil, info.workflowID)
+			if sErr != nil {
+				logger.Error("Failed to get workflow status", slog.Any("error", err))
 			}
-			if err := srcConn.HandleSlotInfo(connCtx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
-				FlowName: config.FlowJobName,
+			info.status = status
+
+			if a.OtelManager != nil {
+				a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
+				a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowStatusKey, status.String()),
+				)))
+			}
+			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
+				FlowName: info.config.FlowJobName,
 				PeerName: peerName,
 				SlotName: slotName,
 			}, slotMetricGauges); err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}
-		}()
+		}(ctx)
+	}
+	if a.OtelManager != nil {
+		operationalFlows := filterOperationalFlowStatuses(infos)
+		operationFlowCount := len(operationalFlows)
+		a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(operationFlowCount))
+		for _, info := range operationalFlows {
+			func(ctx context.Context) {
+				flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+					FlowName:        info.config.FlowJobName,
+					SourceName:      info.config.SourceName,
+					DestinationName: info.config.DestinationName,
+				})
+				if err != nil {
+					logger.Error("Failed to get flow metadata", slog.Any("error", err))
+				}
+				ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+				logger = internal.LoggerFromCtx(ctx)
+				if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
+					cpuLimit, err := strconv.Atoi(cpuLimitStr)
+					if err != nil {
+						logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
+					} else {
+						a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, float64(cpuLimit)/float64(operationFlowCount))
+					}
+				}
+				if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
+					memLimit, err := strconv.Atoi(memLimitStr)
+					if err != nil {
+						logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
+					} else {
+						a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, float64(memLimit)/float64(operationFlowCount))
+					}
+				}
+			}(ctx)
+		}
 	}
 
 	return nil
+}
+
+var operationalStatuses = map[protos.FlowStatus]struct{}{
+	protos.FlowStatus_STATUS_RUNNING:  {},
+	protos.FlowStatus_STATUS_PAUSING:  {},
+	protos.FlowStatus_STATUS_SETUP:    {},
+	protos.FlowStatus_STATUS_SNAPSHOT: {},
+	protos.FlowStatus_STATUS_RESYNC:   {},
+}
+
+func filterOperationalFlowStatuses(flowWithStatus []*flowInformation) []*flowInformation {
+	filtered := make([]*flowInformation, 0, len(flowWithStatus))
+	for _, info := range flowWithStatus {
+		if _, ok := operationalStatuses[info.status]; ok {
+			filtered = append(filtered, info)
+		}
+	}
+	return filtered
 }
 
 func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
