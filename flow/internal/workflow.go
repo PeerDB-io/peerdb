@@ -47,7 +47,10 @@ func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
 		}
 		// only update the catalog if the status is COMPLETED, this a long state, maintenance wfs do not alter these and we can assume
 		// that any changes post read-through cache happen only on new workers
-		if err == nil && status == protos.FlowStatus_STATUS_COMPLETED {
+		// additionally, TERMINATED and TERMINATING are end states as well
+		if err == nil && (status == protos.FlowStatus_STATUS_COMPLETED ||
+			status == protos.FlowStatus_STATUS_TERMINATED ||
+			status == protos.FlowStatus_STATUS_TERMINATING) {
 			return UpdateFlowStatusInCatalog(ctx, pool, workflowID, status)
 		}
 		return status, nil
