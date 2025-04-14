@@ -427,10 +427,12 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 	if _, ok := s.source.(*e2e.MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
+	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 1")
 
 	srcTableName := "test_mysql_geometric_types"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_mysql_geometric_types"
+	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 2")
 
 	// Create a table with a geometry column that can store any geometric type
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -463,8 +465,11 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 		ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
 		ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
  	);`, srcFullName))
+	 fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 3")
+
 	require.NoError(s.t, err)
 
+	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 4")
 
 // 	// Create a table with specific geometric type columns
 // 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
@@ -498,14 +503,18 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 // 		ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
 // 	);`, srcFullName)))
 
+	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 5")
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_geometric_types"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
+	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 6")
+
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 7")
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
