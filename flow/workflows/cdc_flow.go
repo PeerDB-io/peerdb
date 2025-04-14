@@ -36,26 +36,22 @@ type CDCFlowWorkflowState struct {
 	CurrentFlowStatus protos.FlowStatus
 }
 
-func syncStatusToCatalog(
-	ctx workflow.Context,
-	logger log.Logger,
-	state *CDCFlowWorkflowState,
-) {
+func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
 	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
 
 	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateFlowStatusInCatalogActivity,
-		workflow.GetInfo(ctx).WorkflowExecution.ID, state.CurrentFlowStatus)
+		workflow.GetInfo(ctx).WorkflowExecution.ID, status)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
-		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
+		logger.Warn("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
 }
 
 func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Logger, newStatus protos.FlowStatus) {
 	s.CurrentFlowStatus = newStatus
 	// update the status in the catalog
-	syncStatusToCatalog(ctx, logger, s)
+	syncStatusToCatalog(ctx, logger, s.CurrentFlowStatus)
 }
 
 // returns a new empty PeerFlowState
@@ -75,7 +71,7 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 			NumberOfSyncs:      0,
 		},
 	}
-	syncStatusToCatalog(ctx, workflow.GetLogger(ctx), &state)
+	syncStatusToCatalog(ctx, workflow.GetLogger(ctx), state.CurrentFlowStatus)
 	return &state
 }
 
