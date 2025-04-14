@@ -42,7 +42,7 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 		tags[tag.Key] = tag.Value
 	}
 
-	_, err = h.pool.Exec(ctx, "UPDATE flows SET tags = $1 WHERE name = $2", tags, flowName)
+	_, err = h.pool.Exec(ctx, "UPDATE flows SET tags=$1, updated_at=now() WHERE name=$2", tags, flowName)
 	if err != nil {
 		slog.Error("error updating flow tags", slog.Any("error", err))
 		return nil, err

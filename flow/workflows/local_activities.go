@@ -54,3 +54,15 @@ func updateCDCConfigInCatalogActivity(ctx context.Context, logger log.Logger, cf
 	}
 	return internal.UpdateCDCConfigInCatalog(ctx, pool, logger, cfg)
 }
+
+func updateFlowStatusInCatalogActivity(
+	ctx context.Context,
+	workflowID string,
+	status protos.FlowStatus,
+) (protos.FlowStatus, error) {
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return status, fmt.Errorf("failed to get catalog connection pool: %w", err)
+	}
+	return internal.UpdateFlowStatusInCatalog(ctx, pool, workflowID, status)
+}
