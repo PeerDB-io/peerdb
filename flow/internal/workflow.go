@@ -46,7 +46,11 @@ func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
 		if tctlErr != nil {
 			return status, tctlErr
 		}
-		return UpdateFlowStatusInCatalog(ctx, pool, workflowID, status)
+		// only update the catalog if the status is different
+		if err == nil && status != flowStatus {
+			return UpdateFlowStatusInCatalog(ctx, pool, workflowID, status)
+		}
+		return status, nil
 	}
 
 	return flowStatus, nil
