@@ -337,6 +337,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				c.logger.Info("executing normalize query",
 					slog.Int64("syncBatchId", req.SyncBatchID),
 					slog.Int64("normalizeBatchId", normBatchID),
+					slog.String("table", insertIntoSelectQuery.tableName),
 					slog.String("query", insertIntoSelectQuery.query))
 
 				if err := c.execWithConnection(ctx, chConn, insertIntoSelectQuery.query); err != nil {
