@@ -40,15 +40,14 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
 	fetchSize := shared.FetchAndChannelSize
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
-	qe.logger.Info(fmt.Sprintf("[pg_query_executor] executing cursor declaration for %v with args %v", cursorQuery, args))
 
 	if _, err := tx.Exec(ctx, cursorQuery, args...); err != nil {
 		qe.logger.Info("[pg_query_executor] failed to declare cursor",
-			slog.String("cursorQuery", cursorQuery), slog.Any("error", err))
+			slog.String("cursorQuery", cursorQuery), slog.Any("args", args), slog.Any("error", err))
 		return 0, 0, fmt.Errorf("[pg_query_executor] failed to declare cursor: %w", err)
+	} else {
+		qe.logger.Info("[pg_query_executor] declared cursor", slog.String("cursorQuery", cursorQuery), slog.Any("args", args))
 	}
-
-	qe.logger.Info(fmt.Sprintf("[pg_query_executor] declared cursor '%s' for query '%s'", cursorName, query))
 
 	var totalNumRows int64
 	var totalNumBytes int64
@@ -59,7 +58,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 			return totalNumRows, totalNumBytes, err
 		}
 
-		qe.logger.Info(fmt.Sprintf("[pg_query_executor] fetched %d rows for query '%s'", numRows, query))
+		qe.logger.Info("[pg_query_executor] fetched rows", slog.Int64("rows", numRows), slog.String("query", query))
 		totalNumRows += numRows
 		totalNumBytes += numBytes
 
