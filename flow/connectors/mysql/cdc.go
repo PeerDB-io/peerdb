@@ -356,6 +356,8 @@ func (c *MySqlConnector) PullRecords(
 			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 		}
 
+		c.logger.Info("QQQQ", slog.String("type", fmt.Sprintf("%T", event.Event)), slog.Any("event", event.Event))
+
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
 			if gset != nil {
