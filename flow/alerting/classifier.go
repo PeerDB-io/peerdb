@@ -219,7 +219,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.AdminShutdown, pgerrcode.IdleSessionTimeout:
 			return ErrorNotifyTerminate, pgErrorInfo
 		case pgerrcode.ObjectNotInPrerequisiteState:
-			// same error but 2 different messages, not sure why
+			// same underlying error but 2 different messages
+			// based on PG version, newer ones have second error
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") ||
 				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") {
 				return ErrorNotifySlotInvalid, pgErrorInfo
