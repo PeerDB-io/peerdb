@@ -152,8 +152,12 @@ func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 }
 
 func (s *MySqlSource) Exec(ctx context.Context, sql string) error {
-	_, err := s.MySqlConnector.Execute(ctx, sql)
-	return err
+	if _, err := s.MySqlConnector.Execute(ctx, sql); err != nil {
+		return err
+	} else if _, err := s.MySqlConnector.Execute(ctx, "flush binary logs"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
