@@ -337,6 +337,12 @@ func (c *MySqlConnector) PullRecords(
 	for inTx || recordCount < req.MaxBatchSize {
 		getCtx := ctx
 		if !inTx {
+			if err := timeoutCtx.Err(); err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					return nil
+				}
+				return err
+			}
 			getCtx = timeoutCtx
 		}
 		event, err := mystream.GetEvent(getCtx)
