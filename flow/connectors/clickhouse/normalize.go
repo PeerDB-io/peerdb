@@ -238,6 +238,11 @@ func getOrderedOrderByColumns(
 	return orderbyColumns
 }
 
+type NormalizeInsertQuery struct {
+	query     string
+	tableName string
+}
+
 func (c *ClickHouseConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
@@ -310,7 +315,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	numParts = max(numParts, 1)
 
-	queries := make(chan string)
+	queries := make(chan NormalizeInsertQuery)
 	rawTbl := c.getRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
@@ -328,14 +333,15 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				defer chConn.Close()
 			}
 
-			for query := range queries {
+			for insertIntoSelectQuery := range queries {
 				c.logger.Info("executing normalize query",
 					slog.Int64("syncBatchId", req.SyncBatchID),
 					slog.Int64("normalizeBatchId", normBatchID),
-					slog.String("query", query))
+					slog.String("table", insertIntoSelectQuery.tableName),
+					slog.String("query", insertIntoSelectQuery.query))
 
-				if err := c.execWithConnection(ctx, chConn, query); err != nil {
-					return fmt.Errorf("error while inserting into normalized table: %w", err)
+				if err := c.execWithConnection(ctx, chConn, insertIntoSelectQuery.query); err != nil {
+					return fmt.Errorf("error while inserting into normalized table %s: %w", insertIntoSelectQuery.tableName, err)
 				}
 			}
 			return nil
@@ -543,7 +549,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
 				peerdb_clickhouse.QuoteIdentifier(tbl), colSelector.String(), selectQuery.String())
 			select {
-			case queries <- insertIntoSelectQuery:
+			case queries <- NormalizeInsertQuery{
+				query:     insertIntoSelectQuery,
+				tableName: tbl,
+			}:
 			case <-errCtx.Done():
 				close(queries)
 				c.logger.Error("[clickhouse] context canceled while normalizing",
