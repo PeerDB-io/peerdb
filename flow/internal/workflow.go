@@ -41,7 +41,6 @@ func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
 		}
 
 		// this should only trigger for existing mirrors once
-		// except QRep/XMin mirrors, they will always hit this codepath
 		status, tctlErr := getWorkflowStatusFromTemporal(ctx, temporalClient, workflowID)
 		if tctlErr != nil {
 			return status, tctlErr
