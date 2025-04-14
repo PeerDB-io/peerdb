@@ -368,6 +368,7 @@ func (c *MySqlConnector) PullRecords(
 				pos.Name = string(ev.NextLogName)
 				pos.Pos = uint32(ev.Position)
 				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
+				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.QueryEvent:
 			if mysqlParser == nil {
@@ -572,6 +573,10 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		if spec.NewColumns != nil {
 			// these are added columns
 			for _, col := range spec.NewColumns {
+				if col.Tp == nil {
+					// ignore, can be plain ALTER TABLE ... ALTER COLUMN ... DEFAULT ...
+					continue
+				}
 				qkind, err := qkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
 				if err != nil {
 					return err

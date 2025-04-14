@@ -282,6 +282,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if ClickHouseNotFoundInUserDirsRe.MatchString(chException.Message) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
+		case 439: // CANNOT_SCHEDULE_TASK
+			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrIllegalTypeOfArgument:
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
