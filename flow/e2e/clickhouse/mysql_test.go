@@ -429,9 +429,9 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 	}
 	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 1")
 
-	srcTableName := "test_mysql_geometric_types"
+	srcTableName := "test_mysql_s_geometric_types"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
-	dstTableName := "test_mysql_geometric_types"
+	dstTableName := "test_mysql_s_geometric_types"
 	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 2")
 
 	// Create a table with a geometry column that can store any geometric type
