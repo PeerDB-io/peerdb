@@ -138,8 +138,8 @@ type ContextAwareInt64SyncGauge struct {
 }
 
 func (a *ContextAwareInt64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
-	options = append(options, buildContextualAttributes(ctx))
-	a.Int64Gauge.Record(ctx, value, options...)
+	newOptions := append([]metric.RecordOption{buildContextualAttributes(ctx)}, options...)
+	a.Int64Gauge.Record(ctx, value, newOptions...)
 }
 
 type ContextAwareFloat64SyncGauge struct {
@@ -147,8 +147,8 @@ type ContextAwareFloat64SyncGauge struct {
 }
 
 func (a *ContextAwareFloat64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
-	options = append(options, buildContextualAttributes(ctx))
-	a.Float64Gauge.Record(ctx, value, options...)
+	newOptions := append([]metric.RecordOption{buildContextualAttributes(ctx)}, options...)
+	a.Float64Gauge.Record(ctx, value, newOptions...)
 }
 
 type ContextAwareInt64Counter struct {
@@ -156,8 +156,8 @@ type ContextAwareInt64Counter struct {
 }
 
 func (a *ContextAwareInt64Counter) Add(ctx context.Context, value int64, options ...metric.AddOption) {
-	options = append(options, buildContextualAttributes(ctx))
-	a.Int64Counter.Add(ctx, value, options...)
+	newOptions := append([]metric.AddOption{buildContextualAttributes(ctx)}, options...)
+	a.Int64Counter.Add(ctx, value, newOptions...)
 }
 
 func Int64Gauge(meter metric.Meter, name string, opts ...metric.Int64GaugeOption) (metric.Int64Gauge, error) {
