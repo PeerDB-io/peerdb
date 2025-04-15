@@ -800,6 +800,17 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			}
 			ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 			logger = internal.LoggerFromCtx(ctx)
+			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, a.TemporalClient, info.workflowID)
+			if sErr != nil {
+				logger.Error("Failed to get workflow status", slog.Any("error", err), slog.String("status", status.String()))
+			}
+			info.status = status
+			if a.OtelManager != nil {
+				a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
+				a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowStatusKey, status.String()),
+				)))
+			}
 			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
@@ -818,18 +829,6 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
 			if ctx.Err() != nil {
 				return
-			}
-			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, a.TemporalClient, info.workflowID)
-			if sErr != nil {
-				logger.Error("Failed to get workflow status", slog.Any("error", err))
-			}
-			info.status = status
-
-			if a.OtelManager != nil {
-				a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
-				a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.FlowStatusKey, status.String()),
-				)))
 			}
 			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
 				FlowName: info.config.FlowJobName,
