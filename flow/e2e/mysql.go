@@ -111,6 +111,7 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 	} else {
 		for _, sql := range []string{
 			"set global binlog_format=row",
+			"set binlog_format=row",
 			"set global binlog_row_metadata=full",
 		} {
 			if _, err := connector.Execute(t.Context(), sql); err != nil {
@@ -152,12 +153,8 @@ func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 }
 
 func (s *MySqlSource) Exec(ctx context.Context, sql string) error {
-	if _, err := s.MySqlConnector.Execute(ctx, sql); err != nil {
-		return err
-	} else if _, err := s.MySqlConnector.Execute(ctx, "flush binary logs"); err != nil {
-		return err
-	}
-	return nil
+	_, err := s.MySqlConnector.Execute(ctx, sql)
+	return err
 }
 
 func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
