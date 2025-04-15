@@ -11,6 +11,7 @@ const (
 	ErrorCodeKey               = "errorCode"
 	InstanceStatusKey          = "instanceStatus"
 	PeerDBVersionKey           = "peerDBVersion"
+	DeploymentVersionKey       = "deploymentVersion"
 	WorkflowTypeKey            = "workflowType"
 	BatchIdKey                 = "batchId"
 	SourcePeerType             = "sourcePeerType"

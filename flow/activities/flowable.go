@@ -784,6 +784,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		a.OtelManager.Metrics.InstanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.InstanceStatusKey, instanceStatus),
 			attribute.String(otel_metrics.PeerDBVersionKey, internal.PeerDBVersionShaShort()),
+			attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
 		)))
 	}
 
