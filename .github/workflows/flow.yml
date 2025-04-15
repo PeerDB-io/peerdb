@@ -44,7 +44,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.4.8@sha256:eb99cb2c5ce7b521d9f0c4bb32dd1fb17290e25c170fda5c7f25a523a07aed6a
+        image: bitnami/minio:2025.4.8@sha256:4ab67707a5b6a391d1b4d545d70877c002fb08724e80b21eb483986103b73602
         ports:
           - 9999:9999
         env:
@@ -192,6 +192,6 @@ jobs:
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5
+        uses: codecov/codecov-action@ad3126e916f78f00edff4ed0317cf185271ccc2d # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
