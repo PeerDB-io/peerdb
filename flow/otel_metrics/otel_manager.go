@@ -270,8 +270,8 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
-	// Appending unit since UCUM does not support `cores` as a unit
-	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("cpu_limits_per_active_flow"),
+	// Appending unit since UCUM does not support `vcores` as a unit
+	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("cpu_limits_per_active_flow_vcores"),
 		metric.WithDescription(
 			"CPU limits per active flow. To get total CPU limits, multiply by number of active flows or do sum over all flows",
 		),
