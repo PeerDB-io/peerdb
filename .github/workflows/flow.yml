@@ -57,6 +57,14 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
+      - uses: actions/checkout@v4
+        with:
+          repository: 'Azure/azure-event-hubs-emulator-installer'
+          path: 'eventhubs'
+
+      - run: "bash LaunchEmulator.sh --ACCEPT_EULA=y"
+        working-directory: ./eventhubs/EventHub-Emulator/Scripts/Common
+
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
@@ -176,7 +184,6 @@ jobs:
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
           TEST_S3_CREDS: ${{ github.workspace }}/s3_creds.json
           TEST_GCS_CREDS: ${{ github.workspace }}/gcs_creds.json
-          TEST_EH_CREDS: ${{ github.workspace }}/eh_creds.json
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}

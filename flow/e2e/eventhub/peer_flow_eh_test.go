@@ -3,7 +3,6 @@ package e2e_eventhubs
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -51,7 +50,14 @@ func (s EventhubsSuite) Suffix() string {
 func EventhubsCreds() (*protos.EventHubConfig, error) {
 	jsonPath := os.Getenv("TEST_EH_CREDS")
 	if jsonPath == "" {
-		return nil, errors.New("TEST_EH_CREDS env var not set")
+		return &protos.EventHubConfig{
+			Namespace:              "emulatorNs1",
+			ResourceGroup:          "",
+			Location:               "",
+			SubscriptionId:         "",
+			PartitionCount:         2,
+			MessageRetentionInDays: 7,
+		}, nil
 	}
 
 	content, err := e2eshared.ReadFileToBytes(jsonPath)
@@ -60,8 +66,7 @@ func EventhubsCreds() (*protos.EventHubConfig, error) {
 	}
 
 	var config *protos.EventHubConfig
-	err = json.Unmarshal(content, &config)
-	if err != nil {
+	if err := json.Unmarshal(content, &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
 
@@ -123,7 +128,6 @@ func SetupSuite(t *testing.T) EventhubsSuite {
 }
 
 func Test_Eventhubs(t *testing.T) {
-	t.Skip()
 	e2eshared.RunSuite(t, SetupSuite)
 }
 
