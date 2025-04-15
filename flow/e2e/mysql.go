@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	"github.com/PeerDB-io/peerdb/flow/connectors/mysql"
+	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -62,14 +62,14 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 	}
 
 	if _, err := connector.Execute(
-		t.Context(), fmt.Sprintf("DROP DATABASE IF EXISTS \"e2e_test_%s\"", suffix),
+		t.Context(), fmt.Sprintf(`DROP DATABASE IF EXISTS "e2e_test_%s"`, suffix),
 	); err != nil {
 		connector.Close()
 		return nil, err
 	}
 
 	if _, err := connector.Execute(
-		t.Context(), fmt.Sprintf("CREATE DATABASE \"e2e_test_%s\"", suffix),
+		t.Context(), fmt.Sprintf(`CREATE DATABASE "e2e_test_%s"`, suffix),
 	); err != nil {
 		connector.Close()
 		return nil, err
@@ -130,7 +130,7 @@ func (s *MySqlSource) Connector() connectors.Connector {
 func (s *MySqlSource) Teardown(t *testing.T, ctx context.Context, suffix string) {
 	t.Helper()
 	if _, err := s.MySqlConnector.Execute(
-		ctx, fmt.Sprintf("DROP DATABASE IF EXISTS \"e2e_test_%s\"", suffix),
+		ctx, fmt.Sprintf(`DROP DATABASE IF EXISTS "e2e_test_%s"`, suffix),
 	); err != nil {
 		t.Log("failed to drop mysql database", err)
 		s.MySqlConnector.Close()
