@@ -195,7 +195,9 @@ func pauseAndGetRunningMirrors(
 				logger.Error("Error checking and pausing mirror", "mirror", mirror, "error", err)
 			} else {
 				logger.Info("Finished check and pause for mirror", "mirror", mirror, "wasRunning", wasRunning)
-				runningMirrors = append(runningMirrors, mirror)
+				if wasRunning {
+					runningMirrors = append(runningMirrors, mirror)
+				}
 			}
 		})
 	}
