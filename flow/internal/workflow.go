@@ -2,6 +2,7 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -39,11 +40,16 @@ func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
 			slog.Info("flow status from catalog is unknown, will fall back to temporal",
 				slog.String("flowID", workflowID))
 		}
-
-		// this should only trigger for existing mirrors once
-		status, tctlErr := getWorkflowStatusFromTemporal(ctx, temporalClient, workflowID)
-		if tctlErr != nil {
-			return status, tctlErr
+		var status protos.FlowStatus
+		if temporalClient != nil {
+			// this should only trigger for existing mirrors once
+			status, tctlErr := getWorkflowStatusFromTemporal(ctx, temporalClient, workflowID)
+			if tctlErr != nil {
+				return status, tctlErr
+			}
+		} else {
+			slog.Error("temporal client is nil, cannot get status from temporal even though catalog has unknown status")
+			return protos.FlowStatus_STATUS_UNKNOWN, errors.New("temporal client is nil, cannot get status from temporal")
 		}
 		// only update the catalog if the status is COMPLETED, this a long state, maintenance wfs do not alter these and we can assume
 		// that any changes post read-through cache happen only on new workers
