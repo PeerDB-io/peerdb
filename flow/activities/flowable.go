@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
@@ -45,9 +46,10 @@ type NormalizeBatchRequest struct {
 }
 
 type FlowableActivity struct {
-	CatalogPool shared.CatalogPool
-	Alerter     *alerting.Alerter
-	OtelManager *otel_metrics.OtelManager
+	CatalogPool    shared.CatalogPool
+	Alerter        *alerting.Alerter
+	OtelManager    *otel_metrics.OtelManager
+	TemporalClient client.Client
 }
 
 type StreamCloser interface {
@@ -816,7 +818,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			if ctx.Err() != nil {
 				return
 			}
-			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, nil, info.workflowID)
+			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, a.TemporalClient, info.workflowID)
 			if sErr != nil {
 				logger.Error("Failed to get workflow status", slog.Any("error", err))
 			}
