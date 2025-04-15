@@ -165,6 +165,7 @@ func (c *MySqlConnector) SetupReplication(
 			return model.SetupReplicationResult{}, fmt.Errorf("[mysql] SetupReplication failed to GetMasterGTIDSet: %w", err)
 		}
 		lastOffsetText = set.String()
+		c.logger.Info("QQQQs", slog.String("xid", lastOffsetText))
 	} else {
 		pos, err := c.GetMasterPos(ctx)
 		if err != nil {
@@ -362,7 +363,20 @@ func (c *MySqlConnector) PullRecords(
 			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 		}
 
-		c.logger.Info("QQQQ", slog.String("type", fmt.Sprintf("%T", event.Event)), slog.Any("event", event.Event))
+		if gset != nil {
+			switch ev := event.Event.(type) {
+			case *replication.XIDEvent:
+				c.logger.Info("QQQQx", slog.String("type", fmt.Sprintf("%T", event.Event)), slog.String("gset", gset.String()),
+					slog.String("xid", ev.GSet.String()))
+			case *replication.QueryEvent:
+				c.logger.Info("QQQQy", slog.String("type", fmt.Sprintf("%T", event.Event)), slog.String("gset", gset.String()),
+					slog.String("xid", ev.GSet.String()))
+			case *replication.RowsEvent:
+				sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table)
+				c.logger.Info("QQQQr", slog.String("type", fmt.Sprintf("%T", event.Event)), slog.String("gset", gset.String()),
+					slog.String("tble", sourceTableName))
+			}
+		}
 
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
