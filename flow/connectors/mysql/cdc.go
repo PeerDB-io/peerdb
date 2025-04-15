@@ -367,14 +367,14 @@ func (c *MySqlConnector) PullRecords(
 			switch ev := event.Event.(type) {
 			case *replication.XIDEvent:
 				c.logger.Info("QQQQx", slog.String("type", fmt.Sprintf("%T", event.Event)), slog.String("gset", gset.String()),
-					slog.String("xid", ev.GSet.String()))
+					slog.String("xid", ev.GSet.String()), slog.Bool("inTx", inTx))
 			case *replication.QueryEvent:
 				c.logger.Info("QQQQy", slog.String("type", fmt.Sprintf("%T", event.Event)), slog.String("gset", gset.String()),
-					slog.String("xid", ev.GSet.String()))
+					slog.String("xid", ev.GSet.String()), slog.Bool("inTx", inTx))
 			case *replication.RowsEvent:
 				sourceTableName := string(ev.Table.Schema) + "." + string(ev.Table.Table)
 				c.logger.Info("QQQQr", slog.String("type", fmt.Sprintf("%T", event.Event)), slog.String("gset", gset.String()),
-					slog.String("tble", sourceTableName))
+					slog.String("tble", sourceTableName), slog.Bool("inTx", inTx))
 			}
 		}
 
@@ -564,6 +564,9 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 		}
+	}
+	if gset != nil {
+		c.logger.Info("QQQQa", slog.String("gset", gset.String()))
 	}
 	return nil
 }

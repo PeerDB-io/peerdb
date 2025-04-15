@@ -151,16 +151,14 @@ func processCDCFlowConfigUpdate(
 	logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
 
 	if tablesAreAdded {
-		err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch)
-		if err != nil {
+		if err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
 			logger.Error("failed to process additional tables", slog.Any("error", err))
 			return err
 		}
 	}
 
 	if tablesAreRemoved {
-		err := processTableRemovals(ctx, logger, cfg, state)
-		if err != nil {
+		if err := processTableRemovals(ctx, logger, cfg, state); err != nil {
 			logger.Error("failed to process removed tables", slog.Any("error", err))
 			return err
 		}
