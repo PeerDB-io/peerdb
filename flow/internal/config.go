@@ -27,6 +27,10 @@ func PeerDBDeploymentUID() string {
 	return GetEnvString("PEERDB_DEPLOYMENT_UID", "")
 }
 
+func PeerDBDeploymentVersion() string {
+	return GetEnvString("PEERDB_DEPLOYMENT_VERSION", "")
+}
+
 func PeerFlowTaskQueueName(taskQueueID shared.TaskQueueID) string {
 	deploymentUID := PeerDBDeploymentUID()
 	if deploymentUID == "" {

@@ -291,7 +291,7 @@ func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, e
 	case mysql.MariaDBFlavor:
 		query = "select @@gtid_current_pos"
 	default:
-		query = "select @@gtid_executed"
+		query = "select @@GLOBAL.gtid_executed"
 	}
 	rr, err := c.Execute(ctx, query)
 	if err != nil {

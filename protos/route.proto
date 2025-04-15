@@ -370,7 +370,10 @@ message FlowStateChangeRequest {
 message FlowStateChangeResponse {}
 
 message PeerDBVersionRequest {}
-message PeerDBVersionResponse { string version = 1; }
+message PeerDBVersionResponse {
+  string version = 1;
+  optional string deployment_version = 2;
+}
 
 message ResyncMirrorRequest {
   string flow_job_name = 1;

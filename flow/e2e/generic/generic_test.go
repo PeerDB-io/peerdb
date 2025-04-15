@@ -46,7 +46,7 @@ func TestGenericCH_PG(t *testing.T) {
 func TestGenericCH_MySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
-		suffix := "pgchg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychg_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupMySQL(t, suffix)
 		return source, suffix, err
 	})))
