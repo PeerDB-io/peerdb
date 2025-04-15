@@ -42,6 +42,7 @@ const (
 	InstanceStatusGaugeName             = "instance_status"
 	MaintenanceStatusGaugeName          = "maintenance_status"
 	FlowStatusGaugeName                 = "flow_status"
+	ActiveFlowsGaugeName                = "active_flows"
 )
 
 type Metrics struct {
@@ -264,7 +265,7 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
-	if om.Metrics.ActiveFlowsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName("active_flows"),
+	if om.Metrics.ActiveFlowsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ActiveFlowsGaugeName),
 		metric.WithDescription("Number of active flows"),
 	); err != nil {
 		return err

@@ -25,6 +25,7 @@ const (
 	IsTemporalLocalActivityKey = "isTemporalLocalActivity"
 	TemporalActivityTypeKey    = "temporalActivityType"
 	TemporalWorkflowTypeKey    = "temporalWorkflowType"
+	IsFlowActiveKey            = "isFlowActive"
 )
 
 const (

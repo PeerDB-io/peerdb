@@ -727,6 +727,7 @@ type flowInformation struct {
 	config     *protos.FlowConnectionConfigs
 	workflowID string
 	status     protos.FlowStatus
+	isActive   bool
 }
 
 func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
@@ -787,7 +788,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
 		)))
 	}
-
+	activeFlows := make([]*flowInformation, 0, len(infos))
 	for _, info := range infos {
 		func(ctx context.Context) {
 			flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
@@ -805,10 +806,14 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				logger.Error("Failed to get workflow status", slog.Any("error", err), slog.String("status", status.String()))
 			}
 			info.status = status
+			if _, info.isActive = activeFlowStatuses[status]; info.isActive {
+				activeFlows = append(activeFlows, info)
+			}
 			if a.OtelManager != nil {
 				a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
 				a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowStatusKey, status.String()),
+					attribute.Bool(otel_metrics.IsFlowActiveKey, info.isActive),
 				)))
 			}
 			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
@@ -840,7 +845,6 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		}(ctx)
 	}
 	if a.OtelManager != nil {
-		activeFlows := filterActiveFlows(infos)
 		if activeFlowCount := len(activeFlows); activeFlowCount > 0 {
 			var activeFlowCpuLimit float64
 			var totalCpuLimit float64
@@ -898,16 +902,6 @@ var activeFlowStatuses = map[protos.FlowStatus]struct{}{
 	protos.FlowStatus_STATUS_SETUP:    {},
 	protos.FlowStatus_STATUS_SNAPSHOT: {},
 	protos.FlowStatus_STATUS_RESYNC:   {},
-}
-
-func filterActiveFlows(flowWithStatus []*flowInformation) []*flowInformation {
-	filtered := make([]*flowInformation, 0, len(flowWithStatus))
-	for _, info := range flowWithStatus {
-		if _, ok := activeFlowStatuses[info.status]; ok {
-			filtered = append(filtered, info)
-		}
-	}
-	return filtered
 }
 
 func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
