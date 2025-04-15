@@ -41,6 +41,8 @@ const (
 	SyncedTablesGaugeName               = "synced_tables"
 	InstanceStatusGaugeName             = "instance_status"
 	MaintenanceStatusGaugeName          = "maintenance_status"
+	FlowStatusGaugeName                 = "flow_status"
+	ActiveFlowsGaugeName                = "active_flows"
 )
 
 type Metrics struct {
@@ -62,6 +64,10 @@ type Metrics struct {
 	SyncedTablesGauge               metric.Int64Gauge
 	InstanceStatusGauge             metric.Int64Gauge
 	MaintenanceStatusGauge          metric.Int64Gauge
+	FlowStatusGauge                 metric.Int64Gauge
+	ActiveFlowsGauge                metric.Int64Gauge
+	CPULimitsPerActiveFlowGauge     metric.Float64Gauge
+	MemoryLimitsPerActiveFlowGauge  metric.Float64Gauge
 }
 
 type SlotMetricGauges struct {
@@ -252,6 +258,37 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 	slog.Debug("Finished setting up all metrics")
+
+	if om.Metrics.FlowStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(FlowStatusGaugeName),
+		metric.WithDescription("Status of the flow, always emits a 1 metric with different `flowStatus` value for different statuses"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ActiveFlowsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ActiveFlowsGaugeName),
+		metric.WithDescription("Number of active flows"),
+	); err != nil {
+		return err
+	}
+
+	// Appending unit since UCUM does not support `vcores` as a unit
+	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("cpu_limits_per_active_flow_vcores"),
+		metric.WithDescription(
+			"CPU limits per active flow. To get total CPU limits, multiply by number of active flows or do sum over all flows",
+		),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.MemoryLimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("memory_limits_per_active_flow"),
+		metric.WithDescription(
+			"Memory per active flow. To get total memory limits, multiply by number of active flows or do sum over all flows",
+		),
+		metric.WithUnit("By"),
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 

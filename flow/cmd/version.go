@@ -11,6 +11,11 @@ func (h *FlowRequestHandler) GetVersion(
 	ctx context.Context,
 	req *protos.PeerDBVersionRequest,
 ) (*protos.PeerDBVersionResponse, error) {
-	version := internal.PeerDBVersionShaShort()
-	return &protos.PeerDBVersionResponse{Version: version}, nil
+	versionResponse := protos.PeerDBVersionResponse{
+		Version: internal.PeerDBVersionShaShort(),
+	}
+	if deploymentVersion := internal.PeerDBDeploymentVersion(); deploymentVersion != "" {
+		versionResponse.DeploymentVersion = &deploymentVersion
+	}
+	return &versionResponse, nil
 }
