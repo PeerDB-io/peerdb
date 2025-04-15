@@ -62,7 +62,7 @@ jobs:
           repository: 'Azure/azure-event-hubs-emulator-installer'
           path: 'eventhubs'
 
-      - run: "bash LaunchEmulator.sh --ACCEPT_EULA=y"
+      - run: "sed -i 9092d ../../../Docker-Compose-Template/docker-compose-default.yml && bash LaunchEmulator.sh --ACCEPT_EULA=y"
         working-directory: ./eventhubs/EventHub-Emulator/Scripts/Common
 
       - name: generate or hydrate protos
