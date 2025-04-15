@@ -84,6 +84,13 @@ func main() {
 		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_API_VERSION_MATCH"),
 	}
 
+	skipOnDeploymentVersionMatch := &cli.BoolFlag{
+		Name:    "skip-on-deployment-version-match",
+		Value:   false,
+		Usage:   "Skip maintenance flow if the deployment version matches",
+		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_DEPLOYMENT_VERSION_MATCH"),
+	}
+
 	maintenanceSkipOnNoMirrorsFlag := &cli.BoolFlag{
 		Name:    "skip-on-no-mirrors",
 		Value:   false,
@@ -230,6 +237,7 @@ func main() {
 						TemporalNamespace:                 clicmd.String(temporalNamespaceFlag.Name),
 						Mode:                              clicmd.String(maintenanceModeWorkflowFlag.Name),
 						SkipOnApiVersionMatch:             clicmd.Bool(maintenanceSkipOnApiVersionMatchFlag.Name),
+						SkipOnDeploymentVersionMatch:      clicmd.Bool(skipOnDeploymentVersionMatch.Name),
 						SkipOnNoMirrors:                   clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),
 						FlowGrpcAddress:                   clicmd.String(flowGrpcAddressFlag.Name),
 						FlowTlsEnabled:                    clicmd.Bool(flowTlsEnabledFlag.Name),
