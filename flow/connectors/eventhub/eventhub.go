@@ -288,7 +288,7 @@ func (c *EventHubConnector) processBatch(
 						partitionKey = fmt.Sprint(partitionValue)
 					}
 
-					partitionKey = utils.HashedPartitionKey(partitionKey, ehConfig.PartitionCount)
+					partitionKey = HashedPartitionKey(partitionKey, ehConfig.PartitionCount)
 					event.Hub.PartitionKeyValue = partitionKey
 				}
 				err := batchPerTopic.AddEvent(ctx, event.Hub, event.Data, false)
