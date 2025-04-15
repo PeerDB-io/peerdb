@@ -737,8 +737,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		var flowName string
 		var configProto []byte
 		var workflowID string
-		err := rows.Scan(&flowName, &configProto, &workflowID)
-		if err != nil {
+		if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
 			return nil, err
 		}
 
@@ -839,45 +838,60 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		}(ctx)
 	}
 	if a.OtelManager != nil {
-		operationalFlows := filterOperationalFlowStatuses(infos)
-		operationFlowCount := len(operationalFlows)
-		a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(operationFlowCount))
-		for _, info := range operationalFlows {
-			func(ctx context.Context) {
-				flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-					FlowName:        info.config.FlowJobName,
-					SourceName:      info.config.SourceName,
-					DestinationName: info.config.DestinationName,
-				})
+		activeFlows := filterActiveFlows(infos)
+		if activeFlowCount := len(activeFlows); activeFlowCount > 0 {
+			var activeFlowCpuLimit float64
+			var totalCpuLimit float64
+			if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
+				totalCpuLimit, err = strconv.ParseFloat(cpuLimitStr, 64)
 				if err != nil {
-					logger.Error("Failed to get flow metadata", slog.Any("error", err))
+					logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
 				}
-				ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-				logger = internal.LoggerFromCtx(ctx)
-				if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
-					cpuLimit, err := strconv.Atoi(cpuLimitStr)
-					if err != nil {
-						logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
-					} else {
-						a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, float64(cpuLimit)/float64(operationFlowCount))
-					}
+			}
+
+			var activeFlowMemoryLimit float64
+			var totalMemoryLimit float64
+			if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
+				totalMemoryLimit, err = strconv.ParseFloat(memLimitStr, 64)
+				if err != nil {
+					logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
+				} else {
 				}
-				if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
-					memLimit, err := strconv.Atoi(memLimitStr)
-					if err != nil {
-						logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
-					} else {
-						a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, float64(memLimit)/float64(operationFlowCount))
-					}
+			}
+
+			activeFlowCpuLimit = totalCpuLimit / float64(activeFlowCount)
+			activeFlowMemoryLimit = totalMemoryLimit / float64(activeFlowCount)
+			a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(activeFlowCount))
+			if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
+				for _, info := range activeFlows {
+					func(ctx context.Context) {
+						flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+							FlowName:        info.config.FlowJobName,
+							SourceName:      info.config.SourceName,
+							DestinationName: info.config.DestinationName,
+						})
+						if err != nil {
+							logger.Error("Failed to get flow metadata", slog.Any("error", err))
+						}
+						ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+						logger = internal.LoggerFromCtx(ctx)
+
+						if activeFlowMemoryLimit > 0 {
+							a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
+						}
+						if activeFlowCpuLimit > 0 {
+							a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, activeFlowCpuLimit)
+						}
+					}(ctx)
 				}
-			}(ctx)
+			}
 		}
 	}
 
 	return nil
 }
 
-var operationalStatuses = map[protos.FlowStatus]struct{}{
+var activeFlowStatuses = map[protos.FlowStatus]struct{}{
 	protos.FlowStatus_STATUS_RUNNING:  {},
 	protos.FlowStatus_STATUS_PAUSING:  {},
 	protos.FlowStatus_STATUS_SETUP:    {},
@@ -885,10 +899,10 @@ var operationalStatuses = map[protos.FlowStatus]struct{}{
 	protos.FlowStatus_STATUS_RESYNC:   {},
 }
 
-func filterOperationalFlowStatuses(flowWithStatus []*flowInformation) []*flowInformation {
+func filterActiveFlows(flowWithStatus []*flowInformation) []*flowInformation {
 	filtered := make([]*flowInformation, 0, len(flowWithStatus))
 	for _, info := range flowWithStatus {
-		if _, ok := operationalStatuses[info.status]; ok {
+		if _, ok := activeFlowStatuses[info.status]; ok {
 			filtered = append(filtered, info)
 		}
 	}
