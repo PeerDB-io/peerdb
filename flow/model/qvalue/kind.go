@@ -25,7 +25,6 @@ const (
 	QValueKindUInt32      QValueKind = "uint32"
 	QValueKindUInt64      QValueKind = "uint64"
 	QValueKindBoolean     QValueKind = "bool"
-	QValueKindStruct      QValueKind = "struct"
 	QValueKindQChar       QValueKind = "qchar"
 	QValueKindString      QValueKind = "string"
 	QValueKindEnum        QValueKind = "enum"
@@ -96,7 +95,6 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindTimeTZ:      "TIME",
 	QValueKindDate:        "DATE",
 	QValueKindBytes:       "BINARY",
-	QValueKindStruct:      "STRING",
 	QValueKindUUID:        "STRING",
 	QValueKindInvalid:     "STRING",
 	QValueKindHStore:      "VARIANT",
@@ -144,7 +142,6 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindTimeTZ:      "DateTime64(6)",
 	QValueKindDate:        "Date32",
 	QValueKindBytes:       "String",
-	QValueKindStruct:      "String",
 	QValueKindUUID:        "UUID",
 	QValueKindInvalid:     "String",
 	QValueKindHStore:      "String",
