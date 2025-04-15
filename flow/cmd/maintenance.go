@@ -161,7 +161,7 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			if err != nil {
 				return false, err
 			}
-			slog.Info("Got version from flow", "version", version.Version)
+			slog.Info("Got version from flow", "version", version)
 			skippedReasons := make([]string, 0, 2)
 			apiSkipped := !args.SkipOnApiVersionMatch
 			if args.SkipOnApiVersionMatch && version.Version == internal.PeerDBVersionShaShort() {
