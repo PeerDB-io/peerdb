@@ -855,7 +855,6 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				totalMemoryLimit, err = strconv.ParseFloat(memLimitStr, 64)
 				if err != nil {
 					logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
-				} else {
 				}
 			}
 
