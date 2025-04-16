@@ -88,14 +88,6 @@ func (a *FlowableActivity) applySchemaDeltas(
 			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
 				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
 		}) {
-			// schemaDelta := schemaDeltas[i]
-			// if len(schemaDelta.AddedColumns) > 0 {
-			// 	for _, addedColumn := range schemaDelta.AddedColumns {
-			// 		a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
-			// 			fmt.Sprintf("added column %s of type %s (nullable: %s) to destination table %s",
-			// 				addedColumn.Name, addedColumn.Type, strconv.FormatBool(addedColumn.Nullable), schemaDelta.DstTableName))
-			// 	}
-			// }
 			filteredTableMappings = append(filteredTableMappings, tableMapping)
 		}
 	}

@@ -138,7 +138,7 @@ func recryptDatabase(
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
-func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
+func setupGRPCGatewayServer(ctx context.Context, args *APIServerParams) (*http.Server, error) {
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("0.0.0.0:%d", args.Port),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -148,7 +148,7 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 	}
 
 	gwmux := runtime.NewServeMux()
-	if err := protos.RegisterFlowServiceHandler(context.Background(), gwmux, conn); err != nil {
+	if err := protos.RegisterFlowServiceHandler(ctx, gwmux, conn); err != nil {
 		return nil, fmt.Errorf("unable to register gateway: %w", err)
 	}
 
@@ -242,7 +242,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	}
 
 	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
-	flowHandler := NewFlowRequestHandler(tc, catalogPool, taskQueue)
+	flowHandler := NewFlowRequestHandler(ctx, tc, catalogPool, taskQueue)
 
 	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue); err != nil {
 		return fmt.Errorf("unable to kill existing scheduler flows: %w", err)
@@ -278,7 +278,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		}
 	}()
 
-	gateway, err := setupGRPCGatewayServer(args)
+	gateway, err := setupGRPCGatewayServer(ctx, args)
 	if err != nil {
 		return fmt.Errorf("unable to setup gateway server: %w", err)
 	}
