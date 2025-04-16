@@ -41,11 +41,11 @@ type WorkerSetupResponse struct {
 	OtelManager *otel_metrics.OtelManager
 }
 
-func (w *WorkerSetupResponse) Close() {
+func (w *WorkerSetupResponse) Close(ctx context.Context) {
 	slog.Info("Shutting down worker")
 	w.Client.Close()
 	if w.OtelManager != nil {
-		if err := w.OtelManager.Close(context.Background()); err != nil {
+		if err := w.OtelManager.Close(ctx); err != nil {
 			slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
 		}
 	}
@@ -92,7 +92,7 @@ func setupPyroscope(opts *WorkerSetupOptions) {
 	}
 }
 
-func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
+func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 	if opts.EnableProfiling {
 		setupPyroscope(opts)
 	}
@@ -106,7 +106,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 		},
 	}
 	if opts.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(context.Background(), otel_metrics.FlowWorkerServiceName)
+		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowWorkerServiceName)
 		if metricsErr != nil {
 			return nil, metricsErr
 		}
@@ -117,20 +117,19 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 
 	if internal.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := parseTemporalCertAndKey(context.Background())
+		certs, err := parseTemporalCertAndKey(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
-		connOptions := client.ConnectionOptions{
+		clientOptions.ConnectionOptions = client.ConnectionOptions{
 			TLS: &tls.Config{
 				Certificates: certs,
 				MinVersion:   tls.VersionTLS13,
 			},
 		}
-		clientOptions.ConnectionOptions = connOptions
 	}
 
-	conn, err := internal.GetCatalogConnectionPoolFromEnv(context.Background())
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
@@ -164,7 +163,7 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 
 	var otelManager *otel_metrics.OtelManager
 	if opts.EnableOtelMetrics {
-		otelManager, err = otel_metrics.NewOtelManager(context.Background(), otel_metrics.FlowWorkerServiceName)
+		otelManager, err = otel_metrics.NewOtelManager(ctx, otel_metrics.FlowWorkerServiceName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create otel manager: %w", err)
 		}
@@ -172,14 +171,14 @@ func WorkerSetup(opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 
 	w.RegisterActivity(&activities.FlowableActivity{
 		CatalogPool:    conn,
-		Alerter:        alerting.NewAlerter(context.Background(), conn, otelManager),
+		Alerter:        alerting.NewAlerter(ctx, conn, otelManager),
 		OtelManager:    otelManager,
 		TemporalClient: c,
 	})
 
 	w.RegisterActivity(&activities.MaintenanceActivity{
 		CatalogPool:    conn,
-		Alerter:        alerting.NewAlerter(context.Background(), conn, otelManager),
+		Alerter:        alerting.NewAlerter(ctx, conn, otelManager),
 		OtelManager:    otelManager,
 		TemporalClient: c,
 	})

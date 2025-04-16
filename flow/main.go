@@ -138,7 +138,7 @@ func main() {
 				Name: "worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					res, err := cmd.WorkerSetup(&cmd.WorkerSetupOptions{
+					res, err := cmd.WorkerSetup(ctx, &cmd.WorkerSetupOptions{
 						TemporalHostPort:                   temporalHostPort,
 						EnableProfiling:                    clicmd.Bool("enable-profiling"),
 						EnableOtelMetrics:                  clicmd.Bool("enable-otel-metrics"),
@@ -151,7 +151,7 @@ func main() {
 					if err != nil {
 						return err
 					}
-					defer res.Close()
+					defer res.Close(context.Background())
 					return res.Worker.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
@@ -169,7 +169,7 @@ func main() {
 				Name: "snapshot-worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					res, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
+					res, err := cmd.SnapshotWorkerMain(ctx, &cmd.SnapshotWorkerOptions{
 						EnableOtelMetrics: clicmd.Bool("enable-otel-metrics"),
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: clicmd.String("temporal-namespace"),
@@ -177,7 +177,7 @@ func main() {
 					if err != nil {
 						return err
 					}
-					defer res.Close()
+					defer res.Close(context.Background())
 					return res.Worker.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{

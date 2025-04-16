@@ -32,12 +32,12 @@ type FlowRequestHandler struct {
 	peerflowTaskQueueID string
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool shared.CatalogPool, taskQueue string) *FlowRequestHandler {
+func NewFlowRequestHandler(ctx context.Context, temporalClient client.Client, pool shared.CatalogPool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
 		temporalClient:      temporalClient,
 		pool:                pool,
 		peerflowTaskQueueID: taskQueue,
-		alerter:             alerting.NewAlerter(context.Background(), pool, nil),
+		alerter:             alerting.NewAlerter(ctx, pool, nil),
 	}
 }
 
