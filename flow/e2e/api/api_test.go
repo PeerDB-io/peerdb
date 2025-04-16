@@ -3,6 +3,7 @@ package e2e_api
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -426,4 +427,50 @@ func (s Suite) TestDropCompleted() {
 			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
+}
+
+func (s Suite) TestAlertConfig() {
+	create, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
+		Config: &protos.AlertConfig{
+			Id:              -1,
+			ServiceType:     "slack",
+			ServiceConfig:   "config",
+			AlertForMirrors: []string{"mirror"},
+		},
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, create)
+	getCreate, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, getCreate)
+	require.True(s.t, slices.ContainsFunc(getCreate.Configs, func(config *protos.AlertConfig) bool {
+		return config.Id == create.Id && config.ServiceType == "slack" && config.ServiceConfig == "config"
+	}))
+
+	update, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
+		Config: &protos.AlertConfig{
+			Id:              create.Id,
+			ServiceType:     "email",
+			ServiceConfig:   "newconfig",
+			AlertForMirrors: []string{"mirror"},
+		},
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, update)
+	getUpdate, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, getUpdate)
+	require.True(s.t, slices.ContainsFunc(getUpdate.Configs, func(config *protos.AlertConfig) bool {
+		return config.Id == create.Id && config.ServiceType == "email" && config.ServiceConfig == "newconfig"
+	}))
+
+	del, err := s.DeleteAlertConfig(s.t.Context(), &protos.DeleteAlertConfigRequest{Id: create.Id})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, del)
+	getDelete, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, getDelete)
+	require.False(s.t, slices.ContainsFunc(getDelete.Configs, func(config *protos.AlertConfig) bool {
+		return config.Id == create.Id
+	}))
 }
