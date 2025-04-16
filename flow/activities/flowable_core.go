@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -84,19 +83,19 @@ func (a *FlowableActivity) applySchemaDeltas(
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
-	for i, tableMapping := range options.TableMappings {
+	for _, tableMapping := range options.TableMappings {
 		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
 			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
 				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
 		}) {
-			schemaDelta := schemaDeltas[i]
-			if len(schemaDelta.AddedColumns) > 0 {
-				for _, addedColumn := range schemaDelta.AddedColumns {
-					a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
-						fmt.Sprintf("added column %s of type %s (nullable: %s) to destination table %s",
-							addedColumn.Name, addedColumn.Type, strconv.FormatBool(addedColumn.Nullable), schemaDelta.DstTableName))
-				}
-			}
+			// schemaDelta := schemaDeltas[i]
+			// if len(schemaDelta.AddedColumns) > 0 {
+			// 	for _, addedColumn := range schemaDelta.AddedColumns {
+			// 		a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
+			// 			fmt.Sprintf("added column %s of type %s (nullable: %s) to destination table %s",
+			// 				addedColumn.Name, addedColumn.Type, strconv.FormatBool(addedColumn.Nullable), schemaDelta.DstTableName))
+			// 	}
+			// }
 			filteredTableMappings = append(filteredTableMappings, tableMapping)
 		}
 	}
