@@ -43,7 +43,8 @@ func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
 		var status protos.FlowStatus
 		if temporalClient != nil {
 			// this should only trigger for existing mirrors once
-			status, tctlErr := getWorkflowStatusFromTemporal(ctx, temporalClient, workflowID)
+			var tctlErr error
+			status, tctlErr = getWorkflowStatusFromTemporal(ctx, temporalClient, workflowID)
 			if tctlErr != nil {
 				return status, tctlErr
 			}
