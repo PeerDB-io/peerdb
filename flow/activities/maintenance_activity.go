@@ -111,7 +111,7 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to be ready", mirror.MirrorName))
 		mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 		if err != nil || mirrorStatus == protos.FlowStatus_STATUS_SNAPSHOT || mirrorStatus == protos.FlowStatus_STATUS_SETUP ||
-			mirrorStatus == protos.FlowStatus_STATUS_RESYNC {
+			mirrorStatus == protos.FlowStatus_STATUS_RESYNC || mirrorStatus == protos.FlowStatus_STATUS_UNKNOWN {
 			return false, mirrorStatus, err
 		}
 		return true, mirrorStatus, nil
