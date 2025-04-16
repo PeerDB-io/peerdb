@@ -578,6 +578,42 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 	// 	require.Equal(s.t, expectedValues[i], geometryVal, "geometry_col value mismatch at row %d", i+1)
 	// }
 
+	// Verify that the data was correctly replicated
+	rows, err := s.GetRows(dstTableName, "id, point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2, "expected 2 rows")
+
+
+	// Expected WKT format values for each geometric type
+	expectedValues := [][]string{
+		{
+			"POINT(1 2)",
+			"LINESTRING(1 2, 3 4)",
+			"POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))",
+			"MULTIPOINT((1 2), (3 4))",
+			"MULTILINESTRING((1 2, 3 4), (5 6, 7 8))",
+			"MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
+			"GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))",
+		},
+		{
+			"POINT(10 20)",
+			"LINESTRING(10 20, 30 40)",
+			"POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))",
+			"MULTIPOINT((10 20), (30 40))",
+			"MULTILINESTRING((10 20, 30 40), (50 60, 70 80))",
+			"MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))",
+			"GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))",
+		},
+	}
+
+	for i, row := range rows.Records {
+		require.Len(s.t, row, 8, "expected 8 columns")
+		for j := 1; j < 8; j++ {
+			geometryVal := row[j].Value()
+			require.Equal(s.t, expectedValues[i][j-1], geometryVal, "geometry value mismatch at row %d column %d", i+1, j)
+		}
+	}	
+
 	// Clean up
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
