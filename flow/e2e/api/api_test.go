@@ -474,3 +474,33 @@ func (s Suite) TestAlertConfig() {
 		return config.Id == create.Id
 	}))
 }
+
+func (s Suite) TestSettings() {
+	newValue := "90"
+	firstResponse, err := s.GetDynamicSettings(s.t.Context(), &protos.GetDynamicSettingsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, firstResponse)
+	require.True(s.t, slices.EqualFunc(firstResponse.Settings, internal.DynamicSettings[:],
+		func(x *protos.DynamicSetting, y *protos.DynamicSetting) bool {
+			return x.Name == y.Name &&
+				x.DefaultValue == y.DefaultValue &&
+				x.Description == y.Description &&
+				x.ValueType == y.ValueType &&
+				x.ApplyMode == y.ApplyMode &&
+				x.TargetForSetting == y.TargetForSetting
+		}))
+
+	postResponse, err := s.PostDynamicSetting(s.t.Context(), &protos.PostDynamicSettingRequest{
+		Name:  "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS",
+		Value: &newValue,
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, postResponse)
+
+	secondResponse, err := s.GetDynamicSettings(s.t.Context(), &protos.GetDynamicSettingsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, secondResponse)
+	require.True(s.t, slices.ContainsFunc(secondResponse.Settings, func(x *protos.DynamicSetting) bool {
+		return x.Name == "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS" && x.Value != nil && *x.Value == newValue
+	}))
+}
