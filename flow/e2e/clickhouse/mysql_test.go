@@ -427,12 +427,10 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 	if _, ok := s.source.(*e2e.MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
-	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 1")
 
 	srcTableName := "test_mysql_s_geometric_types"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_mysql_s_geometric_types"
-	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 2")
 
 	// Create a table with a geometry column that can store any geometric type
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -465,56 +463,17 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 		ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
 		ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
  	);`, srcFullName))
-	 fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 3")
 
 	require.NoError(s.t, err)
-
-	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 4")
-
-// 	// Create a table with specific geometric type columns
-// 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-// 	CREATE TABLE IF NOT EXISTS %[1]s(
-// 		id serial PRIMARY KEY,
-// 		point_col POINT,
-// 		linestring_col LINESTRING,
-// 		polygon_col POLYGON,
-// 		multipoint_col MULTIPOINT,
-// 		multilinestring_col MULTILINESTRING,
-// 		multipolygon_col MULTIPOLYGON,
-// 		geometrycollection_col GEOMETRYCOLLECTION
-// 	);`, srcFullName)))
-
-// 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-// 	INSERT INTO %[1]s (
-// 		point_col,
-// 		linestring_col,
-// 		polygon_col,
-// 		multipoint_col,
-// 		multilinestring_col,
-// 		multipolygon_col,
-// 		geometrycollection_col
-// 	) VALUES (
-// 		ST_GeomFromText('POINT(1 2)'),
-// 		ST_GeomFromText('LINESTRING(1 2, 3 4)'),
-// 		ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))'),
-// 		ST_GeomFromText('MULTIPOINT((1 2), (3 4))'),
-// 		ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))'),
-// 		ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
-// 		ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
-// 	);`, srcFullName)))
-
-	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 5")
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_geometric_types"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
-	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 6")
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
-	fmt.Println("*********************************************Test_MySQL_S_Geometric_Types 7")
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -524,13 +483,6 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 
 	// Insert additional rows to test CDC
-	// _, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	// INSERT INTO %[1]s (geometry_col) VALUES
-	// 	(ST_GeomFromText('POINT(10 20)')),
-	// 	(ST_GeomFromText('LINESTRING(10 20, 30 40)')),
-	// 	(ST_GeomFromText('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))'));`, srcFullName))
-	// require.NoError(s.t, err)
-
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %[1]s (
 		point_col,
@@ -553,33 +505,9 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 	// Wait for CDC to replicate the new rows
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 
-	// // Verify that the data was correctly replicated
-	// rows, err := s.GetRows(dstTableName, "id, geometry_col")
-	// require.NoError(s.t, err)
-	// require.Len(s.t, rows.Records, 10, "expected 10 rows")
-
-	// // Expected WKT format values for each geometric type
-	// expectedValues := []string{
-	// 	"POINT(1 2)",
-	// 	"LINESTRING(1 2, 3 4)",
-	// 	"POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))",
-	// 	"MULTIPOINT((1 2), (3 4))",
-	// 	"MULTILINESTRING((1 2, 3 4), (5 6, 7 8))",
-	// 	"MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
-	// 	"GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))",
-	// 	"POINT(10 20)",
-	// 	"LINESTRING(10 20, 30 40)",
-	// 	"POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))",
-	// }
-
-	// for i, row := range rows.Records {
-	// 	require.Len(s.t, row, 2, "expected 2 columns")
-	// 	geometryVal := row[1].Value()
-	// 	require.Equal(s.t, expectedValues[i], geometryVal, "geometry_col value mismatch at row %d", i+1)
-	// }
-
 	// Verify that the data was correctly replicated
-	rows, err := s.GetRows(dstTableName, "id, point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col")
+	rows, err := s.GetRows(dstTableName, "id, point_col, linestring_col, polygon_col, multipoint_col, 
+		multilinestring_col, multipolygon_col, geometrycollection_col")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2, "expected 2 rows")
 
@@ -618,146 +546,3 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
-
-// func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
-// 	if _, ok := s.source.(*e2e.MySqlSource); !ok {
-// 		s.t.Skip("only applies to mysql")
-// 	}
-
-// 	srcTableName := "test_mysql_specific_geometric_types"
-// 	srcFullName := s.attachSchemaSuffix(srcTableName)
-// 	dstTableName := "test_mysql_specific_geometric_types"
-
-// 	// Create a table with specific geometric type columns
-// 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-// 	CREATE TABLE IF NOT EXISTS %[1]s(
-// 		id serial PRIMARY KEY,
-// 		point_col POINT,
-// 		linestring_col LINESTRING,
-// 		polygon_col POLYGON,
-// 		multipoint_col MULTIPOINT,
-// 		multilinestring_col MULTILINESTRING,
-// 		multipolygon_col MULTIPOLYGON,
-// 		geometrycollection_col GEOMETRYCOLLECTION
-// 	);`, srcFullName)))
-
-// 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-// 	INSERT INTO %[1]s (
-// 		point_col,
-// 		linestring_col,
-// 		polygon_col,
-// 		multipoint_col,
-// 		multilinestring_col,
-// 		multipolygon_col,
-// 		geometrycollection_col
-// 	) VALUES (
-// 		ST_GeomFromText('POINT(1 2)'),
-// 		ST_GeomFromText('LINESTRING(1 2, 3 4)'),
-// 		ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))'),
-// 		ST_GeomFromText('MULTIPOINT((1 2), (3 4))'),
-// 		ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))'),
-// 		ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
-// 		ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
-// 	);`, srcFullName)))
-
-// 	// require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-// 	// INSERT INTO %[1]s (
-// 	// 	point_col,
-// 	// 	linestring_col,
-// 	// 	polygon_col,
-// 	// 	multipoint_col,
-// 	// 	multilinestring_col,
-// 	// 	multipolygon_col,
-// 	// 	geometrycollection_col
-// 	// ) VALUES (
-// 	// 	ST_GeomFromText('POINT(1 2)'),
-// 	// 	ST_GeomFromText('LINESTRING(1 2, 3 4)'),
-// 	// 	ST_GeomFromText('POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))'),
-// 	// 	ST_GeomFromText('MULTIPOINT((1 2), (3 4))'),
-// 	// 	ST_GeomFromText('MULTILINESTRING((1 2, 3 4), (5 6, 7 8))'),
-// 	// 	ST_GeomFromText('MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))'),
-// 	// 	ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))')
-// 	// );`, srcFullName)))
-
-// 	connectionGen := e2e.FlowConnectionGenerationConfig{
-// 		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_specific_geometric_types"),
-// 		TableNameMapping: map[string]string{srcFullName: dstTableName},
-// 		Destination:      s.Peer().Name,
-// 	}
-// 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-// 	flowConnConfig.DoInitialSnapshot = true
-
-// 	// flowConnConfig.Env = map[string]string{
-// 	// 	"PEERDB_DEVELOPMENT": "true",
-// 	// 	"PEERDB_LOG_LEVEL":   "debug",
-// 	// }
-
-// 	tc := e2e.NewTemporalClient(s.t)
-// 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-// 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-
-// 	// Wait for initial snapshot to complete
-// 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
-
-// 	// Insert additional rows to test CDC
-// 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
-// 	INSERT INTO %[1]s (
-// 		point_col,
-// 		linestring_col,
-// 		polygon_col,
-// 		multipoint_col,
-// 		multilinestring_col,
-// 		multipolygon_col,
-// 		geometrycollection_col
-// 	) VALUES (
-// 		ST_PointFromText('POINT(10 20)'),
-// 		ST_LineFromText('LINESTRING(10 20, 30 40)'),
-// 		ST_PolygonFromText('POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))'),
-// 		ST_MPointFromText('MULTIPOINT((10 20), (30 40))'),
-// 		ST_MLineFromText('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))'),
-// 		ST_MPolyFromText('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))'),
-// 		ST_GeomCollFromText('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))')
-// 	);`, srcFullName)))
-
-// 	// Wait for CDC to replicate the new rows
-// 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
-
-// 	// Verify that the data was correctly replicated
-// 	rows, err := s.GetRows(dstTableName, "id, point_col, linestring_col, polygon_col, multipoint_col, multilinestring_col, multipolygon_col, geometrycollection_col")
-// 	require.NoError(s.t, err)
-// 	require.Len(s.t, rows.Records, 2, "expected 2 rows")
-
-// 	// Expected WKT format values for each geometric type
-// 	expectedValues := [][]string{
-// 		{
-// 			"POINT(1 2)",
-// 			"LINESTRING(1 2, 3 4)",
-// 			"POLYGON((1 1, 3 1, 3 3, 1 3, 1 1))",
-// 			"MULTIPOINT((1 2), (3 4))",
-// 			"MULTILINESTRING((1 2, 3 4), (5 6, 7 8))",
-// 			"MULTIPOLYGON(((1 1, 3 1, 3 3, 1 3, 1 1)), ((4 4, 6 4, 6 6, 4 6, 4 4)))",
-// 			"GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))",
-// 		},
-// 		{
-// 			"POINT(10 20)",
-// 			"LINESTRING(10 20, 30 40)",
-// 			"POLYGON((10 10, 30 10, 30 30, 10 30, 10 10))",
-// 			"MULTIPOINT((10 20), (30 40))",
-// 			"MULTILINESTRING((10 20, 30 40), (50 60, 70 80))",
-// 			"MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))",
-// 			"GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))",
-// 		},
-// 	}
-
-// 	for i, row := range rows.Records {
-// 		require.Len(s.t, row, 8, "expected 8 columns")
-// 		for j := 1; j < 8; j++ {
-// 			geometryVal := row[j].Value()
-// 			require.Equal(s.t, expectedValues[i][j-1], geometryVal, "geometry value mismatch at row %d column %d", i+1, j)
-// 		}
-// 	}
-
-// 	// Clean up
-// 	env.Cancel(s.t.Context())
-// 	e2e.RequireEnvCanceled(s.t, env)
-// }
