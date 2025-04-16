@@ -445,9 +445,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("[qrep] failed to pull records: %w", err))
 		}
 
-		if a.OtelManager != nil {
-			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
-		}
+		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, numRecords,

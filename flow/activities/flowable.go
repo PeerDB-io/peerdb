@@ -850,51 +850,49 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			}
 		}(ctx)
 	}
-	if a.OtelManager != nil {
-		if activeFlowCount := len(activeFlows); activeFlowCount > 0 {
-			var activeFlowCpuLimit float64
-			var totalCpuLimit float64
-			if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
-				totalCpuLimit, err = strconv.ParseFloat(cpuLimitStr, 64)
-				if err != nil {
-					logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
-				}
+	if activeFlowCount := len(activeFlows); activeFlowCount > 0 {
+		var activeFlowCpuLimit float64
+		var totalCpuLimit float64
+		if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
+			totalCpuLimit, err = strconv.ParseFloat(cpuLimitStr, 64)
+			if err != nil {
+				logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
 			}
+		}
 
-			var activeFlowMemoryLimit float64
-			var totalMemoryLimit float64
-			if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
-				totalMemoryLimit, err = strconv.ParseFloat(memLimitStr, 64)
-				if err != nil {
-					logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
-				}
+		var activeFlowMemoryLimit float64
+		var totalMemoryLimit float64
+		if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
+			totalMemoryLimit, err = strconv.ParseFloat(memLimitStr, 64)
+			if err != nil {
+				logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
 			}
+		}
 
-			activeFlowCpuLimit = totalCpuLimit / float64(activeFlowCount)
-			activeFlowMemoryLimit = totalMemoryLimit / float64(activeFlowCount)
-			a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(activeFlowCount))
-			if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
-				for _, info := range activeFlows {
-					func(ctx context.Context) {
-						flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-							FlowName:        info.config.FlowJobName,
-							SourceName:      info.config.SourceName,
-							DestinationName: info.config.DestinationName,
-						})
-						if err != nil {
-							logger.Error("Failed to get flow metadata", slog.Any("error", err))
-						}
-						ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-						logger = internal.LoggerFromCtx(ctx)
+		activeFlowCpuLimit = totalCpuLimit / float64(activeFlowCount)
+		activeFlowMemoryLimit = totalMemoryLimit / float64(activeFlowCount)
+		a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(activeFlowCount))
+		if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
+			for _, info := range activeFlows {
+				func(ctx context.Context) {
+					flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+						FlowName:        info.config.FlowJobName,
+						SourceName:      info.config.SourceName,
+						DestinationName: info.config.DestinationName,
+					})
+					if err != nil {
+						logger.Error("Failed to get flow metadata", slog.Any("error", err))
+					}
+					ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+					logger = internal.LoggerFromCtx(ctx)
 
-						if activeFlowMemoryLimit > 0 {
-							a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
-						}
-						if activeFlowCpuLimit > 0 {
-							a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, activeFlowCpuLimit)
-						}
-					}(ctx)
-				}
+					if activeFlowMemoryLimit > 0 {
+						a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
+					}
+					if activeFlowCpuLimit > 0 {
+						a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, activeFlowCpuLimit)
+					}
+				}(ctx)
 			}
 		}
 	}
