@@ -500,17 +500,16 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 		ST_MLineFromText('MULTILINESTRING((10 20, 30 40), (50 60, 70 80))'),
 		ST_MPolyFromText('MULTIPOLYGON(((10 10, 30 10, 30 30, 10 30, 10 10)), ((40 40, 60 40, 60 60, 40 60, 40 40)))'),
 		ST_GeomCollFromText('GEOMETRYCOLLECTION(POINT(10 20), LINESTRING(10 20, 30 40))')
-	);`, srcFullName)))	
+	);`, srcFullName)))
 
 	// Wait for CDC to replicate the new rows
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 
 	// Verify that the data was correctly replicated
-	rows, err := s.GetRows(dstTableName, "id, point_col, linestring_col, polygon_col, multipoint_col, 
-		multilinestring_col, multipolygon_col, geometrycollection_col")
+	rows, err := s.GetRows(dstTableName, `id, point_col, linestring_col, polygon_col, multipoint_col, 
+		multilinestring_col, multipolygon_col, geometrycollection_col`)
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2, "expected 2 rows")
-
 
 	// Expected WKT format values for each geometric type
 	expectedValues := [][]string{
@@ -540,7 +539,7 @@ func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
 			geometryVal := row[j].Value()
 			require.Equal(s.t, expectedValues[i][j-1], geometryVal, "geometry value mismatch at row %d column %d", i+1, j)
 		}
-	}	
+	}
 
 	// Clean up
 	env.Cancel(s.t.Context())
