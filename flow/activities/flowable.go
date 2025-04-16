@@ -230,6 +230,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	logger := internal.LoggerFromCtx(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
+	a.Alerter.LogFlowInfo(ctx, config.FlowName, "Setting up destination tables")
 	conn, err := connectors.GetByNameAs[connectors.NormalizedTablesConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -250,8 +251,8 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	if err != nil {
 		return nil, err
 	}
-	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 
+	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
 	for tableIdentifier, tableSchema := range tableNameSchemaMapping {
 		existing, err := conn.SetupNormalizedTable(
@@ -271,6 +272,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		numTablesSetup.Add(1)
 		if !existing {
 			logger.Info("created table " + tableIdentifier)
+			a.Alerter.LogFlowInfo(ctx, config.FlowName, "created table "+tableIdentifier+" in destination")
 		} else {
 			logger.Info("table already exists " + tableIdentifier)
 		}
@@ -279,6 +281,8 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	if err := conn.FinishSetupNormalizedTables(ctx, tx); err != nil {
 		return nil, fmt.Errorf("failed to commit normalized tables tx: %w", err)
 	}
+
+	a.Alerter.LogFlowInfo(ctx, config.FlowName, "All destination tables have been setup")
 
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
@@ -527,6 +531,8 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		}
 	}
 
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "obtained partitions for table "+config.WatermarkTable)
+
 	return &protos.QRepParitionResult{
 		Partitions: partitions,
 	}, nil
@@ -593,6 +599,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 	}
 
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "replicated all rows to destination for table "+config.DestinationTableIdentifier)
 	return nil
 }
 
@@ -652,6 +659,8 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 		return pullCleanupErr
 	}
 
+	a.Alerter.LogFlowInfo(ctx, req.FlowJobName, "Cleaned up source peer replication objects.")
+
 	return nil
 }
 
@@ -670,6 +679,9 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to clean up destination: %w", err)),
 		)
 	}
+
+	a.Alerter.LogFlowInfo(ctx, req.FlowJobName,
+		"Cleaned up destination peer replication objects. Any metadata storage has been dropped.")
 
 	return nil
 }
@@ -1011,6 +1023,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 		}
 	}
 
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
+
 	return renameOutput, tx.Commit(ctx)
 }
 
@@ -1088,6 +1102,9 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	}); err != nil {
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
+
+	a.Alerter.LogFlowInfo(ctx, cfg.FlowJobName, fmt.Sprintf("ensured %d tables exist in publication %s",
+		len(additionalTableMappings), cfg.PublicationName))
 	return nil
 }
 
@@ -1110,6 +1127,9 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	}); err != nil {
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
+
+	a.Alerter.LogFlowInfo(ctx, cfg.FlowJobName, fmt.Sprintf("removed %d tables from publication %s",
+		len(removedTablesMapping), cfg.PublicationName))
 	return nil
 }
 

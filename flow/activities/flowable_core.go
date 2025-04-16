@@ -88,6 +88,14 @@ func (a *FlowableActivity) applySchemaDeltas(
 			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
 				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
 		}) {
+			// schemaDelta := schemaDeltas[i]
+			// if len(schemaDelta.AddedColumns) > 0 {
+			// 	for _, addedColumn := range schemaDelta.AddedColumns {
+			// 		a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
+			// 			fmt.Sprintf("added column %s of type %s (nullable: %s) to destination table %s",
+			// 				addedColumn.Name, addedColumn.Type, strconv.FormatBool(addedColumn.Nullable), schemaDelta.DstTableName))
+			// 	}
+			// }
 			filteredTableMappings = append(filteredTableMappings, tableMapping)
 		}
 	}
@@ -312,7 +320,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 	}
 
-	pushedRecordsWithCount := fmt.Sprintf("pushed %d records for batch %d in %v",
+	pushedRecordsWithCount := fmt.Sprintf("stored %d records into intermediate storage for batch %d in %v",
 		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second))
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
