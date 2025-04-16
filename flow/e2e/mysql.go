@@ -111,6 +111,7 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 	} else {
 		for _, sql := range []string{
 			"set global binlog_format=row",
+			"set binlog_format=row",
 			"set global binlog_row_metadata=full",
 		} {
 			if _, err := connector.Execute(t.Context(), sql); err != nil {

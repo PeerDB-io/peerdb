@@ -448,7 +448,7 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 }
 
 func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
-	return internal.GetWorkflowStatus(ctx, h.temporalClient, workflowID)
+	return internal.GetWorkflowStatus(ctx, h.pool, h.temporalClient, workflowID)
 }
 
 func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,

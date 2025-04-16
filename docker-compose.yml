@@ -106,13 +106,13 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.36.4@sha256:f969b2c6cefbf422ada4adb5bb738f51d51ca6a68c3413489063a2b136b67296
+    image: temporalio/ui:2.37.0@sha256:402144e322b31e42f694e2d280e64f4aaadbe44d9837b9e9984291f917ec56b4
     ports:
       - 8085:8080
 
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:stable-v0.27.2
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.27.4
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -128,7 +128,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.27.2
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.27.4
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -138,7 +138,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
-    image: ghcr.io/peerdb-io/flow-worker:stable-v0.27.2
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.27.4
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -151,7 +151,7 @@ services:
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.27.2
+    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.27.4
     restart: unless-stopped
     environment:
       <<: *catalog-config
@@ -167,7 +167,7 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.27.2
+    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.27.4
     restart: unless-stopped
     ports:
       - 3000:3000

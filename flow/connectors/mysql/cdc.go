@@ -337,6 +337,13 @@ func (c *MySqlConnector) PullRecords(
 	for inTx || recordCount < req.MaxBatchSize {
 		getCtx := ctx
 		if !inTx {
+			// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
+			if err := timeoutCtx.Err(); err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					return nil
+				}
+				return err
+			}
 			getCtx = timeoutCtx
 		}
 		event, err := mystream.GetEvent(getCtx)
@@ -371,6 +378,10 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.QueryEvent:
+			if gset != nil {
+				gset = ev.GSet
+				req.RecordStream.UpdateLatestCheckpointText(gset.String())
+			}
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
 			}
