@@ -93,7 +93,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 			if len(schemaDelta.AddedColumns) > 0 {
 				for _, addedColumn := range schemaDelta.AddedColumns {
 					a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
-						fmt.Sprintf("added column %s of type %s (nullable: %s) to table %s",
+						fmt.Sprintf("added column %s of type %s (nullable: %s) to destination table %s",
 							addedColumn.Name, addedColumn.Type, strconv.FormatBool(addedColumn.Nullable), schemaDelta.DstTableName))
 				}
 			}
