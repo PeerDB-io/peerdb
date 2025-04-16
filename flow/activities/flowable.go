@@ -277,7 +277,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		} else {
 			logger.Info("table already exists " + tableIdentifier)
 		}
-
 	}
 
 	if err := conn.FinishSetupNormalizedTables(ctx, tx); err != nil {
@@ -533,7 +532,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		}
 	}
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, fmt.Sprintf("obtained partitions for table %s", config.WatermarkTable))
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "obtained partitions for table "+config.WatermarkTable)
 
 	return &protos.QRepParitionResult{
 		Partitions: partitions,
@@ -661,7 +660,7 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 		return pullCleanupErr
 	}
 
-	a.Alerter.LogFlowInfo(ctx, req.FlowJobName, "Cleaned up source peer replication objects. Any replication slot or publication created by PeerDB has been removed.")
+	a.Alerter.LogFlowInfo(ctx, req.FlowJobName, "Cleaned up source peer replication objects.")
 
 	return nil
 }
@@ -682,7 +681,8 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 		)
 	}
 
-	a.Alerter.LogFlowInfo(ctx, req.FlowJobName, "Cleaned up destination peer replication objects. Any PeerDB metadata storage has been dropped.")
+	a.Alerter.LogFlowInfo(ctx, req.FlowJobName,
+		"Cleaned up destination peer replication objects. Any metadata storage has been dropped.")
 
 	return nil
 }
