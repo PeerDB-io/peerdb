@@ -423,7 +423,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s ClickHouseSuite) Test_MySQL_S_Geometric_Types() {
+func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	if _, ok := s.source.(*e2e.MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
