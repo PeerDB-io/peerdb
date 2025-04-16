@@ -251,9 +251,8 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	if err != nil {
 		return nil, err
 	}
-	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowName, "Setting up destination tables")
+	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
 	for tableIdentifier, tableSchema := range tableNameSchemaMapping {
 		existing, err := conn.SetupNormalizedTable(

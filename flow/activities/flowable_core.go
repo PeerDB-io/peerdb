@@ -83,11 +83,19 @@ func (a *FlowableActivity) applySchemaDeltas(
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
-	for _, tableMapping := range options.TableMappings {
+	for i, tableMapping := range options.TableMappings {
 		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
 			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
 				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
 		}) {
+			schemaDelta := schemaDeltas[i]
+			if len(schemaDelta.AddedColumns) > 0 {
+				for _, addedColumn := range schemaDelta.AddedColumns {
+					a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
+						fmt.Sprintf("added column %s of type %s (nullable: %s) to table %s",
+							addedColumn.Name, addedColumn.Type, fmt.Sprintf("%t", addedColumn.Nullable), schemaDelta.DstTableName))
+				}
+			}
 			filteredTableMappings = append(filteredTableMappings, tableMapping)
 		}
 	}
@@ -227,10 +235,10 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		numberOfSchemaChanges := len(recordBatchSync.SchemaDeltas)
-		if numberOfSchemaChanges > 0 {
-			a.Alerter.LogFlowInfo(ctx, flowName, fmt.Sprintf("synced %d schema changes from source to destination", numberOfSchemaChanges))
-		}
+		// numberOfSchemaChanges := len(recordBatchSync.SchemaDeltas)
+		// if numberOfSchemaChanges > 0 {
+		// 	a.Alerter.LogFlowInfo(ctx, flowName, fmt.Sprintf("synced %d schema changes from source to destination", numberOfSchemaChanges))
+		// }
 
 		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
 	}
