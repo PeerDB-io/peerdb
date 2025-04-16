@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -93,7 +94,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 				for _, addedColumn := range schemaDelta.AddedColumns {
 					a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
 						fmt.Sprintf("added column %s of type %s (nullable: %s) to table %s",
-							addedColumn.Name, addedColumn.Type, fmt.Sprintf("%t", addedColumn.Nullable), schemaDelta.DstTableName))
+							addedColumn.Name, addedColumn.Type, strconv.FormatBool(addedColumn.Nullable), schemaDelta.DstTableName))
 				}
 			}
 			filteredTableMappings = append(filteredTableMappings, tableMapping)
