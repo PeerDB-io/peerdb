@@ -83,6 +83,9 @@ var (
 	ErrorNotifyConnectivity = ErrorClass{
 		Class: "NOTIFY_CONNECTIVITY", action: NotifyUser,
 	}
+	ErrorNotifyOOMSource = ErrorClass{
+		Class: "NOTIFY_OOM_SOURCE", action: NotifyUser,
+	}
 	ErrorNotifySlotInvalid = ErrorClass{
 		Class: "NOTIFY_SLOT_INVALID", action: NotifyUser,
 	}
@@ -231,6 +234,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		case pgerrcode.TooManyConnections:
 			return ErrorNotifyConnectivity, pgErrorInfo // Maybe we can return something else?
+		case pgerrcode.OutOfMemory:
+			return ErrorNotifyOOMSource, pgErrorInfo
 		}
 	}
 
