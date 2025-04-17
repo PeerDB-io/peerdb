@@ -50,11 +50,9 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeholder int) qvalue.
 	case qvalue.QValueKindUUID:
 		return qvalue.QValueUUID{Val: uuid.New()} // assuming you have the github.com/google/uuid package
 	case qvalue.QValueKindQChar:
-		return qvalue.QValueQChar{Val: uint8(48 + placeholder%10)} // assuming you have the github.com/google/uuid package
+		return qvalue.QValueQChar{Val: uint8(48 + placeholder%10)}
 		// case qvalue.QValueKindArray:
 		// 	value = []int{1, 2, 3} // placeholder array, replace with actual logic
-		// case qvalue.QValueKindStruct:
-		// 	value = map[string]any{"key": "value"} // placeholder struct, replace with actual logic
 		// case qvalue.QValueKindJSON:
 		// 	value = `{"key": "value"}` // placeholder JSON, replace with actual logic
 	case qvalue.QValueKindBytes:
@@ -82,7 +80,6 @@ func generateRecords(
 		qvalue.QValueKindInt64,
 		qvalue.QValueKindBoolean,
 		// qvalue.QValueKindArray,
-		// qvalue.QValueKindStruct,
 		qvalue.QValueKindString,
 		qvalue.QValueKindTimestamp,
 		qvalue.QValueKindTimestampTZ,
