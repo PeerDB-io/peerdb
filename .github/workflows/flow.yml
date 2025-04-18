@@ -53,13 +53,6 @@ jobs:
           MINIO_API_PORT_NUMBER: 9999
           AWS_EC2_METADATA_DISABLED: true
           MINIO_DEFAULT_BUCKETS: peerdb
-      prometheus:
-        image: prom/prometheus:v3.3.0
-        ports:
-          - 9090:9090
-        args:
-          - '--config.file=/etc/prometheus/prometheus.yml'
-          - '--web.enable-otlp-receiver'
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -197,10 +190,6 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
-          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
-          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:9090/api/v1/otlp/v1/metrics
-          PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
-          PEERDB_OTEL_TEMPORAL_METRICS_EXPORT_LIST: '__ALL__'
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@ad3126e916f78f00edff4ed0317cf185271ccc2d # v5
