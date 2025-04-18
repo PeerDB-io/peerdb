@@ -299,10 +299,6 @@ func (c *MySqlConnector) PullRecords(
 	}
 	defer syncer.Close()
 
-	if gset == nil {
-		req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-	}
-
 	var skewLossReported bool
 	var inTx bool
 	var recordCount uint32
@@ -356,16 +352,14 @@ func (c *MySqlConnector) PullRecords(
 
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 
-		if gset == nil && event.Header.LogPos > pos.Pos {
-			pos.Pos = event.Header.LogPos
-			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-		}
-
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
 			if gset != nil {
 				gset = ev.GSet
 				req.RecordStream.UpdateLatestCheckpointText(gset.String())
+			} else if event.Header.LogPos > pos.Pos {
+				pos.Pos = event.Header.LogPos
+				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
 			inTx = false
 		case *replication.RotateEvent:
@@ -376,9 +370,14 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.QueryEvent:
-			if gset != nil {
-				gset = ev.GSet
-				req.RecordStream.UpdateLatestCheckpointText(gset.String())
+			if !inTx {
+				if gset != nil {
+					gset = ev.GSet
+					req.RecordStream.UpdateLatestCheckpointText(gset.String())
+				} else if event.Header.LogPos > pos.Pos {
+					pos.Pos = event.Header.LogPos
+					req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
+				}
 			}
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
