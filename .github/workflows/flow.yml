@@ -54,7 +54,7 @@ jobs:
           AWS_EC2_METADATA_DISABLED: true
           MINIO_DEFAULT_BUCKETS: peerdb
       otelcol:
-        image: otel/opentelemetry-collector-contrib:v3.3.0
+        image: otel/opentelemetry-collector-contrib:0.124.0
         ports:
           - 4317:4317
 
