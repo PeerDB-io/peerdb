@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
@@ -56,7 +57,6 @@ type Metrics struct {
 	ConfirmedFlushLSNGauge          metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
 	FetchedBytesCounter             metric.Int64Counter
-	InstantaneousFetchedBytesGauge  metric.Int64Gauge
 	ErrorEmittedGauge               metric.Int64Gauge
 	ErrorsEmittedCounter            metric.Int64Counter
 	RecordsSyncedGauge              metric.Int64Gauge
@@ -87,21 +87,23 @@ func BuildMetricName(baseName string) string {
 }
 
 type OtelManager struct {
-	MetricsProvider    *sdkmetric.MeterProvider
+	Metrics            Metrics
+	MetricsProvider    metric.MeterProvider
 	Meter              metric.Meter
 	Float64GaugesCache map[string]metric.Float64Gauge
 	Int64GaugesCache   map[string]metric.Int64Gauge
 	Int64CountersCache map[string]metric.Int64Counter
-	Metrics            Metrics
+	Enabled            bool
 }
 
-func NewOtelManager(ctx context.Context, serviceName string) (*OtelManager, error) {
-	metricsProvider, err := SetupPeerDBMetricsProvider(ctx, serviceName)
+func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*OtelManager, error) {
+	metricsProvider, err := SetupPeerDBMetricsProvider(ctx, serviceName, enabled)
 	if err != nil {
 		return nil, err
 	}
 
 	otelManager := OtelManager{
+		Enabled:            enabled,
 		MetricsProvider:    metricsProvider,
 		Meter:              metricsProvider.Meter("io.peerdb." + serviceName),
 		Float64GaugesCache: make(map[string]metric.Float64Gauge),
@@ -115,7 +117,10 @@ func NewOtelManager(ctx context.Context, serviceName string) (*OtelManager, erro
 }
 
 func (om *OtelManager) Close(ctx context.Context) error {
-	return om.MetricsProvider.Shutdown(ctx)
+	if provider, ok := om.MetricsProvider.(*sdkmetric.MeterProvider); ok {
+		return provider.Shutdown(ctx)
+	}
+	return nil
 }
 
 func getOrInitMetric[M any, O any](
@@ -385,7 +390,15 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	return metricExporter, err
 }
 
-func setupMetricsProvider(ctx context.Context, otelResource *resource.Resource, views ...sdkmetric.View) (*sdkmetric.MeterProvider, error) {
+func setupMetricsProvider(
+	ctx context.Context,
+	otelResource *resource.Resource,
+	enabled bool,
+	views ...sdkmetric.View,
+) (metric.MeterProvider, error) {
+	if !enabled {
+		return noop.NewMeterProvider(), nil
+	}
 	metricExporter, err := setupExporter(ctx)
 	if err != nil {
 		return nil, err
@@ -399,26 +412,31 @@ func setupMetricsProvider(ctx context.Context, otelResource *resource.Resource, 
 	return meterProvider, nil
 }
 
-func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string) (*sdkmetric.MeterProvider, error) {
+func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource)
+	return setupMetricsProvider(ctx, otelResource, enabled)
 }
 
-func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string) (*sdkmetric.MeterProvider, error) {
+func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, temporalMetricsFilteringView())
+	return setupMetricsProvider(ctx, otelResource, enabled, temporalMetricsFilteringView())
 }
 
-func SetupComponentMetricsProvider(ctx context.Context, otelServiceName string, componentName string) (*sdkmetric.MeterProvider, error) {
+func SetupComponentMetricsProvider(
+	ctx context.Context,
+	otelServiceName string,
+	componentName string,
+	enabled bool,
+) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, componentMetricsRenamingView(componentName))
+	return setupMetricsProvider(ctx, otelResource, enabled, componentMetricsRenamingView(componentName))
 }
