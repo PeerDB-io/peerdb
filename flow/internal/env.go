@@ -48,6 +48,10 @@ func GetEnvString(name string, defaultValue string) string {
 	return val
 }
 
+func GetEnvBool(name string, defaultValue bool) bool {
+	return getEnvConvert(name, defaultValue, strconv.ParseBool)
+}
+
 func getEnvConvert[T any](name string, defaultValue T, convert func(string) (T, error)) T {
 	val, ok := os.LookupEnv(name)
 	if !ok {
