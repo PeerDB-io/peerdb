@@ -44,10 +44,8 @@ type WorkerSetupResponse struct {
 func (w *WorkerSetupResponse) Close(ctx context.Context) {
 	slog.Info("Shutting down worker")
 	w.Client.Close()
-	if w.OtelManager != nil {
-		if err := w.OtelManager.Close(ctx); err != nil {
-			slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
-		}
+	if err := w.OtelManager.Close(ctx); err != nil {
+		slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
 	}
 }
 
@@ -105,15 +103,16 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 			internal.NewContextPropagator[*protos.FlowContextMetadata](internal.FlowMetadataKey),
 		},
 	}
-	if opts.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowWorkerServiceName)
-		if metricsErr != nil {
-			return nil, metricsErr
-		}
-		clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
-			Meter: metricsProvider.Meter("temporal-sdk-go"),
-		})
+
+	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(
+		ctx, otel_metrics.FlowWorkerServiceName, opts.EnableOtelMetrics,
+	)
+	if metricsErr != nil {
+		return nil, metricsErr
 	}
+	clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
+		Meter: metricsProvider.Meter("temporal-sdk-go"),
+	})
 
 	if internal.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
@@ -161,12 +160,9 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
-	var otelManager *otel_metrics.OtelManager
-	if opts.EnableOtelMetrics {
-		otelManager, err = otel_metrics.NewOtelManager(ctx, otel_metrics.FlowWorkerServiceName)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create otel manager: %w", err)
-		}
+	otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowWorkerServiceName, opts.EnableOtelMetrics)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create otel manager: %w", err)
 	}
 
 	w.RegisterActivity(&activities.FlowableActivity{

@@ -354,9 +354,7 @@ func (c *MySqlConnector) PullRecords(
 			return err
 		}
 
-		if otelManager != nil {
-			otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
-		}
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 
 		if gset == nil && event.Header.LogPos > pos.Pos {
 			pos.Pos = event.Header.LogPos

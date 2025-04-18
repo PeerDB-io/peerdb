@@ -316,9 +316,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second))
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
-	if a.OtelManager != nil {
-		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
-	}
+	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
 	syncState.Store(shared.Ptr("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
@@ -447,9 +445,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("[qrep] failed to pull records: %w", err))
 		}
 
-		if a.OtelManager != nil {
-			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
-		}
+		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, numRecords,
@@ -548,9 +544,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
 
-		if a.OtelManager != nil {
-			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
-		}
+		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, numRecords,
@@ -708,11 +702,9 @@ func (a *FlowableActivity) normalizeLoop(
 				} else if req.Done != nil {
 					close(req.Done)
 				}
-				if a.OtelManager != nil {
-					a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
-						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-					)))
-				}
+				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+				)))
 				break
 			}
 		case <-syncDone:
