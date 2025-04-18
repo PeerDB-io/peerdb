@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 
@@ -371,6 +372,17 @@ func componentMetricsRenamingView(componentName string) sdkmetric.View {
 	}
 }
 
+type panicOnFailureExporter struct {
+	sdkmetric.Exporter
+}
+
+func (p *panicOnFailureExporter) Export(ctx context.Context, metrics *metricdata.ResourceMetrics) error {
+	if err := p.Exporter.Export(ctx, metrics); err != nil {
+		panic(fmt.Sprintf("[panicOnFailureExporter] failed to export metrics: %v", err))
+	}
+	return nil
+}
+
 func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	otlpMetricProtocol := internal.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
@@ -386,6 +398,9 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry metrics exporter: %w", err)
+	}
+	if internal.GetEnvBool("PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE", false) {
+		return &panicOnFailureExporter{metricExporter}, err
 	}
 	return metricExporter, err
 }
