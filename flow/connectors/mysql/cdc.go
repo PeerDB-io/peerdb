@@ -299,10 +299,6 @@ func (c *MySqlConnector) PullRecords(
 	}
 	defer syncer.Close()
 
-	if gset == nil {
-		req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-	}
-
 	var skewLossReported bool
 	var inTx bool
 	var recordCount uint32
@@ -337,6 +333,13 @@ func (c *MySqlConnector) PullRecords(
 	for inTx || recordCount < req.MaxBatchSize {
 		getCtx := ctx
 		if !inTx {
+			// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
+			if err := timeoutCtx.Err(); err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					return nil
+				}
+				return err
+			}
 			getCtx = timeoutCtx
 		}
 		event, err := mystream.GetEvent(getCtx)
@@ -347,20 +350,16 @@ func (c *MySqlConnector) PullRecords(
 			return err
 		}
 
-		if otelManager != nil {
-			otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
-		}
-
-		if gset == nil && event.Header.LogPos > pos.Pos {
-			pos.Pos = event.Header.LogPos
-			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-		}
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
 		case *replication.XIDEvent:
 			if gset != nil {
 				gset = ev.GSet
 				req.RecordStream.UpdateLatestCheckpointText(gset.String())
+			} else if event.Header.LogPos > pos.Pos {
+				pos.Pos = event.Header.LogPos
+				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
 			inTx = false
 		case *replication.RotateEvent:
@@ -371,6 +370,15 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.QueryEvent:
+			if !inTx {
+				if gset != nil {
+					gset = ev.GSet
+					req.RecordStream.UpdateLatestCheckpointText(gset.String())
+				} else if event.Header.LogPos > pos.Pos {
+					pos.Pos = event.Header.LogPos
+					req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
+				}
+			}
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
 			}

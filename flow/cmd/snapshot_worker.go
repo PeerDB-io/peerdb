@@ -27,7 +27,7 @@ type SnapshotWorkerOptions struct {
 	EnableOtelMetrics bool
 }
 
-func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, error) {
+func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*WorkerSetupResponse, error) {
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
@@ -37,20 +37,18 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		},
 	}
 
-	if opts.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(context.Background(),
-			otel_metrics.FlowSnapshotWorkerServiceName)
-		if metricsErr != nil {
-			return nil, metricsErr
-		}
-		clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
-			Meter: metricsProvider.Meter("temporal-sdk-go"),
-		})
+	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(
+		ctx, otel_metrics.FlowSnapshotWorkerServiceName, opts.EnableOtelMetrics)
+	if metricsErr != nil {
+		return nil, metricsErr
 	}
+	clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
+		Meter: metricsProvider.Meter("temporal-sdk-go"),
+	})
 
 	if internal.PeerDBTemporalEnableCertAuth() {
 		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := parseTemporalCertAndKey(context.Background())
+		certs, err := parseTemporalCertAndKey(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
 		}
@@ -64,7 +62,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		clientOptions.ConnectionOptions = connOptions
 	}
 
-	conn, err := internal.GetCatalogConnectionPoolFromEnv(context.Background())
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
@@ -82,12 +80,9 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 		},
 	})
 
-	var otelManager *otel_metrics.OtelManager
-	if opts.EnableOtelMetrics {
-		otelManager, err = otel_metrics.NewOtelManager(context.Background(), otel_metrics.FlowSnapshotWorkerServiceName)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create otel manager: %w", err)
-		}
+	otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowSnapshotWorkerServiceName, opts.EnableOtelMetrics)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create otel manager: %w", err)
 	}
 
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
@@ -95,7 +90,7 @@ func SnapshotWorkerMain(opts *SnapshotWorkerOptions) (*WorkerSetupResponse, erro
 	w.RegisterActivity(&activities.SnapshotActivity{
 		SlotSnapshotStates: make(map[string]activities.SlotSnapshotState),
 		TxSnapshotStates:   make(map[string]activities.TxSnapshotState),
-		Alerter:            alerting.NewAlerter(context.Background(), conn, otelManager),
+		Alerter:            alerting.NewAlerter(ctx, conn, otelManager),
 		CatalogPool:        conn,
 	})
 

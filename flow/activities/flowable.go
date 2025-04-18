@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
+	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/proto"
@@ -44,9 +46,10 @@ type NormalizeBatchRequest struct {
 }
 
 type FlowableActivity struct {
-	CatalogPool shared.CatalogPool
-	Alerter     *alerting.Alerter
-	OtelManager *otel_metrics.OtelManager
+	CatalogPool    shared.CatalogPool
+	Alerter        *alerting.Alerter
+	OtelManager    *otel_metrics.OtelManager
+	TemporalClient client.Client
 }
 
 type StreamCloser interface {
@@ -227,6 +230,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	logger := internal.LoggerFromCtx(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
+	a.Alerter.LogFlowInfo(ctx, config.FlowName, "Setting up destination tables")
 	conn, err := connectors.GetByNameAs[connectors.NormalizedTablesConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -247,8 +251,8 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	if err != nil {
 		return nil, err
 	}
-	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 
+	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
 	for tableIdentifier, tableSchema := range tableNameSchemaMapping {
 		existing, err := conn.SetupNormalizedTable(
@@ -268,6 +272,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		numTablesSetup.Add(1)
 		if !existing {
 			logger.Info("created table " + tableIdentifier)
+			a.Alerter.LogFlowInfo(ctx, config.FlowName, "created table "+tableIdentifier+" in destination")
 		} else {
 			logger.Info("table already exists " + tableIdentifier)
 		}
@@ -276,6 +281,8 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	if err := conn.FinishSetupNormalizedTables(ctx, tx); err != nil {
 		return nil, fmt.Errorf("failed to commit normalized tables tx: %w", err)
 	}
+
+	a.Alerter.LogFlowInfo(ctx, config.FlowName, "All destination tables have been setup")
 
 	return &protos.SetupNormalizedTableBatchOutput{
 		TableExistsMapping: tableExistsMapping,
@@ -385,12 +392,10 @@ func (a *FlowableActivity) SyncFlow(
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
 			logger.Info("synced records", slog.Int64("numRecordsSynced", syncResponse.NumRecordsSynced),
 				slog.Int64("totalRecordsSynced", totalRecordsSynced.Load()))
-			if a.OtelManager != nil {
-				a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
-				)))
-				a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
-			}
+			a.OtelManager.Metrics.RecordsSyncedGauge.Record(ctx, syncResponse.NumRecordsSynced, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.BatchIdKey, strconv.FormatInt(syncResponse.CurrentSyncBatchID, 10)),
+			)))
+			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 		}
 		if (options.NumberOfSyncs > 0 && syncNum >= options.NumberOfSyncs) || (reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches) {
 			break
@@ -524,6 +529,8 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 		}
 	}
 
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "obtained partitions for table "+config.WatermarkTable)
+
 	return &protos.QRepParitionResult{
 		Partitions: partitions,
 	}, nil
@@ -590,6 +597,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 	}
 
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "replicated all rows to destination for table "+config.DestinationTableIdentifier)
 	return nil
 }
 
@@ -649,6 +657,8 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 		return pullCleanupErr
 	}
 
+	a.Alerter.LogFlowInfo(ctx, req.FlowJobName, "Cleaned up source peer replication objects.")
+
 	return nil
 }
 
@@ -667,6 +677,9 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to clean up destination: %w", err)),
 		)
 	}
+
+	a.Alerter.LogFlowInfo(ctx, req.FlowJobName,
+		"Cleaned up destination peer replication objects. Any metadata storage has been dropped.")
 
 	return nil
 }
@@ -720,17 +733,24 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	return nil
 }
 
+type flowInformation struct {
+	config     *protos.FlowConnectionConfigs
+	workflowID string
+	status     protos.FlowStatus
+	isActive   bool
+}
+
 func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
-	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto FROM flows WHERE query_string IS NULL")
+	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
 	if err != nil {
 		return err
 	}
 
-	configs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.FlowConnectionConfigs, error) {
+	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*flowInformation, error) {
 		var flowName string
 		var configProto []byte
-		err := rows.Scan(&flowName, &configProto)
-		if err != nil {
+		var workflowID string
+		if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
 			return nil, err
 		}
 
@@ -740,7 +760,10 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			return nil, err
 		}
 
-		return &config, nil
+		return &flowInformation{
+			config:     &config,
+			workflowID: workflowID,
+		}, nil
 	})
 	if err != nil {
 		return err
@@ -748,82 +771,141 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 
 	logger := internal.LoggerFromCtx(ctx)
 	slotMetricGauges := otel_metrics.SlotMetricGauges{}
-	if a.OtelManager != nil {
-		slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
-		slotMetricGauges.RestartLSNGauge = a.OtelManager.Metrics.RestartLSNGauge
-		slotMetricGauges.ConfirmedFlushLSNGauge = a.OtelManager.Metrics.ConfirmedFlushLSNGauge
+	slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
+	slotMetricGauges.RestartLSNGauge = a.OtelManager.Metrics.RestartLSNGauge
+	slotMetricGauges.ConfirmedFlushLSNGauge = a.OtelManager.Metrics.ConfirmedFlushLSNGauge
 
-		slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
+	slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
 
-		slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
+	slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
 
-		slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
+	slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
 
-		maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
-		instanceStatus := otel_metrics.InstanceStatusReady
-		if err != nil {
-			logger.Error("Failed to get maintenance mode status", slog.Any("error", err))
-			instanceStatus = otel_metrics.InstanceStatusUnknown
-		}
-		if maintenanceEnabled {
-			instanceStatus = otel_metrics.InstanceStatusMaintenance
-		}
-
-		a.OtelManager.Metrics.InstanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.InstanceStatusKey, instanceStatus),
-			attribute.String(otel_metrics.PeerDBVersionKey, internal.PeerDBVersionShaShort()),
-		)))
+	maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
+	instanceStatus := otel_metrics.InstanceStatusReady
+	if err != nil {
+		logger.Error("Failed to get maintenance mode status", slog.Any("error", err))
+		instanceStatus = otel_metrics.InstanceStatusUnknown
 	}
-	for _, config := range configs {
-		func() {
+	if maintenanceEnabled {
+		instanceStatus = otel_metrics.InstanceStatusMaintenance
+	}
+
+	a.OtelManager.Metrics.InstanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.InstanceStatusKey, instanceStatus),
+		attribute.String(otel_metrics.PeerDBVersionKey, internal.PeerDBVersionShaShort()),
+		attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
+	)))
+	activeFlows := make([]*flowInformation, 0, len(infos))
+	for _, info := range infos {
+		func(ctx context.Context) {
 			flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-				FlowName:        config.FlowJobName,
-				SourceName:      config.SourceName,
-				DestinationName: config.DestinationName,
+				FlowName:        info.config.FlowJobName,
+				SourceName:      info.config.SourceName,
+				DestinationName: info.config.DestinationName,
 			})
 			if err != nil {
 				logger.Error("Failed to get flow metadata", slog.Any("error", err))
 			}
-			connCtx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-			logger = internal.LoggerFromCtx(connCtx)
-			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](connCtx, nil, a.CatalogPool, config.SourceName)
+			ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+			logger = internal.LoggerFromCtx(ctx)
+			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, a.TemporalClient, info.workflowID)
+			if sErr != nil {
+				logger.Error("Failed to get workflow status", slog.Any("error", sErr), slog.String("status", status.String()))
+			}
+			info.status = status
+			if _, info.isActive = activeFlowStatuses[status]; info.isActive {
+				activeFlows = append(activeFlows, info)
+			}
+			a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
+			a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowStatusKey, status.String()),
+				attribute.Bool(otel_metrics.IsFlowActiveKey, info.isActive),
+			)))
+			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
 					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
 				}
 				return
 			}
-			defer connectors.CloseConnector(connCtx, srcConn)
+			defer connectors.CloseConnector(ctx, srcConn)
 
-			slotName := "peerflow_slot_" + config.FlowJobName
-			if config.ReplicationSlotName != "" {
-				slotName = config.ReplicationSlotName
+			slotName := "peerflow_slot_" + info.config.FlowJobName
+			if info.config.ReplicationSlotName != "" {
+				slotName = info.config.ReplicationSlotName
 			}
-			peerName := config.SourceName
+			peerName := info.config.SourceName
 
-			activity.RecordHeartbeat(connCtx, fmt.Sprintf("checking %s on %s", slotName, peerName))
-			if connCtx.Err() != nil {
+			activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
+			if ctx.Err() != nil {
 				return
 			}
-			if a.OtelManager != nil {
-				a.OtelManager.Metrics.SyncedTablesGauge.Record(connCtx, int64(len(config.TableMappings)), metric.WithAttributeSet(
-					attribute.NewSet(
-						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-						attribute.String(otel_metrics.PeerNameKey, peerName),
-						attribute.String(otel_metrics.SourcePeerType, fmt.Sprintf("%T", srcConn)),
-					)))
-			}
-			if err := srcConn.HandleSlotInfo(connCtx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
-				FlowName: config.FlowJobName,
+			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
+				FlowName: info.config.FlowJobName,
 				PeerName: peerName,
 				SlotName: slotName,
 			}, slotMetricGauges); err != nil {
 				logger.Error("Failed to handle slot info", slog.Any("error", err))
 			}
-		}()
+		}(ctx)
+	}
+	if activeFlowCount := len(activeFlows); activeFlowCount > 0 {
+		var activeFlowCpuLimit float64
+		var totalCpuLimit float64
+		if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
+			totalCpuLimit, err = strconv.ParseFloat(cpuLimitStr, 64)
+			if err != nil {
+				logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
+			}
+		}
+
+		var activeFlowMemoryLimit float64
+		var totalMemoryLimit float64
+		if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
+			totalMemoryLimit, err = strconv.ParseFloat(memLimitStr, 64)
+			if err != nil {
+				logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
+			}
+		}
+
+		activeFlowCpuLimit = totalCpuLimit / float64(activeFlowCount)
+		activeFlowMemoryLimit = totalMemoryLimit / float64(activeFlowCount)
+		a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(activeFlowCount))
+		if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
+			for _, info := range activeFlows {
+				func(ctx context.Context) {
+					flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+						FlowName:        info.config.FlowJobName,
+						SourceName:      info.config.SourceName,
+						DestinationName: info.config.DestinationName,
+					})
+					if err != nil {
+						logger.Error("Failed to get flow metadata", slog.Any("error", err))
+					}
+					ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+					logger = internal.LoggerFromCtx(ctx)
+
+					if activeFlowMemoryLimit > 0 {
+						a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
+					}
+					if activeFlowCpuLimit > 0 {
+						a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, activeFlowCpuLimit)
+					}
+				}(ctx)
+			}
+		}
 	}
 
 	return nil
+}
+
+var activeFlowStatuses = map[protos.FlowStatus]struct{}{
+	protos.FlowStatus_STATUS_RUNNING:  {},
+	protos.FlowStatus_STATUS_PAUSING:  {},
+	protos.FlowStatus_STATUS_SETUP:    {},
+	protos.FlowStatus_STATUS_SNAPSHOT: {},
+	protos.FlowStatus_STATUS_RESYNC:   {},
 }
 
 func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
@@ -933,6 +1015,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 		}
 	}
 
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
+
 	return renameOutput, tx.Commit(ctx)
 }
 
@@ -1010,6 +1094,9 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	}); err != nil {
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
+
+	a.Alerter.LogFlowInfo(ctx, cfg.FlowJobName, fmt.Sprintf("ensured %d tables exist in publication %s",
+		len(additionalTableMappings), cfg.PublicationName))
 	return nil
 }
 
@@ -1032,6 +1119,9 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	}); err != nil {
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
+
+	a.Alerter.LogFlowInfo(ctx, cfg.FlowJobName, fmt.Sprintf("removed %d tables from publication %s",
+		len(removedTablesMapping), cfg.PublicationName))
 	return nil
 }
 

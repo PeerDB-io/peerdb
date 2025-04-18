@@ -1,0 +1,7 @@
+ignore:
+  - "flow/connectors/bigquery"
+  - "flow/connectors/elasticsearch"
+  - "flow/connectors/eventhub"
+  - "flow/connectors/kafka"
+  - "flow/connectors/pubsub"
+  - "flow/connectors/snowflake"

@@ -90,7 +90,6 @@ func init() {
 	gob.Register(qvalue.QValueUInt32{})
 	gob.Register(qvalue.QValueUInt64{})
 	gob.Register(qvalue.QValueBoolean{})
-	gob.Register(qvalue.QValueStruct{})
 	gob.Register(qvalue.QValueQChar{})
 	gob.Register(qvalue.QValueString{})
 	gob.Register(qvalue.QValueEnum{})

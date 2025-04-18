@@ -36,7 +36,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:8.17.4@sha256:52b6582d6467e52407cb6fa84df5d48b9a74924833bec23cc468aa2386ebc408
+        image: elasticsearch:8.17.4@sha256:0ed88144ac448f40819b1ecd3bda8a33469ec82dbfcd48edf09700d84ac658c3
         ports:
           - 9200:9200
         env:
@@ -44,7 +44,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.4.3@sha256:8b4f6d23d2163e11785a16e8c4f8ed5d1f978841c0a01dfb99345001e0e59ae2
+        image: bitnami/minio:2025.4.8@sha256:4ab67707a5b6a391d1b4d545d70877c002fb08724e80b21eb483986103b73602
         ports:
           - 9999:9999
         env:
@@ -53,6 +53,10 @@ jobs:
           MINIO_API_PORT_NUMBER: 9999
           AWS_EC2_METADATA_DISABLED: true
           MINIO_DEFAULT_BUCKETS: peerdb
+      otelcol:
+        image: otel/opentelemetry-collector-contrib:0.123.0
+        ports:
+          - 4317:4317
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -190,8 +194,14 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
+          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
+          OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
+          PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
+          PEERDB_OTEL_TEMPORAL_METRICS_EXPORT_LIST: '__ALL__'
+          PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE: 'true'
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@0565863a31f2c772f9f0395002a31e3f06189574 # v5
+        uses: codecov/codecov-action@ad3126e916f78f00edff4ed0317cf185271ccc2d # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}

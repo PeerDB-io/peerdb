@@ -193,7 +193,7 @@ func GetAvroSchemaFromQValueKind(
 		return "string", nil
 	case QValueKindTSTZRange:
 		return "string", nil
-	case QValueKindHStore, QValueKindJSON, QValueKindJSONB, QValueKindStruct:
+	case QValueKindHStore, QValueKindJSON, QValueKindJSONB:
 		return "string", nil
 	case QValueKindArrayFloat32:
 		return AvroSchemaArray{
@@ -411,8 +411,6 @@ func QValueToAvro(
 		return c.processNullableUnion("long", int64(v.Val))
 	case QValueBoolean:
 		return c.processNullableUnion("boolean", v.Val)
-	case QValueStruct:
-		return nil, errors.New("QValueStruct not supported")
 	case QValueNumeric:
 		return c.processNumeric(v.Val), nil
 	case QValueBytes:

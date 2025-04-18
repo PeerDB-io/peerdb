@@ -32,12 +32,12 @@ type FlowRequestHandler struct {
 	peerflowTaskQueueID string
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool shared.CatalogPool, taskQueue string) *FlowRequestHandler {
+func NewFlowRequestHandler(ctx context.Context, temporalClient client.Client, pool shared.CatalogPool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
 		temporalClient:      temporalClient,
 		pool:                pool,
 		peerflowTaskQueueID: taskQueue,
-		alerter:             alerting.NewAlerter(context.Background(), pool, nil),
+		alerter:             alerting.NewAlerter(ctx, pool, nil),
 	}
 }
 
@@ -232,7 +232,7 @@ func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 	}
 
 	_, err = h.pool.Exec(ctx,
-		"UPDATE flows SET config_proto = $1 WHERE name = $2",
+		"UPDATE flows SET config_proto=$1,updated_at=now() WHERE name=$2",
 		cfgBytes, cfg.FlowJobName)
 	if err != nil {
 		return fmt.Errorf("unable to update qrep config in catalog: %w", err)

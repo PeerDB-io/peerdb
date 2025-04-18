@@ -1,7 +1,6 @@
 package qvalue
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -223,27 +222,6 @@ func (v QValueBoolean) Value() any {
 
 func (v QValueBoolean) LValue(ls *lua.LState) lua.LValue {
 	return lua.LBool(v.Val)
-}
-
-type QValueStruct struct {
-	Val map[string]any
-}
-
-func (QValueStruct) Kind() QValueKind {
-	return QValueKindStruct
-}
-
-func (v QValueStruct) Value() any {
-	return v.Val
-}
-
-func (v QValueStruct) LValue(ls *lua.LState) lua.LValue {
-	bytes, err := json.Marshal(v.Val)
-	if err != nil {
-		return lua.LString(err.Error())
-	} else {
-		return lua.LString(shared.UnsafeFastReadOnlyBytesToString(bytes))
-	}
 }
 
 type QValueQChar struct {

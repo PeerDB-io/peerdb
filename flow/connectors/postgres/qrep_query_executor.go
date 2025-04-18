@@ -191,6 +191,21 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 
 	select {
 	case <-errors:
+		if errorsError == nil {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-stream.SchemaChan():
+				schema, err := stream.Schema()
+				if err != nil {
+					return nil, err
+				}
+				return &model.QRecordBatch{
+					Schema:  schema,
+					Records: nil,
+				}, nil
+			}
+		}
 		return nil, errorsError
 	case <-stream.SchemaChan():
 		schema, err := stream.Schema()

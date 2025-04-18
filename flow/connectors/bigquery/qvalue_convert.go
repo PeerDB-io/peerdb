@@ -121,8 +121,6 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) qvalue.QValueKi
 		return qvalue.QValueKindDate
 	case bigquery.TimeFieldType:
 		return qvalue.QValueKindTime
-	case bigquery.RecordFieldType:
-		return qvalue.QValueKindStruct
 	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
 		return qvalue.QValueKindNumeric
 	case bigquery.GeographyFieldType:
