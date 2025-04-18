@@ -2,37 +2,19 @@ package datatypes
 
 import (
 	"math/big"
+	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestCountDigits(t *testing.T) {
-	bi := big.NewInt(-0)
-	expected := 1
-	result := CountDigits(bi)
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
-	}
-
-	bi = big.NewInt(0)
-	expected = 1
-	result = CountDigits(bi)
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
-	}
-
-	// 18 nines
-	bi = big.NewInt(999999999999999999)
-	result = CountDigits(bi)
-	expected = 18
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
-	}
-
-	// 18 nines
-	bi = big.NewInt(-999999999999999999)
-	result = CountDigits(bi)
-	expected = 18
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
-	}
+	require.Equal(t, 1, CountDigits(big.NewInt(-1)))
+	require.Equal(t, 1, CountDigits(big.NewInt(0)))
+	require.Equal(t, 18, CountDigits(big.NewInt(999999999999999999)))
+	require.Equal(t, 18, CountDigits(big.NewInt(-999999999999999999)))
+	// this relies on correction
+	bi := new(big.Int)
+	bi.SetString("1"+strings.Repeat("0", 999), 10)
+	require.Equal(t, 1000, CountDigits(bi))
 }
