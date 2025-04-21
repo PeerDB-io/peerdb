@@ -277,6 +277,14 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 }
 
 func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, error) {
+	gtidOn, err := c.GetGtidModeOn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check gtid mode: %w", err)
+	}
+	if !gtidOn {
+		return nil, errors.New("gtid mode is not enabled")
+	}
+
 	var query string
 	switch c.Flavor() {
 	case mysql.MariaDBFlavor:
