@@ -1,4 +1,4 @@
-package utils
+package conneventhub
 
 import (
 	"hash/fnv"
@@ -14,7 +14,6 @@ func hashString(s string) uint32 {
 }
 
 func HashedPartitionKey(s string, numPartitions uint32) string {
-	hashValue := hashString(s)
-	partition := hashValue % numPartitions
+	partition := hashString(s) % numPartitions
 	return strconv.FormatUint(uint64(partition), 10)
 }

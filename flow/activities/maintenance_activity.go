@@ -111,7 +111,7 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to be ready", mirror.MirrorName))
 		mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 		if err != nil || mirrorStatus == protos.FlowStatus_STATUS_SNAPSHOT || mirrorStatus == protos.FlowStatus_STATUS_SETUP ||
-			mirrorStatus == protos.FlowStatus_STATUS_RESYNC {
+			mirrorStatus == protos.FlowStatus_STATUS_RESYNC || mirrorStatus == protos.FlowStatus_STATUS_UNKNOWN {
 			return false, mirrorStatus, err
 		}
 		return true, mirrorStatus, nil
@@ -335,11 +335,9 @@ func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 		case <-alertTicker.C:
 			slog.Warn("Maintenance Workflow is still running")
 			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "Waiting", "Maintenance mode is still running")
-			if a.OtelManager != nil {
-				a.OtelManager.Metrics.MaintenanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-					attribute.String(otel_metrics.WorkflowTypeKey, activity.GetInfo(ctx).WorkflowType.Name),
-				)))
-			}
+			a.OtelManager.Metrics.MaintenanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.WorkflowTypeKey, activity.GetInfo(ctx).WorkflowType.Name),
+			)))
 		}
 	}
 }

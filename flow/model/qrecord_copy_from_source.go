@@ -2,7 +2,6 @@ package model
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -38,6 +37,17 @@ func (src *QRecordCopyFromSource) Next() bool {
 	rec, ok := <-src.stream.Records
 	src.currentRecord = rec
 	return ok || src.Err() != nil
+}
+
+func geoWktToWkb(wkt string) ([]byte, error) {
+	if strings.HasPrefix(wkt, "SRID=") {
+		_, wktWithoutSRID, found := strings.Cut(wkt, ";")
+		if found {
+			wkt = wktWithoutSRID
+		}
+	}
+
+	return geo.GeoToWKB(wkt)
 }
 
 func (src *QRecordCopyFromSource) Values() ([]any, error) {
@@ -105,24 +115,23 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 			values[i] = pgtype.Date{Time: v.Val, Valid: true}
 		case qvalue.QValueHStore:
 			values[i] = v.Val
-		case qvalue.QValueGeography, qvalue.QValueGeometry, qvalue.QValuePoint:
-			geoWkt, ok := v.Value().(string)
-			if !ok {
-				return nil, errors.New("invalid Geospatial value")
-			}
-
-			if strings.HasPrefix(geoWkt, "SRID=") {
-				_, wkt, found := strings.Cut(geoWkt, ";")
-				if found {
-					geoWkt = wkt
-				}
-			}
-
-			wkb, err := geo.GeoToWKB(geoWkt)
+		case qvalue.QValueGeography:
+			wkb, err := geoWktToWkb(v.Val)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert Geospatial value to wkb: %v", err)
+				return nil, err
 			}
-
+			values[i] = wkb
+		case qvalue.QValueGeometry:
+			wkb, err := geoWktToWkb(v.Val)
+			if err != nil {
+				return nil, err
+			}
+			values[i] = wkb
+		case qvalue.QValuePoint:
+			wkb, err := geoWktToWkb(v.Val)
+			if err != nil {
+				return nil, err
+			}
 			values[i] = wkb
 		case qvalue.QValueArrayString:
 			values[i] = constructArray(v.Val)

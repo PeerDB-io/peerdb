@@ -67,11 +67,6 @@ func Equals(qv QValue, other QValue) bool {
 			return q.Val == otherVal.Val
 		}
 		return false
-	case QValueStruct:
-		if otherVal, ok := other.(QValueStruct); ok {
-			return q.compareStruct(otherVal)
-		}
-		return false
 	case QValueQChar:
 		if otherVal, ok := other.(QValueQChar); ok {
 			return q.Val == otherVal.Val
@@ -254,26 +249,6 @@ func compareGeometry(geoWkt string, value2 any) bool {
 		panic(err)
 	}
 	return geo1.Equals(geo2)
-}
-
-func (v QValueStruct) compareStruct(value2 QValueStruct) bool {
-	struct1 := v.Val
-	struct2 := value2.Val
-	if len(struct1) != len(struct2) {
-		return false
-	}
-	for k, v1 := range struct1 {
-		v2, ok := struct2[k]
-		if !ok {
-			return false
-		}
-		q1, ok1 := v1.(QValue)
-		q2, ok2 := v2.(QValue)
-		if !ok1 || !ok2 || !Equals(q1, q2) {
-			return false
-		}
-	}
-	return true
 }
 
 func convertNumericArrayToFloat64Array(val any) []float64 {

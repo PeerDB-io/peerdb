@@ -3,6 +3,7 @@ package e2e_api
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -426,4 +427,80 @@ func (s Suite) TestDropCompleted() {
 			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
+}
+
+func (s Suite) TestAlertConfig() {
+	create, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
+		Config: &protos.AlertConfig{
+			Id:              -1,
+			ServiceType:     "slack",
+			ServiceConfig:   "config",
+			AlertForMirrors: []string{"mirror"},
+		},
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, create)
+	getCreate, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, getCreate)
+	require.True(s.t, slices.ContainsFunc(getCreate.Configs, func(config *protos.AlertConfig) bool {
+		return config.Id == create.Id && config.ServiceType == "slack" && config.ServiceConfig == "config"
+	}))
+
+	update, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
+		Config: &protos.AlertConfig{
+			Id:              create.Id,
+			ServiceType:     "email",
+			ServiceConfig:   "newconfig",
+			AlertForMirrors: []string{"mirror"},
+		},
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, update)
+	getUpdate, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, getUpdate)
+	require.True(s.t, slices.ContainsFunc(getUpdate.Configs, func(config *protos.AlertConfig) bool {
+		return config.Id == create.Id && config.ServiceType == "email" && config.ServiceConfig == "newconfig"
+	}))
+
+	del, err := s.DeleteAlertConfig(s.t.Context(), &protos.DeleteAlertConfigRequest{Id: create.Id})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, del)
+	getDelete, err := s.GetAlertConfigs(s.t.Context(), &protos.GetAlertConfigsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, getDelete)
+	require.False(s.t, slices.ContainsFunc(getDelete.Configs, func(config *protos.AlertConfig) bool {
+		return config.Id == create.Id
+	}))
+}
+
+func (s Suite) TestSettings() {
+	newValue := "90"
+	firstResponse, err := s.GetDynamicSettings(s.t.Context(), &protos.GetDynamicSettingsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, firstResponse)
+	require.True(s.t, slices.EqualFunc(firstResponse.Settings, internal.DynamicSettings[:],
+		func(x *protos.DynamicSetting, y *protos.DynamicSetting) bool {
+			return x.Name == y.Name &&
+				x.DefaultValue == y.DefaultValue &&
+				x.Description == y.Description &&
+				x.ValueType == y.ValueType &&
+				x.ApplyMode == y.ApplyMode &&
+				x.TargetForSetting == y.TargetForSetting
+		}))
+
+	postResponse, err := s.PostDynamicSetting(s.t.Context(), &protos.PostDynamicSettingRequest{
+		Name:  "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS",
+		Value: &newValue,
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, postResponse)
+
+	secondResponse, err := s.GetDynamicSettings(s.t.Context(), &protos.GetDynamicSettingsRequest{})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, secondResponse)
+	require.True(s.t, slices.ContainsFunc(secondResponse.Settings, func(x *protos.DynamicSetting) bool {
+		return x.Name == "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS" && x.Value != nil && *x.Value == newValue
+	}))
 }
