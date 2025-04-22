@@ -115,7 +115,8 @@ jobs:
         with:
           audience: sts.amazonaws.com.cn
           aws-region: us-west-2
-          role-to-assume: "{{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}"
+          role-to-assume: ${{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
+          mask-aws-account-id: true
 
       - name: MariaDB
         if: matrix.db-version.mysql == 'maria'
