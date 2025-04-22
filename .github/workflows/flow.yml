@@ -156,8 +156,8 @@ jobs:
         env:
           URL: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
         run: |
-          curl -o "/usr/local/share/ca-certificates/global-aws-rds-bundle.pem" "$URL"
-          update-ca-certificates
+          sudo curl -o "/usr/local/share/ca-certificates/global-aws-rds-bundle.pem" "$URL"
+          sudo update-ca-certificates
 
       - name: run tests
         run: |
