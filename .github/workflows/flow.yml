@@ -139,6 +139,10 @@ jobs:
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
 
+      - name: Install gotestsum
+        run: |
+          go install gotest.tools/gotestsum@latest
+
       - name: run tests
         run: |
           temporal server start-dev --namespace default --headless &
@@ -148,7 +152,7 @@ jobs:
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
           ./peer-flow api --port 8112 --gateway-port 8113 &
-          go test -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          gotestsum --format standard-quiet --junitfile ../test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
@@ -198,3 +202,10 @@ jobs:
         uses: codecov/codecov-action@ad3126e916f78f00edff4ed0317cf185271ccc2d # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+      - name: Report test results
+        uses: test-summary/action@31493c76ec9e7aa675f1585d3ed6f1da69269a86 #v2
+        with:
+          show: "fail, skip"
+          paths: |
+            test-results.xml
+        if: success() || failure()
