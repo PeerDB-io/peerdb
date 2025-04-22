@@ -34,8 +34,8 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 				},
 			},
 		})
-	defer postgresConnector.Close()
 	require.NoError(t, err)
+	defer postgresConnector.Close()
 	rows, err := postgresConnector.Conn().Query(t.Context(), "SELECT 1")
 	require.NoError(t, err)
 	rowCount := 0
