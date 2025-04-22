@@ -176,6 +176,7 @@ func (s Suite) TestSchemaEndpoints() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "listing"))))
+
 	tablesInSchema, err := s.GetTablesInSchema(s.t.Context(), &protos.SchemaTablesRequest{
 		PeerName:   s.source.GeneratePeer(s.t).Name,
 		SchemaName: "e2e_test_" + s.suffix,
@@ -183,6 +184,18 @@ func (s Suite) TestSchemaEndpoints() {
 	require.NoError(s.t, err)
 	require.Len(s.t, tablesInSchema.Tables, 1)
 	require.Equal(s.t, "listing", tablesInSchema.Tables[0].TableName)
+
+	schemasResponse, err := s.GetSchemas(s.t.Context(), &protos.PostgresPeerActivityInfoRequest{
+		PeerName: s.source.GeneratePeer(s.t).Name,
+	})
+	require.NoError(s.t, err)
+	require.Contains(s.t, schemasResponse.Schemas, "e2e_test_"+s.suffix)
+
+	tablesResponse, err := s.GetAllTables(s.t.Context(), &protos.PostgresPeerActivityInfoRequest{
+		PeerName: s.source.GeneratePeer(s.t).Name,
+	})
+	require.NoError(s.t, err)
+	require.Contains(s.t, tablesResponse.Tables, e2e.AttachSchema(s, "listing"))
 
 	columns, err := s.GetColumns(s.t.Context(), &protos.TableColumnsRequest{
 		PeerName:   s.source.GeneratePeer(s.t).Name,

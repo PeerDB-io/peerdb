@@ -7,6 +7,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
+func TestReadMissingFileToBytes(t *testing.T) {
+	if _, err := ReadFileToBytes("missing"); err == nil {
+		t.Error("ReadFileToBytes expected to fail on missing files")
+	}
+}
+
 func TestInequalRecordCountsInequal(t *testing.T) {
 	if CheckQRecordEquality(t,
 		[]qvalue.QValue{qvalue.QValueNull(qvalue.QValueKindString), qvalue.QValueNull(qvalue.QValueKindString)},

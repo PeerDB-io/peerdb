@@ -76,12 +76,7 @@ func ReadFileToBytes(path string) ([]byte, error) {
 	}
 	defer f.Close()
 
-	ret, err := io.ReadAll(f)
-	if err != nil {
-		return ret, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	return ret, nil
+	return io.ReadAll(f)
 }
 
 // checks if two QRecords are identical

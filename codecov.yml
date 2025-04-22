@@ -5,3 +5,12 @@ ignore:
   - "flow/connectors/kafka"
   - "flow/connectors/pubsub"
   - "flow/connectors/snowflake"
+
+component_management:
+  individual_components:
+    - component_id: full
+      paths:
+        - flow/datatypes/
+        - flow/e2eshared/
+      statuses:
+        target: 100%
