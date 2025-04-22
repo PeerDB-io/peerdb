@@ -232,8 +232,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
 			}
-		case pgerrcode.TooManyConnections:
-			return ErrorNotifyConnectivity, pgErrorInfo // Maybe we can return something else?
+		case pgerrcode.TooManyConnections, // Maybe we can return something else?
+			pgerrcode.ConnectionException,
+			pgerrcode.ConnectionDoesNotExist,
+			pgerrcode.ConnectionFailure,
+			pgerrcode.SQLClientUnableToEstablishSQLConnection,
+			pgerrcode.SQLServerRejectedEstablishmentOfSQLConnection,
+			pgerrcode.ProtocolViolation:
+			return ErrorNotifyConnectivity, pgErrorInfo
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
 		}
