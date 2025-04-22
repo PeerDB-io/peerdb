@@ -91,13 +91,6 @@ jobs:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
 
-      - name: setup S3 credentials
-        id: s3-credentials
-        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
-        with:
-          name: "s3_creds.json"
-          json: ${{ secrets.S3_CREDS }}
-
       - name: setup GCS credentials
         id: gcs-credentials
         uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
