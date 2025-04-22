@@ -160,7 +160,8 @@ jobs:
         env:
           URL: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
         run: |
-          sudo curl -o "/usr/local/share/ca-certificates/global-aws-rds-bundle.pem" "$URL"
+          curl -fsSL -o aws-global-bundle.pem "$URL"
+          sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- aws-global-bundle.pem '/-----BEGIN CERTIFICATE-----/' '{*}'
           sudo update-ca-certificates
           ls /etc/ssl/certs | grep .pem
 
