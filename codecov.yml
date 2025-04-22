@@ -5,6 +5,9 @@ ignore:
   - "flow/connectors/kafka"
   - "flow/connectors/pubsub"
   - "flow/connectors/snowflake"
+  - "flow/middleware"
+  - "flow/alerting/email_alert_sender.go"
+  - "flow/alerting/slack_alert_sender.go"
 
 component_management:
   individual_components:
