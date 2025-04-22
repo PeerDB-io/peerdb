@@ -143,8 +143,8 @@ func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) 
 }
 
 type AssumeRoleBasedAWSCredentialsProvider struct {
-	config   aws.Config
 	Provider aws.CredentialsProvider // New Credentials
+	config   aws.Config              // Initial Config
 }
 
 func (a *AssumeRoleBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCredentials, error) {
@@ -239,9 +239,11 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 		if err != nil {
 			return nil, err
 		}
-		awsConfig.Credentials = stscreds.NewAssumeRoleProvider(sts.NewFromConfig(awsConfig), *peerCredentials.RoleArn, func(options *stscreds.AssumeRoleOptions) {
-			options.RoleSessionName = "peerdb-aws-assumed-role"
-		})
+		awsConfig.Credentials = stscreds.NewAssumeRoleProvider(sts.NewFromConfig(awsConfig), *peerCredentials.RoleArn,
+			func(options *stscreds.AssumeRoleOptions) {
+				options.RoleSessionName = "peerdb-aws-assumed-role"
+			},
+		)
 		if peerCredentials.ChainedRoleArn != nil && *peerCredentials.ChainedRoleArn != "" {
 			logger.Info("Received AWS credentials with chained role from peer for connector: " + connectorName)
 			return NewAssumeRoleBasedAWSCredentialsProvider(ctx, awsConfig, *peerCredentials.ChainedRoleArn, "peerdb-aws-chained-role")

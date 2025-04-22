@@ -253,7 +253,10 @@ func (c *MySqlConnector) startStreaming(
 	}
 }
 
-func (c *MySqlConnector) startCdcStreamingFilePos(ctx context.Context, pos mysql.Position) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+func (c *MySqlConnector) startCdcStreamingFilePos(
+	ctx context.Context,
+	pos mysql.Position,
+) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	syncer, err := c.startSyncer(ctx)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
@@ -265,7 +268,10 @@ func (c *MySqlConnector) startCdcStreamingFilePos(ctx context.Context, pos mysql
 	return syncer, stream, nil, pos, err
 }
 
-func (c *MySqlConnector) startCdcStreamingGtid(ctx context.Context, gset mysql.GTIDSet) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+func (c *MySqlConnector) startCdcStreamingGtid(
+	ctx context.Context,
+	gset mysql.GTIDSet,
+) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	syncer, err := c.startSyncer(ctx)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err

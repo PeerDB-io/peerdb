@@ -50,11 +50,11 @@ type PostgresConnector struct {
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
+	rdsAuth                *utils.RDSAuth
 	connStr                string
 	metadataSchema         string
 	replLock               sync.Mutex
 	pgVersion              shared.PGVersion
-	rdsAuth                *utils.RDSAuth
 }
 
 func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {

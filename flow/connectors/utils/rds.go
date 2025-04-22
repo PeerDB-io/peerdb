@@ -25,8 +25,8 @@ type RDSAuth struct {
 }
 
 type RDSConnectionConfig struct {
-	Host string
 	Port uint32
+	Host string
 	User string
 }
 
@@ -78,7 +78,12 @@ func GetRDSToken(ctx context.Context, connConfig RDSConnectionConfig, rdsAuth *R
 	}()
 }
 
-func buildRdsToken(ctx context.Context, connConfig RDSConnectionConfig, peerAWSCredentials PeerAWSCredentials, connectorName string) (string, error) {
+func buildRdsToken(
+	ctx context.Context,
+	connConfig RDSConnectionConfig,
+	peerAWSCredentials PeerAWSCredentials,
+	connectorName string,
+) (string, error) {
 	awsCredentialsProvider, err := GetAWSCredentialsProvider(ctx, connectorName, peerAWSCredentials)
 	if err != nil {
 		return "", fmt.Errorf("failed to get AWS credentials provider: %w", err)

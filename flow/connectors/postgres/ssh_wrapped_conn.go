@@ -14,7 +14,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-func NewPostgresConnFromConfig(ctx context.Context, connConfig *pgx.ConnConfig, rdsAuth *utils.RDSAuth, tunnel utils.SSHTunnel) (*pgx.Conn, error) {
+func NewPostgresConnFromConfig(
+	ctx context.Context,
+	connConfig *pgx.ConnConfig,
+	rdsAuth *utils.RDSAuth,
+	tunnel utils.SSHTunnel,
+) (*pgx.Conn, error) {
 	if tunnel.Client != nil {
 		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			conn, err := tunnel.Client.DialContext(ctx, network, addr)
