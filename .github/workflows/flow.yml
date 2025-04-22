@@ -75,6 +75,9 @@ jobs:
 
       - name: install lib-geos
         run: |
+          # No need to update man pages on package install
+          sudo apt-get remove --purge man-db
+
           sudo apt-get update
           sudo apt-get install libgeos-dev
 

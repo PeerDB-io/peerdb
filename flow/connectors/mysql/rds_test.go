@@ -11,6 +11,9 @@ import (
 )
 
 func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "")
+	t.Setenv("AWS_REGION", "")
 	host := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL")
 	username := os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL")
 	mysqlConnector, err := NewMySqlConnector(t.Context(),
