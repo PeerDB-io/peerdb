@@ -1,6 +1,8 @@
 package e2eshared
 
 import (
+	"errors"
+	"os"
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -8,7 +10,7 @@ import (
 )
 
 func TestReadMissingFileToBytes(t *testing.T) {
-	if _, err := ReadFileToBytes("missing"); err == nil {
+	if _, err := ReadFileToBytes("missing"); !errors.Is(err, os.ErrNotExist) {
 		t.Error("ReadFileToBytes expected to fail on missing files")
 	}
 }

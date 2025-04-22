@@ -1,4 +1,6 @@
 ignore:
+  - "flow/alerting/email_alert_sender.go"
+  - "flow/alerting/slack_alert_sender.go"
   - "flow/connectors/bigquery"
   - "flow/connectors/elasticsearch"
   - "flow/connectors/eventhub"
@@ -6,8 +8,7 @@ ignore:
   - "flow/connectors/pubsub"
   - "flow/connectors/snowflake"
   - "flow/middleware"
-  - "flow/alerting/email_alert_sender.go"
-  - "flow/alerting/slack_alert_sender.go"
+  - "flow/shared/aws_common"
 
 component_management:
   individual_components:

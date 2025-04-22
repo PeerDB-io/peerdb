@@ -68,7 +68,6 @@ func RunSuiteNoParallel[T Suite](t *testing.T, setup func(t *testing.T) T) {
 	}
 }
 
-// ReadFileToBytes reads a file to a byte array.
 func ReadFileToBytes(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
