@@ -113,7 +113,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         id: setup-aws
         with:
-          audience: sts.amazonaws.com.cn
+          audience: sts.amazonaws.com
           aws-region: us-west-2
           role-to-assume: ${{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
           mask-aws-account-id: true
