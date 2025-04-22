@@ -11,11 +11,10 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-func NewPostgresConnFromConfig(ctx context.Context, connConfig *pgx.ConnConfig, pgAuth PgAuth, tunnel utils.SSHTunnel) (*pgx.Conn, error) {
+func NewPostgresConnFromConfig(ctx context.Context, connConfig *pgx.ConnConfig, rdsAuth *utils.RDSAuth, tunnel utils.SSHTunnel) (*pgx.Conn, error) {
 	if tunnel.Client != nil {
 		connConfig.DialFunc = func(ctx context.Context, network, addr string) (net.Conn, error) {
 			conn, err := tunnel.Client.DialContext(ctx, network, addr)
@@ -32,11 +31,14 @@ func NewPostgresConnFromConfig(ctx context.Context, connConfig *pgx.ConnConfig, 
 	}
 	connConfig = connConfig.Copy()
 	logger := internal.LoggerFromCtx(ctx)
-	if pgAuth.AuthType == protos.PostgresAuthType_POSTGRES_AUTH_TYPE_IAM_AUTH {
+	if rdsAuth != nil {
 		logger.Info("Setting up IAM auth for Postgres")
 		// TODO add token caching
-		peerAWSCredentials := utils.BuildPeerAWSCredentials(pgAuth.AwsAuthConfig)
-		token, err := utils.GetRdsToken(ctx, connConfig, peerAWSCredentials, "POSTGRES")
+		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
+			Host: connConfig.Host,
+			Port: uint32(connConfig.Port),
+			User: connConfig.User,
+		}, rdsAuth, "POSTGRES")
 		if err != nil {
 			return nil, err
 		}

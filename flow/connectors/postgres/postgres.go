@@ -39,10 +39,6 @@ type ReplState struct {
 	LastOffset  atomic.Int64
 }
 
-type PgAuth struct {
-	AwsAuthConfig *protos.AwsAuthenticationConfig
-	AuthType      protos.PostgresAuthType
-}
 type PostgresConnector struct {
 	logger                 log.Logger
 	customTypeMapping      map[uint32]shared.CustomDataType
@@ -58,6 +54,7 @@ type PostgresConnector struct {
 	metadataSchema         string
 	replLock               sync.Mutex
 	pgVersion              shared.PGVersion
+	rdsAuth                *utils.RDSAuth
 }
 
 func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
@@ -102,10 +99,10 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
 
-	conn, err := NewPostgresConnFromConfig(ctx, connConfig, PgAuth{
+	rdsAuth := utils.RDSAuth{
 		AwsAuthConfig: pgConfig.AwsAuth,
-		AuthType:      pgConfig.AuthType,
-	}, tunnel)
+	}
+	conn, err := NewPostgresConnFromConfig(ctx, connConfig, &rdsAuth, tunnel)
 	if err != nil {
 		tunnel.Close()
 		logger.Error("failed to create connection", slog.Any("error", err))
@@ -132,6 +129,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		replLock:               sync.Mutex{},
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
+		rdsAuth:                &rdsAuth,
 	}, nil
 }
 
@@ -164,10 +162,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	conn, err := NewPostgresConnFromConfig(ctx, replConfig, PgAuth{
-		AwsAuthConfig: c.Config.AwsAuth,
-		AuthType:      c.Config.AuthType,
-	}, c.ssh)
+	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.rdsAuth, c.ssh)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)

@@ -79,7 +79,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 	defer tunnel.Close()
 
-	conn, err := NewPostgresConnFromConfig(t.Context(), config, PgAuth{}, tunnel)
+	conn, err := NewPostgresConnFromConfig(t.Context(), config, nil, tunnel)
 	if err != nil {
 		t.Fatalf("Failed to create connection: %v", err)
 	}

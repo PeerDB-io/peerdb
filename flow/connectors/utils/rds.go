@@ -4,13 +4,31 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"sync"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/rds/auth"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
+
+// RDSAuthTokenTTL is the cache TTL for RDS auth tokens. RDS Tokens Live for 15 minutes by default
+const RDSAuthTokenTTL = 10 * time.Minute
+
+type RDSAuth struct {
+	AwsAuthConfig *protos.AwsAuthenticationConfig
+	lock          sync.Mutex
+	token         string
+	updateTime    time.Time
+}
+
+type RDSConnectionConfig struct {
+	Host string
+	Port uint32
+	User string
+}
 
 func BuildPeerAWSCredentials(awsAuth *protos.AwsAuthenticationConfig) PeerAWSCredentials {
 	switch config := awsAuth.AuthConfig.(type) {
@@ -34,7 +52,33 @@ func BuildPeerAWSCredentials(awsAuth *protos.AwsAuthenticationConfig) PeerAWSCre
 
 var regionRegex = regexp.MustCompile(`^.*?\..*?\.([a-z0-9-]+)\.rds\.amazonaws\.com$`)
 
-func GetRdsToken(ctx context.Context, connConfig *pgx.ConnConfig, peerAWSCredentials PeerAWSCredentials, connectorName string) (string, error) {
+func GetRDSToken(ctx context.Context, connConfig RDSConnectionConfig, rdsAuth *RDSAuth, connectorName string) (string, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	now := time.Now()
+	if rdsAuth.updateTime.Add(RDSAuthTokenTTL).After(now) && rdsAuth.token != "" {
+		logger.Info("Using cached RDS token for connector: " + connectorName)
+		return rdsAuth.token, nil
+	}
+	return func() (string, error) {
+		logger.Info("Generating new RDS token for connector: " + connectorName)
+		rdsAuth.lock.Lock()
+		defer rdsAuth.lock.Unlock()
+		newUpdateTime := time.Now()
+		if rdsAuth.updateTime.Add(RDSAuthTokenTTL).After(now) && rdsAuth.token != "" {
+			return rdsAuth.token, nil
+		}
+		peerAWSCredentials := BuildPeerAWSCredentials(rdsAuth.AwsAuthConfig)
+		token, err := buildRdsToken(ctx, connConfig, peerAWSCredentials, connectorName)
+		if err != nil {
+			return "", err
+		}
+		rdsAuth.token = token
+		rdsAuth.updateTime = newUpdateTime
+		return token, nil
+	}()
+}
+
+func buildRdsToken(ctx context.Context, connConfig RDSConnectionConfig, peerAWSCredentials PeerAWSCredentials, connectorName string) (string, error) {
 	awsCredentialsProvider, err := GetAWSCredentialsProvider(ctx, connectorName, peerAWSCredentials)
 	if err != nil {
 		return "", fmt.Errorf("failed to get AWS credentials provider: %w", err)
