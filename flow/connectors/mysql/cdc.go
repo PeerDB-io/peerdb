@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -186,10 +187,18 @@ func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
+func (c *MySqlConnector) startSyncer() (*replication.BinlogSyncer, error) {
 	logger, ok := c.logger.(*slog.Logger)
 	if !ok {
 		logger = slog.Default()
+	}
+	var tlsConfig *tls.Config
+	if !c.config.DisableTls {
+		var err error
+		tlsConfig, err = shared.CreateTlsConfig(tls.VersionTLS12, c.config.RootCa, c.config.Host)
+		if err != nil {
+			return nil, err
+		}
 	}
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
@@ -203,7 +212,8 @@ func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
 		Dialer:     c.Dialer(),
 		UseDecimal: true,
 		ParseTime:  true,
-	})
+		TLSConfig:  tlsConfig,
+	}), nil
 }
 
 func (c *MySqlConnector) startStreaming(
@@ -231,7 +241,10 @@ func (c *MySqlConnector) startStreaming(
 func (c *MySqlConnector) startCdcStreamingFilePos(
 	pos mysql.Position,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer := c.startSyncer()
+	syncer, err := c.startSyncer()
+	if err != nil {
+		return nil, nil, nil, mysql.Position{}, err
+	}
 	stream, err := syncer.StartSync(pos)
 	if err != nil {
 		syncer.Close()
@@ -242,7 +255,10 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 func (c *MySqlConnector) startCdcStreamingGtid(
 	gset mysql.GTIDSet,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer := c.startSyncer()
+	syncer, err := c.startSyncer()
+	if err != nil {
+		return nil, nil, nil, mysql.Position{}, err
+	}
 	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
 		syncer.Close()
@@ -583,6 +599,9 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 			for _, col := range spec.NewColumns {
 				if col.Tp == nil {
 					// ignore, can be plain ALTER TABLE ... ALTER COLUMN ... DEFAULT ...
+					c.logger.Warn("ALTER TABLE with no column type detected, ignoring",
+						slog.String("columnName", col.Name.String()),
+						slog.String("tableName", sourceTableName))
 					continue
 				}
 				qkind, err := qkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
