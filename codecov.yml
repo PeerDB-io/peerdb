@@ -5,6 +5,7 @@ ignore:
   - "flow/connectors/elasticsearch"
   - "flow/connectors/eventhub"
   - "flow/connectors/kafka"
+  - "flow/connectors/postgres/sanitize"
   - "flow/connectors/pubsub"
   - "flow/connectors/snowflake"
   - "flow/middleware"
