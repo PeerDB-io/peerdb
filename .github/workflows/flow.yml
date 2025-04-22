@@ -120,6 +120,7 @@ jobs:
           aws-region: us-west-2
           role-to-assume: ${{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
           mask-aws-account-id: true
+          output-credentials: true
 
       - name: MariaDB
         if: matrix.db-version.mysql == 'maria'
@@ -217,6 +218,9 @@ jobs:
           PEERDB_OTEL_TEMPORAL_METRICS_EXPORT_LIST: '__ALL__'
           PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE: 'true'
           # Below are used to test RDS IAM Auth for Postgres and MySQL
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
           FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES }}
           FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL }}
           FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES }}
