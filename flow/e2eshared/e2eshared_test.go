@@ -1,11 +1,19 @@
 package e2eshared
 
 import (
+	"errors"
+	"os"
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
+
+func TestReadMissingFileToBytes(t *testing.T) {
+	if _, err := ReadFileToBytes("missing"); !errors.Is(err, os.ErrNotExist) {
+		t.Error("ReadFileToBytes expected to fail on missing files")
+	}
+}
 
 func TestInequalRecordCountsInequal(t *testing.T) {
 	if CheckQRecordEquality(t,
