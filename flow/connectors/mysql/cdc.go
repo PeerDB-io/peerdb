@@ -200,6 +200,7 @@ func (c *MySqlConnector) startSyncer() (*replication.BinlogSyncer, error) {
 			return nil, err
 		}
 	}
+	// TODO: add rds auth here
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:   rand.Uint32(),
