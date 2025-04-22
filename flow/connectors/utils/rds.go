@@ -18,16 +18,16 @@ import (
 const RDSAuthTokenTTL = 10 * time.Minute
 
 type RDSAuth struct {
-	AwsAuthConfig *protos.AwsAuthenticationConfig
-	lock          sync.Mutex
-	token         string
 	updateTime    time.Time
+	AwsAuthConfig *protos.AwsAuthenticationConfig
+	token         string
+	lock          sync.Mutex
 }
 
 type RDSConnectionConfig struct {
-	Port uint32
 	Host string
 	User string
+	Port uint32
 }
 
 func BuildPeerAWSCredentials(awsAuth *protos.AwsAuthenticationConfig) PeerAWSCredentials {
