@@ -4,6 +4,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/aws/smithy-go/ptr"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -21,6 +22,14 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 			Port:       5432,
 			AuthType:   protos.PostgresAuthType_POSTGRES_AUTH_TYPE_IAM_AUTH,
 			RequireTls: true, // Assumed that AWS Root CA is installed
+			AwsAuth: &protos.AwsAuthenticationConfig{
+				AuthConfig: &protos.AwsAuthenticationConfig_Role{
+					Role: &protos.AWSAuthAssumeRoleConfig{
+						RoleArn:        os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),
+						ChainedRoleArn: ptr.String(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
+					},
+				},
+			},
 		})
 	defer postgresConnector.Close()
 	require.NoError(t, err)
