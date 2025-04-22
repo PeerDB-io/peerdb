@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   flow_test:
     strategy:
@@ -104,6 +108,14 @@ jobs:
         with:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        id: setup-aws
+        with:
+          audience: sts.amazonaws.com.cn
+          aws-region: us-west-2
+          role-to-assume: {{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
 
       - name: MariaDB
         if: matrix.db-version.mysql == 'maria'
