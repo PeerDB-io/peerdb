@@ -99,10 +99,13 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
 
-	rdsAuth := utils.RDSAuth{
-		AwsAuthConfig: pgConfig.AwsAuth,
+	var rdsAuth *utils.RDSAuth
+	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_AUTH_TYPE_IAM_AUTH {
+		rdsAuth = &utils.RDSAuth{
+			AwsAuthConfig: pgConfig.AwsAuth,
+		}
 	}
-	conn, err := NewPostgresConnFromConfig(ctx, connConfig, &rdsAuth, tunnel)
+	conn, err := NewPostgresConnFromConfig(ctx, connConfig, rdsAuth, tunnel)
 	if err != nil {
 		tunnel.Close()
 		logger.Error("failed to create connection", slog.Any("error", err))
@@ -129,7 +132,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		replLock:               sync.Mutex{},
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
-		rdsAuth:                &rdsAuth,
+		rdsAuth:                rdsAuth,
 	}, nil
 }
 

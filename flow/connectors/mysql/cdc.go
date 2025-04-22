@@ -16,6 +16,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -187,7 +188,7 @@ func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer() (*replication.BinlogSyncer, error) {
+func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSyncer, error) {
 	logger, ok := c.logger.(*slog.Logger)
 	if !ok {
 		logger = slog.Default()
@@ -200,15 +201,27 @@ func (c *MySqlConnector) startSyncer() (*replication.BinlogSyncer, error) {
 			return nil, err
 		}
 	}
-	// TODO: add rds auth here
+	config := proto.Clone(c.config).(*protos.MySqlConfig)
+	if c.rdsAuth != nil {
+		logger.Info("Setting up IAM auth for MySQL")
+		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
+			Host: c.config.Host,
+			Port: config.Port,
+			User: config.User,
+		}, c.rdsAuth, "MYSQL")
+		if err != nil {
+			return nil, err
+		}
+		config.Password = token
+	}
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:   rand.Uint32(),
 		Flavor:     c.Flavor(),
-		Host:       c.config.Host,
-		Port:       uint16(c.config.Port),
-		User:       c.config.User,
-		Password:   c.config.Password,
+		Host:       config.Host,
+		Port:       uint16(config.Port),
+		User:       config.User,
+		Password:   config.Password,
 		Logger:     logger,
 		Dialer:     c.Dialer(),
 		UseDecimal: true,
@@ -218,6 +231,7 @@ func (c *MySqlConnector) startSyncer() (*replication.BinlogSyncer, error) {
 }
 
 func (c *MySqlConnector) startStreaming(
+	ctx context.Context,
 	pos string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	if rest, isFile := strings.CutPrefix(pos, "!f:"); isFile {
@@ -229,20 +243,18 @@ func (c *MySqlConnector) startStreaming(
 		if err != nil {
 			return nil, nil, nil, mysql.Position{}, fmt.Errorf("invalid offset in file/pos offset %s: %w", pos, err)
 		}
-		return c.startCdcStreamingFilePos(mysql.Position{Name: rest[:comma], Pos: uint32(offset)})
+		return c.startCdcStreamingFilePos(ctx, mysql.Position{Name: rest[:comma], Pos: uint32(offset)})
 	} else {
 		gset, err := mysql.ParseGTIDSet(c.Flavor(), pos)
 		if err != nil {
 			return nil, nil, nil, mysql.Position{}, err
 		}
-		return c.startCdcStreamingGtid(gset)
+		return c.startCdcStreamingGtid(ctx, gset)
 	}
 }
 
-func (c *MySqlConnector) startCdcStreamingFilePos(
-	pos mysql.Position,
-) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer()
+func (c *MySqlConnector) startCdcStreamingFilePos(ctx context.Context, pos mysql.Position) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+	syncer, err := c.startSyncer(ctx)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
@@ -253,10 +265,8 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 	return syncer, stream, nil, pos, err
 }
 
-func (c *MySqlConnector) startCdcStreamingGtid(
-	gset mysql.GTIDSet,
-) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer, err := c.startSyncer()
+func (c *MySqlConnector) startCdcStreamingGtid(ctx context.Context, gset mysql.GTIDSet) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
+	syncer, err := c.startSyncer(ctx)
 	if err != nil {
 		return nil, nil, nil, mysql.Position{}, err
 	}
@@ -310,7 +320,7 @@ func (c *MySqlConnector) PullRecords(
 ) error {
 	defer req.RecordStream.Close()
 
-	syncer, mystream, gset, pos, err := c.startStreaming(req.LastOffset.Text)
+	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
 		return err
 	}

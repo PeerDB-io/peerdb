@@ -33,7 +33,6 @@ func NewPostgresConnFromConfig(ctx context.Context, connConfig *pgx.ConnConfig, 
 	logger := internal.LoggerFromCtx(ctx)
 	if rdsAuth != nil {
 		logger.Info("Setting up IAM auth for Postgres")
-		// TODO add token caching
 		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
 			Host: connConfig.Host,
 			Port: uint32(connConfig.Port),
