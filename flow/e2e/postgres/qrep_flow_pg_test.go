@@ -362,7 +362,7 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	require.NoError(s.t, env.Error(s.t.Context()))
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Pause() {
+func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 	numRows := 10
 
 	srcTable := "qrep_pause"
@@ -392,6 +392,69 @@ func (s PeerFlowE2ETestSuitePG) Test_Pause() {
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, config)
+	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
+		response, err := env.Query(s.t.Context(), shared.QRepFlowStateQuery)
+		if err != nil {
+			s.t.Log(err)
+			return false
+		}
+		var state *protos.QRepFlowState
+		err = response.Get(&state)
+		if err != nil {
+			s.t.Fatal("decode failed", err)
+		}
+		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED
+	})
+	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.NoopSignal)
+	e2e.EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
+		response, err := env.Query(s.t.Context(), shared.QRepFlowStateQuery)
+		if err != nil {
+			s.t.Fatal(err)
+		}
+		var state *protos.QRepFlowState
+		err = response.Get(&state)
+		if err != nil {
+			s.t.Fatal("decode failed", err)
+		}
+		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuitePG) TestXminPause() {
+	numRows := 10
+
+	srcTable := "xmin_pause"
+	s.setupSourceTable(srcTable, numRows)
+
+	dstTable := "xmin_pause_dst"
+
+	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
+	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
+
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s", s.suffix, srcTable)
+
+	config := e2e.CreateQRepWorkflowConfig(
+		s.t,
+		"test_xmin_pause_pg",
+		srcSchemaQualified,
+		dstSchemaQualified,
+		query,
+		e2e.GeneratePostgresPeer(s.t).Name,
+		"",
+		true,
+		"_PEERDB_SYNCED_AT",
+		"",
+	)
+	config.WatermarkColumn = "xmin"
+	config.InitialCopyOnly = false
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.RunXminFlowWorkflow(s.t.Context(), tc, config)
 	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
