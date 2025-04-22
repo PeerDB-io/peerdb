@@ -162,6 +162,7 @@ jobs:
         run: |
           sudo curl -o "/usr/local/share/ca-certificates/global-aws-rds-bundle.pem" "$URL"
           sudo update-ca-certificates
+          ls /etc/ssl/certs | grep .pem
 
       - name: run tests
         run: |
