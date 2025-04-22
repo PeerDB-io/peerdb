@@ -115,7 +115,7 @@ jobs:
         with:
           audience: sts.amazonaws.com.cn
           aws-region: us-west-2
-          role-to-assume: {{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
+          role-to-assume: "{{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}"
 
       - name: MariaDB
         if: matrix.db-version.mysql == 'maria'
@@ -150,6 +150,13 @@ jobs:
 
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
+
+      - name: Setup AWS CA Certs
+        env:
+          URL: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+        run: |
+          curl -o "/usr/local/share/ca-certificates/global-aws-rds-bundle.pem" "$URL"
+          update-ca-certificates
 
       - name: run tests
         run: |

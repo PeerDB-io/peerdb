@@ -31,6 +31,9 @@ type RDSConnectionConfig struct {
 }
 
 func BuildPeerAWSCredentials(awsAuth *protos.AwsAuthenticationConfig) PeerAWSCredentials {
+	if awsAuth == nil {
+		return PeerAWSCredentials{}
+	}
 	switch config := awsAuth.AuthConfig.(type) {
 	case *protos.AwsAuthenticationConfig_StaticCredentials:
 		return PeerAWSCredentials{
