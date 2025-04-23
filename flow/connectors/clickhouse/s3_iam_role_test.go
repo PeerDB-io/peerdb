@@ -32,7 +32,7 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 		"AWS_SECRET_ACCESS_KEY",
 		"AWS_SESSION_TOKEN",
 	} {
-		t.Setenv(envVar, os.Getenv(fmt.Sprintf("FLOW_TESTS_%s", envVar)))
+		t.Setenv(envVar, os.Getenv("FLOW_TESTS_"+envVar))
 	}
 	t.Setenv("PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME", os.Getenv("FLOW_TESTS_AWS_S3_BUCKET_NAME"))
 	ctx := t.Context()
@@ -64,7 +64,7 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	query, err := conn.query(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM default.%s`, table.TableIdentifier))
+	query, err := conn.query(ctx, `SELECT COUNT(*) FROM default.`+table.TableIdentifier)
 	require.NoError(t, err)
 	for query.Next() {
 		var count uint64
