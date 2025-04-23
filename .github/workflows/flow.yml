@@ -228,6 +228,8 @@ jobs:
           FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL }}
           FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE }}
           FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE }}
+          # For ClickHouse S3 IAM Role based tests
+          FLOW_TESTS_AWS_S3_BUCKET_NAME: ${{ secrets.FLOW_TESTS_AWS_S3_BUCKET_NAME }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@ad3126e916f78f00edff4ed0317cf185271ccc2d # v5
