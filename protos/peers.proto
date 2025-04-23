@@ -76,7 +76,7 @@ message AwsAuthStaticCredentialsConfig {
 }
 
 message AWSAuthAssumeRoleConfig {
-  string role_arn = 1;
+  string assume_role_arn = 1;
   optional string chained_role_arn = 2;
 }
 

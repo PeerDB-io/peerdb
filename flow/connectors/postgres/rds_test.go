@@ -28,7 +28,7 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 			AwsAuth: &protos.AwsAuthenticationConfig{
 				AuthConfig: &protos.AwsAuthenticationConfig_Role{
 					Role: &protos.AWSAuthAssumeRoleConfig{
-						RoleArn:        os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),
+						AssumeRoleArn:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),
 						ChainedRoleArn: ptr.String(os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE")),
 					},
 				},

@@ -45,7 +45,7 @@ func BuildPeerAWSCredentials(awsAuth *protos.AwsAuthenticationConfig) PeerAWSCre
 		}
 	case *protos.AwsAuthenticationConfig_Role:
 		return PeerAWSCredentials{
-			RoleArn:        &config.Role.RoleArn,
+			RoleArn:        &config.Role.AssumeRoleArn,
 			ChainedRoleArn: config.Role.ChainedRoleArn,
 			Region:         awsAuth.Region,
 		}
