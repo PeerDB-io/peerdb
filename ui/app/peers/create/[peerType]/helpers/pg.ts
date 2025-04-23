@@ -1,4 +1,7 @@
-import { PostgresConfig } from '@/grpc_generated/peers';
+import {
+  PostgresAuthType,
+  PostgresConfig,
+} from '@/grpc_generated/peers';
 
 import { PeerSetting } from './common';
 
@@ -77,4 +80,6 @@ export const blankPostgresSetting: PostgresConfig = {
   password: '',
   database: '',
   requireTls: false,
+  authType: PostgresAuthType.POSTGRES_AUTH_TYPE_PASSWORD,
+  awsAuth: undefined,
 };

@@ -20,6 +20,7 @@ use sqlparser::ast::{
     CreateMirror::{Select, CDC},
     DollarQuotedString, Expr, FetchDirection, SqlOption, Statement, Value,
 };
+use pt::peerdb_peers::{MySqlAuthType, PostgresAuthType};
 
 mod qrep;
 
@@ -703,6 +704,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("require_tls")
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
+                auth_type: PostgresAuthType::Password.into(),
+                aws_auth: None,
             };
 
             Config::PostgresConfig(postgres_config)
@@ -991,6 +994,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             }
             .into(),
             root_ca: opts.get("root_ca").map(|s| s.to_string()),
+            auth_type: MySqlAuthType::MysqlAuthTypePassword.into(),
             ssh_config: None,
             replication_mechanism: match opts.get("replication_mechanism") {
                 Some(&"gtid") => MySqlReplicationMechanism::MysqlGtid,
@@ -998,6 +1002,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 _ => MySqlReplicationMechanism::MysqlAuto,
             }
             .into(),
+            aws_auth: None,
         }),
     }))
 }

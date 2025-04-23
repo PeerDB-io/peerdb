@@ -1,4 +1,5 @@
 import {
+  MySqlAuthType,
   MySqlConfig,
   MySqlFlavor,
   mySqlFlavorFromJSON,
@@ -113,4 +114,6 @@ export const blankMySqlSetting: MySqlConfig = {
   disableTls: false,
   flavor: MySqlFlavor.MYSQL_MYSQL,
   replicationMechanism: MySqlReplicationMechanism.MYSQL_AUTO,
+  authType: MySqlAuthType.MYSQL_AUTH_TYPE_PASSWORD,
+  awsAuth: undefined,
 };
