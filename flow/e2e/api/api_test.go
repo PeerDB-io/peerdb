@@ -565,6 +565,15 @@ func (s Suite) TestCustomSync() {
 		return tag.Key == "k" && tag.Value == "v"
 	}))
 
+	// test list mirrors
+	listResponse, err := s.ListMirrors(s.t.Context(), &protos.ListMirrorsRequest{})
+	require.NoError(s.t, err)
+	sourcePeer := s.Source().GeneratePeer(s.t)
+	require.True(s.t, slices.ContainsFunc(listResponse.Mirrors, func(mirror *protos.ListMirrorsItem) bool {
+		return mirror.WorkflowId == env.GetID() && mirror.SourceName == sourcePeer.Name &&
+			mirror.SourceType == sourcePeer.Type && mirror.IsCdc
+	}))
+
 	_, err = s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: flowConnConfig.FlowJobName, NumberOfSyncs: 1})
 	require.ErrorContains(s.t, err, "is not paused")
 
