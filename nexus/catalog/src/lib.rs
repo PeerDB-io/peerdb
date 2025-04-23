@@ -94,7 +94,7 @@ impl CatalogConfig<'_> {
             ssh_config: None,
             root_ca: None,
             require_tls: false,
-            auth_type: PostgresAuthType::Password.into(),
+            auth_type: PostgresAuthType::PostgresPassword.into(),
             aws_auth: None,
         }
     }

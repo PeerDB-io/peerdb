@@ -80,18 +80,24 @@ message AWSAuthAssumeRoleConfig {
   optional string chained_role_arn = 2;
 }
 
+enum AwsIAMAuthConfigType {
+  IAM_AUTH_AUTOMATIC = 0;
+  IAM_AUTH_STATIC_CREDENTIALS = 1;
+  IAM_AUTH_ASSUME_ROLE = 2;
+}
+
 message AwsAuthenticationConfig {
   string region = 1;
+  AwsIAMAuthConfigType auth_type = 2;
   oneof auth_config {
-    AwsAuthStaticCredentialsConfig static_credentials = 2;
-    AWSAuthAssumeRoleConfig role = 3;
+    AwsAuthStaticCredentialsConfig static_credentials = 3;
+    AWSAuthAssumeRoleConfig role = 4;
   }
 }
 
 enum PostgresAuthType {
-  POSTGRES_AUTH_TYPE_UNKNOWN = 0;
-  POSTGRES_AUTH_TYPE_PASSWORD = 1;
-  POSTGRES_AUTH_TYPE_IAM_AUTH = 2;
+  POSTGRES_PASSWORD = 0;
+  POSTGRES_IAM_AUTH = 1;
 }
 
 message PostgresConfig {
@@ -173,9 +179,8 @@ enum MySqlReplicationMechanism {
   MYSQL_FILEPOS = 2;
 }
 enum MySqlAuthType {
-  MYSQL_AUTH_TYPE_UNKNOWN = 0;
-  MYSQL_AUTH_TYPE_PASSWORD = 1;
-  MYSQL_AUTH_TYPE_IAM_AUTH = 2;
+  MYSQL_PASSWORD = 0;
+  MYSQL_IAM_AUTH = 1;
 }
 message MySqlConfig {
   string host = 1;

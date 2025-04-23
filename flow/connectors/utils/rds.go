@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 	"sync"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 // RDSAuthTokenTTL is the cache TTL for RDS auth tokens. RDS Tokens Live for 15 minutes by default
@@ -24,6 +26,27 @@ type RDSAuth struct {
 	lock          sync.Mutex
 }
 
+func (r *RDSAuth) VerifyAuthConfig() error {
+	if r.AwsAuthConfig == nil {
+		return exceptions.NewRDSIAMAuthError(errors.New("aws auth config is nil"))
+	}
+	switch r.AwsAuthConfig.AuthType {
+	case protos.AwsIAMAuthConfigType_IAM_AUTH_AUTOMATIC:
+		// No action needed
+	case protos.AwsIAMAuthConfigType_IAM_AUTH_STATIC_CREDENTIALS:
+		credentials := r.AwsAuthConfig.GetStaticCredentials()
+		if credentials == nil {
+			return exceptions.NewRDSIAMAuthError(errors.New("static credentials are nil"))
+		}
+	case protos.AwsIAMAuthConfigType_IAM_AUTH_ASSUME_ROLE:
+		role := r.AwsAuthConfig.GetRole()
+		if role == nil {
+			return exceptions.NewRDSIAMAuthError(errors.New("role is nil"))
+		}
+	}
+	return nil
+}
+
 type RDSConnectionConfig struct {
 	Host string
 	User string
@@ -31,22 +54,23 @@ type RDSConnectionConfig struct {
 }
 
 func BuildPeerAWSCredentials(awsAuth *protos.AwsAuthenticationConfig) PeerAWSCredentials {
-	if awsAuth == nil {
+	switch awsAuth.AuthType {
+	case protos.AwsIAMAuthConfigType_IAM_AUTH_AUTOMATIC:
 		return PeerAWSCredentials{}
-	}
-	switch config := awsAuth.AuthConfig.(type) {
-	case *protos.AwsAuthenticationConfig_StaticCredentials:
+	case protos.AwsIAMAuthConfigType_IAM_AUTH_STATIC_CREDENTIALS:
+		credentials := awsAuth.GetStaticCredentials()
 		return PeerAWSCredentials{
 			Credentials: aws.Credentials{
-				AccessKeyID:     *config.StaticCredentials.AccessKeyId,
-				SecretAccessKey: *config.StaticCredentials.SecretAccessKey,
+				AccessKeyID:     *credentials.AccessKeyId,
+				SecretAccessKey: *credentials.SecretAccessKey,
 			},
 			Region: awsAuth.Region,
 		}
-	case *protos.AwsAuthenticationConfig_Role:
+	case protos.AwsIAMAuthConfigType_IAM_AUTH_ASSUME_ROLE:
+		role := awsAuth.GetRole()
 		return PeerAWSCredentials{
-			RoleArn:        &config.Role.AssumeRoleArn,
-			ChainedRoleArn: config.Role.ChainedRoleArn,
+			RoleArn:        &role.AssumeRoleArn,
+			ChainedRoleArn: role.ChainedRoleArn,
 			Region:         awsAuth.Region,
 		}
 	}

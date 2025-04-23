@@ -80,6 +80,6 @@ export const blankPostgresSetting: PostgresConfig = {
   password: '',
   database: '',
   requireTls: false,
-  authType: PostgresAuthType.POSTGRES_AUTH_TYPE_PASSWORD,
+  authType: PostgresAuthType.POSTGRES_PASSWORD,
   awsAuth: undefined,
 };

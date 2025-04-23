@@ -100,9 +100,13 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 	}
 
 	var rdsAuth *utils.RDSAuth
-	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_AUTH_TYPE_IAM_AUTH {
+	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_IAM_AUTH {
 		rdsAuth = &utils.RDSAuth{
 			AwsAuthConfig: pgConfig.AwsAuth,
+		}
+		if err := rdsAuth.VerifyAuthConfig(); err != nil {
+			logger.Error("failed to verify auth config", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
 	conn, err := NewPostgresConnFromConfig(ctx, connConfig, rdsAuth, tunnel)

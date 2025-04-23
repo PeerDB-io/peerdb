@@ -42,10 +42,15 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
+	logger := internal.LoggerFromCtx(ctx)
 	var rdsAuth *utils.RDSAuth
-	if config.AuthType == protos.MySqlAuthType_MYSQL_AUTH_TYPE_IAM_AUTH {
+	if config.AuthType == protos.MySqlAuthType_MYSQL_IAM_AUTH {
 		rdsAuth = &utils.RDSAuth{
 			AwsAuthConfig: config.AwsAuth,
+		}
+		if err := rdsAuth.VerifyAuthConfig(); err != nil {
+			logger.Error("failed to verify auth config", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
 	contexts := make(chan context.Context)

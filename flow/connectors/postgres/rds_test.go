@@ -23,9 +23,10 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 			Database:   "postgres",
 			User:       username,
 			Port:       5432,
-			AuthType:   protos.PostgresAuthType_POSTGRES_AUTH_TYPE_IAM_AUTH,
+			AuthType:   protos.PostgresAuthType_POSTGRES_IAM_AUTH,
 			RequireTls: true, // Assumed that AWS Root CA is installed
 			AwsAuth: &protos.AwsAuthenticationConfig{
+				AuthType: protos.AwsIAMAuthConfigType_IAM_AUTH_ASSUME_ROLE,
 				AuthConfig: &protos.AwsAuthenticationConfig_Role{
 					Role: &protos.AWSAuthAssumeRoleConfig{
 						AssumeRoleArn:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),

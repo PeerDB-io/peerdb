@@ -22,9 +22,10 @@ func TestAwsRDSIAMAuthConnectForMYSQL(t *testing.T) {
 			Database:   "postgres",
 			User:       username,
 			Port:       5432,
-			AuthType:   protos.MySqlAuthType_MYSQL_AUTH_TYPE_IAM_AUTH,
+			AuthType:   protos.MySqlAuthType_MYSQL_IAM_AUTH,
 			DisableTls: false, // Assumed that AWS Root CA is installed
 			AwsAuth: &protos.AwsAuthenticationConfig{
+				AuthType: protos.AwsIAMAuthConfigType_IAM_AUTH_ASSUME_ROLE,
 				AuthConfig: &protos.AwsAuthenticationConfig_Role{
 					Role: &protos.AWSAuthAssumeRoleConfig{
 						AssumeRoleArn:  os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE"),

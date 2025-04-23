@@ -704,7 +704,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("require_tls")
                     .map(|s| s.parse::<bool>().unwrap_or_default())
                     .unwrap_or_default(),
-                auth_type: PostgresAuthType::Password.into(),
+                auth_type: PostgresAuthType::PostgresPassword.into(),
                 aws_auth: None,
             };
 
@@ -994,7 +994,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             }
             .into(),
             root_ca: opts.get("root_ca").map(|s| s.to_string()),
-            auth_type: MySqlAuthType::MysqlAuthTypePassword.into(),
+            auth_type: MySqlAuthType::MysqlPassword.into(),
             ssh_config: None,
             replication_mechanism: match opts.get("replication_mechanism") {
                 Some(&"gtid") => MySqlReplicationMechanism::MysqlGtid,
