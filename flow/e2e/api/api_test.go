@@ -549,6 +549,22 @@ func (s Suite) TestCustomSync() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForEqualTables(env, s.ch, "initial load", tblName, "id,val")
 
+	// test tags api
+	_, err = s.GetFlowTags(s.t.Context(), &protos.GetFlowTagsRequest{FlowName: "unknown-flow"})
+	require.ErrorContains(s.t, err, "does not exist")
+	_, err = s.CreateOrReplaceFlowTags(s.t.Context(), &protos.CreateOrReplaceFlowTagsRequest{FlowName: "unknown-flow"})
+	require.ErrorContains(s.t, err, "does not exist")
+	_, err = s.CreateOrReplaceFlowTags(s.t.Context(), &protos.CreateOrReplaceFlowTagsRequest{
+		FlowName: flowConnConfig.FlowJobName,
+		Tags:     []*protos.FlowTag{{Key: "k", Value: "v"}},
+	})
+	require.NoError(s.t, err)
+	tagsResponse, err := s.GetFlowTags(s.t.Context(), &protos.GetFlowTagsRequest{FlowName: flowConnConfig.FlowJobName})
+	require.NoError(s.t, err)
+	require.True(s.t, slices.ContainsFunc(tagsResponse.Tags, func(tag *protos.FlowTag) bool {
+		return tag.Key == "k" && tag.Value == "v"
+	}))
+
 	_, err = s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: flowConnConfig.FlowJobName, NumberOfSyncs: 1})
 	require.ErrorContains(s.t, err, "is not paused")
 
