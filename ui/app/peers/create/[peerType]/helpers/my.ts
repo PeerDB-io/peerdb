@@ -121,7 +121,7 @@ export const mysqlSetting: PeerSetting[] = [
       { value: 'MYSQL_PASSWORD', label: 'Password' },
       { value: 'MYSQL_IAM_AUTH', label: 'AWS IAM Auth' },
     ],
-    tips: 'AWS IAM Auth is supported for Initial-Load-Only Mirrors. It is NOT SUPPORTED for CDC',
+    tips: 'AWS IAM Auth is supported for all Mirror Types for MySQL',
   },
   {
     label: 'AWS IAM Auth Mechanism',
