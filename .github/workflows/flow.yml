@@ -230,9 +230,9 @@ jobs:
           FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE }}
           # For ClickHouse S3 IAM Role based tests
           FLOW_TESTS_AWS_S3_BUCKET_NAME: ${{ secrets.FLOW_TESTS_AWS_S3_BUCKET_NAME }}
-          FLOW_TESTS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
-          FLOW_TESTS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
-          FLOW_TESTS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+          FLOW_TESTS_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
+          FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
+          FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@ad3126e916f78f00edff4ed0317cf185271ccc2d # v5
