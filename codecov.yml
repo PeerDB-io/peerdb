@@ -8,6 +8,7 @@ ignore:
   - "flow/connectors/postgres/sanitize"
   - "flow/connectors/pubsub"
   - "flow/connectors/snowflake"
+  - "flow/e2e/eventhub"
   - "flow/middleware"
   - "flow/shared/aws_common"
 
