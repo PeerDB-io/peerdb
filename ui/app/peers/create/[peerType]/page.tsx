@@ -17,6 +17,7 @@ import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig'
 import {
   ElasticsearchConfig,
   EventHubGroupConfig,
+  MySqlConfig,
   PostgresConfig,
 } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
@@ -85,7 +86,13 @@ export default function CreateConfig({
           />
         );
       case 'MYSQL':
-        return <MySqlForm settings={mysqlSetting} setter={setConfig} />;
+        return (
+          <MySqlForm
+            settings={mysqlSetting}
+            setter={setConfig}
+            config={config as MySqlConfig}
+          />
+        );
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':

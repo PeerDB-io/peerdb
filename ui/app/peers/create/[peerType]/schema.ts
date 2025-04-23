@@ -131,7 +131,6 @@ export const mySchema = z.object({
       required_error: 'Password is required',
       invalid_type_error: 'Password must be a string',
     })
-    .min(1, 'Password must be non-empty')
     .max(100, 'Password must be less than 100 characters'),
   compression: z.number().min(0).max(1),
   disableTls: z.boolean(),

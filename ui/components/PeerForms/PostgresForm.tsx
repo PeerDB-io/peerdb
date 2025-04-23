@@ -96,9 +96,9 @@ export default function PostgresForm({
   };
 
   useEffect(() => {
-    const host = searchParams.get('host');
+    const host = searchParams?.get('host');
     if (host) setter((curr) => ({ ...curr, host }));
-    const database = searchParams.get('db');
+    const database = searchParams?.get('db');
     if (database) setter((curr) => ({ ...curr, database }));
   }, [setter, searchParams]);
 
@@ -144,37 +144,25 @@ export default function PostgresForm({
             }
           />
         ) : setting.type === 'select' &&
-          (setting.field === 'authType' ||
+          (setting.field !== 'awsAuth.authType' ||
             (config.authType === PostgresAuthType.POSTGRES_IAM_AUTH &&
               setting.field === 'awsAuth.authType')) ? (
           <RowWithSelect
             label={<Label>{setting.label}</Label>}
             action={
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <div
-                  style={{
-                    flex: 1,
-                  }}
-                >
-                  <ReactSelect
-                    key={id}
-                    defaultValue={setting.options?.find(
-                      ({ value }) => value === setting.default
-                    )}
-                    placeholder={setting.placeholder}
-                    onChange={(val) =>
-                      val && setting.stateHandler(val.value, setter)
-                    }
-                    options={setting.options}
-                    theme={SelectTheme}
-                  />
-                </div>
+              <div>
+                <ReactSelect
+                  key={id}
+                  defaultValue={setting.options?.find(
+                    ({ value }) => value === setting.default
+                  )}
+                  placeholder={setting.placeholder}
+                  onChange={(val) =>
+                    val && setting.stateHandler(val.value, setter)
+                  }
+                  options={setting.options}
+                  theme={SelectTheme}
+                />
                 {setting.tips && (
                   <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
                 )}

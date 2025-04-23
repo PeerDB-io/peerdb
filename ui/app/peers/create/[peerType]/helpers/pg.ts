@@ -1,4 +1,5 @@
 import {
+  AwsAuthenticationConfig,
   AwsIAMAuthConfigType,
   awsIAMAuthConfigTypeFromJSON,
   PostgresAuthType,
@@ -98,8 +99,7 @@ export const postgresSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => {
         let cfg = curr as PostgresConfig;
-        let awsAuth = cfg.awsAuth;
-        awsAuth = {
+        let awsAuth: AwsAuthenticationConfig = {
           region: '',
           authType: awsIAMAuthConfigTypeFromJSON(value),
         };
