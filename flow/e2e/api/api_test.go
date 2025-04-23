@@ -517,3 +517,62 @@ func (s Suite) TestSettings() {
 		return x.Name == "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS" && x.Value != nil && *x.Value == newValue
 	}))
 }
+
+func (s Suite) TestCustomSync() {
+	_, err := s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: "", NumberOfSyncs: 1})
+	require.ErrorContains(s.t, err, "mirror name cannot be empty")
+	_, err = s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: "flow", NumberOfSyncs: 0})
+	require.ErrorContains(s.t, err, "sync number request must be between 1 and 32 (inclusive)")
+	_, err = s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: "unknown-flow", NumberOfSyncs: 1})
+	require.ErrorContains(s.t, err, "mirror unknown-flow does not exist")
+
+	tblName := "apitable"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, tblName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, tblName))))
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      "mirrorapi" + s.suffix,
+		TableNameMapping: map[string]string{e2e.AttachSchema(s, tblName): tblName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE": "false"}
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := e2e.NewTemporalClient(s.t)
+	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTables(env, s.ch, "initial load", tblName, "id,val")
+
+	_, err = s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: flowConnConfig.FlowJobName, NumberOfSyncs: 1})
+	require.ErrorContains(s.t, err, "is not paused")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	customResponse, err := s.CustomSyncFlow(s.t.Context(),
+		&protos.CreateCustomSyncRequest{FlowJobName: flowConnConfig.FlowJobName, NumberOfSyncs: 1})
+	require.NoError(s.t, err)
+	require.Equal(s.t, flowConnConfig.FlowJobName, customResponse.FlowJobName)
+	require.Equal(s.t, 1, customResponse.NumberOfSyncs)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'pause')", e2e.AttachSchema(s, tblName))))
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+	e2e.RequireEqualTables(s.ch, tblName, "id,val")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}

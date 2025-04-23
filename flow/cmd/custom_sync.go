@@ -68,7 +68,7 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 	// ---- REQUEST VALIDATED ----
 
 	// Resume mirror with custom sync number
-	_, err = h.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
+	if _, err := h.FlowStateChange(ctx, &protos.FlowStateChangeRequest{
 		FlowJobName:        req.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
 		FlowConfigUpdate: &protos.FlowConfigUpdate{
@@ -78,8 +78,7 @@ func (h *FlowRequestHandler) CustomSyncFlow(
 				},
 			},
 		},
-	})
-	if err != nil {
+	}); err != nil {
 		slog.Error("Unable to kick off custom sync for mirror",
 			slog.Any("mirror", req.FlowJobName),
 			slog.Any("error", err))

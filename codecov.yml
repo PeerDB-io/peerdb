@@ -18,4 +18,4 @@ component_management:
         - flow/datatypes/
         - flow/e2eshared/
       statuses:
-        target: 100%
+        - target: 100%
