@@ -522,7 +522,7 @@ func (s Suite) TestCustomSync() {
 	_, err := s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: "", NumberOfSyncs: 1})
 	require.ErrorContains(s.t, err, "mirror name cannot be empty")
 	_, err = s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: "flow", NumberOfSyncs: 0})
-	require.ErrorContains(s.t, err, "sync number request must be between 1 and 32 (inclusive)")
+	require.ErrorContains(s.t, err, "sync number request must be greater than 0")
 	_, err = s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: "unknown-flow", NumberOfSyncs: 1})
 	require.ErrorContains(s.t, err, "mirror unknown-flow does not exist")
 
@@ -565,7 +565,7 @@ func (s Suite) TestCustomSync() {
 		&protos.CreateCustomSyncRequest{FlowJobName: flowConnConfig.FlowJobName, NumberOfSyncs: 1})
 	require.NoError(s.t, err)
 	require.Equal(s.t, flowConnConfig.FlowJobName, customResponse.FlowJobName)
-	require.Equal(s.t, 1, customResponse.NumberOfSyncs)
+	require.Equal(s.t, int32(1), customResponse.NumberOfSyncs)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'pause')", e2e.AttachSchema(s, tblName))))
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing for add table", func() bool {
