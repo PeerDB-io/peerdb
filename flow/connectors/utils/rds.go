@@ -61,8 +61,8 @@ func BuildPeerAWSCredentials(awsAuth *protos.AwsAuthenticationConfig) PeerAWSCre
 		credentials := awsAuth.GetStaticCredentials()
 		return PeerAWSCredentials{
 			Credentials: aws.Credentials{
-				AccessKeyID:     *credentials.AccessKeyId,
-				SecretAccessKey: *credentials.SecretAccessKey,
+				AccessKeyID:     credentials.AccessKeyId,
+				SecretAccessKey: credentials.SecretAccessKey,
 			},
 			Region: awsAuth.Region,
 		}

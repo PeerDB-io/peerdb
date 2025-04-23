@@ -71,8 +71,8 @@ message MongoConfig {
 }
 
 message AwsAuthStaticCredentialsConfig {
-  optional string access_key_id = 1 [(peerdb_redacted) = true];
-  optional string secret_access_key = 2 [(peerdb_redacted) = true];
+  string access_key_id = 1 [(peerdb_redacted) = true];
+  string secret_access_key = 2 [(peerdb_redacted) = true];
 }
 
 message AWSAuthAssumeRoleConfig {
