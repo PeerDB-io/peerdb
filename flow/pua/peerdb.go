@@ -571,9 +571,10 @@ func LuaUUID(ls *lua.LState) int {
 
 func LuaTime(ls *lua.LState) int {
 	if ls.GetTop() == 0 {
-		return LuaNow(ls)
+		ls.Push(shared.LuaTime.New(ls, time.Time{}))
+	} else {
+		ls.Push(shared.LuaTime.New(ls, LVAsTime(ls, ls.Get(1))))
 	}
-	ls.Push(shared.LuaTime.New(ls, LVAsTime(ls, ls.Get(1))))
 	return 1
 }
 
