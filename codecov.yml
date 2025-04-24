@@ -1,3 +1,7 @@
+parsers:
+  go:
+    partials_as_hits: true
+
 ignore:
   - "flow/alerting/email_alert_sender.go"
   - "flow/alerting/slack_alert_sender.go"
