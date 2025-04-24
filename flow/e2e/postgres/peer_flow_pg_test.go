@@ -47,6 +47,14 @@ func (s PeerFlowE2ETestSuitePG) checkPeerdbColumns(dstSchemaQualified string, ro
 	return nil
 }
 
+func (s PeerFlowE2ETestSuitePG) TestHeartbeat() {
+	// general testing of heartbeat workflow, not pg specific
+	require.NotNil(s.t, e2e.GeneratePostgresPeer(s.t))
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.HeartbeatFlowWorkflow)
+	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	srcTableName := s.attachSchemaSuffix("test_geospatial_pg")
 	dstTableName := s.attachSchemaSuffix("test_geospatial_pg_dst")

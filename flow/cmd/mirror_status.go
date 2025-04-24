@@ -84,12 +84,10 @@ func (h *FlowRequestHandler) MirrorStatus(
 	}
 
 	if req.IncludeFlowInfo {
-		cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
-		if err != nil {
+		if cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 			slog.Error("unable to determine if mirror is cdc", slog.Any("error", err))
 			return nil, fmt.Errorf("unable to determine if mirror %s is of type CDC: %w", req.FlowJobName, err)
-		}
-		if cdcFlow {
+		} else if cdcFlow {
 			cdcStatus, err := h.cdcFlowStatus(ctx, req)
 			if err != nil {
 				slog.Error("unable to obtain CDC information for mirror", slog.Any("error", err))
@@ -438,9 +436,9 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 
 func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) (bool, error) {
 	var isCdc bool
-	err := h.pool.QueryRow(ctx, "SELECT exists(SELECT * FROM flows WHERE name=$1 and coalesce(query_string, '')='')",
-		flowJobName).Scan(&isCdc)
-	if err != nil {
+	if err := h.pool.QueryRow(
+		ctx, "SELECT exists(SELECT * FROM flows WHERE name=$1 and coalesce(query_string, '')='')", flowJobName,
+	).Scan(&isCdc); err != nil {
 		slog.Error("unable to query flow", slog.Any("error", err))
 		return false, fmt.Errorf("unable to query flow: %w", err)
 	}
