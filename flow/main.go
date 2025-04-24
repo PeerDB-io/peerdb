@@ -144,8 +144,8 @@ func main() {
 						EnableOtelMetrics:                  clicmd.Bool("enable-otel-metrics"),
 						PyroscopeServer:                    clicmd.String("pyroscope-server-address"),
 						TemporalNamespace:                  clicmd.String("temporal-namespace"),
-						TemporalMaxConcurrentActivities:    int(clicmd.Int("temporal-max-concurrent-activities")),
-						TemporalMaxConcurrentWorkflowTasks: int(clicmd.Int("temporal-max-concurrent-workflow-tasks")),
+						TemporalMaxConcurrentActivities:    clicmd.Int("temporal-max-concurrent-activities"),
+						TemporalMaxConcurrentWorkflowTasks: clicmd.Int("temporal-max-concurrent-workflow-tasks"),
 						UseMaintenanceTaskQueue:            clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
 					})
 					if err != nil {
