@@ -234,4 +234,5 @@ export const blankMySqlSetting: MySqlConfig = {
     region: '',
     authType: AwsIAMAuthConfigType.IAM_AUTH_AUTOMATIC,
   },
+  tlsHost: '',
 };

@@ -141,4 +141,5 @@ export const blankClickHouseSetting: ClickhouseConfig = {
   region: '',
   disableTls: false,
   endpoint: undefined,
+  tlsHost: '',
 };

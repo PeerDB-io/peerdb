@@ -198,4 +198,5 @@ export const blankPostgresSetting: PostgresConfig = {
     region: '',
     authType: AwsIAMAuthConfigType.IAM_AUTH_AUTOMATIC,
   },
+  tlsHost: '',
 };
