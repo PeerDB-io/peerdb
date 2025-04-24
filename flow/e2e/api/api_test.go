@@ -574,22 +574,6 @@ func (s Suite) TestCustomSync() {
 			mirror.SourceType == sourcePeer.Type && mirror.IsCdc
 	}))
 
-	// test MirrorStatus
-	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
-		FlowJobName:     flowConnConfig.FlowJobName,
-		IncludeFlowInfo: true,
-		ExcludeBatches:  false,
-	})
-	require.NoError(s.t, err)
-	require.Equal(s.t, protos.FlowStatus_STATUS_RUNNING, statusResponse.CurrentFlowState)
-	cdcStatus := statusResponse.GetCdcStatus()
-	require.NotNil(s.t, cdcStatus)
-	require.NotNil(s.t, cdcStatus.SnapshotStatus)
-	require.Equal(s.t, int64(0), cdcStatus.RowsSynced)
-	require.Equal(s.t, sourcePeer.Type, cdcStatus.SourceType)
-	require.Len(s.t, cdcStatus.SnapshotStatus.Clones, 1)
-	require.Equal(s.t, int64(1), cdcStatus.SnapshotStatus.Clones[0].NumRowsSynced)
-
 	_, err = s.CustomSyncFlow(s.t.Context(), &protos.CreateCustomSyncRequest{FlowJobName: flowConnConfig.FlowJobName, NumberOfSyncs: 1})
 	require.ErrorContains(s.t, err, "is not paused")
 
@@ -614,6 +598,83 @@ func (s Suite) TestCustomSync() {
 	})
 	e2e.RequireEqualTables(s.ch, tblName, "id,val")
 
+	// test MirrorStatus
+	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
+		FlowJobName:     flowConnConfig.FlowJobName,
+		IncludeFlowInfo: true,
+		ExcludeBatches:  false,
+	})
+	require.NoError(s.t, err)
+	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED, statusResponse.CurrentFlowState)
+	cdcStatus := statusResponse.GetCdcStatus()
+	require.NotNil(s.t, cdcStatus)
+	require.NotNil(s.t, cdcStatus.SnapshotStatus)
+	require.Equal(s.t, sourcePeer.Type, cdcStatus.SourceType)
+	require.Len(s.t, cdcStatus.SnapshotStatus.Clones, 1)
+	require.Equal(s.t, int64(1), cdcStatus.SnapshotStatus.Clones[0].NumRowsSynced)
+
+	for _, aggregateType := range []string{"1min", "1hour", "1day", "1month"} {
+		graphResponse, err := s.CDCGraph(s.t.Context(), &protos.GraphRequest{
+			FlowJobName:   flowConnConfig.FlowJobName,
+			AggregateType: aggregateType,
+		})
+		require.NoError(s.t, err)
+		require.NotEmpty(s.t, graphResponse.Data)
+	}
+
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s Suite) TestQRep() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only run with pg as mysql qrep isn't really supported")
+	}
+
+	tblName := "qrepapi"
+	schemaQualified := e2e.AttachSchema(s, tblName)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", schemaQualified)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
+
+	sourcePeer := s.Source().GeneratePeer(s.t)
+	qrepConfig := e2e.CreateQRepWorkflowConfig(
+		s.t,
+		"qrepapiflow",
+		schemaQualified,
+		schemaQualified+"dst",
+		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
+		sourcePeer.Name,
+		"",
+		true,
+		"",
+		"",
+	)
+	qrepConfig.WatermarkColumn = "id"
+
+	_, err := s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
+		QrepConfig:         qrepConfig,
+		CreateCatalogEntry: true,
+	})
+	require.NoError(s.t, err)
+
+	tc := e2e.NewTemporalClient(s.t)
+	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	require.NoError(s.t, env.Error(s.t.Context()))
+
+	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
+		FlowJobName:     qrepConfig.FlowJobName,
+		IncludeFlowInfo: true,
+		ExcludeBatches:  false,
+	})
+	require.NoError(s.t, err)
+	require.Equal(s.t, protos.FlowStatus_STATUS_COMPLETED, statusResponse.CurrentFlowState)
+	qStatus := statusResponse.GetQrepStatus()
+	require.NotNil(s.t, qStatus)
+	require.Len(s.t, qStatus.Partitions, 1)
+	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsInPartition)
+	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsSynced)
 }

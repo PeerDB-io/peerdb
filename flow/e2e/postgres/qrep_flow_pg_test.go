@@ -44,8 +44,7 @@ func (s PeerFlowE2ETestSuitePG) comparePGTables(srcSchemaQualified, dstSchemaQua
 func (s PeerFlowE2ETestSuitePG) checkEnums(srcSchemaQualified, dstSchemaQualified string) error {
 	var exists pgtype.Bool
 	query := fmt.Sprintf("SELECT EXISTS (SELECT 1 FROM %s src "+
-		"WHERE NOT EXISTS ("+
-		"SELECT 1 FROM %s dst "+
+		"WHERE NOT EXISTS (SELECT 1 FROM %s dst "+
 		"WHERE src.my_mood::text = dst.my_mood::text)) LIMIT 1;", srcSchemaQualified,
 		dstSchemaQualified)
 	if err := s.Conn().QueryRow(s.t.Context(), query).Scan(&exists); err != nil {
@@ -201,8 +200,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
-	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*"))
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {

@@ -556,10 +556,9 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	}
 
 	numPartitions := len(partitions.Partitions)
+	logger.Info("replicating partitions for batch",
+		slog.Int64("batchID", int64(partitions.BatchId)), slog.Int("partitions", numPartitions))
 
-	logger.Info(fmt.Sprintf("replicating partitions for batch %d - size: %d",
-		partitions.BatchId, numPartitions),
-	)
 	for _, p := range partitions.Partitions {
 		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
 		var err error
