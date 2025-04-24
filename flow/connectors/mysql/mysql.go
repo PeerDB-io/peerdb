@@ -14,6 +14,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -29,6 +30,7 @@ type MySqlConnector struct {
 	conn     atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
 	contexts chan context.Context
 	logger   log.Logger
+	rdsAuth  *utils.RDSAuth
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -40,6 +42,17 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
+	logger := internal.LoggerFromCtx(ctx)
+	var rdsAuth *utils.RDSAuth
+	if config.AuthType == protos.MySqlAuthType_MYSQL_IAM_AUTH {
+		rdsAuth = &utils.RDSAuth{
+			AwsAuthConfig: config.AwsAuth,
+		}
+		if err := rdsAuth.VerifyAuthConfig(); err != nil {
+			logger.Error("failed to verify auth config", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
+	}
 	contexts := make(chan context.Context)
 	c := &MySqlConnector{
 		PostgresMetadata: pgMetadata,
@@ -48,6 +61,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		conn:             atomic.Pointer[client.Conn]{},
 		contexts:         contexts,
 		logger:           internal.LoggerFromCtx(ctx),
+		rdsAuth:          rdsAuth,
 	}
 	go func() {
 		ctx := context.Background()
@@ -131,9 +145,23 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			}
 			return nil
 		}}
+		logger := internal.LoggerFromCtx(ctx)
+		config := proto.Clone(c.config).(*protos.MySqlConfig)
+		if c.rdsAuth != nil {
+			logger.Info("Setting up IAM auth for MySQL")
+			token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
+				Host: c.config.Host,
+				Port: config.Port,
+				User: config.User,
+			}, c.rdsAuth, "MYSQL")
+			if err != nil {
+				return nil, err
+			}
+			config.Password = token
+		}
 		var err error
-		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
-			c.config.User, c.config.Password, c.config.Database, c.Dialer(), argF...)
+		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", config.Host, config.Port),
+			config.User, config.Password, config.Database, c.Dialer(), argF...)
 		if err != nil {
 			return nil, err
 		}

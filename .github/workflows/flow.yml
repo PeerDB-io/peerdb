@@ -6,6 +6,10 @@ on:
   push:
     branches: [main]
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   flow_test:
     strategy:
@@ -71,6 +75,9 @@ jobs:
 
       - name: install lib-geos
         run: |
+          # No need to update man pages on package install
+          sudo apt-get remove --purge man-db
+
           sudo apt-get update
           sudo apt-get install libgeos-dev
 
@@ -105,6 +112,16 @@ jobs:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        id: setup-aws
+        with:
+          audience: sts.amazonaws.com
+          aws-region: us-west-2
+          role-to-assume: ${{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
+          mask-aws-account-id: true
+          output-credentials: true
+
       - name: MariaDB
         if: matrix.db-version.mysql == 'maria'
         run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
@@ -138,6 +155,14 @@ jobs:
 
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
+
+      - name: Setup AWS CA Certs
+        env:
+          URL: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+        run: |
+          curl -fsSL -o aws-global-bundle.pem "$URL"
+          sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- aws-global-bundle.pem '/-----BEGIN CERTIFICATE-----/' '{*}'
+          sudo update-ca-certificates
 
       - name: run tests
         run: |
@@ -193,6 +218,21 @@ jobs:
           PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
           PEERDB_OTEL_TEMPORAL_METRICS_EXPORT_LIST: '__ALL__'
           PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE: 'true'
+          # Below are used to test RDS IAM Auth for Postgres and MySQL
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL }}
+          FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES }}
+          FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL }}
+          FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE }}
+          FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE }}
+          # For ClickHouse S3 IAM Role based tests
+          FLOW_TESTS_AWS_S3_BUCKET_NAME: ${{ secrets.FLOW_TESTS_AWS_S3_BUCKET_NAME }}
+          FLOW_TESTS_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
+          FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
+          FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@ad3126e916f78f00edff4ed0317cf185271ccc2d # v5

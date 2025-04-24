@@ -58,7 +58,6 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
-
 	return s.exec(ctx, query)
 }
 
