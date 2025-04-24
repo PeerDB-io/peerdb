@@ -241,12 +241,12 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 		}
 		awsConfig.Credentials = stscreds.NewAssumeRoleProvider(sts.NewFromConfig(awsConfig), *peerCredentials.RoleArn,
 			func(options *stscreds.AssumeRoleOptions) {
-				options.RoleSessionName = "peerdb-aws-assumed-role"
+				options.RoleSessionName = getAssumedRoleSessionName()
 			},
 		)
 		if peerCredentials.ChainedRoleArn != nil && *peerCredentials.ChainedRoleArn != "" {
 			logger.Info("Received AWS credentials with chained role from peer for connector: " + connectorName)
-			return NewAssumeRoleBasedAWSCredentialsProvider(ctx, awsConfig, *peerCredentials.ChainedRoleArn, "peerdb-aws-chained-role")
+			return NewAssumeRoleBasedAWSCredentialsProvider(ctx, awsConfig, *peerCredentials.ChainedRoleArn, getChainedRoleSessionName())
 		}
 		logger.Info("Received AWS credentials from peer for connector: " + connectorName)
 		return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
@@ -265,6 +265,32 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 	}
 	logger.Info("Received AWS credentials from SDK config for connector: " + connectorName)
 	return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
+}
+
+const MaxAWSSessionNameLength = 63 // Docs mention 64 as limit, but always good to stay under
+
+func getAssumedRoleSessionName() string {
+	defaultSessionName := "peeraws"
+	if deployUid := internal.PeerDBDeploymentUID(); deployUid != "" {
+		defaultSessionName += "-" + deployUid
+	}
+	sessionName := internal.GetEnvString("PEERDB_AWS_ASSUMED_ROLE_SESSION_NAME", defaultSessionName)
+	if len(sessionName) > MaxAWSSessionNameLength {
+		sessionName = sessionName[:MaxAWSSessionNameLength-1]
+	}
+	return sessionName
+}
+
+func getChainedRoleSessionName() string {
+	defaultSessionName := "peerchain"
+	if deployUid := internal.PeerDBDeploymentUID(); deployUid != "" {
+		defaultSessionName += "-" + deployUid
+	}
+	sessionName := internal.GetEnvString("PEERDB_AWS_CHAINED_ROLE_SESSION_NAME", defaultSessionName)
+	if len(sessionName) > MaxAWSSessionNameLength {
+		sessionName = sessionName[:MaxAWSSessionNameLength-1]
+	}
+	return sessionName
 }
 
 func FileURLForS3Service(endpoint string, region string, bucket string, filePath string) string {
