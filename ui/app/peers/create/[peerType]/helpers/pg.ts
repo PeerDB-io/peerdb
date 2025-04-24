@@ -154,7 +154,7 @@ export const postgresSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => {
         let pgConfig = curr as PostgresConfig;
-        pgConfig.awsAuth!.role!.assumeRoleArn = value as string;
+        pgConfig.awsAuth!.role!.chainedRoleArn = value as string;
         return { ...curr };
       }),
     tips: 'Additional Chained AWS IAM Role to assume after assuming the first role.',

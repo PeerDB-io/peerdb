@@ -185,7 +185,7 @@ export const mysqlSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => {
         let mysqlConfig = curr as MySqlConfig;
-        mysqlConfig.awsAuth!.role!.assumeRoleArn = value as string;
+        mysqlConfig.awsAuth!.role!.chainedRoleArn = value as string;
         return { ...curr };
       }),
     tips: 'Additional Chained AWS IAM Role to assume after assuming the first role.',
