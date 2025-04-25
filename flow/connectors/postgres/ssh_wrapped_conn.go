@@ -17,6 +17,7 @@ import (
 func NewPostgresConnFromConfig(
 	ctx context.Context,
 	connConfig *pgx.ConnConfig,
+	tlsHost string,
 	rdsAuth *utils.RDSAuth,
 	tunnel utils.SSHTunnel,
 ) (*pgx.Conn, error) {
@@ -34,18 +35,22 @@ func NewPostgresConnFromConfig(
 			return []string{host}, nil
 		}
 	}
-	connConfig = connConfig.Copy()
 	logger := internal.LoggerFromCtx(ctx)
 	if rdsAuth != nil {
+		host := connConfig.Host
+		if tlsHost != "" {
+			host = tlsHost
+		}
 		logger.Info("Setting up IAM auth for Postgres")
 		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-			Host: connConfig.Host,
+			Host: host,
 			Port: uint32(connConfig.Port),
 			User: connConfig.User,
 		}, rdsAuth, "POSTGRES")
 		if err != nil {
 			return nil, err
 		}
+		connConfig = connConfig.Copy()
 		connConfig.Password = token
 	}
 	conn, err := pgx.ConnectConfig(ctx, connConfig)
@@ -54,16 +59,15 @@ func NewPostgresConnFromConfig(
 		return nil, err
 	}
 
-	host := connConfig.Host
 	if err := retryWithBackoff(logger, func() error {
 		_, err := conn.Exec(ctx, "SELECT 1")
 		if err != nil {
-			logger.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", host))
+			logger.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", connConfig.Host))
 			return err
 		}
 		return nil
 	}, 5, 5*time.Second); err != nil {
-		logger.Error("Failed to create pool", slog.Any("error", err), slog.String("host", host))
+		logger.Error("Failed to create pool", slog.Any("error", err), slog.String("host", connConfig.Host))
 		conn.Close(ctx)
 		return nil, err
 	}

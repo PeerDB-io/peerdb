@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"sync"
 	"time"
@@ -34,13 +35,11 @@ func (r *RDSAuth) VerifyAuthConfig() error {
 	case protos.AwsIAMAuthConfigType_IAM_AUTH_AUTOMATIC:
 		// No action needed
 	case protos.AwsIAMAuthConfigType_IAM_AUTH_STATIC_CREDENTIALS:
-		credentials := r.AwsAuthConfig.GetStaticCredentials()
-		if credentials == nil {
+		if r.AwsAuthConfig.GetStaticCredentials() == nil {
 			return exceptions.NewRDSIAMAuthError(errors.New("static credentials are nil"))
 		}
 	case protos.AwsIAMAuthConfigType_IAM_AUTH_ASSUME_ROLE:
-		role := r.AwsAuthConfig.GetRole()
-		if role == nil {
+		if r.AwsAuthConfig.GetRole() == nil {
 			return exceptions.NewRDSIAMAuthError(errors.New("role is nil"))
 		}
 	}
@@ -83,11 +82,11 @@ func GetRDSToken(ctx context.Context, connConfig RDSConnectionConfig, rdsAuth *R
 	logger := internal.LoggerFromCtx(ctx)
 	now := time.Now()
 	if rdsAuth.updateTime.Add(RDSAuthTokenTTL).After(now) && rdsAuth.token != "" {
-		logger.Info("Using cached RDS token for connector: " + connectorName)
+		logger.Info("Using cached RDS token for connector", slog.String("connector", connectorName))
 		return rdsAuth.token, nil
 	}
 	return func() (string, error) {
-		logger.Info("Generating new RDS token for connector: " + connectorName)
+		logger.Info("Generating new RDS token for connector", slog.String("connector", connectorName))
 		rdsAuth.lock.Lock()
 		defer rdsAuth.lock.Unlock()
 		newUpdateTime := time.Now()

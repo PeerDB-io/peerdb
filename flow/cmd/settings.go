@@ -6,10 +6,10 @@ import (
 	"slices"
 
 	"github.com/jackc/pgx/v5"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (h *FlowRequestHandler) GetDynamicSettings(
@@ -26,7 +26,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 	var value string
 	if _, err := pgx.ForEachRow(rows, []any{&name, &value}, func() error {
 		if idx, ok := internal.DynamicIndex[name]; ok {
-			settings[idx] = shared.CloneProto(settings[idx])
+			settings[idx] = proto.CloneOf(settings[idx])
 			newValue := value // create a new string reference as value can be overwritten by the next iteration.
 			settings[idx].Value = &newValue
 		}
