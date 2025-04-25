@@ -163,6 +163,8 @@ func generateCreateTableSQLForNormalizedTable(
 		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
 	} else if tableMapping.Engine == protos.TableEngine_CH_ENGINE_MERGE_TREE {
 		engine = "MergeTree()"
+	} else if tableMapping.Engine == protos.TableEngine_CH_ENGINE_NULL {
+		engine = "Null"
 	} else {
 		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
 	}
@@ -177,18 +179,20 @@ func generateCreateTableSQLForNormalizedTable(
 		orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
 	}
 
-	if len(orderByColumns) > 0 {
-		orderByStr := strings.Join(orderByColumns, ",")
+	if tableMapping == nil || tableMapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
+		if len(orderByColumns) > 0 {
+			orderByStr := strings.Join(orderByColumns, ",")
 
-		fmt.Fprintf(&stmtBuilder, " PRIMARY KEY (%[1]s) ORDER BY (%[1]s)", orderByStr)
-	} else {
-		stmtBuilder.WriteString(" ORDER BY tuple()")
-	}
+			fmt.Fprintf(&stmtBuilder, " PRIMARY KEY (%[1]s) ORDER BY (%[1]s)", orderByStr)
+		} else {
+			stmtBuilder.WriteString(" ORDER BY tuple()")
+		}
 
-	if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
-		return "", err
-	} else if nullable {
-		stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+		if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
+			return "", err
+		} else if nullable {
+			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+		}
 	}
 
 	return stmtBuilder.String(), nil
