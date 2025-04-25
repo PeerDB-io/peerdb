@@ -244,6 +244,7 @@ message PartitionRange {
 enum TableEngine {
   CH_ENGINE_REPLACING_MERGE_TREE = 0;
   CH_ENGINE_MERGE_TREE = 1;
+  CH_ENGINE_NULL = 2;
 }
 
 // protos for qrep

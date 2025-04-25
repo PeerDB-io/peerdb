@@ -266,7 +266,7 @@ func (s ClickHouseSuite) Test_NullableColumnSetting() {
 
 func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 	srcTableName := "test_update_pkey_disabled"
-	srcFullName := s.attachSchemaSuffix("test_update_pkey_disabled")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_update_pkey_disabled_dst"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
@@ -307,7 +307,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Disabled() {
 
 func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
 	srcTableName := "test_update_pkey_enabled"
-	srcFullName := s.attachSchemaSuffix("test_update_pkey_enabled")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_update_pkey_enabled_dst"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
@@ -344,7 +344,7 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
 
 func (s ClickHouseSuite) Test_Chunking_Normalize() {
 	srcTableName := "test_update_pkey_chunking_enabled"
-	srcFullName := s.attachSchemaSuffix("test_update_pkey_chunking_enabled")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_update_pkey_chunking_enabled_dst"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
@@ -386,7 +386,7 @@ func (s ClickHouseSuite) Test_Chunking_Normalize() {
 
 func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 	srcTableName := "test_replident_full_toast"
-	srcFullName := s.attachSchemaSuffix("test_replident_full_toast")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_replident_full_toast_dst"
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -707,7 +707,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	}
 
 	srcTableName := "test_types"
-	srcFullName := s.attachSchemaSuffix("test_types")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_types"
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 	if _, err := s.Conn().Exec(s.t.Context(), createMoodEnum); err != nil &&
@@ -993,7 +993,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 
 func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 	srcTableName := "test_no_pkey"
-	srcFullName := s.attachSchemaSuffix("test_no_pkey")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_no_pkey_dst"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -1181,7 +1181,7 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 
 func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 	srcTableName := "test_skip_snapshot"
-	srcFullName := s.attachSchemaSuffix("test_skip_snapshot")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_skip_snapshot"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -1213,7 +1213,7 @@ func (s ClickHouseSuite) Test_SkipSnapshotExport() {
 
 func (s ClickHouseSuite) Test_SchemaAsColumn() {
 	srcTableName := "test_schema_as_column"
-	srcFullName := s.attachSchemaSuffix("test_schema_as_column")
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_schema_as_column"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -1245,6 +1245,45 @@ func (s ClickHouseSuite) Test_SchemaAsColumn() {
 	for _, row := range rows.Records {
 		require.Equal(s.t, "e2e_test_"+s.suffix, row[0].Value(), "schema column incorrectly populated")
 	}
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_NullEngine() {
+	srcTableName := "test_nullengine"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_nullengine"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_nullengine"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			Engine:                     protos.TableEngine_CH_ENGINE_NULL,
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	require.NoError(s.t, ch.Exec(s.t.Context(),
+		`create table nulltarget (id Int32, "key" String, _peerdb_is_deleted Int8) engine = ReplacingMergeTree() order by id`))
+	require.NoError(s.t, ch.Exec(s.t.Context(),
+		`create materialized view nullmv to nulltarget as select id, "key", _peerdb_is_deleted from test_nullengine`))
+	require.NoError(s.t, ch.Close())
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s values (1, 'cdc')`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "null insert", srcTableName, "nulltarget", "id,\"key\"")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
