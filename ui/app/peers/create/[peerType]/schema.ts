@@ -101,6 +101,7 @@ export const pgSchema = z.object({
     })
     .optional()
     .transform((e) => (e === '' ? undefined : e)),
+  tlsHost: z.string(),
   sshConfig: sshSchema,
 });
 export const mySchema = z.object({
@@ -149,6 +150,7 @@ export const mySchema = z.object({
     })
     .optional()
     .transform((e) => (e === '' ? undefined : e)),
+  tlsHost: z.string(),
   sshConfig: sshSchema,
 });
 
@@ -375,6 +377,7 @@ export function chSchema(hostDomains: string[]) {
       })
       .optional()
       .transform((e) => (e === '' ? undefined : e)),
+    tlsHost: z.string(),
   });
 }
 

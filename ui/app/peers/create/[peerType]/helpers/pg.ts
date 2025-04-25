@@ -76,6 +76,14 @@ export const postgresSetting: PeerSetting[] = [
     tips: 'If not provided, host CA roots will be used.',
   },
   {
+    label: 'TLS Hostname',
+    field: 'tlsHost',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, tlsHost: value as string })),
+    tips: 'Overrides expected hostname during tls cert verification.',
+    optional: true,
+  },
+  {
     label: 'Authentication type',
     field: 'authType',
     default: 'POSTGRES_PASSWORD',
