@@ -201,36 +201,44 @@ func processTableAdditions(
 	}
 
 	logger.Info("additional tables added to publication")
-	additionalTablesUUID := GetUUID(ctx)
-	childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
-	additionalTablesCfg := shared.CloneProto(cfg)
-	additionalTablesCfg.DoInitialSnapshot = true
-	additionalTablesCfg.InitialSnapshotOnly = true
-	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
-	additionalTablesCfg.Resync = false
-	// execute the sync flow as a child workflow
-	childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
-		WorkflowID:        childAdditionalTablesCDCFlowID,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
-		TypedSearchAttributes: mirrorNameSearch,
-		WaitForCancellation:   true,
-	}
-	childAdditionalTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAdditionalTablesCDCFlowOpts)
-	childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
-		childAdditionalTablesCDCFlowCtx,
-		CDCFlowWorkflow,
-		additionalTablesCfg,
-		nil,
-	)
-	var res *CDCFlowWorkflowResult
-	if err := childAdditionalTablesCDCFlowFuture.Get(childAdditionalTablesCDCFlowCtx, &res); err != nil {
-		return err
+	var accumlatedSrcTableIdNameMapping = make(map[uint32]string)
+
+	for _, table := range flowConfigUpdate.AdditionalTables {
+		additionalTableUUID := uuid.New().String()
+		childAdditionalTableCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTableUUID)
+		additionalTablesCfg := shared.CloneProto(cfg)
+		additionalTablesCfg.DoInitialSnapshot = true
+		additionalTablesCfg.InitialSnapshotOnly = true
+		additionalTablesCfg.TableMappings = []*protos.TableMapping{table}
+		additionalTablesCfg.Resync = false
+		// execute the sync flow as a child workflow
+		childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
+			WorkflowID:        childAdditionalTableCDCFlowID,
+			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			RetryPolicy: &temporal.RetryPolicy{
+				MaximumAttempts: 20,
+			},
+			TypedSearchAttributes: mirrorNameSearch,
+			WaitForCancellation:   true,
+		}
+		childAdditionalTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAdditionalTablesCDCFlowOpts)
+		childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
+			childAdditionalTablesCDCFlowCtx,
+			CDCFlowWorkflow,
+			additionalTablesCfg,
+			nil,
+		)
+		var res *CDCFlowWorkflowResult
+		if err := childAdditionalTablesCDCFlowFuture.Get(childAdditionalTablesCDCFlowCtx, &res); err != nil {
+			return err
+		}
+		// gotta accumulate the results of the map
+		for xId, xStr := range res.SyncFlowOptions.SrcTableIdNameMapping {
+			accumlatedSrcTableIdNameMapping[xId] = xStr
+		}
 	}
 
-	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
+	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, accumlatedSrcTableIdNameMapping)
 
 	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 	logger.Info("additional tables added to sync flow")
