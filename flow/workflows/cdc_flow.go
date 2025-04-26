@@ -232,10 +232,7 @@ func processTableAdditions(
 		if err := childAdditionalTablesCDCFlowFuture.Get(childAdditionalTablesCDCFlowCtx, &res); err != nil {
 			return err
 		}
-		// gotta accumulate the results of the map
-		for xId, xStr := range res.SyncFlowOptions.SrcTableIdNameMapping {
-			accumlatedSrcTableIdNameMapping[xId] = xStr
-		}
+		maps.Copy(accumlatedSrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
 	}
 
 	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, accumlatedSrcTableIdNameMapping)
