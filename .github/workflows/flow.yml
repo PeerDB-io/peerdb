@@ -40,7 +40,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:8.17.4@sha256:0ed88144ac448f40819b1ecd3bda8a33469ec82dbfcd48edf09700d84ac658c3
+        image: elasticsearch:8.18.0@sha256:658ea54de8d38c9ee69389e7fe226d6fd589816d7ed7f7cc911017ed646216d5
         ports:
           - 9200:9200
         env:
@@ -48,7 +48,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.4.8@sha256:4ab67707a5b6a391d1b4d545d70877c002fb08724e80b21eb483986103b73602
+        image: bitnami/minio:2025.4.22@sha256:a26e42a4d6550d2fb7708c8ceefc60474b42c124b6f3273a081721ddf1d86b20
         ports:
           - 9999:9999
         env:
@@ -58,7 +58,7 @@ jobs:
           AWS_EC2_METADATA_DISABLED: true
           MINIO_DEFAULT_BUCKETS: peerdb
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.123.0
+        image: otel/opentelemetry-collector-contrib:0.123.0@sha256:e39311df1f3d941923c00da79ac7ba6269124a870ee87e3c3ad24d60f8aee4d2
         ports:
           - 4317:4317
 
@@ -113,7 +113,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
         id: setup-aws
         with:
           audience: sts.amazonaws.com

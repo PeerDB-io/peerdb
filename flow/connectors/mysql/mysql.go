@@ -279,12 +279,20 @@ func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
 }
 
 func (c *MySqlConnector) CompareServerVersion(ctx context.Context, version string) (int, error) {
-	defer c.watchCtx(ctx)()
-	conn, err := c.connect(ctx)
+	rr, err := c.Execute(ctx, "SELECT version()")
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("failed to get server version: %w", err)
 	}
-	return conn.CompareServerVersion(version)
+
+	server_version, err := rr.GetString(0, 0)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get server version: %w", err)
+	}
+	cmp, err := mysql.CompareServerVersions(server_version, version)
+	if err != nil {
+		return 0, fmt.Errorf("failed to compare server version: %w", err)
+	}
+	return cmp, nil
 }
 
 func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, error) {
