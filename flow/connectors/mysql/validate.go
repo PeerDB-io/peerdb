@@ -91,8 +91,64 @@ func (c *MySqlConnector) checkMySQL5_BinlogSettings(ctx context.Context) error {
 	return nil
 }
 
+func (c *MySqlConnector) checkMariaDB_BinlogSettings(ctx context.Context, requireRowMetadata bool) error {
+	query := "SELECT @@binlog_format, @@binlog_row_image, @@binlog_row_metadata"
+
+	checkBinlogExpiry := false
+	cmp, err := c.CompareServerVersion(ctx, "10.6.1")
+	if err != nil {
+		return fmt.Errorf("failed to get server version: %w", err)
+	}
+	if cmp < 0 {
+		c.logger.Warn("MariaDB version does not support binlog_expire_logs_seconds, skipping check")
+		checkBinlogExpiry = true
+		query += ", @@binlog_expire_logs_seconds"
+	}
+
+	rs, err := c.Execute(ctx, query)
+	if err != nil {
+		return fmt.Errorf("failed to retrieve settings: %w", err)
+	}
+	if len(rs.Values) == 0 {
+		return errors.New("no value returned for settings")
+	}
+	row := rs.Values[0]
+
+	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
+	if binlogFormat != "ROW" {
+		return errors.New("binlog_format must be set to 'ROW', currently " + binlogFormat)
+	}
+
+	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[1].AsString())
+	if binlogRowImage != "FULL" {
+		return errors.New("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
+	}
+
+	binlogRowMetadata := shared.UnsafeFastReadOnlyBytesToString(row[2].AsString())
+	if binlogRowMetadata != "FULL" {
+		if requireRowMetadata {
+			return errors.New("binlog_row_metadata must be set to 'FULL' for column exclusion support, currently " + binlogRowMetadata)
+		} else {
+			c.logger.Warn("binlog_row_metadata should be set to 'FULL' for more reliable replication",
+				slog.String("binlog_row_metadata", strings.Clone(binlogRowMetadata)))
+		}
+	}
+
+	if checkBinlogExpiry {
+		binlogExpireLogsSeconds := row[3].AsUint64()
+		if binlogExpireLogsSeconds < 86400 && binlogExpireLogsSeconds != 0 {
+			c.logger.Warn("binlog_expire_logs_seconds should be at least 24 hours",
+				slog.Uint64("binlog_expire_logs_seconds", binlogExpireLogsSeconds))
+		}
+	}
+
+	return nil
+}
+
 func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMetadata bool) error {
-	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		return c.checkMariaDB_BinlogSettings(ctx, requireRowMetadata)
+	} else if c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
 		cmp, err := c.CompareServerVersion(ctx, "8.0.1")
 		if err != nil {
 			return fmt.Errorf("failed to get server version: %w", err)
@@ -116,8 +172,7 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 	if err != nil {
 		return fmt.Errorf("failed to get server version: %w", err)
 	}
-	// Don't see this setting on any MariaDB version
-	if cmp >= 0 && c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
+	if cmp >= 0 {
 		checkRowValueOptions = true
 		query += ", @@binlog_row_value_options"
 	}
