@@ -226,6 +226,9 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 			}
 			tlsSetting.RootCAs = caPool
 		}
+		if config.TlsHost != "" {
+			tlsSetting.ServerName = config.TlsHost
+		}
 	}
 
 	settings := clickhouse.Settings{

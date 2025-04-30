@@ -14,6 +14,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -58,7 +59,7 @@ func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Log
 func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflowState {
 	tableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		tableMappings = append(tableMappings, shared.CloneProto(tableMapping))
+		tableMappings = append(tableMappings, proto.CloneOf(tableMapping))
 	}
 	state := CDCFlowWorkflowState{
 		ActiveSignal:      model.NoopSignal,
@@ -98,7 +99,7 @@ func syncStateToConfigProtoInCatalog(
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) {
-	cloneCfg := shared.CloneProto(cfg)
+	cloneCfg := proto.CloneOf(cfg)
 	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
@@ -203,7 +204,7 @@ func processTableAdditions(
 	logger.Info("additional tables added to publication")
 	additionalTablesUUID := GetUUID(ctx)
 	childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
-	additionalTablesCfg := shared.CloneProto(cfg)
+	additionalTablesCfg := proto.CloneOf(cfg)
 	additionalTablesCfg.DoInitialSnapshot = true
 	additionalTablesCfg.InitialSnapshotOnly = true
 	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables

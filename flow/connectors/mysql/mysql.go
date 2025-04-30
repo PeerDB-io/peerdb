@@ -137,7 +137,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		argF := []client.Option{func(conn *client.Conn) error {
 			conn.SetCapability(mysql.CLIENT_COMPRESS)
 			if !c.config.DisableTls {
-				config, err := shared.CreateTlsConfig(tls.VersionTLS12, c.config.RootCa, c.config.Host)
+				config, err := shared.CreateTlsConfig(tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost)
 				if err != nil {
 					return err
 				}
@@ -145,18 +145,22 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			}
 			return nil
 		}}
-		logger := internal.LoggerFromCtx(ctx)
-		config := proto.Clone(c.config).(*protos.MySqlConfig)
+		config := c.config
 		if c.rdsAuth != nil {
-			logger.Info("Setting up IAM auth for MySQL")
+			c.logger.Info("Setting up IAM auth for MySQL")
+			host := c.config.Host
+			if c.config.TlsHost != "" {
+				host = c.config.TlsHost
+			}
 			token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-				Host: c.config.Host,
+				Host: host,
 				Port: config.Port,
 				User: config.User,
 			}, c.rdsAuth, "MYSQL")
 			if err != nil {
 				return nil, err
 			}
+			config = proto.CloneOf(config)
 			config.Password = token
 		}
 		var err error

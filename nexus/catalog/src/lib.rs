@@ -93,6 +93,7 @@ impl CatalogConfig<'_> {
             metadata_schema: Some("".to_string()),
             ssh_config: None,
             root_ca: None,
+            tls_host: String::new(),
             require_tls: false,
             auth_type: PostgresAuthType::PostgresPassword.into(),
             aws_auth: None,

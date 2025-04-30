@@ -63,7 +63,7 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 	if pgConfig.RequireTls || pgConfig.RootCa != nil {
-		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host)
+		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost)
 		if err != nil {
 			return nil, err
 		}
@@ -109,7 +109,7 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 			return nil, fmt.Errorf("failed to verify auth config: %w", err)
 		}
 	}
-	conn, err := NewPostgresConnFromConfig(ctx, connConfig, rdsAuth, tunnel)
+	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, tunnel)
 	if err != nil {
 		tunnel.Close()
 		logger.Error("failed to create connection", slog.Any("error", err))
@@ -169,7 +169,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.rdsAuth, c.ssh)
+	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)

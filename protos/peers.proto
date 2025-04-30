@@ -106,6 +106,7 @@ message PostgresConfig {
   string user = 3;
   string password = 4 [(peerdb_redacted) = true];
   string database = 5;
+  string tls_host = 6;
   // defaults to _peerdb_internal
   optional string metadata_schema = 7;
   optional SSHConfig ssh_config = 8;
@@ -157,6 +158,7 @@ message ClickhouseConfig{
   optional string certificate = 12 [(peerdb_redacted) = true];
   optional string private_key = 13 [(peerdb_redacted) = true];
   optional string root_ca = 14 [(peerdb_redacted) = true];
+  string tls_host = 15;
 }
 
 message SqlServerConfig {
@@ -194,6 +196,7 @@ message MySqlConfig {
   MySqlFlavor flavor = 9;
   optional SSHConfig ssh_config = 10;
   MySqlReplicationMechanism replication_mechanism = 11;
+  string tls_host = 13;
   optional string root_ca = 14 [(peerdb_redacted) = true];
   MySqlAuthType auth_type = 15;
   optional AwsAuthenticationConfig aws_auth = 16;

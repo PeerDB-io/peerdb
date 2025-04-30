@@ -189,30 +189,35 @@ func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
 }
 
 func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSyncer, error) {
-	logger, ok := c.logger.(*slog.Logger)
-	if !ok {
-		logger = slog.Default()
-	}
 	var tlsConfig *tls.Config
 	if !c.config.DisableTls {
 		var err error
-		tlsConfig, err = shared.CreateTlsConfig(tls.VersionTLS12, c.config.RootCa, c.config.Host)
+		tlsConfig, err = shared.CreateTlsConfig(tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost)
 		if err != nil {
 			return nil, err
 		}
 	}
-	config := proto.Clone(c.config).(*protos.MySqlConfig)
+	config := c.config
 	if c.rdsAuth != nil {
-		logger.Info("Setting up IAM auth for MySQL")
+		c.logger.Info("Setting up IAM auth for MySQL replication")
+		host := c.config.Host
+		if c.config.TlsHost != "" {
+			host = c.config.TlsHost
+		}
 		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
-			Host: c.config.Host,
+			Host: host,
 			Port: config.Port,
 			User: config.User,
 		}, c.rdsAuth, "MYSQL")
 		if err != nil {
 			return nil, err
 		}
+		config = proto.CloneOf(config)
 		config.Password = token
+	}
+	logger, ok := c.logger.(*slog.Logger)
+	if !ok {
+		logger = slog.Default()
 	}
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
