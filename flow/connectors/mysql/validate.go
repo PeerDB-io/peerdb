@@ -99,10 +99,11 @@ func (c *MySqlConnector) checkMariaDB_BinlogSettings(ctx context.Context, requir
 	if err != nil {
 		return fmt.Errorf("failed to get server version: %w", err)
 	}
-	if cmp < 0 {
-		c.logger.Warn("MariaDB version does not support binlog_expire_logs_seconds, skipping check")
+	if cmp >= 0 {
 		checkBinlogExpiry = true
 		query += ", @@binlog_expire_logs_seconds"
+	} else {
+		c.logger.Warn("MariaDB version does not support binlog_expire_logs_seconds, skipping check")
 	}
 
 	rs, err := c.Execute(ctx, query)
