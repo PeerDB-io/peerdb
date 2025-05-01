@@ -1250,6 +1250,44 @@ func (s ClickHouseSuite) Test_SchemaAsColumn() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_Extra_CH_Columns() {
+	srcTableName := "test_extra_ch_cols"
+	srcFullName := s.attachSchemaSuffix("test_extra_ch_cols")
+	dstTableName := "test_extra_ch_cols"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+
+	require.NoError(s.t, s.CreateRMTTable(dstTableName, []TestClickHouseColumn{
+		{Name: "id", Type: "Int32"},
+		{Name: "key", Type: "String"},
+		{Name: "updatedAt", Type: "String"},
+	}, "id"),
+	)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (1,'init')`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_extra_ch_cols"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,"key") VALUES (2,'cdc')`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_NullEngine() {
 	srcTableName := "test_nullengine"
 	srcFullName := s.attachSchemaSuffix(srcTableName)

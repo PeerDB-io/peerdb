@@ -99,6 +99,32 @@ func (s ClickHouseSuite) Teardown(ctx context.Context) {
 	require.NoError(s.t, s.connector.Close())
 }
 
+type TestClickHouseColumn struct {
+	Name string
+	Type string
+}
+
+// CreateRMTTable creates a ReplacingMergeTree table with the given name and columns.
+func (s ClickHouseSuite) CreateRMTTable(tableName string, columns []TestClickHouseColumn, orderingKey string) error {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+
+	columnStrings := make([]string, len(columns))
+	for i, col := range columns {
+		columnStrings[i] = fmt.Sprintf("`%s` %s", col.Name, col.Type)
+	}
+
+	// Join the column definitions into a single string
+	columnStr := strings.Join(columnStrings, ", ")
+
+	// Create the table with ReplacingMergeTree engine
+	createTableQuery := fmt.Sprintf("CREATE TABLE `%s` (%s) ENGINE = ReplacingMergeTree() ORDER BY `%s`", tableName, columnStr, orderingKey)
+	return ch.Exec(s.t.Context(), createTableQuery)
+}
+
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	if err != nil {
