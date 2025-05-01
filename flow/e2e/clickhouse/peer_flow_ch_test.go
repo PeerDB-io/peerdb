@@ -1262,6 +1262,9 @@ func (s ClickHouseSuite) Test_Extra_CH_Columns() {
 		{Name: "id", Type: "Int32"},
 		{Name: "key", Type: "String"},
 		{Name: "updatedAt", Type: "String"},
+		{Name: "_peerdb_is_deleted", Type: "Int8"},
+		{Name: "_peerdb_synced_at", Type: "DateTime"},
+		{Name: "_peerdb_version", Type: "Int64"},
 	}, "id"),
 	)
 
