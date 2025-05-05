@@ -84,7 +84,7 @@ func (s Generic) Test_Simple_Flow() {
 	`, srcSchemaTable, hstoreType)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, "test_simple"),
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
 		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
@@ -121,6 +121,45 @@ func (s Generic) Test_Simple_Flow() {
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalizing 10 rows", srcTable, dstTable, `id,ky,value,myh`)
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s Generic) Test_Initial_Custom_Partition() {
+	t := s.T()
+
+	tblName := "test_custom"
+	srcSchemaTable := e2e.AttachSchema(s, tblName)
+
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			val TEXT NOT NULL
+		);
+	`, srcSchemaTable)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, tblName),
+		TableMappings: e2e.TableMappings(s, tblName, tblName),
+		Destination:   s.Peer().Name,
+	}
+	connectionGen.TableMappings[0].PartitionKey = "id"
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+
+	// insert 10 rows into the source table
+	for i := range 10 {
+		testValue := fmt.Sprintf("init_value_%d", i)
+		require.NoError(t, s.Source().Exec(
+			t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(val) VALUES ('%s')`, srcSchemaTable, testValue),
+		))
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+
+	e2e.EnvWaitForFinished(t, env, 3*time.Minute)
+	e2e.RequireEqualTables(s, tblName, "id,val")
 }
 
 func (s Generic) Test_Simple_Schema_Changes() {
