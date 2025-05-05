@@ -2,6 +2,11 @@ package shared
 
 import "errors"
 
+var (
+	ErrSlotAlreadyExists error = errors.New("slot already exists")
+	ErrTableDoesNotExist error = errors.New("table does not exist")
+)
+
 type ErrType string
 
 const (
@@ -10,9 +15,6 @@ const (
 	ErrTypeNet      ErrType = "err:Net"
 	ErrTypeEOF      ErrType = "err:EOF"
 )
-
-var ErrSlotAlreadyExists error = errors.New("slot already exists")
-var ErrTableDoesNotExist error = errors.New("table does not exist")
 
 func SkipSendingToIncidentIo(errTags []string) bool {
 	skipTags := map[string]struct{}{

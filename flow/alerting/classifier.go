@@ -215,8 +215,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	}
 
 	if errors.Is(err, shared.ErrTableDoesNotExist) {
-		// This is a special case where we want to ignore the error
-		// and not notify the user
 		return ErrorNotifySourceTableMissing, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "TABLE_DOES_NOT_EXIST",
