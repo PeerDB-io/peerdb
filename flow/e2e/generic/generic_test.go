@@ -126,8 +126,9 @@ func (s Generic) Test_Simple_Flow() {
 func (s Generic) Test_Initial_Custom_Partition() {
 	t := s.T()
 
-	tblName := "test_custom"
-	srcSchemaTable := e2e.AttachSchema(s, tblName)
+	srcTable := "test_custom"
+	dstTable := "test_custom_dst"
+	srcSchemaTable := e2e.AttachSchema(s, srcTable)
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -137,8 +138,8 @@ func (s Generic) Test_Initial_Custom_Partition() {
 	`, srcSchemaTable)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, tblName),
-		TableMappings: e2e.TableMappings(s, tblName, tblName),
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
 	connectionGen.TableMappings[0].PartitionKey = "id"
@@ -159,7 +160,7 @@ func (s Generic) Test_Initial_Custom_Partition() {
 	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 
 	e2e.EnvWaitForFinished(t, env, 3*time.Minute)
-	e2e.RequireEqualTables(s, tblName, "id,val")
+	e2e.RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val")
 }
 
 func (s Generic) Test_Simple_Schema_Changes() {
