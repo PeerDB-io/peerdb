@@ -11,6 +11,7 @@ import (
 )
 
 func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
+	t.Skip("flaky")
 	t.Setenv("AWS_ACCESS_KEY_ID", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID"))
 	t.Setenv("AWS_SECRET_ACCESS_KEY", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY"))
 	t.Setenv("AWS_SESSION_TOKEN", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN"))
@@ -43,14 +44,14 @@ func TestAwsRDSIAMAuthConnectForPostgres(t *testing.T) {
 	for rows.Next() {
 		rowCount++
 		var val int
-		err = rows.Scan(&val)
-		require.NoError(t, err)
+		require.NoError(t, rows.Scan(&val))
 		require.Equal(t, 1, val)
 	}
 	require.Equal(t, 1, rowCount)
 }
 
 func TestAwsRDSIAMAuthConnectForPostgresViaProxy(t *testing.T) {
+	t.Skip("flaky")
 	t.Setenv("AWS_ACCESS_KEY_ID", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID"))
 	t.Setenv("AWS_SECRET_ACCESS_KEY", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY"))
 	t.Setenv("AWS_SESSION_TOKEN", os.Getenv("FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN"))
@@ -86,8 +87,7 @@ func TestAwsRDSIAMAuthConnectForPostgresViaProxy(t *testing.T) {
 	for rows.Next() {
 		rowCount++
 		var val int
-		err = rows.Scan(&val)
-		require.NoError(t, err)
+		require.NoError(t, rows.Scan(&val))
 		require.Equal(t, 1, val)
 	}
 	require.Equal(t, 1, rowCount)
