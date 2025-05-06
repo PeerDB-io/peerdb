@@ -221,6 +221,10 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 		}
 	}
 
+	return nil
+}
+
+func (c *MySqlConnector) CheckRDSBinlogSettings(ctx context.Context) error {
 	// AWS RDS/Aurora has its own binlog retention setting that we need to check, minimum 24h
 	// check RDS/Aurora binlog retention setting
 	if rs, err := c.Execute(ctx, "SELECT value FROM mysql.rds_configuration WHERE name='binlog retention hours'"); err != nil {
@@ -275,6 +279,9 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		}
 	}
 	if err := c.CheckBinlogSettings(ctx, requireRowMetadata); err != nil {
+		return fmt.Errorf("binlog configuration error: %w", err)
+	}
+	if err := c.CheckRDSBinlogSettings(ctx); err != nil {
 		return fmt.Errorf("binlog configuration error: %w", err)
 	}
 
