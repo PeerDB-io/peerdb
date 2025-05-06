@@ -71,7 +71,7 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	destinationPeerID, destinationPeerType, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.DestinationName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			req.ConnectionConfigs.DestinationName, srcErr)
+			req.ConnectionConfigs.DestinationName, dstErr)
 	}
 
 	for _, v := range req.ConnectionConfigs.TableMappings {
@@ -105,7 +105,7 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	destinationPeerID, _, dstErr := h.getPeerID(ctx, destinationPeerName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			destinationPeerName, srcErr)
+			destinationPeerName, dstErr)
 	}
 	flowName := req.QrepConfig.FlowJobName
 	_, err := h.pool.Exec(ctx, `INSERT INTO flows(workflow_id,name, source_peer, destination_peer, description,

@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
@@ -33,26 +32,11 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	tblSchema, err := c.getTableSchema(ctx, destTable)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
-	}
-	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
+	c.logger.Info("Called QRep sync function", flowLog)
 
 	avroSync := NewClickHouseAvroSyncMethod(config, c)
 
-	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
-}
-
-func (c *ClickHouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
-	queryString := fmt.Sprintf("SELECT * FROM `%s` LIMIT 0", tableName)
-	rows, err := c.query(ctx, queryString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-	defer rows.Close()
-
-	return rows.ColumnTypes(), nil
+	return avroSync.SyncQRepRecords(ctx, config, partition, stream)
 }
 
 func (c *ClickHouseConnector) ConsolidateQRepPartitions(_ context.Context, config *protos.QRepConfig) error {
