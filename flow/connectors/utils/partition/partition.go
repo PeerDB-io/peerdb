@@ -140,8 +140,7 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 	// Skip partition if it's fully contained within the previous one
 	// If it's not fully contained but overlaps, adjust the start
 	if p.prevEnd != nil {
-		comparison := compareValues(p.prevEnd, start)
-		if comparison >= 0 {
+		if compareValues(p.prevEnd, start) >= 0 {
 			// If end is also less than or equal to prevEnd, skip this partition
 			if compareValues(p.prevEnd, end) >= 0 {
 				// log the skipped partition
@@ -159,6 +158,10 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 		p.partitions = append(p.partitions, createIntPartition(v, end.(int64)))
 		p.prevStart = v
 		p.prevEnd = end
+	case uint64:
+		p.partitions = append(p.partitions, createIntPartition(int64(v), int64(end.(uint64))))
+		p.prevStart = int64(v)
+		p.prevEnd = int64(end.(uint64))
 	case int32:
 		p.partitions = append(p.partitions, createIntPartition(int64(v), int64(end.(int32))))
 		p.prevStart = int64(v)

@@ -94,13 +94,17 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 }
 
 func RequireEqualTables(suite RowSource, table string, cols string) {
+	RequireEqualTablesWithNames(suite, table, table, cols)
+}
+
+func RequireEqualTablesWithNames(suite RowSource, srcTable string, dstTable string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), table, cols)
+	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
 	require.NoError(t, err)
 
-	rows, err := suite.GetRows(table, cols)
+	rows, err := suite.GetRows(dstTable, cols)
 	require.NoError(t, err)
 
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, sourceRows, rows))
