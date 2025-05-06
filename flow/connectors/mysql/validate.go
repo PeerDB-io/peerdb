@@ -313,8 +313,10 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 	if err := c.CheckReplicationConnectivity(ctx); err != nil {
 		return fmt.Errorf("unable to establish replication connectivity: %w", err)
 	}
-
 	if err := c.CheckBinlogSettings(ctx, false); err != nil {
+		return fmt.Errorf("binlog configuration error: %w", err)
+	}
+	if err := c.CheckRDSBinlogSettings(ctx); err != nil {
 		return fmt.Errorf("binlog configuration error: %w", err)
 	}
 
