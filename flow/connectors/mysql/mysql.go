@@ -25,12 +25,13 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config   *protos.MySqlConfig
-	ssh      utils.SSHTunnel
-	conn     atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts chan context.Context
-	logger   log.Logger
-	rdsAuth  *utils.RDSAuth
+	config        *protos.MySqlConfig
+	ssh           utils.SSHTunnel
+	conn          atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts      chan context.Context
+	logger        log.Logger
+	rdsAuth       *utils.RDSAuth
+	serverVersion string
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -279,16 +280,19 @@ func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
 }
 
 func (c *MySqlConnector) CompareServerVersion(ctx context.Context, version string) (int, error) {
-	rr, err := c.Execute(ctx, "SELECT version()")
-	if err != nil {
-		return 0, fmt.Errorf("failed to get server version: %w", err)
+	if c.serverVersion == "" {
+		rr, err := c.Execute(ctx, "SELECT version()")
+		if err != nil {
+			return 0, fmt.Errorf("failed to get server version: %w", err)
+		}
+
+		c.serverVersion, err = rr.GetString(0, 0)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get server version: %w", err)
+		}
 	}
 
-	server_version, err := rr.GetString(0, 0)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get server version: %w", err)
-	}
-	cmp, err := mysql.CompareServerVersions(server_version, version)
+	cmp, err := mysql.CompareServerVersions(c.serverVersion, version)
 	if err != nil {
 		return 0, fmt.Errorf("failed to compare server version: %w", err)
 	}
