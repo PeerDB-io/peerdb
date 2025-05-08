@@ -145,8 +145,8 @@ func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
 	require.NoError(t, err)
 	config.Config.RuntimeParams["statement_timeout"] = "1500"
 	connectConfig, err := pgx.ConnectConfig(t.Context(), config)
-	defer connectConfig.Close(t.Context())
 	require.NoError(t, err)
+	defer connectConfig.Close(t.Context())
 	_, err = connectConfig.Exec(t.Context(), "SELECT pg_sleep(2)")
 
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed querying: %w", err))
