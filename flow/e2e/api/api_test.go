@@ -468,7 +468,7 @@ func (s Suite) TestAddTableBeforeResync() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	e2e.RequireEqualTables(s.ch, "original", "id,val")
-	s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
 		FlowConfigUpdate: &protos.FlowConfigUpdate{
@@ -484,6 +484,7 @@ func (s Suite) TestAddTableBeforeResync() {
 			},
 		},
 	})
+	require.NoError(s.t, err)
 	e2e.RequireEqualTables(s.ch, "added", "id,val")
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
