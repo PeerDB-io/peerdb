@@ -139,7 +139,7 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPotgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
+func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
 	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
 	config, err := pgx.ParseConfig(connectionString)
 	require.NoError(t, err)
