@@ -442,6 +442,66 @@ func (s Suite) TestDropCompleted() {
 	})
 }
 
+func (s Suite) TestAddTableBeforeResync() {
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "original"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "added"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "original"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "added"))))
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      "add_table_before_resync_" + s.suffix,
+		TableNameMapping: map[string]string{e2e.AttachSchema(s, "original"): "original"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := e2e.NewTemporalClient(s.t)
+	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	e2e.RequireEqualTables(s.ch, "original", "id,val")
+	s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					AdditionalTables: []*protos.TableMapping{
+						{
+							SourceTableIdentifier:      e2e.AttachSchema(s, "added"),
+							DestinationTableIdentifier: "added",
+						},
+					},
+				},
+			},
+		},
+	})
+	e2e.RequireEqualTables(s.ch, "added", "id,val")
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+	})
+	require.NoError(s.t, err)
+
+	env, err = e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.EnvWaitForFinished(s.t, env, time.Minute)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", e2e.AttachSchema(s, "added"))))
+	// If CDC succeeds for added then resync picked up the added table
+	e2e.EnvWaitForEqualTables(env, s.ch, "resync", "added", "id,val")
+}
+
 func (s Suite) TestAlertConfig() {
 	create, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
 		Config: &protos.AlertConfig{
