@@ -16,7 +16,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	smithyendpoints "github.com/aws/smithy-go/endpoints"
+	"github.com/aws/smithy-go/ptr"
 	"github.com/google/uuid"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -38,10 +40,11 @@ type AWSSecrets struct {
 }
 
 type PeerAWSCredentials struct {
-	Credentials aws.Credentials
-	RoleArn     *string
-	EndpointUrl *string
-	Region      string
+	Credentials    aws.Credentials
+	RoleArn        *string
+	ChainedRoleArn *string
+	EndpointUrl    *string
+	Region         string
 }
 
 type S3PeerCredentials struct {
@@ -139,6 +142,58 @@ func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) 
 	}
 }
 
+type AssumeRoleBasedAWSCredentialsProvider struct {
+	Provider aws.CredentialsProvider // New Credentials
+	config   aws.Config              // Initial Config
+}
+
+func (a *AssumeRoleBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCredentials, error) {
+	retrieved, err := a.Provider.Retrieve(ctx)
+	if err != nil {
+		return AWSCredentials{}, err
+	}
+	return AWSCredentials{
+		AWS:         retrieved,
+		EndpointUrl: ptr.String(a.GetEndpointURL()),
+	}, nil
+}
+
+func (a *AssumeRoleBasedAWSCredentialsProvider) GetUnderlyingProvider() aws.CredentialsProvider {
+	return a.Provider
+}
+
+func (a *AssumeRoleBasedAWSCredentialsProvider) GetRegion() string {
+	return a.config.Region
+}
+
+func (a *AssumeRoleBasedAWSCredentialsProvider) GetEndpointURL() string {
+	endpoint := ""
+	if a.config.BaseEndpoint != nil {
+		endpoint = *a.config.BaseEndpoint
+	}
+
+	return endpoint
+}
+
+func NewAssumeRoleBasedAWSCredentialsProvider(
+	ctx context.Context,
+	config aws.Config,
+	roleArn string,
+	sessionName string,
+) (*AssumeRoleBasedAWSCredentialsProvider, error) {
+	provider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(config), roleArn, func(o *stscreds.AssumeRoleOptions) {
+		o.RoleSessionName = sessionName
+	})
+	_, err := provider.Retrieve(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve chained AWS credentials: %w", err)
+	}
+	return &AssumeRoleBasedAWSCredentialsProvider{
+		config:   config,
+		Provider: aws.NewCredentialsCache(provider),
+	}, nil
+}
+
 func getPeerDBAWSEnv(connectorName string, awsKey string) string {
 	return os.Getenv(fmt.Sprintf("PEERDB_%s_AWS_CREDENTIALS_%s", strings.ToUpper(connectorName), awsKey))
 }
@@ -167,32 +222,38 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) *StaticAWSCredentialsP
 }
 
 func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCredentials PeerAWSCredentials) (AWSCredentialsProvider, error) {
+	logger := internal.LoggerFromCtx(ctx)
 	if peerCredentials.Credentials.AccessKeyID != "" || peerCredentials.Credentials.SecretAccessKey != "" ||
 		peerCredentials.Region != "" || (peerCredentials.RoleArn != nil && *peerCredentials.RoleArn != "") ||
+		(peerCredentials.ChainedRoleArn != nil && *peerCredentials.ChainedRoleArn != "") ||
 		(peerCredentials.EndpointUrl != nil && *peerCredentials.EndpointUrl != "") {
 		staticProvider := NewStaticAWSCredentialsProvider(AWSCredentials{
 			AWS:         peerCredentials.Credentials,
 			EndpointUrl: peerCredentials.EndpointUrl,
 		}, peerCredentials.Region)
 		if peerCredentials.RoleArn == nil || *peerCredentials.RoleArn == "" {
-			internal.LoggerFromCtx(ctx).Info("Received AWS credentials from peer for connector: " + connectorName)
+			logger.Info("Received AWS credentials from peer for connector: " + connectorName)
 			return staticProvider, nil
 		}
-		awsConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
-			options.AssumeRoleCredentialOptions = func(assumeOptions *stscreds.AssumeRoleOptions) {
-				assumeOptions.RoleARN = *peerCredentials.RoleArn
-			}
-			return nil
-		})
+		awsConfig, err := config.LoadDefaultConfig(ctx)
 		if err != nil {
 			return nil, err
 		}
-		internal.LoggerFromCtx(ctx).Info("Received AWS credentials with role from peer for connector: " + connectorName)
+		awsConfig.Credentials = stscreds.NewAssumeRoleProvider(sts.NewFromConfig(awsConfig), *peerCredentials.RoleArn,
+			func(options *stscreds.AssumeRoleOptions) {
+				options.RoleSessionName = getAssumedRoleSessionName()
+			},
+		)
+		if peerCredentials.ChainedRoleArn != nil && *peerCredentials.ChainedRoleArn != "" {
+			logger.Info("Received AWS credentials with chained role from peer for connector: " + connectorName)
+			return NewAssumeRoleBasedAWSCredentialsProvider(ctx, awsConfig, *peerCredentials.ChainedRoleArn, getChainedRoleSessionName())
+		}
+		logger.Info("Received AWS credentials from peer for connector: " + connectorName)
 		return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
 	}
 	envCredentialsProvider := LoadPeerDBAWSEnvConfigProvider(connectorName)
 	if envCredentialsProvider != nil {
-		internal.LoggerFromCtx(ctx).Info("Received AWS credentials from PeerDB Env for connector: " + connectorName)
+		logger.Info("Received AWS credentials from PeerDB Env for connector: " + connectorName)
 		return envCredentialsProvider, nil
 	}
 
@@ -202,8 +263,34 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 	if err != nil {
 		return nil, err
 	}
-	internal.LoggerFromCtx(ctx).Info("Received AWS credentials from SDK config for connector: " + connectorName)
+	logger.Info("Received AWS credentials from SDK config for connector: " + connectorName)
 	return NewConfigBasedAWSCredentialsProvider(awsConfig), nil
+}
+
+const MaxAWSSessionNameLength = 63 // Docs mention 64 as limit, but always good to stay under
+
+func getAssumedRoleSessionName() string {
+	defaultSessionName := "peeraws"
+	if deployUid := internal.PeerDBDeploymentUID(); deployUid != "" {
+		defaultSessionName += "-" + deployUid
+	}
+	sessionName := internal.GetEnvString("PEERDB_AWS_ASSUMED_ROLE_SESSION_NAME", defaultSessionName)
+	if len(sessionName) > MaxAWSSessionNameLength {
+		sessionName = sessionName[:MaxAWSSessionNameLength-1]
+	}
+	return sessionName
+}
+
+func getChainedRoleSessionName() string {
+	defaultSessionName := "peerchain"
+	if deployUid := internal.PeerDBDeploymentUID(); deployUid != "" {
+		defaultSessionName += "-" + deployUid
+	}
+	sessionName := internal.GetEnvString("PEERDB_AWS_CHAINED_ROLE_SESSION_NAME", defaultSessionName)
+	if len(sessionName) > MaxAWSSessionNameLength {
+		sessionName = sessionName[:MaxAWSSessionNameLength-1]
+	}
+	return sessionName
 }
 
 func FileURLForS3Service(endpoint string, region string, bucket string, filePath string) string {

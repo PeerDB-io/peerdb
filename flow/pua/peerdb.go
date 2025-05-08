@@ -112,8 +112,10 @@ func RegisterTypes(ls *lua.LState) {
 	peerdb.RawSetString("Now", ls.NewFunction(LuaNow))
 	peerdb.RawSetString("UUID", ls.NewFunction(LuaUUID))
 	peerdb.RawSetString("Decimal", ls.NewFunction(LuaParseDecimal))
+	peerdb.RawSetString("Time", ls.NewFunction(LuaTime))
 	peerdb.RawSetString("type", ls.NewFunction(LuaType))
 	peerdb.RawSetString("tostring", ls.NewFunction(LuaToString))
+	peerdb.RawSetString("unix_epoch", shared.LuaTime.New(ls, time.Unix(0, 0).UTC()))
 	ls.Env.RawSetString("peerdb", peerdb)
 }
 
@@ -563,6 +565,15 @@ func LuaUUID(ls *lua.LState) int {
 		ls.Push(shared.LuaUuid.New(ls, uuid.MustParse(string(v))))
 	} else {
 		ls.RaiseError("uuid must be created from string")
+	}
+	return 1
+}
+
+func LuaTime(ls *lua.LState) int {
+	if ls.GetTop() == 0 {
+		ls.Push(shared.LuaTime.New(ls, time.Time{}))
+	} else {
+		ls.Push(shared.LuaTime.New(ls, LVAsTime(ls, ls.Get(1))))
 	}
 	return 1
 }

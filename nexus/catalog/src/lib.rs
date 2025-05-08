@@ -11,6 +11,7 @@ use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
 use postgres_connection::{connect_postgres, get_pg_connection_string};
+use pt::peerdb_peers::PostgresAuthType;
 use pt::{
     flow_model::QRepFlowJob,
     peerdb_peers::PostgresConfig,
@@ -92,7 +93,10 @@ impl CatalogConfig<'_> {
             metadata_schema: Some("".to_string()),
             ssh_config: None,
             root_ca: None,
+            tls_host: String::new(),
             require_tls: false,
+            auth_type: PostgresAuthType::PostgresPassword.into(),
+            aws_auth: None,
         }
     }
 

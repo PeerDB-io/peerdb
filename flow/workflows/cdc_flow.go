@@ -14,6 +14,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -58,7 +59,7 @@ func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Log
 func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflowState {
 	tableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
-		tableMappings = append(tableMappings, shared.CloneProto(tableMapping))
+		tableMappings = append(tableMappings, proto.CloneOf(tableMapping))
 	}
 	state := CDCFlowWorkflowState{
 		ActiveSignal:      model.NoopSignal,
@@ -89,6 +90,17 @@ func GetChildWorkflowID(
 	return fmt.Sprintf("%s-%s-%s", prefix, peerFlowName, uuid)
 }
 
+func updateFlowConfigWithLatestSettings(
+	cfg *protos.FlowConnectionConfigs,
+	state *CDCFlowWorkflowState,
+) *protos.FlowConnectionConfigs {
+	cloneCfg := proto.CloneOf(cfg)
+	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
+	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
+	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
+	return cloneCfg
+}
+
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
@@ -98,11 +110,7 @@ func syncStateToConfigProtoInCatalog(
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) {
-	cloneCfg := shared.CloneProto(cfg)
-	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
-	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
-	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
-
+	cloneCfg := updateFlowConfigWithLatestSettings(cfg, state)
 	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
@@ -203,7 +211,7 @@ func processTableAdditions(
 	logger.Info("additional tables added to publication")
 	additionalTablesUUID := GetUUID(ctx)
 	childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
-	additionalTablesCfg := shared.CloneProto(cfg)
+	additionalTablesCfg := proto.CloneOf(cfg)
 	additionalTablesCfg.DoInitialSnapshot = true
 	additionalTablesCfg.InitialSnapshotOnly = true
 	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
@@ -361,17 +369,19 @@ func CDCFlowWorkflow(
 		flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
 			if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 				state.ActiveSignal = model.TerminateSignal
+				dropCfg := updateFlowConfigWithLatestSettings(cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           cfg.FlowJobName,
-					FlowConnectionConfigs: cfg,
+					FlowJobName:           dropCfg.FlowJobName,
+					FlowConnectionConfigs: dropCfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 				}
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
+				resyncCfg := updateFlowConfigWithLatestSettings(cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           cfg.FlowJobName,
-					FlowConnectionConfigs: cfg,
+					FlowJobName:           resyncCfg.FlowJobName,
+					FlowConnectionConfigs: resyncCfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 					Resync:                true,
@@ -454,17 +464,19 @@ func CDCFlowWorkflow(
 				logger.Warn("pause requested during setup, ignoring")
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 				state.ActiveSignal = model.TerminateSignal
+				dropCfg := updateFlowConfigWithLatestSettings(cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           cfg.FlowJobName,
-					FlowConnectionConfigs: cfg,
+					FlowJobName:           dropCfg.FlowJobName,
+					FlowConnectionConfigs: dropCfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 				}
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
+				resyncCfg := updateFlowConfigWithLatestSettings(cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           cfg.FlowJobName,
-					FlowConnectionConfigs: cfg,
+					FlowJobName:           resyncCfg.FlowJobName,
+					FlowConnectionConfigs: resyncCfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 					Resync:                true,
@@ -653,17 +665,19 @@ func CDCFlowWorkflow(
 		finished = true
 		if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 			state.ActiveSignal = model.TerminateSignal
+			dropCfg := updateFlowConfigWithLatestSettings(cfg, state)
 			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           cfg.FlowJobName,
-				FlowConnectionConfigs: cfg,
+				FlowJobName:           dropCfg.FlowJobName,
+				FlowConnectionConfigs: dropCfg,
 				DropFlowStats:         val.DropMirrorStats,
 				SkipDestinationDrop:   val.SkipDestinationDrop,
 			}
 		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 			state.ActiveSignal = model.ResyncSignal
+			resyncCfg := updateFlowConfigWithLatestSettings(cfg, state)
 			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           cfg.FlowJobName,
-				FlowConnectionConfigs: cfg,
+				FlowJobName:           resyncCfg.FlowJobName,
+				FlowConnectionConfigs: resyncCfg,
 				DropFlowStats:         val.DropMirrorStats,
 				SkipDestinationDrop:   val.SkipDestinationDrop,
 				Resync:                true,

@@ -244,6 +244,7 @@ message PartitionRange {
 enum TableEngine {
   CH_ENGINE_REPLACING_MERGE_TREE = 0;
   CH_ENGINE_MERGE_TREE = 1;
+  CH_ENGINE_NULL = 2;
 }
 
 // protos for qrep
@@ -316,6 +317,7 @@ message QRepConfig {
   map<string, string> env = 24;
 
   string parent_mirror_name = 25;
+  repeated string exclude = 26;
 }
 
 message QRepPartition {

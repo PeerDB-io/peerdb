@@ -68,7 +68,6 @@ func RunSuiteNoParallel[T Suite](t *testing.T, setup func(t *testing.T) T) {
 	}
 }
 
-// ReadFileToBytes reads a file to a byte array.
 func ReadFileToBytes(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -76,12 +75,7 @@ func ReadFileToBytes(path string) ([]byte, error) {
 	}
 	defer f.Close()
 
-	ret, err := io.ReadAll(f)
-	if err != nil {
-		return ret, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	return ret, nil
+	return io.ReadAll(f)
 }
 
 // checks if two QRecords are identical

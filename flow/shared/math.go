@@ -19,7 +19,7 @@ type AdjustedPartitions struct {
 // AdjustNumPartitions takes the total number of rows and the desired number of rows per partition,
 // and returns the adjusted number of partitions and rows per partition so that the partition count does not exceed 1000.
 // It does so by increasing the rows-per-partition by a power-of-10 multiplier when necessary.
-func AdjustNumPartitions(totalRows, desiredRowsPerPartition int64) AdjustedPartitions {
+func AdjustNumPartitions(totalRows int64, desiredRowsPerPartition int64) AdjustedPartitions {
 	const maxPartitions = 1000
 
 	// Calculate the initial number of partitions.

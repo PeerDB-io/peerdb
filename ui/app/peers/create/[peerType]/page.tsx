@@ -17,6 +17,8 @@ import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig'
 import {
   ElasticsearchConfig,
   EventHubGroupConfig,
+  MySqlConfig,
+  PostgresConfig,
 } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -47,10 +49,10 @@ export default function CreateConfig({
 }: CreateConfigProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const peerName = searchParams.get('update');
+  const peerName = searchParams?.get('update');
   const blankSetting = getBlankSetting(peerType);
   const [name, setName] = useState<string>(
-    peerName ?? searchParams.get('name') ?? ''
+    peerName ?? searchParams?.get('name') ?? ''
   );
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
@@ -79,12 +81,18 @@ export default function CreateConfig({
           <PostgresForm
             settings={postgresSetting}
             setter={setConfig}
-            config={config}
+            config={config as PostgresConfig}
             type={peerType}
           />
         );
       case 'MYSQL':
-        return <MySqlForm settings={mysqlSetting} setter={setConfig} />;
+        return (
+          <MySqlForm
+            settings={mysqlSetting}
+            setter={setConfig}
+            config={config as MySqlConfig}
+          />
+        );
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':

@@ -70,17 +70,50 @@ message MongoConfig {
   string database = 5;
 }
 
+message AwsAuthStaticCredentialsConfig {
+  string access_key_id = 1 [(peerdb_redacted) = true];
+  string secret_access_key = 2 [(peerdb_redacted) = true];
+}
+
+message AWSAuthAssumeRoleConfig {
+  string assume_role_arn = 1;
+  optional string chained_role_arn = 2;
+}
+
+enum AwsIAMAuthConfigType {
+  IAM_AUTH_AUTOMATIC = 0;
+  IAM_AUTH_STATIC_CREDENTIALS = 1;
+  IAM_AUTH_ASSUME_ROLE = 2;
+}
+
+message AwsAuthenticationConfig {
+  string region = 1;
+  AwsIAMAuthConfigType auth_type = 2;
+  oneof auth_config {
+    AwsAuthStaticCredentialsConfig static_credentials = 3;
+    AWSAuthAssumeRoleConfig role = 4;
+  }
+}
+
+enum PostgresAuthType {
+  POSTGRES_PASSWORD = 0;
+  POSTGRES_IAM_AUTH = 1;
+}
+
 message PostgresConfig {
   string host = 1;
   uint32 port = 2;
   string user = 3;
   string password = 4 [(peerdb_redacted) = true];
   string database = 5;
+  string tls_host = 6;
   // defaults to _peerdb_internal
   optional string metadata_schema = 7;
   optional SSHConfig ssh_config = 8;
   optional string root_ca = 9 [(peerdb_redacted) = true];
   bool require_tls = 10;
+  PostgresAuthType auth_type = 11;
+  optional AwsAuthenticationConfig aws_auth = 12;
 }
 
 message EventHubConfig {
@@ -125,6 +158,7 @@ message ClickhouseConfig{
   optional string certificate = 12 [(peerdb_redacted) = true];
   optional string private_key = 13 [(peerdb_redacted) = true];
   optional string root_ca = 14 [(peerdb_redacted) = true];
+  string tls_host = 15;
 }
 
 message SqlServerConfig {
@@ -146,7 +180,10 @@ enum MySqlReplicationMechanism {
   MYSQL_GTID = 1;
   MYSQL_FILEPOS = 2;
 }
-
+enum MySqlAuthType {
+  MYSQL_PASSWORD = 0;
+  MYSQL_IAM_AUTH = 1;
+}
 message MySqlConfig {
   string host = 1;
   uint32 port = 2;
@@ -159,7 +196,10 @@ message MySqlConfig {
   MySqlFlavor flavor = 9;
   optional SSHConfig ssh_config = 10;
   MySqlReplicationMechanism replication_mechanism = 11;
+  string tls_host = 13;
   optional string root_ca = 14 [(peerdb_redacted) = true];
+  MySqlAuthType auth_type = 15;
+  optional AwsAuthenticationConfig aws_auth = 16;
 }
 
 message KafkaConfig {

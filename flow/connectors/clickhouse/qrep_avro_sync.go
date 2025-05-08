@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
-
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -58,7 +56,6 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
 		s.config.DestinationTableIdentifier, avroFileUrl,
 		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
-
 	return s.exec(ctx, query)
 }
 
@@ -106,7 +103,6 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	dstTableSchema []driver.ColumnType,
 	stream *model.QRecordStream,
 ) (int, error) {
 	dstTableName := config.DestinationTableIdentifier
@@ -147,17 +143,14 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	endpoint := s.credsProvider.Provider.GetEndpointURL()
 	region := s.credsProvider.Provider.GetRegion()
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
-	selectedColumnNames := make([]string, 0, len(dstTableSchema))
-	insertedColumnNames := make([]string, 0, len(dstTableSchema))
-	for _, col := range dstTableSchema {
-		colName := col.Name()
-		if strings.EqualFold(colName, signColName) ||
-			strings.EqualFold(colName, config.SyncedAtColName) ||
-			strings.EqualFold(colName, versionColName) ||
-			(sourceSchemaAsDestinationColumn && strings.EqualFold(colName, sourceSchemaColName)) {
-			continue
+	selectedColumnNames := make([]string, 0, len(schema.Fields))
+	insertedColumnNames := make([]string, 0, len(schema.Fields))
+	for _, colName := range schema.GetColumnNames() {
+		for _, excludedColumn := range config.Exclude {
+			if colName == excludedColumn {
+				continue
+			}
 		}
-
 		avroColName, ok := columnNameAvroFieldMap[colName]
 		if !ok {
 			s.logger.Error("destination column not found in avro schema",
@@ -185,7 +178,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
 	}
 
-	hashColName := columnNameAvroFieldMap[dstTableSchema[0].Name()]
+	hashColName := columnNameAvroFieldMap[schema.Fields[0].Name]
 	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
 	if err != nil {
 		s.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
