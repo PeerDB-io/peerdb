@@ -25,20 +25,22 @@ func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*ut
 }
 
 func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
-	if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID {
+	// GTID -> check GTID and error out if not enabled, check filepos as well
+	// AUTO -> check GTID and fall back to filepos check
+	// FILEPOS -> check filepos only
+	if c.config.ReplicationMechanism != protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
 		if _, err := c.GetMasterGTIDSet(ctx); err != nil {
-			return fmt.Errorf("failed to check replication status: %w", err)
-		}
-	} else {
-		namePos, err := c.GetMasterPos(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to check replication status: %w", err)
-		}
-
-		if namePos.Name == "" || namePos.Pos <= 0 {
-			return errors.New("invalid replication status: missing log file or position")
+			if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID {
+				return fmt.Errorf("failed to check replication status: %w", err)
+			}
 		}
 	}
+	if namePos, err := c.GetMasterPos(ctx); err != nil {
+		return fmt.Errorf("failed to check replication status: %w", err)
+	} else if namePos.Name == "" || namePos.Pos <= 0 {
+		return errors.New("invalid replication status: missing log file or position")
+	}
+
 	return nil
 }
 
@@ -263,12 +265,16 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		sourceTables = append(sourceTables, parsedTable)
 	}
 
-	if err := c.CheckReplicationConnectivity(ctx); err != nil {
-		return fmt.Errorf("unable to establish replication connectivity: %w", err)
-	}
-
 	if err := c.CheckSourceTables(ctx, sourceTables); err != nil {
 		return fmt.Errorf("provided source tables invalidated: %w", err)
+	}
+	// no need to check replication stuff for initial snapshot only mirrors
+	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
+		return nil
+	}
+
+	if err := c.CheckReplicationConnectivity(ctx); err != nil {
+		return fmt.Errorf("unable to establish replication connectivity: %w", err)
 	}
 
 	requireRowMetadata := false
@@ -308,16 +314,6 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
 			return errors.New("server appears to be MariaDB but flavor is not set to MariaDB")
 		}
-	}
-
-	if err := c.CheckReplicationConnectivity(ctx); err != nil {
-		return fmt.Errorf("unable to establish replication connectivity: %w", err)
-	}
-	if err := c.CheckBinlogSettings(ctx, false); err != nil {
-		return fmt.Errorf("binlog configuration error: %w", err)
-	}
-	if err := c.CheckRDSBinlogSettings(ctx); err != nil {
-		return fmt.Errorf("binlog configuration error: %w", err)
 	}
 
 	return nil
