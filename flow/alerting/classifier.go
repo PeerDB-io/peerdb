@@ -252,6 +252,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyConnectivity, pgErrorInfo
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
+		case pgerrcode.QueryCanceled:
+			return ErrorRetryRecoverable, pgErrorInfo
 		}
 	}
 
