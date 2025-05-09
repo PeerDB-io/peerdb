@@ -531,7 +531,9 @@ func (s Suite) TestAddTableBeforeResync() {
 	e2e.EnvWaitFor(s.t, newEnv, 3*time.Minute, "sync flow done after resync", func() bool {
 		var syncBatchID pgtype.Int8
 		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
-			s.t.Context(), "select sync_batch_id from metadata_last_sync_state where job_name = $1", flowConnConfig.FlowJobName,
+			s.t.Context(),
+			"select sync_batch_id from metadata_last_sync_state where job_name = $1",
+			flowConnConfig.FlowJobName,
 		).Scan(&syncBatchID)
 		if queryErr != nil {
 			return false
@@ -541,7 +543,9 @@ func (s Suite) TestAddTableBeforeResync() {
 	e2e.EnvWaitFor(s.t, newEnv, 3*time.Minute, "normalize flow done after resync", func() bool {
 		var normalizeBatchID pgtype.Int8
 		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
-			s.t.Context(), "select normalize_batch_id from metadata_last_sync_state where job_name = $1", flowConnConfig.FlowJobName,
+			s.t.Context(),
+			"select normalize_batch_id from metadata_last_sync_state where job_name = $1",
+			flowConnConfig.FlowJobName,
 		).Scan(&normalizeBatchID)
 		if queryErr != nil {
 			return false
