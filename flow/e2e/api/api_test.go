@@ -527,7 +527,8 @@ func (s Suite) TestAddTableBeforeResync() {
 	})
 
 	// Test CDC
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s(id, val) values (3,'cdc_after_resync')", e2e.AttachSchema(s, "added"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (3,'cdc_after_resync')", e2e.AttachSchema(s, "added"))))
 	e2e.EnvWaitFor(s.t, newEnv, 3*time.Minute, "sync flow done after resync", func() bool {
 		var syncBatchID pgtype.Int8
 		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
