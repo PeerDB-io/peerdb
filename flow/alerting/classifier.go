@@ -337,7 +337,25 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		case 439: // CANNOT_SCHEDULE_TASK
 			return ErrorRetryRecoverable, chErrorInfo
-		case chproto.ErrIllegalTypeOfArgument:
+		case chproto.ErrUnsupportedMethod,
+			chproto.ErrIllegalColumn,
+			chproto.ErrDuplicateColumn,
+			chproto.ErrNotFoundColumnInBlock,
+			chproto.ErrUnknownIdentifier,
+			chproto.ErrUnknownFunction,
+			chproto.ErrBadTypeOfField,
+			chproto.ErrTooDeepRecursion,
+			chproto.ErrTypeMismatch,
+			chproto.ErrCannotConvertType,
+			chproto.ErrIncompatibleColumns,
+			chproto.ErrUnexpectedExpression,
+			chproto.ErrIllegalAggregation,
+			chproto.ErrNotAnAggregate,
+			chproto.ErrSizesOfArraysDoesntMatch,
+			chproto.ErrAliasRequired,
+			691, // UNKNOWN_ELEMENT_OF_ENUM
+			chproto.ErrNoCommonType,
+			chproto.ErrIllegalTypeOfArgument:
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				unexpectedSelectRe, reErr := regexp.Compile(
