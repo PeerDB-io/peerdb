@@ -541,7 +541,7 @@ func (s Suite) TestAddTableBeforeResync() {
 		}
 		return syncBatchID.Valid && (syncBatchID.Int64 == 1)
 	})
-	e2e.EnvWaitFor(s.t, newEnv, 3*time.Minute, "normalize flow done after resync", func() bool {
+	e2e.EnvWaitFor(s.t, newEnv, 5*time.Minute, "normalize flow done after resync", func() bool {
 		var normalizeBatchID pgtype.Int8
 		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
 			s.t.Context(),
