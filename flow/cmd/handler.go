@@ -379,6 +379,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			} else if !isCDC {
 				return nil, errors.New("resync is only supported for CDC mirrors")
 			} else {
+				slog.Info("resync requested for cdc flow", logs)
 				// getting config before dropping the flow since the flow entry is deleted unconditionally
 				config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 				if err != nil {
