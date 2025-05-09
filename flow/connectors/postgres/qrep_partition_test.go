@@ -79,7 +79,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 	defer tunnel.Close()
 
-	conn, err := NewPostgresConnFromConfig(t.Context(), config, tunnel)
+	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, tunnel)
 	if err != nil {
 		t.Fatalf("Failed to create connection: %v", err)
 	}
@@ -192,10 +192,8 @@ func TestGetQRepPartitions(t *testing.T) {
 				return
 			}
 
-			expected := tc.want
-			assert.Equal(t, len(expected), len(got))
-
-			for i, val := range expected {
+			assert.Len(t, got, len(tc.want))
+			for i, val := range tc.want {
 				er := val.Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
 				gotr := got[i].Range.Range.(*protos.PartitionRange_TimestampRange).TimestampRange
 				assert.Equal(t, er.Start.AsTime(), gotr.Start.AsTime())

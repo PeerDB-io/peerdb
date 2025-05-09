@@ -137,12 +137,12 @@ func QuoteBytes(buf []byte) string {
 }
 
 type sqlLexer struct {
+	stateFn stateFn
 	src     string
+	parts   []Part
 	start   int
 	pos     int
-	nested  int // multiline comment nesting level.
-	stateFn stateFn
-	parts   []Part
+	nested  int
 }
 
 type stateFn func(*sqlLexer) stateFn

@@ -3,7 +3,7 @@ name: GolangCI-Lint
 on:
   pull_request:
     branches: [main]
-    paths: [flow/**]
+    paths: [flow/**, .github/workflows/golang-lint.yml]
 
 permissions:
   contents: read
@@ -12,7 +12,7 @@ permissions:
 jobs:
   golangci:
     name: lint
-    runs-on: [ubicloud-standard-4-ubuntu-2204-arm]
+    runs-on: [ubuntu-24.04]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
@@ -23,13 +23,13 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install libgeos-dev
-      - uses: ubicloud/setup-go@6ea6c4fb36acc657571a53f4a7471e75f5fa80ad # v5
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
         with:
-          go-version: '1.24.0'
+          go-version: '1.24.2'
           cache: false
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@2226d7cb06a077cd73e56eedd38eecad18e5d837 # v6
+        uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
-          version: v1.64
+          version: v2.1.6
           working-directory: ./flow
-          args: --timeout=10m --out-format=github-actions
+          args: --timeout=10m

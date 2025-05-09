@@ -18,11 +18,10 @@ import (
 
 type QRepQueryExecutor struct {
 	*PostgresConnector
-	logger            log.Logger
-	customTypeMapping map[uint32]string
-	snapshot          string
-	flowJobName       string
-	partitionID       string
+	logger      log.Logger
+	snapshot    string
+	flowJobName string
+	partitionID string
 }
 
 func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context,
@@ -34,7 +33,7 @@ func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context,
 func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context,
 	snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	customTypeMapping, err := c.fetchCustomTypeMapping(ctx)
+	_, err := c.fetchCustomTypeMapping(ctx)
 	if err != nil {
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to fetch custom type mapping: %w", err)
@@ -45,7 +44,6 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
-		customTypeMapping: customTypeMapping,
 	}, nil
 }
 
@@ -75,71 +73,26 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) qvalue.QRecordSchema {
 	qfields := make([]qvalue.QField, len(fds))
 	for i, fd := range fds {
-		cname := fd.Name
-		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID)
-		if ctype == qvalue.QValueKindInvalid {
-			typeName, ok := qe.customTypeMapping[fd.DataTypeOID]
-			if ok {
-				ctype = customTypeToQKind(typeName)
-			} else {
-				ctype = qvalue.QValueKindString
-			}
-		}
+		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping)
 		// there isn't a way to know if a column is nullable or not
-		// TODO fix this.
-		cnullable := true
 		if ctype == qvalue.QValueKindNumeric {
 			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = qvalue.QField{
-				Name:      cname,
+				Name:      fd.Name,
 				Type:      ctype,
-				Nullable:  cnullable,
+				Nullable:  true,
 				Precision: precision,
 				Scale:     scale,
 			}
 		} else {
 			qfields[i] = qvalue.QField{
-				Name:     cname,
+				Name:     fd.Name,
 				Type:     ctype,
-				Nullable: cnullable,
+				Nullable: true,
 			}
 		}
 	}
 	return qvalue.NewQRecordSchema(qfields)
-}
-
-func (qe *QRepQueryExecutor) ProcessRows(
-	ctx context.Context,
-	rows pgx.Rows,
-	fieldDescriptions []pgconn.FieldDescription,
-) (*model.QRecordBatch, error) {
-	// Initialize the record slice
-	records := make([][]qvalue.QValue, 0)
-	qe.logger.Info("Processing rows")
-	// Iterate over the rows
-	for rows.Next() {
-		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
-		if err != nil {
-			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
-			return nil, fmt.Errorf("failed to map row to QRecord: %w", err)
-		}
-		records = append(records, record)
-	}
-
-	// Check for any errors encountered during iteration
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("row iteration failed: %w", err)
-	}
-
-	schema := qe.fieldDescriptionsToSchema(fieldDescriptions)
-	batch := &model.QRecordBatch{
-		Schema:  schema,
-		Records: records,
-	}
-
-	qe.logger.Info(fmt.Sprintf("[postgres] pulled %d records", len(batch.Records)))
-
-	return batch, nil
 }
 
 func (qe *QRepQueryExecutor) processRowsStream(
@@ -148,33 +101,36 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	stream *model.QRecordStream,
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
-) (int, error) {
-	numRows := 0
-	const heartBeatNumRows = 10000
+) (int64, int64, error) {
+	var numRows int64
+	var numBytes int64
+	const logPerRows = 10000
 
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")
-			return numRows, err
+			return numRows, numBytes, err
 		}
 
 		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
-			return 0, fmt.Errorf("failed to map row to QRecord: %w", err)
+			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
 		}
-
 		stream.Records <- record
-
-		if numRows%heartBeatNumRows == 0 {
-			qe.logger.Info("processing row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
+		numRows++
+		for _, val := range rows.RawValues() {
+			numBytes += int64(len(val))
 		}
 
-		numRows++
+		if numRows%logPerRows == 0 {
+			qe.logger.Info("processing row stream", slog.String("cursor", cursorName),
+				slog.Int64("records", numRows), slog.Int64("bytes", numBytes))
+		}
 	}
 
-	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int("records", numRows))
-	return numRows, nil
+	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int64("records", numRows), slog.Int64("bytes", numBytes))
+	return numRows, numBytes, nil
 }
 
 func (qe *QRepQueryExecutor) processFetchedRows(
@@ -184,12 +140,12 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	cursorName string,
 	fetchSize int,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, int64, error) {
 	rows, err := qe.executeQueryInTx(ctx, tx, cursorName, fetchSize)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to execute query in tx",
 			slog.Any("error", err), slog.String("query", query))
-		return 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
+		return 0, 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
 	}
 	defer rows.Close()
 
@@ -199,19 +155,19 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 		stream.SetSchema(schema)
 	}
 
-	numRows, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
+	numRows, numBytes, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to process rows", slog.Any("error", err))
-		return 0, fmt.Errorf("failed to process rows: %w", err)
+		return numRows, numBytes, fmt.Errorf("failed to process rows: %w", err)
 	}
 
 	if err := rows.Err(); err != nil {
 		qe.logger.Error("[pg_query_executor] row iteration failed",
 			slog.String("query", query), slog.Any("error", err))
-		return 0, fmt.Errorf("[pg_query_executor] row iteration failed '%s': %w", query, err)
+		return numRows, numBytes, fmt.Errorf("[pg_query_executor] row iteration failed '%s': %w", query, err)
 	}
 
-	return numRows, nil
+	return numRows, numBytes, nil
 }
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
@@ -227,8 +183,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
 		defer close(errors)
-		_, err := qe.ExecuteAndProcessQueryStream(ctx, stream, query, args...)
-		if err != nil {
+		if _, _, err := qe.ExecuteAndProcessQueryStream(ctx, stream, query, args...); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
 			errorsError = err
 		}
@@ -236,6 +191,21 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 
 	select {
 	case <-errors:
+		if errorsError == nil {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-stream.SchemaChan():
+				schema, err := stream.Schema()
+				if err != nil {
+					return nil, err
+				}
+				return &model.QRecordBatch{
+					Schema:  schema,
+					Records: nil,
+				}, nil
+			}
+		}
 		return nil, errorsError
 	case <-stream.SchemaChan():
 		schema, err := stream.Schema()
@@ -265,7 +235,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	stream *model.QRecordStream,
 	query string,
 	args ...any,
-) (int, error) {
+) (int64, int64, error) {
 	return qe.ExecuteQueryIntoSink(
 		ctx,
 		RecordStreamSink{QRecordStream: stream},
@@ -279,7 +249,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	sink QRepPullSink,
 	query string,
 	args ...any,
-) (int, error) {
+) (int64, int64, error) {
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer sink.Close(nil)
 
@@ -291,14 +261,14 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
 		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 		sink.Close(err)
-		return 0, err
+		return 0, 0, err
 	}
 
-	totalRecords, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
+	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
 	if err != nil {
 		sink.Close(err)
 	}
-	return totalRecords, err
+	return totalRecords, totalBytes, err
 }
 
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
@@ -306,7 +276,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	sink QRepPullSink,
 	query string,
 	args ...any,
-) (int, int64, error) {
+) (int64, int64, int64, error) {
 	var currentSnapshotXmin pgtype.Int8
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer sink.Close(nil)
@@ -319,20 +289,20 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
 		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 		sink.Close(err)
-		return 0, currentSnapshotXmin.Int64, err
+		return 0, 0, currentSnapshotXmin.Int64, err
 	}
 
 	if err := tx.QueryRow(ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to get current snapshot xmin", slog.Any("error", err))
 		sink.Close(err)
-		return 0, currentSnapshotXmin.Int64, err
+		return 0, 0, currentSnapshotXmin.Int64, err
 	}
 
-	totalRecordsFetched, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
+	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
 	if err != nil {
 		sink.Close(err)
 	}
-	return totalRecordsFetched, currentSnapshotXmin.Int64, err
+	return totalRecords, totalBytes, currentSnapshotXmin.Int64, err
 }
 
 func (qe *QRepQueryExecutor) mapRowToQRecord(
@@ -349,38 +319,12 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	}
 
 	for i, fd := range fds {
-		// Check if it's a custom type first
-		typeName, ok := qe.customTypeMapping[fd.DataTypeOID]
-		if !ok {
-			tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i])
-			if err != nil {
-				qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
-				return nil, fmt.Errorf("failed to parse field: %w", err)
-			}
-			record[i] = tmp
-		} else {
-			customQKind := customTypeToQKind(typeName)
-			if values[i] == nil {
-				record[i] = qvalue.QValueNull(customQKind)
-			} else {
-				switch customQKind {
-				case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
-					wkbString, ok := values[i].(string)
-					wkt, err := datatypes.GeoValidate(wkbString)
-					if err != nil || !ok {
-						record[i] = qvalue.QValueNull(qvalue.QValueKindGeography)
-					} else if customQKind == qvalue.QValueKindGeography {
-						record[i] = qvalue.QValueGeography{Val: wkt}
-					} else {
-						record[i] = qvalue.QValueGeometry{Val: wkt}
-					}
-				case qvalue.QValueKindHStore:
-					record[i] = qvalue.QValueHStore{Val: fmt.Sprint(values[i])}
-				case qvalue.QValueKindString:
-					record[i] = qvalue.QValueString{Val: fmt.Sprint(values[i])}
-				}
-			}
+		tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i], qe.customTypeMapping)
+		if err != nil {
+			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to parse field: %w", err)
 		}
+		record[i] = tmp
 	}
 
 	return record, nil

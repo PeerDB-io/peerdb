@@ -482,6 +482,14 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	return nil
 }
 
+func updateStatus(ctx workflow.Context, logger log.Logger, state *protos.QRepFlowState, status protos.FlowStatus) {
+	state.CurrentFlowStatus = status
+	// update the status in the catalog only if this is the root workflow
+	if workflow.GetInfo(ctx).ParentWorkflowExecution == nil {
+		syncStatusToCatalog(ctx, logger, status)
+	}
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
@@ -516,7 +524,7 @@ func QRepFlowWorkflow(
 		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
 		startTime := workflow.Now(ctx)
 		q.activeSignal = model.PauseSignal
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 
 		for q.activeSignal == model.PauseSignal {
 			q.logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
@@ -528,7 +536,7 @@ func QRepFlowWorkflow(
 				return state, err
 			}
 		}
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
 
 	maxParallelWorkers := 16
@@ -582,7 +590,7 @@ func QRepFlowWorkflow(
 
 		if config.InitialCopyOnly {
 			q.logger.Info("initial copy completed for peer flow")
-			state.CurrentFlowStatus = protos.FlowStatus_STATUS_COMPLETED
+			updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_COMPLETED)
 			return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 		}
 
@@ -612,7 +620,7 @@ func QRepFlowWorkflow(
 		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 	}
 	return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 }

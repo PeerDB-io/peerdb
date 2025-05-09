@@ -54,11 +54,8 @@ func (c *SnowflakeConnector) getTableSchema(ctx context.Context, tableName strin
 		return nil, fmt.Errorf("failed to parse table '%s'", tableName)
 	}
 
-	//nolint:gosec
-	queryString := fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(schematable))
-
 	//nolint:rowserrcheck
-	rows, err := c.database.QueryContext(ctx, queryString)
+	rows, err := c.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(schematable)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -76,7 +73,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	ctx = c.withMirrorNameQueryTag(ctx, config.FlowJobName)
 
 	var schemaExists sql.NullBool
-	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, c.rawSchema).Scan(&schemaExists)
+	err := c.QueryRowContext(ctx, checkIfSchemaExistsSQL, c.rawSchema).Scan(&schemaExists)
 	if err != nil {
 		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
 	}
@@ -196,7 +193,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
-	rows, err := c.database.QueryContext(
+	rows, err := c.QueryContext(
 		ctx,
 		getTableSchemaSQL,
 		strings.ToUpper(schemaTable.Schema),
@@ -238,7 +235,7 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 	stageName := c.getStageNameForJob(job)
 	stmt := "DROP STAGE IF EXISTS " + stageName
 
-	_, err := c.database.ExecContext(ctx, stmt)
+	_, err := c.ExecContext(ctx, stmt)
 	if err != nil {
 		return fmt.Errorf("failed to drop stage %s: %w", stageName, err)
 	}

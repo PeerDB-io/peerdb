@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"go.temporal.io/sdk/log"
 
@@ -85,6 +86,7 @@ func GetAvroSchemaDefinition(
 	dstTableName string,
 	qRecordSchema qvalue.QRecordSchema,
 	targetDWH protos.DBType,
+	avroNameMap map[string]string,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
 
@@ -98,8 +100,13 @@ func GetAvroSchemaDefinition(
 			avroType = []any{"null", avroType}
 		}
 
+		avroFieldName := qField.Name
+		if avroNameMap != nil {
+			avroFieldName = avroNameMap[qField.Name]
+		}
+
 		avroFields = append(avroFields, QRecordAvroField{
-			Name: qField.Name,
+			Name: avroFieldName,
 			Type: avroType,
 		})
 	}
@@ -119,4 +126,12 @@ func GetAvroSchemaDefinition(
 		Schema: string(avroSchemaJSON),
 		Fields: qRecordSchema.Fields,
 	}, nil
+}
+
+func ConstructColumnNameAvroFieldMap(fields []qvalue.QField) map[string]string {
+	m := make(map[string]string, len(fields))
+	for i, field := range fields {
+		m[field.Name] = qvalue.ConvertToAvroCompatibleName(field.Name) + "_" + strconv.FormatInt(int64(i), 10)
+	}
+	return m
 }

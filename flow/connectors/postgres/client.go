@@ -367,6 +367,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	publication string,
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
+	skipSnapshotExport bool,
 ) (model.SetupReplicationResult, error) {
 	// iterate through source tables and create publication,
 	// expecting tablenames to be schema qualified
@@ -391,8 +392,6 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error acquiring connection: %w", err)
 		}
 
-		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
-
 		// THIS IS NOT IN A TX!
 		if _, err := conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
 			conn.Close(ctx)
@@ -404,6 +403,13 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error setting lock_timeout: %w", err)
 		}
 
+		pgversion, err := c.MajorVersion(ctx)
+		if err != nil {
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error getting PG version: %w", err)
+		}
+
+		c.logger.Info(fmt.Sprintf("Creating replication slot '%s'", slot))
 		opts := pglogrepl.CreateReplicationSlotOptions{
 			Temporary: false,
 			Mode:      pglogrepl.LogicalReplication,
@@ -413,14 +419,17 @@ func (c *PostgresConnector) createSlotAndPublication(
 			conn.Close(ctx)
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error creating replication slot: %w", err)
 		}
-
-		pgversion, err := c.MajorVersion(ctx)
-		if err != nil {
-			conn.Close(ctx)
-			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error getting PG version: %w", err)
-		}
-
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
+
+		if skipSnapshotExport {
+			conn.Close(ctx)
+			return model.SetupReplicationResult{
+				Conn:             nil,
+				SlotName:         res.SlotName,
+				SnapshotName:     "",
+				SupportsTIDScans: pgversion >= shared.POSTGRES_13,
+			}, nil
+		}
 		return model.SetupReplicationResult{
 			Conn:             conn,
 			SlotName:         res.SlotName,

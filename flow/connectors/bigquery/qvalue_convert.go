@@ -32,7 +32,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 		bqField.Precision = int64(precision)
 		bqField.Scale = int64(scale)
 	// string related
-	case qvalue.QValueKindString:
+	case qvalue.QValueKindString, qvalue.QValueKindEnum:
 		bqField.Type = bigquery.StringFieldType
 	// json related
 	case qvalue.QValueKindJSON, qvalue.QValueKindJSONB, qvalue.QValueKindHStore:
@@ -65,7 +65,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 	case qvalue.QValueKindArrayDate:
 		bqField.Type = bigquery.DateFieldType
 		bqField.Repeated = true
-	case qvalue.QValueKindArrayString:
+	case qvalue.QValueKindArrayString, qvalue.QValueKindArrayEnum:
 		bqField.Type = bigquery.StringFieldType
 		bqField.Repeated = true
 	case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
@@ -121,8 +121,6 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) qvalue.QValueKi
 		return qvalue.QValueKindDate
 	case bigquery.TimeFieldType:
 		return qvalue.QValueKindTime
-	case bigquery.RecordFieldType:
-		return qvalue.QValueKindStruct
 	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
 		return qvalue.QValueKindNumeric
 	case bigquery.GeographyFieldType:

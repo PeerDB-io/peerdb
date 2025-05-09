@@ -1,7 +1,6 @@
 package qvalue
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -225,27 +224,6 @@ func (v QValueBoolean) LValue(ls *lua.LState) lua.LValue {
 	return lua.LBool(v.Val)
 }
 
-type QValueStruct struct {
-	Val map[string]any
-}
-
-func (QValueStruct) Kind() QValueKind {
-	return QValueKindStruct
-}
-
-func (v QValueStruct) Value() any {
-	return v.Val
-}
-
-func (v QValueStruct) LValue(ls *lua.LState) lua.LValue {
-	bytes, err := json.Marshal(v.Val)
-	if err != nil {
-		return lua.LString(err.Error())
-	} else {
-		return lua.LString(shared.UnsafeFastReadOnlyBytesToString(bytes))
-	}
-}
-
 type QValueQChar struct {
 	Val uint8
 }
@@ -275,6 +253,22 @@ func (v QValueString) Value() any {
 }
 
 func (v QValueString) LValue(ls *lua.LState) lua.LValue {
+	return lua.LString(v.Val)
+}
+
+type QValueEnum struct {
+	Val string
+}
+
+func (QValueEnum) Kind() QValueKind {
+	return QValueKindEnum
+}
+
+func (v QValueEnum) Value() any {
+	return v.Val
+}
+
+func (v QValueEnum) LValue(ls *lua.LState) lua.LValue {
 	return lua.LString(v.Val)
 }
 
@@ -762,5 +756,23 @@ func (v QValueArrayBoolean) Value() any {
 func (v QValueArrayBoolean) LValue(ls *lua.LState) lua.LValue {
 	return shared.SliceToLTable(ls, v.Val, func(x bool) lua.LValue {
 		return lua.LBool(x)
+	})
+}
+
+type QValueArrayEnum struct {
+	Val []string
+}
+
+func (QValueArrayEnum) Kind() QValueKind {
+	return QValueKindArrayEnum
+}
+
+func (v QValueArrayEnum) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayEnum) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x string) lua.LValue {
+		return lua.LString(x)
 	})
 }

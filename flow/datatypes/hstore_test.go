@@ -5,99 +5,85 @@ import (
 )
 
 func TestHStoreHappy(t *testing.T) {
-	testCase := `"a"=>"b", "c"=>"d"`
-	expected := `{"a":"b","c":"d"}`
+	for _, tc := range []struct {
+		name   string
+		input  string
+		output string
+	}{
+		{
+			"Happy",
+			`"a"=>"b", "c"=>"d"`,
+			`{"a":"b","c":"d"}`,
+		},
+		{
+			"EscapedQuotes",
+			`"a\"b"=>"c\"d"`,
+			`{"a\"b":"c\"d"}`,
+		},
+		{
+			"EscapedBackslashes",
+			`"a\\b"=>"c\\d"`,
+			`{"a\\b":"c\\d"}`,
+		},
+		{
+			"NullCase",
+			`"a"=>NULL`,
+			`{"a":null}`,
+		},
+		{
+			"DisguisedSeparator",
+			`"=>"=>"a=>b"`,
+			`{"=\u003e":"a=\u003eb"}`,
+		},
+		{
+			"EmptyToSpace",
+			`""=>" "`,
+			`{"":" "}`,
+		},
+		{
+			"EmptyToEmpty",
+			`""=>""`,
+			`{"":""}`,
+		},
+		{
+			"Duplicate",
+			`"a"=>"b", "a"=>"c"`,
+			`{"a":"c"}`,
+		},
+	} {
+		result, err := ParseHstore(tc.input)
+		if err != nil {
+			t.Errorf("[%s] Unexpected error: %v", tc.name, err)
+		}
 
-	result, err := ParseHstore(testCase)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
-	}
-}
-
-func TestHStoreEscapedQuotes(t *testing.T) {
-	testCase := `"a\"b"=>"c\"d"`
-	expected := `{"a\"b":"c\"d"}`
-
-	result, err := ParseHstore(testCase)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
-	}
-}
-
-func TestHStoreEscapedBackslashes(t *testing.T) {
-	testCase := `"a\\b"=>"c\\d"`
-	expected := `{"a\\b":"c\\d"}`
-
-	result, err := ParseHstore(testCase)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
-	}
-}
-
-func TestHStoreNullCase(t *testing.T) {
-	testCase := `"a"=>NULL`
-	expected := `{"a":null}`
-
-	result, err := ParseHstore(testCase)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
-	}
-}
-
-func TestHStoreDisguisedSeparator(t *testing.T) {
-	testCase := `"=>"=>"a=>b"`
-	expected := `{"=\u003e":"a=\u003eb"}`
-
-	result, err := ParseHstore(testCase)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
+		if result != tc.output {
+			t.Errorf("[%s] Unexpected result. Expected: %v, but got: %v", tc.name, tc.output, result)
+		}
 	}
 }
 
-func TestHStoreEmpty(t *testing.T) {
-	testCase := `""=>" "`
-	expected := `{"":" "}`
-
-	result, err := ParseHstore(testCase)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
-	}
-}
-
-func TestHStoreDuplicate(t *testing.T) {
-	testCase := `"a"=>"b", "a"=>"c"`
-	expected := `{"a":"c"}`
-
-	result, err := ParseHstore(testCase)
-	if err != nil {
-		t.Errorf("Unexpected error: %v", err)
-	}
-
-	if result != expected {
-		t.Errorf("Unexpected result. Expected: %v, but got: %v", expected, result)
+func TestInvalidInput(t *testing.T) {
+	for _, input := range []string{
+		`a=>NULL`,
+		`"a"`,
+		`"a"NULL`,
+		`"a"=>NULL, `,
+		`"a"=>NULL,`,
+		`"a"=>NULLq`,
+		`"a"=>NUL`,
+		`"a"=>NO`,
+		`"a"=>N`,
+		`"a"=>O`,
+		`"a"=>"a`,
+		`"a"=>`,
+		`"a`,
+		`"`,
+		`"a\"`,
+		`"a\"\`,
+		`"a\a"`,
+	} {
+		if _, err := ParseHstore(input); err == nil {
+			t.Errorf("Unexpected success for %s", input)
+		}
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
+
+var re = regexp.MustCompile(`[^A-Za-z0-9_]`)
 
 type AvroSchemaField struct {
 	Name        string `json:"name"`
@@ -71,6 +74,24 @@ func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, tar
 	return num, nil
 }
 
+// ConvertToAvroCompatibleName converts a column name to a field name that is compatible with Avro.
+func ConvertToAvroCompatibleName(columnName string) string {
+	// Avro field names must:
+	// start with [A-Za-z_]
+	// subsequently contain only [A-Za-z0-9_]
+	if columnName == "" {
+		return "_"
+	}
+	// Ensure the first character is a letter or underscore
+	if columnName[0] >= '0' && columnName[0] <= '9' {
+		columnName = "_" + columnName
+	}
+
+	// Replace invalid characters with _
+	columnName = re.ReplaceAllString(columnName, "_")
+	return columnName
+}
+
 // GetAvroSchemaFromQValueKind returns the Avro schema for a given QValueKind.
 // The function takes in two parameters, a QValueKind and a boolean indicating if the
 // Avro schema should respect null values. It returns a QValueKindAvroSchema object
@@ -87,9 +108,7 @@ func GetAvroSchemaFromQValueKind(
 	scale int16,
 ) (any, error) {
 	switch kind {
-	case QValueKindString:
-		return "string", nil
-	case QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
+	case QValueKindString, QValueKindEnum, QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
 		return "string", nil
 	case QValueKindInterval:
 		return "string", nil
@@ -174,7 +193,7 @@ func GetAvroSchemaFromQValueKind(
 		return "string", nil
 	case QValueKindTSTZRange:
 		return "string", nil
-	case QValueKindHStore, QValueKindJSON, QValueKindJSONB, QValueKindStruct:
+	case QValueKindHStore, QValueKindJSON, QValueKindJSONB:
 		return "string", nil
 	case QValueKindArrayFloat32:
 		return AvroSchemaArray{
@@ -231,7 +250,7 @@ func GetAvroSchemaFromQValueKind(
 		}, nil
 	case QValueKindArrayJSON, QValueKindArrayJSONB:
 		return "string", nil
-	case QValueKindArrayString:
+	case QValueKindArrayString, QValueKindArrayEnum:
 		return AvroSchemaArray{
 			Type:  "array",
 			Items: "string",
@@ -359,7 +378,7 @@ func QValueToAvro(
 		return t, nil
 	case QValueQChar:
 		return c.processNullableUnion("string", string(v.Val))
-	case QValueString, QValueCIDR, QValueINET, QValueMacaddr, QValueInterval, QValueTSTZRange:
+	case QValueString, QValueCIDR, QValueINET, QValueMacaddr, QValueInterval, QValueTSTZRange, QValueEnum:
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
 			slog.Warn("Clearing TEXT value > 15MB for Snowflake!")
@@ -392,8 +411,6 @@ func QValueToAvro(
 		return c.processNullableUnion("long", int64(v.Val))
 	case QValueBoolean:
 		return c.processNullableUnion("boolean", v.Val)
-	case QValueStruct:
-		return nil, errors.New("QValueStruct not supported")
 	case QValueNumeric:
 		return c.processNumeric(v.Val), nil
 	case QValueBytes:
@@ -417,6 +434,8 @@ func QValueToAvro(
 	case QValueArrayInt64:
 		return c.processArrayInt64(v.Val), nil
 	case QValueArrayString:
+		return c.processArrayString(v.Val), nil
+	case QValueArrayEnum:
 		return c.processArrayString(v.Val), nil
 	case QValueArrayBoolean:
 		return c.processArrayBoolean(v.Val), nil

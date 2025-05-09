@@ -19,6 +19,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+const (
+	DefaultPeerDBS3PartSize int64 = 50 * 1024 * 1024 // 50MiB
+)
+
 var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_CDC_CHANNEL_BUFFER_SIZE",
@@ -94,6 +98,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_RECONNECT_AFTER_BATCHES",
+		Description:      "Force peerdb to reconnect connection to source after N batches",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:         "PEERDB_FULL_REFRESH_OVERWRITE_MODE",
 		Description:  "Enables full refresh mode for query replication mirrors of overwrite type",
 		DefaultValue: "false",
@@ -136,7 +148,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Name: "PEERDB_S3_PART_SIZE",
 		Description: "S3 upload part size in bytes, may need to increase for large batches. " +
 			"https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
-		DefaultValue:     "0",
+		DefaultValue:     strconv.FormatInt(DefaultPeerDBS3PartSize, 10),
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -270,6 +282,32 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_UINT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
+		Name:             "PEERDB_SKIP_SNAPSHOT_EXPORT",
+		Description:      "This avoids initial load failing due to connectivity drops, but risks data consistency unless precautions are taken",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN",
+		Description: "Ingest source schema as column to destination. " +
+			"Useful when multiple tables from source ingest into single table on destination",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES",
+		Description: "For Postgres CDC: attempt to fetch/remap child tables for tables that aren't partitioned by Postgres." +
+			"Useful for tables that are partitioned by extensions or table inheritance",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 }
 
@@ -460,6 +498,10 @@ func PeerDBEnableParallelSyncNormalize(ctx context.Context, env map[string]strin
 	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
 }
 
+func PeerDBReconnectAfterBatches(ctx context.Context, env map[string]string) (int32, error) {
+	return dynamicConfSigned[int32](ctx, env, "PEERDB_RECONNECT_AFTER_BATCHES")
+}
+
 func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_FULL_REFRESH_OVERWRITE_MODE")
 }
@@ -546,4 +588,16 @@ func PeerDBClickHouseNormalizationParts(ctx context.Context, env map[string]stri
 
 func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[string]string) (uint64, error) {
 	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION")
+}
+
+func PeerDBSkipSnapshotExport(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_SKIP_SNAPSHOT_EXPORT")
+}
+
+func PeerDBSourceSchemaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN")
+}
+
+func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES")
 }

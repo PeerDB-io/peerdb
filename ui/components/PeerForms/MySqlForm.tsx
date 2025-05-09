@@ -3,14 +3,19 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import {
-  SSHSetting,
   blankSSHConfig,
   sshSetter,
+  SSHSetting,
   sshSetting,
 } from '@/app/peers/create/[peerType]/helpers/ssh';
 import SelectTheme from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
-import { SSHConfig } from '@/grpc_generated/peers';
+import {
+  AwsIAMAuthConfigType,
+  MySqlAuthType,
+  MySqlConfig,
+  SSHConfig,
+} from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
@@ -19,18 +24,15 @@ import { Tooltip } from '@/lib/Tooltip';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 
-interface ConfigProps {
+interface MySqlProps {
   settings: PeerSetting[];
   setter: PeerSetter;
+  config: MySqlConfig;
 }
 
-export default function MySqlForm({ settings, setter }: ConfigProps) {
+export default function MySqlForm({ settings, setter, config }: MySqlProps) {
   const [showSSH, setShowSSH] = useState(false);
   const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
-
-  const handleSwitchChange = (val: string | boolean, setting: PeerSetting) => {
-    setting.stateHandler(val, setter);
-  };
 
   const handleCa = (
     file: File,
@@ -68,6 +70,7 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
       };
     }
   };
+
   const handleTextFieldChange = (
     e: React.ChangeEvent<HTMLInputElement>,
     setting: PeerSetting
@@ -100,7 +103,7 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
   return (
     <>
       {settings.map((setting, id) => {
-        return setting.type == 'switch' ? (
+        return setting.type === 'switch' ? (
           <RowWithSwitch
             key={id}
             label={
@@ -121,8 +124,8 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
             action={
               <div>
                 <Switch
-                  onCheckedChange={(state: boolean) =>
-                    handleSwitchChange(state, setting)
+                  onCheckedChange={(val: boolean) =>
+                    setting.stateHandler(val, setter)
                   }
                 />
                 {setting.tips && (
@@ -131,70 +134,106 @@ export default function MySqlForm({ settings, setter }: ConfigProps) {
               </div>
             }
           />
-        ) : setting.type === 'select' ? (
-          <RowWithSelect
-            key={id}
-            label={<Label>{setting.label}</Label>}
-            action={
-              <ReactSelect
-                placeholder={setting.placeholder}
-                defaultValue={
-                  setting.options &&
-                  setting.options.find((x) => x.value === setting.default)
+        ) : setting.type === 'select' &&
+          (setting.field !== 'awsAuth.authType' ||
+            (config.authType === MySqlAuthType.MYSQL_IAM_AUTH &&
+              setting.field === 'awsAuth.authType')) ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <div
+              style={{
+                flex: 1,
+              }}
+            >
+              <RowWithSelect
+                key={id}
+                label={<Label>{setting.label}</Label>}
+                action={
+                  <ReactSelect
+                    placeholder={setting.placeholder}
+                    defaultValue={
+                      setting.options &&
+                      setting.options.find((x) => x.value === setting.default)
+                    }
+                    onChange={(val) =>
+                      val && setting.stateHandler(val.value, setter)
+                    }
+                    options={setting.options}
+                    theme={SelectTheme}
+                  />
                 }
-                onChange={(val) =>
-                  val && setting.stateHandler(val.value, setter)
-                }
-                options={setting.options}
-                theme={SelectTheme}
-              />
-            }
-          />
+              />{' '}
+            </div>
+            {setting.tips && (
+              <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
+            )}
+          </div>
         ) : (
-          <RowWithTextField
-            key={id}
-            label={
-              <Label>
-                {setting.label}{' '}
-                {!setting.optional && (
-                  <Tooltip
-                    style={{ width: '100%' }}
-                    content='This is a required field.'
+          (setting.field !== 'awsAuth.authType' &&
+            (!setting.field?.startsWith('awsAuth.role.') ||
+              (setting.field?.startsWith('awsAuth.role.') &&
+                config.awsAuth?.authType ===
+                  AwsIAMAuthConfigType.IAM_AUTH_ASSUME_ROLE)) &&
+            (!setting.field?.startsWith('awsAuth.staticCredentials.') ||
+              (setting.field?.startsWith('awsAuth.staticCredentials.') &&
+                config.awsAuth?.authType ===
+                  AwsIAMAuthConfigType.IAM_AUTH_STATIC_CREDENTIALS)) &&
+            (setting.field !== 'password' ||
+              (setting.field?.startsWith('password') &&
+                config.authType === MySqlAuthType.MYSQL_PASSWORD)) && (
+              <RowWithTextField
+                key={id}
+                label={
+                  <Label>
+                    {setting.label}{' '}
+                    {!setting.optional && (
+                      <Tooltip
+                        style={{ width: '100%' }}
+                        content='This is a required field.'
+                      >
+                        <Label colorName='lowContrast' colorSet='destructive'>
+                          *
+                        </Label>
+                      </Tooltip>
+                    )}
+                  </Label>
+                }
+                action={
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
                   >
-                    <Label colorName='lowContrast' colorSet='destructive'>
-                      *
-                    </Label>
-                  </Tooltip>
-                )}
-              </Label>
-            }
-            action={
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <TextField
-                  variant='simple'
-                  style={
-                    setting.type === 'file'
-                      ? { border: 'none', height: 'auto' }
-                      : { border: 'auto' }
-                  }
-                  type={setting.type}
-                  defaultValue={setting.default}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleTextFieldChange(e, setting)
-                  }
-                />
-                {setting.tips && (
-                  <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
-                )}
-              </div>
-            }
-          />
+                    <TextField
+                      variant='simple'
+                      style={
+                        setting.type === 'file'
+                          ? { border: 'none', height: 'auto' }
+                          : { border: 'auto' }
+                      }
+                      type={setting.type}
+                      defaultValue={setting.default}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        handleTextFieldChange(e, setting)
+                      }
+                    />
+                    {setting.tips && (
+                      <InfoPopover
+                        tips={setting.tips}
+                        link={setting.helpfulLink}
+                      />
+                    )}
+                  </div>
+                }
+              />
+            )) || <div key={id}></div>
         );
       })}
       <Label

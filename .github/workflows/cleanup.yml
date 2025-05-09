@@ -6,15 +6,15 @@ on:
 
 jobs:
   flow_cleanup:
-    runs-on: ubicloud-standard-2-ubuntu-2204-arm
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: checkout sources
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      - uses: ubicloud/setup-go@6ea6c4fb36acc657571a53f4a7471e75f5fa80ad # v5
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
         with:
-          go-version: '1.24.0'
+          go-version: '1.24.2'
           cache-dependency-path: e2e_cleanup/go.sum
 
       - name: download go modules

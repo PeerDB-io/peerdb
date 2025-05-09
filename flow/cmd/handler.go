@@ -32,12 +32,12 @@ type FlowRequestHandler struct {
 	peerflowTaskQueueID string
 }
 
-func NewFlowRequestHandler(temporalClient client.Client, pool shared.CatalogPool, taskQueue string) *FlowRequestHandler {
+func NewFlowRequestHandler(ctx context.Context, temporalClient client.Client, pool shared.CatalogPool, taskQueue string) *FlowRequestHandler {
 	return &FlowRequestHandler{
 		temporalClient:      temporalClient,
 		pool:                pool,
 		peerflowTaskQueueID: taskQueue,
-		alerter:             alerting.NewAlerter(context.Background(), pool, nil),
+		alerter:             alerting.NewAlerter(ctx, pool, nil),
 	}
 }
 
@@ -71,18 +71,18 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	destinationPeerID, destinationPeerType, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.DestinationName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			req.ConnectionConfigs.DestinationName, srcErr)
+			req.ConnectionConfigs.DestinationName, dstErr)
 	}
 
 	for _, v := range req.ConnectionConfigs.TableMappings {
-		_, err := h.pool.Exec(ctx, `
+		if _, err := h.pool.Exec(ctx, `
 		INSERT INTO flows (workflow_id, name, source_peer, destination_peer, description,
 		source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`, workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID,
 			"Mirror created via GRPC",
 			schemaForTableIdentifier(v.SourceTableIdentifier, sourePeerType),
-			schemaForTableIdentifier(v.DestinationTableIdentifier, destinationPeerType))
-		if err != nil {
+			schemaForTableIdentifier(v.DestinationTableIdentifier, destinationPeerType),
+		); err != nil {
 			return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
 				req.ConnectionConfigs.FlowJobName, v.SourceTableIdentifier, err)
 		}
@@ -105,7 +105,7 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	destinationPeerID, _, dstErr := h.getPeerID(ctx, destinationPeerName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			destinationPeerName, srcErr)
+			destinationPeerName, dstErr)
 	}
 	flowName := req.QrepConfig.FlowJobName
 	_, err := h.pool.Exec(ctx, `INSERT INTO flows(workflow_id,name, source_peer, destination_peer, description,
@@ -131,10 +131,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// For resync, we validate the mirror before dropping it and getting to this step.
 	// There is no point validating again here if it's a resync - the mirror is dropped already
 	if !cfg.Resync {
-		_, validateErr := h.ValidateCDCMirror(ctx, req)
-		if validateErr != nil {
-			slog.Error("validate mirror error", slog.Any("error", validateErr))
-			return nil, fmt.Errorf("invalid mirror: %w", validateErr)
+		if _, err := h.ValidateCDCMirror(ctx, req); err != nil {
+			slog.Error("validate mirror error", slog.Any("error", err))
+			return nil, fmt.Errorf("invalid mirror: %w", err)
 		}
 	}
 
@@ -145,20 +144,17 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
 
-	err := h.createCdcJobEntry(ctx, req, workflowID)
-	if err != nil {
+	if err := h.createCdcJobEntry(ctx, req, workflowID); err != nil {
 		slog.Error("unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	err = h.updateFlowConfigInCatalog(ctx, cfg)
-	if err != nil {
+	if err := h.updateFlowConfigInCatalog(ctx, cfg); err != nil {
 		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
-	_, err = h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil)
-	if err != nil {
+	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
@@ -215,8 +211,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
-	err = h.updateQRepConfigInCatalog(ctx, cfg)
-	if err != nil {
+	if err := h.updateQRepConfigInCatalog(ctx, cfg); err != nil {
 		slog.Error("unable to update qrep config in catalog",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
 		return nil, fmt.Errorf("unable to update qrep config in catalog: %w", err)
@@ -237,7 +232,7 @@ func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 	}
 
 	_, err = h.pool.Exec(ctx,
-		"UPDATE flows SET config_proto = $1 WHERE name = $2",
+		"UPDATE flows SET config_proto=$1,updated_at=now() WHERE name=$2",
 		cfgBytes, cfg.FlowJobName)
 	if err != nil {
 		return fmt.Errorf("unable to update qrep config in catalog: %w", err)
@@ -287,13 +282,12 @@ func (h *FlowRequestHandler) shutdownFlow(
 		TypedSearchAttributes: shared.NewSearchAttributes(flowJobName),
 	}
 
-	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions,
-		peerflow.DropFlowWorkflow, &protos.DropFlowInput{
-			FlowJobName:           flowJobName,
-			DropFlowStats:         deleteStats,
-			FlowConnectionConfigs: cdcConfig,
-			SkipDestinationDrop:   skipDestinationDrop,
-		})
+	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowJobName,
+		DropFlowStats:         deleteStats,
+		FlowConnectionConfigs: cdcConfig,
+		SkipDestinationDrop:   skipDestinationDrop,
+	})
 	if err != nil {
 		slog.Error("unable to start DropFlow workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
@@ -329,13 +323,10 @@ func (h *FlowRequestHandler) FlowStateChange(
 ) (*protos.FlowStateChangeResponse, error) {
 	logs := slog.String("flowJobName", req.FlowJobName)
 	slog.Info("FlowStateChange called", logs, slog.Any("req", req))
-	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
-	if err != nil {
+	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
 		slog.Error("unable to check maintenance mode", logs, slog.Any("error", err))
 		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
-	}
-
-	if underMaintenance {
+	} else if underMaintenance {
 		slog.Warn("Flow state change request denied due to maintenance", logs)
 		return nil, errors.New("PeerDB is under maintenance")
 	}
@@ -352,51 +343,77 @@ func (h *FlowRequestHandler) FlowStateChange(
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
-		err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
+		if err := model.CDCDynamicPropertiesSignal.SignalClientWorkflow(
 			ctx,
 			h.temporalClient,
 			workflowID,
 			"",
 			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
-		)
-		if err != nil {
+		); err != nil {
 			slog.Error("unable to signal workflow", logs, slog.Any("error", err))
 			return nil, fmt.Errorf("unable to signal workflow: %w", err)
 		}
 	}
 
-	if req.RequestedFlowState != protos.FlowStatus_STATUS_UNKNOWN {
-		if req.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED &&
-			currState == protos.FlowStatus_STATUS_RUNNING {
-			slog.Info("[flow-state-change] received pause request", logs)
-			err = model.FlowSignal.SignalClientWorkflow(
-				ctx,
-				h.temporalClient,
-				workflowID,
-				"",
-				model.PauseSignal,
-			)
-		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_RUNNING && currState == protos.FlowStatus_STATUS_PAUSED {
-			slog.Info("[flow-state-change] received resume request", logs)
-			err = model.FlowSignal.SignalClientWorkflow(
-				ctx,
-				h.temporalClient,
-				workflowID,
-				"",
-				model.NoopSignal,
-			)
-		} else if req.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATED {
-			slog.Info("[flow-state-change] received drop mirror request", logs)
-			err = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
-		} else if req.RequestedFlowState != currState {
+	slog.Info("[flow-state-change] received request", logs,
+		slog.Any("requestedFlowState", req.RequestedFlowState), slog.Any("currState", currState))
+	if req.RequestedFlowState != currState {
+		var changeErr error
+		switch req.RequestedFlowState {
+		case protos.FlowStatus_STATUS_PAUSED:
+			if currState == protos.FlowStatus_STATUS_RUNNING {
+				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.PauseSignal)
+			}
+		case protos.FlowStatus_STATUS_RUNNING:
+			if currState == protos.FlowStatus_STATUS_PAUSED {
+				changeErr = model.FlowSignal.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", model.NoopSignal)
+			}
+		case protos.FlowStatus_STATUS_RESYNC:
+			if currState == protos.FlowStatus_STATUS_COMPLETED {
+				_, changeErr = h.ResyncMirror(ctx, &protos.ResyncMirrorRequest{
+					FlowJobName: req.FlowJobName,
+					DropStats:   req.DropMirrorStats,
+				})
+			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
+				return nil, err
+			} else if !isCDC {
+				return nil, errors.New("resync is only supported for CDC mirrors")
+			} else {
+				// getting config before dropping the flow since the flow entry is deleted unconditionally
+				config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+				if err != nil {
+					return nil, err
+				}
+
+				config.Resync = true
+				config.DoInitialSnapshot = true
+				// validate mirror first because once the mirror is dropped, there's no going back
+				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
+					ConnectionConfigs: config,
+				}); err != nil {
+					return nil, err
+				}
+				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+			}
+		case protos.FlowStatus_STATUS_TERMINATING:
+			if currState == protos.FlowStatus_STATUS_COMPLETED {
+				changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
+			} else {
+				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+			}
+		case protos.FlowStatus_STATUS_TERMINATED: // backwards compat, causes grpc timeouts
+			if currState != protos.FlowStatus_STATUS_TERMINATED {
+				changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
+			}
+		default:
 			slog.Error("illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
 				slog.Any("currState", currState))
 			return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
 				req.RequestedFlowState, currState)
 		}
-		if err != nil {
-			slog.Error("unable to signal workflow", logs, slog.Any("error", err))
-			return nil, fmt.Errorf("unable to signal workflow: %w", err)
+		if changeErr != nil {
+			slog.Error("unable to signal workflow", logs, slog.Any("error", changeErr))
+			return nil, fmt.Errorf("unable to signal workflow: %w", changeErr)
 		}
 	}
 
@@ -499,11 +516,9 @@ func (h *FlowRequestHandler) ResyncMirror(
 	ctx context.Context,
 	req *protos.ResyncMirrorRequest,
 ) (*protos.ResyncMirrorResponse, error) {
-	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
-	if err != nil {
+	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
 		return nil, fmt.Errorf("unable to get maintenance mode status: %w", err)
-	}
-	if underMaintenance {
+	} else if underMaintenance {
 		return nil, errors.New("PeerDB is under maintenance")
 	}
 
@@ -564,8 +579,8 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 	if in.UsePeerflowTaskQueue {
 		taskQueueId = shared.PeerFlowTaskQueue
 	}
-	switch {
-	case in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_START:
+	switch in.Status {
+	case protos.MaintenanceStatus_MAINTENANCE_STATUS_START:
 		workflowRun, err := peerflow.RunStartMaintenanceWorkflow(ctx, h.temporalClient, &protos.StartMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
 			return nil, err
@@ -574,7 +589,7 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 			WorkflowId: workflowRun.GetID(),
 			RunId:      workflowRun.GetRunID(),
 		}, nil
-	case in.Status == protos.MaintenanceStatus_MAINTENANCE_STATUS_END:
+	case protos.MaintenanceStatus_MAINTENANCE_STATUS_END:
 		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, h.temporalClient, &protos.EndMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
 			return nil, err

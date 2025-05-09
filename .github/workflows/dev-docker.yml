@@ -25,7 +25,7 @@ jobs:
       - uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
         with:
           registry: ghcr.io
           username: ${{github.actor}}
@@ -36,7 +36,7 @@ jobs:
         run: echo "sha_short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Build (optionally publish) PeerDB Images
-        uses: depot/bake-action@58d7160c6bfa64eb85e384209e6f2f5ad17948bb # v1
+        uses: depot/bake-action@6f9796efa5235be338972e30e7b93977a7f18855 # v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
           files: ./docker-bake.hcl

@@ -1,25 +1,32 @@
 'use client';
-import { PeerConfig, PeerSetter } from '@/app/dto/PeersDTO';
+import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import {
-  SSHSetting,
   blankSSHConfig,
-  sshSetter,
+  SSHSetting,
   sshSetting,
 } from '@/app/peers/create/[peerType]/helpers/ssh';
+import SelectTheme from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
-import { SSHConfig } from '@/grpc_generated/peers';
+import {
+  AwsIAMAuthConfigType,
+  PostgresAuthType,
+  PostgresConfig,
+  SSHConfig,
+} from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
-import { RowWithTextField } from '@/lib/Layout';
+import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
-interface ConfigProps {
+import ReactSelect from 'react-select';
+
+interface PostgresProps {
   settings: PeerSetting[];
   setter: PeerSetter;
-  config: PeerConfig;
+  config: PostgresConfig;
   type: string;
 }
 
@@ -28,28 +35,35 @@ export default function PostgresForm({
   config,
   setter,
   type,
-}: ConfigProps) {
+}: PostgresProps) {
   const searchParams = useSearchParams();
   const [showSSH, setShowSSH] = useState(false);
   const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
-  const handleFile = (
+
+  const handleCa = (
     file: File,
-    setFile: (value: string, configSetter: sshSetter) => void
+    setFile: (value: string, setter: PeerSetter) => void
   ) => {
     if (file) {
       const reader = new FileReader();
       reader.readAsText(file);
       reader.onload = () => {
-        const fileContents = reader.result as string;
-        const base64EncodedContents = Buffer.from(
-          fileContents,
-          'utf-8'
-        ).toString('base64');
-        setFile(base64EncodedContents, setSSHConfig);
+        setFile(reader.result as string, setter);
       };
       reader.onerror = (error) => {
         console.log(error);
       };
+    }
+  };
+
+  const handleTextFieldChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    setting: PeerSetting
+  ) => {
+    if (setting.type === 'file') {
+      if (e.target.files) handleCa(e.target.files[0], setting.stateHandler);
+    } else {
+      setting.stateHandler(e.target.value, setter);
     }
   };
 
@@ -58,16 +72,33 @@ export default function PostgresForm({
     setting: SSHSetting
   ) => {
     if (setting.type === 'file') {
-      if (e.target.files) handleFile(e.target.files[0], setting.stateHandler);
+      if (e.target.files) {
+        const file = e.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.readAsText(file);
+          reader.onload = () => {
+            const fileContents = reader.result as string;
+            const base64EncodedContents = Buffer.from(
+              fileContents,
+              'utf-8'
+            ).toString('base64');
+            setting.stateHandler(base64EncodedContents, setSSHConfig);
+          };
+          reader.onerror = (error) => {
+            console.log(error);
+          };
+        }
+      }
     } else {
       setting.stateHandler(e.target.value, setSSHConfig);
     }
   };
 
   useEffect(() => {
-    const host = searchParams.get('host');
+    const host = searchParams?.get('host');
     if (host) setter((curr) => ({ ...curr, host }));
-    const database = searchParams.get('db');
+    const database = searchParams?.get('db');
     if (database) setter((curr) => ({ ...curr, database }));
   }, [setter, searchParams]);
 
@@ -81,8 +112,8 @@ export default function PostgresForm({
   return (
     <>
       {settings.map((setting, id) => {
-        return (
-          <RowWithTextField
+        return setting.type === 'switch' ? (
+          <RowWithSwitch
             key={id}
             label={
               <Label>
@@ -100,22 +131,10 @@ export default function PostgresForm({
               </Label>
             }
             action={
-              <div
-                style={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                }}
-              >
-                <TextField
-                  variant='simple'
-                  type={setting.type}
-                  defaultValue={setting.default}
-                  value={
-                    setting.field && config[setting.field as keyof PeerConfig]
-                  }
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setting.stateHandler(e.target.value, setter)
+              <div>
+                <Switch
+                  onCheckedChange={(val: boolean) =>
+                    setting.stateHandler(val, setter)
                   }
                 />
                 {setting.tips && (
@@ -124,6 +143,93 @@ export default function PostgresForm({
               </div>
             }
           />
+        ) : setting.type === 'select' &&
+          (setting.field !== 'awsAuth.authType' ||
+            (config.authType === PostgresAuthType.POSTGRES_IAM_AUTH &&
+              setting.field === 'awsAuth.authType')) ? (
+          <RowWithSelect
+            label={<Label>{setting.label}</Label>}
+            action={
+              <div>
+                <ReactSelect
+                  key={id}
+                  defaultValue={setting.options?.find(
+                    ({ value }) => value === setting.default
+                  )}
+                  placeholder={setting.placeholder}
+                  onChange={(val) =>
+                    val && setting.stateHandler(val.value, setter)
+                  }
+                  options={setting.options}
+                  theme={SelectTheme}
+                />
+                {setting.tips && (
+                  <InfoPopover tips={setting.tips} link={setting.helpfulLink} />
+                )}
+              </div>
+            }
+          />
+        ) : (
+          (setting.field !== 'awsAuth.authType' &&
+            (!setting.field?.startsWith('awsAuth.role.') ||
+              (setting.field?.startsWith('awsAuth.role.') &&
+                config.awsAuth?.authType ===
+                  AwsIAMAuthConfigType.IAM_AUTH_ASSUME_ROLE)) &&
+            (!setting.field?.startsWith('awsAuth.staticCredentials.') ||
+              (setting.field?.startsWith('awsAuth.staticCredentials.') &&
+                config.awsAuth?.authType ===
+                  AwsIAMAuthConfigType.IAM_AUTH_STATIC_CREDENTIALS)) &&
+            (setting.field !== 'password' ||
+              (setting.field?.startsWith('password') &&
+                config.authType === PostgresAuthType.POSTGRES_PASSWORD)) && (
+              <RowWithTextField
+                key={id}
+                label={
+                  <Label>
+                    {setting.label}{' '}
+                    {!setting.optional && (
+                      <Tooltip
+                        style={{ width: '100%' }}
+                        content={'This is a required field.'}
+                      >
+                        <Label colorName='lowContrast' colorSet='destructive'>
+                          *
+                        </Label>
+                      </Tooltip>
+                    )}
+                  </Label>
+                }
+                action={
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <TextField
+                      variant='simple'
+                      style={
+                        setting.type === 'file'
+                          ? { border: 'none', height: 'auto' }
+                          : { border: 'auto' }
+                      }
+                      type={setting.type}
+                      defaultValue={setting.default}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        handleTextFieldChange(e, setting)
+                      }
+                    />
+                    {setting.tips && (
+                      <InfoPopover
+                        tips={setting.tips}
+                        link={setting.helpfulLink}
+                      />
+                    )}
+                  </div>
+                }
+              />
+            )) || <div key={id}></div>
         );
       })}
 

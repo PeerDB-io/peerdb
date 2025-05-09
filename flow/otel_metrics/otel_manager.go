@@ -10,7 +10,9 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/noop"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 
@@ -30,9 +32,10 @@ const (
 	OpenConnectionsGaugeName            = "open_connections"
 	OpenReplicationConnectionsGaugeName = "open_replication_connections"
 	CommittedLSNGaugeName               = "committed_lsn"
+	RestartLSNGaugeName                 = "restart_lsn"
+	ConfirmedFlushLSNGaugeName          = "confirmed_flush_lsn"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
 	FetchedBytesCounterName             = "fetched_bytes"
-	InstantaneousFetchedBytesGaugeName  = "instantaneous_fetched_bytes"
 	ErrorEmittedGaugeName               = "error_emitted"
 	ErrorsEmittedCounterName            = "errors_emitted"
 	RecordsSyncedGaugeName              = "records_synced"
@@ -40,6 +43,8 @@ const (
 	SyncedTablesGaugeName               = "synced_tables"
 	InstanceStatusGaugeName             = "instance_status"
 	MaintenanceStatusGaugeName          = "maintenance_status"
+	FlowStatusGaugeName                 = "flow_status"
+	ActiveFlowsGaugeName                = "active_flows"
 )
 
 type Metrics struct {
@@ -49,9 +54,10 @@ type Metrics struct {
 	OpenConnectionsGauge            metric.Int64Gauge
 	OpenReplicationConnectionsGauge metric.Int64Gauge
 	CommittedLSNGauge               metric.Int64Gauge
+	RestartLSNGauge                 metric.Int64Gauge
+	ConfirmedFlushLSNGauge          metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
 	FetchedBytesCounter             metric.Int64Counter
-	InstantaneousFetchedBytesGauge  metric.Int64Gauge
 	ErrorEmittedGauge               metric.Int64Gauge
 	ErrorsEmittedCounter            metric.Int64Counter
 	RecordsSyncedGauge              metric.Int64Gauge
@@ -59,10 +65,16 @@ type Metrics struct {
 	SyncedTablesGauge               metric.Int64Gauge
 	InstanceStatusGauge             metric.Int64Gauge
 	MaintenanceStatusGauge          metric.Int64Gauge
+	FlowStatusGauge                 metric.Int64Gauge
+	ActiveFlowsGauge                metric.Int64Gauge
+	CPULimitsPerActiveFlowGauge     metric.Float64Gauge
+	MemoryLimitsPerActiveFlowGauge  metric.Float64Gauge
 }
 
 type SlotMetricGauges struct {
 	SlotLagGauge                    metric.Float64Gauge
+	RestartLSNGauge                 metric.Int64Gauge
+	ConfirmedFlushLSNGauge          metric.Int64Gauge
 	CurrentBatchIdGauge             metric.Int64Gauge
 	LastNormalizedBatchIdGauge      metric.Int64Gauge
 	OpenConnectionsGauge            metric.Int64Gauge
@@ -76,21 +88,23 @@ func BuildMetricName(baseName string) string {
 }
 
 type OtelManager struct {
-	MetricsProvider    *sdkmetric.MeterProvider
+	Metrics            Metrics
+	MetricsProvider    metric.MeterProvider
 	Meter              metric.Meter
 	Float64GaugesCache map[string]metric.Float64Gauge
 	Int64GaugesCache   map[string]metric.Int64Gauge
 	Int64CountersCache map[string]metric.Int64Counter
-	Metrics            Metrics
+	Enabled            bool
 }
 
-func NewOtelManager(ctx context.Context, serviceName string) (*OtelManager, error) {
-	metricsProvider, err := SetupPeerDBMetricsProvider(ctx, serviceName)
+func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*OtelManager, error) {
+	metricsProvider, err := SetupPeerDBMetricsProvider(ctx, serviceName, enabled)
 	if err != nil {
 		return nil, err
 	}
 
 	otelManager := OtelManager{
+		Enabled:            enabled,
 		MetricsProvider:    metricsProvider,
 		Meter:              metricsProvider.Meter("io.peerdb." + serviceName),
 		Float64GaugesCache: make(map[string]metric.Float64Gauge),
@@ -104,7 +118,10 @@ func NewOtelManager(ctx context.Context, serviceName string) (*OtelManager, erro
 }
 
 func (om *OtelManager) Close(ctx context.Context) error {
-	return om.MetricsProvider.Shutdown(ctx)
+	if provider, ok := om.MetricsProvider.(*sdkmetric.MeterProvider); ok {
+		return provider.Shutdown(ctx)
+	}
+	return nil
 }
 
 func getOrInitMetric[M any, O any](
@@ -177,6 +194,18 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
+	if om.Metrics.RestartLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(RestartLSNGaugeName),
+		metric.WithDescription("Restart LSN of the replication slot"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ConfirmedFlushLSNGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ConfirmedFlushLSNGaugeName),
+		metric.WithDescription("Confirmed flush LSN of the replication slot"),
+	); err != nil {
+		return err
+	}
+
 	if om.Metrics.IntervalSinceLastNormalizeGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(IntervalSinceLastNormalizeGaugeName),
 		metric.WithUnit("s"),
 		metric.WithDescription("Interval since last normalize"),
@@ -187,13 +216,6 @@ func (om *OtelManager) setupMetrics() error {
 	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
 		metric.WithUnit("By"),
 		metric.WithDescription("Bytes received of CopyData over replication slot"),
-	); err != nil {
-		return err
-	}
-
-	if om.Metrics.InstantaneousFetchedBytesGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(InstantaneousFetchedBytesGaugeName),
-		metric.WithUnit("By"),
-		metric.WithDescription("Bytes received of CopyData over replication slot (instantaneous)"),
 	); err != nil {
 		return err
 	}
@@ -242,6 +264,37 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 	slog.Debug("Finished setting up all metrics")
+
+	if om.Metrics.FlowStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(FlowStatusGaugeName),
+		metric.WithDescription("Status of the flow, always emits a 1 metric with different `flowStatus` value for different statuses"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.ActiveFlowsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ActiveFlowsGaugeName),
+		metric.WithDescription("Number of active flows"),
+	); err != nil {
+		return err
+	}
+
+	// Appending unit since UCUM does not support `vcores` as a unit
+	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("cpu_limits_per_active_flow_vcores"),
+		metric.WithDescription(
+			"CPU limits per active flow. To get total CPU limits, multiply by number of active flows or do sum over all flows",
+		),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.MemoryLimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("memory_limits_per_active_flow"),
+		metric.WithDescription(
+			"Memory per active flow. To get total memory limits, multiply by number of active flows or do sum over all flows",
+		),
+		metric.WithUnit("By"),
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -319,6 +372,17 @@ func componentMetricsRenamingView(componentName string) sdkmetric.View {
 	}
 }
 
+type panicOnFailureExporter struct {
+	sdkmetric.Exporter
+}
+
+func (p *panicOnFailureExporter) Export(ctx context.Context, metrics *metricdata.ResourceMetrics) error {
+	if err := p.Exporter.Export(ctx, metrics); err != nil {
+		panic(fmt.Sprintf("[panicOnFailureExporter] failed to export metrics: %v", err))
+	}
+	return nil
+}
+
 func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	otlpMetricProtocol := internal.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
@@ -335,10 +399,21 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry metrics exporter: %w", err)
 	}
+	if internal.GetEnvBool("PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE", false) {
+		return &panicOnFailureExporter{metricExporter}, err
+	}
 	return metricExporter, err
 }
 
-func setupMetricsProvider(ctx context.Context, otelResource *resource.Resource, views ...sdkmetric.View) (*sdkmetric.MeterProvider, error) {
+func setupMetricsProvider(
+	ctx context.Context,
+	otelResource *resource.Resource,
+	enabled bool,
+	views ...sdkmetric.View,
+) (metric.MeterProvider, error) {
+	if !enabled {
+		return noop.NewMeterProvider(), nil
+	}
 	metricExporter, err := setupExporter(ctx)
 	if err != nil {
 		return nil, err
@@ -352,26 +427,31 @@ func setupMetricsProvider(ctx context.Context, otelResource *resource.Resource, 
 	return meterProvider, nil
 }
 
-func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string) (*sdkmetric.MeterProvider, error) {
+func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource)
+	return setupMetricsProvider(ctx, otelResource, enabled)
 }
 
-func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string) (*sdkmetric.MeterProvider, error) {
+func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, temporalMetricsFilteringView())
+	return setupMetricsProvider(ctx, otelResource, enabled, temporalMetricsFilteringView())
 }
 
-func SetupComponentMetricsProvider(ctx context.Context, otelServiceName string, componentName string) (*sdkmetric.MeterProvider, error) {
+func SetupComponentMetricsProvider(
+	ctx context.Context,
+	otelServiceName string,
+	componentName string,
+	enabled bool,
+) (metric.MeterProvider, error) {
 	otelResource, err := newOtelResource(otelServiceName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, componentMetricsRenamingView(componentName))
+	return setupMetricsProvider(ctx, otelResource, enabled, componentMetricsRenamingView(componentName))
 }

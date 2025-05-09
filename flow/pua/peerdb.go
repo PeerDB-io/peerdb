@@ -112,8 +112,10 @@ func RegisterTypes(ls *lua.LState) {
 	peerdb.RawSetString("Now", ls.NewFunction(LuaNow))
 	peerdb.RawSetString("UUID", ls.NewFunction(LuaUUID))
 	peerdb.RawSetString("Decimal", ls.NewFunction(LuaParseDecimal))
+	peerdb.RawSetString("Time", ls.NewFunction(LuaTime))
 	peerdb.RawSetString("type", ls.NewFunction(LuaType))
 	peerdb.RawSetString("tostring", ls.NewFunction(LuaToString))
+	peerdb.RawSetString("unix_epoch", shared.LuaTime.New(ls, time.Unix(0, 0).UTC()))
 	ls.Env.RawSetString("peerdb", peerdb)
 }
 
@@ -247,6 +249,8 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		}
 	case qvalue.QValueKindString:
 		newqv = qvalue.QValueString{Val: lua.LVAsString(val)}
+	case qvalue.QValueKindEnum:
+		newqv = qvalue.QValueEnum{Val: lua.LVAsString(val)}
 	case qvalue.QValueKindTimestamp:
 		newqv = qvalue.QValueTimestamp{Val: LVAsTime(ls, val)}
 	case qvalue.QValueKindTimestampTZ:
@@ -320,6 +324,14 @@ func LuaRowNewIndex(ls *lua.LState) int {
 	case qvalue.QValueKindArrayString:
 		if tbl, ok := val.(*lua.LTable); ok {
 			newqv = qvalue.QValueArrayString{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) string {
+					return lua.LVAsString(v)
+				}),
+			}
+		}
+	case qvalue.QValueKindArrayEnum:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = qvalue.QValueArrayEnum{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) string {
 					return lua.LVAsString(v)
 				}),
@@ -553,6 +565,15 @@ func LuaUUID(ls *lua.LState) int {
 		ls.Push(shared.LuaUuid.New(ls, uuid.MustParse(string(v))))
 	} else {
 		ls.RaiseError("uuid must be created from string")
+	}
+	return 1
+}
+
+func LuaTime(ls *lua.LState) int {
+	if ls.GetTop() == 0 {
+		ls.Push(shared.LuaTime.New(ls, time.Time{}))
+	} else {
+		ls.Push(shared.LuaTime.New(ls, LVAsTime(ls, ls.Get(1))))
 	}
 	return 1
 }

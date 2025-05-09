@@ -169,8 +169,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
-	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s",
-		s.pgSuffix, tblName)
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s", s.pgSuffix, tblName)
 
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,

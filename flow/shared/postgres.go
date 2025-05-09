@@ -27,27 +27,34 @@ const (
 	POSTGRES_16 PGVersion = 160000
 )
 
-func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]string, error) {
+type CustomDataType struct {
+	Name  string
+	Type  byte
+	Delim byte // non-zero character for arrays
+}
+
+func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomDataType, error) {
 	rows, err := conn.Query(ctx, `
-		SELECT t.oid, t.typname as type
-		FROM pg_type t
+		SELECT t.oid, t.typname, coalesce(at.typtype, t.typtype), coalesce(at.typdelim, 0::"char")
+		FROM pg_catalog.pg_type t
 		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
-		WHERE (t.typrelid = 0 OR (SELECT c.relkind = 'c' FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid))
-		AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_type el WHERE el.oid = t.typelem AND el.typarray = t.oid)
+		LEFT JOIN pg_catalog.pg_class c ON c.oid = t.typrelid
+		LEFT JOIN pg_catalog.pg_type at ON at.typarray = t.oid
+		WHERE t.typrelid = 0 OR c.relkind = 'c'
 		AND n.nspname NOT IN ('pg_catalog', 'information_schema');
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get customTypeMapping: %w", err)
 	}
 
-	customTypeMap := map[uint32]string{}
+	customTypeMap := map[uint32]CustomDataType{}
 	var typeID pgtype.Uint32
-	var typeName pgtype.Text
-	if _, err := pgx.ForEachRow(rows, []any{&typeID, &typeName}, func() error {
-		customTypeMap[typeID.Uint32] = typeName.String
+	var cdt CustomDataType
+	if _, err := pgx.ForEachRow(rows, []any{&typeID, &cdt.Name, &cdt.Type, &cdt.Delim}, func() error {
+		customTypeMap[typeID.Uint32] = cdt
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("failed to scan into customTypeMapping: %w", err)
+		return nil, fmt.Errorf("failed to scan into custom type mapping: %w", err)
 	}
 	return customTypeMap, nil
 }
@@ -70,8 +77,7 @@ func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
 
 func GetMajorVersion(ctx context.Context, conn *pgx.Conn) (PGVersion, error) {
 	var version int32
-	err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version)
-	if err != nil {
+	if err := conn.QueryRow(ctx, "SELECT current_setting('server_version_num')::INTEGER").Scan(&version); err != nil {
 		return 0, fmt.Errorf("failed to get server version: %w", err)
 	}
 
@@ -259,4 +265,76 @@ func (tx CatalogTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.R
 
 func (tx CatalogTx) Conn() *pgx.Conn {
 	return tx.Tx.Conn()
+}
+
+const (
+	psSearch = iota
+	psSearch2
+	psQuoted
+	psQuotedEscape
+	psUnquoted
+	psUnquotedEscape
+)
+
+// see array_in from postgres
+func ParsePgArrayStringToStringSlice(data string, delim byte) []string {
+	return ParsePgArrayToStringSlice(UnsafeFastStringToReadOnlyBytes(data), delim)
+}
+
+func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
+	var result []string
+	var sb []byte
+	ps := psSearch2
+	for _, ch := range data {
+		switch ps {
+		case psSearch:
+			if ch == delim {
+				result = append(result, "")
+			} else if ch == '}' {
+				ps = psSearch2
+			} else if ch == '"' {
+				ps = psQuoted
+			} else if ch == '\\' {
+				ps = psUnquotedEscape
+			} else if ch != '{' && ch != ' ' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r' {
+				sb = append(sb, ch)
+				ps = psUnquoted
+			}
+		case psSearch2:
+			if ch == '{' {
+				ps = psSearch
+			}
+		case psQuoted:
+			if ch == '\\' {
+				ps = psQuotedEscape
+			} else if ch == '"' {
+				ps = psUnquoted
+			} else {
+				sb = append(sb, ch)
+			}
+		case psUnquoted:
+			if ch == '\\' {
+				ps = psUnquotedEscape
+			} else if ch == '"' {
+				ps = psQuoted
+			} else if ch == delim || ch == '}' {
+				result = append(result, string(sb))
+				sb = sb[:0]
+				if ch == '}' {
+					ps = psSearch2
+				} else {
+					ps = psSearch
+				}
+			} else {
+				sb = append(sb, ch)
+			}
+		case psQuotedEscape:
+			sb = append(sb, ch)
+			ps = psQuoted
+		case psUnquotedEscape:
+			sb = append(sb, ch)
+			ps = psUnquoted
+		}
+	}
+	return result
 }

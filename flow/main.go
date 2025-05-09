@@ -84,6 +84,13 @@ func main() {
 		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_API_VERSION_MATCH"),
 	}
 
+	maintenanceSkipOnDeploymentVersionMatch := &cli.BoolFlag{
+		Name:    "skip-on-deployment-version-match",
+		Value:   false,
+		Usage:   "Skip maintenance flow if the deployment version matches",
+		Sources: cli.EnvVars("MAINTENANCE_SKIP_ON_DEPLOYMENT_VERSION_MATCH"),
+	}
+
 	maintenanceSkipOnNoMirrorsFlag := &cli.BoolFlag{
 		Name:    "skip-on-no-mirrors",
 		Value:   false,
@@ -131,20 +138,20 @@ func main() {
 				Name: "worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					res, err := cmd.WorkerSetup(&cmd.WorkerSetupOptions{
+					res, err := cmd.WorkerSetup(ctx, &cmd.WorkerSetupOptions{
 						TemporalHostPort:                   temporalHostPort,
 						EnableProfiling:                    clicmd.Bool("enable-profiling"),
 						EnableOtelMetrics:                  clicmd.Bool("enable-otel-metrics"),
 						PyroscopeServer:                    clicmd.String("pyroscope-server-address"),
 						TemporalNamespace:                  clicmd.String("temporal-namespace"),
-						TemporalMaxConcurrentActivities:    int(clicmd.Int("temporal-max-concurrent-activities")),
-						TemporalMaxConcurrentWorkflowTasks: int(clicmd.Int("temporal-max-concurrent-workflow-tasks")),
+						TemporalMaxConcurrentActivities:    clicmd.Int("temporal-max-concurrent-activities"),
+						TemporalMaxConcurrentWorkflowTasks: clicmd.Int("temporal-max-concurrent-workflow-tasks"),
 						UseMaintenanceTaskQueue:            clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
 					})
 					if err != nil {
 						return err
 					}
-					defer res.Close()
+					defer res.Close(context.Background())
 					return res.Worker.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
@@ -162,7 +169,7 @@ func main() {
 				Name: "snapshot-worker",
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					temporalHostPort := clicmd.String("temporal-host-port")
-					res, err := cmd.SnapshotWorkerMain(&cmd.SnapshotWorkerOptions{
+					res, err := cmd.SnapshotWorkerMain(ctx, &cmd.SnapshotWorkerOptions{
 						EnableOtelMetrics: clicmd.Bool("enable-otel-metrics"),
 						TemporalHostPort:  temporalHostPort,
 						TemporalNamespace: clicmd.String("temporal-namespace"),
@@ -170,7 +177,7 @@ func main() {
 					if err != nil {
 						return err
 					}
-					defer res.Close()
+					defer res.Close(context.Background())
 					return res.Worker.Run(worker.InterruptCh())
 				},
 				Flags: []cli.Flag{
@@ -215,6 +222,7 @@ func main() {
 					temporalNamespaceFlag,
 					maintenanceModeWorkflowFlag,
 					maintenanceSkipOnApiVersionMatchFlag,
+					maintenanceSkipOnDeploymentVersionMatch,
 					maintenanceSkipOnNoMirrorsFlag,
 					flowGrpcAddressFlag,
 					flowTlsEnabledFlag,
@@ -230,6 +238,7 @@ func main() {
 						TemporalNamespace:                 clicmd.String(temporalNamespaceFlag.Name),
 						Mode:                              clicmd.String(maintenanceModeWorkflowFlag.Name),
 						SkipOnApiVersionMatch:             clicmd.Bool(maintenanceSkipOnApiVersionMatchFlag.Name),
+						SkipOnDeploymentVersionMatch:      clicmd.Bool(maintenanceSkipOnDeploymentVersionMatch.Name),
 						SkipOnNoMirrors:                   clicmd.Bool(maintenanceSkipOnNoMirrorsFlag.Name),
 						FlowGrpcAddress:                   clicmd.String(flowGrpcAddressFlag.Name),
 						FlowTlsEnabled:                    clicmd.Bool(flowTlsEnabledFlag.Name),

@@ -89,12 +89,19 @@ export const pgSchema = z.object({
       required_error: 'Password is required',
       invalid_type_error: 'Password must be a string',
     })
-    .min(1, 'Password must be non-empty')
     .max(100, 'Password must be less than 100 characters'),
   transactionSnapshot: z
     .string()
     .max(100, 'Transaction snapshot too long (100 char limit)')
     .optional(),
+  requireTls: z.boolean(),
+  rootCa: z
+    .string({
+      invalid_type_error: 'Root CA must be a string',
+    })
+    .optional()
+    .transform((e) => (e === '' ? undefined : e)),
+  tlsHost: z.string(),
   sshConfig: sshSchema,
 });
 export const mySchema = z.object({
@@ -125,7 +132,6 @@ export const mySchema = z.object({
       required_error: 'Password is required',
       invalid_type_error: 'Password must be a string',
     })
-    .min(1, 'Password must be non-empty')
     .max(100, 'Password must be less than 100 characters'),
   compression: z.number().min(0).max(1),
   disableTls: z.boolean(),
@@ -144,6 +150,7 @@ export const mySchema = z.object({
     })
     .optional()
     .transform((e) => (e === '' ? undefined : e)),
+  tlsHost: z.string(),
   sshConfig: sshSchema,
 });
 
@@ -370,6 +377,7 @@ export function chSchema(hostDomains: string[]) {
       })
       .optional()
       .transform((e) => (e === '' ? undefined : e)),
+    tlsHost: z.string(),
   });
 }
 

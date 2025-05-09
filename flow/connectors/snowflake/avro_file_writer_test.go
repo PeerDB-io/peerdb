@@ -50,11 +50,9 @@ func createQValue(t *testing.T, kind qvalue.QValueKind, placeholder int) qvalue.
 	case qvalue.QValueKindUUID:
 		return qvalue.QValueUUID{Val: uuid.New()} // assuming you have the github.com/google/uuid package
 	case qvalue.QValueKindQChar:
-		return qvalue.QValueQChar{Val: uint8(48 + placeholder%10)} // assuming you have the github.com/google/uuid package
+		return qvalue.QValueQChar{Val: uint8(48 + placeholder%10)}
 		// case qvalue.QValueKindArray:
 		// 	value = []int{1, 2, 3} // placeholder array, replace with actual logic
-		// case qvalue.QValueKindStruct:
-		// 	value = map[string]any{"key": "value"} // placeholder struct, replace with actual logic
 		// case qvalue.QValueKindJSON:
 		// 	value = `{"key": "value"}` // placeholder JSON, replace with actual logic
 	case qvalue.QValueKindBytes:
@@ -82,7 +80,6 @@ func generateRecords(
 		qvalue.QValueKindInt64,
 		qvalue.QValueKindBoolean,
 		// qvalue.QValueKindArray,
-		// qvalue.QValueKindStruct,
 		qvalue.QValueKindString,
 		qvalue.QValueKindTimestamp,
 		qvalue.QValueKindTimestampTZ,
@@ -143,7 +140,7 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
@@ -170,7 +167,7 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
@@ -197,7 +194,7 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
@@ -223,7 +220,7 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 
 	records, schema := generateRecords(t, false, 10, false)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)
@@ -250,7 +247,7 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 	// Define sample data
 	records, schema := generateRecords(t, true, 10, true)
 
-	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE)
+	avroSchema, err := model.GetAvroSchemaDefinition(t.Context(), nil, "not_applicable", schema, protos.DBType_SNOWFLAKE, nil)
 	require.NoError(t, err)
 
 	t.Logf("[test] avroSchema: %v", avroSchema)

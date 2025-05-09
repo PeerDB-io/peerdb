@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/netip"
 	"strings"
@@ -19,30 +20,37 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-func (c *PostgresConnector) postgresOIDToName(recvOID uint32) string {
+func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping map[uint32]shared.CustomDataType) (string, error) {
 	if ty, ok := c.typeMap.TypeForOID(recvOID); ok {
-		return ty.Name
+		return ty.Name, nil
 	}
 	// workaround for some types not being defined by pgtype
-	switch recvOID {
-	case uint32(oid.T_timetz):
-		return "timetz"
-	case uint32(oid.T_xml):
-		return "xml"
-	case uint32(oid.T_money):
-		return "money"
-	case uint32(oid.T_txid_snapshot):
-		return "txid_snapshot"
-	case uint32(oid.T_tsvector):
-		return "tsvector"
-	case uint32(oid.T_tsquery):
-		return "tsquery"
+	switch oid.Oid(recvOID) {
+	case oid.T_timetz:
+		return "timetz", nil
+	case oid.T_xml:
+		return "xml", nil
+	case oid.T_money:
+		return "money", nil
+	case oid.T_txid_snapshot:
+		return "txid_snapshot", nil
+	case oid.T_tsvector:
+		return "tsvector", nil
+	case oid.T_tsquery:
+		return "tsquery", nil
 	default:
-		return ""
+		typeData, ok := customTypeMapping[recvOID]
+		if !ok {
+			return "", fmt.Errorf("error getting type name for %d", recvOID)
+		}
+		return typeData.Name, nil
 	}
 }
 
-func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValueKind {
+func (c *PostgresConnector) postgresOIDToQValueKind(
+	recvOID uint32,
+	customTypeMapping map[uint32]shared.CustomDataType,
+) qvalue.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
 		return qvalue.QValueKindBoolean
@@ -68,8 +76,6 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindJSONB
 	case pgtype.UUIDOID:
 		return qvalue.QValueKindUUID
-	case pgtype.UUIDArrayOID:
-		return qvalue.QValueKindArrayUUID
 	case pgtype.TimeOID:
 		return qvalue.QValueKindTime
 	case pgtype.DateOID:
@@ -106,6 +112,8 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 		return qvalue.QValueKindArrayTimestamp
 	case pgtype.TimestamptzArrayOID:
 		return qvalue.QValueKindArrayTimestampTZ
+	case pgtype.UUIDArrayOID:
+		return qvalue.QValueKindArrayUUID
 	case pgtype.TextArrayOID, pgtype.VarcharArrayOID, pgtype.BPCharArrayOID:
 		return qvalue.QValueKindArrayString
 	case pgtype.JSONArrayOID:
@@ -117,34 +125,30 @@ func (c *PostgresConnector) postgresOIDToQValueKind(recvOID uint32) qvalue.QValu
 	case pgtype.TstzrangeOID:
 		return qvalue.QValueKindTSTZRange
 	default:
-		typeName, ok := c.typeMap.TypeForOID(recvOID)
-		if !ok {
-			// workaround for some types not being defined by pgtype
-			switch recvOID {
-			case uint32(oid.T_timetz):
-				return qvalue.QValueKindTimeTZ
-			case uint32(oid.T_xml):
-				return qvalue.QValueKindString
-			case uint32(oid.T_money):
-				return qvalue.QValueKindString
-			case uint32(oid.T_txid_snapshot):
-				return qvalue.QValueKindString
-			case uint32(oid.T_tsvector):
-				return qvalue.QValueKindString
-			case uint32(oid.T_tsquery):
-				return qvalue.QValueKindString
-			case uint32(oid.T_point):
-				return qvalue.QValueKindPoint
-			default:
-				return qvalue.QValueKindInvalid
+		if typeName, ok := c.typeMap.TypeForOID(recvOID); ok {
+			colType := qvalue.QValueKindString
+			if typeData, ok := customTypeMapping[recvOID]; ok {
+				colType = customTypeToQKind(typeData)
 			}
-		} else {
-			_, warned := c.hushWarnOID[recvOID]
-			if !warned {
-				c.logger.Warn(fmt.Sprintf("unsupported field type: %d - type name - %s; returning as string", recvOID, typeName.Name))
+			if _, warned := c.hushWarnOID[recvOID]; !warned {
+				c.logger.Warn("unsupported field type",
+					slog.Int64("oid", int64(recvOID)), slog.String("typeName", typeName.Name), slog.String("mapping", string(colType)))
 				c.hushWarnOID[recvOID] = struct{}{}
 			}
-			return qvalue.QValueKindString
+			return colType
+		} else {
+			// workaround for some types not being defined by pgtype
+			switch oid.Oid(recvOID) {
+			case oid.T_timetz:
+				return qvalue.QValueKindTimeTZ
+			case oid.T_point:
+				return qvalue.QValueKindPoint
+			default:
+				if typeData, ok := customTypeMapping[recvOID]; ok {
+					return customTypeToQKind(typeData)
+				}
+				return qvalue.QValueKindString
+			}
 		}
 	}
 }
@@ -165,7 +169,7 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "DOUBLE PRECISION"
 	case qvalue.QValueKindQChar:
 		return "\"char\""
-	case qvalue.QValueKindString:
+	case qvalue.QValueKindString, qvalue.QValueKindEnum:
 		return "TEXT"
 	case qvalue.QValueKindBytes:
 		return "BYTEA"
@@ -215,7 +219,7 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "TIMESTAMPTZ[]"
 	case qvalue.QValueKindArrayBoolean:
 		return "BOOLEAN[]"
-	case qvalue.QValueKindArrayString:
+	case qvalue.QValueKindArrayString, qvalue.QValueKindArrayEnum:
 		return "TEXT[]"
 	case qvalue.QValueKindArrayJSON:
 		return "JSON[]"
@@ -248,6 +252,8 @@ func parseUUID(value any) (uuid.UUID, error) {
 		return uuid.UUID(v), nil
 	case uuid.UUID:
 		return v, nil
+	case nil:
+		return uuid.UUID{}, nil
 	default:
 		return uuid.UUID{}, fmt.Errorf("unsupported type for UUID: %T", value)
 	}
@@ -302,7 +308,10 @@ func convertToArray[T any](kind qvalue.QValueKind, value any) ([]T, error) {
 	return nil, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
 }
 
-func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.QValue, error) {
+func (c *PostgresConnector) parseFieldFromPostgresOID(
+	oid uint32, value any, customTypeMapping map[uint32]shared.CustomDataType,
+) (qvalue.QValue, error) {
+	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping)
 	if value == nil {
 		return qvalue.QValueNull(qvalueKind), nil
 	}
@@ -385,8 +394,19 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 		timeVal := value.(string)
 		// edge case, Postgres supports this extreme value for time
 		timeVal = strings.Replace(timeVal, "24:00:00.000000", "23:59:59.999999", 1)
-		// edge case, Postgres prints +0000 as +00
-		timeVal = strings.Replace(timeVal, "+00", "+0000", 1)
+		tzidx := strings.LastIndexAny(timeVal, "+-")
+		if tzidx > 0 {
+			// postgres may print +xx00 as +xx
+			if tzidx < len(timeVal)-5 && timeVal[tzidx+3] == ':' {
+				timeVal = timeVal[:tzidx+3] + timeVal[tzidx+4:]
+			} else if tzidx == len(timeVal)-3 {
+				timeVal += "00"
+			}
+			if timeVal[tzidx-1] == ' ' {
+				timeVal = timeVal[:tzidx-1] + timeVal[tzidx:]
+			}
+		}
+
 		t, err := time.Parse("15:04:05.999999-0700", timeVal)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse time: %w", err)
@@ -427,6 +447,8 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 	case qvalue.QValueKindString:
 		// handling all unsupported types with strings as well for now.
 		return qvalue.QValueString{Val: fmt.Sprint(value)}, nil
+	case qvalue.QValueKindEnum:
+		return qvalue.QValueEnum{Val: fmt.Sprint(value)}, nil
 	case qvalue.QValueKindUUID:
 		tmp, err := parseUUID(value)
 		if err != nil {
@@ -528,29 +550,58 @@ func parseFieldFromQValueKind(qvalueKind qvalue.QValueKind, value any) (qvalue.Q
 		}
 		return qvalue.QValueArrayBoolean{Val: a}, nil
 	case qvalue.QValueKindArrayString:
-		a, err := convertToArray[string](qvalueKind, value)
-		if err != nil {
-			return nil, err
+		if str, ok := value.(string); ok {
+			delim := byte(',')
+			if typeData, ok := customTypeMapping[oid]; ok {
+				delim = typeData.Delim
+			}
+			return qvalue.QValueArrayString{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
+		} else {
+			a, err := convertToArray[string](qvalueKind, value)
+			if err != nil {
+				return nil, err
+			}
+			return qvalue.QValueArrayString{Val: a}, nil
 		}
-		return qvalue.QValueArrayString{Val: a}, nil
+	case qvalue.QValueKindArrayEnum:
+		if str, ok := value.(string); ok {
+			delim := byte(',')
+			if typeData, ok := customTypeMapping[oid]; ok {
+				delim = typeData.Delim
+			}
+			return qvalue.QValueArrayEnum{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
+		} else {
+			a, err := convertToArray[string](qvalueKind, value)
+			if err != nil {
+				return nil, err
+			}
+			return qvalue.QValueArrayEnum{Val: a}, nil
+		}
 	case qvalue.QValueKindPoint:
 		coord := value.(pgtype.Point).P
 		return qvalue.QValuePoint{
 			Val: fmt.Sprintf("POINT(%f %f)", coord.X, coord.Y),
 		}, nil
+	case qvalue.QValueKindHStore:
+		return qvalue.QValueHStore{Val: fmt.Sprint(value)}, nil
+	case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
+		wkbString, ok := value.(string)
+		wkt, err := datatypes.GeoValidate(wkbString)
+		if err != nil || !ok {
+			return qvalue.QValueNull(qvalue.QValueKindGeography), nil
+		} else if qvalueKind == qvalue.QValueKindGeography {
+			return qvalue.QValueGeography{Val: wkt}, nil
+		} else {
+			return qvalue.QValueGeometry{Val: wkt}, nil
+		}
 	default:
-		textVal, ok := value.(string)
-		if ok {
+		if textVal, ok := value.(string); ok {
 			return qvalue.QValueString{Val: textVal}, nil
 		}
 	}
 
 	// parsing into pgtype failed.
 	return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
-}
-
-func (c *PostgresConnector) parseFieldFromPostgresOID(oid uint32, value any) (qvalue.QValue, error) {
-	return parseFieldFromQValueKind(c.postgresOIDToQValueKind(oid), value)
 }
 
 func numericToDecimal(numVal pgtype.Numeric) (qvalue.QValue, error) {
@@ -565,8 +616,20 @@ func numericToDecimal(numVal pgtype.Numeric) (qvalue.QValue, error) {
 	}
 }
 
-func customTypeToQKind(typeName string) qvalue.QValueKind {
-	switch typeName {
+func customTypeToQKind(typeData shared.CustomDataType) qvalue.QValueKind {
+	if typeData.Type == 'e' {
+		if typeData.Delim != 0 {
+			return qvalue.QValueKindArrayEnum
+		} else {
+			return qvalue.QValueKindEnum
+		}
+	}
+
+	if typeData.Delim != 0 {
+		return qvalue.QValueKindArrayString
+	}
+
+	switch typeData.Name {
 	case "geometry":
 		return qvalue.QValueKindGeometry
 	case "geography":

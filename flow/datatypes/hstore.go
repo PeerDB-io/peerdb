@@ -14,10 +14,6 @@ import (
 	"strings"
 )
 
-func text(s string) *string {
-	return &s
-}
-
 type hstore map[string]*string
 
 type hstoreParser struct {
@@ -127,7 +123,7 @@ func (p *hstoreParser) consumeDoubleQuotedWithEscapes(firstBackslash int) (strin
 			if end {
 				return "", errEOSInQuoted
 			}
-			if !(nextB == '\\' || nextB == '"') {
+			if nextB != '\\' && nextB != '"' {
 				return "", fmt.Errorf("unexpected escape in quoted string: found '%#v'", nextB)
 			}
 			builder.WriteByte(nextB)
@@ -158,12 +154,10 @@ func (p *hstoreParser) consumeDoubleQuotedOrNull() (*string, error) {
 	next := p.str[p.pos]
 	if next == 'N' {
 		// must be the exact string NULL: use consumeExpected2 twice
-		err := p.consumeExpected2('N', 'U')
-		if err != nil {
+		if err := p.consumeExpected2('N', 'U'); err != nil {
 			return nil, err
 		}
-		err = p.consumeExpected2('L', 'L')
-		if err != nil {
+		if err := p.consumeExpected2('L', 'L'); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -177,7 +171,7 @@ func (p *hstoreParser) consumeDoubleQuotedOrNull() (*string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return text(s), nil
+	return &s, nil
 }
 
 func ParseHstore(s string) (string, error) {
@@ -189,16 +183,14 @@ func ParseHstore(s string) (string, error) {
 	first := true
 	for !p.atEnd() {
 		if !first {
-			err := p.consumePairSeparator()
-			if err != nil {
+			if err := p.consumePairSeparator(); err != nil {
 				return "", err
 			}
 		} else {
 			first = false
 		}
 
-		err := p.consumeExpectedByte('"')
-		if err != nil {
+		if err := p.consumeExpectedByte('"'); err != nil {
 			return "", err
 		}
 
@@ -207,8 +199,7 @@ func ParseHstore(s string) (string, error) {
 			return "", err
 		}
 
-		err = p.consumeKVSeparator()
-		if err != nil {
+		if err := p.consumeKVSeparator(); err != nil {
 			return "", err
 		}
 
@@ -220,9 +211,5 @@ func ParseHstore(s string) (string, error) {
 	}
 
 	jsonBytes, err := json.Marshal(result)
-	if err != nil {
-		return "", err
-	}
-
-	return string(jsonBytes), nil
+	return string(jsonBytes), err
 }

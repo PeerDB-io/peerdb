@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,56 +46,70 @@ type PostgresCDCSource struct {
 	childToParentRelIDMapping map[uint32]uint32
 
 	// for storing schema delta audit logs to catalog
-	catalogPool                  shared.CatalogPool
-	otelManager                  *otel_metrics.OtelManager
-	hushWarnUnhandledMessageType map[pglogrepl.MessageType]struct{}
-	hushWarnUnknownTableDetected map[uint32]struct{}
-	flowJobName                  string
+	catalogPool                              shared.CatalogPool
+	otelManager                              *otel_metrics.OtelManager
+	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
+	hushWarnUnknownTableDetected             map[uint32]struct{}
+	flowJobName                              string
+	handleInheritanceForNonPartitionedTables bool
 }
 
 type PostgresCDCConfig struct {
-	CatalogPool            shared.CatalogPool
-	OtelManager            *otel_metrics.OtelManager
-	SrcTableIDNameMapping  map[uint32]string
-	TableNameMapping       map[string]model.NameAndExclude
-	TableNameSchemaMapping map[string]*protos.TableSchema
-	ChildToParentRelIDMap  map[uint32]uint32
-	RelationMessageMapping model.RelationMessageMapping
-	FlowJobName            string
-	Slot                   string
-	Publication            string
+	CatalogPool                              shared.CatalogPool
+	OtelManager                              *otel_metrics.OtelManager
+	SrcTableIDNameMapping                    map[uint32]string
+	TableNameMapping                         map[string]model.NameAndExclude
+	TableNameSchemaMapping                   map[string]*protos.TableSchema
+	RelationMessageMapping                   model.RelationMessageMapping
+	FlowJobName                              string
+	Slot                                     string
+	Publication                              string
+	HandleInheritanceForNonPartitionedTables bool
 }
 
 // Create a new PostgresCDCSource
-func (c *PostgresConnector) NewPostgresCDCSource(cdcConfig *PostgresCDCConfig) *PostgresCDCSource {
-	return &PostgresCDCSource{
-		PostgresConnector:            c,
-		srcTableIDNameMapping:        cdcConfig.SrcTableIDNameMapping,
-		tableNameMapping:             cdcConfig.TableNameMapping,
-		tableNameSchemaMapping:       cdcConfig.TableNameSchemaMapping,
-		relationMessageMapping:       cdcConfig.RelationMessageMapping,
-		slot:                         cdcConfig.Slot,
-		publication:                  cdcConfig.Publication,
-		commitLock:                   nil,
-		childToParentRelIDMapping:    cdcConfig.ChildToParentRelIDMap,
-		catalogPool:                  cdcConfig.CatalogPool,
-		otelManager:                  cdcConfig.OtelManager,
-		hushWarnUnhandledMessageType: make(map[pglogrepl.MessageType]struct{}),
-		hushWarnUnknownTableDetected: make(map[uint32]struct{}),
-		flowJobName:                  cdcConfig.FlowJobName,
+func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig *PostgresCDCConfig) (*PostgresCDCSource, error) {
+	childToParentRelIDMap, err := getChildToParentRelIDMap(ctx,
+		c.conn, slices.Collect(maps.Keys(cdcConfig.SrcTableIDNameMapping)),
+		cdcConfig.HandleInheritanceForNonPartitionedTables)
+	if err != nil {
+		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
+
+	return &PostgresCDCSource{
+		PostgresConnector:                        c,
+		srcTableIDNameMapping:                    cdcConfig.SrcTableIDNameMapping,
+		tableNameMapping:                         cdcConfig.TableNameMapping,
+		tableNameSchemaMapping:                   cdcConfig.TableNameSchemaMapping,
+		relationMessageMapping:                   cdcConfig.RelationMessageMapping,
+		slot:                                     cdcConfig.Slot,
+		publication:                              cdcConfig.Publication,
+		commitLock:                               nil,
+		childToParentRelIDMapping:                childToParentRelIDMap,
+		catalogPool:                              cdcConfig.CatalogPool,
+		otelManager:                              cdcConfig.OtelManager,
+		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
+		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
+		flowJobName:                              cdcConfig.FlowJobName,
+		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
+	}, nil
 }
 
-func GetChildToParentRelIDMap(ctx context.Context,
-	conn *pgx.Conn, parentTableOIDs []uint32,
+func getChildToParentRelIDMap(ctx context.Context,
+	conn *pgx.Conn, parentTableOIDs []uint32, handleInheritanceForNonPartitionedTables bool,
 ) (map[uint32]uint32, error) {
-	query := `
+	relkinds := "'p'"
+	if handleInheritanceForNonPartitionedTables {
+		relkinds = "'p', 'r'"
+	}
+
+	query := fmt.Sprintf(`
 		SELECT parent.oid AS parentrelid, child.oid AS childrelid
 		FROM pg_inherits
 		JOIN pg_class parent ON pg_inherits.inhparent = parent.oid
 		JOIN pg_class child ON pg_inherits.inhrelid = child.oid
-		WHERE parent.relkind IN ('p','r') AND parent.oid=ANY($1);
-	`
+		WHERE parent.relkind IN (%s) AND parent.oid=ANY($1);
+	`, relkinds)
 
 	rows, err := conn.Query(ctx, query, parentTableOIDs)
 	if err != nil {
@@ -121,7 +137,7 @@ type replProcessor[Items model.Items] interface {
 		p *PostgresCDCSource,
 		tuple *pglogrepl.TupleDataColumn,
 		col *pglogrepl.RelationMessageColumn,
-		customTypeMapping map[uint32]string,
+		customTypeMapping map[uint32]shared.CustomDataType,
 	) error
 }
 
@@ -136,7 +152,7 @@ func (pgProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -167,7 +183,7 @@ func (qProcessor) Process(
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleDataColumn,
 	col *pglogrepl.RelationMessageColumn,
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
@@ -199,7 +215,7 @@ func processTuple[Items model.Items](
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
 	exclude map[string]struct{},
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (Items, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
@@ -227,55 +243,45 @@ func processTuple[Items model.Items](
 	return items, unchangedToastColumns, nil
 }
 
-func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32,
-	formatCode int16, customTypeMapping map[uint32]string,
+func (p *PostgresCDCSource) decodeColumnData(
+	data []byte, dataType uint32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType,
 ) (qvalue.QValue, error) {
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
-		if dt.Name == "uuid" || dt.Name == "cidr" || dt.Name == "inet" || dt.Name == "macaddr" || dt.Name == "xml" {
+		dtOid := oid.Oid(dt.OID)
+		if dtOid == oid.T_cidr || dtOid == oid.T_inet || dtOid == oid.T_macaddr || dtOid == oid.T_xml {
 			// below is required to decode above types to string
-			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, pgtype.TextFormatCode, data)
+			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, formatCode, data)
 		} else {
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
 		if err != nil {
-			if dt.Name == "time" || dt.Name == "timetz" ||
-				dt.Name == "timestamp" || dt.Name == "timestamptz" {
+			if dtOid == oid.T_time || dtOid == oid.T_timetz ||
+				dtOid == oid.T_timestamp || dtOid == oid.T_timestamptz {
 				// indicates year is more than 4 digits or something similar,
 				// which you can insert into postgres,
 				// but not representable by time.Time
 				p.logger.Warn(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
 					dt.Name, string(data)))
-				switch dt.Name {
-				case "time":
+				switch dtOid {
+				case oid.T_time:
 					return qvalue.QValueNull(qvalue.QValueKindTime), nil
-				case "timetz":
+				case oid.T_timetz:
 					return qvalue.QValueNull(qvalue.QValueKindTimeTZ), nil
-				case "timestamp":
+				case oid.T_timestamp:
 					return qvalue.QValueNull(qvalue.QValueKindTimestamp), nil
-				case "timestamptz":
+				case oid.T_timestamptz:
 					return qvalue.QValueNull(qvalue.QValueKindTimestampTZ), nil
 				}
 			}
 			return nil, err
 		}
-		retVal, err := p.parseFieldFromPostgresOID(dataType, parsedData)
-		if err != nil {
-			return nil, err
-		}
-		return retVal, nil
+		return p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping)
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
-		retVal, err := p.parseFieldFromPostgresOID(dataType, string(data))
-		if err != nil {
-			return nil, err
-		}
-		return retVal, nil
-	}
-
-	typeName, ok := customTypeMapping[dataType]
-	if ok {
-		customQKind := customTypeToQKind(typeName)
+		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
+	} else if typeData, ok := customTypeMapping[dataType]; ok {
+		customQKind := customTypeToQKind(typeData)
 		switch customQKind {
 		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
@@ -290,6 +296,12 @@ func (p *PostgresCDCSource) decodeColumnData(data []byte, dataType uint32,
 			return qvalue.QValueHStore{Val: string(data)}, nil
 		case qvalue.QValueKindString:
 			return qvalue.QValueString{Val: string(data)}, nil
+		case qvalue.QValueKindEnum:
+			return qvalue.QValueEnum{Val: string(data)}, nil
+		case qvalue.QValueKindArrayString:
+			return qvalue.QValueArrayString{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
+		case qvalue.QValueKindArrayEnum:
+			return qvalue.QValueArrayEnum{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
 		default:
 			return nil, fmt.Errorf("unknown custom qkind: %s", customQKind)
 		}
@@ -307,6 +319,7 @@ func PullCdcRecords[Items model.Items](
 	replLock *sync.Mutex,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
+
 	// use only with taking replLock
 	conn := p.replConn.PgConn()
 	sendStandbyAfterReplLock := func(updateType string) error {
@@ -340,14 +353,14 @@ func PullCdcRecords[Items model.Items](
 		if cdcRecordsStorage.IsEmpty() {
 			records.SignalAsEmpty()
 		}
-		logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", cdcRecordsStorage.Len()))
+		logger.Info("[finished] PullRecords", slog.Int("records", cdcRecordsStorage.Len()))
 		if err := cdcRecordsStorage.Close(); err != nil {
 			logger.Warn("failed to clean up records storage", slog.Any("error", err))
 		}
 	}()
 
 	shutdown := shared.Interval(ctx, time.Minute, func() {
-		logger.Info(fmt.Sprintf("pulling records, currently have %d records", cdcRecordsStorage.Len()))
+		logger.Info("pulling records", slog.Int("records", cdcRecordsStorage.Len()))
 	})
 	defer shutdown()
 
@@ -393,8 +406,8 @@ func PullCdcRecords[Items model.Items](
 			pkmRequiresResponse = false
 
 			if time.Since(standByLastLogged) > 10*time.Second {
-				numRowsProcessedMessage := fmt.Sprintf("processed %d rows", cdcRecordsStorage.Len())
-				logger.Info("Sent Standby status message. " + numRowsProcessedMessage)
+				logger.Info("Sent Standby status message",
+					slog.Int("records", cdcRecordsStorage.Len()))
 				standByLastLogged = time.Now()
 			}
 		}
@@ -405,11 +418,8 @@ func PullCdcRecords[Items model.Items](
 			}
 
 			if waitingForCommit {
-				logger.Info(fmt.Sprintf(
-					"[%s] commit received, returning currently accumulated records - %d",
-					p.flowJobName,
-					cdcRecordsStorage.Len()),
-				)
+				logger.Info("commit received, returning currently accumulated records",
+					slog.Int("records", cdcRecordsStorage.Len()))
 				return nil
 			}
 		}
@@ -417,22 +427,19 @@ func PullCdcRecords[Items model.Items](
 		// if we are past the next standby deadline (?)
 		if time.Now().After(nextStandbyMessageDeadline) {
 			if !cdcRecordsStorage.IsEmpty() {
-				logger.Info(fmt.Sprintf("standby deadline reached, have %d records", cdcRecordsStorage.Len()))
+				logger.Info("standby deadline reached", slog.Int("records", cdcRecordsStorage.Len()))
 
 				if p.commitLock == nil {
-					logger.Info(
-						fmt.Sprintf("no commit lock, returning currently accumulated records - %d",
-							cdcRecordsStorage.Len()))
+					logger.Info("no commit lock, returning currently accumulated records",
+						slog.Int("records", cdcRecordsStorage.Len()))
 					return nil
 				} else {
-					logger.Info(fmt.Sprintf("commit lock, waiting for commit to return records - %d",
-						cdcRecordsStorage.Len()))
+					logger.Info("commit lock, waiting for commit to return records",
+						slog.Int("records", cdcRecordsStorage.Len()))
 					waitingForCommit = true
 				}
 			} else {
-				logger.Info(fmt.Sprintf("[%s] standby deadline reached, no records accumulated, continuing to wait",
-					p.flowJobName),
-				)
+				logger.Info(("standby deadline reached, no records accumulated, continuing to wait"))
 			}
 			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 		}
@@ -457,8 +464,8 @@ func PullCdcRecords[Items model.Items](
 
 		if err != nil && p.commitLock == nil {
 			if pgconn.Timeout(err) {
-				logger.Info(fmt.Sprintf("Stand-by deadline reached, returning currently accumulated records - %d",
-					cdcRecordsStorage.Len()))
+				logger.Info("Stand-by deadline reached, returning currently accumulated records",
+					slog.Int("records", cdcRecordsStorage.Len()))
 				return nil
 			} else {
 				return fmt.Errorf("ReceiveMessage failed: %w", err)
@@ -469,10 +476,7 @@ func PullCdcRecords[Items model.Items](
 		case *pgproto3.ErrorResponse:
 			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
 		case *pgproto3.CopyData:
-			if p.otelManager != nil {
-				p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
-				p.otelManager.Metrics.InstantaneousFetchedBytesGauge.Record(ctx, int64(len(msg.Data)))
-			}
+			p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
 			switch msg.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
@@ -634,9 +638,7 @@ func (p *PostgresCDCSource) updateConsumedOffset(
 		return err
 	}
 	consumedOffset.Store(int64(clientXLogPos))
-	if p.otelManager != nil {
-		p.otelManager.Metrics.CommittedLSNGauge.Record(ctx, int64(clientXLogPos))
-	}
+	p.otelManager.Metrics.CommittedLSNGauge.Record(ctx, int64(clientXLogPos))
 	return nil
 }
 
@@ -681,7 +683,9 @@ func processMessage[Items model.Items](
 		return processDeleteMessage(p, xld.WALStart, msg, processor, customTypeMapping)
 	case *pglogrepl.CommitMessage:
 		// for a commit message, update the last checkpoint id for the record batch.
-		logger.Debug("CommitMessage", slog.Any("CommitLSN", msg.CommitLSN), slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
+		logger.Debug("CommitMessage",
+			slog.Any("CommitLSN", msg.CommitLSN),
+			slog.Any("TransactionEndLSN", msg.TransactionEndLSN))
 		batch.UpdateLatestCheckpointID(int64(msg.CommitLSN))
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
@@ -731,7 +735,7 @@ func processInsertMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.InsertMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -767,7 +771,7 @@ func processUpdateMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.UpdateMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -825,7 +829,7 @@ func processDeleteMessage[Items model.Items](
 	lsn pglogrepl.LSN,
 	msg *pglogrepl.DeleteMessage,
 	processor replProcessor[Items],
-	customTypeMapping map[uint32]string,
+	customTypeMapping map[uint32]shared.CustomDataType,
 ) (model.Record[Items], error) {
 	relID := p.getParentRelIDIfPartitioned(msg.RelationID)
 
@@ -866,7 +870,7 @@ func processRelationMessage[Items model.Items](
 	// not present in tables to sync, return immediately
 	currRelName, ok := p.srcTableIDNameMapping[currRel.RelationID]
 	if !ok {
-		p.logger.Info("relid not present in srcTableIDNameMapping, skipping relation message",
+		p.logger.Warn("relid not present in srcTableIDNameMapping, skipping relation message",
 			slog.Uint64("relId", uint64(currRel.RelationID)))
 		return nil, nil
 	}
@@ -875,14 +879,21 @@ func processRelationMessage[Items model.Items](
 		return nil, err
 	}
 
+	p.logger.Info("processing RelationMessage",
+		slog.Any("LSN", lsn),
+		slog.Any("RelationName", currRelName))
 	// retrieve current TableSchema for table changed, mapping uses dst table name as key, need to translate source name
 	currRelDstInfo, ok := p.tableNameMapping[currRelName]
 	if !ok {
+		p.logger.Error("Detected relation message for table, but not in table name mapping",
+			slog.String("tableName", currRelName))
 		return nil, fmt.Errorf("cannot find table name mapping for %s", currRelName)
 	}
 
 	prevSchema, ok := p.tableNameSchemaMapping[currRelDstInfo.Name]
 	if !ok {
+		p.logger.Error("Detected relation message for table, but not in table schema mapping",
+			slog.String("tableName", currRelDstInfo.Name))
 		return nil, fmt.Errorf("cannot find table schema for %s", currRelDstInfo.Name)
 	}
 
@@ -895,7 +906,7 @@ func processRelationMessage[Items model.Items](
 	for _, column := range currRel.Columns {
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
-			qKind := p.postgresOIDToQValueKind(column.DataType)
+			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping)
 			if qKind == qvalue.QValueKindInvalid {
 				typeName, ok := customTypeMapping[column.DataType]
 				if ok {
@@ -904,7 +915,11 @@ func processRelationMessage[Items model.Items](
 			}
 			currRelMap[column.Name] = string(qKind)
 		case protos.TypeSystem_PG:
-			currRelMap[column.Name] = p.postgresOIDToName(column.DataType)
+			typeName, err := p.postgresOIDToName(column.DataType, customTypeMapping)
+			if err != nil {
+				return nil, err
+			}
+			currRelMap[column.Name] = typeName
 		default:
 			panic(fmt.Sprintf("cannot process schema changes for unknown type system %s", prevSchema.System))
 		}
@@ -928,6 +943,13 @@ func processRelationMessage[Items model.Items](
 					TypeModifier: column.TypeModifier,
 					Nullable:     column.Flags == 0, // pg does not send nullable info, only whether column is part of primary key
 				})
+				p.logger.Info("Detected added column",
+					slog.String("columnName", column.Name),
+					slog.String("columnType", currRelMap[column.Name]),
+					slog.String("relationName", schemaDelta.SrcTableName))
+			} else {
+				p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
+					column.Name, schemaDelta.SrcTableName))
 			}
 			// present in previous and current relation messages, but data types have changed.
 			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
@@ -956,6 +978,10 @@ func processRelationMessage[Items model.Items](
 	return nil, nil
 }
 
+// getParentRelIDIfPartitioned checks if the relation ID is a child table
+// and returns the parent relation ID if it is.
+// If the relation ID is not a child table, it returns the original relation ID.
+// It also logs if the child table is detected for the first time.
 func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 	parentRelID, ok := p.childToParentRelIDMapping[relID]
 	if ok {
@@ -972,18 +998,27 @@ func (p *PostgresCDCSource) getParentRelIDIfPartitioned(relID uint32) uint32 {
 	return relID
 }
 
-// since we generate the child to parent mapping at the beginning of the CDC stream,
-// some tables could be created after the CDC stream starts,
+// since we generate the childToParent mapping at the beginning of the CDC stream
+// some child tables could be created after the CDC stream starts
 // and we need to check if they inherit from a known table
+// filtered by relkind; parent needs to be a partitioned table by default
 func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 	relID uint32,
 ) (uint32, error) {
 	relID = p.getParentRelIDIfPartitioned(relID)
+	relkinds := "'p'"
+	if p.handleInheritanceForNonPartitionedTables {
+		relkinds = "'p', 'r'"
+	}
 
 	if _, ok := p.srcTableIDNameMapping[relID]; !ok {
 		var parentRelID uint32
-		err := p.conn.QueryRow(ctx,
-			`SELECT inhparent FROM pg_inherits WHERE inhrelid=$1`, relID).Scan(&parentRelID)
+		err := p.conn.QueryRow(
+			ctx,
+			fmt.Sprintf(`SELECT inhparent FROM pg_inherits
+			JOIN pg_class c ON pg_inherits.inhparent=c.oid
+			WHERE inhrelid=$1 AND c.relkind IN (%s)`, relkinds),
+			relID).Scan(&parentRelID)
 		if err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return relID, nil

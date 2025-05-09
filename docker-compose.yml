@@ -68,7 +68,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.27@sha256:b76fb70af37ef50084d97e1559822ab223ed59e74ac9e3679f4930b5e34d7eee
+    image: temporalio/auto-setup:1.27@sha256:b44cbfeb43dbeae42db113b44fb8414c3452f05643b3d6b1592f955277d73526
     ports:
       - 7233:7233
     volumes:
@@ -106,13 +106,13 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.36.0@sha256:59283f21d6c3b1f5f939666da532bc8756ea345114a82fe1b469303a90d675f0
+    image: temporalio/ui:2.37.2@sha256:3d7b36849d7ca5245f59f6ab558bebbd6b83aa1518f4505e97927419360d1f25
     ports:
       - 8085:8080
 
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:stable-v0.26.0
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.27.8
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -128,7 +128,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.26.0
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.27.8
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -138,7 +138,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
-    image: ghcr.io/peerdb-io/flow-worker:stable-v0.26.0
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.27.8
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -151,7 +151,7 @@ services:
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.26.0
+    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.27.8
     restart: unless-stopped
     environment:
       <<: *catalog-config
@@ -167,7 +167,7 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.26.0
+    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.27.8
     restart: unless-stopped
     ports:
       - 3000:3000

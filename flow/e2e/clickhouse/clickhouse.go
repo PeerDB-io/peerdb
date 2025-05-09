@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
@@ -20,7 +21,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type ClickHouseSuite struct {
@@ -100,6 +100,32 @@ func (s ClickHouseSuite) Teardown(ctx context.Context) {
 	require.NoError(s.t, s.connector.Close())
 }
 
+type TestClickHouseColumn struct {
+	Name string
+	Type string
+}
+
+// CreateRMTTable creates a ReplacingMergeTree table with the given name and columns.
+func (s ClickHouseSuite) CreateRMTTable(tableName string, columns []TestClickHouseColumn, orderingKey string) error {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+
+	columnStrings := make([]string, len(columns))
+	for i, col := range columns {
+		columnStrings[i] = fmt.Sprintf("`%s` %s", col.Name, col.Type)
+	}
+
+	// Join the column definitions into a single string
+	columnStr := strings.Join(columnStrings, ", ")
+
+	// Create the table with ReplacingMergeTree engine
+	createTableQuery := fmt.Sprintf("CREATE TABLE `%s` (%s) ENGINE = ReplacingMergeTree() ORDER BY `%s`", tableName, columnStr, orderingKey)
+	return ch.Exec(s.t.Context(), createTableQuery)
+}
+
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	if err != nil {
@@ -151,6 +177,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *string:
 				qrow = append(qrow, qvalue.QValueString{Val: *v})
+			case *[]string:
+				qrow = append(qrow, qvalue.QValueArrayString{Val: *v})
 			case **int8:
 				if *v == nil {
 					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt8))
@@ -175,6 +203,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *int32:
 				qrow = append(qrow, qvalue.QValueInt32{Val: *v})
+			case *[]int32:
+				qrow = append(qrow, qvalue.QValueArrayInt32{Val: *v})
 			case **int64:
 				if *v == nil {
 					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt64))
@@ -247,6 +277,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *float32:
 				qrow = append(qrow, qvalue.QValueFloat32{Val: *v})
+			case *[]float32:
+				qrow = append(qrow, qvalue.QValueArrayFloat32{Val: *v})
 			case **float64:
 				if *v == nil {
 					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindFloat64))
@@ -255,6 +287,12 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *float64:
 				qrow = append(qrow, qvalue.QValueFloat64{Val: *v})
+			case *[]float64:
+				qrow = append(qrow, qvalue.QValueArrayFloat64{Val: *v})
+			case *uuid.UUID:
+				qrow = append(qrow, qvalue.QValueUUID{Val: *v})
+			case *[]uuid.UUID:
+				qrow = append(qrow, qvalue.QValueArrayUUID{Val: *v})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
 			}
@@ -267,14 +305,13 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 
 func SetupSuite[TSource e2e.SuiteSource](
 	t *testing.T,
-	setupSource func(*testing.T, string) (TSource, error),
+	setupSource func(*testing.T) (TSource, string, error),
 ) func(*testing.T) ClickHouseSuite {
 	t.Helper()
 	return func(t *testing.T) ClickHouseSuite {
 		t.Helper()
 
-		suffix := "ch_" + strings.ToLower(shared.RandomString(8))
-		source, err := setupSource(t, suffix)
+		source, suffix, err := setupSource(t)
 		require.NoError(t, err, "failed to setup postgres")
 
 		s3Helper, err := e2e_s3.NewS3TestHelper(t.Context(), e2e_s3.Minio)

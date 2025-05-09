@@ -6,17 +6,21 @@ on:
   push:
     branches: [main]
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   flow_test:
     strategy:
       matrix:
-        runner: [ubicloud-standard-16-ubuntu-2204-arm]
-        postgres-version: [15, 16, 17]
+        runner: [ubuntu-latest-16-cores]
+        db-version: [{pg: 15, mysql: 'mysql-gtid'}, {pg: 16, mysql: 'mysql-pos'}, {pg: 17, mysql: 'maria'}]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
       catalog:
-        image: imresamu/postgis:${{ matrix.postgres-version }}-3.5-alpine
+        image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
         ports:
           - 5432:5432
         env:
@@ -25,24 +29,18 @@ jobs:
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
       mysql:
-        image: mysql:oracle@sha256:146682692a3aa409eae7b7dc6a30f637c6cb49b6ca901c2cd160becc81127d3b
+        image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
         ports:
           - 3306:3306
         env:
           MYSQL_ROOT_PASSWORD: cipass
-          #mariadb:
-          #  image: mariadb:lts-ubi
-          #  ports:
-          #    - 3300:3306
-          #  env:
-          #    MARIADB_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:04baa40ed34edf86028396f762be802f3b6b0acaab65e9de696a3f15d54c550f
+        image: redpandadata/redpanda@sha256:17e552d4d1a6097dd392b7547e3d4f7811a200b64a38a66ea09372c5778887e4
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:8.17.3@sha256:2cc40b15dff85281ac804e7ff27cbc07b31fdd542e94ea7a2bdb6470e3b6bb68
+        image: elasticsearch:8.18.0@sha256:658ea54de8d38c9ee69389e7fe226d6fd589816d7ed7f7cc911017ed646216d5
         ports:
           - 9200:9200
         env:
@@ -50,7 +48,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.2.28@sha256:5175879456f619cf228e62066415e13be0540118d7de5ee6f6d477cca8743d25
+        image: bitnami/minio:2025.4.22@sha256:a26e42a4d6550d2fb7708c8ceefc60474b42c124b6f3273a081721ddf1d86b20
         ports:
           - 9999:9999
         env:
@@ -59,6 +57,10 @@ jobs:
           MINIO_API_PORT_NUMBER: 9999
           AWS_EC2_METADATA_DISABLED: true
           MINIO_DEFAULT_BUCKETS: peerdb
+      otelcol:
+        image: otel/opentelemetry-collector-contrib:0.123.0@sha256:e39311df1f3d941923c00da79ac7ba6269124a870ee87e3c3ad24d60f8aee4d2
+        ports:
+          - 4317:4317
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -66,13 +68,16 @@ jobs:
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: ubicloud/setup-go@6ea6c4fb36acc657571a53f4a7471e75f5fa80ad # v5
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
         with:
-          go-version: '1.24.0'
+          go-version: '1.24.2'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
         run: |
+          # No need to update man pages on package install
+          sudo apt-get remove --purge man-db
+
           sudo apt-get update
           sudo apt-get install libgeos-dev
 
@@ -93,13 +98,6 @@ jobs:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
 
-      - name: setup S3 credentials
-        id: s3-credentials
-        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
-        with:
-          name: "s3_creds.json"
-          json: ${{ secrets.S3_CREDS }}
-
       - name: setup GCS credentials
         id: gcs-credentials
         uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
@@ -114,6 +112,20 @@ jobs:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+        id: setup-aws
+        with:
+          audience: sts.amazonaws.com
+          aws-region: us-west-2
+          role-to-assume: ${{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
+          mask-aws-account-id: true
+          output-credentials: true
+
+      - name: MariaDB
+        if: matrix.db-version.mysql == 'maria'
+        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
+
       - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >
           docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;"
@@ -126,7 +138,7 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - uses: ubicloud/cache@92361f338d82d2c58a98875f1b5c95cd14cd6b2a # v4
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
         id: cache-clickhouse
         with:
           path: ./clickhouse
@@ -144,16 +156,30 @@ jobs:
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
 
+      - name: Setup AWS CA Certs
+        env:
+          URL: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+        run: |
+          curl -fsSL -o aws-global-bundle.pem "$URL"
+          sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- aws-global-bundle.pem '/-----BEGIN CERTIFICATE-----/' '{*}'
+          sudo update-ca-certificates
+
       - name: run tests
         run: |
           temporal server start-dev --namespace default --headless &
-          go build -ldflags="-s -w" -o peer-flow
+          mkdir coverage
+          go build -cover -ldflags="-s -w" -o peer-flow
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
-          go test -p 32 ./... -timeout 900s
+          ./peer-flow api --port 8112 --gateway-port 8113 &
+          go test -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          killall peer-flow
+          sleep 1
+          go tool covdata textfmt -i=coverage -o ../coverage.out
         working-directory: ./flow
         env:
+          GOCOVERDIR: coverage
           AWS_ENDPOINT_URL_S3: http://localhost:9999
           AWS_ACCESS_KEY_ID: minio
           AWS_SECRET_ACCESS_KEY: miniosecret
@@ -177,12 +203,6 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ENABLE_SQLSERVER_TESTS: "true"
-          SQLSERVER_HOST: ${{ secrets.SQLSERVER_HOST }}
-          SQLSERVER_PORT: ${{ secrets.SQLSERVER_PORT }}
-          SQLSERVER_USER: ${{ secrets.SQLSERVER_USER }}
-          SQLSERVER_PASSWORD: ${{ secrets.SQLSERVER_PASSWORD }}
-          SQLSERVER_DB: ${{ secrets.SQLSERVER_DB }}
           PEERDB_CATALOG_HOST: localhost
           PEERDB_CATALOG_PORT: 5432
           PEERDB_CATALOG_USER: postgres
@@ -190,4 +210,33 @@ jobs:
           PEERDB_CATALOG_DATABASE: postgres
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
-          CI_PG_VERSION: ${{ matrix.postgres-version }}
+          CI_PG_VERSION: ${{ matrix.db-version.pg }}
+          CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
+          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
+          OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
+          PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
+          PEERDB_OTEL_TEMPORAL_METRICS_EXPORT_LIST: '__ALL__'
+          PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE: 'true'
+          # Below are used to test RDS IAM Auth for Postgres and MySQL
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY }}
+          FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES }}
+          FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL }}
+          FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE }}
+          FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE }}
+          # For ClickHouse S3 IAM Role based tests
+          FLOW_TESTS_AWS_S3_BUCKET_NAME: ${{ secrets.FLOW_TESTS_AWS_S3_BUCKET_NAME }}
+          FLOW_TESTS_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
+          FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
+          FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@ad3126e916f78f00edff4ed0317cf185271ccc2d # v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

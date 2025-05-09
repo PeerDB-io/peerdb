@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -81,11 +82,20 @@ func (a *FlowableActivity) applySchemaDeltas(
 	options *protos.SyncFlowOptions,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
-	tableSchemaDeltasCount := len(schemaDeltas)
-	if tableSchemaDeltasCount > 0 {
+	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
+	for _, tableMapping := range options.TableMappings {
+		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
+			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
+				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
+		}) {
+			filteredTableMappings = append(filteredTableMappings, tableMapping)
+		}
+	}
+
+	if len(schemaDeltas) > 0 {
 		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
 			PeerName:      config.SourceName,
-			TableMappings: options.TableMappings,
+			TableMappings: filteredTableMappings,
 			FlowName:      config.FlowJobName,
 			System:        config.System,
 			Env:           config.Env,
@@ -266,7 +276,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		if !(temporal.IsApplicationError(err) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+		var applicationError *temporal.ApplicationError
+		if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		if temporal.IsApplicationError(err) {
@@ -301,13 +312,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 	}
 
-	pushedRecordsWithCount := fmt.Sprintf("pushed %d records for batch %d in %v",
+	pushedRecordsWithCount := fmt.Sprintf("stored %d records into intermediate storage for batch %d in %v",
 		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second))
 	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
 
-	if a.OtelManager != nil {
-		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
-	}
+	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
 	syncState.Store(shared.Ptr("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
@@ -390,7 +399,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		context.Context, *protos.QRepConfig,
 		*protos.QRepPartition,
 		TWrite,
-	) (int, error),
+	) (int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -431,11 +440,13 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		}
 		defer connectors.CloseConnector(ctx, srcConn)
 
-		tmp, err := pullRecords(srcConn, errCtx, config, partition, stream)
+		numRecords, numBytes, err := pullRecords(srcConn, errCtx, config, partition, stream)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("[qrep] failed to pull records: %w", err))
 		}
-		numRecords := int64(tmp)
+
+		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
+
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, numRecords,
 		); err != nil {
@@ -482,7 +493,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		context.Context, *protos.QRepConfig,
 		*protos.QRepPartition,
 		TWrite,
-	) (int, int64, error),
+	) (int64, int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -501,8 +512,9 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		defer connectors.CloseConnector(ctx, srcConn)
 
 		var pullErr error
-		var numRecords int
-		numRecords, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
+		var numRecords int64
+		var numBytes int64
+		numRecords, numBytes, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
 		if pullErr != nil {
 			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", pullErr))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
@@ -517,7 +529,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 				PartitionId: partition.PartitionId,
 				Range: &protos.PartitionRange{
 					Range: &protos.PartitionRange_IntRange{
-						IntRange: &protos.IntPartitionRange{Start: 0, End: int64(numRecords)},
+						IntRange: &protos.IntPartitionRange{Start: 0, End: numRecords},
 					},
 				},
 			}
@@ -532,8 +544,10 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
 
+		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
+
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
-			errCtx, a.CatalogPool, runUUID, partition, int64(numRecords),
+			errCtx, a.CatalogPool, runUUID, partition, numRecords,
 		); err != nil {
 			logger.Error(err.Error())
 			return err
@@ -633,7 +647,7 @@ func (a *FlowableActivity) startNormalize(
 	})
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName,
-			exceptions.NewNormalizationError(fmt.Errorf("failed to normalized records: %w", err)))
+			exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
 	}
 	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
 		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
@@ -688,11 +702,9 @@ func (a *FlowableActivity) normalizeLoop(
 				} else if req.Done != nil {
 					close(req.Done)
 				}
-				if a.OtelManager != nil {
-					a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
-						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-					)))
-				}
+				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+				)))
 				break
 			}
 		case <-syncDone:

@@ -10,6 +10,7 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
@@ -21,10 +22,11 @@ func setupDB(t *testing.T) (*PostgresConnector, string) {
 	require.NoError(t, err, "error while creating connector")
 
 	// Create unique schema name using current time
-	schemaName := fmt.Sprintf("schema_%d", time.Now().Unix())
+	schemaName := fmt.Sprintf("qrep_query_executor_%d", time.Now().Unix())
 
 	// Create the schema
-	_, err = connector.conn.Exec(t.Context(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
+	_, err = connector.conn.Exec(t.Context(),
+		"CREATE SCHEMA "+utils.QuoteIdentifier(schemaName))
 	require.NoError(t, err, "error while creating schema")
 
 	return connector, schemaName
@@ -33,7 +35,8 @@ func setupDB(t *testing.T) (*PostgresConnector, string) {
 func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
 	t.Helper()
 
-	_, err := conn.Exec(t.Context(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
+	_, err := conn.Exec(t.Context(),
+		fmt.Sprintf("DROP SCHEMA %s CASCADE", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while dropping schema")
 }
 
@@ -44,19 +47,18 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	defer connector.Close()
 	defer teardownDB(t, conn, schemaName)
 
-	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT);", schemaName)
-	_, err := conn.Exec(ctx, query)
+	_, err := conn.Exec(ctx,
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT)", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while creating table")
 
-	query = fmt.Sprintf("INSERT INTO %s.test(data) VALUES('testdata');", schemaName)
-	_, err = conn.Exec(ctx, query)
+	_, err = conn.Exec(ctx,
+		fmt.Sprintf("INSERT INTO %s.test(data) VALUES ('testdata')", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while inserting data")
 
 	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 
-	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	batch, err := qe.ExecuteAndProcessQuery(t.Context(), query)
+	batch, err := qe.ExecuteAndProcessQuery(t.Context(), fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while executing query")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 	require.Equal(t, "testdata", batch.Records[0][1].Value(), "expected 'testdata'")
@@ -88,7 +90,7 @@ func TestAllDataTypes(t *testing.T) {
 		col_tz3 TIME WITHOUT TIME ZONE,
 		col_tz4 TIMESTAMP WITHOUT TIME ZONE,
 		col_date DATE
-	);`, schemaName)
+	);`, utils.QuoteIdentifier(schemaName))
 
 	_, err := conn.Exec(ctx, query)
 	require.NoError(t, err, "error while creating table")
@@ -112,10 +114,7 @@ func TestAllDataTypes(t *testing.T) {
 		col_tz3,
 		col_tz4,
 		col_date
-	) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-		$12, $13, $14, $15, $16
-		)`,
-		schemaName)
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, utils.QuoteIdentifier(schemaName))
 
 	savedTime := time.Now().UTC()
 	savedUUID := uuid.New()
@@ -145,15 +144,8 @@ func TestAllDataTypes(t *testing.T) {
 	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 	// Select the row back out of the table
-	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	rows, err := qe.ExecuteQuery(t.Context(), query)
-	require.NoError(t, err, "error while executing query")
-	defer rows.Close()
-
-	// Use rows.FieldDescriptions() to get field descriptions
-	fieldDescriptions := rows.FieldDescriptions()
-
-	batch, err := qe.ProcessRows(ctx, rows, fieldDescriptions)
+	batch, err := qe.ExecuteAndProcessQuery(t.Context(),
+		fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while processing rows")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 

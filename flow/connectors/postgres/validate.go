@@ -165,13 +165,24 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 	if err != nil {
 		return fmt.Errorf("failed to get server version: %w", err)
 	}
-	if serverVersion < shared.POSTGRES_16 {
-		var recoveryRes bool
-		if err := c.conn.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&recoveryRes); err != nil {
-			return fmt.Errorf("failed to check if Postgres is in recovery: %w", err)
-		}
-		if recoveryRes {
+
+	var recoveryRes bool
+	if err := c.conn.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&recoveryRes); err != nil {
+		return fmt.Errorf("failed to check if Postgres is in recovery: %w", err)
+	}
+	if recoveryRes {
+		if serverVersion < shared.POSTGRES_16 {
 			return errors.New("cannot create replication slots on a standby server with version <16")
+		}
+
+		var hsFeedback bool
+		if err := c.conn.QueryRow(
+			ctx, "SELECT setting::bool FROM pg_settings WHERE name='hot_standby_feedback'",
+		).Scan(&hsFeedback); err != nil {
+			return fmt.Errorf("failed to check hot_standby_feedback: %w", err)
+		}
+		if !hsFeedback {
+			return errors.New("hot_standby_feedback setting must be enabled on standby servers")
 		}
 	}
 

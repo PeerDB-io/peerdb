@@ -67,17 +67,14 @@ func Equals(qv QValue, other QValue) bool {
 			return q.Val == otherVal.Val
 		}
 		return false
-	case QValueStruct:
-		if otherVal, ok := other.(QValueStruct); ok {
-			return q.compareStruct(otherVal)
-		}
-		return false
 	case QValueQChar:
 		if otherVal, ok := other.(QValueQChar); ok {
 			return q.Val == otherVal.Val
 		}
 		return false
 	case QValueString:
+		return compareString(q.Val, otherValue)
+	case QValueEnum:
 		return compareString(q.Val, otherValue)
 	case QValueINET:
 		return compareString(q.Val, otherValue)
@@ -122,14 +119,34 @@ func Equals(qv QValue, other QValue) bool {
 		return compareNumericArrays(qvValue, otherValue)
 	case QValueArrayDate:
 		return compareDateArrays(q.Val, otherValue)
-	case QValueArrayTimestamp, QValueArrayTimestampTZ:
-		return compareTimeArrays(qvValue, otherValue)
+	case QValueArrayTimestamp:
+		return compareTimeArrays(q.Val, otherValue)
+	case QValueArrayTimestampTZ:
+		return compareTimeArrays(q.Val, otherValue)
 	case QValueArrayBoolean:
-		return compareBoolArrays(q.Val, otherValue)
+		return compareArrays(q.Val, otherValue)
 	case QValueArrayUUID:
-		return compareUuidArrays(q.Val, otherValue)
+		return compareArrays(q.Val, otherValue)
 	case QValueArrayString:
-		return compareArrayString(q.Val, otherValue)
+		if qjson, ok := other.(QValueJSON); ok {
+			var val []string
+			if err := json.Unmarshal([]byte(qjson.Val), &val); err != nil {
+				return false
+			}
+			otherValue = val
+		}
+
+		return compareArrays(q.Val, otherValue)
+	case QValueArrayEnum:
+		if qjson, ok := other.(QValueJSON); ok {
+			var val []string
+			if err := json.Unmarshal([]byte(qjson.Val), &val); err != nil {
+				return false
+			}
+			otherValue = val
+		}
+
+		return compareArrays(q.Val, otherValue)
 	default:
 		return false
 	}
@@ -148,12 +165,7 @@ func compareGoTimestamp(value1, value2 any) bool {
 		return false
 	}
 
-	// TODO: this is a hack, we should be comparing the actual time values
-	// currently this is only used for testing so that is OK.
-	t1 := et1.UnixMicro()
-	t2 := et2.UnixMicro()
-
-	return t1 == t2
+	return et1.UnixMicro() == et2.UnixMicro()
 }
 
 func compareGoTime(value1, value2 any) bool {
@@ -239,152 +251,74 @@ func compareGeometry(geoWkt string, value2 any) bool {
 	return geo1.Equals(geo2)
 }
 
-func (v QValueStruct) compareStruct(value2 QValueStruct) bool {
-	struct1 := v.Val
-	struct2 := value2.Val
-	if len(struct1) != len(struct2) {
-		return false
-	}
-	for k, v1 := range struct1 {
-		v2, ok := struct2[k]
-		if !ok {
-			return false
+func convertNumericArrayToFloat64Array(val any) []float64 {
+	switch v := val.(type) {
+	case []int16:
+		result := make([]float64, len(v))
+		for i, value := range v {
+			result[i] = float64(value)
 		}
-		q1, ok1 := v1.(QValue)
-		q2, ok2 := v2.(QValue)
-		if !ok1 || !ok2 || !Equals(q1, q2) {
-			return false
+		return result
+	case []int32:
+		result := make([]float64, len(v))
+		for i, value := range v {
+			result[i] = float64(value)
 		}
+		return result
+	case []int64:
+		result := make([]float64, len(v))
+		for i, value := range v {
+			result[i] = float64(value)
+		}
+		return result
+	case []float32:
+		result := make([]float64, len(v))
+		for i, value := range v {
+			result[i] = float64(value)
+		}
+		return result
+	case []float64:
+		return v
+	case string:
+		var val []float64
+		if err := json.Unmarshal([]byte(v), &val); err != nil {
+			return nil
+		}
+		return val
+	default:
+		return nil
 	}
-	return true
 }
 
 func compareNumericArrays(value1, value2 any) bool {
-	// Helper function to convert a value to float64
-	convertToFloat64 := func(val any) []float64 {
-		switch v := val.(type) {
-		case []int16:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []int32:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []int64:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []float32:
-			result := make([]float64, len(v))
-			for i, value := range v {
-				result[i] = float64(value)
-			}
-			return result
-		case []float64:
-			return v
-		default:
-			return nil
-		}
-	}
-
-	array1 := convertToFloat64(value1)
-	array2 := convertToFloat64(value2)
-
-	if array1 == nil || array2 == nil || len(array1) != len(array2) {
+	array1 := convertNumericArrayToFloat64Array(value1)
+	array2 := convertNumericArrayToFloat64Array(value2)
+	if array1 == nil || array2 == nil {
 		return false
 	}
 
-	for i := range array1 {
-		if math.Abs(array1[i]-array2[i]) >= 1e9 {
-			return false
-		}
-	}
-
-	return true
+	return slices.EqualFunc(array1, array2, func(x float64, y float64) bool {
+		return math.Abs(x-y) < 1e9
+	})
 }
 
-func compareTimeArrays(value1, value2 any) bool {
-	array1, ok1 := value1.([]time.Time)
+func compareDateArrays(array1 []time.Time, value2 any) bool {
 	array2, ok2 := value2.([]time.Time)
-
-	if !ok1 || !ok2 || len(array1) != len(array2) {
-		return false
-	}
-
-	for i := range array1 {
-		if !array1[i].Equal(array2[i]) {
-			return false
-		}
-	}
-	return true
+	return ok2 && slices.EqualFunc(array1, array2, func(x time.Time, y time.Time) bool {
+		return x.Year() == y.Year() && x.Month() == y.Month() && x.Day() == y.Day()
+	})
 }
 
-func compareDateArrays(value1, value2 any) bool {
-	array1, ok1 := value1.([]time.Time)
+func compareTimeArrays(array1 []time.Time, value2 any) bool {
 	array2, ok2 := value2.([]time.Time)
-
-	if !ok1 || !ok2 || len(array1) != len(array2) {
-		return false
-	}
-
-	for i := range array1 {
-		if array1[i].Year() != array2[i].Year() ||
-			array1[i].Month() != array2[i].Month() ||
-			array1[i].Day() != array2[i].Day() {
-			return false
-		}
-	}
-	return true
+	return ok2 && slices.EqualFunc(array1, array2, func(x time.Time, y time.Time) bool {
+		return x.UnixMicro() == y.UnixMicro()
+	})
 }
 
-func compareBoolArrays(value1, value2 any) bool {
-	array1, ok1 := value1.([]bool)
-	array2, ok2 := value2.([]bool)
-
-	if !ok1 || !ok2 || len(array1) != len(array2) {
-		return false
-	}
-
-	for i := range array1 {
-		if array1[i] != array2[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func compareUuidArrays(value1, value2 any) bool {
-	array1, ok1 := value1.([]uuid.UUID)
-	array2, ok2 := value2.([]uuid.UUID)
-
-	if !ok1 || !ok2 || len(array1) != len(array2) {
-		return false
-	}
-
-	for i := range array1 {
-		if array1[i] != array2[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func compareArrayString(value1, value2 any) bool {
-	array1, ok1 := value1.([]string)
-	array2, ok2 := value2.([]string)
-
-	if !ok1 || !ok2 {
-		return false
-	}
-
-	return slices.Compare(array1, array2) == 0
+func compareArrays[T comparable](array1 []T, value2 any) bool {
+	array2, ok2 := value2.([]T)
+	return ok2 && slices.Equal(array1, array2)
 }
 
 func getUInt64(v any) (uint64, bool) {

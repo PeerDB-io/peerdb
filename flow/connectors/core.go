@@ -19,7 +19,6 @@ import (
 	connpubsub "github.com/PeerDB-io/peerdb/flow/connectors/pubsub"
 	conns3 "github.com/PeerDB-io/peerdb/flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
-	connsqlserver "github.com/PeerDB-io/peerdb/flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -82,7 +81,7 @@ type CDCPullConnectorCore interface {
 
 	// For InitialSnapshotOnly correctness without replication slot
 	// `any` is for returning transaction if necessary
-	ExportTxSnapshot(context.Context) (*protos.ExportTxSnapshotOutput, any, error)
+	ExportTxSnapshot(context.Context, map[string]string) (*protos.ExportTxSnapshotOutput, any, error)
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
 	FinishExport(any) error
@@ -243,14 +242,14 @@ type QRepPullConnector interface {
 	QRepPullConnectorCore
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int, error)
+	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int64, int64, error)
 }
 
 type QRepPullPgConnector interface {
 	QRepPullConnectorCore
 
 	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int, error)
+	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int64, int64, error)
 }
 
 type QRepSyncConnectorCore interface {
@@ -449,8 +448,6 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, inner.S3Config)
-	case *protos.Peer_SqlserverConfig:
-		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
 	case *protos.Peer_MysqlConfig:
 		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:
@@ -538,7 +535,6 @@ var (
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connmysql.MySqlConnector{}
-	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
 
 	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}
 

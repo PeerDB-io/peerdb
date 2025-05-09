@@ -138,7 +138,7 @@ func recryptDatabase(
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
-func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
+func setupGRPCGatewayServer(ctx context.Context, args *APIServerParams) (*http.Server, error) {
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("0.0.0.0:%d", args.Port),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -148,17 +148,15 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 	}
 
 	gwmux := runtime.NewServeMux()
-	err = protos.RegisterFlowServiceHandler(context.Background(), gwmux, conn)
-	if err != nil {
+	if err := protos.RegisterFlowServiceHandler(ctx, gwmux, conn); err != nil {
 		return nil, fmt.Errorf("unable to register gateway: %w", err)
 	}
 
-	server := &http.Server{
+	return &http.Server{
 		Addr:              fmt.Sprintf(":%d", args.GatewayPort),
 		Handler:           gwmux,
 		ReadHeaderTimeout: 5 * time.Minute,
-	}
-	return server, nil
+	}, nil
 }
 
 func killExistingScheduleFlows(
@@ -178,9 +176,9 @@ func killExistingScheduleFlows(
 	slog.Info("Requesting cancellation of pre-existing scheduler flows")
 	for _, workflow := range listRes.Executions {
 		slog.Info("Cancelling workflow", slog.String("workflowId", workflow.Execution.WorkflowId))
-		err := tc.CancelWorkflow(ctx,
-			workflow.Execution.WorkflowId, workflow.Execution.RunId)
-		if err != nil && err.Error() != "workflow execution already completed" {
+		if err := tc.CancelWorkflow(
+			ctx, workflow.Execution.WorkflowId, workflow.Execution.RunId,
+		); err != nil && err.Error() != "workflow execution already completed" {
 			return fmt.Errorf("unable to cancel workflow: %w", err)
 		}
 	}
@@ -193,15 +191,14 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		Namespace: args.TemporalNamespace,
 		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
-	if args.EnableOtelMetrics {
-		metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowApiServiceName)
-		if metricsErr != nil {
-			return metricsErr
-		}
-		clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
-			Meter: metricsProvider.Meter("temporal-sdk-go"),
-		})
+
+	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowApiServiceName, args.EnableOtelMetrics)
+	if metricsErr != nil {
+		return metricsErr
 	}
+	clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
+		Meter: metricsProvider.Meter("temporal-sdk-go"),
+	})
 
 	tc, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
@@ -226,15 +223,15 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		),
 	}
 
-	if args.EnableOtelMetrics {
-		componentManager, err := otel_metrics.SetupComponentMetricsProvider(ctx, otel_metrics.FlowApiServiceName, "grpc-api")
-		if err != nil {
-			return fmt.Errorf("unable to metrics provider for grpc api: %w", err)
-		}
-		serverOptions = append(serverOptions, grpc.StatsHandler(otelgrpc.NewServerHandler(
-			otelgrpc.WithMeterProvider(componentManager),
-		)))
+	componentManager, err := otel_metrics.SetupComponentMetricsProvider(
+		ctx, otel_metrics.FlowApiServiceName, "grpc-api", args.EnableOtelMetrics,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to metrics provider for grpc api: %w", err)
 	}
+	serverOptions = append(serverOptions, grpc.StatsHandler(otelgrpc.NewServerHandler(
+		otelgrpc.WithMeterProvider(componentManager),
+	)))
 
 	grpcServer := grpc.NewServer(serverOptions...)
 
@@ -244,10 +241,9 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	}
 
 	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
-	flowHandler := NewFlowRequestHandler(tc, catalogPool, taskQueue)
+	flowHandler := NewFlowRequestHandler(ctx, tc, catalogPool, taskQueue)
 
-	err = killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue)
-	if err != nil {
+	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue); err != nil {
 		return fmt.Errorf("unable to kill existing scheduler flows: %w", err)
 	}
 
@@ -257,12 +253,11 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		TaskQueue: taskQueue,
 	}
 
-	_, err = flowHandler.temporalClient.ExecuteWorkflow(
+	if _, err := flowHandler.temporalClient.ExecuteWorkflow(
 		ctx,
 		workflowOptions,
 		peerflow.GlobalScheduleManagerWorkflow,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("unable to start scheduler workflow: %w", err)
 	}
 
@@ -282,7 +277,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		}
 	}()
 
-	gateway, err := setupGRPCGatewayServer(args)
+	gateway, err := setupGRPCGatewayServer(ctx, args)
 	if err != nil {
 		return fmt.Errorf("unable to setup gateway server: %w", err)
 	}

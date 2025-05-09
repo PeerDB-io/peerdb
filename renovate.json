@@ -1,7 +1,8 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "local>PeerDB-io/.github:renovate-config"
+    "local>PeerDB-io/.github:renovate-config",
+    ":preserveSemverRanges"
   ],
   "packageRules": [
     {
@@ -18,11 +19,6 @@
       ],
       "separateMajorMinor": false,
       "automerge": true
-    },
-    {
-      "matchPackageNames": ["mysql_async"],
-      "matchManagers": ["cargo"],
-      "enabled": false
     },
     {
       "matchPackageNames": ["next", "react", "react-*", "@types/react", "@types/react-*", "eslint", "eslint-config-next"],

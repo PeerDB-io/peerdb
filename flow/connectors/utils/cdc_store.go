@@ -90,9 +90,9 @@ func init() {
 	gob.Register(qvalue.QValueUInt32{})
 	gob.Register(qvalue.QValueUInt64{})
 	gob.Register(qvalue.QValueBoolean{})
-	gob.Register(qvalue.QValueStruct{})
 	gob.Register(qvalue.QValueQChar{})
 	gob.Register(qvalue.QValueString{})
+	gob.Register(qvalue.QValueEnum{})
 	gob.Register(qvalue.QValueTimestamp{})
 	gob.Register(qvalue.QValueTimestampTZ{})
 	gob.Register(qvalue.QValueDate{})
@@ -116,11 +116,13 @@ func init() {
 	gob.Register(qvalue.QValueArrayInt32{})
 	gob.Register(qvalue.QValueArrayInt64{})
 	gob.Register(qvalue.QValueArrayString{})
+	gob.Register(qvalue.QValueArrayEnum{})
 	gob.Register(qvalue.QValueArrayDate{})
 	gob.Register(qvalue.QValueArrayTimestamp{})
 	gob.Register(qvalue.QValueArrayTimestampTZ{})
 	gob.Register(qvalue.QValueArrayBoolean{})
 	gob.Register(qvalue.QValueTSTZRange{})
+	gob.Register(qvalue.QValueArrayUUID{})
 }
 
 func (c *cdcStore[T]) initPebbleDB() error {

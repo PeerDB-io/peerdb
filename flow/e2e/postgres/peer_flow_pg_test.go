@@ -47,6 +47,14 @@ func (s PeerFlowE2ETestSuitePG) checkPeerdbColumns(dstSchemaQualified string, ro
 	return nil
 }
 
+func (s PeerFlowE2ETestSuitePG) TestHeartbeat() {
+	// general testing of heartbeat workflow, not pg specific
+	require.NotNil(s.t, e2e.GeneratePostgresPeer(s.t))
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.HeartbeatFlowWorkflow)
+	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
+}
+
 func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	srcTableName := s.attachSchemaSuffix("test_geospatial_pg")
 	dstTableName := s.attachSchemaSuffix("test_geospatial_pg_dst")
@@ -99,7 +107,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
 		c14 INET,c15 INTEGER,c21 MACADDR,
 		c29 SMALLINT,c32 TEXT,
-		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,
+		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ, c37 TIMETZ,
 		c40 UUID, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 UUID[],
 		c46 DATE[], c47 TIMESTAMPTZ[], c48 TIMESTAMP[], c49 BOOLEAN[], c50 SMALLINT[]);
 	`, srcTableName))
@@ -123,7 +131,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 			true,'s','test','1.1.10.2'::cidr,
 			CURRENT_DATE,1.23,1.234,'192.168.1.5'::inet,1,
 			'08:00:2b:01:02:03'::macaddr,
-			1,'test',now(),now(),now()::time,now()::timetz,
+			1,'test',now(),now(),now()::time,'09:25:00+03'::timetz,'21:00:00 +00:00'::timetz,
 			'66073c38-b8df-4bdb-bbca-1c97596b8940'::uuid,
 			ARRAY[10299301,2579827],
 			ARRAY[0.0003, 8902.0092],
@@ -141,14 +149,18 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	allCols := strings.Join([]string{
 		"c1", "c2", "c4",
 		"c40", "id", "c9", "c11", "c12", "c13", "c14", "c15",
-		"c21", "c29", "c33", "c34", "c35", "c36",
+		"c21", "c29", "c33", "c34", "c35", "c37",
 		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
 	}, ",")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
 		return s.comparePGTables(srcTableName, dstTableName, allCols) == nil
 	})
-	env.Cancel(s.t.Context())
+	// c36 lost tz info so does not compare equal
+	var c36 string
+	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(), "select c36 from "+dstTableName).Scan(&c36))
+	require.Equal(s.t, "09:25:00+00", c36)
 
+	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -167,7 +179,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			my_mood mood,
-			my_null_mood mood
+			my_null_mood mood,
+			moods mood[]
 		);
 	`, srcTableName))
 	require.NoError(s.t, err)
@@ -183,9 +196,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-			INSERT INTO %s(my_mood, my_null_mood) VALUES ('happy',null)
-			`, srcTableName))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(my_mood, my_null_mood, moods) VALUES ('happy',null,'{happy,angry}')`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Inserted enums into the source table")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize enum", func() bool {
@@ -918,7 +930,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	if !s.t.Failed() {
 		e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-			return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 		})
 
 		_, err = s.Conn().Exec(s.t.Context(),
@@ -942,7 +954,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		})
 
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
-			return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_RUNNING
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 		})
 		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize 18 records - first table", func() bool {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
@@ -988,21 +1000,21 @@ func (s PeerFlowE2ETestSuitePG) Test_CustomSync() {
 
 	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	e2e.SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		NumberOfSyncs: 1,
 	})
 	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_RUNNING
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
 		"INSERT INTO %s(key, value) VALUES ('test_key', 'test_value')", srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "paused workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	require.NoError(s.t, s.comparePGTables(srcTableName, dstTableName, "id,key,value"))
@@ -1253,6 +1265,65 @@ func (s PeerFlowE2ETestSuitePG) Test_Mixed_Case_Schema_Changes_PG() {
 		return s.comparePGTables(quotedSourceTableName, quotedDestTableName,
 			"id,c1") == nil
 	})
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
+	srcTableName := "pgresync"
+	srcFullName := s.attachSchemaSuffix(fmt.Sprintf("\"%s\"", tableName))
+	dstTableName := tableName
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL,
+			"excludedColumn" TEXT
+		);
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('init','excluded')", srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix(srcTableName),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"excludedColumn"},
+			},
+		},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('cdc','excluded')", srcFullName))
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+
+	env = e2e.ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: flowConnConfig,
+	})
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	flowConnConfig.Resync = true
+	env = e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }

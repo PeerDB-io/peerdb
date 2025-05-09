@@ -20,6 +20,7 @@ use sqlparser::ast::{
     CreateMirror::{Select, CDC},
     DollarQuotedString, Expr, FetchDirection, SqlOption, Statement, Value,
 };
+use pt::peerdb_peers::{MySqlAuthType, PostgresAuthType};
 
 mod qrep;
 
@@ -698,6 +699,14 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .to_string(),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 ssh_config: ssh_fields,
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                tls_host: opts.get("tls_host").map(|s| s.to_string()).unwrap_or_default(),
+                require_tls: opts
+                    .get("require_tls")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                auth_type: PostgresAuthType::PostgresPassword.into(),
+                aws_auth: None,
             };
 
             Config::PostgresConfig(postgres_config)
@@ -781,6 +790,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 certificate: opts.get("certificate").map(|s| s.to_string()),
                 private_key: opts.get("private_key").map(|s| s.to_string()),
                 root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                tls_host: opts.get("tls_host").map(|s| s.to_string()).unwrap_or_default(),
             };
             Config::ClickhouseConfig(clickhouse_config)
         }
@@ -986,6 +996,8 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             }
             .into(),
             root_ca: opts.get("root_ca").map(|s| s.to_string()),
+            tls_host: opts.get("tls_host").map(|s| s.to_string()).unwrap_or_default(),
+            auth_type: MySqlAuthType::MysqlPassword.into(),
             ssh_config: None,
             replication_mechanism: match opts.get("replication_mechanism") {
                 Some(&"gtid") => MySqlReplicationMechanism::MysqlGtid,
@@ -993,6 +1005,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 _ => MySqlReplicationMechanism::MysqlAuto,
             }
             .into(),
+            aws_auth: None,
         }),
     }))
 }

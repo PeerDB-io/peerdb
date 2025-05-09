@@ -59,6 +59,10 @@ type GenericSuite interface {
 	DestinationTable(table string) string
 }
 
+func Schema(s Suite) string {
+	return "e2e_test_" + s.Suffix()
+}
+
 func AttachSchema(s Suite, table string) string {
 	return fmt.Sprintf("e2e_test_%s.%s", s.Suffix(), table)
 }
@@ -90,13 +94,17 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 }
 
 func RequireEqualTables(suite RowSource, table string, cols string) {
+	RequireEqualTablesWithNames(suite, table, table, cols)
+}
+
+func RequireEqualTablesWithNames(suite RowSource, srcTable string, dstTable string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), table, cols)
+	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
 	require.NoError(t, err)
 
-	rows, err := suite.GetRows(table, cols)
+	rows, err := suite.GetRows(dstTable, cols)
 	require.NoError(t, err)
 
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, sourceRows, rows))
@@ -147,6 +155,41 @@ func EnvWaitForEqualTablesWithNames(
 		t.Helper()
 
 		sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		rows, err := suite.GetRows(dstTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		return e2eshared.CheckEqualRecordBatches(t, sourceRows, rows)
+	})
+}
+
+func EnvWaitForEqualTablesWithNames_Only(
+	env WorkflowRun,
+	suite RowSource,
+	reason string,
+	srcTable string,
+	dstTable string,
+	cols string,
+) {
+	t := suite.T()
+	pgSource, ok := suite.Source().(*PostgresSource)
+	if !ok {
+		t.Fatal("EnvWaitForEqualTablesWithNames_Only only works with PostgresSource")
+	}
+
+	t.Helper()
+
+	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+		t.Helper()
+
+		sourceRows, err := pgSource.GetRowsOnly(t.Context(), suite.Suffix(), srcTable, cols)
 		if err != nil {
 			t.Log(err)
 			return false
@@ -571,6 +614,16 @@ type WorkflowRun struct {
 	c client.Client
 }
 
+func GetPeerflow(ctx context.Context, catalog *pgx.Conn, tc client.Client, flowName string) (WorkflowRun, error) {
+	var workflowID string
+	if err := catalog.QueryRow(
+		ctx, "select workflow_id from flows where name = $1", flowName,
+	).Scan(&workflowID); err != nil {
+		return WorkflowRun{}, nil
+	}
+	return WorkflowRun{WorkflowRun: tc.GetWorkflow(ctx, workflowID, ""), c: tc}, nil
+}
+
 func ExecutePeerflow(ctx context.Context, tc client.Client, wf any, args ...any) WorkflowRun {
 	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, wf, args...)
 }
@@ -618,6 +671,16 @@ func (env WorkflowRun) Cancel(ctx context.Context) {
 
 func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any) (converter.EncodedValue, error) {
 	return env.c.QueryWorkflow(ctx, env.GetID(), "", queryType, args...)
+}
+
+func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
+	t.Helper()
+	res, err := env.c.QueryWorkflow(t.Context(), env.GetID(), "", shared.FlowStatusQuery)
+	EnvNoError(t, env, err)
+	var flowStatus protos.FlowStatus
+	err = res.Get(&flowStatus)
+	EnvNoError(t, env, err)
+	return flowStatus
 }
 
 func SignalWorkflow[T any](ctx context.Context, env WorkflowRun, signal model.TypedSignal[T], value T) {
@@ -717,13 +780,4 @@ func EnvGetRunID(t *testing.T, env WorkflowRun) string {
 	execData, err := env.c.DescribeWorkflowExecution(t.Context(), env.GetID(), "")
 	require.NoError(t, err)
 	return execData.WorkflowExecutionInfo.Execution.RunId
-}
-
-func EnvGetFlowStatus(t *testing.T, env WorkflowRun) protos.FlowStatus {
-	t.Helper()
-	var flowStatus protos.FlowStatus
-	val, err := env.Query(t.Context(), shared.FlowStatusQuery)
-	EnvNoError(t, env, err)
-	EnvNoError(t, env, val.Get(&flowStatus))
-	return flowStatus
 }

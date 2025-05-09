@@ -149,7 +149,7 @@ func (s *SnowflakeAvroConsolidateHandler) handleAppendMode(ctx context.Context) 
 	parsedDstTable, _ := utils.ParseSchemaTable(s.dstTableName)
 	copyCmd := s.getCopyTransformation(snowflakeSchemaTableNormalize(parsedDstTable))
 	s.connector.logger.Info("running copy command: " + copyCmd)
-	_, err := s.connector.database.ExecContext(ctx, copyCmd)
+	_, err := s.connector.ExecContext(ctx, copyCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
@@ -219,17 +219,16 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) 
 
 	tempTableName := fmt.Sprintf("%s_temp_%d", s.dstTableName, runID)
 
-	//nolint:gosec
 	createTempTableCmd := fmt.Sprintf("CREATE TEMPORARY TABLE %s AS SELECT * FROM %s LIMIT 0",
 		tempTableName, s.dstTableName)
-	if _, err := s.connector.database.ExecContext(ctx, createTempTableCmd); err != nil {
+	if _, err := s.connector.ExecContext(ctx, createTempTableCmd); err != nil {
 		return fmt.Errorf("failed to create temp table: %w", err)
 	}
 	s.connector.logger.Info("created temp table " + tempTableName)
 
 	copyCmd := s.getCopyTransformation(tempTableName)
 
-	if _, err := s.connector.database.ExecContext(ctx, copyCmd); err != nil {
+	if _, err := s.connector.ExecContext(ctx, copyCmd); err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
 	s.connector.logger.Info("copied file from stage " + s.stage + " to temp table " + tempTableName)
@@ -237,15 +236,15 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) 
 	mergeCmd := s.generateUpsertMergeCommand(tempTableName)
 
 	startTime := time.Now()
-	rows, err := s.connector.database.ExecContext(ctx, mergeCmd)
+	rows, err := s.connector.ExecContext(ctx, mergeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to merge data into destination table '%s': %w", mergeCmd, err)
 	}
 	rowCount, err := rows.RowsAffected()
 	if err == nil {
-		totalRowsAtTarget, err := s.connector.getTableCounts(ctx, []string{s.dstTableName})
-		if err != nil {
-			return err
+		var totalRowsAtTarget int64
+		if err := s.connector.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+s.dstTableName).Scan(&totalRowsAtTarget); err != nil {
+			return fmt.Errorf("failed to get count for table %s: %w", s.dstTableName, err)
 		}
 		s.connector.logger.Info(fmt.Sprintf("merged %d rows into destination table %s, total rows at target: %d",
 			rowCount, s.dstTableName, totalRowsAtTarget))

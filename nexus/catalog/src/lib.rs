@@ -11,6 +11,7 @@ use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
 use postgres_connection::{connect_postgres, get_pg_connection_string};
+use pt::peerdb_peers::PostgresAuthType;
 use pt::{
     flow_model::QRepFlowJob,
     peerdb_peers::PostgresConfig,
@@ -33,7 +34,7 @@ pub struct Catalog {
 
 pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
     let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
-    let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
+    let config = aws_config::defaults(BehaviorVersion::v2025_01_17())
         .region(region_provider)
         .load()
         .await;
@@ -91,6 +92,11 @@ impl CatalogConfig<'_> {
             database: self.database.to_string(),
             metadata_schema: Some("".to_string()),
             ssh_config: None,
+            root_ca: None,
+            tls_host: String::new(),
+            require_tls: false,
+            auth_type: PostgresAuthType::PostgresPassword.into(),
+            aws_auth: None,
         }
     }
 

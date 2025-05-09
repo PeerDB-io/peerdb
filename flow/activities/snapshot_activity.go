@@ -58,7 +58,7 @@ func (a *SnapshotActivity) SetupReplication(
 ) (*protos.SetupReplicationOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
-
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Setting up replication slot and publication")
 	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
@@ -90,6 +90,8 @@ func (a *SnapshotActivity) SetupReplication(
 		connector:    conn,
 	}
 
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Replication slot and publication setup complete")
+
 	return &protos.SetupReplicationOutput{
 		SlotName:         slotInfo.SlotName,
 		SnapshotName:     slotInfo.SnapshotName,
@@ -97,7 +99,7 @@ func (a *SnapshotActivity) SetupReplication(
 	}, nil
 }
 
-func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string) error {
+func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string, env map[string]string) error {
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "maintaining transaction snapshot"
 	})
@@ -108,7 +110,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
-	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx)
+	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, env)
 	if err != nil {
 		return err
 	}
