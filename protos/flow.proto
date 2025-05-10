@@ -351,6 +351,7 @@ message TableSchemaDelta {
   repeated FieldDescription added_columns = 3;
   TypeSystem system = 4;
   bool nullable_enabled = 5;
+  bool is_replica_identity_full = 6;
 }
 
 message QRepFlowState {

@@ -79,28 +79,54 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 func (a *FlowableActivity) applySchemaDeltas(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
-	options *protos.SyncFlowOptions,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
-	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
-	for _, tableMapping := range options.TableMappings {
-		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
-			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
-				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
-		}) {
-			filteredTableMappings = append(filteredTableMappings, tableMapping)
+	schemaUpdates := make(map[string]*protos.TableSchema, len(schemaDeltas))
+	for _, delta := range schemaDeltas {
+		schema := schemaUpdates[delta.DstTableName]
+		if schema == nil {
+			var err error
+			schema, err = internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, config.FlowJobName, delta.DstTableName)
+			if err != nil {
+				return err
+			}
 		}
+		schema.NullableEnabled = delta.NullableEnabled
+		schema.IsReplicaIdentityFull = delta.IsReplicaIdentityFull
+	deltaloop:
+		for _, fd := range delta.AddedColumns {
+			for colIdx, col := range schema.Columns {
+				if col.Name == fd.Name {
+					schema.Columns[colIdx] = fd
+					break deltaloop
+				}
+			}
+			schema.Columns = append(schema.Columns, fd)
+		}
+		schemaUpdates[delta.DstTableName] = schema
 	}
 
-	if len(schemaDeltas) > 0 {
-		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
-			PeerName:      config.SourceName,
-			TableMappings: filteredTableMappings,
-			FlowName:      config.FlowJobName,
-			System:        config.System,
-			Env:           config.Env,
-		}); err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
+	logger := internal.LoggerFromCtx(ctx)
+	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	for k, schema := range schemaUpdates {
+		processedBytes, err := proto.Marshal(schema)
+		if err != nil {
+			return err
+		}
+		if _, err := tx.Exec(
+			ctx,
+			"insert into table_schema_mapping(flow_name, table_name, table_schema) values ($1, $2, $3) "+
+				"on conflict (flow_name, table_name) do update set table_schema = $3",
+			config.FlowJobName,
+			k,
+			processedBytes,
+		); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -227,7 +253,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
+		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
 	}
 
 	var res *model.SyncResponse
@@ -319,7 +345,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
 	syncState.Store(shared.Ptr("updating schema"))
-	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
+	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
 

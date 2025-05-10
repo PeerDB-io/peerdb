@@ -926,16 +926,16 @@ func processRelationMessage[Items model.Items](
 	}
 
 	schemaDelta := &protos.TableSchemaDelta{
-		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
-		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
-		AddedColumns:    nil,
-		System:          prevSchema.System,
-		NullableEnabled: prevSchema.NullableEnabled,
+		SrcTableName:          p.srcTableIDNameMapping[currRel.RelationID],
+		DstTableName:          p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
+		AddedColumns:          nil,
+		System:                prevSchema.System,
+		NullableEnabled:       prevSchema.NullableEnabled,
+		IsReplicaIdentityFull: ReplicaIdentityType(currRel.ReplicaIdentity) == ReplicaIdentityFull,
 	}
 	for _, column := range currRel.Columns {
-		// not present in previous relation message, but in current one, so added.
-		if _, ok := prevRelMap[column.Name]; !ok {
-			// only add to delta if not excluded
+		if prevType, ok := prevRelMap[column.Name]; !ok {
+			// not present in previous relation message, but in current one, so added.
 			if _, ok := p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Exclude[column.Name]; !ok {
 				schemaDelta.AddedColumns = append(schemaDelta.AddedColumns, &protos.FieldDescription{
 					Name:         column.Name,
@@ -951,11 +951,10 @@ func processRelationMessage[Items model.Items](
 				p.logger.Warn(fmt.Sprintf("Detected added column %s in table %s, but not propagating because excluded",
 					column.Name, schemaDelta.SrcTableName))
 			}
+		} else if prevType != currRelMap[column.Name] {
 			// present in previous and current relation messages, but data types have changed.
-			// so we add it to AddedColumns and DroppedColumns, knowing that we process DroppedColumns first.
-		} else if prevRelMap[column.Name] != currRelMap[column.Name] {
 			p.logger.Warn(fmt.Sprintf("Detected column %s with type changed from %s to %s in table %s, but not propagating",
-				column.Name, prevRelMap[column.Name], currRelMap[column.Name], schemaDelta.SrcTableName))
+				column.Name, prevType, currRelMap[column.Name], schemaDelta.SrcTableName))
 		}
 	}
 	for _, column := range prevSchema.Columns {
@@ -969,11 +968,10 @@ func processRelationMessage[Items model.Items](
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
-		rec := &model.RelationRecord[Items]{
+		return &model.RelationRecord[Items]{
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
-		}
-		return rec, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
+		}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
 }
