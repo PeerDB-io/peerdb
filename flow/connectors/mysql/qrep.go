@@ -13,7 +13,8 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
 
-	utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	partition "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -37,7 +38,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 
 	if config.NumRowsPerPartition <= 0 {
-		return nil, errors.New("num rows per partition must be greater than 0 for sql server")
+		return nil, errors.New("num rows per partition must be greater than 0")
 	}
 
 	var err error
@@ -48,9 +49,13 @@ func (c *MySqlConnector) GetQRepPartitions(
 	if last != nil && last.Range != nil {
 		whereClause = fmt.Sprintf("WHERE %s > $1", quotedWatermarkColumn)
 	}
+	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse watermark table %s: %w", config.WatermarkTable, err)
+	}
 
 	// Query to get the total number of rows in the table
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", parsedWatermarkTable.MySQL(), whereClause)
 	var minVal any
 	var totalRows int64
 	if last != nil && last.Range != nil {
@@ -108,7 +113,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 			ORDER BY start`,
 			numPartitions,
 			quotedWatermarkColumn,
-			config.WatermarkTable,
+			parsedWatermarkTable.MySQL(),
 		)
 		c.logger.Info("partitions query", slog.String("query", partitionsQuery), slog.Any("minVal", minVal))
 		rs, err = c.Execute(ctx, partitionsQuery, minVal)
@@ -122,7 +127,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 			ORDER BY start`,
 			numPartitions,
 			quotedWatermarkColumn,
-			config.WatermarkTable,
+			parsedWatermarkTable.MySQL(),
 		)
 		c.logger.Info("partitions query", slog.String("query", partitionsQuery))
 		rs, err = c.Execute(ctx, partitionsQuery)
@@ -131,7 +136,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
-	partitionHelper := utils.NewPartitionHelper(c.logger)
+	partitionHelper := partition.NewPartitionHelper(c.logger)
 	for _, row := range rs.Values {
 		if err := partitionHelper.AddPartition(row[1].Value(), row[2].Value()); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)

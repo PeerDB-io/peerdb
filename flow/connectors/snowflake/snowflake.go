@@ -67,13 +67,7 @@ const (
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
 	checkIfSchemaExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA
 	 WHERE SCHEMA_NAME=?`
-	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	setLastOffsetSQL            = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
-	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
-	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	dropSchemaIfExistsSQL       = "DROP SCHEMA IF EXISTS %s"
+	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
 )
 
 type SnowflakeConnector struct {
