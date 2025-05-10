@@ -1,5 +1,12 @@
 package shared
 
+import "errors"
+
+var (
+	ErrSlotAlreadyExists error = errors.New("slot already exists")
+	ErrTableDoesNotExist error = errors.New("table does not exist")
+)
+
 type ErrType string
 
 const (
