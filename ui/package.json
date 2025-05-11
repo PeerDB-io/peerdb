@@ -31,7 +31,7 @@
     "@types/react": "^18.3.20",
     "@types/react-dom": "^18.3.6",
     "classnames": "^2.5.1",
-    "lucide-react": "^0.507.0",
+    "lucide-react": "^0.509.0",
     "material-symbols": "^0.31.2",
     "moment": "^2.30.1",
     "moment-timezone": "^0.5.48",
