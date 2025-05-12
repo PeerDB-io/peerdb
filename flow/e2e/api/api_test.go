@@ -297,11 +297,13 @@ func (s Suite) TestScripts() {
 	}
 }
 
-func (s Suite) TestMySQLBinlogValidation() {
+func (s Suite) TestMySQLRDSBinlogValidation() {
 	_, ok := s.source.(*e2e.MySqlSource)
 	if !ok {
 		s.t.Skip("only for MySQL")
 	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "valid"))))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      "my_validation_" + s.suffix,
