@@ -273,11 +273,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(myErr.Code)),
 		}
 		switch myErr.Code {
-		case 1037, 1038, 1041, 3015:
-			return ErrorNotifyOOM, myErrorInfo
-		case 1040: // ER_CON_COUNT_ERROR
-			return ErrorNotifyConnectivity, myErrorInfo
+		case 1037, 1038, 1041, 3015: // ER_OUTOFMEMORY, ER_OUT_OF_SORTMEMORY, ER_OUT_OF_RESOURCES, ER_ENGINE_OUT_OF_MEMORY
+			return ErrorNotifyOOMSource, myErrorInfo
 		case 1021, // ER_DISK_FULL
+			1040, // ER_CON_COUNT_ERROR
 			1044, // ER_DBACCESS_DENIED_ERROR
 			1045, // ER_ACCESS_DENIED_ERROR
 			1049, // ER_BAD_DB_ERROR
