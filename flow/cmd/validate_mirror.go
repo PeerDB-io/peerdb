@@ -69,7 +69,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
-			return nil, errors.New("/validatecdc source peer does not support being a source peer")
+			return nil, errors.New("connector is not a supported source type")
 		}
 		err := fmt.Errorf("failed to create source connector: %w", err)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
