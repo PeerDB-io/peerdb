@@ -83,7 +83,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
 			err.Error(),
 		)
-		return nil, err
+		return nil, fmt.Errorf("failed to validate source connector %s: %w", req.ConnectionConfigs.SourceName, err)
 	}
 
 	dstConn, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](

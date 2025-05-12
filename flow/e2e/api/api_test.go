@@ -301,48 +301,34 @@ func (s Suite) TestMySQLBinlogValidation() {
 		s.t.Skip("only for MySQL")
 	}
 
-	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: s.source.GeneratePeer(s.t),
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      "my_validation_" + s.suffix,
+		TableNameMapping: map[string]string{e2e.AttachSchema(s, "valid"): "valid"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE TABLE IF NOT EXISTS mysql.rds_configuration(name TEXT, value TEXT)"))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		"INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL)"))
 
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: s.source.GeneratePeer(s.t),
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Equal(s.t,
-		"failed to validate peer mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset",
-		response.Message)
+	res, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Nil(s.t, res)
+	require.EqualError(s.t, err,
+		"failed to validate source connector mysql: binlog configuration error: "+
+			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours'"))
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: s.source.GeneratePeer(s.t),
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Equal(s.t,
-		"failed to validate peer mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1",
-		response.Message)
+	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Nil(s.t, res)
+	require.EqualError(s.t, err,
+		"failed to validate source connector mysql: binlog configuration error: "+
+			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1")
 
-	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';")
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';"))
+	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: s.source.GeneratePeer(s.t),
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
+	require.NotNil(s.t, res)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;"))
 }
