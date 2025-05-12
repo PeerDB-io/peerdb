@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -88,6 +89,9 @@ var (
 	}
 	ErrorNotifySlotInvalid = ErrorClass{
 		Class: "NOTIFY_SLOT_INVALID", action: NotifyUser,
+	}
+	ErrorNotifySourceTableMissing = ErrorClass{
+		Class: "NOTIFY_SOURCE_TABLE_MISSING", action: NotifyUser,
 	}
 	ErrorNotifyPublicationMissing = ErrorClass{
 		Class: "NOTIFY_PUBLICATION_MISSING", action: NotifyUser,
@@ -210,6 +214,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if errors.Is(err, shared.ErrTableDoesNotExist) {
+		return ErrorNotifySourceTableMissing, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "TABLE_DOES_NOT_EXIST",
+		}
+	}
 	if pgErr != nil {
 		switch pgErr.Code {
 		case pgerrcode.InvalidAuthorizationSpecification,
