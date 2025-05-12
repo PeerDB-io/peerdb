@@ -127,9 +127,63 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
-	avroFile, err := s.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName, destTypeConversions)
+	avroChunking, err := internal.PeerDBS3RowsPerChunk(ctx, config.Env)
 	if err != nil {
 		return 0, err
+	}
+
+	var avroFile *avro.AvroFile
+	if avroChunking != 0 {
+		avroFile = &avro.AvroFile{
+			FilePath:   "",
+			NumRecords: 0,
+		}
+
+		chunkNum := 0
+		var done bool
+		for !done {
+			if err := ctx.Err(); err != nil {
+				return 0, err
+			}
+
+			substream := model.NewQRecordStream(0)
+			substream.SetSchema(schema)
+			go func() {
+				var rows int64
+				for record := range stream.Records {
+					substream.Records <- record
+					if rows >= avroChunking {
+						break
+					}
+				}
+				done = rows < avroChunking
+				substream.Close(stream.Err())
+			}()
+
+			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, avroSchema,
+				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
+				config.FlowJobName, destTypeConversions)
+			if err != nil {
+				return 0, err
+			}
+			chunkNum += 1
+			avroFile.NumRecords += subFile.NumRecords
+			if chunkNum == 0 {
+				avroFile.FilePath = strings.TrimSuffix(subFile.FilePath, "000000.avro.zst") + "*.avro.zst"
+			}
+		}
+
+		if err := ctx.Err(); err != nil {
+			return 0, err
+		}
+	}
+
+	if avroFile == nil || avroFile.FilePath == "" {
+		var err error
+		avroFile, err = s.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName, destTypeConversions)
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
@@ -255,7 +309,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	}
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
-	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
+	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
 	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, typeConversions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
