@@ -12,7 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
@@ -314,16 +316,22 @@ func (s Suite) TestMySQLBinlogValidation() {
 
 	res, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.Nil(s.t, res)
-	require.EqualError(s.t, err,
-		"failed to validate source connector mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset")
+	require.Error(s.t, err)
+	st, ok := status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
+		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset", st.Message())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours'"))
 	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.Nil(s.t, res)
-	require.EqualError(s.t, err,
-		"failed to validate source connector mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1")
+	require.Error(s.t, err)
+	st, ok = status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
+		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1", st.Message())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';"))
 	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
