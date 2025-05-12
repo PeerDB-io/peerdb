@@ -237,24 +237,9 @@ func processTime(str string) (time.Time, error) {
 		if err != nil {
 			return time.Time{}, err
 		}
-		switch len(frac) {
-		case 1:
-			nsec = fint * 100000000
-		case 2:
-			nsec = fint * 10000000
-		case 3:
-			nsec = fint * 1000000
-		case 4:
-			nsec = fint * 100000
-		case 5:
-			nsec = fint * 10000
-		case 6:
-			nsec = fint * 1000
-		case 7:
-			nsec = fint * 100
-		case 8:
-			nsec = fint * 10
-		default:
+		if len(frac) <= 9 {
+			nsec = fint * uint64(math.Pow10(9-len(frac)))
+		} else {
 			nsec = fint
 		}
 	}
