@@ -223,8 +223,82 @@ func processGeometryData(data []byte) qvalue.QValueGeometry {
 			return qvalue.QValueGeometry{Val: wkt}
 		}
 	}
-	strVal := string(data)
-	return qvalue.QValueGeometry{Val: strVal}
+	return qvalue.QValueGeometry{Val: string(data)}
+}
+
+// https://dev.mysql.com/doc/refman/8.4/en/time.html
+func processTime(str string) (time.Time, error) {
+	abs, isNeg := strings.CutPrefix(str, "-")
+	tpart, frac, _ := strings.Cut(abs, ".")
+
+	var nsec uint64
+	if frac != "" {
+		fint, err := strconv.ParseUint(frac, 10, 64)
+		if err != nil {
+			return time.Time{}, err
+		}
+		switch len(frac) {
+		case 1:
+			nsec = fint * 100000000
+		case 2:
+			nsec = fint * 10000000
+		case 3:
+			nsec = fint * 1000000
+		case 4:
+			nsec = fint * 100000
+		case 5:
+			nsec = fint * 10000
+		case 6:
+			nsec = fint * 1000
+		case 7:
+			nsec = fint * 100
+		case 8:
+			nsec = fint * 10
+		default:
+			nsec = fint
+		}
+	}
+
+	var err error
+	var spart, mpart, hpart uint64
+	h, ms, hasMS := strings.Cut(tpart, ":")
+	if hasMS {
+		m, s, hasS := strings.Cut(ms, ":")
+		if hasS {
+			spart, err = strconv.ParseUint(s, 10, 64)
+		}
+		if err == nil {
+			mpart, err = strconv.ParseUint(m, 10, 64)
+			if err == nil {
+				hpart, err = strconv.ParseUint(h, 10, 64)
+			}
+		}
+	} else if len(h) <= 2 {
+		spart, err = strconv.ParseUint(h, 10, 64)
+	} else if len(h) <= 4 {
+		spart, err = strconv.ParseUint(h[len(h)-2:], 10, 64)
+		if err == nil {
+			mpart, err = strconv.ParseUint(h[:len(h)-2], 10, 64)
+		}
+	} else {
+		spart, err = strconv.ParseUint(h[len(h)-2:], 10, 64)
+		if err == nil {
+			mpart, err = strconv.ParseUint(h[len(h)-4:len(h)-2], 10, 64)
+			if err == nil {
+				hpart, err = strconv.ParseUint(h[:len(h)-4], 10, 64)
+			}
+		}
+	}
+
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	sec := hpart*3600 + mpart*60 + spart
+	if isNeg {
+		return time.Unix(-int64(sec), -int64(nsec)).UTC(), nil
+	}
+	return time.Unix(int64(sec), int64(nsec)).UTC(), nil
 }
 
 func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
@@ -325,12 +399,11 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 			}
 			return qvalue.QValueTimestamp{Val: val}, nil
 		case qvalue.QValueKindTime:
-			val, err := time.Parse("15:04:05.999999", unsafeString)
+			tm, err := processTime(unsafeString)
 			if err != nil {
 				return nil, err
 			}
-			h, m, s := val.Clock()
-			return qvalue.QValueTime{Val: time.Date(1970, 1, 1, h, m, s, val.Nanosecond(), val.Location())}, nil
+			return qvalue.QValueTime{Val: tm}, nil
 		case qvalue.QValueKindDate:
 			if unsafeString == "0000-00-00" {
 				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil
@@ -463,12 +536,11 @@ func QValueFromMysqlRowEvent(
 		case qvalue.QValueKindJSON:
 			return qvalue.QValueJSON{Val: val}, nil
 		case qvalue.QValueKindTime:
-			val, err := time.Parse("15:04:05.999999", val)
+			tm, err := processTime(val)
 			if err != nil {
 				return nil, err
 			}
-			h, m, s := val.Clock()
-			return qvalue.QValueTime{Val: time.Date(1970, 1, 1, h, m, s, val.Nanosecond(), val.Location())}, nil
+			return qvalue.QValueTime{Val: tm}, nil
 		case qvalue.QValueKindDate:
 			if val == "0000-00-00" {
 				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil
