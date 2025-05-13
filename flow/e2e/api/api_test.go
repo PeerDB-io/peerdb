@@ -12,7 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
@@ -295,54 +297,48 @@ func (s Suite) TestScripts() {
 	}
 }
 
-func (s Suite) TestMySQLBinlogValidation() {
+func (s Suite) TestMySQLRDSBinlogValidation() {
 	_, ok := s.source.(*e2e.MySqlSource)
 	if !ok {
 		s.t.Skip("only for MySQL")
 	}
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "valid"))))
 
-	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: s.source.GeneratePeer(s.t),
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      "my_validation_" + s.suffix,
+		TableNameMapping: map[string]string{e2e.AttachSchema(s, "valid"): "valid"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE TABLE IF NOT EXISTS mysql.rds_configuration(name TEXT, value TEXT)"))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		"INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL)"))
 
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: s.source.GeneratePeer(s.t),
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Equal(s.t,
-		"failed to validate peer mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset",
-		response.Message)
+	res, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Nil(s.t, res)
+	require.Error(s.t, err)
+	st, ok := status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
+		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset", st.Message())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours'"))
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: s.source.GeneratePeer(s.t),
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Equal(s.t,
-		"failed to validate peer mysql: binlog configuration error: "+
-			"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1",
-		response.Message)
+	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.Nil(s.t, res)
+	require.Error(s.t, err)
+	st, ok = status.FromError(err)
+	require.True(s.t, ok)
+	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
+		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1", st.Message())
 
-	err = s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';")
+	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';"))
+	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
-		Peer: s.source.GeneratePeer(s.t),
-	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
+	require.NotNil(s.t, res)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;"))
 }
