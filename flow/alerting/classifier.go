@@ -159,42 +159,42 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Source: ErrorSourcePostgres,
 			Code:   pgErr.Code,
 		}
-	}
 
-	var catalogErr *exceptions.CatalogError
-	if errors.As(err, &catalogErr) {
-		errorClass := ErrorInternal
-		if pgErr != nil {
-			return errorClass, pgErrorInfo
+		var catalogErr *exceptions.CatalogError
+		if errors.As(err, &catalogErr) {
+			errorClass := ErrorInternal
+			if pgErr != nil {
+				return errorClass, pgErrorInfo
+			}
+			return errorClass, ErrorInfo{
+				Source: ErrorSourcePostgresCatalog,
+				Code:   "UNKNOWN",
+			}
 		}
-		return errorClass, ErrorInfo{
-			Source: ErrorSourcePostgresCatalog,
-			Code:   "UNKNOWN",
-		}
-	}
 
-	var dropFlowErr *exceptions.DropFlowError
-	if errors.As(err, &dropFlowErr) {
-		errorClass := ErrorDropFlow
-		if pgErr != nil {
-			return errorClass, pgErrorInfo
+		var dropFlowErr *exceptions.DropFlowError
+		if errors.As(err, &dropFlowErr) {
+			errorClass := ErrorDropFlow
+			if pgErr != nil {
+				return errorClass, pgErrorInfo
+			}
+			// For now we are not making it as verbose, will take this up later
+			return errorClass, ErrorInfo{
+				Source: ErrorSourceOther,
+				Code:   "UNKNOWN",
+			}
 		}
-		// For now we are not making it as verbose, will take this up later
-		return errorClass, ErrorInfo{
-			Source: ErrorSourceOther,
-			Code:   "UNKNOWN",
-		}
-	}
 
-	var peerDBErr *exceptions.PostgresSetupError
-	if errors.As(err, &peerDBErr) {
-		errorClass := ErrorNotifyConnectivity
-		if pgErr != nil {
-			return errorClass, pgErrorInfo
-		}
-		return errorClass, ErrorInfo{
-			Source: ErrorSourcePostgres,
-			Code:   "UNKNOWN",
+		var peerDBErr *exceptions.PostgresSetupError
+		if errors.As(err, &peerDBErr) {
+			errorClass := ErrorNotifyConnectivity
+			if pgErr != nil {
+				return errorClass, pgErrorInfo
+			}
+			return errorClass, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "UNKNOWN",
+			}
 		}
 	}
 
@@ -267,9 +267,36 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	var myErr *mysql.MyError
 	if errors.As(err, &myErr) {
-		return ErrorOther, ErrorInfo{
+		// https://mariadb.com/kb/en/mariadb-error-code-reference
+		myErrorInfo := ErrorInfo{
 			Source: ErrorSourceMySQL,
 			Code:   strconv.Itoa(int(myErr.Code)),
+		}
+		switch myErr.Code {
+		case 1037, 1038, 1041, 3015: // ER_OUTOFMEMORY, ER_OUT_OF_SORTMEMORY, ER_OUT_OF_RESOURCES, ER_ENGINE_OUT_OF_MEMORY
+			return ErrorNotifyOOMSource, myErrorInfo
+		case 1021, // ER_DISK_FULL
+			1040, // ER_CON_COUNT_ERROR
+			1044, // ER_DBACCESS_DENIED_ERROR
+			1045, // ER_ACCESS_DENIED_ERROR
+			1049, // ER_BAD_DB_ERROR
+			1051, // ER_BAD_TABLE_ERROR
+			1053, // ER_SERVER_SHUTDOWN
+			1102, // ER_WRONG_DB_NAME
+			1103, // ER_WRONG_TABLE_NAME
+			1109, // ER_UNKNOWN_TABLE
+			1119, // ER_STACK_OVERRUN
+			1129, // ER_HOST_IS_BLOCKED
+			1130, // ER_HOST_NOT_PRIVILEGED
+			1133, // ER_PASSWORD_NO_MATCH
+			1135, // ER_CANT_CREATE_THREAD
+			1152, // ER_ABORTING_CONNECTION
+			1194, // ER_CRASHED_ON_USAGE
+			1195, // ER_CRASHED_ON_REPAIR
+			1827: // ER_PASSWORD_FORMAT
+			return ErrorNotifyConnectivity, myErrorInfo
+		default:
+			return ErrorOther, myErrorInfo
 		}
 	}
 
@@ -310,7 +337,25 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 		case 439: // CANNOT_SCHEDULE_TASK
 			return ErrorRetryRecoverable, chErrorInfo
-		case chproto.ErrIllegalTypeOfArgument:
+		case chproto.ErrUnsupportedMethod,
+			chproto.ErrIllegalColumn,
+			chproto.ErrDuplicateColumn,
+			chproto.ErrNotFoundColumnInBlock,
+			chproto.ErrUnknownIdentifier,
+			chproto.ErrUnknownFunction,
+			chproto.ErrBadTypeOfField,
+			chproto.ErrTooDeepRecursion,
+			chproto.ErrTypeMismatch,
+			chproto.ErrCannotConvertType,
+			chproto.ErrIncompatibleColumns,
+			chproto.ErrUnexpectedExpression,
+			chproto.ErrIllegalAggregation,
+			chproto.ErrNotAnAggregate,
+			chproto.ErrSizesOfArraysDoesntMatch,
+			chproto.ErrAliasRequired,
+			691, // UNKNOWN_ELEMENT_OF_ENUM
+			chproto.ErrNoCommonType,
+			chproto.ErrIllegalTypeOfArgument:
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				unexpectedSelectRe, reErr := regexp.Compile(
