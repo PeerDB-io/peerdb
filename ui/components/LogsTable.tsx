@@ -23,10 +23,7 @@ function colorForErrorType(errorType: string) {
 
 function extractFromCloneName(mirrorOrCloneName: string) {
   if (mirrorOrCloneName.startsWith('clone_')) {
-    return (
-      mirrorOrCloneName.substring(mirrorOrCloneName.indexOf('_') + 1) +
-      ' (initial load)'
-    );
+    return mirrorOrCloneName.substring(6) + ' (initial load)';
   }
   return mirrorOrCloneName;
 }
