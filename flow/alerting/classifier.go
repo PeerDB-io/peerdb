@@ -295,6 +295,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1195, // ER_CRASHED_ON_REPAIR
 			1827: // ER_PASSWORD_FORMAT
 			return ErrorNotifyConnectivity, myErrorInfo
+		case 1105: // ER_UNKNOWN_ERROR
+			if myErr.State == "HY000" && myErr.Message == "The last transaction was aborted due to Zero Downtime Patch. Please retry." {
+				return ErrorRetryRecoverable, myErrorInfo
+			}
 		default:
 			return ErrorOther, myErrorInfo
 		}
