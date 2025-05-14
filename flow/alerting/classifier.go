@@ -299,6 +299,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if myErr.State == "HY000" && myErr.Message == "The last transaction was aborted due to Zero Downtime Patch. Please retry." {
 				return ErrorRetryRecoverable, myErrorInfo
 			}
+			return ErrorOther, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
 		}
