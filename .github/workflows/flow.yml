@@ -35,12 +35,12 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:e52ef1cfa21307cdbed3a21826c0a004739fa679bda196fd6c84e7764f01274e
+        image: redpandadata/redpanda@sha256:a138e257877c494fa6854502273ee8db07637395c0a6da076da5babb0735b181
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:8.18.0@sha256:658ea54de8d38c9ee69389e7fe226d6fd589816d7ed7f7cc911017ed646216d5
+        image: elasticsearch:9.0.1@sha256:577aee5810654e487ad30f84eec14b0c9789332d6d76f2ac5879eeebd3c578e1
         ports:
           - 9200:9200
         env:
@@ -48,7 +48,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.4.22@sha256:a26e42a4d6550d2fb7708c8ceefc60474b42c124b6f3273a081721ddf1d86b20
+        image: bitnami/minio:2025.4.22@sha256:d7cd0e172c4cc0870f4bdc3142018e2a37be9acf04d68f386600daad427e0cab
         ports:
           - 9999:9999
         env:
@@ -68,9 +68,9 @@ jobs:
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: '1.24.2'
+          go-version: '1.24.3'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos

@@ -90,6 +90,17 @@ func GetChildWorkflowID(
 	return fmt.Sprintf("%s-%s-%s", prefix, peerFlowName, uuid)
 }
 
+func updateFlowConfigWithLatestSettings(
+	cfg *protos.FlowConnectionConfigs,
+	state *CDCFlowWorkflowState,
+) *protos.FlowConnectionConfigs {
+	cloneCfg := proto.CloneOf(cfg)
+	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
+	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
+	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
+	return cloneCfg
+}
+
 // CDCFlowWorkflowResult is the result of the PeerFlowWorkflow.
 type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
@@ -99,11 +110,7 @@ func syncStateToConfigProtoInCatalog(
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) {
-	cloneCfg := proto.CloneOf(cfg)
-	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
-	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
-	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
-
+	cloneCfg := updateFlowConfigWithLatestSettings(cfg, state)
 	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
@@ -362,17 +369,19 @@ func CDCFlowWorkflow(
 		flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
 			if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 				state.ActiveSignal = model.TerminateSignal
+				dropCfg := updateFlowConfigWithLatestSettings(cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           cfg.FlowJobName,
-					FlowConnectionConfigs: cfg,
+					FlowJobName:           dropCfg.FlowJobName,
+					FlowConnectionConfigs: dropCfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 				}
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
+				resyncCfg := updateFlowConfigWithLatestSettings(cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           cfg.FlowJobName,
-					FlowConnectionConfigs: cfg,
+					FlowJobName:           resyncCfg.FlowJobName,
+					FlowConnectionConfigs: resyncCfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 					Resync:                true,
@@ -455,17 +464,19 @@ func CDCFlowWorkflow(
 				logger.Warn("pause requested during setup, ignoring")
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 				state.ActiveSignal = model.TerminateSignal
+				dropCfg := updateFlowConfigWithLatestSettings(cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           cfg.FlowJobName,
-					FlowConnectionConfigs: cfg,
+					FlowJobName:           dropCfg.FlowJobName,
+					FlowConnectionConfigs: dropCfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 				}
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
+				resyncCfg := updateFlowConfigWithLatestSettings(cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           cfg.FlowJobName,
-					FlowConnectionConfigs: cfg,
+					FlowJobName:           resyncCfg.FlowJobName,
+					FlowConnectionConfigs: resyncCfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 					Resync:                true,
@@ -654,17 +665,19 @@ func CDCFlowWorkflow(
 		finished = true
 		if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 			state.ActiveSignal = model.TerminateSignal
+			dropCfg := updateFlowConfigWithLatestSettings(cfg, state)
 			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           cfg.FlowJobName,
-				FlowConnectionConfigs: cfg,
+				FlowJobName:           dropCfg.FlowJobName,
+				FlowConnectionConfigs: dropCfg,
 				DropFlowStats:         val.DropMirrorStats,
 				SkipDestinationDrop:   val.SkipDestinationDrop,
 			}
 		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 			state.ActiveSignal = model.ResyncSignal
+			resyncCfg := updateFlowConfigWithLatestSettings(cfg, state)
 			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           cfg.FlowJobName,
-				FlowConnectionConfigs: cfg,
+				FlowJobName:           resyncCfg.FlowJobName,
+				FlowConnectionConfigs: resyncCfg,
 				DropFlowStats:         val.DropMirrorStats,
 				SkipDestinationDrop:   val.SkipDestinationDrop,
 				Resync:                true,

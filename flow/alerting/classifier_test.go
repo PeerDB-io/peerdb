@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -135,5 +136,23 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   "492",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
+	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
+	config, err := pgx.ParseConfig(connectionString)
+	require.NoError(t, err)
+	config.Config.RuntimeParams["statement_timeout"] = "1500"
+	connectConfig, err := pgx.ConnectConfig(t.Context(), config)
+	require.NoError(t, err)
+	defer connectConfig.Close(t.Context())
+	_, err = connectConfig.Exec(t.Context(), "SELECT pg_sleep(2)")
+
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed querying: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.QueryCanceled,
 	}, errInfo, "Unexpected error info")
 }

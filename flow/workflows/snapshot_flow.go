@@ -159,12 +159,21 @@ func (s *SnapshotFlowExecution) cloneTable(
 		from = strings.Join(quotedColumns, ",")
 	}
 
+	// usually MySQL supports double quotes with ANSI_QUOTES, but Vitess doesn't
+	// Vitess currently only supports initial load so change here is enough
+	srcTableEscaped := parsedSrcTable.String()
+	if dbtype, err := getPeerType(ctx, s.config.SourceName); err != nil {
+		return err
+	} else if dbtype == protos.DBType_MYSQL {
+		srcTableEscaped = parsedSrcTable.MySQL()
+	}
+
 	var query string
 	if mapping.PartitionKey == "" {
-		query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())
+		query = fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
 	} else {
 		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, parsedSrcTable.String(), mapping.PartitionKey)
+			from, srcTableEscaped, mapping.PartitionKey)
 	}
 
 	numWorkers := uint32(8)
@@ -180,13 +189,12 @@ func (s *SnapshotFlowExecution) cloneTable(
 	snapshotWriteMode := &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
 	}
+
 	// ensure document IDs are synchronized across initial load and CDC
 	// for the same document
-	dbtype, err := getPeerType(ctx, s.config.DestinationName)
-	if err != nil {
+	if dbtype, err := getPeerType(ctx, s.config.DestinationName); err != nil {
 		return err
-	}
-	if dbtype == protos.DBType_ELASTICSEARCH {
+	} else if dbtype == protos.DBType_ELASTICSEARCH {
 		if err := initTableSchema(); err != nil {
 			return err
 		}
@@ -216,6 +224,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Script:                     s.config.Script,
 		Env:                        s.config.Env,
 		ParentMirrorName:           flowName,
+		Exclude:                    mapping.Exclude,
 	}
 
 	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)

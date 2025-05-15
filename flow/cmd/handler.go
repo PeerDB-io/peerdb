@@ -71,7 +71,7 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	destinationPeerID, destinationPeerType, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.DestinationName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			req.ConnectionConfigs.DestinationName, srcErr)
+			req.ConnectionConfigs.DestinationName, dstErr)
 	}
 
 	for _, v := range req.ConnectionConfigs.TableMappings {
@@ -105,7 +105,7 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	destinationPeerID, _, dstErr := h.getPeerID(ctx, destinationPeerName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			destinationPeerName, srcErr)
+			destinationPeerName, dstErr)
 	}
 	flowName := req.QrepConfig.FlowJobName
 	_, err := h.pool.Exec(ctx, `INSERT INTO flows(workflow_id,name, source_peer, destination_peer, description,
@@ -379,6 +379,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			} else if !isCDC {
 				return nil, errors.New("resync is only supported for CDC mirrors")
 			} else {
+				slog.Info("resync requested for cdc flow", logs)
 				// getting config before dropping the flow since the flow entry is deleted unconditionally
 				config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 				if err != nil {

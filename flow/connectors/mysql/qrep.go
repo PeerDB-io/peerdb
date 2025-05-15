@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strconv"
 	"text/template"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
 
-	utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	partition "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -36,7 +38,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 
 	if config.NumRowsPerPartition <= 0 {
-		return nil, errors.New("num rows per partition must be greater than 0 for sql server")
+		return nil, errors.New("num rows per partition must be greater than 0")
 	}
 
 	var err error
@@ -47,9 +49,13 @@ func (c *MySqlConnector) GetQRepPartitions(
 	if last != nil && last.Range != nil {
 		whereClause = fmt.Sprintf("WHERE %s > $1", quotedWatermarkColumn)
 	}
+	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse watermark table %s: %w", config.WatermarkTable, err)
+	}
 
 	// Query to get the total number of rows in the table
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", config.WatermarkTable, whereClause)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", parsedWatermarkTable.MySQL(), whereClause)
 	var minVal any
 	var totalRows int64
 	if last != nil && last.Range != nil {
@@ -107,13 +113,13 @@ func (c *MySqlConnector) GetQRepPartitions(
 			ORDER BY start`,
 			numPartitions,
 			quotedWatermarkColumn,
-			config.WatermarkTable,
+			parsedWatermarkTable.MySQL(),
 		)
 		c.logger.Info("partitions query", slog.String("query", partitionsQuery), slog.Any("minVal", minVal))
 		rs, err = c.Execute(ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket_v, MIN(%[2]s) AS start, MAX(%[2]s) AS end
+			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
 				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
 			) AS subquery
@@ -121,7 +127,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 			ORDER BY start`,
 			numPartitions,
 			quotedWatermarkColumn,
-			config.WatermarkTable,
+			parsedWatermarkTable.MySQL(),
 		)
 		c.logger.Info("partitions query", slog.String("query", partitionsQuery))
 		rs, err = c.Execute(ctx, partitionsQuery)
@@ -130,7 +136,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
-	partitionHelper := utils.NewPartitionHelper(c.logger)
+	partitionHelper := partition.NewPartitionHelper(c.logger)
 	for _, row := range rs.Values {
 		if err := partitionHelper.AddPartition(row[1].Value(), row[2].Value()); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
@@ -146,13 +152,6 @@ func (c *MySqlConnector) PullQRepRecords(
 	last *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	// Build the query to pull records within the range from the source table
-	// Be sure to order the results by the watermark column to ensure consistency across pulls
-	query, err := BuildQuery(c.logger, config.Query)
-	if err != nil {
-		return 0, 0, err
-	}
-
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
 	if err != nil {
@@ -224,26 +223,59 @@ func (c *MySqlConnector) PullQRepRecords(
 
 	if last.FullTablePartition {
 		// this is a full table partition, so just run the query
-		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
+		if err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult); err != nil {
 			return 0, 0, err
 		}
 	} else {
-		var rangeStart any
-		var rangeEnd any
+		var rangeStart string
+		var rangeEnd string
 
 		// Depending on the type of the range, convert the range into the correct type
 		switch x := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
-			rangeStart = x.IntRange.Start
-			rangeEnd = x.IntRange.End
+			var unsigned bool
+			for _, col := range tableSchema.Columns {
+				if col.Name == config.WatermarkColumn {
+					switch qvalue.QValueKind(col.Type) {
+					case qvalue.QValueKindUInt8:
+						rangeStart = strconv.FormatUint(uint64(uint8(x.IntRange.Start)), 10)
+						rangeEnd = strconv.FormatUint(uint64(uint8(x.IntRange.End)), 10)
+						unsigned = true
+					case qvalue.QValueKindUInt16:
+						rangeStart = strconv.FormatUint(uint64(uint16(x.IntRange.Start)), 10)
+						rangeEnd = strconv.FormatUint(uint64(uint16(x.IntRange.End)), 10)
+						unsigned = true
+					case qvalue.QValueKindUInt32:
+						rangeStart = strconv.FormatUint(uint64(uint32(x.IntRange.Start)), 10)
+						rangeEnd = strconv.FormatUint(uint64(uint32(x.IntRange.End)), 10)
+						unsigned = true
+					case qvalue.QValueKindUInt64:
+						rangeStart = strconv.FormatUint(uint64(x.IntRange.Start), 10)
+						rangeEnd = strconv.FormatUint(uint64(x.IntRange.End), 10)
+						unsigned = true
+					}
+					break
+				}
+			}
+			if !unsigned {
+				rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
+				rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
+			}
 		case *protos.PartitionRange_TimestampRange:
-			rangeStart = x.TimestampRange.Start.AsTime()
-			rangeEnd = x.TimestampRange.End.AsTime()
+			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
+			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 		default:
 			return 0, 0, fmt.Errorf("unknown range type: %v", x)
 		}
 
-		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult, rangeStart, rangeEnd); err != nil {
+		// Build the query to pull records within the range from the source table
+		// Be sure to order the results by the watermark column to ensure consistency across pulls
+		query, err := BuildQuery(c.logger, config.Query, rangeStart, rangeEnd)
+		if err != nil {
+			return 0, 0, err
+		}
+
+		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
 			return 0, 0, err
 		}
 	}
@@ -252,15 +284,15 @@ func (c *MySqlConnector) PullQRepRecords(
 	return totalRecords, totalBytes, nil
 }
 
-func BuildQuery(logger log.Logger, query string) (string, error) {
+func BuildQuery(logger log.Logger, query string, start string, end string) (string, error) {
 	tmpl, err := template.New("query").Parse(query)
 	if err != nil {
 		return "", err
 	}
 
 	data := map[string]any{
-		"start": "$1",
-		"end":   "$2",
+		"start": start,
+		"end":   end,
 	}
 
 	buf := new(bytes.Buffer)

@@ -485,7 +485,6 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error
 		a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 	}
 	errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(otel_metrics.FlowNameKey, flowName),
 		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
 		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
 		attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),

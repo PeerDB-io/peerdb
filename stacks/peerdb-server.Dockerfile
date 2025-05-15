@@ -1,6 +1,6 @@
-# syntax=docker/dockerfile:1@sha256:4c68376a702446fc3c79af22de146a148bc3367e73c25a5803d453b6b3f722fb
+# syntax=docker/dockerfile:1@sha256:9857836c9ee4268391bb5b09f9f157f3c91bb15821bb77969642813b0d00518d
 
-FROM lukemathwalker/cargo-chef:latest-rust-alpine@sha256:ab0e4190d1c1df7dde6446248405d9fe1c35bd583f029c57e57b9c0cd8fd5cca AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-alpine@sha256:95ef7eeecab233aa0479daaa2d2c76e8f9a19890d5fc0e62b75c73fbe4840205 AS chef
 
 WORKDIR /root
 
