@@ -193,8 +193,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 	if !c.config.DisableTls {
 		var err error
 		tlsConfig, err = shared.CreateTlsConfig(
-			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost,
-			c.config.SkipCertVerification != nil && *c.config.SkipCertVerification,
+			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
 		)
 		if err != nil {
 			return nil, err
