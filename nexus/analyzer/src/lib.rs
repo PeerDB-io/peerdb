@@ -991,8 +991,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 .unwrap_or_default(),
             skip_cert_verification: opts
                 .get("skip_cert_verification")
-                .and_then(|s| s.parse::<bool>().ok())
-                .unwrap_or_default(),
+                .and_then(|s| s.parse::<bool>().ok()),
             flavor: match opts.get("flavor") {
                 Some(&"mysql") => MySqlFlavor::MysqlMysql,
                 Some(&"maria") | Some(&"mariadb") => MySqlFlavor::MysqlMaria,
