@@ -81,8 +81,56 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	req *model.SyncRecordsRequest[model.RecordItems],
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
+	preprocessItems := func(items model.RecordItems) model.RecordItems {
+		newItems := model.NewRecordItems(items.Len())
+		for col, val := range items.ColToVal {
+			var newVal qvalue.QValue
+			if numeric, ok := val.(qvalue.QValueNumeric); ok {
+				d := numeric.Val
+				// TODO: truncation logic goes here
+				newVal = qvalue.QValueNumeric{Val: d}
+			} else {
+				newVal = val
+			}
+			newItems.ColToVal[col] = newVal
+		}
+		return newItems
+	}
+
+	preprocessedRecords := make(chan model.Record[model.RecordItems], 128)
+	go func() {
+		defer close(preprocessedRecords)
+		for record := range req.Records.GetRecords() {
+			var preprocessedRecord model.Record[model.RecordItems]
+			switch r := record.(type) {
+			case *model.InsertRecord[model.RecordItems]:
+				preprocessedItems := preprocessItems(r.Items)
+				preprocessedRecord = &model.InsertRecord[model.RecordItems]{
+					Items:                preprocessedItems,
+					SourceTableName:      r.SourceTableName,
+					DestinationTableName: r.DestinationTableName,
+					CommitID:             r.CommitID,
+					BaseRecord:           r.BaseRecord,
+				}
+			case *model.UpdateRecord[model.RecordItems]:
+				preprocessedItems := preprocessItems(r.NewItems)
+				preprocessedRecord = &model.UpdateRecord[model.RecordItems]{
+					OldItems:              r.OldItems,
+					NewItems:              preprocessedItems,
+					UnchangedToastColumns: r.UnchangedToastColumns,
+					SourceTableName:       r.SourceTableName,
+					DestinationTableName:  r.DestinationTableName,
+					BaseRecord:            r.BaseRecord,
+				}
+			default:
+				preprocessedRecord = record
+			}
+			preprocessedRecords <- preprocessedRecord
+		}
+	}()
+
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
+	streamReq := model.NewRecordsToStreamRequest(preprocessedRecords, tableNameRowsMapping, syncBatchID)
 	stream, err := utils.RecordsToRawTableStream(streamReq)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
