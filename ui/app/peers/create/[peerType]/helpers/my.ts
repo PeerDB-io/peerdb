@@ -61,6 +61,14 @@ export const mysqlSetting: PeerSetting[] = [
     optional: true,
   },
   {
+    label: 'Skip certificate verification',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, skipCertVerification: value as boolean })),
+    type: 'switch',
+    tips: "Bypass verification when using MySQL's default self-signed certificates.",
+    optional: true,
+  },
+  {
     label: 'Flavor',
     field: 'flavor',
     type: 'select',
@@ -242,4 +250,5 @@ export const blankMySqlSetting: MySqlConfig = {
     authType: AwsIAMAuthConfigType.IAM_AUTH_AUTOMATIC,
   },
   tlsHost: '',
+  skipCertVerification: false,
 };
