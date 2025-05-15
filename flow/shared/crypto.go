@@ -149,7 +149,7 @@ func verifyPeerCertificateWithoutHostname(rootCAs *x509.CertPool) func(certifica
 	}
 }
 
-func CreateTlsConfig(minVersion uint16, rootCAs *string, host string, tlsHost string, verifyWithoutHostname bool) (*tls.Config, error) {
+func CreateTlsConfig(minVersion uint16, rootCAs *string, host string, tlsHost string, skipCertVerification bool) (*tls.Config, error) {
 	//nolint:gosec
 	config := &tls.Config{MinVersion: minVersion}
 	if rootCAs != nil {
@@ -159,15 +159,15 @@ func CreateTlsConfig(minVersion uint16, rootCAs *string, host string, tlsHost st
 		}
 		config.RootCAs = caPool
 	}
-	if tlsHost != "" {
+	if skipCertVerification {
+		config.InsecureSkipVerify = true
+	} else if tlsHost != "" {
 		config.ServerName = tlsHost
 	} else if net.ParseIP(host) == nil {
 		config.ServerName = host
 	} else {
 		config.InsecureSkipVerify = true
-		if rootCAs != nil || verifyWithoutHostname {
-			config.VerifyPeerCertificate = verifyPeerCertificateWithoutHostname(config.RootCAs)
-		}
+		config.VerifyPeerCertificate = verifyPeerCertificateWithoutHostname(config.RootCAs)
 	}
 	return config, nil
 }
