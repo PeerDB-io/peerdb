@@ -65,7 +65,7 @@ export const mysqlSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, skipCertVerification: value as boolean })),
     type: 'switch',
-    tips: 'Bypass verification when using MySQL\'s default self-signed certificates.',
+    tips: "Bypass verification when using MySQL's default self-signed certificates.",
     optional: true,
   },
   {
