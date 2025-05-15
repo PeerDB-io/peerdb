@@ -32,9 +32,9 @@ x-flow-worker-env: &flow-worker-env
   AWS_REGION: ${AWS_REGION:-}
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
-  # enables worker profiling using Grafana Pyroscope
+  # enables worker profiling using Go's pprof
   ENABLE_PROFILING: "true"
-  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+  PPROF_PORT: "6060"
 
 services:
   catalog:
@@ -80,12 +80,6 @@ services:
       - ./volumes/temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
       kompose.volume.type: configMap
-
-  pyroscope:
-    container_name: pyroscope
-    image: grafana/pyroscope:latest@sha256:525f05913f8cb1b2458c898b128e88c0101551ff32550bf4918755b0c57820f7
-    ports:
-      - 4040:4040
 
   temporal-admin-tools:
     container_name: temporal-admin-tools

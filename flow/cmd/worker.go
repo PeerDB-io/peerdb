@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net/http"
+	_ "net/http/pprof" // Import pprof
 	"os"
 	"runtime"
 
-	"github.com/grafana/pyroscope-go"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
@@ -26,13 +27,13 @@ import (
 
 type WorkerSetupOptions struct {
 	TemporalHostPort                   string
-	PyroscopeServer                    string
 	TemporalNamespace                  string
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
 	EnableProfiling                    bool
 	EnableOtelMetrics                  bool
 	UseMaintenanceTaskQueue            bool
+	PprofPort                          string // Port for pprof HTTP server
 }
 
 type WorkerSetupResponse struct {
@@ -49,50 +50,30 @@ func (w *WorkerSetupResponse) Close(ctx context.Context) {
 	}
 }
 
-func setupPyroscope(opts *WorkerSetupOptions) {
-	if opts.PyroscopeServer == "" {
-		log.Fatal("pyroscope server address is not set but profiling is enabled")
+func setupPprof(opts *WorkerSetupOptions) {
+	// Set default pprof port if not specified
+	pprofPort := opts.PprofPort
+	if pprofPort == "" {
+		pprofPort = "6060"
 	}
 
-	// measure contention
+	// Enable mutex and block profiling
 	runtime.SetMutexProfileFraction(5)
 	runtime.SetBlockProfileRate(5)
 
-	_, err := pyroscope.Start(pyroscope.Config{
-		ApplicationName: "io.peerdb.flow_worker",
-
-		ServerAddress: opts.PyroscopeServer,
-
-		// you can disable logging by setting this to nil
-		Logger: nil,
-
-		// you can provide static tags via a map:
-		Tags: map[string]string{"hostname": os.Getenv("HOSTNAME")},
-
-		ProfileTypes: []pyroscope.ProfileType{
-			// these profile types are enabled by default:
-			pyroscope.ProfileCPU,
-			pyroscope.ProfileAllocObjects,
-			pyroscope.ProfileAllocSpace,
-			pyroscope.ProfileInuseObjects,
-			pyroscope.ProfileInuseSpace,
-
-			// these profile types are optional:
-			pyroscope.ProfileGoroutines,
-			pyroscope.ProfileMutexCount,
-			pyroscope.ProfileMutexDuration,
-			pyroscope.ProfileBlockCount,
-			pyroscope.ProfileBlockDuration,
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+	// Start HTTP server with pprof endpoints
+	go func() {
+		pprofAddr := fmt.Sprintf("localhost:%s", pprofPort)
+		slog.Info(fmt.Sprintf("Starting pprof HTTP server on %s", pprofAddr))
+		if err := http.ListenAndServe(pprofAddr, nil); err != nil {
+			log.Fatal(fmt.Sprintf("Failed to start pprof HTTP server: %v", err))
+		}
+	}()
 }
 
 func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 	if opts.EnableProfiling {
-		setupPyroscope(opts)
+		setupPprof(opts)
 	}
 
 	clientOptions := client.Options{

@@ -42,11 +42,11 @@ func main() {
 		Sources: cli.EnvVars("ENABLE_OTEL_METRICS"),
 	}
 
-	pyroscopeServerFlag := &cli.StringFlag{
-		Name:    "pyroscope-server-address",
-		Value:   "http://pyroscope:4040",
-		Usage:   "HTTP server address for pyroscope",
-		Sources: cli.EnvVars("PYROSCOPE_SERVER_ADDRESS"),
+	pprofPortFlag := &cli.StringFlag{
+		Name:    "pprof-port",
+		Value:   "6060",
+		Usage:   "Port for pprof HTTP server",
+		Sources: cli.EnvVars("PPROF_PORT"),
 	}
 
 	temporalNamespaceFlag := &cli.StringFlag{
@@ -142,11 +142,11 @@ func main() {
 						TemporalHostPort:                   temporalHostPort,
 						EnableProfiling:                    clicmd.Bool("enable-profiling"),
 						EnableOtelMetrics:                  clicmd.Bool("enable-otel-metrics"),
-						PyroscopeServer:                    clicmd.String("pyroscope-server-address"),
 						TemporalNamespace:                  clicmd.String("temporal-namespace"),
 						TemporalMaxConcurrentActivities:    clicmd.Int("temporal-max-concurrent-activities"),
 						TemporalMaxConcurrentWorkflowTasks: clicmd.Int("temporal-max-concurrent-workflow-tasks"),
 						UseMaintenanceTaskQueue:            clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
+						PprofPort:                          clicmd.String("pprof-port"),
 					})
 					if err != nil {
 						return err
@@ -158,7 +158,7 @@ func main() {
 					temporalHostPortFlag,
 					profilingFlag,
 					otelMetricsFlag,
-					pyroscopeServerFlag,
+					pprofPortFlag,
 					temporalNamespaceFlag,
 					temporalMaxConcurrentActivitiesFlag,
 					temporalMaxConcurrentWorkflowTasksFlag,
