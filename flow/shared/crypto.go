@@ -165,7 +165,7 @@ func CreateTlsConfig(minVersion uint16, rootCAs *string, host string, tlsHost st
 		config.ServerName = host
 	} else {
 		config.InsecureSkipVerify = true
-		if verifyWithoutHostname {
+		if rootCAs != nil || verifyWithoutHostname {
 			config.VerifyPeerCertificate = verifyPeerCertificateWithoutHostname(config.RootCAs)
 		}
 	}
