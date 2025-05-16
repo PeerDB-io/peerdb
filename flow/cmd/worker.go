@@ -62,7 +62,7 @@ func setupPprof(opts *WorkerSetupOptions) {
 
 	// Start HTTP server with pprof endpoints
 	go func() {
-		pprofAddr := fmt.Sprintf("localhost:%d", pprofPort)
+		pprofAddr := fmt.Sprintf(":%d", pprofPort)
 		slog.Info("Starting pprof HTTP server on " + pprofAddr)
 		server := &http.Server{
 			Addr:         pprofAddr,
