@@ -141,7 +141,8 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 
 func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 	err := &clickhouse.Exception{
-		Code:    int32(chproto.ErrCannotConvertType),
+		Code: int32(chproto.ErrCannotConvertType),
+		//nolint:lll
 		Message: "Conversion from AggregateFunction(argMax, DateTime64(9), DateTime64(9)) to AggregateFunction(argMax, Nullable(DateTime64(9)), DateTime64(9)) is not supported: while converting source column created_at to destination column created_at: while pushing to view db_name.hello_mv (62d92029-a3c0-448e-aab6-a6b6f7216b20)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", err)))
