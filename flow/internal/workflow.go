@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/client"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -33,6 +34,11 @@ func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
 	err := pool.QueryRow(ctx, "SELECT status FROM flows WHERE workflow_id = $1", workflowID).Scan(&flowStatus)
 	if err != nil || flowStatus == protos.FlowStatus_STATUS_UNKNOWN {
 		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				slog.Warn("workflowId not found in catalog, will raise an error",
+					slog.String("workflowId", workflowID))
+				return protos.FlowStatus_STATUS_UNKNOWN, fmt.Errorf("workflowId not found in catalog: %w", err)
+			}
 			slog.Error("failed to get status for flow from catalog, will fall back to temporal",
 				slog.Any("error", err),
 				slog.String("flowID", workflowID))
