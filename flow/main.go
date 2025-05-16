@@ -42,9 +42,9 @@ func main() {
 		Sources: cli.EnvVars("ENABLE_OTEL_METRICS"),
 	}
 
-	pprofPortFlag := &cli.StringFlag{
+	pprofPortFlag := &cli.IntFlag{
 		Name:    "pprof-port",
-		Value:   "6060",
+		Value:   6060,
 		Usage:   "Port for pprof HTTP server",
 		Sources: cli.EnvVars("PPROF_PORT"),
 	}
@@ -146,7 +146,7 @@ func main() {
 						TemporalMaxConcurrentActivities:    clicmd.Int("temporal-max-concurrent-activities"),
 						TemporalMaxConcurrentWorkflowTasks: clicmd.Int("temporal-max-concurrent-workflow-tasks"),
 						UseMaintenanceTaskQueue:            clicmd.Bool(useMaintenanceTaskQueueFlag.Name),
-						PprofPort:                          clicmd.String("pprof-port"),
+						PprofPort:                          clicmd.Int(pprofPortFlag.Name),
 					})
 					if err != nil {
 						return err

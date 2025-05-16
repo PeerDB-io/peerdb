@@ -7,9 +7,11 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
-	_ "net/http/pprof" // Import pprof
+	//nolint:gosec
+	_ "net/http/pprof"
 	"os"
 	"runtime"
+	"time"
 
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
@@ -33,7 +35,7 @@ type WorkerSetupOptions struct {
 	EnableProfiling                    bool
 	EnableOtelMetrics                  bool
 	UseMaintenanceTaskQueue            bool
-	PprofPort                          string // Port for pprof HTTP server
+	PprofPort                          int // Port for pprof HTTP server
 }
 
 type WorkerSetupResponse struct {
@@ -53,9 +55,6 @@ func (w *WorkerSetupResponse) Close(ctx context.Context) {
 func setupPprof(opts *WorkerSetupOptions) {
 	// Set default pprof port if not specified
 	pprofPort := opts.PprofPort
-	if pprofPort == "" {
-		pprofPort = "6060"
-	}
 
 	// Enable mutex and block profiling
 	runtime.SetMutexProfileFraction(5)
@@ -63,10 +62,16 @@ func setupPprof(opts *WorkerSetupOptions) {
 
 	// Start HTTP server with pprof endpoints
 	go func() {
-		pprofAddr := fmt.Sprintf("localhost:%s", pprofPort)
-		slog.Info(fmt.Sprintf("Starting pprof HTTP server on %s", pprofAddr))
-		if err := http.ListenAndServe(pprofAddr, nil); err != nil {
-			log.Fatal(fmt.Sprintf("Failed to start pprof HTTP server: %v", err))
+		pprofAddr := fmt.Sprintf("localhost:%d", pprofPort)
+		slog.Info("Starting pprof HTTP server on " + pprofAddr)
+		server := &http.Server{
+			Addr:         pprofAddr,
+			ReadTimeout:  1 * time.Minute,
+			WriteTimeout: 11 * time.Minute,
+		}
+
+		if err := server.ListenAndServe(); err != nil {
+			log.Fatalf("Failed to start pprof HTTP server: %v", err)
 		}
 	}()
 }
