@@ -2,7 +2,7 @@
 set -Eeu
 
 DOCKER="docker"
-EXTRA_ARGS="--no-attach temporal --no-attach pyroscope --no-attach temporal-ui"
+EXTRA_ARGS="--no-attach temporal --no-attach temporal-ui"
 PODMAN_ARGS=""
 
 if test -n "${USE_PODMAN:=}"
