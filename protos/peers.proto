@@ -200,6 +200,7 @@ message MySqlConfig {
   optional string root_ca = 14 [(peerdb_redacted) = true];
   MySqlAuthType auth_type = 15;
   optional AwsAuthenticationConfig aws_auth = 16;
+  bool skip_cert_verification = 17;
 }
 
 message KafkaConfig {
