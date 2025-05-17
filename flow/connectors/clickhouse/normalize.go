@@ -52,10 +52,10 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 ) (bool, error) {
 	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
 	if err != nil {
-		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
+		return false, fmt.Errorf("error occurred while checking if destination ClickHouse table exists: %w", err)
 	}
 	if tableAlreadyExists && !config.IsResync {
-		c.logger.Info("[ch] normalized table already exists, skipping", "table", tableIdentifier)
+		c.logger.Info("[ch] destination ClickHouse table already exists, skipping", "table", tableIdentifier)
 		return true, nil
 	}
 
@@ -66,11 +66,11 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		tableSchema,
 	)
 	if err != nil {
-		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
+		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
 	}
 
 	if err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
-		return false, fmt.Errorf("[ch] error while creating normalized table: %w", err)
+		return false, fmt.Errorf("[ch] error while creating destination ClickHouse table: %w", err)
 	}
 	return false, nil
 }
@@ -296,7 +296,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
-	c.logger.Info("[clickhouse] normalizing batch",
+	c.logger.Info("[clickhouse-cdc] inserting batch...",
 		slog.Int64("StartBatchID", normBatchID),
 		slog.Int64("EndBatchID", req.SyncBatchID),
 		slog.Int("connections", parallelNormalize))
@@ -310,7 +310,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	// This is for cases where currently normalizing can take a looooong time
 	// there is no other indication of progress, so we log every 5 minutes.
 	periodicLogger := shared.Interval(ctx, 5*time.Minute, func() {
-		c.logger.Info("[clickhouse] normalizing batch...",
+		c.logger.Info("[clickhouse-cdc] inserting batch...",
 			slog.Int64("StartBatchID", normBatchID),
 			slog.Int64("EndBatchID", req.SyncBatchID),
 			slog.Int("connections", parallelNormalize))
@@ -338,14 +338,14 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}
 
 			for insertIntoSelectQuery := range queries {
-				c.logger.Info("executing normalize query",
+				c.logger.Info("executing INSERT command to ClickHouse table",
 					slog.Int64("syncBatchId", req.SyncBatchID),
 					slog.Int64("normalizeBatchId", normBatchID),
-					slog.String("table", insertIntoSelectQuery.tableName),
+					slog.String("destinationTable", insertIntoSelectQuery.tableName),
 					slog.String("query", insertIntoSelectQuery.query))
 
 				if err := c.execWithConnection(ctx, chConn, insertIntoSelectQuery.query); err != nil {
-					return fmt.Errorf("error while inserting into normalized table %s: %w", insertIntoSelectQuery.tableName, err)
+					return fmt.Errorf("error while inserting into destination ClickHouse table %s: %w", insertIntoSelectQuery.tableName, err)
 				}
 			}
 			return nil
@@ -354,7 +354,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	for _, tbl := range destinationTableNames {
 		for numPart := range numParts {
-			// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
 			selectQuery := strings.Builder{}
 			selectQuery.WriteString("SELECT ")
 
@@ -559,7 +558,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}:
 			case <-errCtx.Done():
 				close(queries)
-				c.logger.Error("[clickhouse] context canceled while normalizing",
+				c.logger.Error("[clickhouse] context canceled while inserting data to ClickHouse",
 					slog.Any("error", errCtx.Err()),
 					slog.Any("cause", context.Cause(errCtx)))
 				return model.NormalizeResponse{}, context.Cause(errCtx)
