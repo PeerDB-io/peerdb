@@ -600,12 +600,12 @@ func CDCFlowWorkflow(
 
 	var finished bool
 	var finishedError bool
-	syncCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+	syncCtx, cancelSync := workflow.WithCancel(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 365 * 24 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 		WaitForCancellation: true,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
-	})
+	}))
 	syncFlowFuture := workflow.ExecuteActivity(syncCtx, flowable.SyncFlow, cfg, state.SyncFlowOptions)
 
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
@@ -614,6 +614,11 @@ func CDCFlowWorkflow(
 	})
 	mainLoopSelector.AddFuture(syncFlowFuture, func(f workflow.Future) {
 		if err := f.Get(ctx, nil); err != nil {
+			if finished || err == workflow.ErrCanceled {
+				logger.Error("error in sync flow, but cdc finished", slog.Any("error", err))
+				return
+			}
+
 			now := workflow.Now(ctx)
 			if state.LastError.Add(24 * time.Hour).Before(now) {
 				state.ErrorCount = 0
@@ -704,6 +709,10 @@ func CDCFlowWorkflow(
 		}
 
 		if finished {
+			// wait on sync flow before draining selector
+			cancelSync()
+			_ = syncFlowFuture.Get(ctx, nil)
+
 			for ctx.Err() == nil && mainLoopSelector.HasPending() {
 				mainLoopSelector.Select(ctx)
 			}
