@@ -222,11 +222,6 @@ func (c *ClickHouseConnector) RenameTables(
 }
 
 func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	if err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName); err != nil {
-		return fmt.Errorf("[clickhouse] unable to clear metadata for sync flow cleanup: %w", err)
-	}
-	c.logger.Info("successfully cleared metadata for flow " + jobName)
-
 	// delete raw table if exists
 	rawTableIdentifier := c.getRawTableName(jobName)
 	if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier)); err != nil {

@@ -737,15 +737,10 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 }
 
 func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
-	if err != nil {
-		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
-	}
-
 	dataset := c.client.DatasetInProject(c.projectID, c.datasetID)
 	rawTableHandle := dataset.Table(c.getRawTableName(jobName))
 	// check if exists, then delete
-	_, err = rawTableHandle.Metadata(ctx)
+	_, err := rawTableHandle.Metadata(ctx)
 	if err == nil {
 		c.logger.Info("deleting raw table", slog.String("table", rawTableHandle.FullyQualifiedName()))
 		deleteErr := rawTableHandle.Delete(ctx)

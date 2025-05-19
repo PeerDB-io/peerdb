@@ -1192,7 +1192,7 @@ func (a *FlowableActivity) RemoveTablesFromCatalog(
 	return err
 }
 
-func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowName string) error {
+func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(ctx context.Context, flowName string) error {
 	logger := log.With(internal.LoggerFromCtx(ctx),
 		slog.String(string(shared.FlowNameKey), flowName))
 	tx, err := a.CatalogPool.Begin(ctx)
@@ -1214,6 +1214,10 @@ func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowN
 	} else {
 		logger.Info("flow entries removed from catalog",
 			slog.Int("rowsAffected", int(ct.RowsAffected())))
+	}
+
+	if _, err := tx.Exec(ctx, connmetadata.GetSyncFlowCleanupQuery(), flowName); err != nil {
+		return fmt.Errorf("[snowflake drop mirror] unable to clear metadata for sync flow cleanup: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

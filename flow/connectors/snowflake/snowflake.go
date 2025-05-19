@@ -615,14 +615,10 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 
 func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	ctx = c.withMirrorNameQueryTag(ctx, jobName)
-	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
-	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to clear metadata for sync flow cleanup: %w", err)
-	}
 
 	// delete raw table if exists
 	rawTableIdentifier := getRawTableIdentifier(jobName)
-	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier))
+	_, err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier))
 	if err != nil {
 		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
 	}
