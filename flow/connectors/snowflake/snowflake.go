@@ -618,13 +618,10 @@ func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string
 
 	// delete raw table if exists
 	rawTableIdentifier := getRawTableIdentifier(jobName)
-	_, err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier))
-	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
+	if _, err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier)); err != nil {
+		return fmt.Errorf("[snowflake] unable to drop raw table: %w", err)
 	}
-
-	err = c.dropStage(ctx, "", jobName)
-	if err != nil {
+	if err := c.dropStage(ctx, "", jobName); err != nil {
 		return err
 	}
 

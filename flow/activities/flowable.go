@@ -1197,7 +1197,7 @@ func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(ctx context.Context, flo
 		slog.String(string(shared.FlowNameKey), flowName))
 	tx, err := a.CatalogPool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction to remove flow entries from catalog: %w", err)
+		return fmt.Errorf("failed to begin transaction to remove flow details from catalog: %w", err)
 	}
 	defer shared.RollbackTx(tx, logger)
 
@@ -1221,7 +1221,7 @@ func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(ctx context.Context, flo
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction to remove flow entries from catalog: %w", err)
+		return fmt.Errorf("failed to commit transaction to remove flow details from catalog: %w", err)
 	}
 
 	return nil
