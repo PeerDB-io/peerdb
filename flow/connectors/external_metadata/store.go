@@ -215,10 +215,14 @@ func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *proto
 	return exists, nil
 }
 
+func GetSyncFlowCleanupQuery() string {
+	return fmt.Sprintf(`
+		DELETE FROM %s WHERE job_name = $1
+	`, lastSyncStateTableName)
+}
+
 func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	if _, err := p.pool.Exec(ctx,
-		`DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName,
-	); err != nil {
+	if _, err := p.pool.Exec(ctx, GetSyncFlowCleanupQuery(), jobName); err != nil {
 		return err
 	}
 

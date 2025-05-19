@@ -208,9 +208,9 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 			},
 		})
 		if err := workflow.ExecuteActivity(
-			removeFlowEntriesCtx, flowable.RemoveFlowEntryFromCatalog, input.FlowJobName,
+			removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, input.FlowJobName,
 		).Get(ctx, nil); err != nil {
-			workflow.GetLogger(ctx).Error("failed to remove flow entries from catalog", slog.Any("error", err))
+			workflow.GetLogger(ctx).Error("failed to remove flow details from catalog", slog.Any("error", err))
 			return err
 		}
 	}

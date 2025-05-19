@@ -114,12 +114,6 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to setup metadata tables: %w", err))
 	}
 
-	// this should have been done by DropFlowDestination
-	// but edge case due to late context cancellation
-	if err := dstConn.SyncFlowCleanup(ctx, config.FlowName); err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to clean up destination before mirror setup: %w", err))
-	}
-
 	return nil
 }
 
@@ -1192,12 +1186,12 @@ func (a *FlowableActivity) RemoveTablesFromCatalog(
 	return err
 }
 
-func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowName string) error {
+func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(ctx context.Context, flowName string) error {
 	logger := log.With(internal.LoggerFromCtx(ctx),
 		slog.String(string(shared.FlowNameKey), flowName))
 	tx, err := a.CatalogPool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction to remove flow entries from catalog: %w", err)
+		return fmt.Errorf("failed to begin transaction to remove flow details from catalog: %w", err)
 	}
 	defer shared.RollbackTx(tx, logger)
 
@@ -1216,8 +1210,12 @@ func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowN
 			slog.Int("rowsAffected", int(ct.RowsAffected())))
 	}
 
+	if _, err := tx.Exec(ctx, connmetadata.GetSyncFlowCleanupQuery(), flowName); err != nil {
+		return fmt.Errorf("unable to clear metadata for flow cleanup: %w", err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction to remove flow entries from catalog: %w", err)
+		return fmt.Errorf("failed to commit transaction to remove flow details from catalog: %w", err)
 	}
 
 	return nil
