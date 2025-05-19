@@ -257,6 +257,7 @@ func processTableRemovals(
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
+		WaitForCancellation: true,
 	})
 	alterPublicationRemovedTablesFuture := workflow.ExecuteActivity(
 		removeTablesCtx,
