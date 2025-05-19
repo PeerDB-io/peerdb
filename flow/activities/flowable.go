@@ -94,7 +94,9 @@ func (a *FlowableActivity) CheckMetadataTables(
 
 	// this should have been done by DropFlowDestination
 	// but edge case due to late context cancellation
-	if err := conn.SyncFlowCleanup(ctx, config.FlowName); err != nil {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowName))
+	metadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+	if err := metadata.SyncFlowCleanup(ctx, config.FlowName); err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to clean up destination before mirror setup: %w", err))
 	}
 

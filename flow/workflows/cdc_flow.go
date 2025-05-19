@@ -212,7 +212,6 @@ func processTableAdditions(
 	additionalTablesUUID := GetUUID(ctx)
 	childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
 	additionalTablesCfg := proto.CloneOf(cfg)
-	additionalTablesCfg.FlowJobName = fmt.Sprintf("%s-%s", cfg.FlowJobName, additionalTablesUUID)
 	additionalTablesCfg.DoInitialSnapshot = true
 	additionalTablesCfg.InitialSnapshotOnly = true
 	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
