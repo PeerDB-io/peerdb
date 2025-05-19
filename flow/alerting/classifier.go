@@ -370,12 +370,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 					slog.Error("regexp compilation error while checking for err", "err", reErr, "original_err", err)
 					return ErrorOther, chErrorInfo
 				}
+				// Select query from destination table in QRepSync errors = MV error
 				if unexpectedSelectRe.MatchString(chException.Message) {
-					// Select query from destination table in QRepSync = MV error
 					return ErrorNotifyMVOrView, chErrorInfo
 				}
-				return ErrorOther, chErrorInfo
+			} else if isClickHouseMvError(chException) {
+				return ErrorNotifyMVOrView, chErrorInfo
 			}
+			return ErrorOther, chErrorInfo
 		case chproto.ErrQueryWasCancelled:
 			return ErrorRetryRecoverable, chErrorInfo
 		default:
