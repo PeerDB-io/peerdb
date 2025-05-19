@@ -431,7 +431,13 @@ func (s Suite) TestDropCompleted() {
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, time.Minute, "drop", func() bool {
+	e2e.EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
+		var workflowID string
+		return s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
+		).Scan(&workflowID) == pgx.ErrNoRows
+	})
+	e2e.EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
 		var workflowID string
 		return s.pg.PostgresConnector.Conn().QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
