@@ -609,13 +609,17 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	ctx = c.withMirrorNameQueryTag(ctx, jobName)
 
-	// delete raw table if exists
-	rawTableIdentifier := getRawTableIdentifier(jobName)
-	if _, err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier)); err != nil {
-		return fmt.Errorf("[snowflake] unable to drop raw table: %w", err)
-	}
-	if err := c.dropStage(ctx, "", jobName); err != nil {
-		return err
+	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
+		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
+	} else if schemaExists {
+		// delete raw table if exists
+		rawTableIdentifier := getRawTableIdentifier(jobName)
+		if _, err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier)); err != nil {
+			return fmt.Errorf("[snowflake] unable to drop raw table: %w", err)
+		}
+		if err := c.dropStage(ctx, "", jobName); err != nil {
+			return err
+		}
 	}
 
 	return nil
