@@ -320,7 +320,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	numParts = max(numParts, 1)
 
 	queries := make(chan NormalizeInsertQuery)
-	rawTbl := c.getRawTableName(req.FlowJobName)
+	rawTbl := c.GetRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
 	for i := range parallelNormalize {
@@ -588,7 +588,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	normalizeBatchID int64,
 	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
-	rawTbl := c.getRawTableName(flowJobName)
+	rawTbl := c.GetRawTableName(flowJobName)
 
 	q := fmt.Sprintf(
 		"SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",

@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -93,23 +94,6 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
-	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
-		conn := pgconn.Conn()
-		_, err := conn.Exec(s.t.Context(),
-			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-			 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
-		require.NoError(s.t, err)
-
-		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
-			rows, err := conn.Query(s.t.Context(),
-				`SELECT pid FROM pg_stat_activity
-				WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
-			require.NoError(s.t, err)
-			defer rows.Close()
-			return !rows.Next()
-		})
-	}
-
 	runID := e2e.EnvGetRunID(s.t, env)
 	e2e.SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		AdditionalTables: []*protos.TableMapping{
@@ -132,24 +116,6 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing again for removing table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
-
-	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
-		conn := pgconn.Conn()
-		_, err := conn.Exec(s.t.Context(),
-			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-			 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
-		require.NoError(s.t, err)
-
-		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
-			rows, err := conn.Query(s.t.Context(),
-				`SELECT pid FROM pg_stat_activity
-				WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
-			require.NoError(s.t, err)
-			defer rows.Close()
-			return !rows.Next()
-		})
-	}
-
 	e2e.SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		RemovedTables: []*protos.TableMapping{
 			{
@@ -159,9 +125,32 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 		},
 	})
 
-	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "removing table", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "removed table entries deleted from raw table", func() bool {
+		// query the raw table in ClickHouse
+		row := s.Conn().QueryRow(s.t.Context(), fmt.Sprintf(`
+		SELECT count(*) FROM %s 
+		WHERE _peerdb_destination_table_name = %s
+		AND _peerdb_batch_id > 0 AND _peerdb_batch_id <= 2`,
+			s.connector.GetRawTableName(flowConnConfig.FlowJobName),
+			peerdb_clickhouse.QuoteLiteral(dstTableName), // the table we removed
+		))
+		var count int
+		require.NoError(s.t, row.Scan(&count))
+		return count == 0
 	})
+
+	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
+		conn := pgconn.Conn()
+		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to start again", func() bool {
+			row := conn.QueryRow(s.t.Context(),
+				`SELECT count(*) FROM pg_stat_activity
+				WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+			var count int
+			require.NoError(s.t, row.Scan(&count))
+			return count > 0
+		})
+	}
+
 	afterRemoveRunID := e2e.EnvGetRunID(s.t, env)
 	require.NotEqual(s.t, runID, afterRemoveRunID)
 
