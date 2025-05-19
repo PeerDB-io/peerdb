@@ -1258,9 +1258,12 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
 
-	mirrorJobsTableExists, err := c.jobMetadataExists(ctx, jobName)
+	mirrorJobsTableExists, err := c.tableExists(ctx, &utils.SchemaTable{
+		Schema: c.metadataSchema,
+		Table:  mirrorJobsTableIdentifier,
+	})
 	if err != nil {
-		return fmt.Errorf("unable to check if job metadata exists: %w", err)
+		return fmt.Errorf("unable to check if job metadata table exists: %w", err)
 	}
 	if mirrorJobsTableExists {
 		if _, err := syncFlowCleanupTx.Exec(ctx,
