@@ -92,6 +92,12 @@ func (a *FlowableActivity) CheckMetadataTables(
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
+	// this should have been done by DropFlowDestination
+	// but edge case due to late context cancellation
+	if err := conn.SyncFlowCleanup(ctx, config.FlowName); err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to clean up destination before mirror setup: %w", err))
+	}
+
 	needsSetup, err := conn.NeedsSetupMetadataTables(ctx)
 	if err != nil {
 		return nil, err
@@ -112,12 +118,6 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 
 	if err := dstConn.SetupMetadataTables(ctx); err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to setup metadata tables: %w", err))
-	}
-
-	// this should have been done by DropFlowDestination
-	// but edge case due to late context cancellation
-	if err := dstConn.SyncFlowCleanup(ctx, config.FlowName); err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to clean up destination before mirror setup: %w", err))
 	}
 
 	return nil
