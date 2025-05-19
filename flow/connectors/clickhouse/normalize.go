@@ -159,14 +159,27 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 
 	var engine string
-	if tableMapping == nil {
+	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
+	if tableMapping != nil {
+		tmEngine = tableMapping.Engine
+	}
+	switch tmEngine {
+	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE:
 		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
-	} else if tableMapping.Engine == protos.TableEngine_CH_ENGINE_MERGE_TREE {
+	case protos.TableEngine_CH_ENGINE_MERGE_TREE:
 		engine = "MergeTree()"
-	} else if tableMapping.Engine == protos.TableEngine_CH_ENGINE_NULL {
+	case protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
+		engine = fmt.Sprintf(
+			"ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}','{replica}',%s)",
+			peerdb_clickhouse.QuoteIdentifier(versionColName),
+		)
+	case protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
+		engine = fmt.Sprintf(
+			"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/{table}','{replica}',%s)",
+			peerdb_clickhouse.QuoteIdentifier(versionColName),
+		)
+	case protos.TableEngine_CH_ENGINE_NULL:
 		engine = "Null"
-	} else {
-		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
 	}
 
 	// add sign and version columns
@@ -179,7 +192,7 @@ func generateCreateTableSQLForNormalizedTable(
 		orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
 	}
 
-	if tableMapping == nil || tableMapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
+	if tmEngine != protos.TableEngine_CH_ENGINE_NULL {
 		if len(orderByColumns) > 0 {
 			orderByStr := strings.Join(orderByColumns, ",")
 
