@@ -166,11 +166,12 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 			if err != nil {
 				return 0, err
 			}
-			chunkNum += 1
-			avroFile.NumRecords += subFile.NumRecords
-			if chunkNum == 0 {
+		        if chunkNum == 0 {
 				avroFile.FilePath = strings.TrimSuffix(subFile.FilePath, "000000.avro.zst") + "*.avro.zst"
 			}
+			chunkNum += 1
+			avroFile.NumRecords += subFile.NumRecords
+
 		}
 
 		if err := ctx.Err(); err != nil {
