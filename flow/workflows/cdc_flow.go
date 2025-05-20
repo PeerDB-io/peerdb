@@ -106,19 +106,21 @@ type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
 func syncStateToConfigProtoInCatalog(
 	ctx workflow.Context,
-	logger log.Logger,
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
-) {
+) *protos.FlowConnectionConfigs {
 	cloneCfg := updateFlowConfigWithLatestSettings(cfg, state)
 	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, logger, cloneCfg)
+	logger := workflow.GetLogger(ctx)
+	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, cloneCfg)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
 	}
+
+	return cloneCfg
 }
 
 func processCDCFlowConfigUpdate(
@@ -152,7 +154,7 @@ func processCDCFlowConfigUpdate(
 	tablesAreAdded := len(flowConfigUpdate.AdditionalTables) > 0
 	tablesAreRemoved := len(flowConfigUpdate.RemovedTables) > 0
 	if !tablesAreAdded && !tablesAreRemoved {
-		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		syncStateToConfigProtoInCatalog(ctx, cfg, state)
 		return nil
 	}
 
@@ -172,7 +174,7 @@ func processCDCFlowConfigUpdate(
 		}
 	}
 
-	syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	return nil
 }
 
@@ -185,12 +187,12 @@ func processTableAdditions(
 ) error {
 	flowConfigUpdate := state.FlowConfigUpdate
 	if len(flowConfigUpdate.AdditionalTables) == 0 {
-		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		syncStateToConfigProtoInCatalog(ctx, cfg, state)
 		return nil
 	}
 	if internal.AdditionalTablesHasOverlap(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables) {
 		logger.Warn("duplicate source/destination tables found in additionalTables")
-		syncStateToConfigProtoInCatalog(ctx, logger, cfg, state)
+		syncStateToConfigProtoInCatalog(ctx, cfg, state)
 		return nil
 	}
 	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
@@ -370,7 +372,7 @@ func CDCFlowWorkflow(
 		flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
 			if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 				state.ActiveSignal = model.TerminateSignal
-				dropCfg := updateFlowConfigWithLatestSettings(cfg, state)
+				dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           dropCfg.FlowJobName,
 					FlowConnectionConfigs: dropCfg,
@@ -379,7 +381,7 @@ func CDCFlowWorkflow(
 				}
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
-				resyncCfg := updateFlowConfigWithLatestSettings(cfg, state)
+				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           resyncCfg.FlowJobName,
 					FlowConnectionConfigs: resyncCfg,
@@ -465,7 +467,7 @@ func CDCFlowWorkflow(
 				logger.Warn("pause requested during setup, ignoring")
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 				state.ActiveSignal = model.TerminateSignal
-				dropCfg := updateFlowConfigWithLatestSettings(cfg, state)
+				dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           dropCfg.FlowJobName,
 					FlowConnectionConfigs: dropCfg,
@@ -474,7 +476,7 @@ func CDCFlowWorkflow(
 				}
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
-				resyncCfg := updateFlowConfigWithLatestSettings(cfg, state)
+				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           resyncCfg.FlowJobName,
 					FlowConnectionConfigs: resyncCfg,
@@ -671,7 +673,7 @@ func CDCFlowWorkflow(
 		finished = true
 		if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
 			state.ActiveSignal = model.TerminateSignal
-			dropCfg := updateFlowConfigWithLatestSettings(cfg, state)
+			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 			state.DropFlowInput = &protos.DropFlowInput{
 				FlowJobName:           dropCfg.FlowJobName,
 				FlowConnectionConfigs: dropCfg,
@@ -680,7 +682,7 @@ func CDCFlowWorkflow(
 			}
 		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 			state.ActiveSignal = model.ResyncSignal
-			resyncCfg := updateFlowConfigWithLatestSettings(cfg, state)
+			resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 			state.DropFlowInput = &protos.DropFlowInput{
 				FlowJobName:           resyncCfg.FlowJobName,
 				FlowConnectionConfigs: resyncCfg,
