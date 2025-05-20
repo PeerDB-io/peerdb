@@ -381,6 +381,8 @@ func CDCFlowWorkflow(
 				}
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
+				cfg.Resync = true
+				cfg.DoInitialSnapshot = true
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           resyncCfg.FlowJobName,
@@ -476,6 +478,8 @@ func CDCFlowWorkflow(
 				}
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
+				cfg.Resync = true
+				cfg.DoInitialSnapshot = true
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           resyncCfg.FlowJobName,
@@ -682,6 +686,8 @@ func CDCFlowWorkflow(
 			}
 		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 			state.ActiveSignal = model.ResyncSignal
+			cfg.Resync = true
+			cfg.DoInitialSnapshot = true
 			resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 			state.DropFlowInput = &protos.DropFlowInput{
 				FlowJobName:           resyncCfg.FlowJobName,
