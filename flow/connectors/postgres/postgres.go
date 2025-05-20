@@ -63,7 +63,7 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 	if pgConfig.RequireTls || pgConfig.RootCa != nil {
-		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost)
+		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, false)
 		if err != nil {
 			return nil, err
 		}
@@ -1258,9 +1258,12 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
 
-	mirrorJobsTableExists, err := c.jobMetadataExists(ctx, jobName)
+	mirrorJobsTableExists, err := c.tableExists(ctx, &utils.SchemaTable{
+		Schema: c.metadataSchema,
+		Table:  mirrorJobsTableIdentifier,
+	})
 	if err != nil {
-		return fmt.Errorf("unable to check if job metadata exists: %w", err)
+		return fmt.Errorf("unable to check if job metadata table exists: %w", err)
 	}
 	if mirrorJobsTableExists {
 		if _, err := syncFlowCleanupTx.Exec(ctx,

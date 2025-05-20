@@ -106,8 +106,7 @@ func (p *peerDBOCFWriter) initWriteCloser(w io.Writer) error {
 }
 
 func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error) {
-	err := p.initWriteCloser(w)
-	if err != nil {
+	if err := p.initWriteCloser(w); err != nil {
 		return nil, fmt.Errorf("failed to create compressed writer: %w", err)
 	}
 

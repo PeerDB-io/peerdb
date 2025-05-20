@@ -135,6 +135,7 @@ export const mySchema = z.object({
     .max(100, 'Password must be less than 100 characters'),
   compression: z.number().min(0).max(1),
   disableTls: z.boolean(),
+  skipCertVerification: z.boolean(),
   flavor: z.union([
     z.literal(MySqlFlavor.MYSQL_MYSQL),
     z.literal(MySqlFlavor.MYSQL_MARIA),

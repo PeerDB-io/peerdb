@@ -32,14 +32,14 @@ x-flow-worker-env: &flow-worker-env
   AWS_REGION: ${AWS_REGION:-}
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
-  # enables worker profiling using Grafana Pyroscope
+  # enables worker profiling using Go's pprof
   ENABLE_PROFILING: "true"
-  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+  PPROF_PORT: "6060"
 
 services:
   catalog:
     container_name: catalog
-    image: postgres:17-alpine@sha256:7062a2109c4b51f3c792c7ea01e83ed12ef9a980886e3b3d380a7d2e5f6ce3f5
+    image: postgres:17-alpine@sha256:f325a29ec9deb7039c5f07761d77d79d537dac836ecd99f982f6ca5476724604
     command: -c config_file=/etc/postgresql.conf
     ports:
       - 9901:5432
@@ -81,12 +81,6 @@ services:
     labels:
       kompose.volume.type: configMap
 
-  pyroscope:
-    container_name: pyroscope
-    image: grafana/pyroscope:latest@sha256:525f05913f8cb1b2458c898b128e88c0101551ff32550bf4918755b0c57820f7
-    ports:
-      - 4040:4040
-
   temporal-admin-tools:
     container_name: temporal-admin-tools
     depends_on:
@@ -116,7 +110,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.37.2@sha256:3d7b36849d7ca5245f59f6ab558bebbd6b83aa1518f4505e97927419360d1f25
+    image: temporalio/ui:v2.37.3@sha256:1b971a019a07408088fc43fbd2885cf065b6c34ff9b45949329124c19d8953f7
     ports:
       - 8085:8080
 

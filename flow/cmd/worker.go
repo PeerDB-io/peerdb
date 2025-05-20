@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"log"
 	"log/slog"
+	"net/http"
+	//nolint:gosec
+	_ "net/http/pprof"
 	"os"
 	"runtime"
+	"time"
 
-	"github.com/grafana/pyroscope-go"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
@@ -26,13 +29,13 @@ import (
 
 type WorkerSetupOptions struct {
 	TemporalHostPort                   string
-	PyroscopeServer                    string
 	TemporalNamespace                  string
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
 	EnableProfiling                    bool
 	EnableOtelMetrics                  bool
 	UseMaintenanceTaskQueue            bool
+	PprofPort                          int // Port for pprof HTTP server
 }
 
 type WorkerSetupResponse struct {
@@ -49,50 +52,33 @@ func (w *WorkerSetupResponse) Close(ctx context.Context) {
 	}
 }
 
-func setupPyroscope(opts *WorkerSetupOptions) {
-	if opts.PyroscopeServer == "" {
-		log.Fatal("pyroscope server address is not set but profiling is enabled")
-	}
+func setupPprof(opts *WorkerSetupOptions) {
+	// Set default pprof port if not specified
+	pprofPort := opts.PprofPort
 
-	// measure contention
+	// Enable mutex and block profiling
 	runtime.SetMutexProfileFraction(5)
 	runtime.SetBlockProfileRate(5)
 
-	_, err := pyroscope.Start(pyroscope.Config{
-		ApplicationName: "io.peerdb.flow_worker",
+	// Start HTTP server with pprof endpoints
+	go func() {
+		pprofAddr := fmt.Sprintf(":%d", pprofPort)
+		slog.Info("Starting pprof HTTP server on " + pprofAddr)
+		server := &http.Server{
+			Addr:         pprofAddr,
+			ReadTimeout:  1 * time.Minute,
+			WriteTimeout: 11 * time.Minute,
+		}
 
-		ServerAddress: opts.PyroscopeServer,
-
-		// you can disable logging by setting this to nil
-		Logger: nil,
-
-		// you can provide static tags via a map:
-		Tags: map[string]string{"hostname": os.Getenv("HOSTNAME")},
-
-		ProfileTypes: []pyroscope.ProfileType{
-			// these profile types are enabled by default:
-			pyroscope.ProfileCPU,
-			pyroscope.ProfileAllocObjects,
-			pyroscope.ProfileAllocSpace,
-			pyroscope.ProfileInuseObjects,
-			pyroscope.ProfileInuseSpace,
-
-			// these profile types are optional:
-			pyroscope.ProfileGoroutines,
-			pyroscope.ProfileMutexCount,
-			pyroscope.ProfileMutexDuration,
-			pyroscope.ProfileBlockCount,
-			pyroscope.ProfileBlockDuration,
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
+		if err := server.ListenAndServe(); err != nil {
+			log.Fatalf("Failed to start pprof HTTP server: %v", err)
+		}
+	}()
 }
 
 func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
 	if opts.EnableProfiling {
-		setupPyroscope(opts)
+		setupPprof(opts)
 	}
 
 	clientOptions := client.Options{

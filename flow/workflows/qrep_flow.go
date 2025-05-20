@@ -238,6 +238,7 @@ func (q *QRepFlowExecution) startChildWorkflow(
 			MaximumAttempts: 20,
 		},
 		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
+		WaitForCancellation:   true,
 	})
 
 	return workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, q.config, partitions, q.runUUID)
@@ -323,6 +324,7 @@ func (q *QRepFlowExecution) waitForNewRows(
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
+		WaitForCancellation:   true,
 	})
 	future := workflow.ExecuteChildWorkflow(ctx, QRepWaitForNewRowsWorkflow, q.config, lastPartition)
 
