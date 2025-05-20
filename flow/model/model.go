@@ -188,3 +188,8 @@ type SetupReplicationResult struct {
 	SnapshotName     string
 	SupportsTIDScans bool
 }
+
+type RemoveFlowDetailsFromCatalogRequest struct {
+	FlowName string
+	Resync   bool
+}

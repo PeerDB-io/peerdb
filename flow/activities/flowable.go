@@ -1186,9 +1186,12 @@ func (a *FlowableActivity) RemoveTablesFromCatalog(
 	return err
 }
 
-func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(ctx context.Context, flowName string) error {
-	logger := log.With(internal.LoggerFromCtx(ctx),
-		slog.String(string(shared.FlowNameKey), flowName))
+func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
+	ctx context.Context,
+	req *model.RemoveFlowDetailsFromCatalogRequest,
+) error {
+	flowName := req.FlowName
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), req.FlowName))
 	tx, err := a.CatalogPool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction to remove flow details from catalog: %w", err)
@@ -1199,18 +1202,20 @@ func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(ctx context.Context, flo
 		return fmt.Errorf("unable to clear table_schema_mapping in catalog: %w", err)
 	}
 
-	ct, err := tx.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName)
-	if err != nil {
-		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
-	}
-	if ct.RowsAffected() == 0 {
-		logger.Warn("flow entry not found in catalog, 0 records deleted")
-	} else {
-		logger.Info("flow entries removed from catalog",
-			slog.Int("rowsAffected", int(ct.RowsAffected())))
+	if !req.Resync {
+		ct, err := tx.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName)
+		if err != nil {
+			return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
+		}
+		if ct.RowsAffected() == 0 {
+			logger.Warn("flow entry not found in catalog, 0 records deleted")
+		} else {
+			logger.Info("flow entries removed from catalog",
+				slog.Int("rowsAffected", int(ct.RowsAffected())))
+		}
 	}
 
-	if _, err := tx.Exec(ctx, connmetadata.GetSyncFlowCleanupQuery(), flowName); err != nil {
+	if err := connmetadata.SyncFlowCleanupInTx(ctx, tx, flowName); err != nil {
 		return fmt.Errorf("unable to clear metadata for flow cleanup: %w", err)
 	}
 
