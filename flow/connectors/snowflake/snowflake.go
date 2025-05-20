@@ -65,8 +65,6 @@ const (
 
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
-	checkIfSchemaExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA
-	 WHERE SCHEMA_NAME=?`
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
 )
 
@@ -98,12 +96,12 @@ type UnchangedToastColumnResult struct {
 }
 
 func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
-	schemaName := c.rawSchema
 	// check if schema exists
-	var schemaExists sql.NullBool
-	if err := c.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists); err != nil {
+	schemaExists, err := c.checkIfRawSchemaExists(ctx)
+	if err != nil {
 		return fmt.Errorf("error while checking if schema exists: %w", err)
 	}
+	schemaName := c.rawSchema
 
 	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
 
@@ -120,7 +118,7 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 		}
 	}()
 
-	if !schemaExists.Valid || !schemaExists.Bool {
+	if !schemaExists {
 		// create schema
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, schemaName)); err != nil {
 			return fmt.Errorf("failed to create schema %s: %w", schemaName, err)
@@ -581,13 +579,9 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, req.FlowJobName)
 
-	var schemaExists sql.NullBool
-	err := c.QueryRowContext(ctx, checkIfSchemaExistsSQL, c.rawSchema).Scan(&schemaExists)
-	if err != nil {
+	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
 		return nil, fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
-	}
-
-	if !schemaExists.Valid || !schemaExists.Bool {
+	} else if !schemaExists {
 		_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
 		if err != nil {
 			return nil, err
@@ -596,15 +590,14 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 	// there is no easy way to check if a table has the same schema in Snowflake,
 	// so just executing the CREATE TABLE IF NOT EXISTS blindly.
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	_, err = c.execWithLogging(ctx,
-		fmt.Sprintf(createRawTableSQL, c.rawSchema, rawTableIdentifier))
-	if err != nil {
+
+	if _, err := c.execWithLogging(ctx,
+		fmt.Sprintf(createRawTableSQL, c.rawSchema, rawTableIdentifier)); err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
 
 	stage := c.getStageNameForJob(req.FlowJobName)
-	err = c.createStage(ctx, stage, &protos.QRepConfig{})
-	if err != nil {
+	if err := c.createStage(ctx, stage, &protos.QRepConfig{}); err != nil {
 		return nil, err
 	}
 
@@ -615,24 +608,30 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 
 func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	ctx = c.withMirrorNameQueryTag(ctx, jobName)
-	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
-	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to clear metadata for sync flow cleanup: %w", err)
-	}
 
-	// delete raw table if exists
-	rawTableIdentifier := getRawTableIdentifier(jobName)
-	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier))
-	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
-	}
-
-	err = c.dropStage(ctx, "", jobName)
-	if err != nil {
-		return err
+	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
+		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
+	} else if schemaExists {
+		// delete raw table if exists
+		rawTableIdentifier := getRawTableIdentifier(jobName)
+		if _, err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier)); err != nil {
+			return fmt.Errorf("[snowflake] unable to drop raw table: %w", err)
+		}
+		if err := c.dropStage(ctx, "", jobName); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func (c *SnowflakeConnector) checkIfRawSchemaExists(ctx context.Context) (bool, error) {
+	var result pgtype.Bool
+	if err := c.QueryRowContext(ctx, `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA
+	 WHERE SCHEMA_NAME=?`, c.rawSchema).Scan(&result); err != nil {
+		return false, fmt.Errorf("error while checking if schema %s exists: %w", c.rawSchema, err)
+	}
+	return result.Valid && result.Bool, nil
 }
 
 func (c *SnowflakeConnector) checkIfTableExists(
