@@ -106,23 +106,55 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int, error) {
 	dstTableName := config.DestinationTableIdentifier
-	stagingPath := s.credsProvider.BucketPath
 	startTime := time.Now()
-
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, err
 	}
 
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
+	avroFile, err := s.pushDataToS3(ctx, config, dstTableName, schema,
+		columnNameAvroFieldMap, partition, stream)
+	if err != nil {
+		s.logger.Error("failed to push data to S3",
+			slog.String("dstTable", dstTableName),
+			slog.Any("error", err))
+		return 0, err
+	}
+
+	if err := s.pushS3DataToClickHouse(
+		ctx, avroFile.FilePath, schema, columnNameAvroFieldMap, config); err != nil {
+		s.logger.Error("failed to push data to ClickHouse",
+			slog.String("dstTable", dstTableName),
+			slog.Any("error", err))
+		return 0, err
+	}
+
+	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
+		s.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
+		return 0, err
+	}
+
+	return avroFile.NumRecords, nil
+}
+
+func (s *ClickHouseAvroSyncMethod) pushDataToS3(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	dstTableName string,
+	schema qvalue.QRecordSchema,
+	columnNameAvroFieldMap map[string]string,
+	partition *protos.QRepPartition,
+	stream *model.QRecordStream,
+) (*avro.AvroFile, error) {
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	avroChunking, err := internal.PeerDBS3RowsPerChunk(ctx, config.Env)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	var avroFile *avro.AvroFile
@@ -136,7 +168,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		var done bool
 		for !done {
 			if err := ctx.Err(); err != nil {
-				return 0, err
+				return nil, err
 			}
 
 			substream := model.NewQRecordStream(0)
@@ -156,7 +188,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, avroSchema,
 				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum), config.FlowJobName)
 			if err != nil {
-				return 0, err
+				return nil, err
 			}
 			chunkNum += 1
 			avroFile.NumRecords += subFile.NumRecords
@@ -166,7 +198,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		}
 
 		if err := ctx.Err(); err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 
@@ -174,28 +206,39 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		var err error
 		avroFile, err = s.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 	}
 
+	return avroFile, nil
+}
+
+func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
+	ctx context.Context,
+	avroFilePath string,
+	schema qvalue.QRecordSchema,
+	columnNameAvroFieldMap map[string]string,
+	config *protos.QRepConfig,
+) error {
+	stagingPath := s.credsProvider.BucketPath
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	creds, err := s.credsProvider.Provider.Retrieve(ctx)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
 	if err != nil {
-		return 0, err
+		return err
 	}
 
 	endpoint := s.credsProvider.Provider.GetEndpointURL()
 	region := s.credsProvider.Provider.GetRegion()
-	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
+	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFilePath)
 	selectedColumnNames := make([]string, 0, len(schema.Fields))
 	insertedColumnNames := make([]string, 0, len(schema.Fields))
 	for _, colName := range schema.GetColumnNames() {
@@ -209,7 +252,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 			s.logger.Error("destination column not found in avro schema",
 				slog.String("columnName", colName),
 				slog.String("avroFieldName", avroColName))
-			return 0, fmt.Errorf("destination column %s not found in avro schema", colName)
+			return fmt.Errorf("destination column %s not found in avro schema", colName)
 		}
 		selectedColumnNames = append(selectedColumnNames, "`"+avroColName+"`")
 		insertedColumnNames = append(insertedColumnNames, "`"+colName+"`")
@@ -217,7 +260,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	if sourceSchemaAsDestinationColumn {
 		schemaTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 		if err != nil {
-			return 0, err
+			return err
 		}
 
 		selectedColumnNames = append(selectedColumnNames, fmt.Sprintf("'%s'", peerdb_clickhouse.EscapeStr(schemaTable.Schema)))
@@ -258,16 +301,11 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 				slog.Uint64("part", i),
 				slog.Uint64("numParts", numParts),
 				slog.Any("error", err))
-			return 0, exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database)
+			return exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database)
 		}
 	}
 
-	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-		s.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
-		return 0, err
-	}
-
-	return avroFile.NumRecords, nil
+	return nil
 }
 
 func (s *ClickHouseAvroSyncMethod) getAvroSchema(
