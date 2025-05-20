@@ -238,7 +238,7 @@ func SyncFlowCleanupInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
 		return err
 	}
 
-	if _, err := tx.Exec(ctx, `DELETE FROM `+lastSyncStateTableName+` WHERE flow_name = $1`, jobName); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName); err != nil {
 		return err
 	}
 
