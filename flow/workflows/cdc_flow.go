@@ -115,7 +115,7 @@ func syncStateToConfigProtoInCatalog(
 	})
 
 	logger := workflow.GetLogger(ctx)
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, cloneCfg)
+	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, logger, cloneCfg)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
 	}
