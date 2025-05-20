@@ -200,19 +200,22 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		workflow.GetLogger(ctx).Info("CDC flow dropped successfully")
 	}
 
-	if !input.Resync {
-		removeFlowEntriesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 2 * time.Minute,
-			RetryPolicy: &temporal.RetryPolicy{
-				InitialInterval: 1 * time.Minute,
-			},
-		})
-		if err := workflow.ExecuteActivity(
-			removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, input.FlowJobName,
-		).Get(ctx, nil); err != nil {
-			workflow.GetLogger(ctx).Error("failed to remove flow details from catalog", slog.Any("error", err))
-			return err
-		}
+	removeFlowEntriesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
+	})
+
+	req := model.RemoveFlowDetailsFromCatalogRequest{
+		FlowName: input.FlowJobName,
+		Resync:   input.Resync,
+	}
+	if err := workflow.ExecuteActivity(
+		removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, &req,
+	).Get(ctx, nil); err != nil {
+		workflow.GetLogger(ctx).Error("failed to remove flow details from catalog", slog.Any("error", err))
+		return err
 	}
 
 	return nil
