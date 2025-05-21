@@ -18,6 +18,7 @@ import (
 	"github.com/djherbis/buffer"
 	"github.com/djherbis/nio/v3"
 	"github.com/hamba/avro/v2/ocf"
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -89,7 +90,7 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*ocf.Encoder, error) {
 	case CompressDeflate:
 		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.Deflate))
 	case CompressZstd:
-		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.ZStandard))
+		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.ZStandard), ocf.WithZStandardEncoderOptions(zstd.WithZeroFrames(true)))
 	case CompressSnappy:
 		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.Snappy))
 	default:
