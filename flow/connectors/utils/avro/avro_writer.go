@@ -48,7 +48,6 @@ const (
 type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
-	writer               io.Writer
 	avroCompressionCodec AvroCompressionCodec
 	targetDWH            protos.DBType
 }
@@ -83,8 +82,6 @@ func NewPeerDBOCFWriter(
 }
 
 func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*ocf.Encoder, error) {
-	p.writer = w
-
 	var ocfConfig []ocf.EncoderFunc
 	switch p.avroCompressionCodec {
 	case CompressDeflate:
