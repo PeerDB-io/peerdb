@@ -109,6 +109,7 @@ var (
 		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
 	}
+	// currently unused
 	ErrorNormalize = ErrorClass{
 		Class: "NORMALIZE", action: NotifyTelemetry,
 	}
@@ -377,7 +378,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			} else if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-			return ErrorOther, chErrorInfo
 		case chproto.ErrQueryWasCancelled:
 			return ErrorRetryRecoverable, chErrorInfo
 		default:
