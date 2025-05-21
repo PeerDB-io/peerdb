@@ -66,14 +66,14 @@ impl BigqueryAst {
 
     pub fn rewrite(&self, peername: &str, dataset: &str, query: &mut Query) -> anyhow::Result<()> {
         // replace peername with the connected dataset.
-        visit_relations_mut(query, |table| {
+        let _ = visit_relations_mut(query, |table| {
             if table.0.len() > 1 && peername.eq_ignore_ascii_case(&table.0[0].value) {
                 table.0[0] = dataset.into();
             }
             ControlFlow::<()>::Continue(())
         });
 
-        visit_function_arg_mut(query, |node| {
+        let _ = visit_function_arg_mut(query, |node| {
             if let FunctionArgExpr::Expr(arg_expr) = node {
                 if let Expr::Cast {
                     data_type: DataType::Array(_),
@@ -93,7 +93,7 @@ impl BigqueryAst {
             ControlFlow::<()>::Continue(())
         });
 
-        visit_expressions_mut(query, |node| {
+        let _ = visit_expressions_mut(query, |node| {
             // CAST AS Text to CAST AS String
             if let Expr::Cast { data_type: dt, .. } = node {
                 if let DataType::Text = dt {
@@ -148,7 +148,7 @@ impl BigqueryAst {
         /*
         this rewrites non-leaf changes in the query tree.
          */
-        visit_expressions_mut(query, |node| {
+        let _ = visit_expressions_mut(query, |node| {
             /*
             rewriting + & - for timestamps
             change + to DATE_ADD
@@ -211,7 +211,7 @@ impl BigqueryAst {
         });
 
         // Replace UNION with UNION DISTINCT (only if there is no SetQuantifier after UNION)
-        visit_setexpr_mut(query, |node| {
+        let _ = visit_setexpr_mut(query, |node| {
             if let SetExpr::SetOperation {
                 op: SetOperator::Union,
                 set_quantifier: SetQuantifier::None,
@@ -231,7 +231,7 @@ impl BigqueryAst {
         });
 
         // flatten ANY to IN operation overall.
-        visit_expressions_mut(query, |node| {
+        let _ = visit_expressions_mut(query, |node| {
             if let Expr::AnyOp {
                 left,
                 compare_op,
