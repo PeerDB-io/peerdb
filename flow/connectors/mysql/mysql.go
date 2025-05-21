@@ -182,6 +182,10 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
 			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
 		}
+		// set max_execution_time to unlimited
+		if _, err := conn.Execute("SET SESSION MAX_EXECUTION_TIME=0;"); err != nil {
+			return nil, fmt.Errorf("failed to set max_execution_time to 0: %w", err)
+		}
 	}
 	return conn, nil
 }
