@@ -130,6 +130,9 @@ func GetAvroSchemaFromQValueKind(
 		QValueKindUInt8, QValueKindUInt16, QValueKindUInt32, QValueKindUInt64:
 		return "long", nil
 	case QValueKindFloat32:
+		if targetDWH == protos.DBType_BIGQUERY {
+			return "double", nil
+		}
 		return "float", nil
 	case QValueKindFloat64:
 		return "double", nil
@@ -167,31 +170,29 @@ func GetAvroSchemaFromQValueKind(
 			Scale:       avroNumericScale,
 		}, nil
 	case QValueKindDate:
-		if targetDWH == protos.DBType_CLICKHOUSE {
-			return AvroSchemaLogical{
-				Type:        "int",
-				LogicalType: "date",
-			}, nil
+		if targetDWH == protos.DBType_SNOWFLAKE {
+			return "string", nil
 		}
-		return "string", nil
+		return AvroSchemaLogical{
+			Type:        "int",
+			LogicalType: "date",
+		}, nil
 	case QValueKindTime, QValueKindTimeTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return "string", nil
-		} else {
-			return AvroSchemaLogical{
-				Type:        "long",
-				LogicalType: "time-micros",
-			}, nil
 		}
+		return AvroSchemaLogical{
+			Type:        "long",
+			LogicalType: "time-micros",
+		}, nil
 	case QValueKindTimestamp, QValueKindTimestampTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return "string", nil
-		} else {
-			return AvroSchemaLogical{
-				Type:        "long",
-				LogicalType: "timestamp-micros",
-			}, nil
 		}
+		return AvroSchemaLogical{
+			Type:        "long",
+			LogicalType: "timestamp-micros",
+		}, nil
 	case QValueKindTSTZRange:
 		return "string", nil
 	case QValueKindHStore, QValueKindJSON, QValueKindJSONB:
@@ -222,32 +223,32 @@ func GetAvroSchemaFromQValueKind(
 			Items: "boolean",
 		}, nil
 	case QValueKindArrayDate:
-		if targetDWH == protos.DBType_CLICKHOUSE {
-			return AvroSchemaComplexArray{
-				Type: "array",
-				Items: AvroSchemaField{
-					Type:        "int",
-					LogicalType: "date",
-				},
+		if targetDWH == protos.DBType_SNOWFLAKE {
+			return AvroSchemaArray{
+				Type:  "array",
+				Items: "string",
 			}, nil
 		}
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "string",
+		return AvroSchemaComplexArray{
+			Type: "array",
+			Items: AvroSchemaField{
+				Type:        "int",
+				LogicalType: "date",
+			},
 		}, nil
 	case QValueKindArrayTimestamp, QValueKindArrayTimestampTZ:
-		if targetDWH == protos.DBType_CLICKHOUSE {
-			return AvroSchemaComplexArray{
-				Type: "array",
-				Items: AvroSchemaField{
-					Type:        "long",
-					LogicalType: "timestamp-micros",
-				},
+		if targetDWH == protos.DBType_SNOWFLAKE {
+			return AvroSchemaArray{
+				Type:  "array",
+				Items: "string",
 			}, nil
 		}
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "string",
+		return AvroSchemaComplexArray{
+			Type: "array",
+			Items: AvroSchemaField{
+				Type:        "long",
+				LogicalType: "timestamp-micros",
+			},
 		}, nil
 	case QValueKindArrayJSON, QValueKindArrayJSONB:
 		return "string", nil
@@ -303,7 +304,10 @@ func QValueToAvro(
 		return c.processNullableUnion(c.processGoDate(v.Val))
 	case QValueQChar:
 		return c.processNullableUnion(string(v.Val))
-	case QValueString, QValueCIDR, QValueINET, QValueMacaddr, QValueInterval, QValueTSTZRange, QValueEnum:
+	case QValueString,
+		QValueCIDR, QValueINET, QValueMacaddr,
+		QValueInterval, QValueTSTZRange, QValueEnum,
+		QValueGeography, QValueGeometry, QValuePoint:
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
 			slog.Warn("Clearing TEXT value > 15MB for Snowflake!")
@@ -364,16 +368,16 @@ func QValueToAvro(
 		return c.processArrayString(v.Val), nil
 	case QValueArrayBoolean:
 		return c.processArrayBoolean(v.Val), nil
-	case QValueArrayTimestamp, QValueArrayTimestampTZ:
-		return c.processArrayTime(v.Value().([]time.Time)), nil
+	case QValueArrayTimestamp:
+		return c.processArrayTime(v.Val), nil
+	case QValueArrayTimestampTZ:
+		return c.processArrayTime(v.Val), nil
 	case QValueArrayDate:
 		return c.processArrayDate(v.Val), nil
 	case QValueUUID:
 		return c.processUUID(v.Val), nil
 	case QValueArrayUUID:
 		return c.processArrayUUID(v.Val), nil
-	case QValueGeography, QValueGeometry, QValuePoint:
-		return c.processGeospatial(v.Value().(string)), nil
 	default:
 		return nil, fmt.Errorf("[toavro] unsupported %T", value)
 	}
@@ -594,13 +598,6 @@ func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) any {
 		UUIDData = append(UUIDData, uuid.String())
 	}
 	return UUIDData
-}
-
-func (c *QValueAvroConverter) processGeospatial(geoString string) any {
-	if c.Nullable {
-		return &geoString
-	}
-	return geoString
 }
 
 func (c *QValueAvroConverter) processArrayInt16(arrayData []int16) any {
