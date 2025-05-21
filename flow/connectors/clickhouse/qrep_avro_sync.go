@@ -147,7 +147,16 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
 	selectedColumnNames := make([]string, 0, len(schema.Fields))
 	insertedColumnNames := make([]string, 0, len(schema.Fields))
-	for _, colName := range schema.GetColumnNames() {
+
+	columnNameToDestinationType := make(map[string]string)
+	for _, col := range config.Columns {
+		if col.SourceName != "" && col.DestinationType != "" {
+			columnNameToDestinationType[col.SourceName] = col.DestinationType
+		}
+	}
+
+	for _, field := range schema.Fields {
+		colName := field.Name
 		for _, excludedColumn := range config.Exclude {
 			if colName == excludedColumn {
 				continue
@@ -160,7 +169,9 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 				slog.String("avroFieldName", avroColName))
 			return 0, fmt.Errorf("destination column %s not found in avro schema", colName)
 		}
-		selectedColumnNames = append(selectedColumnNames, "`"+avroColName+"`")
+
+		destType := columnNameToDestinationType[colName]
+		selectedColumnNames = append(selectedColumnNames, castToDestinationTypeIfSupported(avroColName, field.Type, destType))
 		insertedColumnNames = append(insertedColumnNames, "`"+colName+"`")
 	}
 	if sourceSchemaAsDestinationColumn {
@@ -256,4 +267,33 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	}
 
 	return avroFile, nil
+}
+
+func castToDestinationTypeIfSupported(
+	avroColumnName string,
+	sourceType qvalue.QValueKind,
+	destType string,
+) string {
+	if destType == "" {
+		return fmt.Sprintf("`%s`", avroColumnName)
+	}
+	if _, destTypeSupported := SupportedConversions[sourceType][destType]; !destTypeSupported {
+		// TODO: log this?
+		return fmt.Sprintf("`%s`", avroColumnName)
+	}
+	return SupportedConversions[sourceType][destType](avroColumnName, destType)
+}
+
+type TypeConversionFunc func(columnName string, destinationType string) string
+
+// add more supported type conversions as needed
+var SupportedConversions = map[qvalue.QValueKind]map[string]TypeConversionFunc{
+	qvalue.QValueKindNumeric: {
+		"String":           numericToString,
+		"Nullable(String)": numericToString,
+	},
+}
+
+func numericToString(columnName string, destinationType string) string {
+	return fmt.Sprintf("CAST(%s, %s)", peerdb_clickhouse.QuoteIdentifier(columnName), peerdb_clickhouse.QuoteLiteral(destinationType))
 }

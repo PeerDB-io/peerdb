@@ -318,6 +318,8 @@ message QRepConfig {
 
   string parent_mirror_name = 25;
   repeated string exclude = 26;
+
+  repeated ColumnSetting columns = 27;
 }
 
 message QRepPartition {
