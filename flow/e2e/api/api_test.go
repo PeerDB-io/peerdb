@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -123,21 +124,28 @@ func (s Suite) checkCatalogTableMapping(
 	conn *pgx.Conn,
 	flowName string,
 	expectedSourceTableNames []string,
-) {
+) (bool, error) {
 	var configBytes sql.RawBytes
 	err := conn.QueryRow(ctx,
 		"SELECT config_proto FROM flows WHERE name = $1", flowName).Scan(&configBytes)
-	require.NoError(s.t, err)
+	if err != nil {
+		return false, err
+	}
 
 	var config protos.FlowConnectionConfigs
 	err = proto.Unmarshal(configBytes, &config)
-	require.NoError(s.t, err)
-	require.Len(s.t, config.TableMappings, len(expectedSourceTableNames))
+	if err != nil {
+		return false, err
+	}
+
+	if len(config.TableMappings) != len(expectedSourceTableNames) {
+		return false, fmt.Errorf("expected %d table mappings, got %d", len(expectedSourceTableNames), len(config.TableMappings))
+	}
 	sourceTableNames := make([]string, len(config.TableMappings))
 	for i, tableMapping := range config.TableMappings {
 		sourceTableNames[i] = tableMapping.SourceTableIdentifier
 	}
-	require.ElementsMatch(s.t, expectedSourceTableNames, sourceTableNames)
+	return assert.ElementsMatch(s.t, expectedSourceTableNames, sourceTableNames), nil
 }
 
 func testApi[TSource e2e.SuiteSource](
@@ -574,14 +582,26 @@ func (s Suite) TestEditTablesBeforeResync() {
 		},
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for added table's initial load to finish", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+			e2e.AttachSchema(s, "added"),
+			e2e.AttachSchema(s, "original"),
+		})
+		if err != nil {
+			return false
+		}
+
+		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	e2e.RequireEqualTables(s.ch, "added", "id,val")
-	s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
-		e2e.AttachSchema(s, "added"),
-		e2e.AttachSchema(s, "original"),
+
+	// Check initial load stats
+	initialLoadClientFacingDataAfterAddTable, err := s.InitialLoadSummary(s.t.Context(), &protos.InitialLoadSummaryRequest{
+		ParentMirrorName: flowConnConfig.FlowJobName,
 	})
+	require.NoError(s.t, err)
+	require.True(s.t, len(initialLoadClientFacingDataAfterAddTable.TableSummaries) == 2)
+
 	// Test CDC
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'added_table_cdc')", e2e.AttachSchema(s, "added"))))
@@ -614,8 +634,15 @@ func (s Suite) TestEditTablesBeforeResync() {
 	})
 	require.NoError(s.t, err)
 
-	s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
-		e2e.AttachSchema(s, "added"),
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for table removal to finish", func() bool {
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+			e2e.AttachSchema(s, "added"),
+		})
+		if err != nil {
+			return false
+		}
+
+		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
 		s.waitForActiveSlotForPostgresMirror(env, pgconn.Conn(), flowConnConfig.FlowJobName)
@@ -640,12 +667,12 @@ func (s Suite) TestEditTablesBeforeResync() {
 	})
 
 	// Removed table should not have been in the initial load
-	initialLoadClientFacingData, err := s.InitialLoadSummary(s.t.Context(), &protos.InitialLoadSummaryRequest{
+	initialLoadClientFacingDataAfterResync, err := s.InitialLoadSummary(s.t.Context(), &protos.InitialLoadSummaryRequest{
 		ParentMirrorName: flowConnConfig.FlowJobName,
 	})
 	require.NoError(s.t, err)
-	require.True(s.t, len(initialLoadClientFacingData.TableSummaries) == 1)
-	require.Equal(s.t, initialLoadClientFacingData.TableSummaries[0].TableName, "added")
+	require.True(s.t, len(initialLoadClientFacingDataAfterResync.TableSummaries) == 1)
+	require.Equal(s.t, initialLoadClientFacingDataAfterResync.TableSummaries[0].TableName, "added")
 	// Test resync CDC
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (4,'cdc_after_resync')", e2e.AttachSchema(s, "added"))))
