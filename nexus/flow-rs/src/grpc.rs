@@ -289,11 +289,14 @@ impl FlowGrpcClient {
     }
 
     pub async fn resync_mirror(&mut self, flow_job_name: &str) -> anyhow::Result<()> {
-        let resync_mirror_req = pt::peerdb_route::ResyncMirrorRequest {
+        let state_change_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
-            drop_stats: true,
+            requested_flow_state: pt::peerdb_flow::FlowStatus::StatusResync.into(),
+            flow_config_update: None,
+            drop_mirror_stats: true,
+            skip_destination_drop: false,
         };
-        self.client.resync_mirror(resync_mirror_req).await?;
+        self.client.flow_state_change(state_change_req).await?;
         Ok(())
     }
 }

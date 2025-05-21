@@ -375,13 +375,6 @@ message PeerDBVersionResponse {
   optional string deployment_version = 2;
 }
 
-message ResyncMirrorRequest {
-  string flow_job_name = 1;
-  bool drop_stats = 2;
-}
-
-message ResyncMirrorResponse {}
-
 message PeerDBStateRequest {}
 
 enum InstanceStatus {
@@ -665,14 +658,6 @@ service FlowService {
   rpc GetVersion(PeerDBVersionRequest) returns (PeerDBVersionResponse) {
     option (google.api.http) = {
       get : "/v1/version"
-    };
-  }
-
-  rpc ResyncMirror(ResyncMirrorRequest) returns (ResyncMirrorResponse) {
-    option deprecated = true;
-    option (google.api.http) = {
-      post : "/v1/mirrors/resync",
-      body : "*"
     };
   }
 
