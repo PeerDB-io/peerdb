@@ -529,7 +529,7 @@ func (s Suite) TestEditTablesBeforeResync() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "added"))))
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      "add_table_before_resync_" + s.suffix,
+		FlowJobName:      "edit_tables_before_resync_" + s.suffix,
 		TableNameMapping: map[string]string{e2e.AttachSchema(s, "original"): "original"},
 		Destination:      s.ch.Peer().Name,
 	}
