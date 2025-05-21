@@ -413,6 +413,10 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to Avro file on GCS: %w", err)
 		}
+		if err := w.Close(); err != nil {
+			return 0, fmt.Errorf("failed to close Avro file on GCS after writing: %w", err)
+		}
+
 		avroFile = &avro.AvroFile{
 			NumRecords:      numRecords,
 			StorageLocation: avro.AvroGCSStorage,

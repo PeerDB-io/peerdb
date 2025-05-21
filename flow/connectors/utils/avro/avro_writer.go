@@ -17,9 +17,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/djherbis/buffer"
 	"github.com/djherbis/nio/v3"
-	"github.com/klauspost/compress/flate"
-	"github.com/klauspost/compress/zstd"
-	"github.com/linkedin/goavro/v2"
+	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -49,7 +47,7 @@ const (
 type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
-	writer               io.WriteCloser
+	writer               io.Writer
 	avroCompressionCodec AvroCompressionCodec
 	targetDWH            protos.DBType
 }
@@ -83,43 +81,26 @@ func NewPeerDBOCFWriter(
 	}
 }
 
-func (p *peerDBOCFWriter) initWriteCloser(w io.Writer) error {
-	var err error
+func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*ocf.Encoder, error) {
+	p.writer = w
+
+	var ocfConfig []ocf.EncoderFunc
 	switch p.avroCompressionCodec {
-	case CompressNone:
-		p.writer = &nopWriteCloser{w}
-	case CompressZstd:
-		p.writer, err = zstd.NewWriter(w)
-		if err != nil {
-			return fmt.Errorf("error while initializing zstd encoding writer: %w", err)
-		}
 	case CompressDeflate:
-		p.writer, err = flate.NewWriter(w, -1)
-		if err != nil {
-			return fmt.Errorf("error while initializing deflate encoding writer: %w", err)
-		}
+		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.Deflate))
+	case CompressZstd:
+		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.ZStandard))
 	case CompressSnappy:
-		p.writer = &nopWriteCloser{w}
+		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.Snappy))
+	default:
+		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.Null))
 	}
 
-	return nil
-}
-
-func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*goavro.OCFWriter, error) {
-	if err := p.initWriteCloser(w); err != nil {
-		return nil, fmt.Errorf("failed to create compressed writer: %w", err)
-	}
-
-	var compressionName string
-	if p.avroCompressionCodec == CompressSnappy {
-		compressionName = "snappy"
-	}
-
-	ocfWriter, err := goavro.NewOCFWriter(goavro.OCFConfig{
-		W:               p.writer,
-		Schema:          p.avroSchema.Schema,
-		CompressionName: compressionName,
-	})
+	ocfWriter, err := ocf.NewEncoder(
+		p.avroSchema.Schema,
+		w,
+		ocfConfig...,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OCF writer: %w", err)
 	}
@@ -141,7 +122,7 @@ func (p *peerDBOCFWriter) getAvroFieldNamesFromSchemaJSON() ([]string, error) {
 	return avroFieldNames, nil
 }
 
-func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *goavro.OCFWriter) (int64, error) {
+func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *ocf.Encoder) (int64, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
 	avroFieldNames, err := p.getAvroFieldNamesFromSchemaJSON()
@@ -177,7 +158,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[s
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
 			}
 
-			if err := ocfWriter.Append([]any{avroMap}); err != nil {
+			if err := ocfWriter.Encode(avroMap); err != nil {
 				logger.Error("Failed to write record to OCF", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
 			}
@@ -199,8 +180,7 @@ func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, env map[string]string, w
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
 	}
-	// we have to keep a reference to the underlying writer as goavro doesn't provide any access to it
-	defer p.writer.Close()
+	defer ocfWriter.Close()
 
 	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter)
 	if err != nil {
@@ -308,15 +288,4 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 		StorageLocation: AvroLocalStorage,
 		FilePath:        filePath,
 	}, nil
-}
-
-type nopWriteCloser struct {
-	io.Writer
-}
-
-func (n *nopWriteCloser) Close() error {
-	if closer, ok := n.Writer.(io.Closer); ok {
-		return closer.Close()
-	}
-	return nil
 }
