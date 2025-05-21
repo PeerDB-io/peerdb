@@ -60,8 +60,9 @@ func TestClickHouseAvroDecimalErrorShouldBeUnsupportedDatatype(t *testing.T) {
 		t.Run(strconv.Itoa(code), func(t *testing.T) {
 			exception := clickhouse.Exception{
 				Code: int32(code),
+				// can't split across lines as regex will not match
 				//nolint:lll
-				Message: "Cannot parse type Decimal(76, 38), expected non-empty binary data with size equal to or less than 32, got 57: (at row 72423)....",
+				Message: `Cannot parse type Decimal(76, 38), expected non-empty binary data with size equal to or less than 32, got 57: (at row 72423)....`,
 			}
 			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w", &exception))
 			assert.Equal(t, ErrorUnsupportedDatatype, errorClass, "Unexpected error class")
@@ -142,8 +143,10 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 	err := &clickhouse.Exception{
 		Code: int32(chproto.ErrCannotConvertType),
-		//nolint:lll
-		Message: "Conversion from AggregateFunction(argMax, DateTime64(9), DateTime64(9)) to AggregateFunction(argMax, Nullable(DateTime64(9)), DateTime64(9)) is not supported: while converting source column created_at to destination column created_at: while pushing to view db_name.hello_mv (62d92029-a3c0-448e-aab6-a6b6f7216b20)",
+		Message: `Conversion from AggregateFunction(argMax, DateTime64(9), DateTime64(9)) to
+		AggregateFunction(argMax, Nullable(DateTime64(9)), DateTime64(9))
+		is not supported: while converting source column created_at to destination column created_at:
+		while pushing to view db_name.hello_mv`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", err)))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
@@ -168,5 +171,22 @@ func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.QueryCanceled,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestClickHouseChaoticNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrNoCommonType),
+		Message: `There is no supertype for types String, Int64 because some of them are String/FixedString/Enum and some of them are not:
+				JOIN INNER JOIN ... ON table_B.column_1 = table_A.column_2 cannot infer common type in ON section for keys.
+				Left key __table1.column_2 type String. Right key __table2.column_1 type Int64`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf(`Normalization Error: failed to normalize records:
+		 error while inserting into normalized table table_A: %w`, err)))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "386",
 	}, errInfo, "Unexpected error info")
 }
