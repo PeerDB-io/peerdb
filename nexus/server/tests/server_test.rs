@@ -1,6 +1,6 @@
 use std::{
-    fs::{read_dir, File},
-    io::{prelude::*, BufReader, Write},
+    fs::{File, read_dir},
+    io::{BufReader, Write, prelude::*},
     path::Path,
     process::Command,
     thread,

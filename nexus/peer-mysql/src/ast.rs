@@ -3,8 +3,8 @@ use std::ops::ControlFlow;
 use peer_ast::flatten_expr_to_in_list;
 use serde_json::{self, Value as JsonValue};
 use sqlparser::ast::{
-    visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, Array, BinaryOperator,
-    DataType, Expr, FunctionArgExpr, Offset, Query, TimezoneInfo, Value,
+    Array, BinaryOperator, DataType, Expr, FunctionArgExpr, Offset, Query, TimezoneInfo, Value,
+    visit_expressions_mut, visit_function_arg_mut, visit_relations_mut,
 };
 
 fn json_to_expr(val: JsonValue) -> Expr {
@@ -113,9 +113,7 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
             } => {
                 *tzinfo = TimezoneInfo::None;
             }
-            Expr::Cast {
-                data_type, ..
-            } if matches!(data_type, DataType::Timestamp(..)) => {
+            Expr::Cast { data_type, .. } if matches!(data_type, DataType::Timestamp(..)) => {
                 *data_type = DataType::Datetime(None);
             }
             _ => {}

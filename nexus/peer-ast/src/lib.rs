@@ -47,14 +47,14 @@ pub fn flatten_expr_to_in_list(expr: &Expr) -> anyhow::Result<Vec<Expr>> {
                         return Err(anyhow::anyhow!(
                             "Unsupported inner data type for IN list: {:?}",
                             data_type
-                        ))
+                        ));
                     }
                 },
                 _ => {
                     return Err(anyhow::anyhow!(
                         "Unsupported data type for IN list: {:?}",
                         data_type
-                    ))
+                    ));
                 }
             }
         } else if let Expr::Array(arr) = expr.as_ref() {
@@ -86,14 +86,14 @@ fn pour_array_into_list(arr: &Array, mut list: Vec<Expr>) -> anyhow::Result<Vec<
                     return Err(anyhow::anyhow!(
                         "Unsupported data type for IN list: {:?}",
                         val
-                    ))
+                    ));
                 }
             },
             _ => {
                 return Err(anyhow::anyhow!(
                     "Unsupported element for IN list: {:?}",
                     element
-                ))
+                ));
             }
         }
     }

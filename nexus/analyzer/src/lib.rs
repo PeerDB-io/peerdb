@@ -6,21 +6,22 @@ use std::{
 };
 
 use anyhow::Context;
+use pt::peerdb_peers::{MySqlAuthType, PostgresAuthType};
 use pt::{
     flow_model::{FlowJob, FlowJobTableMapping, QRepFlowJob},
     peerdb_peers::{
-        peer::Config, BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount,
-        KafkaConfig, MongoConfig, MySqlFlavor, MySqlReplicationMechanism, Peer, PostgresConfig,
-        PubSubConfig, S3Config, SnowflakeConfig, SqlServerConfig, SshConfig,
+        BigqueryConfig, ClickhouseConfig, DbType, EventHubConfig, GcpServiceAccount, KafkaConfig,
+        MongoConfig, MySqlFlavor, MySqlReplicationMechanism, Peer, PostgresConfig, PubSubConfig,
+        S3Config, SnowflakeConfig, SqlServerConfig, SshConfig, peer::Config,
     },
 };
 use qrep::process_options;
 use sqlparser::ast::{
-    self, visit_relations, visit_statements,
-    CreateMirror::{Select, CDC},
-    DollarQuotedString, Expr, FetchDirection, SqlOption, Statement, Value,
+    self,
+    CreateMirror::{CDC, Select},
+    DollarQuotedString, Expr, FetchDirection, SqlOption, Statement, Value, visit_relations,
+    visit_statements,
 };
-use pt::peerdb_peers::{MySqlAuthType, PostgresAuthType};
 
 mod qrep;
 
@@ -214,7 +215,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                                     _ => {
                                         return Err(anyhow::anyhow!(
                                             "do_initial_copy must be a boolean"
-                                        ))
+                                        ));
                                     }
                                 }
                             }
@@ -351,7 +352,9 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                         };
 
                         if initial_copy_only && !do_initial_copy {
-                            anyhow::bail!("initial_copy_only is set to true, but do_initial_copy is set to false");
+                            anyhow::bail!(
+                                "initial_copy_only is set to true, but do_initial_copy is set to false"
+                            );
                         }
 
                         Ok(Some(PeerDDL::CreateMirrorForCDC {
@@ -514,7 +517,7 @@ impl StatementAnalyzer for PeerCursorAnalyzer {
                         return Err(anyhow::anyhow!(
                             "invalid fetch direction for cursor: {:?}",
                             direction
-                        ))
+                        ));
                     }
                 };
                 Ok(Some(CursorEvent::Fetch(name.value.clone(), count)))
@@ -700,7 +703,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
                 ssh_config: ssh_fields,
                 root_ca: opts.get("root_ca").map(|s| s.to_string()),
-                tls_host: opts.get("tls_host").map(|s| s.to_string()).unwrap_or_default(),
+                tls_host: opts
+                    .get("tls_host")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
                 require_tls: opts
                     .get("require_tls")
                     .map(|s| s.parse::<bool>().unwrap_or_default())
@@ -790,7 +796,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 certificate: opts.get("certificate").map(|s| s.to_string()),
                 private_key: opts.get("private_key").map(|s| s.to_string()),
                 root_ca: opts.get("root_ca").map(|s| s.to_string()),
-                tls_host: opts.get("tls_host").map(|s| s.to_string()).unwrap_or_default(),
+                tls_host: opts
+                    .get("tls_host")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
             };
             Config::ClickhouseConfig(clickhouse_config)
         }
@@ -1000,7 +1009,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             }
             .into(),
             root_ca: opts.get("root_ca").map(|s| s.to_string()),
-            tls_host: opts.get("tls_host").map(|s| s.to_string()).unwrap_or_default(),
+            tls_host: opts
+                .get("tls_host")
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
             auth_type: MySqlAuthType::MysqlPassword.into(),
             ssh_config: None,
             replication_mechanism: match opts.get("replication_mechanism") {

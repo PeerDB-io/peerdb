@@ -1,8 +1,8 @@
 use std::ops::ControlFlow;
 
 use sqlparser::ast::{
-    visit_expressions_mut, visit_relations_mut, visit_statements_mut, DataType, Expr, Function,
-    FunctionArg, FunctionArgExpr, Ident, JsonOperator, ObjectName, Query, Statement, TimezoneInfo,
+    DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident, JsonOperator, ObjectName, Query,
+    Statement, TimezoneInfo, visit_expressions_mut, visit_relations_mut, visit_statements_mut,
 };
 
 pub struct SnowflakeAst;

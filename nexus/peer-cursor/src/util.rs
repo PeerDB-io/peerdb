@@ -1,4 +1,4 @@
-use futures::{stream, StreamExt};
+use futures::{StreamExt, stream};
 use pgwire::{
     api::results::{DataRowEncoder, QueryResponse, Response},
     error::{PgWireError, PgWireResult},

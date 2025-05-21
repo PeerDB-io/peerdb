@@ -1,6 +1,6 @@
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{visit_relations_mut, visit_statements_mut, ObjectType, Query, Statement};
+use sqlparser::ast::{ObjectType, Query, Statement, visit_relations_mut, visit_statements_mut};
 
 #[derive(Default)]
 pub struct PostgresAst {
@@ -24,9 +24,7 @@ impl PostgresAst {
         // DROP statement needs to be handled separately
         let _ = visit_statements_mut(stmt, |stmt| {
             if let Statement::Drop {
-                object_type,
-                names,
-                ..
+                object_type, names, ..
             } = stmt
             {
                 if object_type == &ObjectType::Table {
