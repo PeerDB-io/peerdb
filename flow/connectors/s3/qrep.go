@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hamba/avro/v2/ocf"
+
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -66,7 +68,7 @@ func (c *S3Connector) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
 
-	writer := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressNone, protos.DBType_S3)
+	writer := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.Null, protos.DBType_S3)
 	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)

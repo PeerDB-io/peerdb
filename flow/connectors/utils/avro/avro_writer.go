@@ -18,7 +18,6 @@ import (
 	"github.com/djherbis/buffer"
 	"github.com/djherbis/nio/v3"
 	"github.com/hamba/avro/v2/ocf"
-	"github.com/klauspost/compress/zstd"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -28,15 +27,7 @@ import (
 )
 
 type (
-	AvroCompressionCodec int64
-	AvroStorageLocation  int64
-)
-
-const (
-	CompressNone AvroCompressionCodec = iota
-	CompressZstd
-	CompressDeflate
-	CompressSnappy
+	AvroStorageLocation int64
 )
 
 const (
@@ -48,7 +39,7 @@ const (
 type peerDBOCFWriter struct {
 	stream               *model.QRecordStream
 	avroSchema           *model.QRecordAvroSchemaDefinition
-	avroCompressionCodec AvroCompressionCodec
+	avroCompressionCodec ocf.CodecName
 	targetDWH            protos.DBType
 }
 
@@ -70,7 +61,7 @@ func (l *AvroFile) Cleanup() {
 func NewPeerDBOCFWriter(
 	stream *model.QRecordStream,
 	avroSchema *model.QRecordAvroSchemaDefinition,
-	avroCompressionCodec AvroCompressionCodec,
+	avroCompressionCodec ocf.CodecName,
 	targetDWH protos.DBType,
 ) *peerDBOCFWriter {
 	return &peerDBOCFWriter{
@@ -82,22 +73,8 @@ func NewPeerDBOCFWriter(
 }
 
 func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*ocf.Encoder, error) {
-	var ocfConfig []ocf.EncoderFunc
-	switch p.avroCompressionCodec {
-	case CompressDeflate:
-		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.Deflate))
-	case CompressZstd:
-		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.ZStandard), ocf.WithZStandardEncoderOptions(zstd.WithZeroFrames(true)))
-	case CompressSnappy:
-		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.Snappy))
-	default:
-		ocfConfig = append(ocfConfig, ocf.WithCodec(ocf.Null))
-	}
-
 	ocfWriter, err := ocf.NewEncoder(
-		p.avroSchema.Schema,
-		w,
-		ocfConfig...,
+		p.avroSchema.Schema, w, ocf.WithCodec(p.avroCompressionCodec),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OCF writer: %w", err)

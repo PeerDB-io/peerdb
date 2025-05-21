@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/hamba/avro/v2/ocf"
 
 	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -398,7 +399,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	flowName string,
 ) (int, error) {
 	var avroFile *avro.AvroFile
-	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressSnappy, protos.DBType_BIGQUERY)
+	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("batchOrPartitionID", syncID),

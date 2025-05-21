@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hamba/avro/v2/ocf"
 	_ "github.com/snowflakedb/gosnowflake"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -154,7 +155,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	flowJobName string,
 ) (*avro.AvroFile, error) {
 	if s.config.StagingPath == "" {
-		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, protos.DBType_SNOWFLAKE)
+		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
 		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
 		err := os.MkdirAll(tmpDir, os.ModePerm)
 		if err != nil {
@@ -170,7 +171,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		return avroFile, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, protos.DBType_SNOWFLAKE)
+		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse staging path: %w", err)
