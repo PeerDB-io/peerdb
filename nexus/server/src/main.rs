@@ -10,22 +10,23 @@ use std::{
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
-use catalog::{kms_decrypt, Catalog, CatalogConfig};
+use catalog::{Catalog, CatalogConfig, kms_decrypt};
 use clap::Parser;
 use cursor::PeerCursors;
-use dashmap::{mapref::entry::Entry as DashEntry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry as DashEntry};
 use flow_rs::grpc::{FlowGrpcClient, PeerCreationResult};
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
-    util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, Schema,
+    util::{records_to_query_response, sendable_stream_to_query_response},
 };
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
+        ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type,
         auth::{
-            scram::{gen_salted_password, SASLScramAuthStartupHandler},
             AuthSource, LoginInfo, Password, ServerParameterProvider,
+            scram::{SASLScramAuthStartupHandler, gen_salted_password},
         },
         copy::NoopCopyHandler,
         portal::Portal,
@@ -34,25 +35,24 @@ use pgwire::{
             DescribePortalResponse, DescribeResponse, DescribeStatementResponse, Response, Tag,
         },
         stmt::StoredStatement,
-        ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
     tokio::process_socket,
 };
 use pt::{
     flow_model::QRepFlowJob,
-    peerdb_peers::{peer::Config, Peer},
+    peerdb_peers::{Peer, peer::Config},
 };
 use rand::Rng;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
-use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 mod cursor;
 

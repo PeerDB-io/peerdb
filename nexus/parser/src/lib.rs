@@ -7,7 +7,7 @@ use analyzer::{
 use async_trait::async_trait;
 use catalog::Catalog;
 use pgwire::{
-    api::{stmt::QueryParser, Type},
+    api::{Type, stmt::QueryParser},
     error::{ErrorInfo, PgWireError, PgWireResult},
 };
 use sqlparser::{ast::Statement, dialect::PostgreSqlDialect, parser::Parser};

@@ -159,7 +159,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                             "ERROR".to_owned(),
                             "fdw_error".to_owned(),
                             "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
-                        ))))
+                        ))));
                     }
                 };
 

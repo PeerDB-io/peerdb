@@ -1,11 +1,11 @@
-use crate::{auth::SnowflakeAuth, PartitionResult, ResultSet};
+use crate::{PartitionResult, ResultSet, auth::SnowflakeAuth};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use futures::Stream;
 use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
     api::{
-        results::{FieldFormat, FieldInfo},
         Type,
+        results::{FieldFormat, FieldInfo},
     },
     error::{PgWireError, PgWireResult},
 };

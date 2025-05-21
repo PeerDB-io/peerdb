@@ -1,11 +1,11 @@
 use std::error::Error;
 
-use base64::prelude::{Engine as _, BASE64_STANDARD};
+use base64::prelude::{BASE64_STANDARD, Engine as _};
 use bytes::{BufMut, Bytes, BytesMut};
 use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 use pgwire::types::ToSqlText;
 use postgres_types::{IsNull, ToSql, Type};
-use uuid::{fmt::Hyphenated, Uuid};
+use uuid::{Uuid, fmt::Hyphenated};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ArrayValue {

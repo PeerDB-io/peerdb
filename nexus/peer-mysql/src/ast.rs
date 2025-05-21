@@ -3,8 +3,8 @@ use std::ops::ControlFlow;
 use peer_ast::flatten_expr_to_in_list;
 use serde_json::{self, Value as JsonValue};
 use sqlparser::ast::{
-    visit_expressions_mut, visit_function_arg_mut, visit_relations_mut, Array, BinaryOperator,
-    DataType, Expr, FunctionArgExpr, Offset, Query, TimezoneInfo, Value,
+    Array, BinaryOperator, DataType, Expr, FunctionArgExpr, Offset, Query, TimezoneInfo, Value,
+    visit_expressions_mut, visit_function_arg_mut, visit_relations_mut,
 };
 
 fn json_to_expr(val: JsonValue) -> Expr {
@@ -28,7 +28,7 @@ fn json_to_expr(val: JsonValue) -> Expr {
 }
 
 pub fn rewrite_query(peername: &str, query: &mut Query) {
-    visit_relations_mut(query, |table| {
+    let _ = visit_relations_mut(query, |table| {
         // if peer name is first part of table name, remove first part
         // remove `public.` to facilitate mysql global function push down
         if table.0.len() > 1
@@ -54,7 +54,7 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
         });
     }
 
-    visit_function_arg_mut(query, |node| {
+    let _ = visit_function_arg_mut(query, |node| {
         if let FunctionArgExpr::Expr(arg_expr) = node {
             if let Expr::Cast {
                 data_type: DataType::Array(_),
@@ -91,7 +91,7 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
     });
 
     // flatten ANY to IN operation overall.
-    visit_expressions_mut(query, |node| {
+    let _ = visit_expressions_mut(query, |node| {
         match node {
             Expr::AnyOp {
                 left,
@@ -113,9 +113,7 @@ pub fn rewrite_query(peername: &str, query: &mut Query) {
             } => {
                 *tzinfo = TimezoneInfo::None;
             }
-            Expr::Cast {
-                data_type, ..
-            } if matches!(data_type, DataType::Timestamp(..)) => {
+            Expr::Cast { data_type, .. } if matches!(data_type, DataType::Timestamp(..)) => {
                 *data_type = DataType::Datetime(None);
             }
             _ => {}
