@@ -13,8 +13,6 @@ import (
 )
 
 // https://github.com/ClickHouse/clickhouse-kafka-connect/blob/2e0c17e2f900d29c00482b9d0a1f55cb678244e5/src/main/java/com/clickhouse/kafka/connect/util/Utils.java#L78-L93
-//
-//nolint:lll
 var retryableExceptions = map[int32]struct{}{
 	3:   {}, // UNEXPECTED_END_OF_FILE
 	107: {}, // FILE_DOESNT_EXIST

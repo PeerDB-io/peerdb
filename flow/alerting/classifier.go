@@ -384,12 +384,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-			var normalizationErr *exceptions.NormalizationError
-			if errors.As(err, &normalizationErr) {
-				// notify if normalization hits error on destination
-				return ErrorNotifyMVOrView, chErrorInfo
-			}
 			return ErrorOther, chErrorInfo
+		}
+		var normalizationErr *exceptions.NormalizationError
+		if errors.As(err, &normalizationErr) {
+			// notify if normalization hits error on destination
+			return ErrorNotifyMVOrView, chErrorInfo
 		}
 	}
 
