@@ -414,7 +414,7 @@ func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
 		return nil
 	}
 
-	return time.Duration(t.UnixMicro()) * time.Microsecond
+	return t
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
@@ -430,7 +430,7 @@ func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
 		return nil
 	}
 
-	return time.Duration(t.UnixMicro()) * time.Microsecond
+	return t
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time) any {
