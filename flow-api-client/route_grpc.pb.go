@@ -56,7 +56,6 @@ const (
 	FlowService_GetPeerType_FullMethodName             = "/peerdb_route.FlowService/GetPeerType"
 	FlowService_ListPeers_FullMethodName               = "/peerdb_route.FlowService/ListPeers"
 	FlowService_GetVersion_FullMethodName              = "/peerdb_route.FlowService/GetVersion"
-	FlowService_ResyncMirror_FullMethodName            = "/peerdb_route.FlowService/ResyncMirror"
 	FlowService_GetInstanceInfo_FullMethodName         = "/peerdb_route.FlowService/GetInstanceInfo"
 	FlowService_Maintenance_FullMethodName             = "/peerdb_route.FlowService/Maintenance"
 	FlowService_CreateOrReplaceFlowTags_FullMethodName = "/peerdb_route.FlowService/CreateOrReplaceFlowTags"
@@ -104,8 +103,6 @@ type FlowServiceClient interface {
 	GetPeerType(ctx context.Context, in *PeerInfoRequest, opts ...grpc.CallOption) (*PeerTypeResponse, error)
 	ListPeers(ctx context.Context, in *ListPeersRequest, opts ...grpc.CallOption) (*ListPeersResponse, error)
 	GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error)
-	// Deprecated: Do not use.
-	ResyncMirror(ctx context.Context, in *ResyncMirrorRequest, opts ...grpc.CallOption) (*ResyncMirrorResponse, error)
 	GetInstanceInfo(ctx context.Context, in *InstanceInfoRequest, opts ...grpc.CallOption) (*InstanceInfoResponse, error)
 	Maintenance(ctx context.Context, in *MaintenanceRequest, opts ...grpc.CallOption) (*MaintenanceResponse, error)
 	CreateOrReplaceFlowTags(ctx context.Context, in *CreateOrReplaceFlowTagsRequest, opts ...grpc.CallOption) (*CreateOrReplaceFlowTagsResponse, error)
@@ -453,16 +450,6 @@ func (c *flowServiceClient) GetVersion(ctx context.Context, in *PeerDBVersionReq
 	return out, nil
 }
 
-// Deprecated: Do not use.
-func (c *flowServiceClient) ResyncMirror(ctx context.Context, in *ResyncMirrorRequest, opts ...grpc.CallOption) (*ResyncMirrorResponse, error) {
-	out := new(ResyncMirrorResponse)
-	err := c.cc.Invoke(ctx, FlowService_ResyncMirror_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
 func (c *flowServiceClient) GetInstanceInfo(ctx context.Context, in *InstanceInfoRequest, opts ...grpc.CallOption) (*InstanceInfoResponse, error) {
 	out := new(InstanceInfoResponse)
 	err := c.cc.Invoke(ctx, FlowService_GetInstanceInfo_FullMethodName, in, out, opts...)
@@ -540,8 +527,6 @@ type FlowServiceServer interface {
 	GetPeerType(context.Context, *PeerInfoRequest) (*PeerTypeResponse, error)
 	ListPeers(context.Context, *ListPeersRequest) (*ListPeersResponse, error)
 	GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error)
-	// Deprecated: Do not use.
-	ResyncMirror(context.Context, *ResyncMirrorRequest) (*ResyncMirrorResponse, error)
 	GetInstanceInfo(context.Context, *InstanceInfoRequest) (*InstanceInfoResponse, error)
 	Maintenance(context.Context, *MaintenanceRequest) (*MaintenanceResponse, error)
 	CreateOrReplaceFlowTags(context.Context, *CreateOrReplaceFlowTagsRequest) (*CreateOrReplaceFlowTagsResponse, error)
@@ -663,9 +648,6 @@ func (UnimplementedFlowServiceServer) ListPeers(context.Context, *ListPeersReque
 }
 func (UnimplementedFlowServiceServer) GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetVersion not implemented")
-}
-func (UnimplementedFlowServiceServer) ResyncMirror(context.Context, *ResyncMirrorRequest) (*ResyncMirrorResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ResyncMirror not implemented")
 }
 func (UnimplementedFlowServiceServer) GetInstanceInfo(context.Context, *InstanceInfoRequest) (*InstanceInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInstanceInfo not implemented")
@@ -1358,24 +1340,6 @@ func _FlowService_GetVersion_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
-func _FlowService_ResyncMirror_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ResyncMirrorRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FlowServiceServer).ResyncMirror(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FlowService_ResyncMirror_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FlowServiceServer).ResyncMirror(ctx, req.(*ResyncMirrorRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _FlowService_GetInstanceInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(InstanceInfoRequest)
 	if err := dec(in); err != nil {
@@ -1602,10 +1566,6 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetVersion",
 			Handler:    _FlowService_GetVersion_Handler,
-		},
-		{
-			MethodName: "ResyncMirror",
-			Handler:    _FlowService_ResyncMirror_Handler,
 		},
 		{
 			MethodName: "GetInstanceInfo",
