@@ -159,7 +159,7 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 
 func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro.zst")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
@@ -186,7 +186,7 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 
 func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 	// Create temporary file
-	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro.zz")
+	tmpfile, err := os.CreateTemp(t.TempDir(), "example_*.avro")
 	require.NoError(t, err)
 
 	defer os.Remove(tmpfile.Name()) // clean up
