@@ -578,6 +578,72 @@ func (s ClickHouseSuite) Test_Large_Numeric() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_destination_type_conversion"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_destination_type_conversion"
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	CREATE TABLE IF NOT EXISTS %[1]s(
+		id SERIAL PRIMARY KEY,
+		c1 NUMERIC,
+		c2 NUMERIC NULL
+	);`, srcFullName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	INSERT INTO %s(c1, c2) VALUES($1, $2)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_test_destination_type_conversion"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.TableMappings[0].Columns = []*protos.ColumnSetting{
+		{
+			SourceName:      "c1",
+			DestinationType: "String",
+		},
+		{
+			SourceName:      "c2",
+			DestinationType: "Nullable(String)",
+		},
+	}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "c1,c2", 1)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+	INSERT INTO %s(c1, c2) VALUES($1, $2)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "c1,c2", 2)
+
+	rows, err := s.GetRows(dstTableName, "c1,c2")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2, "expected 2 rows")
+	for _, row := range rows.Records {
+		require.Len(s.t, row, 2, "expected 2 columns")
+		require.Equal(s.t, qvalue.QValueKindString, row[0].Kind(), "c1 type mismatch")
+		require.Equal(s.t, strings.Repeat("9", 77), row[0].Value(), "c1 value mismatch")
+		require.Equal(s.t, qvalue.QValueKindString, row[1].Kind(), "c2 type mismatch")
+		require.Equal(s.t, strings.Repeat("9", 78), row[1].Value(), "c2 value mismatch")
+	}
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 // Unbounded NUMERICs (no precision, scale specified) are mapped to String on CH if FF enabled, Decimal if not
 func (s ClickHouseSuite) testNumericFF(ffValue bool) {
 	nines := strings.Repeat("9", 38)
