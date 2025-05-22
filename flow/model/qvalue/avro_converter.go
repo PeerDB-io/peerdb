@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hamba/avro/v2"
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
@@ -21,42 +22,6 @@ import (
 )
 
 var re = regexp.MustCompile(`[^A-Za-z0-9_]`)
-
-type AvroSchemaField struct {
-	Name        string `json:"name"`
-	Type        any    `json:"type"`
-	LogicalType string `json:"logicalType,omitempty"`
-}
-
-type AvroSchemaLogical struct {
-	Type        string `json:"type"`
-	LogicalType string `json:"logicalType,omitempty"`
-}
-
-// https://avro.apache.org/docs/1.11.0/spec.html
-// please make this generic at some point
-type AvroSchemaArray struct {
-	Type  string `json:"type"`
-	Items string `json:"items"`
-}
-
-type AvroSchemaComplexArray struct {
-	Type  string          `json:"type"`
-	Items AvroSchemaField `json:"items"`
-}
-
-type AvroSchemaNumeric struct {
-	Type        string `json:"type"`
-	LogicalType string `json:"logicalType"`
-	Precision   int16  `json:"precision"`
-	Scale       int16  `json:"scale"`
-}
-
-type AvroSchemaRecord struct {
-	Type   string            `json:"type"`
-	Name   string            `json:"name"`
-	Fields []AvroSchemaField `json:"fields"`
-}
 
 func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, targetDB protos.DBType) (decimal.Decimal, error) {
 	if targetDB == protos.DBType_SNOWFLAKE || targetDB == protos.DBType_BIGQUERY {
@@ -87,8 +52,7 @@ func ConvertToAvroCompatibleName(columnName string) string {
 	}
 
 	// Replace invalid characters with _
-	columnName = re.ReplaceAllString(columnName, "_")
-	return columnName
+	return re.ReplaceAllString(columnName, "_")
 }
 
 // GetAvroSchemaFromQValueKind returns the Avro schema for a given QValueKind.
@@ -105,48 +69,39 @@ func GetAvroSchemaFromQValueKind(
 	targetDWH protos.DBType,
 	precision int16,
 	scale int16,
-) (any, error) {
+) (avro.Schema, error) {
 	switch kind {
 	case QValueKindString, QValueKindEnum, QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
-		return "string", nil
+		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case QValueKindInterval:
-		return "string", nil
+		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case QValueKindUUID:
-		return AvroSchemaLogical{
-			Type:        "string",
-			LogicalType: "uuid",
-		}, nil
+		return avro.NewPrimitiveSchema(avro.String, avro.NewPrimitiveLogicalSchema(avro.UUID)), nil
 	case QValueKindArrayUUID:
-		return AvroSchemaComplexArray{
-			Type: "array",
-			Items: AvroSchemaField{
-				Type:        "string",
-				LogicalType: "uuid",
-			},
-		}, nil
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, avro.NewPrimitiveLogicalSchema(avro.UUID))), nil
 	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
-		return "string", nil
+		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case QValueKindInt8, QValueKindInt16, QValueKindInt32, QValueKindInt64,
 		QValueKindUInt8, QValueKindUInt16, QValueKindUInt32, QValueKindUInt64:
-		return "long", nil
+		return avro.NewPrimitiveSchema(avro.Long, nil), nil
 	case QValueKindFloat32:
 		if targetDWH == protos.DBType_BIGQUERY {
-			return "double", nil
+			return avro.NewPrimitiveSchema(avro.Double, nil), nil
 		}
-		return "float", nil
+		return avro.NewPrimitiveSchema(avro.Float, nil), nil
 	case QValueKindFloat64:
-		return "double", nil
+		return avro.NewPrimitiveSchema(avro.Double, nil), nil
 	case QValueKindBoolean:
-		return "boolean", nil
+		return avro.NewPrimitiveSchema(avro.Boolean, nil), nil
 	case QValueKindBytes:
 		format, err := internal.PeerDBBinaryFormat(ctx, env)
 		if err != nil {
 			return nil, err
 		}
 		if targetDWH == protos.DBType_CLICKHOUSE && format != internal.BinaryFormatRaw {
-			return "string", nil
+			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
-		return "bytes", nil
+		return avro.NewPrimitiveSchema(avro.Bytes, nil), nil
 	case QValueKindNumeric:
 		if targetDWH == protos.DBType_CLICKHOUSE {
 			if precision == 0 && scale == 0 {
@@ -155,111 +110,61 @@ func GetAvroSchemaFromQValueKind(
 					return nil, err
 				}
 				if asString {
-					return "string", nil
+					return avro.NewPrimitiveSchema(avro.String, nil), nil
 				}
 			}
 			if precision > datatypes.PeerDBClickHouseMaxPrecision {
-				return "string", nil
+				return avro.NewPrimitiveSchema(avro.String, nil), nil
 			}
 		}
 		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
-		return AvroSchemaNumeric{
-			Type:        "bytes",
-			LogicalType: "decimal",
-			Precision:   avroNumericPrecision,
-			Scale:       avroNumericScale,
-		}, nil
+		return avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale))), nil
 	case QValueKindDate:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return "string", nil
+			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
-		return AvroSchemaLogical{
-			Type:        "int",
-			LogicalType: "date",
-		}, nil
+		return avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date)), nil
 	case QValueKindTime, QValueKindTimeTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return "string", nil
+			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
-		return AvroSchemaLogical{
-			Type:        "long",
-			LogicalType: "time-micros",
-		}, nil
+		return avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)), nil
 	case QValueKindTimestamp, QValueKindTimestampTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return "string", nil
+			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
-		return AvroSchemaLogical{
-			Type:        "long",
-			LogicalType: "timestamp-micros",
-		}, nil
+		return avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros)), nil
 	case QValueKindTSTZRange:
-		return "string", nil
+		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case QValueKindHStore, QValueKindJSON, QValueKindJSONB:
-		return "string", nil
+		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case QValueKindArrayFloat32:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "float",
-		}, nil
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Float, nil)), nil
 	case QValueKindArrayFloat64:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "double",
-		}, nil
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Double, nil)), nil
 	case QValueKindArrayInt32, QValueKindArrayInt16:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "int",
-		}, nil
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, nil)), nil
 	case QValueKindArrayInt64:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "long",
-		}, nil
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, nil)), nil
 	case QValueKindArrayBoolean:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "boolean",
-		}, nil
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Boolean, nil)), nil
 	case QValueKindArrayDate:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return AvroSchemaArray{
-				Type:  "array",
-				Items: "string",
-			}, nil
+			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 		}
-		return AvroSchemaComplexArray{
-			Type: "array",
-			Items: AvroSchemaField{
-				Type:        "int",
-				LogicalType: "date",
-			},
-		}, nil
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date))), nil
 	case QValueKindArrayTimestamp, QValueKindArrayTimestampTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
-			return AvroSchemaArray{
-				Type:  "array",
-				Items: "string",
-			}, nil
+			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 		}
-		return AvroSchemaComplexArray{
-			Type: "array",
-			Items: AvroSchemaField{
-				Type:        "long",
-				LogicalType: "timestamp-micros",
-			},
-		}, nil
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros))), nil
 	case QValueKindArrayJSON, QValueKindArrayJSONB:
-		return "string", nil
+		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case QValueKindArrayString, QValueKindArrayEnum:
-		return AvroSchemaArray{
-			Type:  "array",
-			Items: "string",
-		}, nil
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 	case QValueKindInvalid:
 		// lets attempt to do invalid as a string
-		return "string", nil
+		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	default:
 		return nil, fmt.Errorf("unsupported QValueKind type: %s", kind)
 	}
