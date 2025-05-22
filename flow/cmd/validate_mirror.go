@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
@@ -31,7 +32,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 	if underMaintenance {
 		slog.Warn("Validate request denied due to maintenance", "flowName", req.ConnectionConfigs.FlowJobName)
-		return nil, errors.New("PeerDB is under maintenance")
+		return nil, exceptions.UnderMaintenanceError
 	}
 
 	if !req.ConnectionConfigs.Resync {
