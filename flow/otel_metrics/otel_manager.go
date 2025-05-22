@@ -36,6 +36,7 @@ const (
 	ConfirmedFlushLSNGaugeName          = "confirmed_flush_lsn"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
 	FetchedBytesCounterName             = "fetched_bytes"
+	CommitLagGaugeName                  = "commit_lag"
 	ErrorEmittedGaugeName               = "error_emitted"
 	ErrorsEmittedCounterName            = "errors_emitted"
 	RecordsSyncedGaugeName              = "records_synced"
@@ -58,6 +59,7 @@ type Metrics struct {
 	ConfirmedFlushLSNGauge          metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
 	FetchedBytesCounter             metric.Int64Counter
+	CommitLagGauge                  metric.Int64Gauge
 	ErrorEmittedGauge               metric.Int64Gauge
 	ErrorsEmittedCounter            metric.Int64Counter
 	RecordsSyncedGauge              metric.Int64Gauge
@@ -216,6 +218,13 @@ func (om *OtelManager) setupMetrics() error {
 	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
 		metric.WithUnit("By"),
 		metric.WithDescription("Bytes received of CopyData over replication slot"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.CommitLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommitLagGaugeName),
+		metric.WithUnit("us"),
+		metric.WithDescription("Microseconds between source commit & time received"),
 	); err != nil {
 		return err
 	}
