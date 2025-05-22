@@ -1,5 +1,11 @@
 package exceptions
 
-import "errors"
+import (
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
 
-var UnderMaintenanceError = errors.New("PeerDB is under maintenance. Please retry in a few minutes")
+var UnderMaintenanceError = status.Error(
+	codes.Unavailable,
+	"PeerDB is under maintenance. Please retry in a few minutes",
+)
