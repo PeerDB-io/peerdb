@@ -3,7 +3,6 @@ package utils
 import (
 	"bufio"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -73,7 +72,7 @@ func NewPeerDBOCFWriter(
 }
 
 func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*ocf.Encoder, error) {
-	ocfWriter, err := ocf.NewEncoder(
+	ocfWriter, err := ocf.NewEncoderWithSchema(
 		p.avroSchema.Schema, w, ocf.WithCodec(p.avroCompressionCodec),
 	)
 	if err != nil {
@@ -84,16 +83,11 @@ func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*ocf.Encoder, error) {
 }
 
 func (p *peerDBOCFWriter) getAvroFieldNamesFromSchemaJSON() ([]string, error) {
-	var avroSchema model.QRecordAvroSchema
-	if err := json.Unmarshal([]byte(p.avroSchema.Schema), &avroSchema); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal Avro schema: %w", err)
+	fields := p.avroSchema.Schema.Fields()
+	avroFieldNames := make([]string, len(fields))
+	for i, field := range fields {
+		avroFieldNames[i] = field.Name()
 	}
-
-	avroFieldNames := make([]string, len(avroSchema.Fields))
-	for i, field := range avroSchema.Fields {
-		avroFieldNames[i] = field.Name
-	}
-
 	return avroFieldNames, nil
 }
 
