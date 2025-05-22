@@ -207,7 +207,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, mysql.ErrBadConn) {
 		// Usually seen in ClickHouse cloud during instance scale-up
 		return ErrorIgnoreEOF, ErrorInfo{
 			Source: ErrorSourceNet,
