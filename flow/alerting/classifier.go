@@ -90,6 +90,9 @@ var (
 	ErrorNotifySlotInvalid = ErrorClass{
 		Class: "NOTIFY_SLOT_INVALID", action: NotifyUser,
 	}
+	ErrorNotifyBinlogInvalid = ErrorClass{
+		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
+	}
 	ErrorNotifySourceTableMissing = ErrorClass{
 		Class: "NOTIFY_SOURCE_TABLE_MISSING", action: NotifyUser,
 	}
@@ -108,10 +111,6 @@ var (
 	ErrorNotifyConnectTimeout = ErrorClass{
 		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
-	}
-	// currently unused
-	ErrorNormalize = ErrorClass{
-		Class: "NORMALIZE", action: NotifyTelemetry,
 	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
@@ -296,6 +295,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1195, // ER_CRASHED_ON_REPAIR
 			1827: // ER_PASSWORD_FORMAT
 			return ErrorNotifyConnectivity, myErrorInfo
+		case 1236, // ER_MASTER_FATAL_ERROR_READING_BINLOG
+			1373: // ER_UNKNOWN_TARGET_BINLOG
+			return ErrorNotifyBinlogInvalid, myErrorInfo
 		case 1105: // ER_UNKNOWN_ERROR
 			if myErr.State == "HY000" && myErr.Message == "The last transaction was aborted due to Zero Downtime Patch. Please retry." {
 				return ErrorRetryRecoverable, myErrorInfo

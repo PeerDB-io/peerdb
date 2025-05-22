@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
@@ -393,6 +394,11 @@ func (c *MySqlConnector) PullRecords(
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
+		case *replication.GTIDEvent:
+			if ev.ImmediateCommitTimestamp > 0 {
+				otelManager.Metrics.CommitLagGauge.Record(ctx,
+					time.Now().UTC().Sub(time.UnixMicro(int64(ev.ImmediateCommitTimestamp))).Microseconds())
+			}
 		case *replication.XIDEvent:
 			if gset != nil {
 				gset = ev.GSet
