@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -145,7 +144,17 @@ func (s Suite) checkCatalogTableMapping(
 	for i, tableMapping := range config.TableMappings {
 		sourceTableNames[i] = tableMapping.SourceTableIdentifier
 	}
-	return assert.ElementsMatch(s.t, expectedSourceTableNames, sourceTableNames), nil
+
+	if len(sourceTableNames) != len(expectedSourceTableNames) {
+		return false, fmt.Errorf("expected %d source table names, got %d", len(expectedSourceTableNames), len(sourceTableNames))
+	}
+
+	for _, expectedName := range expectedSourceTableNames {
+		if !slices.Contains(sourceTableNames, expectedName) {
+			return false, fmt.Errorf("expected source table name %s not found in %v", expectedName, sourceTableNames)
+		}
+	}
+	return true, nil
 }
 
 func testApi[TSource e2e.SuiteSource](
@@ -600,7 +609,7 @@ func (s Suite) TestEditTablesBeforeResync() {
 		ParentMirrorName: flowConnConfig.FlowJobName,
 	})
 	require.NoError(s.t, err)
-	require.True(s.t, len(initialLoadClientFacingDataAfterAddTable.TableSummaries) == 2)
+	require.Len(s.t, initialLoadClientFacingDataAfterAddTable.TableSummaries, 2)
 
 	// Test CDC
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -648,6 +657,11 @@ func (s Suite) TestEditTablesBeforeResync() {
 		s.waitForActiveSlotForPostgresMirror(env, pgconn.Conn(), flowConnConfig.FlowJobName)
 	}
 
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause after table removal", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
@@ -671,8 +685,8 @@ func (s Suite) TestEditTablesBeforeResync() {
 		ParentMirrorName: flowConnConfig.FlowJobName,
 	})
 	require.NoError(s.t, err)
-	require.True(s.t, len(initialLoadClientFacingDataAfterResync.TableSummaries) == 1)
-	require.Equal(s.t, initialLoadClientFacingDataAfterResync.TableSummaries[0].TableName, "added")
+	require.Len(s.t, initialLoadClientFacingDataAfterResync.TableSummaries, 1)
+	require.Equal(s.t, "added", initialLoadClientFacingDataAfterResync.TableSummaries[0].TableName)
 	// Test resync CDC
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (4,'cdc_after_resync')", e2e.AttachSchema(s, "added"))))
