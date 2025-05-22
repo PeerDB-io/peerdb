@@ -52,17 +52,15 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 		FlowJobName: flowName,
 	})
 	require.NoError(t, err)
+
 	avroSync := NewClickHouseAvroSyncMethod(&protos.QRepConfig{
 		DestinationTableIdentifier: table.TableIdentifier,
 	}, conn)
-
-	require.NoError(t, err)
-	err = avroSync.CopyStageToDestination(ctx, &avro.AvroFile{
+	require.NoError(t, avroSync.CopyStageToDestination(ctx, &avro.AvroFile{
 		FilePath:        "test-iam-role-can-issue-select-from-s3/datafile.avro.zst",
 		StorageLocation: avro.AvroS3Storage,
 		NumRecords:      3,
-	})
-	require.NoError(t, err)
+	}))
 
 	query, err := conn.query(ctx, `SELECT COUNT(*) FROM default.`+table.TableIdentifier)
 	require.NoError(t, err)
