@@ -57,7 +57,7 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 		DestinationTableIdentifier: table.TableIdentifier,
 	}, conn)
 	require.NoError(t, avroSync.CopyStageToDestination(ctx, &avro.AvroFile{
-		FilePath:        "test-iam-role-can-issue-select-from-s3/datafile.avro",
+		FilePath:        "test-iam-role-can-issue-select-from-s3/datafile.avro.zst",
 		StorageLocation: avro.AvroS3Storage,
 		NumRecords:      3,
 	}))
