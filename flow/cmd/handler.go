@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -328,7 +329,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
 	} else if underMaintenance {
 		slog.Warn("Flow state change request denied due to maintenance", logs)
-		return nil, errors.New("PeerDB is under maintenance")
+		return nil, exceptions.UnderMaintenanceError
 	}
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
@@ -516,7 +517,7 @@ func (h *FlowRequestHandler) resyncMirror(
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
 		return fmt.Errorf("unable to get maintenance mode status: %w", err)
 	} else if underMaintenance {
-		return errors.New("PeerDB is under maintenance")
+		return exceptions.UnderMaintenanceError
 	}
 
 	isCDC, err := h.isCDCFlow(ctx, flowName)
