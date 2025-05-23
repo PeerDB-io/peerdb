@@ -41,13 +41,6 @@ func NewTypeConversion[TFrom QValue, TTo QValue](
 
 func NumericToStringSchemaConversion(val QField) QField {
 	val.Type = QValueKindString
-	val.Nullable = false
-	return val
-}
-
-func NumericToStringSchemaConversionNullable(val QField) QField {
-	val.Type = QValueKindString
-	val.Nullable = true
 	return val
 }
 

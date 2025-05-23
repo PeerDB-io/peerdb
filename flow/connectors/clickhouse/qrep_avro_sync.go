@@ -270,10 +270,6 @@ var supportedDestinationTypes = map[string][]qvalue.TypeConversion{
 		qvalue.NumericToStringSchemaConversion,
 		qvalue.NumericToStringValueConversion,
 	)},
-	"Nullable(String)": {qvalue.NewTypeConversion(
-		qvalue.NumericToStringSchemaConversionNullable,
-		qvalue.NumericToStringValueConversion,
-	)},
 }
 
 func findTypeConversions(schema qvalue.QRecordSchema, columns []*protos.ColumnSetting) map[string]qvalue.TypeConversion {
