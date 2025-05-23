@@ -295,6 +295,9 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		case *protos.PartitionRange_IntRange:
 			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
 			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
+		case *protos.PartitionRange_UintRange:
+			rangeStart = strconv.FormatUint(x.UintRange.Start, 10)
+			rangeEnd = strconv.FormatUint(x.UintRange.End, 10)
 		case *protos.PartitionRange_TimestampRange:
 			rangeStart = x.TimestampRange.Start.AsTime().String()
 			rangeEnd = x.TimestampRange.End.AsTime().String()

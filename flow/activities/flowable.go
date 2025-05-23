@@ -938,6 +938,10 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 		if maxValue.(int64) > x.IntRange.End {
 			return true, nil
 		}
+	case *protos.PartitionRange_UintRange:
+		if maxValue.(uint64) > x.UintRange.End {
+			return true, nil
+		}
 	case *protos.PartitionRange_TimestampRange:
 		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
 			return true, nil

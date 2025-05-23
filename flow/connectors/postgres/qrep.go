@@ -105,6 +105,8 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			minVal = lastRange.IntRange.End
+		case *protos.PartitionRange_UintRange:
+			minVal = lastRange.UintRange.End
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
