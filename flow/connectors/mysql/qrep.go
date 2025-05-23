@@ -137,9 +137,28 @@ func (c *MySqlConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
+	qk1, err := qkindFromMysql(rs.Fields[1])
+	if err != nil {
+		return nil, err
+	}
+	qk2, err := qkindFromMysql(rs.Fields[2])
+	if err != nil {
+		return nil, err
+	}
+	if qk1 != qk2 {
+		return nil, fmt.Errorf("low/high of partition range should be same type, got low:%s, high:%s", qk1, qk2)
+	}
 	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for _, row := range rs.Values {
-		if err := partitionHelper.AddPartition(row[1].Value(), row[2].Value()); err != nil {
+		val1, err := QValueFromMysqlFieldValue(qk1, row[1])
+		if err != nil {
+			return nil, err
+		}
+		val2, err := QValueFromMysqlFieldValue(qk2, row[2])
+		if err != nil {
+			return nil, err
+		}
+		if err := partitionHelper.AddPartition(val1.Value(), val2.Value()); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
 	}
