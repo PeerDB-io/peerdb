@@ -292,6 +292,7 @@ export default function CreateMirrors() {
             <QRepConfigForm
               settings={qrepSettings}
               mirrorConfig={qrepConfig}
+              sourceType={sourceType}
               destinationType={destinationType}
               setter={setQrepConfig}
               xmin={mirrorType === MirrorType.XMin}

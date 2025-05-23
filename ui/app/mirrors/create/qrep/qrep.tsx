@@ -18,6 +18,7 @@ import UpsertColsDisplay from './upsertcols';
 interface QRepConfigProps {
   settings: MirrorSetting[];
   mirrorConfig: QRepConfig;
+  sourceType: DBType;
   destinationType: DBType;
   setter: Dispatch<SetStateAction<QRepConfig>>;
   xmin?: boolean;
@@ -27,17 +28,35 @@ const WriteModes = ['Append', 'Upsert', 'Overwrite'].map((value) => ({
   label: value,
   value,
 }));
-const allowedTypesForWatermarkColumn = [
-  'smallint',
-  'integer',
-  'bigint',
-  'timestamp without time zone',
-  'timestamp with time zone',
-];
+const allowedTypesForWatermarkColumn = new Map([
+  [
+    DBType.POSTGRES,
+    new Set([
+      'smallint',
+      'integer',
+      'bigint',
+      'timestamp without time zone',
+      'timestamp with time zone',
+    ]),
+  ],
+  [
+    DBType.MYSQL,
+    new Set([
+      'tinyint',
+      'smallint',
+      'mediumint',
+      'int',
+      'bigint',
+      'timestamp',
+      'datetime',
+    ]),
+  ],
+]);
 
 export default function QRepConfigForm({
   settings,
   mirrorConfig,
+  sourceType,
   destinationType,
   setter,
   xmin,
@@ -99,9 +118,10 @@ export default function QRepConfigForm({
     const table = tableIdentifier.split('.')[1];
     fetchColumns(mirrorConfig.sourceName, schema, table, setLoading).then(
       (cols) => {
-        const filteredCols = cols?.filter((col) =>
-          allowedTypesForWatermarkColumn.includes(col.type)
-        );
+        const filteredCols = cols?.filter((col) => {
+          const types = allowedTypesForWatermarkColumn.get(sourceType);
+          return !types || types.has(col.type);
+        });
         setAllColumns(
           cols.map((col) => ({
             value: col.name,

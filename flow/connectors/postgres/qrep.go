@@ -18,7 +18,6 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	partition_utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -106,6 +105,8 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			minVal = lastRange.IntRange.End
+		case *protos.PartitionRange_UintRange:
+			minVal = lastRange.UintRange.End
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
@@ -170,7 +171,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 	defer rows.Close()
 
-	partitionHelper := partition_utils.NewPartitionHelper(c.logger)
+	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for rows.Next() {
 		var bucket pgtype.Int8
 		var start, end any
