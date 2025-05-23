@@ -116,6 +116,8 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
+	schema = applyDestinationTypeIfSupported(schema, config.Columns)
+
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
@@ -148,15 +150,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	selectedColumnNames := make([]string, 0, len(schema.Fields))
 	insertedColumnNames := make([]string, 0, len(schema.Fields))
 
-	columnNameToDestinationType := make(map[string]string)
-	for _, col := range config.Columns {
-		if col.SourceName != "" && col.DestinationType != "" {
-			columnNameToDestinationType[col.SourceName] = col.DestinationType
-		}
-	}
-
-	for _, field := range schema.Fields {
-		colName := field.Name
+	for _, colName := range schema.GetColumnNames() {
 		for _, excludedColumn := range config.Exclude {
 			if colName == excludedColumn {
 				continue
@@ -170,8 +164,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 			return 0, fmt.Errorf("destination column %s not found in avro schema", colName)
 		}
 
-		destType := columnNameToDestinationType[colName]
-		selectedColumnNames = append(selectedColumnNames, castToDestinationTypeIfSupported(avroColName, field.Type, destType))
+		selectedColumnNames = append(selectedColumnNames, "`"+avroColName+"`")
 		insertedColumnNames = append(insertedColumnNames, "`"+colName+"`")
 	}
 	if sourceSchemaAsDestinationColumn {
@@ -269,31 +262,25 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	return avroFile, nil
 }
 
-func castToDestinationTypeIfSupported(
-	avroColumnName string,
-	sourceType qvalue.QValueKind,
-	destType string,
-) string {
-	if destType == "" {
-		return fmt.Sprintf("`%s`", avroColumnName)
-	}
-	if _, destTypeSupported := SupportedConversions[sourceType][destType]; !destTypeSupported {
-		// TODO: log this?
-		return fmt.Sprintf("`%s`", avroColumnName)
-	}
-	return SupportedConversions[sourceType][destType](avroColumnName, destType)
-}
-
-type TypeConversionFunc func(columnName string, destinationType string) string
-
 // add more supported type conversions as needed
-var SupportedConversions = map[qvalue.QValueKind]map[string]TypeConversionFunc{
+var SupportedDestinationTypes = map[qvalue.QValueKind]map[string]qvalue.QValueKind{
 	qvalue.QValueKindNumeric: {
-		"String":           numericToString,
-		"Nullable(String)": numericToString,
+		"String":           qvalue.QValueKindString,
+		"Nullable(String)": qvalue.QValueKindString,
 	},
 }
 
-func numericToString(columnName string, destinationType string) string {
-	return fmt.Sprintf("CAST(%s, %s)", peerdb_clickhouse.QuoteIdentifier(columnName), peerdb_clickhouse.QuoteLiteral(destinationType))
+func applyDestinationTypeIfSupported(schema qvalue.QRecordSchema, columns []*protos.ColumnSetting) qvalue.QRecordSchema {
+	for i, field := range schema.Fields {
+		for _, col := range columns {
+			if col.SourceName != field.Name || col.DestinationType == "" {
+				continue
+			}
+			if SupportedDestinationTypes[field.Type] == nil || SupportedDestinationTypes[field.Type][col.DestinationType] == "" {
+				continue
+			}
+			schema.Fields[i].Type = SupportedDestinationTypes[field.Type][col.DestinationType]
+		}
+	}
+	return schema
 }
