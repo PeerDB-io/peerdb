@@ -128,6 +128,7 @@ func (s Generic) Test_Initial_Custom_Partition() {
 
 	srcTable := "test_custom"
 	dstTable := "test_custom_dst"
+	dstTableTm := "test_custom_tm_dst"
 	srcSchemaTable := e2e.AttachSchema(s, srcTable)
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
@@ -152,7 +153,7 @@ func (s Generic) Test_Initial_Custom_Partition() {
 	for i := range 10 {
 		require.NoError(t, s.Source().Exec(
 			t.Context(),
-			fmt.Sprintf(`INSERT INTO %s(val) VALUES ('%s','%s')`,
+			fmt.Sprintf(`INSERT INTO %s(val,tm) VALUES ('%s','%s')`,
 				srcSchemaTable, fmt.Sprintf("init_value_%d", i), fmt.Sprintf("199%d-01-01", i)),
 		))
 	}
@@ -164,7 +165,7 @@ func (s Generic) Test_Initial_Custom_Partition() {
 
 	connectionGen = e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable+"_tm"),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTableTm),
 		Destination:   s.Peer().Name,
 	}
 	connectionGen.TableMappings[0].PartitionKey = "tm"
@@ -174,7 +175,7 @@ func (s Generic) Test_Initial_Custom_Partition() {
 
 	env = e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.EnvWaitForFinished(t, env, 3*time.Minute)
-	e2e.RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val,tm")
+	e2e.RequireEqualTablesWithNames(s, srcTable, dstTableTm, "id,val,tm")
 }
 
 func (s Generic) Test_Simple_Schema_Changes() {
