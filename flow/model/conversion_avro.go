@@ -47,7 +47,12 @@ func NewQRecordAvroConverter(
 	}, nil
 }
 
-func (qac *QRecordAvroConverter) Convert(ctx context.Context, env map[string]string, qrecord []qvalue.QValue, typeConversions map[string]qvalue.TypeConversion) (map[string]any, error) {
+func (qac *QRecordAvroConverter) Convert(
+	ctx context.Context,
+	env map[string]string,
+	qrecord []qvalue.QValue,
+	typeConversions map[string]qvalue.TypeConversion,
+) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
 		if typeConversions != nil {
