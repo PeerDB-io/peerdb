@@ -690,7 +690,7 @@ func (s Suite) TestEditTablesBeforeResync() {
 		if len(initialLoadClientFacingDataAfterResync.TableSummaries) != 1 {
 			return false
 		}
-		if initialLoadClientFacingDataAfterResync.TableSummaries[0].TableName != "added" {
+		if initialLoadClientFacingDataAfterResync.TableSummaries[0].TableName != "added_resync" {
 			return false
 		}
 		return true
