@@ -145,7 +145,9 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[s
 	return numRows.Load(), nil
 }
 
-func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, env map[string]string, w io.Writer, typeConversions map[string]qvalue.TypeConversion) (int, error) {
+func (p *peerDBOCFWriter) WriteOCF(
+	ctx context.Context, env map[string]string, w io.Writer,
+	typeConversions map[string]qvalue.TypeConversion) (int, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)

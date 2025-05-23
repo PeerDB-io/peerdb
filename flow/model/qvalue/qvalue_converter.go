@@ -11,6 +11,7 @@ type TypeConversion struct {
 
 func NumericToStringSchemaConversion(val QField) QField {
 	val.Type = QValueKindString
+	val.Nullable = false
 	return val
 }
 
