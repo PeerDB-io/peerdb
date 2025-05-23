@@ -688,9 +688,11 @@ func (s Suite) TestEditTablesBeforeResync() {
 			return false
 		}
 		if len(initialLoadClientFacingDataAfterResync.TableSummaries) != 1 {
+			s.t.Log("inconsistent initial load data after resync: ", initialLoadClientFacingDataAfterResync)
 			return false
 		}
 		if initialLoadClientFacingDataAfterResync.TableSummaries[0].TableName != "added_resync" {
+			s.t.Log("inconsistent first table load after resync: ", initialLoadClientFacingDataAfterResync)
 			return false
 		}
 		return true
