@@ -266,22 +266,14 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 
 // add more supported type conversions as needed
 var supportedDestinationTypes = map[string][]qvalue.TypeConversion{
-	"String": {
-		{
-			FromKind:           qvalue.QValueKindNumeric,
-			ToKind:             qvalue.QValueKindString,
-			SchemaConversionFn: qvalue.NumericToStringSchemaConversion,
-			ValueConversionFn:  qvalue.NumericToStringValueConversion,
-		},
-	},
-	"Nullable(String)": {
-		{
-			FromKind:           qvalue.QValueKindNumeric,
-			ToKind:             qvalue.QValueKindString,
-			SchemaConversionFn: qvalue.NumericToStringSchemaConversionNullable,
-			ValueConversionFn:  qvalue.NumericToStringValueConversion,
-		},
-	},
+	"String": {qvalue.NewTypeConversion(
+		qvalue.NumericToStringSchemaConversion,
+		qvalue.NumericToStringValueConversion,
+	)},
+	"Nullable(String)": {qvalue.NewTypeConversion(
+		qvalue.NumericToStringSchemaConversionNullable,
+		qvalue.NumericToStringValueConversion,
+	)},
 }
 
 func findTypeConversions(schema qvalue.QRecordSchema, columns []*protos.ColumnSetting) map[string]qvalue.TypeConversion {
@@ -302,7 +294,7 @@ func findTypeConversions(schema qvalue.QRecordSchema, columns []*protos.ColumnSe
 			continue
 		}
 		for _, conversion := range conversions {
-			if conversion.FromKind == colType {
+			if conversion.FromKind() == colType {
 				typeConversions[col.SourceName] = conversion
 			}
 		}
@@ -314,7 +306,7 @@ func findTypeConversions(schema qvalue.QRecordSchema, columns []*protos.ColumnSe
 func applyTypeConversions(schema qvalue.QRecordSchema, typeConversions map[string]qvalue.TypeConversion) qvalue.QRecordSchema {
 	for i, field := range schema.Fields {
 		if conversion, exist := typeConversions[field.Name]; exist {
-			schema.Fields[i] = conversion.SchemaConversionFn(field)
+			schema.Fields[i] = conversion.SchemaConversion(field)
 		}
 	}
 	return schema

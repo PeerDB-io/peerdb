@@ -55,10 +55,8 @@ func (qac *QRecordAvroConverter) Convert(
 ) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
-		if typeConversions != nil {
-			if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
-				val = typeConversion.ValueConversionFn(val)
-			}
+		if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
+			val = typeConversion.ValueConversion(val)
 		}
 		avroVal, err := qvalue.QValueToAvro(
 			ctx, env, val,
