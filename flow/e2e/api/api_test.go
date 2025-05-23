@@ -670,6 +670,7 @@ func (s Suite) TestEditTablesBeforeResync() {
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+		DropMirrorStats:    true,
 	})
 	require.NoError(s.t, err)
 	newEnv, newErr := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
@@ -679,24 +680,14 @@ func (s Suite) TestEditTablesBeforeResync() {
 	e2e.EnvWaitFor(s.t, newEnv, 3*time.Minute, "wait for resynced mirror to be in cdc", func() bool {
 		return newEnv.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	e2e.EnvWaitFor(s.t, newEnv, 5*time.Minute, "wait for initial load data to reflect resync", func() bool {
-		// Removed table should not have been in the initial load
-		initialLoadClientFacingDataAfterResync, err := s.InitialLoadSummary(s.t.Context(), &protos.InitialLoadSummaryRequest{
-			ParentMirrorName: flowConnConfig.FlowJobName,
-		})
-		if err != nil {
-			return false
-		}
-		if len(initialLoadClientFacingDataAfterResync.TableSummaries) != 1 {
-			s.t.Log("inconsistent initial load data after resync: ", initialLoadClientFacingDataAfterResync)
-			return false
-		}
-		if initialLoadClientFacingDataAfterResync.TableSummaries[0].TableName != "added_resync" {
-			s.t.Log("inconsistent first table load after resync: ", initialLoadClientFacingDataAfterResync)
-			return false
-		}
-		return true
+
+	initialLoadClientFacingDataAfterResync, err := s.InitialLoadSummary(s.t.Context(), &protos.InitialLoadSummaryRequest{
+		ParentMirrorName: flowConnConfig.FlowJobName,
 	})
+	require.NoError(s.t, err)
+	require.Len(s.t, initialLoadClientFacingDataAfterResync.TableSummaries, 1)
+	require.Equal(s.t, "added_resync", initialLoadClientFacingDataAfterResync.TableSummaries[0].TableName)
+
 	// Test resync CDC
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (4,'cdc_after_resync')", e2e.AttachSchema(s, "added"))))
