@@ -193,7 +193,6 @@ func QValueToAvro(
 		UnboundedNumericAsString: unboundedNumericAsString,
 	}
 
-	value = maybeCastValueToSchema(value, field.Type)
 	switch v := value.(type) {
 	case QValueInvalid:
 		// we will attempt to convert invalid to a string
@@ -537,30 +536,4 @@ func (c *QValueAvroConverter) processArrayFloat64(arrayData []float64) any {
 
 func (c *QValueAvroConverter) processArrayString(arrayData []string) any {
 	return arrayData
-}
-
-// add more supported type conversions as needed
-var SupportedQValueToQvalueConversions = map[QValueKind]map[QValueKind]func(QValue) QValue{
-	QValueKindNumeric: {
-		QValueKindString: func(colValue QValue) QValue {
-			return QValueString{Val: colValue.Value().(decimal.Decimal).String()}
-		},
-	},
-}
-
-func maybeCastValueToSchema(
-	colValue QValue,
-	schemaType QValueKind,
-) QValue {
-	if schemaType == colValue.Kind() {
-		return colValue
-	}
-
-	if conversions, ok := SupportedQValueToQvalueConversions[colValue.Kind()]; ok {
-		if conversionFunc, ok := conversions[schemaType]; ok {
-			return conversionFunc(colValue)
-		}
-	}
-
-	return colValue
 }

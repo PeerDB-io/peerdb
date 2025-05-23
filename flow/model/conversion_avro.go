@@ -47,9 +47,14 @@ func NewQRecordAvroConverter(
 	}, nil
 }
 
-func (qac *QRecordAvroConverter) Convert(ctx context.Context, env map[string]string, qrecord []qvalue.QValue) (map[string]any, error) {
+func (qac *QRecordAvroConverter) Convert(ctx context.Context, env map[string]string, qrecord []qvalue.QValue, typeConversions map[string]qvalue.TypeConversion) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
+		if typeConversions != nil {
+			if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
+				val = typeConversion.ValueConversionFn(val)
+			}
+		}
 		avroVal, err := qvalue.QValueToAvro(
 			ctx, env, val,
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,

@@ -367,7 +367,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		obj := bucket.Object(avroFilePath)
 		w := obj.NewWriter(ctx)
 
-		numRecords, err := ocfWriter.WriteOCF(ctx, env, w)
+		numRecords, err := ocfWriter.WriteOCF(ctx, env, w, nil)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to Avro file on GCS: %w", err)
 		}

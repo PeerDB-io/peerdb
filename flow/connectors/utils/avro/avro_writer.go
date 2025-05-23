@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -91,7 +92,7 @@ func (p *peerDBOCFWriter) getAvroFieldNamesFromSchemaJSON() ([]string, error) {
 	return avroFieldNames, nil
 }
 
-func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *ocf.Encoder) (int64, error) {
+func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[string]string, ocfWriter *ocf.Encoder, typeConversions map[string]qvalue.TypeConversion) (int64, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
 	avroFieldNames, err := p.getAvroFieldNamesFromSchemaJSON()
@@ -121,7 +122,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[s
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err
 		} else {
-			avroMap, err := avroConverter.Convert(ctx, env, qrecord)
+			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions)
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
@@ -144,14 +145,14 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(ctx context.Context, env map[s
 	return numRows.Load(), nil
 }
 
-func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, env map[string]string, w io.Writer) (int, error) {
+func (p *peerDBOCFWriter) WriteOCF(ctx context.Context, env map[string]string, w io.Writer, typeConversions map[string]qvalue.TypeConversion) (int, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
 	}
 	defer ocfWriter.Close()
 
-	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter)
+	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter, typeConversions)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
 	}
@@ -164,6 +165,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	bucketName string,
 	key string,
 	s3Creds utils.AWSCredentialsProvider,
+	typeConversions map[string]qvalue.TypeConversion,
 ) (*AvroFile, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
@@ -188,7 +190,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			}
 			w.Close()
 		}()
-		numRows, writeOcfError = p.WriteOCF(ctx, env, w)
+		numRows, writeOcfError = p.WriteOCF(ctx, env, w, typeConversions)
 	}()
 
 	partSize, err := internal.PeerDBS3PartSize(ctx, env)
@@ -246,7 +248,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 	bufferedWriter := bufio.NewWriterSize(file, buffSizeBytes)
 	defer bufferedWriter.Flush()
 
-	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter)
+	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}
