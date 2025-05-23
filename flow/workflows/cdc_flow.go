@@ -110,17 +110,23 @@ func syncStateToConfigProtoInCatalog(
 	state *CDCFlowWorkflowState,
 ) *protos.FlowConnectionConfigs {
 	cloneCfg := updateFlowConfigWithLatestSettings(cfg, state)
+	uploadConfigToCatalog(ctx, cloneCfg)
+	return cloneCfg
+}
+
+func uploadConfigToCatalog(
+	ctx workflow.Context,
+	cfg *protos.FlowConnectionConfigs,
+) {
 	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 
 	logger := workflow.GetLogger(ctx)
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, logger, cloneCfg)
+	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, logger, cfg)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
 	}
-
-	return cloneCfg
 }
 
 func processCDCFlowConfigUpdate(
@@ -445,6 +451,10 @@ func CDCFlowWorkflow(
 	// for safety, rely on the idempotency of SetupFlow instead
 	// also, no signals are being handled until the loop starts, so no PAUSE/DROP will take here.
 	if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
+		originalTableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
+		for _, tableMapping := range cfg.TableMappings {
+			originalTableMappings = append(originalTableMappings, proto.CloneOf(tableMapping))
+		}
 		// if resync is true, alter the table name schema mapping to temporarily add
 		// a suffix to the table names.
 		if cfg.Resync {
@@ -453,7 +463,6 @@ func CDCFlowWorkflow(
 				newName := oldName + "_resync"
 				mapping.DestinationTableIdentifier = newName
 			}
-
 			// because we have renamed the tables.
 			cfg.TableMappings = state.SyncFlowOptions.TableMappings
 		}
@@ -480,10 +489,11 @@ func CDCFlowWorkflow(
 				state.ActiveSignal = model.ResyncSignal
 				cfg.Resync = true
 				cfg.DoInitialSnapshot = true
-				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+				cfg.TableMappings = originalTableMappings
+				uploadConfigToCatalog(ctx, cfg)
 				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           resyncCfg.FlowJobName,
-					FlowConnectionConfigs: resyncCfg,
+					FlowJobName:           cfg.FlowJobName,
+					FlowConnectionConfigs: cfg,
 					DropFlowStats:         val.DropMirrorStats,
 					SkipDestinationDrop:   val.SkipDestinationDrop,
 					Resync:                true,
