@@ -232,12 +232,18 @@ message TIDPartitionRange {
   TID end = 2;
 }
 
+message UIntPartitionRange {
+  uint64 start = 1;
+  uint64 end = 2;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
     IntPartitionRange int_range = 1;
     TimestampPartitionRange timestamp_range = 2;
     TIDPartitionRange tid_range = 3;
+    UIntPartitionRange uint_range = 4;
   }
 }
 
