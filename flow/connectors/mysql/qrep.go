@@ -14,7 +14,6 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	partition "github.com/PeerDB-io/peerdb/flow/connectors/utils/partition"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -62,6 +61,8 @@ func (c *MySqlConnector) GetQRepPartitions(
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			minVal = lastRange.IntRange.End
+		case *protos.PartitionRange_UintRange:
+			minVal = lastRange.UintRange.End
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime()
 		}
@@ -136,9 +137,28 @@ func (c *MySqlConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to query for partitions: %w", err)
 	}
 
-	partitionHelper := partition.NewPartitionHelper(c.logger)
+	qk1, err := qkindFromMysql(rs.Fields[1])
+	if err != nil {
+		return nil, err
+	}
+	qk2, err := qkindFromMysql(rs.Fields[2])
+	if err != nil {
+		return nil, err
+	}
+	if qk1 != qk2 {
+		return nil, fmt.Errorf("low/high of partition range should be same type, got low:%s, high:%s", qk1, qk2)
+	}
+	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for _, row := range rs.Values {
-		if err := partitionHelper.AddPartition(row[1].Value(), row[2].Value()); err != nil {
+		val1, err := QValueFromMysqlFieldValue(qk1, row[1])
+		if err != nil {
+			return nil, err
+		}
+		val2, err := QValueFromMysqlFieldValue(qk2, row[2])
+		if err != nil {
+			return nil, err
+		}
+		if err := partitionHelper.AddPartition(val1.Value(), val2.Value()); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
 	}
@@ -233,34 +253,11 @@ func (c *MySqlConnector) PullQRepRecords(
 		// Depending on the type of the range, convert the range into the correct type
 		switch x := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
-			var unsigned bool
-			for _, col := range tableSchema.Columns {
-				if col.Name == config.WatermarkColumn {
-					switch qvalue.QValueKind(col.Type) {
-					case qvalue.QValueKindUInt8:
-						rangeStart = strconv.FormatUint(uint64(uint8(x.IntRange.Start)), 10)
-						rangeEnd = strconv.FormatUint(uint64(uint8(x.IntRange.End)), 10)
-						unsigned = true
-					case qvalue.QValueKindUInt16:
-						rangeStart = strconv.FormatUint(uint64(uint16(x.IntRange.Start)), 10)
-						rangeEnd = strconv.FormatUint(uint64(uint16(x.IntRange.End)), 10)
-						unsigned = true
-					case qvalue.QValueKindUInt32:
-						rangeStart = strconv.FormatUint(uint64(uint32(x.IntRange.Start)), 10)
-						rangeEnd = strconv.FormatUint(uint64(uint32(x.IntRange.End)), 10)
-						unsigned = true
-					case qvalue.QValueKindUInt64:
-						rangeStart = strconv.FormatUint(uint64(x.IntRange.Start), 10)
-						rangeEnd = strconv.FormatUint(uint64(x.IntRange.End), 10)
-						unsigned = true
-					}
-					break
-				}
-			}
-			if !unsigned {
-				rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
-				rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
-			}
+			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
+			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
+		case *protos.PartitionRange_UintRange:
+			rangeStart = strconv.FormatUint(x.UintRange.Start, 10)
+			rangeEnd = strconv.FormatUint(x.UintRange.End, 10)
 		case *protos.PartitionRange_TimestampRange:
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"

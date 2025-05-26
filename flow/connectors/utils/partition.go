@@ -1,4 +1,4 @@
-package partition_utils
+package utils
 
 import (
 	"cmp"
@@ -19,16 +19,10 @@ func compareValues(prevEnd any, start any) int {
 	switch v := start.(type) {
 	case int64:
 		return cmp.Compare(prevEnd.(int64), v)
-	case int32:
-		return cmp.Compare(prevEnd.(int64), int64(v))
+	case uint64:
+		return cmp.Compare(prevEnd.(uint64), v)
 	case time.Time:
-		if prevEnd.(time.Time).Before(v) {
-			return -1
-		} else if prevEnd.(time.Time).After(v) {
-			return 1
-		} else {
-			return 0
-		}
+		return prevEnd.(time.Time).Compare(v)
 	case pgtype.TID:
 		pe := prevEnd.(pgtype.TID)
 		if c := cmp.Compare(pe.BlockNumber, v.BlockNumber); c != 0 {
@@ -50,7 +44,7 @@ func adjustStartValue(prevEnd any, start any) any {
 	case int32:
 		return int32(prevEnd.(int64) + 1)
 	case time.Time:
-		// postgres timestamp has microsecond precision
+		// postgres & mysql timestamps have microsecond precision
 		return prevEnd.(time.Time).Add(1 * time.Microsecond)
 	case pgtype.TID:
 		pe := prevEnd.(pgtype.TID)
@@ -120,6 +114,20 @@ func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition 
 	}
 }
 
+func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.New().String(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_UintRange{
+				UintRange: &protos.UIntPartitionRange{
+					Start: start,
+					End:   end,
+				},
+			},
+		},
+	}
+}
+
 type PartitionHelper struct {
 	logger     log.Logger
 	prevStart  any
@@ -159,13 +167,33 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 		p.prevStart = v
 		p.prevEnd = end
 	case uint64:
-		p.partitions = append(p.partitions, createIntPartition(int64(v), int64(end.(uint64))))
-		p.prevStart = int64(v)
-		p.prevEnd = int64(end.(uint64))
+		p.partitions = append(p.partitions, createUIntPartition(v, end.(uint64)))
+		p.prevStart = v
+		p.prevEnd = end.(uint64)
 	case int32:
 		p.partitions = append(p.partitions, createIntPartition(int64(v), int64(end.(int32))))
 		p.prevStart = int64(v)
 		p.prevEnd = int64(end.(int32))
+	case uint32:
+		p.partitions = append(p.partitions, createUIntPartition(uint64(v), uint64(end.(uint32))))
+		p.prevStart = uint64(v)
+		p.prevEnd = uint64(end.(uint32))
+	case int16:
+		p.partitions = append(p.partitions, createIntPartition(int64(v), int64(end.(int16))))
+		p.prevStart = int64(v)
+		p.prevEnd = int64(end.(int16))
+	case uint16:
+		p.partitions = append(p.partitions, createUIntPartition(uint64(v), uint64(end.(uint16))))
+		p.prevStart = uint64(v)
+		p.prevEnd = uint64(end.(uint16))
+	case int8:
+		p.partitions = append(p.partitions, createIntPartition(int64(v), int64(end.(int8))))
+		p.prevStart = int64(v)
+		p.prevEnd = int64(end.(int8))
+	case uint8:
+		p.partitions = append(p.partitions, createUIntPartition(uint64(v), uint64(end.(uint8))))
+		p.prevStart = uint64(v)
+		p.prevEnd = uint64(end.(uint8))
 	case time.Time:
 		p.partitions = append(p.partitions, createTimePartition(v, end.(time.Time)))
 		p.prevStart = v
