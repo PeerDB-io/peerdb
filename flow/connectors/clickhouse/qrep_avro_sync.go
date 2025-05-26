@@ -83,7 +83,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	}
 
 	batchIdentifierForFile := fmt.Sprintf("%s_%d", shared.RandomString(16), syncBatchID)
-	avroFile, err := s.writeToAvroFile(ctx, env, stream, avroSchema, batchIdentifierForFile, flowJobName)
+	avroFile, err := s.writeToAvroFile(ctx, env, stream, avroSchema, batchIdentifierForFile, flowJobName, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -116,13 +116,18 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		return 0, err
 	}
 
+	destTypeConversions := findTypeConversions(schema, config.Columns)
+	if len(destTypeConversions) > 0 {
+		schema = applyTypeConversions(schema, destTypeConversions)
+	}
+
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
 		return 0, err
 	}
 
-	avroFile, err := s.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName)
+	avroFile, err := s.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName, destTypeConversions)
 	if err != nil {
 		return 0, err
 	}
@@ -240,6 +245,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	identifierForFile string,
 	flowJobName string,
+	typeConversions map[string]qvalue.TypeConversion,
 ) (*avro.AvroFile, error) {
 	stagingPath := s.credsProvider.BucketPath
 	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE)
@@ -250,10 +256,54 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
 	s3AvroFileKey = strings.Trim(s3AvroFileKey, "/")
-	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider)
+	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, typeConversions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
 	}
 
 	return avroFile, nil
+}
+
+// add more supported type conversions as needed
+var supportedDestinationTypes = map[string][]qvalue.TypeConversion{
+	"String": {qvalue.NewTypeConversion(
+		qvalue.NumericToStringSchemaConversion,
+		qvalue.NumericToStringValueConversion,
+	)},
+}
+
+func findTypeConversions(schema qvalue.QRecordSchema, columns []*protos.ColumnSetting) map[string]qvalue.TypeConversion {
+	typeConversions := make(map[string]qvalue.TypeConversion)
+
+	colNameToType := make(map[string]qvalue.QValueKind, len(schema.Fields))
+	for _, field := range schema.Fields {
+		colNameToType[field.Name] = field.Type
+	}
+
+	for _, col := range columns {
+		colType, exist := colNameToType[col.SourceName]
+		if !exist {
+			continue
+		}
+		conversions, exist := supportedDestinationTypes[col.DestinationType]
+		if !exist {
+			continue
+		}
+		for _, conversion := range conversions {
+			if conversion.FromKind() == colType {
+				typeConversions[col.SourceName] = conversion
+			}
+		}
+	}
+
+	return typeConversions
+}
+
+func applyTypeConversions(schema qvalue.QRecordSchema, typeConversions map[string]qvalue.TypeConversion) qvalue.QRecordSchema {
+	for i, field := range schema.Fields {
+		if conversion, exist := typeConversions[field.Name]; exist {
+			schema.Fields[i] = conversion.SchemaConversion(field)
+		}
+	}
+	return schema
 }
