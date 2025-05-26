@@ -10,6 +10,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -188,5 +189,103 @@ func TestClickHouseChaoticNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   "386",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresPublicationDoesNotExistErrorShouldBePublicationMissing(t *testing.T) {
+	// Simulate a publication does not exist error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.UndefinedObject,
+			Message:  `publication "custom_pub" does not exist`,
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorNotifyPublicationMissing, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UndefinedObject,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresStaleFileHandleErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a stale file handle error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  `could not stat file "pg_logical/snapshots/1B6-2A845058.snap": Stale file handle`,
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresReorderbufferSpillFileBadAddressErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a "could not read from reorderbuffer spill file: Bad address" error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "could not read from reorderbuffer spill file: Bad address",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresReorderbufferSpillFileBadFileDescriptorErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a "could not read from reorderbuffer spill file: Bad file descriptor" error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "could not read from reorderbuffer spill file: Bad file descriptor",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T) {
+	// Simulate an "undefined object" error without publication related message
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.UndefinedObject,
+		Message:  "SomeErrorHere",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UndefinedObject,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
+	// Simulate a query cancelled error during WAL
+	err := exceptions.NewPostgresWalError(fmt.Errorf("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
+		Severity: "ERROR",
+		Code:     pgerrcode.QueryCanceled,
+		Message:  "canceling statement due to user request",
+	})
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.QueryCanceled,
 	}, errInfo, "Unexpected error info")
 }
