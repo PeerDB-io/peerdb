@@ -1,6 +1,7 @@
 package alerting
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -277,7 +278,7 @@ func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T
 
 func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
 	// Simulate a query cancelled error during WAL
-	err := exceptions.NewPostgresWalError(fmt.Errorf("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
+	err := exceptions.NewPostgresWalError(errors.New("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
 		Severity: "ERROR",
 		Code:     pgerrcode.QueryCanceled,
 		Message:  "canceling statement due to user request",
