@@ -3,15 +3,15 @@ module github.com/PeerDB-io/peerdb/flow
 go 1.24.0
 
 require (
-	cloud.google.com/go v0.121.1
+	cloud.google.com/go v0.121.2
 	cloud.google.com/go/bigquery v1.68.0
 	cloud.google.com/go/pubsub v1.49.0
 	cloud.google.com/go/storage v1.54.0
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.10.0
 	github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs v1.3.2
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub v1.3.0
-	github.com/ClickHouse/ch-go v0.65.1
-	github.com/ClickHouse/clickhouse-go/v2 v2.34.0
+	github.com/ClickHouse/ch-go v0.66.0
+	github.com/ClickHouse/clickhouse-go/v2 v2.35.0
 	github.com/PeerDB-io/glua64 v1.0.1
 	github.com/PeerDB-io/gluabit32 v1.0.2
 	github.com/PeerDB-io/gluajson v1.0.2
@@ -21,15 +21,15 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.14
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.67
 	github.com/aws/aws-sdk-go-v2/feature/rds/auth v1.5.11
-	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.75
+	github.com/aws/aws-sdk-go-v2/feature/s3/manager v1.17.76
 	github.com/aws/aws-sdk-go-v2/service/kms v1.38.3
-	github.com/aws/aws-sdk-go-v2/service/s3 v1.79.3
+	github.com/aws/aws-sdk-go-v2/service/s3 v1.79.4
 	github.com/aws/aws-sdk-go-v2/service/ses v1.30.2
 	github.com/aws/aws-sdk-go-v2/service/sns v1.34.4
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.19
 	github.com/aws/smithy-go v1.22.3
-	github.com/cockroachdb/pebble v1.1.5
-	github.com/elastic/go-elasticsearch/v8 v8.18.0
+	github.com/cockroachdb/pebble/v2 v2.0.3
+	github.com/elastic/go-elasticsearch/v9 v9.0.0
 	github.com/go-mysql-org/go-mysql v1.12.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.26.3
@@ -38,38 +38,38 @@ require (
 	github.com/jackc/pglogrepl v0.0.0-20250509230407-a9884f6bd75a
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/joho/godotenv v1.5.1
-	github.com/lestrrat-go/jwx/v2 v2.1.6
+	github.com/lestrrat-go/jwx/v3 v3.0.1
 	github.com/lib/pq v1.10.9
 	github.com/orcaman/concurrent-map/v2 v2.0.1
-	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
-	github.com/pingcap/tidb/pkg/parser v0.0.0-20250519101128-d08abd5b7614
+	github.com/pingcap/tidb v1.0.9
+	github.com/pingcap/tidb/pkg/parser bd0f52c32a62
 	github.com/shopspring/decimal v1.4.0
-	github.com/slack-go/slack v0.16.0
+	github.com/slack-go/slack v0.17.0
 	github.com/snowflakedb/gosnowflake v1.14.0
 	github.com/stretchr/testify v1.10.0
-	github.com/twmb/franz-go v1.19.3
+	github.com/twmb/franz-go v1.19.4
 	github.com/twmb/franz-go/pkg/kadm v1.16.0
 	github.com/twmb/franz-go/plugin/kslog v1.0.0
 	github.com/twpayne/go-geos v0.20.1
 	github.com/urfave/cli/v3 v3.3.3
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	github.com/yuin/gopher-lua v1.1.1
-	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.60.0
-	go.opentelemetry.io/otel v1.35.0
-	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.35.0
-	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.35.0
-	go.opentelemetry.io/otel/metric v1.35.0
-	go.opentelemetry.io/otel/sdk v1.35.0
-	go.opentelemetry.io/otel/sdk/metric v1.35.0
+	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0
+	go.opentelemetry.io/otel v1.36.0
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.36.0
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.36.0
+	go.opentelemetry.io/otel/metric v1.36.0
+	go.opentelemetry.io/otel/sdk v1.36.0
+	go.opentelemetry.io/otel/sdk/metric v1.36.0
 	go.temporal.io/api v1.49.1
 	go.temporal.io/sdk v1.34.0
 	go.temporal.io/sdk/contrib/opentelemetry v0.6.0
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.38.0
 	golang.org/x/sync v0.14.0
-	google.golang.org/api v0.233.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20250512202823-5a2f75b736a9
-	google.golang.org/grpc v1.72.1
+	google.golang.org/api v0.234.0
+	google.golang.org/genproto/googleapis/api 55703ea1f237
+	google.golang.org/grpc v1.72.2
 	google.golang.org/protobuf v1.36.6
 	k8s.io/apimachinery v0.33.1
 	k8s.io/client-go v0.33.1
