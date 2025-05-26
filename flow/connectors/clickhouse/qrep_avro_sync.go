@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/hamba/avro/v2/ocf"
@@ -83,7 +84,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	}
 
 	batchIdentifierForFile := fmt.Sprintf("%s_%d", shared.RandomString(16), syncBatchID)
-	avroFile, err := s.writeToAvroFile(ctx, env, stream, avroSchema, batchIdentifierForFile, flowJobName, nil)
+	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -160,7 +161,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 		return nil, err
 	}
 
-	avroChunking, err := internal.PeerDBS3RowsPerChunk(ctx, config.Env)
+	avroChunking, err := internal.PeerDBS3BytesPerAvroFile(ctx, config.Env)
 	if err != nil {
 		return nil, err
 	}
@@ -173,27 +174,31 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 		}
 
 		chunkNum := 0
-		var done bool
-		for !done {
+		var done atomic.Bool
+		for !done.Load() {
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
 
 			substream := model.NewQRecordStream(0)
 			substream.SetSchema(schema)
+			var avroSize atomic.Int64
 			go func() {
-				var rows int64
+				recordsDone := true
 				for record := range stream.Records {
 					substream.Records <- record
-					if rows >= avroChunking {
+					if avroSize.Load() >= avroChunking {
+						recordsDone = false
 						break
 					}
 				}
-				done = rows < avroChunking
+				if recordsDone {
+					done.Store(true)
+				}
 				substream.Close(stream.Err())
 			}()
 
-			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, avroSchema,
+			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, &avroSize, avroSchema,
 				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
 				config.FlowJobName, destTypeConversions)
 			if err != nil {
@@ -213,7 +218,9 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 
 	if avroFile == nil || avroFile.FilePath == "" {
 		var err error
-		avroFile, err = s.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName, destTypeConversions)
+		avroFile, err = s.writeToAvroFile(
+			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName, destTypeConversions,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -297,7 +304,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 			whereClause = fmt.Sprintf(" WHERE cityHash64(`%s`) %% %d = %d", hashColName, numParts, i)
 		}
 		query := fmt.Sprintf(
-			"INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
+			"INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s,'Avro')%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
 			config.DestinationTableIdentifier, insertedStr, selectorStr, avroFileUrl,
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
 		s.logger.Info("inserting part",
@@ -335,6 +342,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	ctx context.Context,
 	env map[string]string,
 	stream *model.QRecordStream,
+	avroSize *atomic.Int64,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	identifierForFile string,
 	flowJobName string,
@@ -349,7 +357,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
 	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
-	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, typeConversions)
+	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, avroSize, typeConversions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
 	}

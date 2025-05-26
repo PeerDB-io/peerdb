@@ -154,9 +154,9 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:         "PEERDB_S3_ROWS_PER_CHUNK",
-		Description:  "S3 upload chunk size in rows, may need for large initial loads.",
-		DefaultValue: "0",
+		Name:         "PEERDB_S3_BYTES_PER_AVRO_FILE",
+		Description:  "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
+		DefaultValue: "33333333333",
 		ValueType:    protos.DynconfValueType_INT,
 		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 	},
@@ -562,8 +562,8 @@ func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error)
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_PART_SIZE")
 }
 
-func PeerDBS3RowsPerChunk(ctx context.Context, env map[string]string) (int64, error) {
-	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_ROWS_PER_CHUNK")
+func PeerDBS3BytesPerAvroFile(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_BYTES_PER_AVRO_FILE")
 }
 
 // Kafka has topic auto create as an option, auto.create.topics.enable
