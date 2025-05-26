@@ -121,7 +121,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
 	avroFile, err := s.pushDataToS3(ctx, config, dstTableName, schema,
-		columnNameAvroFieldMap, partition, stream)
+		columnNameAvroFieldMap, partition, stream, destTypeConversions)
 	if err != nil {
 		s.logger.Error("failed to push data to S3",
 			slog.String("dstTable", dstTableName),
@@ -153,6 +153,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 	columnNameAvroFieldMap map[string]string,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
+	destTypeConversions map[string]qvalue.TypeConversion,
 ) (*avro.AvroFile, error) {
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
