@@ -290,3 +290,14 @@ func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
 		Code:   pgerrcode.QueryCanceled,
 	}, errInfo, "Unexpected error info")
 }
+
+func TestRandomErrorShouldBeOther(t *testing.T) {
+	// Simulate a random error
+	err := errors.New("some random error")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
+	}, errInfo, "Unexpected error info")
+}
