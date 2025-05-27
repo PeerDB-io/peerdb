@@ -67,7 +67,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	stream *model.QRecordStream,
 	flowJobName string,
 	syncBatchID int64,
-) (int, error) {
+) (int64, error) {
 	dstTableName := s.config.DestinationTableIdentifier
 
 	schema, err := stream.Schema()
@@ -91,7 +91,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	s.logger.Info("[SyncRecords] written records to Avro file",
 		slog.String("dstTable", dstTableName),
 		slog.String("avroFile", avroFile.FilePath),
-		slog.Int("numRecords", avroFile.NumRecords),
+		slog.Int64("numRecords", avroFile.NumRecords),
 		slog.Int64("syncBatchID", syncBatchID))
 
 	if err := SetAvroStage(ctx, flowJobName, syncBatchID, avroFile); err != nil {
@@ -106,7 +106,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	dstTableName := config.DestinationTableIdentifier
 	stagingPath := s.credsProvider.BucketPath
 	startTime := time.Now()

@@ -46,7 +46,7 @@ type peerDBOCFWriter struct {
 type AvroFile struct {
 	FilePath        string              `json:"filePath"`
 	StorageLocation AvroStorageLocation `json:"storageLocation"`
-	NumRecords      int                 `json:"numRecords"`
+	NumRecords      int64               `json:"numRecords"`
 }
 
 func (l *AvroFile) Cleanup() {
@@ -155,7 +155,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	env map[string]string,
 	w io.Writer,
 	typeConversions map[string]qvalue.TypeConversion,
-) (int, error) {
+) (int64, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
@@ -166,7 +166,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
 	}
-	return int(numRows), nil
+	return numRows, nil
 }
 
 func (p *peerDBOCFWriter) WriteRecordsToS3(
@@ -189,7 +189,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 
 	defer r.Close()
 	var writeOcfError error
-	var numRows int
+	var numRows int64
 
 	go func() {
 		defer func() {

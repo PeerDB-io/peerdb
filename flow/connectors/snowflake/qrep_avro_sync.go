@@ -41,7 +41,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
 	flowJobName string,
-) (int, error) {
+) (int64, error) {
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
@@ -94,7 +94,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier

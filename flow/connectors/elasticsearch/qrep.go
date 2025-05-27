@@ -39,7 +39,7 @@ func upsertKeyColsHash(qRecord []qvalue.QValue, upsertColIndices []int) string {
 
 func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *protos.QRepConfig,
 	partition *protos.QRepPartition, stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	startTime := time.Now()
 
 	schema, err := stream.Schema()
@@ -51,7 +51,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	var bulkIndexErrors []error
 	var bulkIndexOnFailureMutex sync.Mutex
 	var docId string
-	numRecords := 0
+	var numRecords int64
 	bulkIndexerHasShutdown := false
 
 	// len == 0 means use UUID
@@ -82,8 +82,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	}
 	defer func() {
 		if !bulkIndexerHasShutdown {
-			err := esBulkIndexer.Close(context.Background())
-			if err != nil {
+			if err := esBulkIndexer.Close(context.Background()); err != nil {
 				esc.logger.Error("[es] failed to close bulk indexer", slog.Any("error", err))
 			}
 		}
@@ -169,8 +168,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		}
 	}
 
-	err = esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime)
-	if err != nil {
+	if err := esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
 		esc.logger.Error("[es] failed to log partition info", slog.Any("error", err))
 		return 0, fmt.Errorf("[es] failed to log partition info: %w", err)
 	}
