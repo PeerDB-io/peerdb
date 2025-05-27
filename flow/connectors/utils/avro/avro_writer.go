@@ -105,12 +105,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		return 0, fmt.Errorf("failed to get Avro field names from schema JSON: %w", err)
 	}
 	avroConverter, err := model.NewQRecordAvroConverter(
-		ctx,
-		env,
-		p.avroSchema,
-		p.targetDWH,
-		avroFieldNames,
-		logger,
+		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,
 	)
 	if err != nil {
 		return 0, err
@@ -175,6 +170,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	bucketName string,
 	key string,
 	s3Creds utils.AWSCredentialsProvider,
+	avroSize *atomic.Int64,
 	typeConversions map[string]qvalue.TypeConversion,
 ) (*AvroFile, error) {
 	logger := internal.LoggerFromCtx(ctx)
@@ -200,7 +196,13 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			}
 			w.Close()
 		}()
-		numRows, writeOcfError = p.WriteOCF(ctx, env, w, typeConversions)
+		var writer io.Writer
+		if avroSize == nil {
+			writer = w
+		} else {
+			writer = shared.NewWatchWriter(w, avroSize)
+		}
+		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions)
 	}()
 
 	partSize, err := internal.PeerDBS3PartSize(ctx, env)
@@ -231,9 +233,9 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}
 
 	return &AvroFile{
-		NumRecords:      numRows,
 		StorageLocation: AvroS3Storage,
 		FilePath:        key,
+		NumRecords:      numRows,
 	}, nil
 }
 
