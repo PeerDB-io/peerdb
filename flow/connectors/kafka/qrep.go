@@ -24,7 +24,7 @@ func (c *KafkaConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	startTime := time.Now()
 	numRecords := atomic.Int64{}
 	schema, err := stream.Schema()
@@ -116,5 +116,5 @@ Loop:
 	if err := c.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
 		return 0, err
 	}
-	return int(numRecords.Load()), nil
+	return numRecords.Load(), nil
 }
