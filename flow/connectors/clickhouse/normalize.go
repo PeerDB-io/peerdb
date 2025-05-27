@@ -170,12 +170,14 @@ func generateCreateTableSQLForNormalizedTable(
 		engine = "MergeTree()"
 	case protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
 		engine = fmt.Sprintf(
-			"ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/{table}','{replica}',%s)",
+			"ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}',%s)",
+			peerdb_clickhouse.EscapeStr(tableIdentifier),
 			peerdb_clickhouse.QuoteIdentifier(versionColName),
 		)
 	case protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
 		engine = fmt.Sprintf(
-			"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/{table}','{replica}',%s)",
+			"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}',%s)",
+			peerdb_clickhouse.EscapeStr(tableIdentifier),
 			peerdb_clickhouse.QuoteIdentifier(versionColName),
 		)
 	case protos.TableEngine_CH_ENGINE_NULL:
