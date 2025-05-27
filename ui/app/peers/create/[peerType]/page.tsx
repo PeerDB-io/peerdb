@@ -131,7 +131,7 @@ export default function CreateConfig({
     if (currentlyTypedPeerName !== '') {
       const peerNameValid = peerNameSchema.safeParse(currentlyTypedPeerName);
       if (!peerNameValid.success) {
-        setNameValidityMessage(peerNameValid.error.errors[0].message);
+        setNameValidityMessage(peerNameValid.error.message);
       } else {
         setNameValidityMessage('');
       }

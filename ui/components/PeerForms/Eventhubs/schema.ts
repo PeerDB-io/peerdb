@@ -1,17 +1,21 @@
-import * as z from 'zod';
+import * as z from 'zod/v4';
 
 export const ehSchema = z.object({
   namespace: z
     .string({
-      required_error: 'Namespace is required',
-      invalid_type_error: 'Namespace must be a string',
+      error: (issue) =>
+        issue.input === undefined
+          ? 'Namespace is required'
+          : 'Namespace must be a string',
     })
     .min(1, { message: 'Namespace cannot be empty' })
     .max(255, { message: 'Namespace cannot be longer than 255 characters' }),
   subscriptionId: z
     .string({
-      required_error: 'Subscription ID is required',
-      invalid_type_error: 'Subscription ID must be a string',
+      error: (issue) =>
+        issue.input === undefined
+          ? 'Subscription ID is required'
+          : 'Subscription ID must be a string',
     })
     .min(1, { message: 'Subscription ID cannot be empty' })
     .max(255, {
@@ -19,8 +23,10 @@ export const ehSchema = z.object({
     }),
   resourceGroup: z
     .string({
-      required_error: 'Resource Group is required',
-      invalid_type_error: 'Resource Group must be a string',
+      error: (issue) =>
+        issue.input === undefined
+          ? 'Resource Group is required'
+          : 'Resource Group must be a string',
     })
     .min(1, { message: 'Resource Group cannot be empty' })
     .max(255, {
@@ -28,23 +34,27 @@ export const ehSchema = z.object({
     }),
   location: z
     .string({
-      required_error: 'Location is required',
-      invalid_type_error: 'Location must be a string',
+      error: (issue) =>
+        issue.input === undefined
+          ? 'Location is required'
+          : 'Location must be a string',
     })
     .min(1, { message: 'Location cannot be empty' })
     .max(255, { message: 'Location cannot be longer than 255 characters' }),
   partitionCount: z
-    .number({
-      required_error: 'Partition Count is required',
-      invalid_type_error: 'Partition Count must be a number',
+    .int({
+      error: (issue) =>
+        issue.input === undefined
+          ? 'Partition Count is required'
+          : 'Partition Count must be an integer',
     })
-    .int({ message: 'Partition Count must be an integer' })
     .min(1, { message: 'Partition count must be at least 1' }),
   messageRetentionInDays: z
-    .number({
-      required_error: 'Message Retention (Days) is required',
-      invalid_type_error: 'Message Retention (Days) must be a number',
+    .int({
+      error: (issue) =>
+        issue.input === undefined
+          ? 'Message Retention (Days) is required'
+          : 'Message Retention (Days) must be an integer',
     })
-    .int({ message: 'Message Retention (Days) must be an integer' })
     .min(1, { message: 'Message retention (days) must be at least 1' }),
 });
