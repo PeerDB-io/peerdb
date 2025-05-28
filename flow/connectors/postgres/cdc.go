@@ -973,28 +973,30 @@ func processRelationMessage[Items model.Items](
 				schemaDelta.SrcTableName))
 		}
 	}
-	rows, err := p.conn.Query(
-		ctx,
-		fmt.Sprintf(
-			"select attname from pg_attribute where attrelid=$1 and attname in (%s) and not attnotnull",
-			strings.Join(potentiallyNullable, ","),
-		),
-		currRel.RelationID,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error looking up column nullable info for schema change: %w", err)
-	}
-	var attname string
-	if _, err := pgx.ForEachRow(rows, []any{&attname}, func() error {
-		for _, column := range schemaDelta.AddedColumns {
-			if column.Name == attname {
-				column.Nullable = true
-				return nil
-			}
+	if len(potentiallyNullable) > 0 {
+		rows, err := p.conn.Query(
+			ctx,
+			fmt.Sprintf(
+				"select attname from pg_attribute where attrelid=$1 and attname in (%s) and not attnotnull",
+				strings.Join(potentiallyNullable, ","),
+			),
+			currRel.RelationID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error looking up column nullable info for schema change: %w", err)
 		}
-		return nil
-	}); err != nil {
-		return nil, fmt.Errorf("error processing column nullable info for schema change: %w", err)
+		var attname string
+		if _, err := pgx.ForEachRow(rows, []any{&attname}, func() error {
+			for _, column := range schemaDelta.AddedColumns {
+				if column.Name == attname {
+					column.Nullable = true
+					return nil
+				}
+			}
+			return nil
+		}); err != nil {
+			return nil, fmt.Errorf("error processing column nullable info for schema change: %w", err)
+		}
 	}
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
