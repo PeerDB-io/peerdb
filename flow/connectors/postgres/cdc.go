@@ -985,7 +985,7 @@ func processRelationMessage[Items model.Items](
 		return nil, fmt.Errorf("error looking up column nullable info for schema change: %w", err)
 	}
 	var attname string
-	pgx.ForEachRow(rows, []any{&attname}, func() error {
+	if _, err := pgx.ForEachRow(rows, []any{&attname}, func() error {
 		for _, column := range schemaDelta.AddedColumns {
 			if column.Name == attname {
 				column.Nullable = true
@@ -993,7 +993,9 @@ func processRelationMessage[Items model.Items](
 			}
 		}
 		return nil
-	})
+	}); err != nil {
+		return nil, fmt.Errorf("error processing column nullable info for schema change: %w", err)
+	}
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
