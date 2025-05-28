@@ -1033,12 +1033,13 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Full() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN Ac2 INT, ADD COLUMN Ac3 INT NOT NULL,c4 INT NOT NULL, PRIMARY KEY (c4)`, srcFullName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,Ac2,Ac3,c4) VALUES (1,null,2,3)`, srcFullName)))
+		fmt.Sprintf(`ALTER TABLE %[1]s ADD COLUMN "Ac2" INT, ADD COLUMN "Ac3" INT NOT NULL,
+		 ADD COLUMN c4 INT NOT NULL, DROP CONSTRAINT %[1]s_pkey, ADD PRIMARY KEY (c4);`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,"Ac2","Ac3",c4) VALUES (1,null,2,3)`, srcFullName)))
 
-	e2e.EnvWaitForEqualTables(env, s, "new column", tableName, "id,c1,Ac2,Ac3,c4")
+	e2e.EnvWaitForEqualTables(env, s, "new column", tableName, `id,c1,"Ac2","Ac3",c4`)
 
-	rows, err := s.GetRows(dstTableName, "id,c1,Ac2,Ac3,c4")
+	rows, err := s.GetRows(dstTableName, `id,c1,"Ac2","Ac3",c4`)
 	require.NoError(s.t, err)
 	require.False(s.t, rows.Schema.Fields[0].Nullable)
 	require.True(s.t, rows.Schema.Fields[1].Nullable)
