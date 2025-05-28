@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -925,6 +926,7 @@ func processRelationMessage[Items model.Items](
 		}
 	}
 
+	var potentiallyNullable []string
 	schemaDelta := &protos.TableSchemaDelta{
 		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
 		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
@@ -941,8 +943,14 @@ func processRelationMessage[Items model.Items](
 					Name:         column.Name,
 					Type:         currRelMap[column.Name],
 					TypeModifier: column.TypeModifier,
-					Nullable:     column.Flags == 0, // pg does not send nullable info, only whether column is part of primary key
+					Nullable:     false,
 				})
+				// pg does not send nullable info, only whether column is part of replica identity
+				// After loop we will correct this based on pg_catalog,
+				// but can skip specific scenario where column is primary key with primary key replica identity
+				if currRel.ReplicaIdentity != 'd' || column.Flags == 0 {
+					potentiallyNullable = append(potentiallyNullable, utils.QuoteLiteral(column.Name))
+				}
 				p.logger.Info("Detected added column",
 					slog.String("columnName", column.Name),
 					slog.String("columnType", currRelMap[column.Name]),
@@ -965,15 +973,34 @@ func processRelationMessage[Items model.Items](
 				schemaDelta.SrcTableName))
 		}
 	}
+	rows, err := p.conn.Query(
+		ctx,
+		fmt.Sprintf(
+			"select attname from pg_attribute where attname IN (%s) and not attnotnull",
+			strings.Join(potentiallyNullable, ","),
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error looking up column nullable info for schema change: %w", err)
+	}
+	var attname string
+	pgx.ForEachRow(rows, []any{&attname}, func() error {
+		for _, column := range schemaDelta.AddedColumns {
+			if column.Name == attname {
+				column.Nullable = true
+				return nil
+			}
+		}
+		return nil
+	})
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
-		rec := &model.RelationRecord[Items]{
+		return &model.RelationRecord[Items]{
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
-		}
-		return rec, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
+		}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
 }
@@ -1013,13 +1040,13 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 
 	if _, ok := p.srcTableIDNameMapping[relID]; !ok {
 		var parentRelID uint32
-		err := p.conn.QueryRow(
+		if err := p.conn.QueryRow(
 			ctx,
 			fmt.Sprintf(`SELECT inhparent FROM pg_inherits
 			JOIN pg_class c ON pg_inherits.inhparent=c.oid
 			WHERE inhrelid=$1 AND c.relkind IN (%s)`, relkinds),
-			relID).Scan(&parentRelID)
-		if err != nil {
+			relID,
+		).Scan(&parentRelID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return relID, nil
 			}
