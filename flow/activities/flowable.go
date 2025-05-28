@@ -586,6 +586,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 
 		if err != nil {
+			logger.Error("failed to replicate partition", slog.Any("error", err))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		}
 	}
@@ -1239,7 +1240,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowName, err)
 	}
-	logger.Info("loaded peer types for flow", slog.String("flowName", input.FlowName),
+	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
 		slog.Any("peerTypes", peerTypes))
 	return &protos.FlowContextMetadata{
