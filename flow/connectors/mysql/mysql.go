@@ -182,10 +182,33 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
 			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
 		}
-		// set max_execution_time to unlimited
-		if _, err := conn.Execute("SET SESSION MAX_EXECUTION_TIME=0;"); err != nil {
-			return nil, fmt.Errorf("failed to set max_execution_time to 0: %w", err)
+
+		// Set max_execution_time/max_statement_time to 0 (unlimited)
+		switch c.Flavor() {
+		case mysql.MySQLFlavor:
+			// set max_execution_time to unlimited
+			if _, err := conn.Execute("SET SESSION max_execution_time=0;"); err != nil {
+				var mErr *mysql.MyError
+				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+					// max_execution_time is not supported, ignore the error
+					c.logger.Warn("max_execution_time is not supported by the MySQL server, ignoring", slog.Any("error", err))
+				} else {
+					return nil, fmt.Errorf("failed to set max_execution_time to 0: %w", err)
+				}
+			}
+		case mysql.MariaDBFlavor:
+			// set max_statement_time to unlimited
+			if _, err := conn.Execute("SET SESSION max_statement_time=0;"); err != nil {
+				var mErr *mysql.MyError
+				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+					// max_statement_time is not supported, ignore the error
+					c.logger.Warn("max_statement_time is not supported by the MariaDB server, ignoring", slog.Any("error", err))
+				} else {
+					return nil, fmt.Errorf("failed to set max_statement_time to 0: %w", err)
+				}
+			}
 		}
+
 	}
 	return conn, nil
 }
