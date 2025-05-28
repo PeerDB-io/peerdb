@@ -976,9 +976,10 @@ func processRelationMessage[Items model.Items](
 	rows, err := p.conn.Query(
 		ctx,
 		fmt.Sprintf(
-			"select attname from pg_attribute where attname IN (%s) and not attnotnull",
+			"select attname from pg_attribute where attrelid=$1 and attname in (%s) and not attnotnull",
 			strings.Join(potentiallyNullable, ","),
 		),
+		currRel.RelationID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error looking up column nullable info for schema change: %w", err)
