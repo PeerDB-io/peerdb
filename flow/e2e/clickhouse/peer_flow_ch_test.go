@@ -1083,7 +1083,8 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Index() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN "Ac3" INT NOT NULL,
 		 ADD COLUMN c4 INT NOT NULL, ADD COLUMN "Ac5" TEXT, DROP CONSTRAINT %s_pkey, ADD PRIMARY KEY (c4);`, srcFullName, tableName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("Ac1",c2,"Ac3",c4,"Ac5") VALUES (1,2,3,4,null)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s ("Ac1",c2,"Ac3",c4,"Ac5") VALUES (1,2,3,4,null)`, srcFullName)))
 
 	e2e.EnvWaitForEqualTables(env, s, "new column", tableName, `id,"Ac1",c2,"Ac3",c4,"Ac5"`)
 
