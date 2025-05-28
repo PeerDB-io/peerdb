@@ -973,7 +973,7 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 	require.Len(s.t, rows.Schema.Fields, 6)
 }
 
-func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
+func (s ClickHouseSuite) nullableSchemaChange(replIdentFull bool) {
 	tc := e2e.NewTemporalClient(s.t)
 
 	tableName := "test_nullable_sc_ch"
@@ -981,7 +981,14 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 	dstTableName := tableName
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT);`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, srcFullName)))
+	if replIdentFull {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf(`ALTER TABLE %[1]s REPLICA IDENTITY FULL`, srcFullName)))
+	}
+	// makes sure queries don't mixup tables
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT, Ac2 INT NOT NULL, Ac3 INT)`, srcFullName+"fake")))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, tableName),
@@ -994,18 +1001,29 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 INT, ADD COLUMN c3 INT NOT NULL`, srcFullName)))
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,c2,c3) VALUES (1,null,2)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN Ac2 INT, ADD COLUMN Ac3 INT NOT NULL,c4 INT NOT NULL,ADD PRIMARY KEY (c4)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,Ac2,Ac3,c4) VALUES (1,null,2,3)`, srcFullName)))
 
-	e2e.EnvWaitForEqualTables(env, s, "new column", tableName, "id,c1,c2")
+	e2e.EnvWaitForEqualTables(env, s, "new column", tableName, "id,c1,Ac2,Ac3,c4")
 
-	rows, err := s.GetRows(dstTableName, "c2,c3")
+	rows, err := s.GetRows(dstTableName, "id,c1,Ac2,Ac3,c4")
 	require.NoError(s.t, err)
-	require.True(s.t, rows.Schema.Fields[0].Nullable)
-	require.False(s.t, rows.Schema.Fields[1].Nullable)
+	require.False(s.t, rows.Schema.Fields[0].Nullable)
+	require.True(s.t, rows.Schema.Fields[1].Nullable)
+	require.True(s.t, rows.Schema.Fields[2].Nullable)
+	require.False(s.t, rows.Schema.Fields[3].Nullable)
+	require.False(s.t, rows.Schema.Fields[4].Nullable)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_NullableSchemaChange() {
+	s.nullableSchemaChange(false)
+}
+
+func (s ClickHouseSuite) Test_NullableSchemaChange_ReplIdentFull() {
+	s.nullableSchemaChange(true)
 }
 
 func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
