@@ -720,7 +720,6 @@ func processMessage[Items model.Items](
 			Prefix:     msg.Prefix,
 			Content:    string(msg.Content),
 		}, nil
-
 	default:
 		if _, ok := p.hushWarnUnhandledMessageType[msg.Type()]; !ok {
 			logger.Warn(fmt.Sprintf("Unhandled message type: %T", msg))
