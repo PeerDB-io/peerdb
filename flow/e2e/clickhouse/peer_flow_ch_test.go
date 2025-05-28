@@ -1019,7 +1019,7 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Full() {
 		fmt.Sprintf(`ALTER TABLE %[1]s REPLICA IDENTITY FULL`, srcFullName)))
 	// makes sure queries don't mixup tables
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT, Ac2 INT NOT NULL, Ac3 INT)`, srcFullName+"fake")))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT, "Ac2" INT NOT NULL, "Ac3" INT)`, srcFullName+"fake")))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, tableName),
@@ -1046,6 +1046,55 @@ func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Full() {
 	require.True(s.t, rows.Schema.Fields[2].Nullable)
 	require.False(s.t, rows.Schema.Fields[3].Nullable)
 	require.False(s.t, rows.Schema.Fields[4].Nullable)
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// old logic would mark pkey being nullable if replident index was used
+func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Index() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+	tc := e2e.NewTemporalClient(s.t)
+
+	tableName := "test_nullable_sc_ch_replident_full"
+	srcFullName := s.attachSchemaSuffix(tableName)
+	dstTableName := tableName
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, "Ac1" INT NOT NULL, c2 INT NOT NULL);`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE UNIQUE INDEX idx_uniqlo_%s ON %s("Ac1",c2);`, tableName, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`ALTER TABLE %s REPLICA IDENTITY USING INDEX idx_uniqlo_%s`, srcFullName, tableName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, tableName),
+		TableMappings: e2e.TableMappings(s, tableName, dstTableName),
+		Destination:   s.Peer().Name,
+	}
+	config := connectionGen.GenerateFlowConnectionConfigs(s)
+	config.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN "Ac3" INT NOT NULL,
+		 ADD COLUMN c4 INT NOT NULL, ADD COLUMN "Ac5" TEXT, DROP CONSTRAINT %s_pkey, ADD PRIMARY KEY (c4);`, srcFullName, tableName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("Ac1",c2,"Ac3",c4,"Ac5") VALUES (1,2,3,4,null)`, srcFullName)))
+
+	e2e.EnvWaitForEqualTables(env, s, "new column", tableName, `id,"Ac1",c2,"Ac3",c4,"Ac5"`)
+
+	rows, err := s.GetRows(dstTableName, `id,"Ac1",c2,"Ac3",c4,"Ac5"`)
+	require.NoError(s.t, err)
+	require.False(s.t, rows.Schema.Fields[0].Nullable)
+	require.False(s.t, rows.Schema.Fields[1].Nullable)
+	require.False(s.t, rows.Schema.Fields[2].Nullable)
+	require.False(s.t, rows.Schema.Fields[3].Nullable)
+	require.False(s.t, rows.Schema.Fields[4].Nullable)
+	require.True(s.t, rows.Schema.Fields[5].Nullable)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

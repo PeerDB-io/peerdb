@@ -926,7 +926,7 @@ func processRelationMessage[Items model.Items](
 		}
 	}
 
-	var potentiallyNullable []string
+	var potentiallyNullableAddedColumns []string
 	schemaDelta := &protos.TableSchemaDelta{
 		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
 		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
@@ -947,9 +947,10 @@ func processRelationMessage[Items model.Items](
 				})
 				// pg does not send nullable info, only whether column is part of replica identity
 				// After loop we will correct this based on pg_catalog,
-				// but can skip specific scenario where column is primary key with primary key replica identity
-				if currRel.ReplicaIdentity != 'd' || column.Flags == 0 {
-					potentiallyNullable = append(potentiallyNullable, utils.QuoteLiteral(column.Name))
+				// but can skip specific scenario where replident is default or index
+				if currRel.ReplicaIdentity == uint8(ReplicaIdentityFull) ||
+					currRel.ReplicaIdentity == uint8(ReplicaIdentityNothing) || column.Flags == 0 {
+					potentiallyNullableAddedColumns = append(potentiallyNullableAddedColumns, utils.QuoteLiteral(column.Name))
 				}
 				p.logger.Info("Detected added column",
 					slog.String("columnName", column.Name),
@@ -973,29 +974,33 @@ func processRelationMessage[Items model.Items](
 				schemaDelta.SrcTableName))
 		}
 	}
-	if len(potentiallyNullable) > 0 {
+	if len(potentiallyNullableAddedColumns) > 0 {
+		p.logger.Info("Checking for potentially nullable columns in table",
+			slog.String("tableName", schemaDelta.SrcTableName),
+			slog.Any("potentiallyNullable", potentiallyNullableAddedColumns))
+
 		rows, err := p.conn.Query(
 			ctx,
 			fmt.Sprintf(
 				"select attname from pg_attribute where attrelid=$1 and attname in (%s) and not attnotnull",
-				strings.Join(potentiallyNullable, ","),
+				strings.Join(potentiallyNullableAddedColumns, ","),
 			),
 			currRel.RelationID,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error looking up column nullable info for schema change: %w", err)
 		}
-		var attname string
-		if _, err := pgx.ForEachRow(rows, []any{&attname}, func() error {
-			for _, column := range schemaDelta.AddedColumns {
-				if column.Name == attname {
-					column.Nullable = true
-					return nil
-				}
+
+		attnames, err := pgx.CollectRows[string](rows, pgx.RowTo)
+		if err != nil {
+			return nil, fmt.Errorf("error collecting rows for column nullable info for schema change: %w", err)
+		}
+		for _, column := range schemaDelta.AddedColumns {
+			if slices.Contains(attnames, column.Name) {
+				column.Nullable = true
+				p.logger.Info(fmt.Sprintf("Detected column %s in table %s as nullable",
+					column.Name, schemaDelta.SrcTableName))
 			}
-			return nil
-		}); err != nil {
-			return nil, fmt.Errorf("error processing column nullable info for schema change: %w", err)
 		}
 	}
 
