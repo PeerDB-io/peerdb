@@ -973,7 +973,7 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 	require.Len(s.t, rows.Schema.Fields, 6)
 }
 
-func (s ClickHouseSuite) nullableSchemaChange(replIdentFull bool) {
+func (s ClickHouseSuite) Test_Nullable_Schema_Change() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	tableName := "test_nullable_sc_ch"
@@ -981,11 +981,42 @@ func (s ClickHouseSuite) nullableSchemaChange(replIdentFull bool) {
 	dstTableName := tableName
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, srcFullName)))
-	if replIdentFull {
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf(`ALTER TABLE %[1]s REPLICA IDENTITY FULL`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT);`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, tableName),
+		TableMappings: e2e.TableMappings(s, tableName, dstTableName),
+		Destination:   s.Peer().Name,
 	}
+	config := connectionGen.GenerateFlowConnectionConfigs(s)
+	config.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 INT`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,c2) VALUES (1,null)`, srcFullName)))
+
+	e2e.EnvWaitForEqualTables(env, s, "new column", tableName, "id,c1,c2")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Nullable_Schema_Change_Replident_Full() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+	tc := e2e.NewTemporalClient(s.t)
+
+	tableName := "test_nullable_sc_ch_replident_full"
+	srcFullName := s.attachSchemaSuffix(tableName)
+	dstTableName := tableName
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`ALTER TABLE %[1]s REPLICA IDENTITY FULL`, srcFullName)))
 	// makes sure queries don't mixup tables
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, c1 INT, Ac2 INT NOT NULL, Ac3 INT)`, srcFullName+"fake")))
@@ -1017,14 +1048,6 @@ func (s ClickHouseSuite) nullableSchemaChange(replIdentFull bool) {
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
-}
-
-func (s ClickHouseSuite) Test_NullableSchemaChange() {
-	s.nullableSchemaChange(false)
-}
-
-func (s ClickHouseSuite) Test_NullableSchemaChange_ReplIdentFull() {
-	s.nullableSchemaChange(true)
 }
 
 func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
