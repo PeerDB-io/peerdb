@@ -1002,7 +1002,7 @@ func (s ClickHouseSuite) nullableSchemaChange(replIdentFull bool) {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN Ac2 INT, ADD COLUMN Ac3 INT NOT NULL,c4 INT NOT NULL,ADD PRIMARY KEY (c4)`, srcFullName)))
+		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN Ac2 INT, ADD COLUMN Ac3 INT NOT NULL,c4 INT NOT NULL, PRIMARY KEY (c4)`, srcFullName)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (c1,Ac2,Ac3,c4) VALUES (1,null,2,3)`, srcFullName)))
 
 	e2e.EnvWaitForEqualTables(env, s, "new column", tableName, "id,c1,Ac2,Ac3,c4")
