@@ -208,7 +208,6 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 				}
 			}
 		}
-
 	}
 	return conn, nil
 }
