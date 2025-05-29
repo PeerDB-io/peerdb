@@ -55,6 +55,12 @@ type LoggedWorkerInterceptor struct {
 	interceptor.WorkerInterceptorBase
 }
 
+func NewLoggedWorkerInterceptor() *LoggedWorkerInterceptor {
+	return &LoggedWorkerInterceptor{
+		WorkerInterceptorBase: interceptor.WorkerInterceptorBase{},
+	}
+}
+
 func (c LoggedWorkerInterceptor) InterceptActivity(
 	ctx context.Context,
 	next interceptor.ActivityInboundInterceptor,
@@ -70,10 +76,4 @@ func (c LoggedWorkerInterceptor) InterceptWorkflow(
 	intercepted := NewLoggedWorkflowInboundInterceptor(next)
 	// Workflow intercepting ends here
 	return intercepted
-}
-
-func NewLoggedWorkerInterceptor() *LoggedWorkerInterceptor {
-	return &LoggedWorkerInterceptor{
-		WorkerInterceptorBase: interceptor.WorkerInterceptorBase{},
-	}
 }

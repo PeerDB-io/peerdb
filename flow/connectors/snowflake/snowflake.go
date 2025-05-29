@@ -76,6 +76,68 @@ type SnowflakeConnector struct {
 	rawSchema string
 }
 
+func NewSnowflakeConnector(
+	ctx context.Context,
+	snowflakeProtoConfig *protos.SnowflakeConfig,
+) (*SnowflakeConnector, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
+		snowflakeProtoConfig.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	additionalParams := make(map[string]*string)
+	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = ptr.String("true")
+
+	snowflakeConfig := gosnowflake.Config{
+		Account:          snowflakeProtoConfig.AccountId,
+		User:             snowflakeProtoConfig.Username,
+		Authenticator:    gosnowflake.AuthTypeJwt,
+		PrivateKey:       PrivateKeyRSA,
+		Database:         snowflakeProtoConfig.Database,
+		Warehouse:        snowflakeProtoConfig.Warehouse,
+		Role:             snowflakeProtoConfig.Role,
+		RequestTimeout:   time.Duration(snowflakeProtoConfig.QueryTimeout),
+		DisableTelemetry: true,
+		Params:           additionalParams,
+	}
+
+	snowflakeConfigDSN, err := gosnowflake.DSN(&snowflakeConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get DSN from Snowflake config: %w", err)
+	}
+
+	database, err := sql.Open("snowflake", snowflakeConfigDSN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
+	}
+
+	// checking if connection was actually established, since sql.Open doesn't guarantee that
+	err = database.PingContext(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
+	}
+
+	rawSchema := "_PEERDB_INTERNAL"
+	if snowflakeProtoConfig.MetadataSchema != nil {
+		rawSchema = *snowflakeProtoConfig.MetadataSchema
+	}
+
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
+	}
+
+	return &SnowflakeConnector{
+		PostgresMetadata: pgMetadata,
+		DB:               database,
+		rawSchema:        rawSchema,
+		logger:           logger,
+		config:           snowflakeProtoConfig,
+	}, nil
+}
+
 // creating this to capture array results from snowflake.
 type ArrayString []string
 
@@ -146,68 +208,6 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func NewSnowflakeConnector(
-	ctx context.Context,
-	snowflakeProtoConfig *protos.SnowflakeConfig,
-) (*SnowflakeConnector, error) {
-	logger := internal.LoggerFromCtx(ctx)
-	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
-		snowflakeProtoConfig.Password)
-	if err != nil {
-		return nil, err
-	}
-
-	additionalParams := make(map[string]*string)
-	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = ptr.String("true")
-
-	snowflakeConfig := gosnowflake.Config{
-		Account:          snowflakeProtoConfig.AccountId,
-		User:             snowflakeProtoConfig.Username,
-		Authenticator:    gosnowflake.AuthTypeJwt,
-		PrivateKey:       PrivateKeyRSA,
-		Database:         snowflakeProtoConfig.Database,
-		Warehouse:        snowflakeProtoConfig.Warehouse,
-		Role:             snowflakeProtoConfig.Role,
-		RequestTimeout:   time.Duration(snowflakeProtoConfig.QueryTimeout),
-		DisableTelemetry: true,
-		Params:           additionalParams,
-	}
-
-	snowflakeConfigDSN, err := gosnowflake.DSN(&snowflakeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get DSN from Snowflake config: %w", err)
-	}
-
-	database, err := sql.Open("snowflake", snowflakeConfigDSN)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
-	}
-
-	// checking if connection was actually established, since sql.Open doesn't guarantee that
-	err = database.PingContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
-	}
-
-	rawSchema := "_PEERDB_INTERNAL"
-	if snowflakeProtoConfig.MetadataSchema != nil {
-		rawSchema = *snowflakeProtoConfig.MetadataSchema
-	}
-
-	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
-	}
-
-	return &SnowflakeConnector{
-		PostgresMetadata: pgMetadata,
-		DB:               database,
-		rawSchema:        rawSchema,
-		logger:           logger,
-		config:           snowflakeProtoConfig,
-	}, nil
 }
 
 func (c *SnowflakeConnector) Close() error {

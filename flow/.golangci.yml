@@ -1,12 +1,19 @@
 version: "2"
 linters:
   enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - canonicalheader
     - containedctx
     - copyloopvar
     - dogsled
     - durationcheck
+    - errchkjson
+    - errname
     - exptostd
     - forbidigo
+    - funcorder
     - gocritic
     - gosec
     - iface
@@ -28,10 +35,13 @@ linters:
     - thelper
     - unconvert
     - unparam
+    - usestdlibvars
     - usetesting
     - wastedassign
     - whitespace
   settings:
+    funcorder:
+      struct-method: false
     gocritic:
       disabled-checks:
         - ifElseChain

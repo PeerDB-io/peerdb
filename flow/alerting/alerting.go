@@ -48,6 +48,47 @@ type AlertKeys struct {
 	SlotName string
 }
 
+// doesn't take care of closing pool, needs to be done externally.
+func NewAlerter(ctx context.Context, catalogPool shared.CatalogPool, otelManager *otel_metrics.OtelManager) *Alerter {
+	if catalogPool.Pool == nil {
+		panic("catalog pool is nil for Alerter")
+	}
+	snsTopic := internal.PeerDBTelemetryAWSSNSTopicArn()
+	var snsMessageSender telemetry.Sender
+	if snsTopic != "" {
+		var err error
+		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
+			Topic: snsTopic,
+		})
+		internal.LoggerFromCtx(ctx).Info("Successfully registered sns telemetry sender")
+		if err != nil {
+			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
+		}
+	}
+
+	incidentIoURL := internal.PeerDBGetIncidentIoUrl()
+	incidentIoAuth := internal.PeerDBGetIncidentIoToken()
+	var incidentIoTelemetrySender telemetry.Sender
+	if incidentIoURL != "" && incidentIoAuth != "" {
+		var err error
+		incidentIoTelemetrySender, err = telemetry.NewIncidentIoMessageSender(ctx, telemetry.IncidentIoMessageSenderConfig{
+			URL:   incidentIoURL,
+			Token: incidentIoAuth,
+		})
+		internal.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
+		if err != nil {
+			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
+		}
+	}
+
+	return &Alerter{
+		CatalogPool:               catalogPool,
+		snsTelemetrySender:        snsMessageSender,
+		incidentIoTelemetrySender: incidentIoTelemetrySender,
+		otelManager:               otelManager,
+	}
+}
+
 func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderConfig, error) {
 	rows, err := a.CatalogPool.Query(ctx,
 		`SELECT id, service_type, service_config, enc_key_id, alert_for_mirrors
@@ -118,47 +159,6 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 			return alertSenderConfig, fmt.Errorf("unknown service type: %s", serviceType)
 		}
 	})
-}
-
-// doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(ctx context.Context, catalogPool shared.CatalogPool, otelManager *otel_metrics.OtelManager) *Alerter {
-	if catalogPool.Pool == nil {
-		panic("catalog pool is nil for Alerter")
-	}
-	snsTopic := internal.PeerDBTelemetryAWSSNSTopicArn()
-	var snsMessageSender telemetry.Sender
-	if snsTopic != "" {
-		var err error
-		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
-			Topic: snsTopic,
-		})
-		internal.LoggerFromCtx(ctx).Info("Successfully registered sns telemetry sender")
-		if err != nil {
-			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
-		}
-	}
-
-	incidentIoURL := internal.PeerDBGetIncidentIoUrl()
-	incidentIoAuth := internal.PeerDBGetIncidentIoToken()
-	var incidentIoTelemetrySender telemetry.Sender
-	if incidentIoURL != "" && incidentIoAuth != "" {
-		var err error
-		incidentIoTelemetrySender, err = telemetry.NewIncidentIoMessageSender(ctx, telemetry.IncidentIoMessageSenderConfig{
-			URL:   incidentIoURL,
-			Token: incidentIoAuth,
-		})
-		internal.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
-		if err != nil {
-			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
-		}
-	}
-
-	return &Alerter{
-		CatalogPool:               catalogPool,
-		snsTelemetrySender:        snsMessageSender,
-		incidentIoTelemetrySender: incidentIoTelemetrySender,
-		otelManager:               otelManager,
-	}
 }
 
 func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slotInfo *protos.SlotInfo) {
