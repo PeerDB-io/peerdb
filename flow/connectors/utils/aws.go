@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -364,6 +365,19 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 					region:      options.Region,
 				},
 			}
+		}
+	}
+
+	insecure := true
+	if insecure {
+		// start with a clone of DefaultTransport so we keep http2, idle-conns, etc.
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		// ignore TLS verification
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: insecure} //nolint:gosec
+
+		// If you also need your custom V4-signing RoundTripper, wrap that here
+		options.HTTPClient = &http.Client{
+			Transport: tr,
 		}
 	}
 
