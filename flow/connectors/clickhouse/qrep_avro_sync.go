@@ -373,6 +373,20 @@ var supportedDestinationTypes = map[string][]qvalue.TypeConversion{
 	)},
 }
 
+func listSupportedTypeConversions() map[qvalue.QValueKind][]string {
+	typeConversions := make(map[qvalue.QValueKind][]string)
+
+	for dstType, l := range supportedDestinationTypes {
+		for _, conversion := range l {
+			if _, ok := typeConversions[conversion.FromKind()]; !ok {
+				typeConversions[conversion.FromKind()] = []string{}
+			}
+			typeConversions[conversion.FromKind()] = append(typeConversions[conversion.FromKind()], dstType)
+		}
+	}
+	return typeConversions
+}
+
 func findTypeConversions(schema qvalue.QRecordSchema, columns []*protos.ColumnSetting) map[string]qvalue.TypeConversion {
 	typeConversions := make(map[string]qvalue.TypeConversion)
 

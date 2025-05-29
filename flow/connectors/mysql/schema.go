@@ -95,10 +95,15 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, schema string, table st
 		if err != nil {
 			return nil, err
 		}
+		qkind, err := qkindFromMysqlColumnType(columnType)
+		if err != nil {
+			return nil, err
+		}
 		columns = append(columns, &protos.ColumnsItem{
 			Name:  columnName,
 			Type:  columnType,
 			IsKey: columnKey == "PRI",
+			Qkind: string(qkind),
 		})
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil
