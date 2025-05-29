@@ -41,7 +41,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
 	flowJobName string,
-) (int, error) {
+) (int64, error) {
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
@@ -94,7 +94,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
@@ -185,7 +185,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 		if err != nil {
 			return nil, err
 		}
-		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, provider, nil)
+		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, provider, nil, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to write records to S3: %w", err)
 		}

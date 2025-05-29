@@ -123,7 +123,7 @@ export default function CreateMirrors() {
     if (currentlyTypedMirrorName !== '') {
       const flowNameValid = flowNameSchema.safeParse(currentlyTypedMirrorName);
       if (!flowNameValid.success) {
-        setNameValidityMessage(flowNameValid.error.errors[0].message);
+        setNameValidityMessage(flowNameValid.error.message);
       } else {
         setNameValidityMessage('');
       }

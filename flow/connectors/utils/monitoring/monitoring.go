@@ -381,7 +381,7 @@ func UpdateEndTimeForPartition(ctx context.Context, pool shared.CatalogPool, run
 	return nil
 }
 
-func UpdateRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, rowsSynced int, runUUID string,
+func UpdateRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, rowsSynced int64, runUUID string,
 	partition *protos.QRepPartition,
 ) error {
 	if _, err := pool.Exec(ctx,

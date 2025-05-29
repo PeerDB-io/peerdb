@@ -374,7 +374,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	return syncQRepRecords(c, ctx, config, partition, RecordStreamSink{
 		QRecordStream: stream,
 	})
@@ -385,7 +385,7 @@ func (c *PostgresConnector) SyncPgQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	pipe PgCopyReader,
-) (int, error) {
+) (int64, error) {
 	return syncQRepRecords(c, ctx, config, partition, pipe)
 }
 
@@ -395,7 +395,7 @@ func syncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepSyncSink,
-) (int, error) {
+) (int64, error) {
 	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse destination table identifier: %w", err)
@@ -577,13 +577,12 @@ func syncQRepRecords(
 	}
 
 	c.logger.Info(fmt.Sprintf("pushed %d records to %s", numRowsSynced, dstTable), syncLog)
-	return int(numRowsSynced), nil
+	return numRowsSynced, nil
 }
 
 // SetupQRepMetadataTables function for postgres connector
 func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
-	err := c.createMetadataSchema(ctx)
-	if err != nil {
+	if err := c.createMetadataSchema(ctx); err != nil {
 		return fmt.Errorf("error creating metadata schema: %w", err)
 	}
 
@@ -596,8 +595,7 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 		syncFinishTime TIMESTAMP DEFAULT NOW()
 	)`, metadataTableIdentifier.Sanitize())
 	// execute create table query
-	_, err = c.execWithLogging(ctx, createQRepMetadataTableSQL)
-	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
+	if _, err := c.execWithLogging(ctx, createQRepMetadataTableSQL); err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
 	c.logger.Info("Setup metadata table.")

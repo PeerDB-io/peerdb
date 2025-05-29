@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -720,7 +721,6 @@ func processMessage[Items model.Items](
 			Prefix:     msg.Prefix,
 			Content:    string(msg.Content),
 		}, nil
-
 	default:
 		if _, ok := p.hushWarnUnhandledMessageType[msg.Type()]; !ok {
 			logger.Warn(fmt.Sprintf("Unhandled message type: %T", msg))
@@ -926,6 +926,7 @@ func processRelationMessage[Items model.Items](
 		}
 	}
 
+	var potentiallyNullableAddedColumns []string
 	schemaDelta := &protos.TableSchemaDelta{
 		SrcTableName:    p.srcTableIDNameMapping[currRel.RelationID],
 		DstTableName:    p.tableNameMapping[p.srcTableIDNameMapping[currRel.RelationID]].Name,
@@ -942,8 +943,15 @@ func processRelationMessage[Items model.Items](
 					Name:         column.Name,
 					Type:         currRelMap[column.Name],
 					TypeModifier: column.TypeModifier,
-					Nullable:     column.Flags == 0, // pg does not send nullable info, only whether column is part of primary key
+					Nullable:     false,
 				})
+				// pg does not send nullable info, only whether column is part of replica identity
+				// After loop we will correct this based on pg_catalog,
+				// but can skip specific scenario where replident is default or index
+				if currRel.ReplicaIdentity == uint8(ReplicaIdentityFull) ||
+					currRel.ReplicaIdentity == uint8(ReplicaIdentityNothing) || column.Flags == 0 {
+					potentiallyNullableAddedColumns = append(potentiallyNullableAddedColumns, utils.QuoteLiteral(column.Name))
+				}
 				p.logger.Info("Detected added column",
 					slog.String("columnName", column.Name),
 					slog.String("columnType", currRelMap[column.Name]),
@@ -966,15 +974,43 @@ func processRelationMessage[Items model.Items](
 				schemaDelta.SrcTableName))
 		}
 	}
+	if len(potentiallyNullableAddedColumns) > 0 {
+		p.logger.Info("Checking for potentially nullable columns in table",
+			slog.String("tableName", schemaDelta.SrcTableName),
+			slog.Any("potentiallyNullable", potentiallyNullableAddedColumns))
+
+		rows, err := p.conn.Query(
+			ctx,
+			fmt.Sprintf(
+				"select attname from pg_attribute where attrelid=$1 and attname in (%s) and not attnotnull",
+				strings.Join(potentiallyNullableAddedColumns, ","),
+			),
+			currRel.RelationID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error looking up column nullable info for schema change: %w", err)
+		}
+
+		attnames, err := pgx.CollectRows[string](rows, pgx.RowTo)
+		if err != nil {
+			return nil, fmt.Errorf("error collecting rows for column nullable info for schema change: %w", err)
+		}
+		for _, column := range schemaDelta.AddedColumns {
+			if slices.Contains(attnames, column.Name) {
+				column.Nullable = true
+				p.logger.Info(fmt.Sprintf("Detected column %s in table %s as nullable",
+					column.Name, schemaDelta.SrcTableName))
+			}
+		}
+	}
 
 	p.relationMessageMapping[currRel.RelationID] = currRel
 	// only log audit if there is actionable delta
 	if len(schemaDelta.AddedColumns) > 0 {
-		rec := &model.RelationRecord[Items]{
+		return &model.RelationRecord[Items]{
 			BaseRecord:       p.baseRecord(lsn),
 			TableSchemaDelta: schemaDelta,
-		}
-		return rec, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
+		}, monitoring.AuditSchemaDelta(ctx, p.catalogPool.Pool, p.flowJobName, schemaDelta)
 	}
 	return nil, nil
 }
@@ -1014,13 +1050,13 @@ func (p *PostgresCDCSource) checkIfUnknownTableInherits(ctx context.Context,
 
 	if _, ok := p.srcTableIDNameMapping[relID]; !ok {
 		var parentRelID uint32
-		err := p.conn.QueryRow(
+		if err := p.conn.QueryRow(
 			ctx,
 			fmt.Sprintf(`SELECT inhparent FROM pg_inherits
 			JOIN pg_class c ON pg_inherits.inhparent=c.oid
 			WHERE inhrelid=$1 AND c.relkind IN (%s)`, relkinds),
-			relID).Scan(&parentRelID)
-		if err != nil {
+			relID,
+		).Scan(&parentRelID); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				return relID, nil
 			}

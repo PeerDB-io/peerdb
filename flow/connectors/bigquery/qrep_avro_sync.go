@@ -105,7 +105,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 
 	return &model.SyncResponse{
 		LastSyncedCheckpoint: lastCP,
-		NumRecordsSynced:     int64(numRecords),
+		NumRecordsSynced:     numRecords,
 		CurrentSyncBatchID:   syncBatchID,
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
@@ -148,7 +148,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	stream *model.QRecordStream,
 	syncedAtCol string,
 	softDeleteCol string,
-) (int, error) {
+) (int64, error) {
 	startTime := time.Now()
 	flowLog := slog.Group("sync_metadata",
 		slog.String(string(shared.FlowNameKey), flowJobName),
@@ -354,7 +354,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	stagingTable *datasetTable,
 	stream *model.QRecordStream,
 	flowName string,
-) (int, error) {
+) (int64, error) {
 	var avroFile *avroutils.AvroFile
 	ocfWriter := avroutils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",

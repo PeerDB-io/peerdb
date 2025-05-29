@@ -18,7 +18,7 @@ func (c *S3Connector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, err
@@ -60,7 +60,7 @@ func (c *S3Connector) writeToAvroFile(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
 	jobName string,
-) (int, error) {
+) (int64, error) {
 	s3o, err := utils.NewS3BucketAndPrefix(c.url)
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse bucket path: %w", err)
@@ -69,7 +69,7 @@ func (c *S3Connector) writeToAvroFile(
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
 
 	writer := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.Null, protos.DBType_S3)
-	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil)
+	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}

@@ -12,7 +12,7 @@ import (
 	"go.temporal.io/sdk/log"
 )
 
-var acceptableTableEngines = []string{"ReplacingMergeTree", "MergeTree", "Null"}
+var acceptableTableEngines = []string{"ReplacingMergeTree", "MergeTree", "ReplicatedReplacingMergeTree", "ReplicatedMergeTree", "Null"}
 
 func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger log.Logger,
 	conn clickhouse.Conn,

@@ -400,7 +400,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, error),
-	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
+	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
@@ -430,7 +430,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 
 	logger.Info("replicating partition " + partition.PartitionId)
 
-	var rowsSynced int
+	var rowsSynced int64
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		srcConn, err := connectors.GetByNameAs[TPull](ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -470,8 +470,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 
 	if rowsSynced > 0 {
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
-		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
-		if err != nil {
+		if err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
 			return err
 		}
 	}
@@ -494,7 +493,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, int64, error),
-	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
+	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
@@ -503,7 +502,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	startTime := time.Now()
 
 	var currentSnapshotXmin int64
-	var rowsSynced int
+	var rowsSynced int64
 	errGroup.Go(func() error {
 		srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 		if err != nil {

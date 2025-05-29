@@ -46,7 +46,7 @@ type peerDBOCFWriter struct {
 type AvroFile struct {
 	FilePath        string              `json:"filePath"`
 	StorageLocation AvroStorageLocation `json:"storageLocation"`
-	NumRecords      int                 `json:"numRecords"`
+	NumRecords      int64               `json:"numRecords"`
 }
 
 func (l *AvroFile) Cleanup() {
@@ -105,12 +105,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		return 0, fmt.Errorf("failed to get Avro field names from schema JSON: %w", err)
 	}
 	avroConverter, err := model.NewQRecordAvroConverter(
-		ctx,
-		env,
-		p.avroSchema,
-		p.targetDWH,
-		avroFieldNames,
-		logger,
+		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,
 	)
 	if err != nil {
 		return 0, err
@@ -155,7 +150,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	env map[string]string,
 	w io.Writer,
 	typeConversions map[string]qvalue.TypeConversion,
-) (int, error) {
+) (int64, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
 		return 0, fmt.Errorf("failed to create OCF writer: %w", err)
@@ -166,7 +161,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
 	}
-	return int(numRows), nil
+	return numRows, nil
 }
 
 func (p *peerDBOCFWriter) WriteRecordsToS3(
@@ -175,6 +170,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	bucketName string,
 	key string,
 	s3Creds utils.AWSCredentialsProvider,
+	avroSize *atomic.Int64,
 	typeConversions map[string]qvalue.TypeConversion,
 ) (*AvroFile, error) {
 	logger := internal.LoggerFromCtx(ctx)
@@ -189,7 +185,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 
 	defer r.Close()
 	var writeOcfError error
-	var numRows int
+	var numRows int64
 
 	go func() {
 		defer func() {
@@ -200,7 +196,13 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 			}
 			w.Close()
 		}()
-		numRows, writeOcfError = p.WriteOCF(ctx, env, w, typeConversions)
+		var writer io.Writer
+		if avroSize == nil {
+			writer = w
+		} else {
+			writer = shared.NewWatchWriter(w, avroSize)
+		}
+		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions)
 	}()
 
 	partSize, err := internal.PeerDBS3PartSize(ctx, env)
@@ -231,9 +233,9 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}
 
 	return &AvroFile{
-		NumRecords:      numRows,
 		StorageLocation: AvroS3Storage,
 		FilePath:        key,
+		NumRecords:      numRows,
 	}, nil
 }
 
