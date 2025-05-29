@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hamba/avro/v2/ocf"
 	_ "github.com/snowflakedb/gosnowflake"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -40,7 +41,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
 	flowJobName string,
-) (int, error) {
+) (int64, error) {
 	tableLog := slog.String("destinationTable", s.config.DestinationTableIdentifier)
 	dstTableName := s.config.DestinationTableIdentifier
 
@@ -93,7 +94,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
@@ -154,14 +155,14 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	flowJobName string,
 ) (*avro.AvroFile, error) {
 	if s.config.StagingPath == "" {
-		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, protos.DBType_SNOWFLAKE)
+		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
 		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
 		err := os.MkdirAll(tmpDir, os.ModePerm)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create temp dir: %w", err)
 		}
 
-		localFilePath := fmt.Sprintf("%s/%s.avro.zst", tmpDir, partitionID)
+		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
 		s.logger.Info("writing records to local file " + localFilePath)
 		avroFile, err := ocfWriter.WriteRecordsToAvroFile(ctx, env, localFilePath)
 		if err != nil {
@@ -170,13 +171,13 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		return avroFile, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressZstd, protos.DBType_SNOWFLAKE)
+		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse staging path: %w", err)
 		}
 
-		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro.zst", s3o.Prefix, s.config.FlowJobName, partitionID)
+		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, s.config.FlowJobName, partitionID)
 		s.logger.Info("OCF: Writing records to S3",
 			slog.String(string(shared.PartitionIDKey), partitionID))
 
@@ -184,7 +185,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 		if err != nil {
 			return nil, err
 		}
-		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, provider)
+		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, provider, nil, nil)
 		if err != nil {
 			return nil, fmt.Errorf("failed to write records to S3: %w", err)
 		}

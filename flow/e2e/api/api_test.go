@@ -2,6 +2,7 @@ package e2e_api
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
@@ -64,6 +66,95 @@ func (s Suite) Connector() *connpostgres.PostgresConnector {
 
 func (s Suite) DestinationTable(table string) string {
 	return table
+}
+
+// checkMetadataLastSyncStateValues checks the values of sync_batch_id and normalize_batch_id
+// in the metadata_last_sync_state table
+func (s Suite) checkMetadataLastSyncStateValues(
+	env e2e.WorkflowRun,
+	flowConnConfig *protos.FlowConnectionConfigs,
+	reason string,
+	expectedSyncBatchId int64,
+	expectedNormalizeBatchId int64,
+) {
+	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
+		var syncBatchID pgtype.Int8
+		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(),
+			"select sync_batch_id from metadata_last_sync_state where job_name = $1",
+			flowConnConfig.FlowJobName,
+		).Scan(&syncBatchID)
+		if queryErr != nil {
+			return false
+		}
+		return syncBatchID.Valid && (syncBatchID.Int64 == expectedSyncBatchId)
+	})
+
+	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "normalize flow check: "+reason, func() bool {
+		var normalizeBatchID pgtype.Int8
+		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(),
+			"select normalize_batch_id from metadata_last_sync_state where job_name = $1",
+			flowConnConfig.FlowJobName,
+		).Scan(&normalizeBatchID)
+		if queryErr != nil {
+			return false
+		}
+		return normalizeBatchID.Valid && (normalizeBatchID.Int64 == expectedNormalizeBatchId)
+	})
+}
+
+func (s Suite) waitForActiveSlotForPostgresMirror(env e2e.WorkflowRun, conn *pgx.Conn, mirrorName string) {
+	slotName := "peerflow_slot_" + mirrorName
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to become active", func() bool {
+		var active pgtype.Bool
+		err := conn.QueryRow(s.t.Context(),
+			`SELECT active FROM pg_replication_slots WHERE slot_name = $1`, slotName).Scan(&active)
+		if err != nil {
+			return false
+		}
+		return active.Valid && active.Bool
+	})
+}
+
+// checkCatalogTableMapping checks the table mappings in the catalog for a given flow
+func (s Suite) checkCatalogTableMapping(
+	ctx context.Context,
+	conn *pgx.Conn,
+	flowName string,
+	expectedSourceTableNames []string,
+) (bool, error) {
+	var configBytes sql.RawBytes
+	err := conn.QueryRow(ctx,
+		"SELECT config_proto FROM flows WHERE name = $1", flowName).Scan(&configBytes)
+	if err != nil {
+		return false, err
+	}
+
+	var config protos.FlowConnectionConfigs
+	err = proto.Unmarshal(configBytes, &config)
+	if err != nil {
+		return false, err
+	}
+
+	if len(config.TableMappings) != len(expectedSourceTableNames) {
+		return false, fmt.Errorf("expected %d table mappings, got %d", len(expectedSourceTableNames), len(config.TableMappings))
+	}
+	sourceTableNames := make([]string, len(config.TableMappings))
+	for i, tableMapping := range config.TableMappings {
+		sourceTableNames[i] = tableMapping.SourceTableIdentifier
+	}
+
+	if len(sourceTableNames) != len(expectedSourceTableNames) {
+		return false, fmt.Errorf("expected %d source table names, got %d", len(expectedSourceTableNames), len(sourceTableNames))
+	}
+
+	for _, expectedName := range expectedSourceTableNames {
+		if !slices.Contains(sourceTableNames, expectedName) {
+			return false, fmt.Errorf("expected source table name %s not found in %v", expectedName, sourceTableNames)
+		}
+	}
+	return true, nil
 }
 
 func testApi[TSource e2e.SuiteSource](
@@ -445,7 +536,7 @@ func (s Suite) TestDropCompleted() {
 	})
 }
 
-func (s Suite) TestAddTableBeforeResync() {
+func (s Suite) TestEditTablesBeforeResync() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "original"))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -455,7 +546,7 @@ func (s Suite) TestAddTableBeforeResync() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "added"))))
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      "add_table_before_resync_" + s.suffix,
+		FlowJobName:      "edit_tables_before_resync_" + s.suffix,
 		TableNameMapping: map[string]string{e2e.AttachSchema(s, "original"): "original"},
 		Destination:      s.ch.Peer().Name,
 	}
@@ -500,9 +591,30 @@ func (s Suite) TestAddTableBeforeResync() {
 		},
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for added table's initial load to finish", func() bool {
-		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+			e2e.AttachSchema(s, "added"),
+			e2e.AttachSchema(s, "original"),
+		})
+		if err != nil {
+			return false
+		}
+
+		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
+	e2e.RequireEqualTables(s.ch, "added", "id,val")
+
+	// Check initial load stats
+	initialLoadClientFacingDataAfterAddTable, err := s.InitialLoadSummary(s.t.Context(), &protos.InitialLoadSummaryRequest{
+		ParentMirrorName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, initialLoadClientFacingDataAfterAddTable.TableSummaries, 2)
+
+	// Test CDC
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'added_table_cdc')", e2e.AttachSchema(s, "added"))))
+	s.checkMetadataLastSyncStateValues(env, flowConnConfig, "cdc after add table", 1, 1)
 	e2e.RequireEqualTables(s.ch, "added", "id,val")
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -510,14 +622,55 @@ func (s Suite) TestAddTableBeforeResync() {
 		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause", func() bool {
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for remove table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					RemovedTables: []*protos.TableMapping{
+						{
+							SourceTableIdentifier:      e2e.AttachSchema(s, "original"),
+							DestinationTableIdentifier: "original",
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for table removal to finish", func() bool {
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+			e2e.AttachSchema(s, "added"),
+		})
+		if err != nil {
+			return false
+		}
+
+		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
+		s.waitForActiveSlotForPostgresMirror(env, pgconn.Conn(), flowConnConfig.FlowJobName)
+	}
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause after table removal", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", e2e.AttachSchema(s, "added"))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (3,'resync')", e2e.AttachSchema(s, "added"))))
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_RESYNC,
+		DropMirrorStats:    true,
 	})
 	require.NoError(s.t, err)
 	newEnv, newErr := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
@@ -528,33 +681,17 @@ func (s Suite) TestAddTableBeforeResync() {
 		return newEnv.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 
-	// Test CDC
+	initialLoadClientFacingDataAfterResync, err := s.InitialLoadSummary(s.t.Context(), &protos.InitialLoadSummaryRequest{
+		ParentMirrorName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(s.t, err)
+	require.Len(s.t, initialLoadClientFacingDataAfterResync.TableSummaries, 1)
+	require.Equal(s.t, "added_resync", initialLoadClientFacingDataAfterResync.TableSummaries[0].TableName)
+
+	// Test resync CDC
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (3,'cdc_after_resync')", e2e.AttachSchema(s, "added"))))
-	e2e.EnvWaitFor(s.t, newEnv, 3*time.Minute, "sync flow done after resync", func() bool {
-		var syncBatchID pgtype.Int8
-		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
-			s.t.Context(),
-			"select sync_batch_id from metadata_last_sync_state where job_name = $1",
-			flowConnConfig.FlowJobName,
-		).Scan(&syncBatchID)
-		if queryErr != nil {
-			return false
-		}
-		return syncBatchID.Valid && (syncBatchID.Int64 == 1)
-	})
-	e2e.EnvWaitFor(s.t, newEnv, 5*time.Minute, "normalize flow done after resync", func() bool {
-		var normalizeBatchID pgtype.Int8
-		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
-			s.t.Context(),
-			"select normalize_batch_id from metadata_last_sync_state where job_name = $1",
-			flowConnConfig.FlowJobName,
-		).Scan(&normalizeBatchID)
-		if queryErr != nil {
-			return false
-		}
-		return normalizeBatchID.Valid && (normalizeBatchID.Int64 == 1)
-	})
+		fmt.Sprintf("INSERT INTO %s(id, val) values (4,'cdc_after_resync')", e2e.AttachSchema(s, "added"))))
+	s.checkMetadataLastSyncStateValues(newEnv, flowConnConfig, "cdc after resync", 1, 1)
 	e2e.EnvWaitForEqualTables(newEnv, s.ch, "resync after normalize", "added", "id,val")
 	newEnv.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, newEnv)

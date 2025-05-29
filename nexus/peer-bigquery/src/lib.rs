@@ -2,8 +2,9 @@ use std::time::Duration;
 
 use anyhow::Context;
 use gcp_bigquery_client::{
+    Client,
     model::{query_request::QueryRequest, query_response::QueryResponse},
-    yup_oauth2, Client,
+    yup_oauth2,
 };
 use peer_connections::PeerConnectionTracker;
 use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema};
@@ -166,7 +167,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
                             "ERROR".to_owned(),
                             "fdw_error".to_owned(),
                             "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
-                        ))))
+                        ))));
                     }
                 };
 

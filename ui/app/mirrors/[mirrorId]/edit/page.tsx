@@ -110,7 +110,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
     setLoading(true);
     const req: FlowStateChangeRequest = {
       flowJobName: mirrorId,
-      requestedFlowState: FlowStatus.STATUS_UNKNOWN,
+      requestedFlowState: FlowStatus.STATUS_RUNNING,
       flowConfigUpdate: {
         cdcFlowConfigUpdate: { ...config, additionalTables, removedTables },
       },

@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.15@sha256:9857836c9ee4268391bb5b09f9f157f3c91bb15821bb77969642813b0d00518d
+# syntax=docker/dockerfile:1.16@sha256:e2dd261f92e4b763d789984f6eab84be66ab4f5f08052316d8eb8f173593acf7
 
 FROM golang:1.24-alpine@sha256:ef18ee7117463ac1055f5a370ed18b8750f01589f13ea0b48642f5792b234044 AS builder
 RUN apk add --no-cache gcc geos-dev musl-dev
@@ -17,7 +17,7 @@ RUN rm -f go.work*
 # build the binary from flow folder
 WORKDIR /root/flow
 ENV CGO_ENABLED=1
-RUN go build -ldflags="-s -w" -o /root/peer-flow
+RUN go build -o /root/peer-flow
 
 FROM alpine:3.21@sha256:a8560b36e8b8210634f77d9f7f9efd7ffa463e380b75e2e74aff4511df3ef88c AS flow-base
 ADD --checksum=sha256:5fa49cac7e6e9202ef85331c6f83377a71339d692d5644c9417a2d81406f0c03 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem

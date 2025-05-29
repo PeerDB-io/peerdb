@@ -51,3 +51,7 @@ func (e *PostgresWalError) Error() string {
 func NewPostgresWalError(err error, msg *pgproto3.ErrorResponse) *PostgresWalError {
 	return &PostgresWalError{err, msg}
 }
+
+func (e *PostgresWalError) UnderlyingError() *pgproto3.ErrorResponse {
+	return e.Msg
+}

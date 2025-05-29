@@ -2,10 +2,10 @@ package model
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
+	"github.com/hamba/avro/v2"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -47,9 +47,17 @@ func NewQRecordAvroConverter(
 	}, nil
 }
 
-func (qac *QRecordAvroConverter) Convert(ctx context.Context, env map[string]string, qrecord []qvalue.QValue) (map[string]any, error) {
+func (qac *QRecordAvroConverter) Convert(
+	ctx context.Context,
+	env map[string]string,
+	qrecord []qvalue.QValue,
+	typeConversions map[string]qvalue.TypeConversion,
+) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
+		if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
+			val = typeConversion.ValueConversion(val)
+		}
 		avroVal, err := qvalue.QValueToAvro(
 			ctx, env, val,
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
@@ -76,7 +84,7 @@ type QRecordAvroSchema struct {
 }
 
 type QRecordAvroSchemaDefinition struct {
-	Schema string
+	Schema *avro.RecordSchema
 	Fields []qvalue.QField
 }
 
@@ -88,7 +96,7 @@ func GetAvroSchemaDefinition(
 	targetDWH protos.DBType,
 	avroNameMap map[string]string,
 ) (*QRecordAvroSchemaDefinition, error) {
-	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
+	avroFields := make([]*avro.Field, 0, len(qRecordSchema.Fields))
 
 	for _, qField := range qRecordSchema.Fields {
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
@@ -97,7 +105,10 @@ func GetAvroSchemaDefinition(
 		}
 
 		if qField.Nullable {
-			avroType = []any{"null", avroType}
+			avroType, err = avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), avroType})
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		avroFieldName := qField.Name
@@ -105,25 +116,20 @@ func GetAvroSchemaDefinition(
 			avroFieldName = avroNameMap[qField.Name]
 		}
 
-		avroFields = append(avroFields, QRecordAvroField{
-			Name: avroFieldName,
-			Type: avroType,
-		})
+		avroField, err := avro.NewField(avroFieldName, avroType)
+		if err != nil {
+			return nil, err
+		}
+		avroFields = append(avroFields, avroField)
 	}
 
-	avroSchema := QRecordAvroSchema{
-		Type:   "record",
-		Name:   dstTableName,
-		Fields: avroFields,
-	}
-
-	avroSchemaJSON, err := json.Marshal(avroSchema)
+	avroSchema, err := avro.NewRecordSchema(dstTableName, "", avroFields)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %w", err)
+		return nil, err
 	}
 
 	return &QRecordAvroSchemaDefinition{
-		Schema: string(avroSchemaJSON),
+		Schema: avroSchema,
 		Fields: qRecordSchema.Fields,
 	}, nil
 }

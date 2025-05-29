@@ -1,6 +1,7 @@
 package alerting
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -60,8 +62,9 @@ func TestClickHouseAvroDecimalErrorShouldBeUnsupportedDatatype(t *testing.T) {
 		t.Run(strconv.Itoa(code), func(t *testing.T) {
 			exception := clickhouse.Exception{
 				Code: int32(code),
+				// can't split across lines as regex will not match
 				//nolint:lll
-				Message: "Cannot parse type Decimal(76, 38), expected non-empty binary data with size equal to or less than 32, got 57: (at row 72423)....",
+				Message: `Cannot parse type Decimal(76, 38), expected non-empty binary data with size equal to or less than 32, got 57: (at row 72423)....`,
 			}
 			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to sync records: %w", &exception))
 			assert.Equal(t, ErrorUnsupportedDatatype, errorClass, "Unexpected error class")
@@ -142,8 +145,10 @@ func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 	err := &clickhouse.Exception{
 		Code: int32(chproto.ErrCannotConvertType),
-		//nolint:lll
-		Message: "Conversion from AggregateFunction(argMax, DateTime64(9), DateTime64(9)) to AggregateFunction(argMax, Nullable(DateTime64(9)), DateTime64(9)) is not supported: while converting source column created_at to destination column created_at: while pushing to view db_name.hello_mv (62d92029-a3c0-448e-aab6-a6b6f7216b20)",
+		Message: `Conversion from AggregateFunction(argMax, DateTime64(9), DateTime64(9)) to
+		AggregateFunction(argMax, Nullable(DateTime64(9)), DateTime64(9))
+		is not supported: while converting source column created_at to destination column created_at:
+		while pushing to view db_name.hello_mv`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", err)))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
@@ -168,5 +173,131 @@ func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.QueryCanceled,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestClickHouseChaoticNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
+	err := &clickhouse.Exception{
+		Code: int32(chproto.ErrNoCommonType),
+		Message: `There is no supertype for types String, Int64 because some of them are String/FixedString/Enum and some of them are not:
+				JOIN INNER JOIN ... ON table_B.column_1 = table_A.column_2 cannot infer common type in ON section for keys.
+				Left key __table1.column_2 type String. Right key __table2.column_1 type Int64`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf(`Normalization Error: failed to normalize records:
+		 error while inserting into normalized table table_A: %w`, err)))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "386",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresPublicationDoesNotExistErrorShouldBePublicationMissing(t *testing.T) {
+	// Simulate a publication does not exist error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.UndefinedObject,
+			Message:  `publication "custom_pub" does not exist`,
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorNotifyPublicationMissing, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UndefinedObject,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresStaleFileHandleErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a stale file handle error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  `could not stat file "pg_logical/snapshots/1B6-2A845058.snap": Stale file handle`,
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresReorderbufferSpillFileBadAddressErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a "could not read from reorderbuffer spill file: Bad address" error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "could not read from reorderbuffer spill file: Bad address",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresReorderbufferSpillFileBadFileDescriptorErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a "could not read from reorderbuffer spill file: Bad file descriptor" error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "could not read from reorderbuffer spill file: Bad file descriptor",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T) {
+	// Simulate an "undefined object" error without publication related message
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.UndefinedObject,
+		Message:  "SomeErrorHere",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UndefinedObject,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
+	// Simulate a query cancelled error during WAL
+	err := exceptions.NewPostgresWalError(errors.New("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
+		Severity: "ERROR",
+		Code:     pgerrcode.QueryCanceled,
+		Message:  "canceling statement due to user request",
+	})
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.QueryCanceled,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestRandomErrorShouldBeOther(t *testing.T) {
+	// Simulate a random error
+	err := errors.New("some random error")
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "UNKNOWN",
 	}, errInfo, "Unexpected error info")
 }

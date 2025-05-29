@@ -90,6 +90,9 @@ var (
 	ErrorNotifySlotInvalid = ErrorClass{
 		Class: "NOTIFY_SLOT_INVALID", action: NotifyUser,
 	}
+	ErrorNotifyBinlogInvalid = ErrorClass{
+		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
+	}
 	ErrorNotifySourceTableMissing = ErrorClass{
 		Class: "NOTIFY_SOURCE_TABLE_MISSING", action: NotifyUser,
 	}
@@ -108,9 +111,6 @@ var (
 	ErrorNotifyConnectTimeout = ErrorClass{
 		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
 		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
-	}
-	ErrorNormalize = ErrorClass{
-		Class: "NORMALIZE", action: NotifyTelemetry,
 	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
@@ -152,9 +152,13 @@ func (e ErrorClass) ErrorAction() ErrorAction {
 }
 
 func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
-	var pgErrorInfo ErrorInfo
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) {
+	var pgWalErr *exceptions.PostgresWalError
+	if errors.As(err, &pgWalErr) {
+		pgErr = pgconn.ErrorResponseToPgError(pgWalErr.UnderlyingError())
+	}
+	var pgErrorInfo ErrorInfo
+	if pgErr != nil || errors.As(err, &pgErr) {
 		pgErrorInfo = ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   pgErr.Code,
@@ -206,7 +210,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, mysql.ErrBadConn) {
 		// Usually seen in ClickHouse cloud during instance scale-up
 		return ErrorIgnoreEOF, ErrorInfo{
 			Source: ErrorSourceNet,
@@ -220,17 +224,45 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "TABLE_DOES_NOT_EXIST",
 		}
 	}
+
+	// Consolidated PostgreSQL error handling
 	if pgErr != nil {
 		switch pgErr.Code {
 		case pgerrcode.InvalidAuthorizationSpecification,
 			pgerrcode.InvalidPassword,
 			pgerrcode.InsufficientPrivilege,
 			pgerrcode.UndefinedTable,
-			pgerrcode.UndefinedObject,
 			pgerrcode.CannotConnectNow:
 			return ErrorNotifyConnectivity, pgErrorInfo
+
+		case pgerrcode.UndefinedObject:
+			// Check for publication does not exist error
+			if PostgresPublicationDoesNotExistRe.MatchString(pgErr.Message) {
+				return ErrorNotifyPublicationMissing, pgErrorInfo
+			}
+			return ErrorNotifyConnectivity, pgErrorInfo
+
 		case pgerrcode.AdminShutdown, pgerrcode.IdleSessionTimeout:
 			return ErrorNotifyTerminate, pgErrorInfo
+
+		case pgerrcode.InternalError:
+			// Handle reorderbuffer spill file and stale file handle errors
+			if strings.HasPrefix(pgErr.Message, "could not read from reorderbuffer spill file") ||
+				(strings.HasPrefix(pgErr.Message, "could not stat file ") &&
+					strings.HasSuffix(pgErr.Message, "Stale file handle")) ||
+				// Below error is transient and Aurora Specific
+				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			// Handle WAL segment removed errors
+			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			// Fall through for other internal errors
+			return ErrorOther, pgErrorInfo
+
 		case pgerrcode.ObjectNotInPrerequisiteState:
 			// same underlying error but 2 different messages
 			// based on PG version, newer ones have second error
@@ -238,10 +270,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") {
 				return ErrorNotifySlotInvalid, pgErrorInfo
 			}
+
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
 			}
+
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?
 			pgerrcode.ConnectionException,
 			pgerrcode.ConnectionDoesNotExist,
@@ -250,8 +284,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			pgerrcode.SQLServerRejectedEstablishmentOfSQLConnection,
 			pgerrcode.ProtocolViolation:
 			return ErrorNotifyConnectivity, pgErrorInfo
+
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
+
 		case pgerrcode.QueryCanceled:
 			return ErrorRetryRecoverable, pgErrorInfo
 		}
@@ -295,6 +331,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1195, // ER_CRASHED_ON_REPAIR
 			1827: // ER_PASSWORD_FORMAT
 			return ErrorNotifyConnectivity, myErrorInfo
+		case 1236, // ER_MASTER_FATAL_ERROR_READING_BINLOG
+			1373: // ER_UNKNOWN_TARGET_BINLOG
+			return ErrorNotifyBinlogInvalid, myErrorInfo
 		case 1105: // ER_UNKNOWN_ERROR
 			if myErr.State == "HY000" && myErr.Message == "The last transaction was aborted due to Zero Downtime Patch. Please retry." {
 				return ErrorRetryRecoverable, myErrorInfo
@@ -377,19 +416,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			} else if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-			return ErrorOther, chErrorInfo
 		case chproto.ErrQueryWasCancelled:
 			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-			var normalizationErr *exceptions.NormalizationError
-			if errors.As(err, &normalizationErr) {
-				// notify if normalization hits error on destination
-				return ErrorNormalize, chErrorInfo
-			}
 			return ErrorOther, chErrorInfo
+		}
+		var normalizationErr *exceptions.NormalizationError
+		if errors.As(err, &normalizationErr) {
+			// notify if normalization hits error on destination
+			return ErrorNotifyMVOrView, chErrorInfo
 		}
 	}
 
@@ -431,36 +469,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   "UNKNOWN",
 		}
 	}
-	var pgWalErr *exceptions.PostgresWalError
-	if errors.As(err, &pgWalErr) {
-		errorInfo := ErrorInfo{
-			Source: ErrorSourcePostgres,
-			Code:   pgWalErr.Msg.Code,
-		}
-		if pgWalErr.Msg.Severity == "ERROR" {
-			if pgWalErr.Msg.Code == pgerrcode.InternalError &&
-				(strings.HasPrefix(pgWalErr.Msg.Message, "could not read from reorderbuffer spill file") ||
-					(strings.HasPrefix(pgWalErr.Msg.Message, "could not stat file ") &&
-						strings.HasSuffix(pgWalErr.Msg.Message, "Stale file handle")) ||
-					// Below error is transient and Aurora Specific
-					(strings.HasPrefix(pgWalErr.Msg.Message, "Internal error encountered during logical decoding"))) {
-				// Example errors:
-				// could not stat file "pg_logical/snapshots/1B6-2A845058.snap": Stale file handle
-				// could not read from reorderbuffer spill file: Bad address
-				// could not read from reorderbuffer spill file: Bad file descriptor
-				return ErrorRetryRecoverable, errorInfo
-			}
-			// &{Code:XX000 Message:requested WAL segment 000000010001337F0000002E has already been removed}
-			if pgWalErr.Msg.Code == pgerrcode.InternalError && PostgresWalSegmentRemovedRe.MatchString(pgWalErr.Msg.Message) {
-				return ErrorRetryRecoverable, errorInfo
-			}
 
-			// &{Severity:ERROR Code:42704 Message:publication "custom_pub" does not exist}
-			if pgWalErr.Msg.Code == pgerrcode.UndefinedObject && PostgresPublicationDoesNotExistRe.MatchString(pgWalErr.Msg.Message) {
-				return ErrorNotifyPublicationMissing, errorInfo
-			}
-		}
-	}
 	var dnsErr *net.DNSError
 	if errors.As(err, &dnsErr) {
 		return ErrorNotifyConnectivity, ErrorInfo{

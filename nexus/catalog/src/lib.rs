@@ -2,11 +2,11 @@ use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context};
-use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
-use aws_sdk_kms::{primitives::Blob, Client as KmsClient};
+use anyhow::{Context, anyhow};
+use aws_config::{BehaviorVersion, meta::region::RegionProviderChain};
+use aws_sdk_kms::{Client as KmsClient, primitives::Blob};
 use base64::prelude::*;
-use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
@@ -15,12 +15,12 @@ use pt::peerdb_peers::PostgresAuthType;
 use pt::{
     flow_model::QRepFlowJob,
     peerdb_peers::PostgresConfig,
-    peerdb_peers::{peer::Config, DbType, Peer},
+    peerdb_peers::{DbType, Peer, peer::Config},
     prost::Message,
 };
 use serde_json::{self, Value};
 use sqlparser::ast::Statement;
-use tokio_postgres::{types, Client};
+use tokio_postgres::{Client, types};
 
 mod embedded {
     use refinery::embed_migrations;

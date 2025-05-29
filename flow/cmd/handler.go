@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -328,7 +329,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
 	} else if underMaintenance {
 		slog.Warn("Flow state change request denied due to maintenance", logs)
-		return nil, errors.New("PeerDB is under maintenance")
+		return nil, exceptions.UnderMaintenanceError
 	}
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
@@ -370,10 +371,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
 			if currState == protos.FlowStatus_STATUS_COMPLETED {
-				_, changeErr = h.ResyncMirror(ctx, &protos.ResyncMirrorRequest{
-					FlowJobName: req.FlowJobName,
-					DropStats:   req.DropMirrorStats,
-				})
+				changeErr = h.resyncMirror(ctx, req.FlowJobName, req.DropMirrorStats)
 			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, err
 			} else if !isCDC {
@@ -396,15 +394,13 @@ func (h *FlowRequestHandler) FlowStateChange(
 				}
 				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 			}
-		case protos.FlowStatus_STATUS_TERMINATING:
-			if currState == protos.FlowStatus_STATUS_COMPLETED {
-				changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
-			} else {
-				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
-			}
-		case protos.FlowStatus_STATUS_TERMINATED: // backwards compat, causes grpc timeouts
-			if currState != protos.FlowStatus_STATUS_TERMINATED {
-				changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
+		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_TERMINATED:
+			if currState != protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATING {
+				if currState == protos.FlowStatus_STATUS_COMPLETED {
+					changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
+				} else {
+					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+				}
 			}
 		default:
 			slog.Error("illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
@@ -513,27 +509,28 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 }
 
 // only supports CDC resync for now
-func (h *FlowRequestHandler) ResyncMirror(
+func (h *FlowRequestHandler) resyncMirror(
 	ctx context.Context,
-	req *protos.ResyncMirrorRequest,
-) (*protos.ResyncMirrorResponse, error) {
+	flowName string,
+	dropStats bool,
+) error {
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
-		return nil, fmt.Errorf("unable to get maintenance mode status: %w", err)
+		return fmt.Errorf("unable to get maintenance mode status: %w", err)
 	} else if underMaintenance {
-		return nil, errors.New("PeerDB is under maintenance")
+		return exceptions.UnderMaintenanceError
 	}
 
-	isCDC, err := h.isCDCFlow(ctx, req.FlowJobName)
+	isCDC, err := h.isCDCFlow(ctx, flowName)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if !isCDC {
-		return nil, errors.New("resync is only supported for CDC mirrors")
+		return errors.New("resync is only supported for CDC mirrors")
 	}
 	// getting config before dropping the flow since the flow entry is deleted unconditionally
-	config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
+	config, err := h.getFlowConfigFromCatalog(ctx, flowName)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	config.Resync = true
@@ -542,19 +539,19 @@ func (h *FlowRequestHandler) ResyncMirror(
 	if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
 	}); err != nil {
-		return nil, err
+		return err
 	}
 
-	if err := h.shutdownFlow(ctx, req.FlowJobName, req.DropStats, false); err != nil {
-		return nil, err
+	if err := h.shutdownFlow(ctx, flowName, dropStats, false); err != nil {
+		return err
 	}
 
 	if _, err := h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: config,
 	}); err != nil {
-		return nil, err
+		return err
 	}
-	return &protos.ResyncMirrorResponse{}, nil
+	return nil
 }
 
 func (h *FlowRequestHandler) GetInstanceInfo(ctx context.Context, in *protos.InstanceInfoRequest) (*protos.InstanceInfoResponse, error) {

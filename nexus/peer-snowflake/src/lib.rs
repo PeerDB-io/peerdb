@@ -7,7 +7,7 @@ use stream::SnowflakeDataType;
 
 use auth::SnowflakeAuth;
 use pt::peerdb_peers::SnowflakeConfig;
-use reqwest::{header, StatusCode};
+use reqwest::{StatusCode, header};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use sqlparser::ast::{CloseCursor, Declare, FetchDirection, Query, Statement};
@@ -280,7 +280,7 @@ impl SnowflakeQueryExecutor {
                     return Ok(None);
                 }
                 QueryAttemptResult::ErrorAbort { error_message } => {
-                    return Err(anyhow::anyhow!(error_message))
+                    return Err(anyhow::anyhow!(error_message));
                 }
             }
         }
@@ -376,7 +376,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                             "ERROR".to_owned(),
                             "fdw_error".to_owned(),
                             "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
-                        ))))
+                        ))));
                     }
                 };
 

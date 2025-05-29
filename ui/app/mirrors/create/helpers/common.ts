@@ -70,4 +70,5 @@ export const blankQRepSetting: QRepConfig = {
   env: {},
   parentMirrorName: '',
   exclude: [],
+  columns: [],
 };

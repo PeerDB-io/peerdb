@@ -215,18 +215,30 @@ func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *proto
 	return exists, nil
 }
 
-func GetSyncFlowCleanupQuery() string {
-	return fmt.Sprintf(`
-		DELETE FROM %s WHERE job_name = $1
-	`, lastSyncStateTableName)
+func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {
+	tx, err := p.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer shared.RollbackTx(tx, p.logger)
+
+	if err := SyncFlowCleanupInTx(ctx, tx, jobName); err != nil {
+		return fmt.Errorf("failed to cleanup flow: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }
 
-func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	if _, err := p.pool.Exec(ctx, GetSyncFlowCleanupQuery(), jobName); err != nil {
+func SyncFlowCleanupInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM `+qrepTableName+` WHERE job_name = $1`, jobName); err != nil {
 		return err
 	}
 
-	if _, err := p.pool.Exec(ctx, `DELETE FROM `+qrepTableName+` WHERE job_name = $1`, jobName); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName); err != nil {
 		return err
 	}
 

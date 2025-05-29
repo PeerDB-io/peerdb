@@ -546,5 +546,5 @@ func QValueFromMysqlRowEvent(
 			return qvalue.QValueTimestamp{Val: val}, nil
 		}
 	}
-	return nil, fmt.Errorf("unexpected type %T for mysql type %d", val, mytype)
+	return nil, fmt.Errorf("unexpected type %T for mysql type %d, qkind %s", val, mytype, qkind)
 }

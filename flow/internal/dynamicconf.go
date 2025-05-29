@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	DefaultPeerDBS3PartSize int64 = 50 * 1024 * 1024 // 50MiB
+	DefaultPeerDBS3PartSize int64 = 64 * 1024 * 1024 // 64MiB
 )
 
 var DynamicSettings = [...]*protos.DynamicSetting{
@@ -152,6 +152,13 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:         "PEERDB_S3_BYTES_PER_AVRO_FILE",
+		Description:  "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
+		DefaultValue: "33333333333", // chosen to be round 30GB, but align with about half of 64MiB because S3 part size
+		ValueType:    protos.DynconfValueType_INT,
+		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 	},
 	{
 		Name:             "PEERDB_QUEUE_FORCE_TOPIC_CREATION",
@@ -553,6 +560,10 @@ func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string)
 
 func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_PART_SIZE")
+}
+
+func PeerDBS3BytesPerAvroFile(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_BYTES_PER_AVRO_FILE")
 }
 
 // Kafka has topic auto create as an option, auto.create.topics.enable

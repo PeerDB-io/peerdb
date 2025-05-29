@@ -116,18 +116,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			return errors.Join(ctx.Err(), sourceError, destinationError)
 		}
 	}
-	if input.Resync {
-		input.FlowConnectionConfigs.Resync = true
-		input.FlowConnectionConfigs.DoInitialSnapshot = true
 
-		if err := workflow.ExecuteLocalActivity(workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
-			StartToCloseTimeout: 5 * time.Minute,
-		}), updateCDCConfigInCatalogActivity, logger, input.FlowConnectionConfigs).Get(ctx, nil); err != nil {
-			logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
-		}
-
-		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, input.FlowConnectionConfigs, nil)
-	}
 	return nil
 }
 
@@ -192,27 +181,32 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		}
 
 		if err := executeCDCDropActivities(ctx, input); err != nil {
-			if !workflow.IsContinueAsNewError(err) {
-				workflow.GetLogger(ctx).Error("failed to drop CDC flow", slog.Any("error", err))
-			}
+			workflow.GetLogger(ctx).Error("failed to drop CDC flow", slog.Any("error", err))
 			return err
 		}
 		workflow.GetLogger(ctx).Info("CDC flow dropped successfully")
 	}
 
-	if !input.Resync {
-		removeFlowEntriesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 2 * time.Minute,
-			RetryPolicy: &temporal.RetryPolicy{
-				InitialInterval: 1 * time.Minute,
-			},
-		})
-		if err := workflow.ExecuteActivity(
-			removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, input.FlowJobName,
-		).Get(ctx, nil); err != nil {
-			workflow.GetLogger(ctx).Error("failed to remove flow details from catalog", slog.Any("error", err))
-			return err
-		}
+	removeFlowEntriesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
+	})
+
+	req := model.RemoveFlowDetailsFromCatalogRequest{
+		FlowName: input.FlowJobName,
+		Resync:   input.Resync,
+	}
+	if err := workflow.ExecuteActivity(
+		removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, &req,
+	).Get(ctx, nil); err != nil {
+		workflow.GetLogger(ctx).Error("failed to remove flow details from catalog", slog.Any("error", err))
+		return err
+	}
+
+	if input.Resync {
+		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, input.FlowConnectionConfigs, nil)
 	}
 
 	return nil
