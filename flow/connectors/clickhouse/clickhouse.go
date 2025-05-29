@@ -456,3 +456,17 @@ func (c *ClickHouseConnector) GetTableSchema(
 
 	return res, nil
 }
+
+func GetColumnsTypeConversion() (*protos.ColumnsTypeConversionResponse, error) {
+	res := make([]*protos.ColumnsTypeConversion, 0)
+	for qkind, destTypes := range listSupportedTypeConversions() {
+		res = append(res, &protos.ColumnsTypeConversion{
+			Qkind:            string(qkind),
+			DestinationTypes: destTypes,
+		})
+
+	}
+	return &protos.ColumnsTypeConversionResponse{
+		Conversions: res,
+	}, nil
+}
