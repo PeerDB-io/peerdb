@@ -12,6 +12,7 @@ import {
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import {
   AllTablesResponse,
+  ColumnsTypeConversionResponse,
   CreateCDCFlowRequest,
   CreateQRepFlowRequest,
   PeerPublicationsResponse,
@@ -488,6 +489,16 @@ export async function fetchAllTables(peerName: string) {
     }
   ).then((res) => res.json());
   return tablesRes.tables;
+}
+
+export async function fetchAllTypeConversions(peerType: DBType) {
+  const typeConversionsRes: ColumnsTypeConversionResponse = await fetch(
+    `/api/v1/peers/columns/all_type_conversions?destination_peer_type=${encodeURIComponent(peerType)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
+  return typeConversionsRes.conversions;
 }
 
 export async function handleValidateCDC(
