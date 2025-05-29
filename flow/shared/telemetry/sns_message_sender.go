@@ -15,13 +15,26 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/aws_common"
 )
 
+type SNSMessageSenderConfig struct {
+	Topic string `json:"topic"`
+}
+
 type SNSMessageSender struct {
 	client *sns.Client
 	topic  string
 }
 
-type SNSMessageSenderConfig struct {
-	Topic string `json:"topic"`
+func NewSNSMessageSenderWithNewClient(ctx context.Context, config *SNSMessageSenderConfig) (*SNSMessageSender, error) {
+	// Topic Region must match client region
+	region := strings.Split(strings.TrimPrefix(config.Topic, "arn:aws:sns:"), ":")[0]
+	client, err := newSnsClient(ctx, &region)
+	if err != nil {
+		return nil, err
+	}
+	return &SNSMessageSender{
+		client: client,
+		topic:  config.Topic,
+	}, nil
 }
 
 func (s *SNSMessageSender) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (string, error) {
@@ -86,19 +99,6 @@ func (s *SNSMessageSender) SendMessage(ctx context.Context, subject string, body
 		return "", err
 	}
 	return *publish.MessageId, nil
-}
-
-func NewSNSMessageSenderWithNewClient(ctx context.Context, config *SNSMessageSenderConfig) (*SNSMessageSender, error) {
-	// Topic Region must match client region
-	region := strings.Split(strings.TrimPrefix(config.Topic, "arn:aws:sns:"), ":")[0]
-	client, err := newSnsClient(ctx, &region)
-	if err != nil {
-		return nil, err
-	}
-	return &SNSMessageSender{
-		client: client,
-		topic:  config.Topic,
-	}, nil
 }
 
 func newSnsClient(ctx context.Context, region *string) (*sns.Client, error) {

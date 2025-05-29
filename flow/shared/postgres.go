@@ -61,8 +61,7 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomD
 
 func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
 	var hstoreOID uint32
-	err := conn.QueryRow(context.Background(), `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID)
-	if err != nil {
+	if err := conn.QueryRow(ctx, `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID); err != nil {
 		// hstore isn't present, just proceed
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil

@@ -11,6 +11,10 @@ type PostgresSetupError struct {
 	error
 }
 
+func NewPostgresSetupError(err error) *PostgresSetupError {
+	return &PostgresSetupError{err}
+}
+
 func (e *PostgresSetupError) Error() string {
 	return "Postgres setup error: " + e.error.Error()
 }
@@ -19,25 +23,25 @@ func (e *PostgresSetupError) Unwrap() error {
 	return e.error
 }
 
-func NewPostgresSetupError(err error) *PostgresSetupError {
-	return &PostgresSetupError{err}
-}
-
 type CatalogError struct {
 	error
-}
-
-func (e *CatalogError) Unwrap() error {
-	return e.error
 }
 
 func NewCatalogError(err error) *CatalogError {
 	return &CatalogError{err}
 }
 
+func (e *CatalogError) Unwrap() error {
+	return e.error
+}
+
 type PostgresWalError struct {
 	error
 	Msg *pgproto3.ErrorResponse
+}
+
+func NewPostgresWalError(err error, msg *pgproto3.ErrorResponse) *PostgresWalError {
+	return &PostgresWalError{err, msg}
 }
 
 func (e *PostgresWalError) Unwrap() error {
@@ -46,10 +50,6 @@ func (e *PostgresWalError) Unwrap() error {
 
 func (e *PostgresWalError) Error() string {
 	return fmt.Sprintf("Postgres WAL error: %s, message: %+v", e.error.Error(), e.Msg)
-}
-
-func NewPostgresWalError(err error, msg *pgproto3.ErrorResponse) *PostgresWalError {
-	return &PostgresWalError{err, msg}
 }
 
 func (e *PostgresWalError) UnderlyingError() *pgproto3.ErrorResponse {
