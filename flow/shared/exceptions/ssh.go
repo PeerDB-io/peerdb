@@ -6,14 +6,14 @@ type SSHTunnelSetupError struct {
 	error
 }
 
+func NewSSHTunnelSetupError(err error) *SSHTunnelSetupError {
+	return &SSHTunnelSetupError{err}
+}
+
 func (e *SSHTunnelSetupError) Error() string {
 	return "SSH Tunnel Setup Error: " + e.error.Error()
 }
 
 func (e *SSHTunnelSetupError) Unwrap() error {
 	return e.error
-}
-
-func NewSSHTunnelSetupError(err error) *SSHTunnelSetupError {
-	return &SSHTunnelSetupError{err}
 }

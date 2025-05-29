@@ -5,7 +5,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var UnderMaintenanceError = status.Error(
+var ErrUnderMaintenance = status.Error(
 	codes.Unavailable,
 	"PeerDB is under maintenance. Please retry in a few minutes",
 )

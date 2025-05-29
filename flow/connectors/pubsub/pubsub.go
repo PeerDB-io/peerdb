@@ -203,17 +203,6 @@ type topicCache struct {
 	lock  sync.RWMutex
 }
 
-func (tc *topicCache) forEach(ctx context.Context, f func(topic *pubsub.Topic)) {
-	tc.lock.RLock()
-	defer tc.lock.RUnlock()
-	for _, topicClient := range tc.cache {
-		if ctx.Err() != nil {
-			return
-		}
-		f(topicClient)
-	}
-}
-
 func (tc *topicCache) Flush(ctx context.Context) {
 	tc.forEach(ctx, func(topic *pubsub.Topic) {
 		topic.Flush()
@@ -384,4 +373,15 @@ Loop:
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
+}
+
+func (tc *topicCache) forEach(ctx context.Context, f func(topic *pubsub.Topic)) {
+	tc.lock.RLock()
+	defer tc.lock.RUnlock()
+	for _, topicClient := range tc.cache {
+		if ctx.Err() != nil {
+			return
+		}
+		f(topicClient)
+	}
 }

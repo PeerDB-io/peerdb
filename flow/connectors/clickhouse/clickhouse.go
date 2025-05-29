@@ -35,6 +35,89 @@ type ClickHouseConnector struct {
 	credsProvider *utils.ClickHouseS3Credentials
 }
 
+func NewClickHouseConnector(
+	ctx context.Context,
+	env map[string]string,
+	config *protos.ClickhouseConfig,
+) (*ClickHouseConnector, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	database, err := Connect(ctx, env, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)
+	}
+
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
+	if err != nil {
+		logger.Error("failed to create postgres metadata store", "error", err)
+		return nil, err
+	}
+
+	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", utils.PeerAWSCredentials{
+		Credentials: aws.Credentials{
+			AccessKeyID:     config.AccessKeyId,
+			SecretAccessKey: config.SecretAccessKey,
+		},
+		EndpointUrl: config.Endpoint,
+		Region:      config.Region,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	awsBucketPath := config.S3Path
+	if awsBucketPath == "" {
+		deploymentUID := internal.PeerDBDeploymentUID()
+		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
+		// Fallback: Get S3 credentials from environment
+		awsBucketName, err := internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
+		}
+		if awsBucketName == "" {
+			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
+		}
+
+		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
+	}
+
+	credentials, err := credentialsProvider.Retrieve(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	connector := &ClickHouseConnector{
+		database:         database,
+		PostgresMetadata: pgMetadata,
+		config:           config,
+		logger:           logger,
+		credsProvider: &utils.ClickHouseS3Credentials{
+			Provider:   credentialsProvider,
+			BucketPath: awsBucketPath,
+		},
+	}
+
+	if credentials.AWS.SessionToken != "" {
+		// 24.3.1 is minimum version of ClickHouse that actually supports session token
+		// https://github.com/ClickHouse/ClickHouse/issues/61230
+		clickHouseVersion, err := database.ServerVersion()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
+		}
+		if !chproto.CheckMinVersion(
+			chproto.Version{Major: 24, Minor: 3, Patch: 1},
+			clickHouseVersion.Version,
+		) {
+			return nil, fmt.Errorf(
+				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
+				clickHouseVersion,
+				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
+		}
+	}
+
+	return connector, nil
+}
+
 func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
 	// for validation purposes
 	s3Client, err := utils.CreateS3Client(ctx, creds.Provider)
@@ -120,89 +203,6 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func NewClickHouseConnector(
-	ctx context.Context,
-	env map[string]string,
-	config *protos.ClickhouseConfig,
-) (*ClickHouseConnector, error) {
-	logger := internal.LoggerFromCtx(ctx)
-	database, err := Connect(ctx, env, config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)
-	}
-
-	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
-	if err != nil {
-		logger.Error("failed to create postgres metadata store", "error", err)
-		return nil, err
-	}
-
-	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", utils.PeerAWSCredentials{
-		Credentials: aws.Credentials{
-			AccessKeyID:     config.AccessKeyId,
-			SecretAccessKey: config.SecretAccessKey,
-		},
-		EndpointUrl: config.Endpoint,
-		Region:      config.Region,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	awsBucketPath := config.S3Path
-	if awsBucketPath == "" {
-		deploymentUID := internal.PeerDBDeploymentUID()
-		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
-		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
-		}
-		if awsBucketName == "" {
-			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
-		}
-
-		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
-	}
-
-	credentials, err := credentialsProvider.Retrieve(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	connector := &ClickHouseConnector{
-		database:         database,
-		PostgresMetadata: pgMetadata,
-		config:           config,
-		logger:           logger,
-		credsProvider: &utils.ClickHouseS3Credentials{
-			Provider:   credentialsProvider,
-			BucketPath: awsBucketPath,
-		},
-	}
-
-	if credentials.AWS.SessionToken != "" {
-		// 24.3.1 is minimum version of ClickHouse that actually supports session token
-		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		clickHouseVersion, err := database.ServerVersion()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
-		}
-		if !chproto.CheckMinVersion(
-			chproto.Version{Major: 24, Minor: 3, Patch: 1},
-			clickHouseVersion.Version,
-		) {
-			return nil, fmt.Errorf(
-				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
-				clickHouseVersion,
-				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
-		}
-	}
-
-	return connector, nil
 }
 
 func Connect(ctx context.Context, env map[string]string, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {

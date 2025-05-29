@@ -35,14 +35,25 @@ type IncidentIoResponse struct {
 	DeduplicationKey string `json:"deduplication_key"`
 }
 
+type IncidentIoMessageSenderConfig struct {
+	URL   string
+	Token string
+}
+
 type IncidentIoMessageSender struct {
 	http   *http.Client
 	config IncidentIoMessageSenderConfig
 }
 
-type IncidentIoMessageSenderConfig struct {
-	URL   string
-	Token string
+func NewIncidentIoMessageSender(_ context.Context, config IncidentIoMessageSenderConfig) (*IncidentIoMessageSender, error) {
+	client := &http.Client{
+		Timeout: time.Second * 5,
+	}
+
+	return &IncidentIoMessageSender{
+		config: config,
+		http:   client,
+	}, nil
 }
 
 func (i *IncidentIoMessageSender) SendMessage(
@@ -112,7 +123,7 @@ func (i *IncidentIoMessageSender) SendMessage(
 		return "", fmt.Errorf("error serializing alert %w", err)
 	}
 
-	req, err := http.NewRequest("POST", i.config.URL, bytes.NewBuffer(alertJSON))
+	req, err := http.NewRequest(http.MethodPost, i.config.URL, bytes.NewBuffer(alertJSON))
 	if err != nil {
 		return "", err
 	}
@@ -141,15 +152,4 @@ func (i *IncidentIoMessageSender) SendMessage(
 	}
 
 	return incidentResponse.Status, nil
-}
-
-func NewIncidentIoMessageSender(_ context.Context, config IncidentIoMessageSenderConfig) (*IncidentIoMessageSender, error) {
-	client := &http.Client{
-		Timeout: time.Second * 5,
-	}
-
-	return &IncidentIoMessageSender{
-		config: config,
-		http:   client,
-	}, nil
 }

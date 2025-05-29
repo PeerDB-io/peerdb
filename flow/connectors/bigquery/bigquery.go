@@ -27,17 +27,6 @@ const (
 	SyncRecordsBatchSize = 1024
 )
 
-type BigQueryConnector struct {
-	*metadataStore.PostgresMetadata
-	logger        log.Logger
-	bqConfig      *protos.BigqueryConfig
-	client        *bigquery.Client
-	storageClient *storage.Client
-	catalogPool   shared.CatalogPool
-	datasetID     string
-	projectID     string
-}
-
 func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServiceAccount, error) {
 	var serviceAccount utils.GcpServiceAccount
 	serviceAccount.Type = bqConfig.AuthType
@@ -58,49 +47,15 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 	return &serviceAccount, nil
 }
 
-// ValidateCheck:
-// 1. Creates a table
-// 2. Inserts one row into the table
-// 3. Deletes the table
-func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
-	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
-
-	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
-
-	createErr := newTable.Create(ctx, &bigquery.TableMetadata{
-		Schema: []*bigquery.FieldSchema{
-			{
-				Name:     "dummy",
-				Type:     bigquery.BooleanFieldType,
-				Repeated: false,
-			},
-		},
-	})
-	if createErr != nil {
-		return fmt.Errorf("unable to validate table creation within dataset: %w. "+
-			"Please check if bigquery.tables.create permission has been granted", createErr)
-	}
-
-	var errs []error
-	insertQuery := c.client.Query(fmt.Sprintf("INSERT INTO %s VALUES(true)", dummyTable))
-	insertQuery.DefaultDatasetID = c.datasetID
-	insertQuery.DefaultProjectID = c.projectID
-	_, insertErr := insertQuery.Run(ctx)
-	if insertErr != nil {
-		errs = append(errs, fmt.Errorf("unable to validate insertion into table: %w. ", insertErr))
-	}
-
-	// Drop the table
-	deleteErr := newTable.Delete(ctx)
-	if deleteErr != nil {
-		errs = append(errs, fmt.Errorf("unable to delete table :%w. ", deleteErr))
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-
-	return nil
+type BigQueryConnector struct {
+	*metadataStore.PostgresMetadata
+	logger        log.Logger
+	bqConfig      *protos.BigqueryConfig
+	client        *bigquery.Client
+	storageClient *storage.Client
+	catalogPool   shared.CatalogPool
+	datasetID     string
+	projectID     string
 }
 
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
@@ -154,6 +109,51 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		catalogPool:      catalogPool,
 		logger:           logger,
 	}, nil
+}
+
+// ValidateCheck:
+// 1. Creates a table
+// 2. Inserts one row into the table
+// 3. Deletes the table
+func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
+	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
+
+	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
+
+	createErr := newTable.Create(ctx, &bigquery.TableMetadata{
+		Schema: []*bigquery.FieldSchema{
+			{
+				Name:     "dummy",
+				Type:     bigquery.BooleanFieldType,
+				Repeated: false,
+			},
+		},
+	})
+	if createErr != nil {
+		return fmt.Errorf("unable to validate table creation within dataset: %w. "+
+			"Please check if bigquery.tables.create permission has been granted", createErr)
+	}
+
+	var errs []error
+	insertQuery := c.client.Query(fmt.Sprintf("INSERT INTO %s VALUES(true)", dummyTable))
+	insertQuery.DefaultDatasetID = c.datasetID
+	insertQuery.DefaultProjectID = c.projectID
+	_, insertErr := insertQuery.Run(ctx)
+	if insertErr != nil {
+		errs = append(errs, fmt.Errorf("unable to validate insertion into table: %w. ", insertErr))
+	}
+
+	// Drop the table
+	deleteErr := newTable.Delete(ctx)
+	if deleteErr != nil {
+		errs = append(errs, fmt.Errorf("unable to delete table :%w. ", deleteErr))
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }
 
 // Close closes the BigQuery driver.
