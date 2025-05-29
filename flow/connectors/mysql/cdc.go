@@ -384,10 +384,11 @@ func (c *MySqlConnector) PullRecords(
 			if errors.Is(err, context.DeadlineExceeded) {
 				if inTx {
 					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
-						slog.Int("recordCount", int(recordCount)))
+						slog.Uint64("recordCount", uint64(recordCount)))
 					// reset timeoutCtx to a low value and wait for inTx to become false
 					// cancelTimeout should be called by defer, spurious lint
-					//nolint:lostcancel
+					cancelTimeout()
+					//nolint
 					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, 10*time.Second)
 					overtime = true
 				} else {
@@ -406,6 +407,7 @@ func (c *MySqlConnector) PullRecords(
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				if !inTx {
+					//nolint
 					return nil
 				}
 				// if in tx, don't let syncer exit due to deadline exceeded
@@ -484,16 +486,16 @@ func (c *MySqlConnector) PullRecords(
 					if ev.Table.ColumnName != nil {
 						unsafeName := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
 						if _, excluded := exclusion[unsafeName]; !excluded {
-							idx2 := slices.IndexFunc(schema.Columns, func(col *protos.FieldDescription) bool {
+							schemaIdx := slices.IndexFunc(schema.Columns, func(col *protos.FieldDescription) bool {
 								return col.Name == unsafeName
 							})
-							if idx2 == -1 {
+							if schemaIdx == -1 {
 								if !skewLossReported {
 									skewLossReported = true
 									c.logger.Warn("Unknown column name received, ignoring", slog.String("name", string(ev.Table.ColumnName[idx])))
 								}
 							} else {
-								return schema.Columns[idx2]
+								return schema.Columns[schemaIdx]
 							}
 						}
 						return nil
