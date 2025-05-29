@@ -464,7 +464,6 @@ func GetColumnsTypeConversion() (*protos.ColumnsTypeConversionResponse, error) {
 			Qkind:            string(qkind),
 			DestinationTypes: destTypes,
 		})
-
 	}
 	return &protos.ColumnsTypeConversionResponse{
 		Conversions: res,
