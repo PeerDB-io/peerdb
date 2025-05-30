@@ -75,7 +75,7 @@ export default function CustomColumnType({
 
   const destinationTypeOptions = useCallback(
     (col: string): { value: string; label: string }[] => {
-      return destinationTypeMapping[col] || [];
+      return destinationTypeMapping[col] ?? [];
     },
     [destinationTypeMapping]
   );
@@ -100,7 +100,7 @@ export default function CustomColumnType({
                 tc.destinationTypes.map((type: string) => ({
                   value: type,
                   label: type,
-                })) || [];
+                })) ?? [];
               break;
             }
           }
