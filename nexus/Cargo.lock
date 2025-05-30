@@ -972,9 +972,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.41"
+version = "0.4.39"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c469d952047f47f91b68d1cba3f10d63c11d73e4636f24f08daf0278abf01c4d"
+checksum = "7e36cc9d416881d2e24f9a963be5fb1cd90966419ac844274161d10488b3e825"
 dependencies = [
  "android-tzdata",
  "iana-time-zone",
@@ -982,7 +982,7 @@ dependencies = [
  "num-traits",
  "serde",
  "wasm-bindgen",
- "windows-link",
+ "windows-targets 0.52.6",
 ]
 
 [[package]]
@@ -2891,9 +2891,9 @@ dependencies = [
 
 [[package]]
 name = "pgwire"
-version = "0.28.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c84e671791f3a354f265e55e400be8bb4b6262c1ec04fac4289e710ccf22ab43"
+checksum = "a4e6fcdc2ae2173ef8ee1005b6e46453d45195ac3d97caac0db7ecf64ab4aa85"
 dependencies = [
  "async-trait",
  "aws-lc-rs",
@@ -2906,8 +2906,9 @@ dependencies = [
  "lazy-regex",
  "md5",
  "postgres-types",
- "rand 0.8.5",
+ "rand 0.9.1",
  "rust_decimal",
+ "rustls-pki-types",
  "stringprep",
  "thiserror 2.0.12",
  "tokio",

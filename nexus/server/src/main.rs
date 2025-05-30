@@ -1135,7 +1135,7 @@ pub async fn main() -> anyhow::Result<()> {
         Arc::new(NexusServerParameterProvider),
     );
 
-    let tls_acceptor = setup_tls(&args)?.map(Arc::new);
+    let tls_acceptor = setup_tls(&args)?;
 
     let peer_conns = {
         let conn_str = catalog_config.to_pg_connection_string();
