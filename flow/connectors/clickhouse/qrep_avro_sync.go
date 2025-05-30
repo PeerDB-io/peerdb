@@ -378,9 +378,6 @@ func listSupportedTypeConversions() map[qvalue.QValueKind][]string {
 
 	for dstType, l := range supportedDestinationTypes {
 		for _, conversion := range l {
-			if _, ok := typeConversions[conversion.FromKind()]; !ok {
-				typeConversions[conversion.FromKind()] = []string{}
-			}
 			typeConversions[conversion.FromKind()] = append(typeConversions[conversion.FromKind()], dstType)
 		}
 	}
