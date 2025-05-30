@@ -185,9 +185,24 @@ message ColumnsItem {
   string name = 1;
   string type = 2;
   bool is_key = 3;
+  string qkind = 4;
 }
+
 message TableColumnsResponse {
   repeated ColumnsItem columns = 1;
+}
+
+message ColumnsTypeConversionRequest {
+  string destination_peer_type = 1;
+}
+
+message ColumnsTypeConversion {
+  string qkind = 1;
+  repeated string destination_types = 2;
+}
+
+message ColumnsTypeConversionResponse {
+  repeated ColumnsTypeConversion conversions = 1;
 }
 
 message PostgresPeerActivityInfoRequest { string peer_name = 1; }
@@ -557,6 +572,12 @@ service FlowService {
   rpc GetColumns(TableColumnsRequest) returns (TableColumnsResponse) {
     option (google.api.http) = {
       get : "/v1/peers/columns"
+    };
+  }
+
+  rpc GetColumnsTypeConversion(ColumnsTypeConversionRequest) returns (ColumnsTypeConversionResponse) {
+    option (google.api.http) = {
+      get : "/v1/peers/columns/all_type_conversions",
     };
   }
 

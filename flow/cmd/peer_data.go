@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -174,6 +175,13 @@ func (h *FlowRequestHandler) GetColumns(
 	}
 	defer connectors.CloseConnector(ctx, conn)
 	return conn.GetColumns(ctx, req.SchemaName, req.TableName)
+}
+
+func (h *FlowRequestHandler) GetColumnsTypeConversion(
+	ctx context.Context,
+	req *protos.ColumnsTypeConversionRequest,
+) (*protos.ColumnsTypeConversionResponse, error) {
+	return connclickhouse.GetColumnsTypeConversion()
 }
 
 func (h *FlowRequestHandler) GetSlotInfo(
