@@ -367,6 +367,9 @@ func (c *MySqlConnector) PullRecords(
 		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
+			if cancelTimeout != nil {
+				cancelTimeout()
+			}
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
 		}
 		return nil
@@ -386,9 +389,10 @@ func (c *MySqlConnector) PullRecords(
 					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 						slog.Uint64("recordCount", uint64(recordCount)))
 					// reset timeoutCtx to a low value and wait for inTx to become false
-					// cancelTimeout should be called by defer, spurious lint
-					cancelTimeout()
-					//nolint:govet
+					if cancelTimeout != nil {
+						cancelTimeout()
+					}
+					//nolint:govet // cancelTimeout called by defer, spurious lint
 					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, 10*time.Second)
 					overtime = true
 				} else {
@@ -411,6 +415,7 @@ func (c *MySqlConnector) PullRecords(
 					return nil
 				}
 				// if in tx, don't let syncer exit due to deadline exceeded
+				continue
 			} else {
 				if errors.Is(err, context.Canceled) {
 					c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
