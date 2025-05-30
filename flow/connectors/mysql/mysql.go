@@ -61,7 +61,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		ssh:              ssh,
 		conn:             atomic.Pointer[client.Conn]{},
 		contexts:         contexts,
-		logger:           internal.LoggerFromCtx(ctx),
+		logger:           logger,
 		rdsAuth:          rdsAuth,
 	}
 	go func() {
