@@ -135,7 +135,7 @@ export default function CustomColumnType({
         );
       }
     },
-    [tableRow.source]
+    [tableRow.source, setRows]
   );
 
   const handleCreateColumn = useCallback(
