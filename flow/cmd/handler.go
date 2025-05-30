@@ -396,10 +396,10 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_TERMINATED:
 			if currState != protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATING {
-				if currState == protos.FlowStatus_STATUS_COMPLETED {
-					changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
-				} else {
-					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
+				changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
+				if changeErr != nil {
+					slog.Error("unable to shutdown flow", logs, slog.Any("error", changeErr))
+					return nil, fmt.Errorf("unable to shutdown flow: %w", changeErr)
 				}
 			}
 		default:

@@ -376,16 +376,7 @@ func CDCFlowWorkflow(
 			state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 		})
 		flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
-			if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
-				state.ActiveSignal = model.TerminateSignal
-				dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           dropCfg.FlowJobName,
-					FlowConnectionConfigs: dropCfg,
-					DropFlowStats:         val.DropMirrorStats,
-					SkipDestinationDrop:   val.SkipDestinationDrop,
-				}
-			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
+			if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
 				cfg.Resync = true
 				cfg.DoInitialSnapshot = true
@@ -476,15 +467,6 @@ func CDCFlowWorkflow(
 		flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
 			if val.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED {
 				logger.Warn("pause requested during setup, ignoring")
-			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
-				state.ActiveSignal = model.TerminateSignal
-				dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				state.DropFlowInput = &protos.DropFlowInput{
-					FlowJobName:           dropCfg.FlowJobName,
-					FlowConnectionConfigs: dropCfg,
-					DropFlowStats:         val.DropMirrorStats,
-					SkipDestinationDrop:   val.SkipDestinationDrop,
-				}
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 				state.ActiveSignal = model.ResyncSignal
 				cfg.Resync = true
@@ -685,16 +667,7 @@ func CDCFlowWorkflow(
 	})
 	flowSignalStateChangeChan.AddToSelector(mainLoopSelector, func(val *protos.FlowStateChangeRequest, _ bool) {
 		finished = true
-		if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
-			state.ActiveSignal = model.TerminateSignal
-			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           dropCfg.FlowJobName,
-				FlowConnectionConfigs: dropCfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-			}
-		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
+		if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 			state.ActiveSignal = model.ResyncSignal
 			cfg.Resync = true
 			cfg.DoInitialSnapshot = true
