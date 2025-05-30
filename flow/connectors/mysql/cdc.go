@@ -388,7 +388,7 @@ func (c *MySqlConnector) PullRecords(
 					// reset timeoutCtx to a low value and wait for inTx to become false
 					// cancelTimeout should be called by defer, spurious lint
 					cancelTimeout()
-					//nolint
+					//nolint:govet
 					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, 10*time.Second)
 					overtime = true
 				} else {
@@ -407,7 +407,7 @@ func (c *MySqlConnector) PullRecords(
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				if !inTx {
-					//nolint
+					//nolint:govet
 					return nil
 				}
 				// if in tx, don't let syncer exit due to deadline exceeded
@@ -492,7 +492,8 @@ func (c *MySqlConnector) PullRecords(
 							if schemaIdx == -1 {
 								if !skewLossReported {
 									skewLossReported = true
-									c.logger.Warn("Unknown column name received, ignoring", slog.String("name", string(ev.Table.ColumnName[idx])))
+									c.logger.Warn("Unknown column name received, ignoring",
+										slog.String("name", string(ev.Table.ColumnName[idx])))
 								}
 							} else {
 								return schema.Columns[schemaIdx]
