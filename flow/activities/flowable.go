@@ -749,8 +749,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		}
 
 		var config protos.FlowConnectionConfigs
-		err = proto.Unmarshal(configProto, &config)
-		if err != nil {
+		if err := proto.Unmarshal(configProto, &config); err != nil {
 			return nil, err
 		}
 
@@ -816,6 +815,12 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				attribute.String(otel_metrics.FlowStatusKey, status.String()),
 				attribute.Bool(otel_metrics.IsFlowActiveKey, info.isActive),
 			)))
+
+			if flowMetadata.Status == protos.FlowStatus_STATUS_COMPLETED ||
+				flowMetadata.Status == protos.FlowStatus_STATUS_TERMINATED {
+				return
+			}
+
 			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
