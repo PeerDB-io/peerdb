@@ -14,6 +14,7 @@ import (
 	connelasticsearch "github.com/PeerDB-io/peerdb/flow/connectors/elasticsearch"
 	conneventhub "github.com/PeerDB-io/peerdb/flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peerdb/flow/connectors/kafka"
+	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connpubsub "github.com/PeerDB-io/peerdb/flow/connectors/pubsub"
@@ -371,12 +372,6 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 			return nil, fmt.Errorf("failed to unmarshal Snowflake config: %w", err)
 		}
 		peer.Config = &protos.Peer_SnowflakeConfig{SnowflakeConfig: &config}
-	case protos.DBType_MONGO:
-		var config protos.MongoConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal MongoDB config: %w", err)
-		}
-		peer.Config = &protos.Peer_MongoConfig{MongoConfig: &config}
 	case protos.DBType_POSTGRES:
 		var config protos.PostgresConfig
 		if err := proto.Unmarshal(peerOptions, &config); err != nil {
@@ -395,6 +390,12 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 			return nil, fmt.Errorf("failed to unmarshal SQL Server config: %w", err)
 		}
 		peer.Config = &protos.Peer_SqlserverConfig{SqlserverConfig: &config}
+	case protos.DBType_MONGO:
+		var config protos.MongoConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal MongoDB config: %w", err)
+		}
+		peer.Config = &protos.Peer_MongoConfig{MongoConfig: &config}
 	case protos.DBType_MYSQL:
 		var config protos.MySqlConfig
 		if err := proto.Unmarshal(peerOptions, &config); err != nil {
@@ -450,6 +451,8 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, inner.S3Config)
+	case *protos.Peer_MongoConfig:
+		return connmongo.NewMongoConnector(ctx, inner.MongoConfig)
 	case *protos.Peer_MysqlConfig:
 		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:
@@ -578,4 +581,5 @@ var (
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
 	_ GetVersionConnector = &connmysql.MySqlConnector{}
+	_ GetVersionConnector = &connmongo.MongoConnector{}
 )
