@@ -5,7 +5,26 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
-// add more supported type conversions as needed
+/*
+This file handles the mapping for ClickHouse destination types and
+their corresponding TypeConversion implementations. A TypeConversion
+object contains two functions: one for schema conversion (QField) and
+one for value conversion (QValue). This allows the avro writer to
+write the schema/data to the desired destination type in ClickHouse.
+
+To add a type conversion:
+	(1) In flow/model/qvalue/type_converter.go:
+	- implement a SchemaConversionFn interface to convert the QField type
+	- implement a ValueConversionFn interface to convert the QValue data
+
+	(2) Add the new conversion to the `supportedDestinationTypes` map here
+		(if destination type doesn't exist, create a new map entry for it).
+
+The GetColumnsTypeConversion function returns the full list of supported
+type conversions. Note that the source types are QValueKind, this allows
+the implementation to be source-connector agnostic.
+*/
+
 var supportedDestinationTypes = map[string][]qvalue.TypeConversion{
 	"String": {qvalue.NewTypeConversion(
 		qvalue.NumericToStringSchemaConversion,
