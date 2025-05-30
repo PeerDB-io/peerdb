@@ -10,7 +10,8 @@ This file handles the mapping for ClickHouse destination types and
 their corresponding TypeConversion implementations. A TypeConversion
 object contains two functions: one for schema conversion (QField) and
 one for value conversion (QValue). This allows the avro writer to
-write the schema/data to the desired destination type in ClickHouse.
+stage the schema/data in the converted type format, and therefore
+successfully uploaded to the desired destination type in ClickHouse.
 
 To add a type conversion:
 	(1) In flow/model/qvalue/type_converter.go:
