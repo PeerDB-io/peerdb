@@ -641,27 +641,14 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
         }
         DbType::Mongo => {
             let mongo_config = MongoConfig {
-                username: opts
-                    .get("username")
-                    .context("no username specified")?
-                    .to_string(),
-                password: opts
-                    .get("password")
-                    .context("no password specified")?
-                    .to_string(),
-                clusterurl: opts
-                    .get("clusterurl")
-                    .context("no clusterurl specified")?
+                uri: opts
+                    .get("uri")
+                    .context("no uri specified")?
                     .to_string(),
                 database: opts
                     .get("database")
-                    .context("no default database specified")?
+                    .context("no db specified")?
                     .to_string(),
-                clusterport: opts
-                    .get("clusterport")
-                    .context("no cluster port specified")?
-                    .parse::<i32>()
-                    .context("unable to parse port as valid int")?,
             };
             Config::MongoConfig(mongo_config)
         }
