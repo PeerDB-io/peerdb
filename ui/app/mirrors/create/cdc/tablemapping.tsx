@@ -103,7 +103,7 @@ export default function TablePicker({
           />
         </div>
       </div>
-      <div style={{ maxHeight: '70vh', overflow: 'scroll' }}>
+      <div>
         {searchedSchemas ? (
           searchedSchemas.map((schema) => (
             <SchemaBox
