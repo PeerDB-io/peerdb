@@ -479,18 +479,8 @@ export default function SchemaBox({
                                     setRows={setRows}
                                   />
                                 </div>
-                                <Divider
-                                  style={{
-                                    ...columnBoxDividerStyle,
-                                    marginTop: '0.5rem',
-                                  }}
-                                />
                                 <CustomColumnType
-                                  columns={
-                                    columns?.filter(
-                                      (column) => !row.exclude.has(column.name)
-                                    ) ?? []
-                                  }
+                                  columns={columns}
                                   tableRow={row}
                                   rows={rows}
                                   setRows={setRows}

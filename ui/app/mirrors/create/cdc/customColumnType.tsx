@@ -1,4 +1,5 @@
 'use client';
+import { Divider } from '@tremor/react';
 import {
   Dispatch,
   SetStateAction,
@@ -19,7 +20,7 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { fetchAllTypeConversions } from '../handlers';
-import { engineOptionStyles } from './styles';
+import { columnBoxDividerStyle, engineOptionStyles } from './styles';
 interface CustomColumnTypeProps {
   columns: ColumnsItem[];
   tableRow: TableMapRow;
@@ -41,6 +42,20 @@ export default function CustomColumnType({
     Record<string, { value: string; label: string }[]>
   >({});
 
+  const selectedColumns = useMemo(() => {
+    return columns.filter((col) => !tableRow.exclude.has(col.name));
+  }, [columns, tableRow.exclude]);
+
+  const columnsWithDstTypes = useMemo(() => {
+    const columnsWithDstTypes = selectedColumns.filter(
+      (col) => destinationTypeMapping[col.name] !== undefined
+    );
+    if (columnsWithDstTypes.length == 0) {
+      setUseCustom(false);
+    }
+    return columnsWithDstTypes;
+  }, [selectedColumns, destinationTypeMapping]);
+
   const customColumnTypeList = useMemo(() => {
     const currentRow = rows.find((r) => r.source === tableRow.source);
     if (!currentRow) return [];
@@ -53,14 +68,10 @@ export default function CustomColumnType({
       }));
   }, [rows, tableRow.source]);
 
-  const availableColumns = columns
-    .filter(
-      (column) =>
-        !customColumnTypeList.some(
-          (mapping) => mapping.columnName === column.name
-        )
-    )
-    .filter((column) => destinationTypeMapping[column.name] !== undefined);
+  const remainingColumnsWithDstTypes = columnsWithDstTypes.filter(
+    (col) =>
+      !customColumnTypeList.some((mapping) => mapping.columnName === col.name)
+  );
 
   const destinationTypeOptions = useCallback(
     (col: string): { value: string; label: string }[] => {
@@ -71,9 +82,7 @@ export default function CustomColumnType({
 
   useEffect(() => {
     const fetchTypeMappings = async () => {
-      if (!useCustom) return;
-
-      const columnNameToQvalueKind = columns.map((col) => [
+      const columnNameToQvalueKind = selectedColumns.map((col) => [
         col.name,
         col.qkind,
       ]) as [string, string][];
@@ -103,12 +112,9 @@ export default function CustomColumnType({
     };
 
     fetchTypeMappings();
-    // TODO: there is a bug where `columns` is getting re-rendered excessively
-    // in the parent. Once fixed, add back `columns` to the dependency array.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [useCustom, peerType]);
+  }, [peerType, selectedColumns]);
 
-  const handleUseCustom = useCallback(
+  const handleUseCustomDstType = useCallback(
     (state: boolean) => {
       setUseCustom(state);
       if (!state) {
@@ -129,7 +135,7 @@ export default function CustomColumnType({
         );
       }
     },
-    [tableRow.source, setRows]
+    [tableRow.source]
   );
 
   const handleCreateColumn = useCallback(
@@ -204,133 +210,144 @@ export default function CustomColumnType({
   );
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignContent: 'center',
-        rowGap: '0.5rem',
-      }}
-    >
-      <RowWithCheckbox
-        label={
-          <Label as='label' style={{ fontSize: 13 }}>
-            Use custom destination column type
-          </Label>
-        }
-        action={
-          <Checkbox
-            style={{ marginLeft: 0 }}
-            checked={useCustom}
-            onCheckedChange={handleUseCustom}
-          />
-        }
-      />
-      {useCustom && (
-        <div
+    columnsWithDstTypes.length > 0 && (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignContent: 'center',
+          rowGap: '0.5rem',
+        }}
+      >
+        <Divider
           style={{
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '0.5rem',
+            ...columnBoxDividerStyle,
+            marginTop: '0.5rem',
           }}
-        >
-          {customColumnTypeList.length > 0 && (
-            <div
-              style={{
-                display: 'flex',
-                gap: '0.5rem',
-                flexDirection: 'column',
-              }}
-            >
-              {customColumnTypeList.map((mapping) => (
-                <div
-                  key={mapping.columnName}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '0.5rem',
-                  }}
-                >
-                  <div style={{ width: '30%' }}>
-                    <ReactSelect
-                      value={{
-                        value: mapping.columnName,
-                        label: mapping.columnName,
-                      }}
-                      theme={SelectTheme}
-                      styles={engineOptionStyles}
-                    />
-                  </div>
-                  <span>→</span>
-                  <div style={{ width: '30%' }}>
-                    <ReactSelect
-                      value={{
-                        value: mapping.destinationType,
-                        label: mapping.destinationType,
-                      }}
-                      onChange={(val) =>
-                        val?.value && handleUpdateColumn(mapping, val.value)
-                      }
-                      theme={SelectTheme}
-                      styles={engineOptionStyles}
-                      options={destinationTypeOptions(mapping.columnName)}
-                    />
-                  </div>
-                  <Button
-                    variant='normalBorderless'
-                    onClick={() => handleUpdateColumn(mapping, '')}
+        />
+        <RowWithCheckbox
+          label={
+            <Label as='label' style={{ fontSize: 13 }}>
+              Use custom destination column type
+            </Label>
+          }
+          action={
+            <Checkbox
+              style={{ marginLeft: 0 }}
+              checked={useCustom}
+              onCheckedChange={handleUseCustomDstType}
+            />
+          }
+        />
+        {useCustom && (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '0.5rem',
+            }}
+          >
+            {customColumnTypeList.length > 0 && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '0.5rem',
+                  flexDirection: 'column',
+                }}
+              >
+                {customColumnTypeList.map((mapping) => (
+                  <div
+                    key={mapping.columnName}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                    }}
                   >
-                    <Icon name='close' />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
+                    <div style={{ width: '30%' }}>
+                      <ReactSelect
+                        value={{
+                          value: mapping.columnName,
+                          label: mapping.columnName,
+                        }}
+                        theme={SelectTheme}
+                        styles={engineOptionStyles}
+                      />
+                    </div>
+                    <span>→</span>
+                    <div style={{ width: '30%' }}>
+                      <ReactSelect
+                        value={{
+                          value: mapping.destinationType,
+                          label: mapping.destinationType,
+                        }}
+                        onChange={(val) =>
+                          val?.value && handleUpdateColumn(mapping, val.value)
+                        }
+                        theme={SelectTheme}
+                        styles={engineOptionStyles}
+                        options={destinationTypeOptions(mapping.columnName)}
+                      />
+                    </div>
+                    <Button
+                      variant='normalBorderless'
+                      onClick={() => handleUpdateColumn(mapping, '')}
+                    >
+                      <Icon name='close' />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
 
-          {availableColumns.length > 0 && (
-            <div
-              style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
-            >
-              <div style={{ width: '30%' }}>
-                <ReactSelect
-                  placeholder='Column'
-                  value={
-                    selectedColumnName
-                      ? { value: selectedColumnName, label: selectedColumnName }
-                      : null
-                  }
-                  onChange={(val) =>
-                    val?.value && setSelectedColumnName(val.value)
-                  }
-                  options={availableColumns.map((col) => ({
-                    value: col.name,
-                    label: col.name,
-                  }))}
-                  theme={SelectTheme}
-                  styles={engineOptionStyles}
-                />
+            {remainingColumnsWithDstTypes.length > 0 && (
+              <div
+                style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}
+              >
+                <div style={{ width: '30%' }}>
+                  <ReactSelect
+                    placeholder='Column'
+                    value={
+                      selectedColumnName
+                        ? {
+                            value: selectedColumnName,
+                            label: selectedColumnName,
+                          }
+                        : null
+                    }
+                    onChange={(val) =>
+                      val?.value && setSelectedColumnName(val.value)
+                    }
+                    options={remainingColumnsWithDstTypes.map((col) => ({
+                      value: col.name,
+                      label: col.name,
+                    }))}
+                    theme={SelectTheme}
+                    styles={engineOptionStyles}
+                  />
+                </div>
+                <span>→</span>
+                <div style={{ width: '30%' }}>
+                  <ReactSelect
+                    placeholder='Destination type'
+                    value={null}
+                    onChange={(val) =>
+                      val?.value && handleCreateColumn(val.value)
+                    }
+                    options={
+                      selectedColumnName
+                        ? destinationTypeOptions(selectedColumnName)
+                        : []
+                    }
+                    theme={SelectTheme}
+                    styles={engineOptionStyles}
+                  />
+                </div>
               </div>
-              <span>→</span>
-              <div style={{ width: '30%' }}>
-                <ReactSelect
-                  placeholder='Destination type'
-                  value={null}
-                  onChange={(val) =>
-                    val?.value && handleCreateColumn(val.value)
-                  }
-                  options={
-                    selectedColumnName
-                      ? destinationTypeOptions(selectedColumnName)
-                      : []
-                  }
-                  theme={SelectTheme}
-                  styles={engineOptionStyles}
-                />
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
   );
 }
