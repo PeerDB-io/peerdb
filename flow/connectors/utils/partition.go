@@ -33,6 +33,8 @@ func compareValues(prevEnd any, start any) (int, error) {
 		switch prevEnd := prevEnd.(type) {
 		case uint32:
 			return cmp.Compare(prevEnd, v), nil
+		case uint64:
+			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
 		case int64:
 			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
 		case int32:
