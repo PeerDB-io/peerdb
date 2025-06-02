@@ -169,7 +169,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
-	last *protos.QRepPartition,
+	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
@@ -241,7 +241,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		return nil
 	}
 
-	if last.FullTablePartition {
+	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query
 		if err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult); err != nil {
 			return 0, 0, err
@@ -251,7 +251,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		var rangeEnd string
 
 		// Depending on the type of the range, convert the range into the correct type
-		switch x := last.Range.Range.(type) {
+		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
 			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
