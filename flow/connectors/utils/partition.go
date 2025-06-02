@@ -30,7 +30,24 @@ func compareValues(prevEnd any, start any) int {
 		}
 		return cmp.Compare(pe.OffsetNumber, v.OffsetNumber)
 	case uint32: // xmin
-		return cmp.Compare(prevEnd.(uint32), v)
+		switch prevEnd := prevEnd.(type) {
+		case uint32:
+			return cmp.Compare(prevEnd, v)
+		case int64:
+			return cmp.Compare(uint64(prevEnd), uint64(v))
+		case int32:
+			return cmp.Compare(uint64(prevEnd), uint64(v))
+		case int16:
+			return cmp.Compare(uint64(prevEnd), uint64(v))
+		case int8:
+			return cmp.Compare(uint64(prevEnd), uint64(v))
+		case uint16:
+			return cmp.Compare(uint64(prevEnd), uint64(v))
+		case uint8:
+			return cmp.Compare(uint64(prevEnd), uint64(v))
+		default:
+			return 0
+		}
 	default:
 		return 0
 	}
