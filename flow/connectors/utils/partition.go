@@ -46,10 +46,10 @@ func compareValues(prevEnd any, start any) (int, error) {
 		case uint8:
 			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
 		default:
-			return 0, nil
+			return 0, fmt.Errorf("unsupported type for uint32 comparison: %T", prevEnd)
 		}
 	default:
-		return 0, nil
+		return 0, fmt.Errorf("unsupported type for comparison: %T", start)
 	}
 }
 
