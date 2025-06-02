@@ -103,15 +103,20 @@ func (c *MySqlConnector) GetQRepPartitions(
 		totalRows, numPartitions, numRowsPerPartition))
 	var rs *mysql.Result
 	if minVal != nil {
-		// Query to get partitions using window functions
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
+			`WITH stats AS (
+				SELECT MIN(%[2]s) AS min_watermark,
+				1.0 * (MAX(%[2]s) - MIN(%[2]s)) / (%[1]d) AS range_size
 				FROM %[3]s WHERE %[2]s > $1
-			) AS subquery
+			)
+			SELECT FLOOR((w.%[2]s - s.min_watermark) / s.range_size) AS bucket,
+			MIN(w.%[2]s) AS start,
+			MAX(w.%[2]s) AS end
+			FROM %[3]s AS w
+			JOIN stats AS s ON TRUE
+			WHERE w.%[2]s > $1
 			GROUP BY bucket
-			ORDER BY start`,
+			ORDER BY start;`,
 			numPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.MySQL(),
@@ -120,12 +125,18 @@ func (c *MySqlConnector) GetQRepPartitions(
 		rs, err = c.Execute(ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
-			) AS subquery
+			`WITH stats AS (
+				SELECT MIN(%[2]s) AS min_watermark,
+				1.0 * (MAX(%[2]s) - MIN(%[2]s)) / (%[1]d) AS range_size
+				FROM %[3]s
+			)
+			SELECT FLOOR((w.%[2]s - s.min_watermark) / s.range_size) AS bucket,
+			MIN(w.%[2]s) AS start,
+			MAX(w.%[2]s) AS end
+			FROM %[3]s AS w
+			JOIN stats AS s ON TRUE
 			GROUP BY bucket
-			ORDER BY start`,
+			ORDER BY start;`,
 			numPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.MySQL(),
