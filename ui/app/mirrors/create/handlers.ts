@@ -186,6 +186,10 @@ export function reformattedTableMapping(
       exclude: Array.from(row.exclude),
       columns: row.columns,
       engine: row.engine,
+      distributed: row.distributed,
+      cluster: row.cluster,
+      shardingKey: row.shardingKey,
+      policyName: row.policyName,
     }));
 }
 
@@ -434,8 +438,6 @@ export async function fetchTables(
   const tableRes = tablesRes.tables;
   if (tableRes) {
     for (const tableObject of tableRes) {
-      // setting defaults:
-      // for bigquery, tables are not schema-qualified
       const dstName = getDefaultDestinationTable(
         peerType!,
         targetSchemaName,
@@ -453,6 +455,10 @@ export async function fetchTables(
         editingDisabled: false,
         columns: [],
         engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
+        distributed: false,
+        cluster: '',
+        shardingKey: '',
+        policyName: '',
       });
     }
   }
