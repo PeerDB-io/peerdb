@@ -77,8 +77,6 @@ jobs:
         run: |
           # No need to update man pages on package install
           sudo apt-get remove --purge man-db
-
-          sudo apt-get update
           sudo apt-get install libgeos-dev
 
       - run: go mod download
@@ -125,6 +123,15 @@ jobs:
       - name: MariaDB
         if: matrix.db-version.mysql == 'maria'
         run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
+
+      - name: MinIO TLS
+        run: >
+          mkdir -p certs &&
+          openssl genrsa -out certs/cert.key 2048 &&
+          openssl req -new -key certs/cert.key -out certs/cert.csr -subj /CN=minio.local &&
+          openssl x509 -req -days 3650 -in certs/cert.csr -signkey certs/cert.key -out certs/cert.crt &&
+          chown -R 1001 certs &&
+          docker run -d --rm --name miniotls -p 9998:9998 -v "$PWD/certs:/certs" -e MINIO_SCHEME=https bitnami/minio:latest
 
       - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >
@@ -184,6 +191,7 @@ jobs:
           AWS_ACCESS_KEY_ID: minio
           AWS_SECRET_ACCESS_KEY: miniosecret
           AWS_REGION: us-east-1
+          AWS_ENDPOINT_URL_S3_TLS: https://localhost:9998
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1

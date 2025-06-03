@@ -2,12 +2,12 @@ package e2e_s3
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 
@@ -39,6 +39,7 @@ const (
 	Aws S3Environment = iota
 	Gcs
 	Minio
+	MinioTls
 )
 
 func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestHelper, error) {
@@ -46,6 +47,8 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 	var endpoint string
 	var credsPath string
 	var bucketName string
+	var rootCA *string
+	var tlsHost string
 	switch s3environment {
 	case Aws:
 		credsPath = os.Getenv("TEST_S3_CREDS")
@@ -60,6 +63,18 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 		config.AccessKeyID = os.Getenv("AWS_ACCESS_KEY_ID")
 		config.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
 		config.Region = os.Getenv("AWS_REGION")
+	case MinioTls:
+		bucketName = "peerdb"
+		endpoint = os.Getenv("AWS_ENDPOINT_URL_S3_TLS")
+		config.AccessKeyID = os.Getenv("AWS_ACCESS_KEY_ID")
+		config.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
+		config.Region = os.Getenv("AWS_REGION")
+		bytes, err := e2eshared.ReadFileToBytes("./certs/cert.crt")
+		if err != nil {
+			return nil, err
+		}
+		rootCA = shared.Ptr(base64.StdEncoding.EncodeToString(bytes))
+		tlsHost = "minio.local"
 	default:
 		panic(fmt.Sprintf("invalid s3environment %d", s3environment))
 	}
@@ -75,35 +90,32 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 		}
 	}
 
-	var endpointUrlPtr *string
-	if endpoint != "" {
-		endpointUrlPtr = &endpoint
+	prefix := fmt.Sprintf("peerdb_test/%d_%s", time.Now().Unix(), shared.RandomString(6))
+
+	s3config := &protos.S3Config{
+		Url:             fmt.Sprintf("s3://%s/%s", bucketName, prefix),
+		AccessKeyId:     &config.AccessKeyID,
+		SecretAccessKey: &config.SecretAccessKey,
+		Region:          &config.Region,
+		Endpoint:        shared.Ptr(endpoint),
+		RootCa:          rootCA,
+		TlsHost:         tlsHost,
 	}
-	provider := utils.NewStaticAWSCredentialsProvider(utils.AWSCredentials{
-		AWS: aws.Credentials{
-			AccessKeyID:     config.AccessKeyID,
-			SecretAccessKey: config.SecretAccessKey,
-			SessionToken:    config.SessionToken,
-		},
-		EndpointUrl: endpointUrlPtr,
-	}, config.Region, nil, "")
+
+	provider, err := utils.GetAWSCredentialsProvider(ctx, "ci", utils.NewPeerAWSCredentials(s3config))
+	if err != nil {
+		return nil, err
+	}
 	client, err := utils.CreateS3Client(ctx, provider)
 	if err != nil {
 		return nil, err
 	}
 
-	prefix := fmt.Sprintf("peerdb_test/%d_%s", time.Now().Unix(), shared.RandomString(6))
 	return &S3TestHelper{
-		client,
-		&protos.S3Config{
-			Url:             fmt.Sprintf("s3://%s/%s", bucketName, prefix),
-			AccessKeyId:     &config.AccessKeyID,
-			SecretAccessKey: &config.SecretAccessKey,
-			Region:          &config.Region,
-			Endpoint:        endpointUrlPtr,
-		},
-		bucketName,
-		prefix,
+		client:     client,
+		S3Config:   s3config,
+		BucketName: bucketName,
+		prefix:     prefix,
 	}, nil
 }
 
