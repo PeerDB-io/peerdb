@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.temporal.io/sdk/log"
 
@@ -30,15 +29,7 @@ func NewS3Connector(
 ) (*S3Connector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
-	provider, err := utils.GetAWSCredentialsProvider(ctx, "s3", utils.PeerAWSCredentials{
-		Credentials: aws.Credentials{
-			AccessKeyID:     config.GetAccessKeyId(),
-			SecretAccessKey: config.GetSecretAccessKey(),
-		},
-		RoleArn:     config.RoleArn,
-		EndpointUrl: config.Endpoint,
-		Region:      config.GetRegion(),
-	})
+	provider, err := utils.GetAWSCredentialsProvider(ctx, "s3", utils.NewPeerAWSCredentials(config))
 	if err != nil {
 		return nil, err
 	}

@@ -26,6 +26,15 @@ type S3TestHelper struct {
 
 type S3Environment int
 
+type S3PeerCredentials struct {
+	AccessKeyID     string `json:"accessKeyId"`
+	SecretAccessKey string `json:"secretAccessKey"`
+	AwsRoleArn      string `json:"awsRoleArn"`
+	SessionToken    string `json:"sessionToken"`
+	Region          string `json:"region"`
+	Endpoint        string `json:"endpoint"`
+}
+
 const (
 	Aws S3Environment = iota
 	Gcs
@@ -33,7 +42,7 @@ const (
 )
 
 func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestHelper, error) {
-	var config utils.S3PeerCredentials
+	var config S3PeerCredentials
 	var endpoint string
 	var credsPath string
 	var bucketName string
@@ -77,7 +86,7 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 			SessionToken:    config.SessionToken,
 		},
 		EndpointUrl: endpointUrlPtr,
-	}, config.Region)
+	}, config.Region, nil, "")
 	client, err := utils.CreateS3Client(ctx, provider)
 	if err != nil {
 		return nil, err

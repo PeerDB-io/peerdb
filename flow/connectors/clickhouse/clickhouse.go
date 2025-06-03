@@ -52,14 +52,21 @@ func NewClickHouseConnector(
 		return nil, err
 	}
 
-	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", utils.PeerAWSCredentials{
-		Credentials: aws.Credentials{
-			AccessKeyID:     config.AccessKeyId,
-			SecretAccessKey: config.SecretAccessKey,
-		},
-		EndpointUrl: config.Endpoint,
-		Region:      config.Region,
-	})
+	var awsConfig utils.PeerAWSCredentials
+	if config.S3 != nil {
+		awsConfig = utils.NewPeerAWSCredentials(config.S3)
+	} else {
+		awsConfig = utils.PeerAWSCredentials{
+			Credentials: aws.Credentials{
+				AccessKeyID:     config.AccessKeyId,
+				SecretAccessKey: config.SecretAccessKey,
+			},
+			EndpointUrl: config.Endpoint,
+			Region:      config.Region,
+		}
+	}
+
+	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", awsConfig)
 	if err != nil {
 		return nil, err
 	}

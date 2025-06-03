@@ -29,6 +29,7 @@ message SnowflakeConfig {
   optional string password = 10 [(peerdb_redacted) = true];
   // defaults to _PEERDB_INTERNAL
   optional string metadata_schema = 11;
+  optional S3Config s3 = 12;
 }
 
 message GcpServiceAccount {
@@ -141,6 +142,8 @@ message S3Config {
   optional string role_arn = 4;
   optional string region = 5;
   optional string endpoint = 6;
+  optional string root_ca = 7 [(peerdb_redacted) = true];
+  string tls_host = 8;
 }
 
 message ClickhouseConfig{
@@ -159,6 +162,7 @@ message ClickhouseConfig{
   optional string private_key = 13 [(peerdb_redacted) = true];
   optional string root_ca = 14 [(peerdb_redacted) = true];
   string tls_host = 15;
+  optional S3Config s3 = 16;
 }
 
 message SqlServerConfig {

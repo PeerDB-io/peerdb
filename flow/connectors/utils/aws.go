@@ -2,6 +2,7 @@ package utils
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -21,7 +22,9 @@ import (
 	"github.com/aws/smithy-go/ptr"
 	"github.com/google/uuid"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -45,15 +48,26 @@ type PeerAWSCredentials struct {
 	ChainedRoleArn *string
 	EndpointUrl    *string
 	Region         string
+	RootCAs        *string
+	TlsHost        string
 }
 
-type S3PeerCredentials struct {
-	AccessKeyID     string `json:"accessKeyId"`
-	SecretAccessKey string `json:"secretAccessKey"`
-	AwsRoleArn      string `json:"awsRoleArn"`
-	SessionToken    string `json:"sessionToken"`
-	Region          string `json:"region"`
-	Endpoint        string `json:"endpoint"`
+func NewPeerAWSCredentials(s3 *protos.S3Config) PeerAWSCredentials {
+	if s3 == nil {
+		return PeerAWSCredentials{}
+	}
+	return PeerAWSCredentials{
+		Credentials: aws.Credentials{
+			AccessKeyID:     s3.GetAccessKeyId(),
+			SecretAccessKey: s3.GetSecretAccessKey(),
+		},
+		RoleArn:        s3.RoleArn,
+		ChainedRoleArn: nil,
+		EndpointUrl:    s3.Endpoint,
+		Region:         s3.GetRegion(),
+		RootCAs:        s3.RootCa,
+		TlsHost:        s3.TlsHost,
+	}
 }
 
 type ClickHouseS3Credentials struct {
@@ -71,6 +85,7 @@ type AWSCredentialsProvider interface {
 	GetUnderlyingProvider() aws.CredentialsProvider
 	GetRegion() string
 	GetEndpointURL() string
+	GetTlsConfig() (*string, string)
 }
 
 type ConfigBasedAWSCredentialsProvider struct {
@@ -98,6 +113,10 @@ func (r *ConfigBasedAWSCredentialsProvider) GetEndpointURL() string {
 	return endpoint
 }
 
+func (r *ConfigBasedAWSCredentialsProvider) GetTlsConfig() (*string, string) {
+	return nil, ""
+}
+
 // Retrieve should be called as late as possible in order to have credentials with latest expiry
 func (r *ConfigBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCredentials, error) {
 	retrieved, err := r.config.Credentials.Retrieve(ctx)
@@ -113,12 +132,16 @@ func (r *ConfigBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCr
 type StaticAWSCredentialsProvider struct {
 	credentials AWSCredentials
 	region      string
+	rootCAs     *string
+	tlsHost     string
 }
 
-func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) *StaticAWSCredentialsProvider {
+func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string, rootCAs *string, tlsHost string) *StaticAWSCredentialsProvider {
 	return &StaticAWSCredentialsProvider{
 		credentials: credentials,
 		region:      region,
+		rootCAs:     rootCAs,
+		tlsHost:     tlsHost,
 	}
 }
 
@@ -140,6 +163,10 @@ func (s *StaticAWSCredentialsProvider) GetEndpointURL() string {
 		return *s.credentials.EndpointUrl
 	}
 	return ""
+}
+
+func (s *StaticAWSCredentialsProvider) GetTlsConfig() (*string, string) {
+	return s.rootCAs, s.tlsHost
 }
 
 type AssumeRoleBasedAWSCredentialsProvider struct {
@@ -194,6 +221,10 @@ func (a *AssumeRoleBasedAWSCredentialsProvider) GetEndpointURL() string {
 	return endpoint
 }
 
+func (a *AssumeRoleBasedAWSCredentialsProvider) GetTlsConfig() (*string, string) {
+	return nil, ""
+}
+
 func getPeerDBAWSEnv(connectorName string, awsKey string) string {
 	return os.Getenv(fmt.Sprintf("PEERDB_%s_AWS_CREDENTIALS_%s", strings.ToUpper(connectorName), awsKey))
 }
@@ -203,6 +234,8 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) *StaticAWSCredentialsP
 	secretAccessKey := getPeerDBAWSEnv(connectorName, "AWS_SECRET_ACCESS_KEY")
 	region := getPeerDBAWSEnv(connectorName, "AWS_REGION")
 	endpointUrl := getPeerDBAWSEnv(connectorName, "AWS_ENDPOINT_URL_S3")
+	rootCa := getPeerDBAWSEnv(connectorName, "ROOT_CA")
+	tlsHost := getPeerDBAWSEnv(connectorName, "TLS_HOST")
 	var endpointUrlPtr *string
 	if endpointUrl != "" {
 		endpointUrlPtr = &endpointUrl
@@ -212,13 +245,18 @@ func LoadPeerDBAWSEnvConfigProvider(connectorName string) *StaticAWSCredentialsP
 		return nil
 	}
 
+	var rootCAs *string
+	if rootCa != "" {
+		rootCAs = &rootCa
+	}
+
 	return NewStaticAWSCredentialsProvider(AWSCredentials{
 		AWS: aws.Credentials{
 			AccessKeyID:     accessKeyId,
 			SecretAccessKey: secretAccessKey,
 		},
 		EndpointUrl: endpointUrlPtr,
-	}, region)
+	}, region, rootCAs, tlsHost)
 }
 
 func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCredentials PeerAWSCredentials) (AWSCredentialsProvider, error) {
@@ -230,7 +268,7 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 		staticProvider := NewStaticAWSCredentialsProvider(AWSCredentials{
 			AWS:         peerCredentials.Credentials,
 			EndpointUrl: peerCredentials.EndpointUrl,
-		}, peerCredentials.Region)
+		}, peerCredentials.Region, peerCredentials.RootCAs, peerCredentials.TlsHost)
 		if peerCredentials.RoleArn == nil || *peerCredentials.RoleArn == "" {
 			logger.Info("Received AWS credentials from peer for connector: " + connectorName)
 			return staticProvider, nil
@@ -363,6 +401,19 @@ func CreateS3Client(ctx context.Context, credsProvider AWSCredentialsProvider) (
 					credentials: credsProvider.GetUnderlyingProvider(),
 					region:      options.Region,
 				},
+			}
+		} else {
+			rootCAs, tlsHost := credsProvider.GetTlsConfig()
+			if rootCAs != nil || tlsHost != "" {
+				// start with a clone of DefaultTransport so we keep http2, idle-conns, etc.
+				tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS13, rootCAs, tlsHost, tlsHost, tlsHost == "")
+				if err != nil {
+					return nil, err
+				}
+
+				tr := http.DefaultTransport.(*http.Transport).Clone()
+				tr.TLSClientConfig = tlsConfig
+				options.HTTPClient = &http.Client{Transport: tr}
 			}
 		}
 	}

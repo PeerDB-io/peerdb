@@ -131,8 +131,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
-	s3Int := c.config.S3Integration
-	provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
+	provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.NewPeerAWSCredentials(c.config.S3))
 	if err != nil {
 		return "", err
 	}
@@ -141,7 +140,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 	if err != nil {
 		return "", err
 	}
-	if s3Int == "" {
+	if c.config.S3Integration == "" {
 		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s' AWS_TOKEN='%s')",
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, creds.AWS.SessionToken)
 		stageStatement := `
@@ -156,7 +155,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 		URL = '%s'
 		STORAGE_INTEGRATION = %s
 		FILE_FORMAT = (TYPE = AVRO);`
-		return fmt.Sprintf(stageStatement, stageName, cleanURL, s3Int), nil
+		return fmt.Sprintf(stageStatement, stageName, cleanURL, c.config.S3Integration), nil
 	}
 }
 
