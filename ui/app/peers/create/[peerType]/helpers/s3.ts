@@ -59,4 +59,6 @@ export const blankS3Setting: S3Config = {
   roleArn: undefined,
   region: undefined,
   endpoint: '',
+  rootCa: undefined,
+  tlsHost: '',
 };
