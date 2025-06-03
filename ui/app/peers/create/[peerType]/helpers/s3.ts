@@ -56,8 +56,9 @@ export const s3Setting: PeerSetting[] = [
       if (!value) {
         // remove key from state if empty
         setter((curr) => {
-          delete (curr as S3Config)['rootCa'];
-          return curr;
+          const newCurr = { ...curr } as S3Config;
+          delete newCurr.rootCa;
+          return newCurr;
         });
       } else setter((curr) => ({ ...curr, rootCa: value as string }));
     },

@@ -12,6 +12,7 @@ import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useState } from 'react';
 import { handleFieldChange } from './common';
+
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
@@ -166,7 +167,7 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
                   <TextField
                     variant='simple'
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setting.stateHandler(e.target.value, setter)
+                      handleFieldChange(e, setting, setter)
                     }
                     type={setting.type}
                     placeholder={setting.placeholder}
