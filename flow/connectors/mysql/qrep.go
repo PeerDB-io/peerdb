@@ -29,7 +29,7 @@ func (c *MySqlConnector) GetDataTypeOfWatermarkColumn(
 		return "", fmt.Errorf("watermark column is not specified in the config")
 	}
 
-	query := fmt.Sprintf("SELECT `%s` FROM %s LIMIT 1", watermarkColumn, watermarkTableName)
+	query := fmt.Sprintf("SELECT `%s` FROM %s LIMIT 0", watermarkColumn, watermarkTableName)
 	rs, err := c.Execute(ctx, query)
 	if err != nil {
 		return "", fmt.Errorf("failed to execute query for watermark column type: %w", err)
@@ -142,8 +142,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 				FROM %[3]s WHERE %[2]s > $1
 			)
 			SELECT FLOOR((w.%[2]s - s.min_watermark) / s.range_size) AS bucket,
-			MIN(w.%[2]s) AS start,
-			MAX(w.%[2]s) AS end
+			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
 			CROSS JOIN stats AS s
 			WHERE w.%[2]s > $1
