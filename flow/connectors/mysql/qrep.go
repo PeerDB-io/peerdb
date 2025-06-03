@@ -162,8 +162,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 				FROM %[3]s
 			)
 			SELECT FLOOR((w.%[2]s - s.min_watermark) / s.range_size) AS bucket,
-			MIN(w.%[2]s) AS start,
-			MAX(w.%[2]s) AS end
+			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
 			CROSS JOIN stats AS s
 			GROUP BY bucket
@@ -187,8 +186,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 				FROM %[3]s WHERE %[2]s > $1
 			)
 			SELECT FLOOR(TIMESTAMPDIFF(MICROSECOND, w.%[2]s, s.min_watermark) / s.range_size) AS bucket,
-			MIN(w.%[2]s) AS start,
-			MAX(w.%[2]s) AS end
+			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
 			CROSS JOIN stats AS s
 			WHERE w.%[2]s > $1
@@ -208,8 +206,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 				FROM %[3]s
 			)
 			SELECT FLOOR(TIMESTAMPDIFF(MICROSECOND, w.%[2]s, s.min_watermark) / s.range_size) AS bucket,
-			MIN(w.%[2]s) AS start,
-			MAX(w.%[2]s) AS end
+			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
 			CROSS JOIN stats AS s
 			GROUP BY bucket
