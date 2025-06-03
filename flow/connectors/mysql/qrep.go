@@ -26,7 +26,7 @@ func (c *MySqlConnector) GetDataTypeOfWatermarkColumn(
 	watermarkColumn string,
 ) (qvalue.QValueKind, error) {
 	if watermarkColumn == "" {
-		return "", fmt.Errorf("watermark column is not specified in the config")
+		return "", errors.New("watermark column is not specified in the config")
 	}
 
 	query := fmt.Sprintf("SELECT `%s` FROM %s LIMIT 0", watermarkColumn, watermarkTableName)

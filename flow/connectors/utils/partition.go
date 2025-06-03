@@ -2,6 +2,7 @@ package utils
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -29,7 +30,8 @@ type PartitionRangeForComparison struct {
 // Function to compare the end of a partition with the start of another
 func comparePartitionRanges(
 	previousPartition PartitionRangeForComparison,
-	currentPartition PartitionRangeForComparison) int {
+	currentPartition PartitionRangeForComparison,
+) int {
 	if previousPartition.partitionRange == nil || currentPartition.partitionRange == nil {
 		slog.Warn("one of the partition ranges is nil, cannot compare")
 		return 0
@@ -311,7 +313,7 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 
 func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition) error {
 	if partition == nil {
-		return fmt.Errorf("partition is nil")
+		return errors.New("partition is nil")
 	}
 	p.partitions = append(p.partitions, partition)
 
