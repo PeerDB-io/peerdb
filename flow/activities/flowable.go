@@ -1229,6 +1229,11 @@ func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
 		return fmt.Errorf("unable to clear metadata for flow cleanup: %w", err)
 	}
 
+	// only for ClickHouse, should be a no-op for other destination connectors
+	if _, err := tx.Exec(ctx, `DELETE FROM ch_s3_stage WHERE flow_job_name = $1`, flowName); err != nil {
+		return fmt.Errorf("failed to clear avro stage for flow %s: %w", flowName, err)
+	}
+
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction to remove flow details from catalog: %w", err)
 	}
