@@ -63,7 +63,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
         };
 
         // Necessary as visit_relations fails to deeply visit some structures.
-        visit_statements(statement, |stmt| {
+        let _ = visit_statements(statement, |stmt| {
             match stmt {
                 Statement::Drop { names, .. } => {
                     for name in names {
@@ -73,7 +73,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
                 Statement::Declare { stmts } => {
                     for stmt in stmts {
                         if let Some(ref query) = stmt.for_query {
-                            visit_relations(query, |relation| {
+                            let _ = visit_relations(query, |relation| {
                                 analyze_name(&relation.0[0].value);
                                 ControlFlow::<()>::Continue(())
                             });
@@ -85,7 +85,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
             ControlFlow::<()>::Continue(())
         });
 
-        visit_relations(statement, |relation| {
+        let _ = visit_relations(statement, |relation| {
             analyze_name(&relation.0[0].value);
             ControlFlow::<()>::Continue(())
         });
@@ -278,7 +278,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                         let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
                             Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
-                            _ => Some("".to_string()),
+                            _ => None,
                         };
 
                         let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
@@ -731,7 +731,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 tls_host: opts
                     .get("tls_host")
                     .map(|s| s.to_string())
-                    .unwrap_or_else(String::new),
+                    .unwrap_or_default(),
             };
             Config::S3Config(s3_config)
         }
