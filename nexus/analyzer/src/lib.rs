@@ -603,11 +603,6 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             Config::BigqueryConfig(bq_config)
         }
         DbType::Snowflake => {
-            let s3_int = opts
-                .get("s3_integration")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
             let snowflake_config = SnowflakeConfig {
                 account_id: opts
                     .get("account_id")
@@ -637,7 +632,11 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .context("unable to parse query_timeout")?,
                 password: opts.get("password").map(|s| s.to_string()),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
-                s3_integration: s3_int,
+                s3_integration: opts
+                    .get("s3_integration")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                s3: None,
             };
             Config::SnowflakeConfig(snowflake_config)
         }
@@ -728,6 +727,11 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 region: opts.get("region").map(|s| s.to_string()),
                 role_arn: opts.get("role_arn").map(|s| s.to_string()),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                tls_host: opts
+                    .get("tls_host")
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(String::new),
             };
             Config::S3Config(s3_config)
         }
@@ -800,6 +804,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("tls_host")
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
+                s3: None,
             };
             Config::ClickhouseConfig(clickhouse_config)
         }
