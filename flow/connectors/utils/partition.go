@@ -15,24 +15,43 @@ import (
 )
 
 // Function to compare two values
-func compareValues(prevEnd any, start any) int {
+func compareValues(prevEnd any, start any) (int, error) {
 	switch v := start.(type) {
 	case int64:
-		return cmp.Compare(prevEnd.(int64), v)
+		return cmp.Compare(prevEnd.(int64), v), nil
 	case uint64:
-		return cmp.Compare(prevEnd.(uint64), v)
+		return cmp.Compare(prevEnd.(uint64), v), nil
 	case time.Time:
-		return prevEnd.(time.Time).Compare(v)
+		return prevEnd.(time.Time).Compare(v), nil
 	case pgtype.TID:
 		pe := prevEnd.(pgtype.TID)
 		if c := cmp.Compare(pe.BlockNumber, v.BlockNumber); c != 0 {
-			return c
+			return c, nil
 		}
-		return cmp.Compare(pe.OffsetNumber, v.OffsetNumber)
+		return cmp.Compare(pe.OffsetNumber, v.OffsetNumber), nil
 	case uint32: // xmin
-		return cmp.Compare(prevEnd.(uint32), v)
+		switch prevEnd := prevEnd.(type) {
+		case uint32:
+			return cmp.Compare(prevEnd, v), nil
+		case uint64:
+			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
+		case int64:
+			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
+		case int32:
+			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
+		case int16:
+			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
+		case int8:
+			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
+		case uint16:
+			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
+		case uint8:
+			return cmp.Compare(uint64(prevEnd), uint64(v)), nil
+		default:
+			return 0, fmt.Errorf("unsupported type for uint32 comparison: %T", prevEnd)
+		}
 	default:
-		return 0
+		return 0, fmt.Errorf("unsupported type for comparison: %T", start)
 	}
 }
 
@@ -148,9 +167,17 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 	// Skip partition if it's fully contained within the previous one
 	// If it's not fully contained but overlaps, adjust the start
 	if p.prevEnd != nil {
-		if compareValues(p.prevEnd, start) >= 0 {
+		prevEndCompareStart, err := compareValues(p.prevEnd, start)
+		if err != nil {
+			return fmt.Errorf("error comparing previous end with current start: %w", err)
+		}
+		if prevEndCompareStart >= 0 {
+			prevEndCompareEnd, err := compareValues(p.prevEnd, end)
+			if err != nil {
+				return fmt.Errorf("error comparing previous end with current end: %w", err)
+			}
 			// If end is also less than or equal to prevEnd, skip this partition
-			if compareValues(p.prevEnd, end) >= 0 {
+			if prevEndCompareEnd >= 0 {
 				// log the skipped partition
 				p.logger.Info("skipping partition, fully contained within previous partition",
 					slog.Any("start", start), slog.Any("end", end), slog.Any("prevStart", p.prevStart), slog.Any("prevEnd", p.prevEnd))

@@ -103,15 +103,20 @@ func (c *MySqlConnector) GetQRepPartitions(
 		totalRows, numPartitions, numRowsPerPartition))
 	var rs *mysql.Result
 	if minVal != nil {
-		// Query to get partitions using window functions
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
+			`WITH stats AS (
+				SELECT MIN(%[2]s) AS min_watermark,
+				1.0 * (MAX(%[2]s) - MIN(%[2]s)) / (%[1]d) AS range_size
 				FROM %[3]s WHERE %[2]s > $1
-			) AS subquery
+			)
+			SELECT FLOOR((w.%[2]s - s.min_watermark) / s.range_size) AS bucket,
+			MIN(w.%[2]s) AS start,
+			MAX(w.%[2]s) AS end
+			FROM %[3]s AS w
+			JOIN stats AS s ON TRUE
+			WHERE w.%[2]s > $1
 			GROUP BY bucket
-			ORDER BY start`,
+			ORDER BY start;`,
 			numPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.MySQL(),
@@ -120,12 +125,18 @@ func (c *MySqlConnector) GetQRepPartitions(
 		rs, err = c.Execute(ctx, partitionsQuery, minVal)
 	} else {
 		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
-			) AS subquery
+			`WITH stats AS (
+				SELECT MIN(%[2]s) AS min_watermark,
+				1.0 * (MAX(%[2]s) - MIN(%[2]s)) / (%[1]d) AS range_size
+				FROM %[3]s
+			)
+			SELECT FLOOR((w.%[2]s - s.min_watermark) / s.range_size) AS bucket,
+			MIN(w.%[2]s) AS start,
+			MAX(w.%[2]s) AS end
+			FROM %[3]s AS w
+			JOIN stats AS s ON TRUE
 			GROUP BY bucket
-			ORDER BY start`,
+			ORDER BY start;`,
 			numPartitions,
 			quotedWatermarkColumn,
 			parsedWatermarkTable.MySQL(),
@@ -169,7 +180,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
-	last *protos.QRepPartition,
+	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
@@ -241,7 +252,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		return nil
 	}
 
-	if last.FullTablePartition {
+	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query
 		if err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult); err != nil {
 			return 0, 0, err
@@ -251,7 +262,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		var rangeEnd string
 
 		// Depending on the type of the range, convert the range into the correct type
-		switch x := last.Range.Range.(type) {
+		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
 			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
