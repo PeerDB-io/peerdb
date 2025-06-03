@@ -284,8 +284,7 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 		}
 	}
 
-	err = p.updatePartitionHelper(currentPartition)
-	if err != nil {
+	if err := p.updatePartitionHelper(currentPartition); err != nil {
 		return fmt.Errorf("error adjusting start value: %w", err)
 	}
 
