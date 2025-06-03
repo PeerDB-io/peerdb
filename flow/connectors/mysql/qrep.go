@@ -226,24 +226,13 @@ func (c *MySqlConnector) GetQRepPartitions(
 		}
 	}
 
-	qk1, err := qkindFromMysql(rs.Fields[1])
-	if err != nil {
-		return nil, err
-	}
-	qk2, err := qkindFromMysql(rs.Fields[2])
-	if err != nil {
-		return nil, err
-	}
-	if qk1 != qk2 {
-		return nil, fmt.Errorf("low/high of partition range should be same type, got low:%s, high:%s", qk1, qk2)
-	}
 	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for _, row := range rs.Values {
-		val1, err := QValueFromMysqlFieldValue(qk1, row[1])
+		val1, err := QValueFromMysqlFieldValue(watermarkQKind, row[1])
 		if err != nil {
 			return nil, err
 		}
-		val2, err := QValueFromMysqlFieldValue(qk2, row[2])
+		val2, err := QValueFromMysqlFieldValue(watermarkQKind, row[2])
 		if err != nil {
 			return nil, err
 		}
