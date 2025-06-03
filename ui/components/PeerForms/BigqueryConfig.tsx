@@ -68,7 +68,7 @@ export default function BigqueryForm(props: BQProps) {
             Service Account JSON
             <Tooltip
               style={{ width: '100%' }}
-              content={'This is a required field.'}
+              content='This is a required field.'
             >
               <Label colorName='lowContrast' colorSet='destructive'>
                 *
@@ -94,7 +94,7 @@ export default function BigqueryForm(props: BQProps) {
             Dataset ID
             <Tooltip
               style={{ width: '100%' }}
-              content={'This is a required field.'}
+              content='This is a required field.'
             >
               <Label colorName='lowContrast' colorSet='destructive'>
                 *
@@ -121,7 +121,7 @@ export default function BigqueryForm(props: BQProps) {
               }}
             />
             <InfoPopover
-              tips={'ID of the dataset containing the tables you want to sync.'}
+              tips='ID of the dataset containing the tables you want to sync.'
               link='https://cloud.google.com/bigquery/docs/datasets'
             />
           </div>
