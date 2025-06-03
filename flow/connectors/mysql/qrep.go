@@ -145,7 +145,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 			MIN(w.%[2]s) AS start,
 			MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
-			JOIN stats AS s ON TRUE
+			CROSS JOIN stats AS s
 			WHERE w.%[2]s > $1
 			GROUP BY bucket
 			ORDER BY start;`,
@@ -166,7 +166,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 			MIN(w.%[2]s) AS start,
 			MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
-			JOIN stats AS s ON TRUE
+			CROSS JOIN stats AS s
 			GROUP BY bucket
 			ORDER BY start;`,
 				numPartitions,
@@ -191,7 +191,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 			MIN(w.%[2]s) AS start,
 			MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
-			JOIN stats AS s ON TRUE
+			CROSS JOIN stats AS s
 			WHERE w.%[2]s > $1
 			GROUP BY bucket
 			ORDER BY start;`,
@@ -212,7 +212,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 			MIN(w.%[2]s) AS start,
 			MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
-			JOIN stats AS s ON TRUE
+			CROSS JOIN stats AS s
 			GROUP BY bucket
 			ORDER BY start;`,
 				numPartitions,
