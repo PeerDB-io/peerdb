@@ -251,7 +251,7 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 
 	// Skip partition if it's fully contained within the previous one
 	// If it's not fully contained but overlaps, adjust the start
-	if p.prevEnd != nil {
+	if prevPartition != nil {
 		prevEndCompareStart := comparePartitionRanges(
 			PartitionRangeForComparison{
 				partitionRange:     prevPartition.Range,
@@ -293,6 +293,9 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 }
 
 func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*protos.QRepPartition, error) {
+	if start == nil || end == nil {
+		return nil, nil
+	}
 	switch v := start.(type) {
 	case int64:
 		return createIntPartition(v, end.(int64)), nil
