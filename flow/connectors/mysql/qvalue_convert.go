@@ -15,7 +15,6 @@ import (
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -177,7 +176,7 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 		if col, ok := tableColumns[name]; ok {
 			qkind = qvalue.QValueKind(col.Type)
 			if qkind == qvalue.QValueKindNumeric {
-				precision, scale = datatypes.ParseNumericTypmod(col.TypeModifier)
+				precision, scale = shared.ParseNumericTypmod(col.TypeModifier)
 			}
 		} else {
 			var err error

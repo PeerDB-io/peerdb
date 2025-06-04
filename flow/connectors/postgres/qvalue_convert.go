@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 	"github.com/shopspring/decimal"
+	"go.temporal.io/sdk/log"
 
 	datatypes "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -21,7 +22,16 @@ import (
 )
 
 func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping map[uint32]shared.CustomDataType) (string, error) {
-	if ty, ok := c.typeMap.TypeForOID(recvOID); ok {
+	return postgresOidToName(recvOID, customTypeMapping, c.typeMap)
+}
+
+// for unit testing
+func postgresOidToName(
+	recvOID uint32,
+	customTypeMapping map[uint32]shared.CustomDataType,
+	typeMap *pgtype.Map,
+) (string, error) {
+	if ty, ok := typeMap.TypeForOID(recvOID); ok {
 		return ty.Name, nil
 	}
 	// workaround for some types not being defined by pgtype
@@ -50,6 +60,17 @@ func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping 
 func (c *PostgresConnector) postgresOIDToQValueKind(
 	recvOID uint32,
 	customTypeMapping map[uint32]shared.CustomDataType,
+) qvalue.QValueKind {
+	return postgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, c.hushWarnOID, c.logger)
+}
+
+// for unit testing
+func postgresOIDToQValueKind(
+	recvOID uint32,
+	customTypeMapping map[uint32]shared.CustomDataType,
+	typeMap *pgtype.Map,
+	hushWarnOID map[uint32]struct{},
+	logger log.Logger,
 ) qvalue.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
@@ -125,15 +146,15 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	case pgtype.TstzrangeOID:
 		return qvalue.QValueKindTSTZRange
 	default:
-		if typeName, ok := c.typeMap.TypeForOID(recvOID); ok {
+		if typeName, ok := typeMap.TypeForOID(recvOID); ok {
 			colType := qvalue.QValueKindString
 			if typeData, ok := customTypeMapping[recvOID]; ok {
 				colType = customTypeToQKind(typeData)
 			}
-			if _, warned := c.hushWarnOID[recvOID]; !warned {
-				c.logger.Warn("unsupported field type",
+			if _, warned := hushWarnOID[recvOID]; !warned {
+				logger.Warn("unsupported field type",
 					slog.Int64("oid", int64(recvOID)), slog.String("typeName", typeName.Name), slog.String("mapping", string(colType)))
-				c.hushWarnOID[recvOID] = struct{}{}
+				hushWarnOID[recvOID] = struct{}{}
 			}
 			return colType
 		} else {

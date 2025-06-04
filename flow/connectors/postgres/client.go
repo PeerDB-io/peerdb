@@ -16,7 +16,6 @@ import (
 	"github.com/lib/pq/oid"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	numeric "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -471,7 +470,7 @@ func generateCreateTableSQLForNormalizedTable(
 			pgColumnType = qValueKindToPostgresType(pgColumnType)
 		}
 		if column.Type == "numeric" && column.TypeModifier != -1 {
-			precision, scale := numeric.ParseNumericTypmod(column.TypeModifier)
+			precision, scale := shared.ParseNumericTypmod(column.TypeModifier)
 			pgColumnType = fmt.Sprintf("numeric(%d,%d)", precision, scale)
 		}
 		var notNull string

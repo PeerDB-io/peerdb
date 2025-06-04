@@ -100,10 +100,11 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, schema string, table st
 			return nil, err
 		}
 		columns = append(columns, &protos.ColumnsItem{
-			Name:  columnName,
-			Type:  columnType,
-			IsKey: columnKey == "PRI",
-			Qkind: string(qkind),
+			Name:     columnName,
+			Type:     columnType,
+			IsKey:    columnKey == "PRI",
+			Qkind:    string(qkind),
+			TypeInfo: &protos.ColumnsItem_NullTypeInfo{},
 		})
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil

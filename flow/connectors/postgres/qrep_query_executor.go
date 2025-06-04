@@ -10,7 +10,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -76,7 +75,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping)
 		// there isn't a way to know if a column is nullable or not
 		if ctype == qvalue.QValueKindNumeric {
-			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
+			precision, scale := shared.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = qvalue.QField{
 				Name:      fd.Name,
 				Type:      ctype,

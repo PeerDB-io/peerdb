@@ -181,11 +181,22 @@ message TableColumnsRequest {
   string table_name = 3;
 }
 
+message PostgresTypeInfo {
+  uint32 oid = 1;
+  int32 typmod = 2;
+}
+
+message NullTypeInfo { }
+
 message ColumnsItem {
   string name = 1;
   string type = 2;
   bool is_key = 3;
   string qkind = 4;
+  oneof type_info {
+    PostgresTypeInfo postgres_type_info = 5;
+    NullTypeInfo null_type_info = 6;
+  }
 }
 
 message TableColumnsResponse {

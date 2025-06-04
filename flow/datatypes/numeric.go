@@ -1,5 +1,7 @@
 package datatypes
 
+import "github.com/PeerDB-io/peerdb/flow/shared"
+
 const (
 	// defaults
 	PeerDBBigQueryScale   = 20
@@ -7,7 +9,6 @@ const (
 	PeerDBClickHouseScale = 38
 
 	PeerDBClickHouseMaxPrecision = 76
-	VARHDRSZ                     = 4
 )
 
 type WarehouseNumericCompatibility interface {
@@ -84,20 +85,7 @@ func MakeNumericTypmod(precision int32, scale int32) int32 {
 	if precision == 0 && scale == 0 {
 		return -1
 	}
-	return (precision << 16) | (scale & 0x7ff) + VARHDRSZ
-}
-
-// This is to reverse what make_numeric_typmod of Postgres does:
-// https://github.com/postgres/postgres/blob/21912e3c0262e2cfe64856e028799d6927862563/src/backend/utils/adt/numeric.c#L897
-func ParseNumericTypmod(typmod int32) (int16, int16) {
-	if typmod == -1 {
-		return 0, 0
-	}
-
-	offsetMod := typmod - VARHDRSZ
-	precision := int16((offsetMod >> 16) & 0x7FFF)
-	scale := int16(offsetMod & 0x7FFF)
-	return precision, scale
+	return (precision << 16) | (scale & 0x7ff) + shared.VARHDRSZ
 }
 
 func GetNumericTypeForWarehouse(typmod int32, warehouseNumeric WarehouseNumericCompatibility) (int16, int16) {
@@ -105,7 +93,7 @@ func GetNumericTypeForWarehouse(typmod int32, warehouseNumeric WarehouseNumericC
 		return warehouseNumeric.DefaultPrecisionAndScale()
 	}
 
-	precision, scale := ParseNumericTypmod(typmod)
+	precision, scale := shared.ParseNumericTypmod(typmod)
 	return GetNumericTypeForWarehousePrecisionScale(precision, scale, warehouseNumeric)
 }
 
