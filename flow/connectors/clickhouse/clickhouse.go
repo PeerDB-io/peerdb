@@ -52,19 +52,28 @@ func NewClickHouseConnector(
 		return nil, err
 	}
 
-	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", utils.PeerAWSCredentials{
-		Credentials: aws.Credentials{
-			AccessKeyID:     config.AccessKeyId,
-			SecretAccessKey: config.SecretAccessKey,
-		},
-		EndpointUrl: config.Endpoint,
-		Region:      config.Region,
-	})
+	var awsConfig utils.PeerAWSCredentials
+	var awsBucketPath string
+	if config.S3 != nil {
+		awsConfig = utils.NewPeerAWSCredentials(config.S3)
+		awsBucketPath = config.S3.Url
+	} else {
+		awsConfig = utils.PeerAWSCredentials{
+			Credentials: aws.Credentials{
+				AccessKeyID:     config.AccessKeyId,
+				SecretAccessKey: config.SecretAccessKey,
+			},
+			EndpointUrl: config.Endpoint,
+			Region:      config.Region,
+		}
+		awsBucketPath = config.S3Path
+	}
+
+	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", awsConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	awsBucketPath := config.S3Path
 	if awsBucketPath == "" {
 		deploymentUID := internal.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)

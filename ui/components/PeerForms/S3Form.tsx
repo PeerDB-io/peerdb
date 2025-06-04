@@ -9,6 +9,7 @@ import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useEffect, useState } from 'react';
+import { handleFieldChange } from './common';
 
 interface S3Props {
   setter: PeerSetter;
@@ -75,7 +76,7 @@ export default function S3Form({ setter }: S3Props) {
                   {!setting.optional && (
                     <Tooltip
                       style={{ width: '100%' }}
-                      content={'This is a required field.'}
+                      content='This is a required field.'
                     >
                       <Label colorName='lowContrast' colorSet='destructive'>
                         *
@@ -102,7 +103,7 @@ export default function S3Form({ setter }: S3Props) {
                     type={setting.type}
                     defaultValue={setting.default}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setting.stateHandler(e.target.value, setter)
+                      handleFieldChange(e, setting, setter)
                     }
                   />
                   {setting.tips && (

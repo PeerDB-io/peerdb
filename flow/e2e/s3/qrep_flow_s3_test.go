@@ -116,6 +116,11 @@ func SetupSuiteMinIO(t *testing.T) PeerFlowE2ETestSuiteS3 {
 	return setupSuite(t, Minio)
 }
 
+func SetupSuiteMinIO_TLS(t *testing.T) PeerFlowE2ETestSuiteS3 {
+	t.Helper()
+	return setupSuite(t, MinioTls)
+}
+
 func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	if s.s3Helper == nil {
 		s.t.Skip("Skipping S3 test")

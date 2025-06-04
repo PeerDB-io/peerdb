@@ -64,25 +64,16 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 }
 
 func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
-	region := ""
-	if s.s3Helper.S3Config.Region != nil {
-		region = *s.s3Helper.S3Config.Region
-	}
-
 	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, dbname),
 		Type: protos.DBType_CLICKHOUSE,
 		Config: &protos.Peer_ClickhouseConfig{
 			ClickhouseConfig: &protos.ClickhouseConfig{
-				Host:            "localhost",
-				Port:            9000,
-				Database:        dbname,
-				S3Path:          s.s3Helper.BucketName,
-				AccessKeyId:     *s.s3Helper.S3Config.AccessKeyId,
-				SecretAccessKey: *s.s3Helper.S3Config.SecretAccessKey,
-				Region:          region,
-				DisableTls:      true,
-				Endpoint:        s.s3Helper.S3Config.Endpoint,
+				Host:       "localhost",
+				Port:       9000,
+				Database:   dbname,
+				DisableTls: true,
+				S3:         s.s3Helper.S3Config,
 			},
 		},
 	}

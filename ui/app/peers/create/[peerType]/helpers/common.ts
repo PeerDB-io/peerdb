@@ -21,6 +21,7 @@ export interface PeerSetting {
   default?: string | number;
   placeholder?: string;
   options?: { value: string; label: string }[];
+  s3?: true | undefined;
 }
 
 export function getBlankSetting(dbType: string): PeerConfig {

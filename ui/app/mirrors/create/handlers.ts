@@ -258,8 +258,7 @@ export async function handleCreateCDC(
     } as CreateCDCFlowRequest),
   });
   if (!res.ok) {
-    // I don't know why but if the order is reversed the error message is not
-    // shown
+    // don't know why but if order is reversed the error message is not shown
     setLoading(false);
     notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;

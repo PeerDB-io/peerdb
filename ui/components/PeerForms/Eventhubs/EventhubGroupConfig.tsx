@@ -75,7 +75,7 @@ export default function EventhubsForm({ groupConfig, setter }: EventhubsProps) {
       >
         <Icon name='add' /> Namespace
       </Button>
-      <ToastContainer containerId={'for eventhubs'} />
+      <ToastContainer containerId='for eventhubs' />
     </div>
   );
 }

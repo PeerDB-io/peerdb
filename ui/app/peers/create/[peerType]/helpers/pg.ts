@@ -66,8 +66,9 @@ export const postgresSetting: PeerSetting[] = [
       if (!value) {
         // remove key from state if empty
         setter((curr) => {
-          delete (curr as PostgresConfig)['rootCa'];
-          return curr;
+          const newCurr = { ...curr } as PostgresConfig;
+          delete newCurr.rootCa;
+          return newCurr;
         });
       } else setter((curr) => ({ ...curr, rootCa: value as string }));
     },

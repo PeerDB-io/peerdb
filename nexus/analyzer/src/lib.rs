@@ -63,7 +63,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
         };
 
         // Necessary as visit_relations fails to deeply visit some structures.
-        visit_statements(statement, |stmt| {
+        let _ = visit_statements(statement, |stmt| {
             match stmt {
                 Statement::Drop { names, .. } => {
                     for name in names {
@@ -73,7 +73,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
                 Statement::Declare { stmts } => {
                     for stmt in stmts {
                         if let Some(ref query) = stmt.for_query {
-                            visit_relations(query, |relation| {
+                            let _ = visit_relations(query, |relation| {
                                 analyze_name(&relation.0[0].value);
                                 ControlFlow::<()>::Continue(())
                             });
@@ -85,7 +85,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
             ControlFlow::<()>::Continue(())
         });
 
-        visit_relations(statement, |relation| {
+        let _ = visit_relations(statement, |relation| {
             analyze_name(&relation.0[0].value);
             ControlFlow::<()>::Continue(())
         });
@@ -278,7 +278,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                         let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
                             Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
-                            _ => Some("".to_string()),
+                            _ => None,
                         };
 
                         let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
@@ -603,11 +603,6 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             Config::BigqueryConfig(bq_config)
         }
         DbType::Snowflake => {
-            let s3_int = opts
-                .get("s3_integration")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
             let snowflake_config = SnowflakeConfig {
                 account_id: opts
                     .get("account_id")
@@ -637,7 +632,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .context("unable to parse query_timeout")?,
                 password: opts.get("password").map(|s| s.to_string()),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
-                s3_integration: s3_int,
+                s3_integration: opts
+                    .get("s3_integration")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
             };
             Config::SnowflakeConfig(snowflake_config)
         }
@@ -728,6 +726,11 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 region: opts.get("region").map(|s| s.to_string()),
                 role_arn: opts.get("role_arn").map(|s| s.to_string()),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                tls_host: opts
+                    .get("tls_host")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
             };
             Config::S3Config(s3_config)
         }
@@ -800,6 +803,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("tls_host")
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
+                s3: None,
             };
             Config::ClickhouseConfig(clickhouse_config)
         }

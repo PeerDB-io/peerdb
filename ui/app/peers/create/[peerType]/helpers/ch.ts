@@ -1,5 +1,6 @@
 import { ClickhouseConfig } from '@/grpc_generated/peers';
 import { PeerSetting } from './common';
+import { blankS3Setting } from './s3';
 
 export const clickhouseSetting: PeerSetting[] = [
   {
@@ -45,51 +46,14 @@ export const clickhouseSetting: PeerSetting[] = [
     optional: true,
   },
   {
-    label: 'S3 Path',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, s3Path: value as string })),
-    tips: `This is an S3 bucket/object URL field. This bucket will be used as our intermediate stage for CDC`,
-    placeholder: 's3://<bucket-name>',
-  },
-  {
-    label: 'Access Key ID',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, accessKeyId: value as string })),
-    tips: 'The AWS access key ID associated with your account.',
-    helpfulLink:
-      'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
-  },
-  {
-    label: 'Secret Access Key',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, secretAccessKey: value as string })),
-    tips: 'The AWS secret access key associated with the above bucket.',
-    helpfulLink:
-      'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
-  },
-  {
-    label: 'Region',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, region: value as string })),
-    tips: 'The region where your bucket is located. For example, us-east-1.',
-  },
-  {
-    label: 'Endpoint',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, endpoint: value as string })),
-    helpfulLink:
-      'https://docs.aws.amazon.com/general/latest/gr/s3.html#s3_region',
-    tips: 'An endpoint is the URL of the entry point for an AWS web service.',
-    optional: true,
-  },
-  {
     label: 'Certificate',
     stateHandler: (value, setter) => {
       if (!value) {
         // remove key from state if empty
         setter((curr) => {
-          delete (curr as ClickhouseConfig)['certificate'];
-          return curr;
+          const newCurr = { ...curr } as ClickhouseConfig;
+          delete newCurr.certificate;
+          return newCurr;
         });
       } else setter((curr) => ({ ...curr, certificate: value as string }));
     },
@@ -103,8 +67,9 @@ export const clickhouseSetting: PeerSetting[] = [
       if (!value) {
         // remove key from state if empty
         setter((curr) => {
-          delete (curr as ClickhouseConfig)['privateKey'];
-          return curr;
+          const newCurr = { ...curr } as ClickhouseConfig;
+          delete newCurr.privateKey;
+          return newCurr;
         });
       } else setter((curr) => ({ ...curr, privateKey: value as string }));
     },
@@ -113,27 +78,128 @@ export const clickhouseSetting: PeerSetting[] = [
     tips: 'This is only needed if the user is authenticated via certificate.',
   },
   {
-    label: 'Root Certificate',
+    label: 'S3 Path',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({
+        ...curr,
+        s3: {
+          ...blankS3Setting,
+          ...(curr as ClickhouseConfig).s3,
+          url: value as string,
+        },
+      })),
+    tips: `This is an S3 bucket/object URL field. This bucket will be used as our intermediate stage for CDC`,
+    placeholder: 's3://<bucket-name>',
+    s3: true,
+  },
+  {
+    label: 'Access Key ID',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({
+        ...curr,
+        s3: {
+          ...blankS3Setting,
+          ...(curr as ClickhouseConfig).s3,
+          accessKeyId: value as string,
+        },
+      })),
+    tips: 'The AWS access key ID associated with your account.',
+    helpfulLink:
+      'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
+    s3: true,
+  },
+  {
+    label: 'Secret Access Key',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({
+        ...curr,
+        s3: {
+          ...blankS3Setting,
+          ...(curr as ClickhouseConfig).s3,
+          secretAccessKey: value as string,
+        },
+      })),
+    tips: 'The AWS secret access key associated with the above bucket.',
+    helpfulLink:
+      'https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html',
+    s3: true,
+  },
+  {
+    label: 'Region',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({
+        ...curr,
+        s3: {
+          ...blankS3Setting,
+          ...(curr as ClickhouseConfig).s3,
+          region: value as string,
+        },
+      })),
+    tips: 'The region where your bucket is located. For example, us-east-1.',
+    s3: true,
+  },
+  {
+    label: 'Endpoint',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({
+        ...curr,
+        s3: {
+          ...blankS3Setting,
+          ...(curr as ClickhouseConfig).s3,
+          endpoint: value as string,
+        },
+      })),
+    helpfulLink:
+      'https://docs.aws.amazon.com/general/latest/gr/s3.html#s3_region',
+    tips: 'An endpoint is the URL of the entry point for an AWS web service.',
+    optional: true,
+    s3: true,
+  },
+  {
+    label: 'S3 Root Certificate',
     stateHandler: (value, setter) => {
       if (!value) {
         // remove key from state if empty
         setter((curr) => {
-          delete (curr as ClickhouseConfig)['rootCa'];
+          const s3 = (curr as ClickhouseConfig).s3;
+          if (s3) {
+            const new3 = { ...s3 };
+            delete new3.rootCa;
+            return { ...curr, s3: new3 };
+          }
           return curr;
         });
-      } else setter((curr) => ({ ...curr, rootCa: value as string }));
+      } else {
+        setter((curr) => ({
+          ...curr,
+          s3: {
+            ...blankS3Setting,
+            ...(curr as ClickhouseConfig).s3,
+            rootCa: value as string,
+          },
+        }));
+      }
     },
     type: 'file',
     optional: true,
     tips: 'If not provided, host CA roots will be used.',
+    s3: true,
   },
   {
-    label: 'TLS Hostname',
+    label: 'S3 TLS Hostname',
     field: 'tlsHost',
     stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, tlsHost: value as string })),
+      setter((curr) => ({
+        ...curr,
+        s3: {
+          ...blankS3Setting,
+          ...(curr as ClickhouseConfig).s3,
+          tlsHost: value as string,
+        },
+      })),
     tips: 'Overrides expected hostname during tls cert verification.',
     optional: true,
+    s3: true,
   },
 ];
 

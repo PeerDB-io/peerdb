@@ -50,6 +50,30 @@ export const s3Setting: PeerSetting[] = [
       'https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_identifiers.html#identifiers-arns',
     optional: true,
   },
+  {
+    label: 'Root Certificate',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          const newCurr = { ...curr } as S3Config;
+          delete newCurr.rootCa;
+          return newCurr;
+        });
+      } else setter((curr) => ({ ...curr, rootCa: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'If not provided, host CA roots will be used.',
+  },
+  {
+    label: 'TLS Host',
+    field: 'tlsHost',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, tlsHost: value as string })),
+    tips: 'Overrides expected hostname during tls cert verification.',
+    optional: true,
+  },
 ];
 
 export const blankS3Setting: S3Config = {
@@ -59,4 +83,6 @@ export const blankS3Setting: S3Config = {
   roleArn: undefined,
   region: undefined,
   endpoint: '',
+  rootCa: undefined,
+  tlsHost: '',
 };
