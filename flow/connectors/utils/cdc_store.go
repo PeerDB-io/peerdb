@@ -192,10 +192,9 @@ func (c *cdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.
 				return err
 			}
 			// we're using Pebble as a cache, no need for durability here.
-			err = c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
+			if err := c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
 				Sync: false,
-			})
-			if err != nil {
+			}); err != nil {
 				return fmt.Errorf("unable to store value in Pebble: %w", err)
 			}
 		}
@@ -233,8 +232,7 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 
 		dec := gob.NewDecoder(bytes.NewReader(encodedRec))
 		var rec model.Record[T]
-		err = dec.Decode(&rec)
-		if err != nil {
+		if err := dec.Decode(&rec); err != nil {
 			return nil, false, fmt.Errorf("failed to decode record: %w", err)
 		}
 

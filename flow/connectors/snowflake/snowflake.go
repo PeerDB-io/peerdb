@@ -114,8 +114,7 @@ func NewSnowflakeConnector(
 	}
 
 	// checking if connection was actually established, since sql.Open doesn't guarantee that
-	err = database.PingContext(ctx)
-	if err != nil {
+	if err := database.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
@@ -368,10 +367,10 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 					addedColumn.Type, err)
 			}
 
-			_, err = tableSchemaModifyTx.ExecContext(ctx,
+			if _, err := tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype))
-			if err != nil {
+					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype),
+			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
@@ -382,8 +381,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 	}
 
-	err = tableSchemaModifyTx.Commit()
-	if err != nil {
+	if err := tableSchemaModifyTx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
 			err)
 	}
@@ -486,8 +484,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 			return model.NormalizeResponse{}, mergeErr
 		}
 
-		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
-		if err != nil {
+		if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId); err != nil {
 			return model.NormalizeResponse{}, err
 		}
 	}
@@ -811,8 +808,7 @@ func (c *SnowflakeConnector) RenameTables(
 		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
 	}
 
-	err = renameTablesTx.Commit()
-	if err != nil {
+	if err := renameTablesTx.Commit(); err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for rename tables: %w", err)
 	}
 
@@ -839,17 +835,16 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		// rename the src table to dst
-		_, err = c.execWithLoggingTx(ctx,
-			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable), createTablesFromExistingTx)
-		if err != nil {
+		if _, err := c.execWithLoggingTx(ctx,
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable), createTablesFromExistingTx,
+		); err != nil {
 			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully created table '%s'", newTable))
 	}
 
-	err = createTablesFromExistingTx.Commit()
-	if err != nil {
+	if err := createTablesFromExistingTx.Commit(); err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for creating tables: %w", err)
 	}
 

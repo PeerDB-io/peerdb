@@ -678,8 +678,7 @@ func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
 	res, err := env.c.QueryWorkflow(t.Context(), env.GetID(), "", shared.FlowStatusQuery)
 	EnvNoError(t, env, err)
 	var flowStatus protos.FlowStatus
-	err = res.Get(&flowStatus)
-	EnvNoError(t, env, err)
+	EnvNoError(t, env, res.Get(&flowStatus))
 	return flowStatus
 }
 

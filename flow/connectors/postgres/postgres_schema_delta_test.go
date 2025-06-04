@@ -42,8 +42,7 @@ func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	require.NoError(t, err)
 	_, err = setupTx.Exec(t.Context(), "CREATE SCHEMA "+schema)
 	require.NoError(t, err)
-	err = setupTx.Commit(t.Context())
-	require.NoError(t, err)
+	require.NoError(t, setupTx.Commit(t.Context()))
 
 	return PostgresSchemaDeltaTestSuite{
 		t:         t,

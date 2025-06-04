@@ -71,15 +71,13 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	}
 	s.logger.Info("Created stage " + stage)
 
-	err = s.putFileToStage(ctx, avroFile, stage)
-	if err != nil {
+	if err := s.putFileToStage(ctx, avroFile, stage); err != nil {
 		return 0, err
 	}
 	s.logger.Info("pushed avro file to stage", tableLog)
 
 	writeHandler := NewSnowflakeAvroConsolidateHandler(s.SnowflakeConnector, s.config, s.config.DestinationTableIdentifier, stage)
-	err = writeHandler.CopyStageToDestination(ctx)
-	if err != nil {
+	if err := writeHandler.CopyStageToDestination(ctx); err != nil {
 		return 0, err
 	}
 	s.logger.Info(fmt.Sprintf("copying records into %s from stage %s",

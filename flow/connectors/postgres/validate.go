@@ -140,8 +140,7 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 
 	// check wal_level
 	var walLevel string
-	err = c.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx, "SHOW wal_level").Scan(&walLevel); err != nil {
 		return err
 	}
 
@@ -151,9 +150,9 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 
 	// max_wal_senders must be at least 2
 	var insufficientMaxWalSenders bool
-	err = c.conn.QueryRow(ctx,
-		"SELECT setting::int<2 FROM pg_settings WHERE name='max_wal_senders'").Scan(&insufficientMaxWalSenders)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx,
+		"SELECT setting::int<2 FROM pg_settings WHERE name='max_wal_senders'",
+	).Scan(&insufficientMaxWalSenders); err != nil {
 		return err
 	}
 
