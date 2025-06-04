@@ -1600,8 +1600,7 @@ func (c *PostgresConnector) RenameTables(
 		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
 	}
 
-	err = renameTablesTx.Commit(ctx)
-	if err != nil {
+	if err := renameTablesTx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for rename tables: %w", err)
 	}
 

@@ -101,8 +101,7 @@ func (h *HubBatches) sendBatch(
 	}
 
 	opts := &azeventhubs.SendEventDataBatchOptions{}
-	err = hub.SendEventDataBatch(subCtx, events, opts)
-	if err != nil {
+	if err := hub.SendEventDataBatch(subCtx, events, opts); err != nil {
 		return err
 	}
 

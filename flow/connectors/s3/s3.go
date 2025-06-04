@@ -105,8 +105,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		c.logger.Error("failed to increment id", "error", err)
 		return nil, err
 	}

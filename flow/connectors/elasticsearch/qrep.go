@@ -113,7 +113,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			return 0, fmt.Errorf("[es] failed to json.Marshal record: %w", err)
 		}
 
-		err = esBulkIndexer.Add(ctx, esutil.BulkIndexerItem{
+		if err := esBulkIndexer.Add(ctx, esutil.BulkIndexerItem{
 			Action:     actionIndex,
 			DocumentID: docId,
 			Body:       bytes.NewReader(qRecordJsonBytes),
@@ -139,8 +139,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 					}
 				}
 			},
-		})
-		if err != nil {
+		}); err != nil {
 			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
 			return 0, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
 		}
