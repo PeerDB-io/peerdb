@@ -7,7 +7,7 @@ use analyzer::{
 use async_trait::async_trait;
 use catalog::Catalog;
 use pgwire::{
-    api::{Type, stmt::QueryParser},
+    api::{ClientInfo, Type, stmt::QueryParser},
     error::{ErrorInfo, PgWireError, PgWireResult},
 };
 use sqlparser::{ast::Statement, dialect::PostgreSqlDialect, parser::Parser};
@@ -146,7 +146,15 @@ impl NexusQueryParser {
 impl QueryParser for NexusQueryParser {
     type Statement = NexusParsedStatement;
 
-    async fn parse_sql(&self, sql: &str, _types: &[Type]) -> PgWireResult<Self::Statement> {
+    async fn parse_sql<C>(
+        &self,
+        _client: &C,
+        sql: &str,
+        _types: &[Type],
+    ) -> PgWireResult<Self::Statement>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
         let mut stmts =
             Parser::parse_sql(&DIALECT, sql).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         if stmts.len() > 1 {

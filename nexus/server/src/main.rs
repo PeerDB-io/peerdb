@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Write,
+    fmt::{Debug, Write},
     fs::File,
     io,
     sync::Arc,
@@ -15,6 +15,7 @@ use clap::Parser;
 use cursor::PeerCursors;
 use dashmap::{DashMap, mapref::entry::Entry as DashEntry};
 use flow_rs::grpc::{FlowGrpcClient, PeerCreationResult};
+use futures::Sink;
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     QueryExecutor, QueryOutput, Schema,
@@ -23,7 +24,7 @@ use peer_cursor::{
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
-        ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type,
+        ClientInfo, ClientPortalStore, NoopErrorHandler, PgWireServerHandlers, Type,
         auth::{
             AuthSource, LoginInfo, Password, ServerParameterProvider,
             scram::{SASLScramAuthStartupHandler, gen_salted_password},
@@ -35,8 +36,10 @@ use pgwire::{
             DescribePortalResponse, DescribeResponse, DescribeStatementResponse, Response, Tag,
         },
         stmt::StoredStatement,
+        store::PortalStore,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
+    messages::PgWireBackendMessage,
     tokio::process_socket,
 };
 use pt::{
@@ -751,13 +754,11 @@ impl NexusBackend {
 
 #[async_trait]
 impl SimpleQueryHandler for NexusBackend {
-    async fn do_query<'a, C>(
-        &self,
-        _client: &mut C,
-        sql: &'a str,
-    ) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<'a, C>(&self, _client: &mut C, sql: &str) -> PgWireResult<Vec<Response<'a>>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let parsed = self.query_parser.parse_simple_sql(sql).await?;
         let nexus_stmt = parsed.statement;
@@ -818,11 +819,14 @@ impl ExtendedQueryHandler for NexusBackend {
     async fn do_query<'a, C>(
         &self,
         _client: &mut C,
-        portal: &'a Portal<Self::Statement>,
+        portal: &Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response<'a>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let stmt = &portal.statement.statement;
         tracing::info!("[eqp] do_query: {}", stmt.query);
@@ -1135,7 +1139,7 @@ pub async fn main() -> anyhow::Result<()> {
         Arc::new(NexusServerParameterProvider),
     );
 
-    let tls_acceptor = setup_tls(&args)?.map(Arc::new);
+    let tls_acceptor = setup_tls(&args)?;
 
     let peer_conns = {
         let conn_str = catalog_config.to_pg_connection_string();
