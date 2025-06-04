@@ -32,7 +32,7 @@ ssh2 = "0.9"
 sqlparser = { git = "https://github.com/peerdb-io/sqlparser-rs.git", branch = "main" }
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
-pgwire = { version = "0.28", default-features = false, features = [
+pgwire = { version = "0.30", default-features = false, features = [
   "scram",
   "server-api-aws-lc-rs",
 ] }
