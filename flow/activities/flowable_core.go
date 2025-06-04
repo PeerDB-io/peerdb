@@ -312,9 +312,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 	}
 
-	pushedRecordsWithCount := fmt.Sprintf("stored %d records into intermediate storage for batch %d in %v",
-		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second))
-	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
+	a.Alerter.LogFlowInfo(ctx, flowName, fmt.Sprintf("stored %d records into intermediate storage for batch %d in %v",
+		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second)))
 
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
