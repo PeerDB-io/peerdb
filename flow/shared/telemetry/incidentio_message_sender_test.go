@@ -135,8 +135,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 				bodyBytes, err := io.ReadAll(r.Body)
 				require.NoError(t, err) //nolint:testifylint
 
-				err = json.Unmarshal(bodyBytes, &alert)
-				require.NoError(t, err) //nolint:testifylint
+				require.NoError(t, json.Unmarshal(bodyBytes, &alert)) //nolint:testifylint
 				deduplicationString := strings.Join([]string{
 					"deployID", tt.attributes.DeploymentUID,
 					"subject", tt.subject,
@@ -156,10 +155,7 @@ func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
 
 				// mock response
 				w.WriteHeader(tt.serverResponseCode)
-				err = json.NewEncoder(w).Encode(tt.serverResponse)
-				if err != nil {
-					require.Fail(t, "failed to mock response") //nolint:testifylint
-				}
+				require.NoError(t, json.NewEncoder(w).Encode(tt.serverResponse), "failed to mock response") //nolint:testifylint
 			}))
 			defer fakeIncidentIoServer.Close()
 

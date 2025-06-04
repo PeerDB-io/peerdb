@@ -330,8 +330,7 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
@@ -359,8 +358,7 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 			return nil, err
 		}
 
-		err = c.hubManager.EnsureEventHubExists(ctx, name)
-		if err != nil {
+		if err := c.hubManager.EnsureEventHubExists(ctx, name); err != nil {
 			c.logger.Error("failed to ensure eventhub exists",
 				slog.Any("error", err), slog.String("destinationTable", destinationTable))
 			return nil, err

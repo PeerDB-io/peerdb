@@ -232,7 +232,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 			docId = base64.RawURLEncoding.EncodeToString(tablePkey.PkeyColVal[:])
 		}
 
-		err = bulkIndexer.Add(ctx, esutil.BulkIndexerItem{
+		if err := bulkIndexer.Add(ctx, esutil.BulkIndexerItem{
 			Action:     action,
 			DocumentID: docId,
 			Body:       bytes.NewReader(bodyBytes),
@@ -266,8 +266,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 					}
 				}
 			},
-		})
-		if err != nil {
+		}); err != nil {
 			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
 			return nil, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
 		}

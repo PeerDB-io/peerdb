@@ -320,8 +320,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	_, err = rowsTx.Exec(s.t.Context(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 	e2e.EnvNoError(s.t, env, err)
 
-	err = rowsTx.Commit(s.t.Context())
-	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvNoError(s.t, env, rowsTx.Commit(s.t.Context()))
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize tx", func() bool {
 		return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2") == nil

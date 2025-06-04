@@ -66,8 +66,7 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	require.NoError(t, err)
 	for query.Next() {
 		var count uint64
-		err = query.Scan(&count)
-		require.NoError(t, err)
+		require.NoError(t, query.Scan(&count))
 		require.Equal(t, uint64(3), count)
 	}
 }

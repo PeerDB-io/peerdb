@@ -259,10 +259,9 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 
 	// Check if the publication exists
 	var pubName pgtype.Text
-	err = c.conn.QueryRow(ctx,
-		"SELECT pubname FROM pg_publication WHERE pubname = $1",
-		publication).Scan(&pubName)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx,
+		"SELECT pubname FROM pg_publication WHERE pubname = $1", publication,
+	).Scan(&pubName); err != nil {
 		// check if the error is a "no rows" error
 		if !errors.Is(err, pgx.ErrNoRows) {
 			return SlotCheckResult{}, fmt.Errorf("error checking for publication - %s: %w", publication, err)
@@ -448,8 +447,9 @@ func (c *PostgresConnector) createSlotAndPublication(
 }
 
 func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
-	_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
-	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
+	if _, err := c.execWithLogging(ctx,
+		fmt.Sprintf(createSchemaSQL, c.metadataSchema),
+	); err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
 	return nil

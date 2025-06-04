@@ -144,8 +144,7 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 		require.NoError(s.t, err)
 	}
 
-	err = setupTx.Commit(s.t.Context())
-	require.NoError(s.t, err)
+	require.NoError(s.t, setupTx.Commit(s.t.Context()))
 
 	flowJobName := "test_simple_slot_creation"
 	setupReplicationInput := &protos.SetupReplicationInput{
