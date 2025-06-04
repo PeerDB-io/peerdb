@@ -113,6 +113,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	return &model.SyncResponse{
 		LastSyncedCheckpoint: lastCheckpoint,
 		NumRecordsSynced:     numRecords,
+		CurrentSyncBatchID:   req.SyncBatchID,
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
