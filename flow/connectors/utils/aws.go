@@ -77,6 +77,10 @@ type ConfigBasedAWSCredentialsProvider struct {
 	config aws.Config
 }
 
+func NewConfigBasedAWSCredentialsProvider(config aws.Config) *ConfigBasedAWSCredentialsProvider {
+	return &ConfigBasedAWSCredentialsProvider{config: config}
+}
+
 func (r *ConfigBasedAWSCredentialsProvider) GetUnderlyingProvider() aws.CredentialsProvider {
 	return r.config.Credentials
 }
@@ -106,13 +110,16 @@ func (r *ConfigBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCr
 	}, nil
 }
 
-func NewConfigBasedAWSCredentialsProvider(config aws.Config) *ConfigBasedAWSCredentialsProvider {
-	return &ConfigBasedAWSCredentialsProvider{config: config}
-}
-
 type StaticAWSCredentialsProvider struct {
 	credentials AWSCredentials
 	region      string
+}
+
+func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) *StaticAWSCredentialsProvider {
+	return &StaticAWSCredentialsProvider{
+		credentials: credentials,
+		region:      region,
+	}
 }
 
 func (s *StaticAWSCredentialsProvider) GetUnderlyingProvider() aws.CredentialsProvider {
@@ -135,16 +142,28 @@ func (s *StaticAWSCredentialsProvider) GetEndpointURL() string {
 	return ""
 }
 
-func NewStaticAWSCredentialsProvider(credentials AWSCredentials, region string) *StaticAWSCredentialsProvider {
-	return &StaticAWSCredentialsProvider{
-		credentials: credentials,
-		region:      region,
-	}
-}
-
 type AssumeRoleBasedAWSCredentialsProvider struct {
 	Provider aws.CredentialsProvider // New Credentials
 	config   aws.Config              // Initial Config
+}
+
+func NewAssumeRoleBasedAWSCredentialsProvider(
+	ctx context.Context,
+	config aws.Config,
+	roleArn string,
+	sessionName string,
+) (*AssumeRoleBasedAWSCredentialsProvider, error) {
+	provider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(config), roleArn, func(o *stscreds.AssumeRoleOptions) {
+		o.RoleSessionName = sessionName
+	})
+	_, err := provider.Retrieve(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve chained AWS credentials: %w", err)
+	}
+	return &AssumeRoleBasedAWSCredentialsProvider{
+		config:   config,
+		Provider: aws.NewCredentialsCache(provider),
+	}, nil
 }
 
 func (a *AssumeRoleBasedAWSCredentialsProvider) Retrieve(ctx context.Context) (AWSCredentials, error) {
@@ -173,25 +192,6 @@ func (a *AssumeRoleBasedAWSCredentialsProvider) GetEndpointURL() string {
 	}
 
 	return endpoint
-}
-
-func NewAssumeRoleBasedAWSCredentialsProvider(
-	ctx context.Context,
-	config aws.Config,
-	roleArn string,
-	sessionName string,
-) (*AssumeRoleBasedAWSCredentialsProvider, error) {
-	provider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(config), roleArn, func(o *stscreds.AssumeRoleOptions) {
-		o.RoleSessionName = sessionName
-	})
-	_, err := provider.Retrieve(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to retrieve chained AWS credentials: %w", err)
-	}
-	return &AssumeRoleBasedAWSCredentialsProvider{
-		config:   config,
-		Provider: aws.NewCredentialsCache(provider),
-	}, nil
 }
 
 func getPeerDBAWSEnv(connectorName string, awsKey string) string {

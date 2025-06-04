@@ -80,8 +80,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	lastCP := req.Records.GetLastCheckpoint()
-	err = s.connector.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP)
-	if err != nil {
+	if err := s.connector.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP); err != nil {
 		return nil, fmt.Errorf("failed to update metadata: %w", err)
 	}
 
@@ -98,8 +97,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("dstTableName", rawTableName))
 
-	err = s.connector.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas)
-	if err != nil {
+	if err := s.connector.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -437,8 +435,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	}
 	s.connector.logger.Info(fmt.Sprintf("Pushed from %s to BigQuery", avroFile.FilePath), idLog)
 
-	err = s.connector.waitForTableReady(ctx, stagingTable)
-	if err != nil {
+	if err := s.connector.waitForTableReady(ctx, stagingTable); err != nil {
 		return 0, fmt.Errorf("failed to wait for table to be ready: %w", err)
 	}
 

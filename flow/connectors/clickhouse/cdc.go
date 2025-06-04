@@ -229,12 +229,6 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	}
 	c.logger.Info("successfully dropped raw table " + rawTableIdentifier)
 
-	// clear avro stage for this flow
-	if err := DeleteAvroStageForFlow(ctx, jobName); err != nil {
-		return fmt.Errorf("[clickhouse] unable to clear avro stage: %w", err)
-	}
-	c.logger.Info("successfully cleared avro stage for flow " + jobName)
-
 	return nil
 }
 

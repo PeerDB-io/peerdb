@@ -709,7 +709,7 @@ func processMessage[Items model.Items](
 
 		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg)
 	case *pglogrepl.LogicalDecodingMessage:
-		logger.Info("LogicalDecodingMessage",
+		logger.Debug("LogicalDecodingMessage",
 			slog.Bool("Transactional", msg.Transactional),
 			slog.String("Prefix", msg.Prefix),
 			slog.String("LSN", msg.LSN.String()))

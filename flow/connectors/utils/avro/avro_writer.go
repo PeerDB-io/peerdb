@@ -72,79 +72,6 @@ func NewPeerDBOCFWriter(
 	}
 }
 
-func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*ocf.Encoder, error) {
-	ocfWriter, err := ocf.NewEncoderWithSchema(
-		p.avroSchema.Schema, w, ocf.WithCodec(p.avroCompressionCodec),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create OCF writer: %w", err)
-	}
-
-	return ocfWriter, nil
-}
-
-func (p *peerDBOCFWriter) getAvroFieldNamesFromSchemaJSON() ([]string, error) {
-	fields := p.avroSchema.Schema.Fields()
-	avroFieldNames := make([]string, len(fields))
-	for i, field := range fields {
-		avroFieldNames[i] = field.Name()
-	}
-	return avroFieldNames, nil
-}
-
-func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
-	ctx context.Context,
-	env map[string]string,
-	ocfWriter *ocf.Encoder,
-	typeConversions map[string]qvalue.TypeConversion,
-) (int64, error) {
-	logger := internal.LoggerFromCtx(ctx)
-
-	avroFieldNames, err := p.getAvroFieldNamesFromSchemaJSON()
-	if err != nil {
-		return 0, fmt.Errorf("failed to get Avro field names from schema JSON: %w", err)
-	}
-	avroConverter, err := model.NewQRecordAvroConverter(
-		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	numRows := atomic.Int64{}
-
-	shutdown := shared.Interval(ctx, time.Minute, func() {
-		logger.Info(fmt.Sprintf("written %d records to OCF", numRows.Load()))
-	})
-	defer shutdown()
-
-	for qrecord := range p.stream.Records {
-		if err := ctx.Err(); err != nil {
-			return numRows.Load(), err
-		} else {
-			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions)
-			if err != nil {
-				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
-				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
-			}
-
-			if err := ocfWriter.Encode(avroMap); err != nil {
-				logger.Error("Failed to write record to OCF", slog.Any("error", err))
-				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
-			}
-
-			numRows.Add(1)
-		}
-	}
-
-	if err := p.stream.Err(); err != nil {
-		logger.Error("Failed to get record from stream", slog.Any("error", err))
-		return numRows.Load(), fmt.Errorf("failed to get record from stream: %w", err)
-	}
-
-	return numRows.Load(), nil
-}
-
 func (p *peerDBOCFWriter) WriteOCF(
 	ctx context.Context,
 	env map[string]string,
@@ -271,4 +198,77 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 		StorageLocation: AvroLocalStorage,
 		FilePath:        filePath,
 	}, nil
+}
+
+func (p *peerDBOCFWriter) createOCFWriter(w io.Writer) (*ocf.Encoder, error) {
+	ocfWriter, err := ocf.NewEncoderWithSchema(
+		p.avroSchema.Schema, w, ocf.WithCodec(p.avroCompressionCodec),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OCF writer: %w", err)
+	}
+
+	return ocfWriter, nil
+}
+
+func (p *peerDBOCFWriter) getAvroFieldNamesFromSchemaJSON() ([]string, error) {
+	fields := p.avroSchema.Schema.Fields()
+	avroFieldNames := make([]string, len(fields))
+	for i, field := range fields {
+		avroFieldNames[i] = field.Name()
+	}
+	return avroFieldNames, nil
+}
+
+func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
+	ctx context.Context,
+	env map[string]string,
+	ocfWriter *ocf.Encoder,
+	typeConversions map[string]qvalue.TypeConversion,
+) (int64, error) {
+	logger := internal.LoggerFromCtx(ctx)
+
+	avroFieldNames, err := p.getAvroFieldNamesFromSchemaJSON()
+	if err != nil {
+		return 0, fmt.Errorf("failed to get Avro field names from schema JSON: %w", err)
+	}
+	avroConverter, err := model.NewQRecordAvroConverter(
+		ctx, env, p.avroSchema, p.targetDWH, avroFieldNames, logger,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	numRows := atomic.Int64{}
+
+	shutdown := shared.Interval(ctx, time.Minute, func() {
+		logger.Info(fmt.Sprintf("written %d records to OCF", numRows.Load()))
+	})
+	defer shutdown()
+
+	for qrecord := range p.stream.Records {
+		if err := ctx.Err(); err != nil {
+			return numRows.Load(), err
+		} else {
+			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions)
+			if err != nil {
+				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
+				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
+			}
+
+			if err := ocfWriter.Encode(avroMap); err != nil {
+				logger.Error("Failed to write record to OCF", slog.Any("error", err))
+				return numRows.Load(), fmt.Errorf("failed to write record to OCF: %w", err)
+			}
+
+			numRows.Add(1)
+		}
+	}
+
+	if err := p.stream.Err(); err != nil {
+		logger.Error("Failed to get record from stream", slog.Any("error", err))
+		return numRows.Load(), fmt.Errorf("failed to get record from stream: %w", err)
+	}
+
+	return numRows.Load(), nil
 }

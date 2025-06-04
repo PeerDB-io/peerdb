@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -64,7 +65,16 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		return len(files) == 4
 	})
 
-	env.Cancel(s.t.Context())
+	// s3 normalize is nop, so check peerdb_stats directly that batch finalized
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
+	require.NoError(s.t, err)
+	var count int64
+	require.NoError(s.t, pool.QueryRow(s.t.Context(),
+		"select count(*) from peerdb_stats.cdc_batches where flow_name = $1 and end_time is not null",
+		flowJobName,
+	).Scan(&count))
+	require.Equal(s.t, int64(4), count)
 
+	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }

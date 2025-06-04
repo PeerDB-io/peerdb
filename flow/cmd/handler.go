@@ -329,7 +329,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
 	} else if underMaintenance {
 		slog.Warn("Flow state change request denied due to maintenance", logs)
-		return nil, exceptions.UnderMaintenanceError
+		return nil, exceptions.ErrUnderMaintenance
 	}
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
@@ -517,7 +517,7 @@ func (h *FlowRequestHandler) resyncMirror(
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
 		return fmt.Errorf("unable to get maintenance mode status: %w", err)
 	} else if underMaintenance {
-		return exceptions.UnderMaintenanceError
+		return exceptions.ErrUnderMaintenance
 	}
 
 	isCDC, err := h.isCDCFlow(ctx, flowName)

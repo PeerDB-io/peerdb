@@ -12,6 +12,15 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/aws_common"
 )
 
+type EmailAlertSenderConfig struct {
+	sourceEmail                   string
+	configurationSetName          string
+	replyToAddresses              []string
+	EmailAddresses                []string `json:"email_addresses"`
+	SlotLagMBAlertThreshold       uint32   `json:"slot_lag_mb_alert_threshold"`
+	OpenConnectionsAlertThreshold uint32   `json:"open_connections_alert_threshold"`
+}
+
 type EmailAlertSender struct {
 	AlertSender
 	client                        *ses.Client
@@ -23,21 +32,32 @@ type EmailAlertSender struct {
 	openConnectionsAlertThreshold uint32
 }
 
+func NewEmailAlertSender(client *ses.Client, config *EmailAlertSenderConfig) *EmailAlertSender {
+	return &EmailAlertSender{
+		client:                        client,
+		sourceEmail:                   config.sourceEmail,
+		configurationSetName:          config.configurationSetName,
+		replyToAddresses:              config.replyToAddresses,
+		emailAddresses:                config.EmailAddresses,
+		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
+		openConnectionsAlertThreshold: config.OpenConnectionsAlertThreshold,
+	}
+}
+
+func NewEmailAlertSenderWithNewClient(ctx context.Context, region *string, config *EmailAlertSenderConfig) (*EmailAlertSender, error) {
+	client, err := newSesClient(ctx, region)
+	if err != nil {
+		return nil, err
+	}
+	return NewEmailAlertSender(client, config), nil
+}
+
 func (e *EmailAlertSender) getSlotLagMBAlertThreshold() uint32 {
 	return e.slotLagMBAlertThreshold
 }
 
 func (e *EmailAlertSender) getOpenConnectionsAlertThreshold() uint32 {
 	return e.openConnectionsAlertThreshold
-}
-
-type EmailAlertSenderConfig struct {
-	sourceEmail                   string
-	configurationSetName          string
-	replyToAddresses              []string
-	EmailAddresses                []string `json:"email_addresses"`
-	SlotLagMBAlertThreshold       uint32   `json:"slot_lag_mb_alert_threshold"`
-	OpenConnectionsAlertThreshold uint32   `json:"open_connections_alert_threshold"`
 }
 
 func (e *EmailAlertSender) sendAlert(ctx context.Context, alertTitle string, alertMessage string) error {
@@ -71,26 +91,6 @@ func (e *EmailAlertSender) sendAlert(ctx context.Context, alertTitle string, ale
 		return err
 	}
 	return nil
-}
-
-func NewEmailAlertSenderWithNewClient(ctx context.Context, region *string, config *EmailAlertSenderConfig) (*EmailAlertSender, error) {
-	client, err := newSesClient(ctx, region)
-	if err != nil {
-		return nil, err
-	}
-	return NewEmailAlertSender(client, config), nil
-}
-
-func NewEmailAlertSender(client *ses.Client, config *EmailAlertSenderConfig) *EmailAlertSender {
-	return &EmailAlertSender{
-		client:                        client,
-		sourceEmail:                   config.sourceEmail,
-		configurationSetName:          config.configurationSetName,
-		replyToAddresses:              config.replyToAddresses,
-		emailAddresses:                config.EmailAddresses,
-		slotLagMBAlertThreshold:       config.SlotLagMBAlertThreshold,
-		openConnectionsAlertThreshold: config.OpenConnectionsAlertThreshold,
-	}
 }
 
 func newSesClient(ctx context.Context, region *string) (*ses.Client, error) {

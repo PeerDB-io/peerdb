@@ -32,7 +32,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 	if underMaintenance {
 		slog.Warn("Validate request denied due to maintenance", "flowName", req.ConnectionConfigs.FlowJobName)
-		return nil, exceptions.UnderMaintenanceError
+		return nil, exceptions.ErrUnderMaintenance
 	}
 
 	if !req.ConnectionConfigs.Resync {

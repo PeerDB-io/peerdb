@@ -343,6 +343,8 @@ func (c *MySqlConnector) PullRecords(
 	var skewLossReported bool
 	var inTx bool
 	var recordCount uint32
+	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
+	var overtime bool
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
@@ -365,6 +367,9 @@ func (c *MySqlConnector) PullRecords(
 		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
+			if cancelTimeout != nil {
+				cancelTimeout()
+			}
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
 		}
 		return nil
@@ -373,22 +378,52 @@ func (c *MySqlConnector) PullRecords(
 	var mysqlParser *parser.Parser
 	for inTx || recordCount < req.MaxBatchSize {
 		getCtx := ctx
-		if !inTx {
-			// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
-			if err := timeoutCtx.Err(); err != nil {
-				if errors.Is(err, context.DeadlineExceeded) {
+		if overtime && !inTx {
+			return nil
+		}
+
+		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
+		if err := timeoutCtx.Err(); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				if inTx {
+					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
+						slog.Uint64("recordCount", uint64(recordCount)))
+					// reset timeoutCtx to a low value and wait for inTx to become false
+					if cancelTimeout != nil {
+						cancelTimeout()
+					}
+					//nolint:govet // cancelTimeout called by defer, spurious lint
+					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, 10*time.Second)
+					overtime = true
+				} else {
 					return nil
+				}
+			} else {
+				return err
+			}
+		}
+		if recordCount > 0 && !inTx {
+			// if we have records and are safe, start respecting the timeout
+			getCtx = timeoutCtx
+		}
+
+		event, err := mystream.GetEvent(getCtx)
+		if err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				if !inTx {
+					//nolint:govet
+					return nil
+				}
+				// if in tx, don't let syncer exit due to deadline exceeded
+				continue
+			} else {
+				if errors.Is(err, context.Canceled) {
+					c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
+				} else {
+					c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
 				}
 				return err
 			}
-			getCtx = timeoutCtx
-		}
-		event, err := mystream.GetEvent(getCtx)
-		if err != nil {
-			if !inTx && errors.Is(err, context.DeadlineExceeded) {
-				return nil
-			}
-			return err
 		}
 
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
@@ -456,15 +491,18 @@ func (c *MySqlConnector) PullRecords(
 					if ev.Table.ColumnName != nil {
 						unsafeName := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
 						if _, excluded := exclusion[unsafeName]; !excluded {
-							for _, col := range schema.Columns {
-								if col.Name == unsafeName {
-									return col
+							schemaIdx := slices.IndexFunc(schema.Columns, func(col *protos.FieldDescription) bool {
+								return col.Name == unsafeName
+							})
+							if schemaIdx == -1 {
+								if !skewLossReported {
+									skewLossReported = true
+									c.logger.Warn("Unknown column name received, ignoring",
+										slog.String("name", string(ev.Table.ColumnName[idx])))
 								}
+							} else {
+								return schema.Columns[schemaIdx]
 							}
-						}
-						if !skewLossReported {
-							skewLossReported = true
-							c.logger.Warn("Unknown column name received, ignoring", slog.String("name", string(ev.Table.ColumnName[idx])))
 						}
 						return nil
 					}

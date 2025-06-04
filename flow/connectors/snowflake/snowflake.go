@@ -76,6 +76,67 @@ type SnowflakeConnector struct {
 	rawSchema string
 }
 
+func NewSnowflakeConnector(
+	ctx context.Context,
+	snowflakeProtoConfig *protos.SnowflakeConfig,
+) (*SnowflakeConnector, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
+		snowflakeProtoConfig.Password)
+	if err != nil {
+		return nil, err
+	}
+
+	additionalParams := make(map[string]*string)
+	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = ptr.String("true")
+
+	snowflakeConfig := gosnowflake.Config{
+		Account:          snowflakeProtoConfig.AccountId,
+		User:             snowflakeProtoConfig.Username,
+		Authenticator:    gosnowflake.AuthTypeJwt,
+		PrivateKey:       PrivateKeyRSA,
+		Database:         snowflakeProtoConfig.Database,
+		Warehouse:        snowflakeProtoConfig.Warehouse,
+		Role:             snowflakeProtoConfig.Role,
+		RequestTimeout:   time.Duration(snowflakeProtoConfig.QueryTimeout),
+		DisableTelemetry: true,
+		Params:           additionalParams,
+	}
+
+	snowflakeConfigDSN, err := gosnowflake.DSN(&snowflakeConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get DSN from Snowflake config: %w", err)
+	}
+
+	database, err := sql.Open("snowflake", snowflakeConfigDSN)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
+	}
+
+	// checking if connection was actually established, since sql.Open doesn't guarantee that
+	if err := database.PingContext(ctx); err != nil {
+		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
+	}
+
+	rawSchema := "_PEERDB_INTERNAL"
+	if snowflakeProtoConfig.MetadataSchema != nil {
+		rawSchema = *snowflakeProtoConfig.MetadataSchema
+	}
+
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
+	}
+
+	return &SnowflakeConnector{
+		PostgresMetadata: pgMetadata,
+		DB:               database,
+		rawSchema:        rawSchema,
+		logger:           logger,
+		config:           snowflakeProtoConfig,
+	}, nil
+}
+
 // creating this to capture array results from snowflake.
 type ArrayString []string
 
@@ -146,68 +207,6 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func NewSnowflakeConnector(
-	ctx context.Context,
-	snowflakeProtoConfig *protos.SnowflakeConfig,
-) (*SnowflakeConnector, error) {
-	logger := internal.LoggerFromCtx(ctx)
-	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
-		snowflakeProtoConfig.Password)
-	if err != nil {
-		return nil, err
-	}
-
-	additionalParams := make(map[string]*string)
-	additionalParams["CLIENT_SESSION_KEEP_ALIVE"] = ptr.String("true")
-
-	snowflakeConfig := gosnowflake.Config{
-		Account:          snowflakeProtoConfig.AccountId,
-		User:             snowflakeProtoConfig.Username,
-		Authenticator:    gosnowflake.AuthTypeJwt,
-		PrivateKey:       PrivateKeyRSA,
-		Database:         snowflakeProtoConfig.Database,
-		Warehouse:        snowflakeProtoConfig.Warehouse,
-		Role:             snowflakeProtoConfig.Role,
-		RequestTimeout:   time.Duration(snowflakeProtoConfig.QueryTimeout),
-		DisableTelemetry: true,
-		Params:           additionalParams,
-	}
-
-	snowflakeConfigDSN, err := gosnowflake.DSN(&snowflakeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get DSN from Snowflake config: %w", err)
-	}
-
-	database, err := sql.Open("snowflake", snowflakeConfigDSN)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
-	}
-
-	// checking if connection was actually established, since sql.Open doesn't guarantee that
-	err = database.PingContext(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
-	}
-
-	rawSchema := "_PEERDB_INTERNAL"
-	if snowflakeProtoConfig.MetadataSchema != nil {
-		rawSchema = *snowflakeProtoConfig.MetadataSchema
-	}
-
-	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("could not connect to metadata store: %w", err)
-	}
-
-	return &SnowflakeConnector{
-		PostgresMetadata: pgMetadata,
-		DB:               database,
-		rawSchema:        rawSchema,
-		logger:           logger,
-		config:           snowflakeProtoConfig,
-	}, nil
 }
 
 func (c *SnowflakeConnector) Close() error {
@@ -368,10 +367,10 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 					addedColumn.Type, err)
 			}
 
-			_, err = tableSchemaModifyTx.ExecContext(ctx,
+			if _, err := tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype))
-			if err != nil {
+					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype),
+			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
@@ -382,8 +381,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 	}
 
-	err = tableSchemaModifyTx.Commit()
-	if err != nil {
+	if err := tableSchemaModifyTx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
 			err)
 	}
@@ -486,8 +484,7 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 			return model.NormalizeResponse{}, mergeErr
 		}
 
-		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
-		if err != nil {
+		if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId); err != nil {
 			return model.NormalizeResponse{}, err
 		}
 	}
@@ -811,8 +808,7 @@ func (c *SnowflakeConnector) RenameTables(
 		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
 	}
 
-	err = renameTablesTx.Commit()
-	if err != nil {
+	if err := renameTablesTx.Commit(); err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for rename tables: %w", err)
 	}
 
@@ -839,17 +835,16 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		// rename the src table to dst
-		_, err = c.execWithLoggingTx(ctx,
-			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable), createTablesFromExistingTx)
-		if err != nil {
+		if _, err := c.execWithLoggingTx(ctx,
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable), createTablesFromExistingTx,
+		); err != nil {
 			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully created table '%s'", newTable))
 	}
 
-	err = createTablesFromExistingTx.Commit()
-	if err != nil {
+	if err := createTablesFromExistingTx.Commit(); err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for creating tables: %w", err)
 	}
 

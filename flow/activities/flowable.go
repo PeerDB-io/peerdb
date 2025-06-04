@@ -749,8 +749,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		}
 
 		var config protos.FlowConnectionConfigs
-		err = proto.Unmarshal(configProto, &config)
-		if err != nil {
+		if err := proto.Unmarshal(configProto, &config); err != nil {
 			return nil, err
 		}
 
@@ -816,6 +815,12 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				attribute.String(otel_metrics.FlowStatusKey, status.String()),
 				attribute.Bool(otel_metrics.IsFlowActiveKey, info.isActive),
 			)))
+
+			if flowMetadata.Status == protos.FlowStatus_STATUS_COMPLETED ||
+				flowMetadata.Status == protos.FlowStatus_STATUS_TERMINATED {
+				return
+			}
+
 			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
@@ -1222,6 +1227,11 @@ func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
 
 	if err := connmetadata.SyncFlowCleanupInTx(ctx, tx, flowName); err != nil {
 		return fmt.Errorf("unable to clear metadata for flow cleanup: %w", err)
+	}
+
+	// only for ClickHouse, should be a no-op for other destination connectors
+	if _, err := tx.Exec(ctx, `DELETE FROM ch_s3_stage WHERE flow_job_name = $1`, flowName); err != nil {
+		return fmt.Errorf("failed to clear avro stage for flow %s: %w", flowName, err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {

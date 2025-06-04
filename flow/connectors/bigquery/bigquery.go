@@ -27,17 +27,6 @@ const (
 	SyncRecordsBatchSize = 1024
 )
 
-type BigQueryConnector struct {
-	*metadataStore.PostgresMetadata
-	logger        log.Logger
-	bqConfig      *protos.BigqueryConfig
-	client        *bigquery.Client
-	storageClient *storage.Client
-	catalogPool   shared.CatalogPool
-	datasetID     string
-	projectID     string
-}
-
 func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServiceAccount, error) {
 	var serviceAccount utils.GcpServiceAccount
 	serviceAccount.Type = bqConfig.AuthType
@@ -58,49 +47,15 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 	return &serviceAccount, nil
 }
 
-// ValidateCheck:
-// 1. Creates a table
-// 2. Inserts one row into the table
-// 3. Deletes the table
-func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
-	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
-
-	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
-
-	createErr := newTable.Create(ctx, &bigquery.TableMetadata{
-		Schema: []*bigquery.FieldSchema{
-			{
-				Name:     "dummy",
-				Type:     bigquery.BooleanFieldType,
-				Repeated: false,
-			},
-		},
-	})
-	if createErr != nil {
-		return fmt.Errorf("unable to validate table creation within dataset: %w. "+
-			"Please check if bigquery.tables.create permission has been granted", createErr)
-	}
-
-	var errs []error
-	insertQuery := c.client.Query(fmt.Sprintf("INSERT INTO %s VALUES(true)", dummyTable))
-	insertQuery.DefaultDatasetID = c.datasetID
-	insertQuery.DefaultProjectID = c.projectID
-	_, insertErr := insertQuery.Run(ctx)
-	if insertErr != nil {
-		errs = append(errs, fmt.Errorf("unable to validate insertion into table: %w. ", insertErr))
-	}
-
-	// Drop the table
-	deleteErr := newTable.Delete(ctx)
-	if deleteErr != nil {
-		errs = append(errs, fmt.Errorf("unable to delete table :%w. ", deleteErr))
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
-	}
-
-	return nil
+type BigQueryConnector struct {
+	*metadataStore.PostgresMetadata
+	logger        log.Logger
+	bqConfig      *protos.BigqueryConfig
+	client        *bigquery.Client
+	storageClient *storage.Client
+	catalogPool   shared.CatalogPool
+	datasetID     string
+	projectID     string
 }
 
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
@@ -154,6 +109,51 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		catalogPool:      catalogPool,
 		logger:           logger,
 	}, nil
+}
+
+// ValidateCheck:
+// 1. Creates a table
+// 2. Inserts one row into the table
+// 3. Deletes the table
+func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
+	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
+
+	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
+
+	createErr := newTable.Create(ctx, &bigquery.TableMetadata{
+		Schema: []*bigquery.FieldSchema{
+			{
+				Name:     "dummy",
+				Type:     bigquery.BooleanFieldType,
+				Repeated: false,
+			},
+		},
+	})
+	if createErr != nil {
+		return fmt.Errorf("unable to validate table creation within dataset: %w. "+
+			"Please check if bigquery.tables.create permission has been granted", createErr)
+	}
+
+	var errs []error
+	insertQuery := c.client.Query(fmt.Sprintf("INSERT INTO %s VALUES(true)", dummyTable))
+	insertQuery.DefaultDatasetID = c.datasetID
+	insertQuery.DefaultProjectID = c.projectID
+	_, insertErr := insertQuery.Run(ctx)
+	if insertErr != nil {
+		errs = append(errs, fmt.Errorf("unable to validate insertion into table: %w. ", insertErr))
+	}
+
+	// Drop the table
+	deleteErr := newTable.Delete(ctx)
+	if deleteErr != nil {
+		errs = append(errs, fmt.Errorf("unable to delete table :%w. ", deleteErr))
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
+	return nil
 }
 
 // Close closes the BigQuery driver.
@@ -269,8 +269,7 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 	q.DefaultDatasetID = c.datasetID
 	it, err := q.Read(ctx)
 	if err != nil {
-		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
-		return nil, err
+		return nil, fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
 	}
 
 	// Store the distinct values in an array
@@ -319,8 +318,7 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(
 	q.DefaultProjectID = c.projectID
 	it, err := q.Read(ctx)
 	if err != nil {
-		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
-		return nil, err
+		return nil, fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
 	}
 	// Create a map to store the results.
 	resultMap := make(map[string][]string)
@@ -587,8 +585,7 @@ func (c *BigQueryConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	c.logger.Info("creating raw table",
 		slog.String("table", rawTableName),
 		slog.Any("metadata", metadata))
-	err = table.Create(ctx, metadata)
-	if err != nil {
+	if err := table.Create(ctx, metadata); err != nil {
 		return nil, fmt.Errorf("failed to create table %s.%s: %w", c.datasetID, rawTableName, err)
 	}
 
@@ -631,9 +628,8 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	}
 	datasetTablesSet[datasetTable] = struct{}{}
 	dataset := c.client.DatasetInProject(c.projectID, datasetTable.dataset)
-	_, err = dataset.Metadata(ctx)
 	// just assume this means dataset don't exist, and create it
-	if err != nil {
+	if _, err := dataset.Metadata(ctx); err != nil {
 		// if err message does not contain `notFound`, then other error happened.
 		if !strings.Contains(err.Error(), "notFound") {
 			return false, fmt.Errorf("error while checking metadata for BigQuery dataset %s: %w",
@@ -727,8 +723,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	c.logger.Info("[bigquery] creating table",
 		slog.String("table", tableIdentifier),
 		slog.Any("metadata", metadata))
-	err = table.Create(ctx, metadata)
-	if err != nil {
+	if err := table.Create(ctx, metadata); err != nil {
 		return false, fmt.Errorf("failed to create table %s: %w", tableIdentifier, err)
 	}
 

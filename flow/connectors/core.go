@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type Connector interface {
@@ -467,7 +468,7 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 	var none T
 	conn, err := GetConnector(ctx, env, config)
 	if err != nil {
-		return none, err
+		return none, exceptions.NewPeerCreateError(err)
 	}
 
 	if tconn, ok := conn.(T); ok {

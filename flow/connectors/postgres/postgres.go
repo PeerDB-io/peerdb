@@ -57,21 +57,6 @@ type PostgresConnector struct {
 	pgVersion              shared.PGVersion
 }
 
-func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
-	connConfig, err := pgx.ParseConfig(connectionString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
-	}
-	if pgConfig.RequireTls || pgConfig.RootCa != nil {
-		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, false)
-		if err != nil {
-			return nil, err
-		}
-		connConfig.TLSConfig = tlsConfig
-	}
-	return connConfig, nil
-}
-
 func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *protos.PostgresConfig) (*PostgresConnector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	flowNameInApplicationName, err := internal.PeerDBApplicationNamePerMirrorName(ctx, nil)
@@ -138,6 +123,21 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		typeMap:                pgtype.NewMap(),
 		rdsAuth:                rdsAuth,
 	}, nil
+}
+
+func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
+	connConfig, err := pgx.ParseConfig(connectionString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+	if pgConfig.RequireTls || pgConfig.RootCa != nil {
+		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, false)
+		if err != nil {
+			return nil, err
+		}
+		connConfig.TLSConfig = tlsConfig
+	}
+	return connConfig, nil
 }
 
 func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]shared.CustomDataType, error) {
@@ -1600,8 +1600,7 @@ func (c *PostgresConnector) RenameTables(
 		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
 	}
 
-	err = renameTablesTx.Commit(ctx)
-	if err != nil {
+	if err := renameTablesTx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for rename tables: %w", err)
 	}
 

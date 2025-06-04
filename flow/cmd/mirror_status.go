@@ -425,8 +425,7 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	}
 
 	var config protos.FlowConnectionConfigs
-	err = proto.Unmarshal(configBytes, &config)
-	if err != nil {
+	if err := proto.Unmarshal(configBytes, &config); err != nil {
 		slog.Error("unable to unmarshal flow config", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}

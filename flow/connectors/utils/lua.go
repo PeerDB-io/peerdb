@@ -69,12 +69,10 @@ func LoadScript(ctx context.Context, script string, printfn lua.LGFunction) (*lu
 	pua.RegisterTypes(ls)
 	ls.Env.RawSetString("print", ls.NewFunction(printfn))
 	if script != "" {
-		err := ls.GPCall(pua.LoadPeerdbScript, lua.LString(script))
-		if err != nil {
+		if err := ls.GPCall(pua.LoadPeerdbScript, lua.LString(script)); err != nil {
 			return nil, fmt.Errorf("error loading script %s: %w", script, err)
 		}
-		err = ls.PCall(0, 0, nil)
-		if err != nil {
+		if err := ls.PCall(0, 0, nil); err != nil {
 			return nil, fmt.Errorf("error executing script %s: %w", script, err)
 		}
 	}

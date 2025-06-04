@@ -38,8 +38,8 @@ import {
 
 import { Divider } from '@tremor/react';
 import ReactSelect from 'react-select';
+import CustomColumnType from './customColumnType';
 import SelectSortingKeys from './sortingkey';
-
 interface SchemaBoxProps {
   sourcePeer: string;
   schema: string;
@@ -456,7 +456,7 @@ export default function SchemaBox({
                               DBType[DBType.CLICKHOUSE].toString() && (
                               <div
                                 style={{
-                                  width: '50%',
+                                  width: '100%',
                                   display: 'flex',
                                   flexDirection: 'column',
                                   rowGap: '0.5rem',
@@ -468,13 +468,23 @@ export default function SchemaBox({
                                     marginTop: '0.5rem',
                                   }}
                                 />
-                                <SelectSortingKeys
-                                  columns={
-                                    columns?.map((column) => column.name) ?? []
-                                  }
-                                  loading={columnsLoading}
+                                <div style={{ width: '50%' }}>
+                                  <SelectSortingKeys
+                                    columns={
+                                      columns?.map((column) => column.name) ??
+                                      []
+                                    }
+                                    loading={columnsLoading}
+                                    tableRow={row}
+                                    setRows={setRows}
+                                  />
+                                </div>
+                                <CustomColumnType
+                                  columns={columns}
                                   tableRow={row}
+                                  rows={rows}
                                   setRows={setRows}
+                                  peerType={peerType}
                                 />
                               </div>
                             )}
