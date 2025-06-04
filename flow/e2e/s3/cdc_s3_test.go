@@ -60,8 +60,8 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		ctx, cancel := context.WithTimeout(s.t.Context(), 25*time.Second)
 		defer cancel()
 		files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-		s.t.Logf("Files in Test_Complete_Simple_Flow_S3 %s: %d", flowJobName, len(files))
 		e2e.EnvNoError(s.t, env, err)
+		s.t.Logf("Files in Test_Complete_Simple_Flow_S3 %s: %d", flowJobName, len(files))
 		return len(files) == 4
 	})
 
