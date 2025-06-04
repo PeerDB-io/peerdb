@@ -478,6 +478,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var peerCreateError *exceptions.PeerCreateError
+	if errors.As(err, &peerCreateError) {
+		// Check for context deadline exceeded error
+		if errors.Is(peerCreateError, context.DeadlineExceeded) {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceOther,
+				Code:   "CONTEXT_DEADLINE_EXCEEDED",
+			}
+		}
+	}
+
 	return ErrorOther, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "UNKNOWN",

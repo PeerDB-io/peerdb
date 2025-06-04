@@ -1,6 +1,7 @@
 package alerting
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -299,5 +300,16 @@ func TestRandomErrorShouldBeOther(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceOther,
 		Code:   "UNKNOWN",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPeerCreateTimeoutErrorShouldBeConnectivity(t *testing.T) {
+	// Simulate a peer create timeout error, this is just a unit test, maybe we should try recreating this error in a more realistic way
+	err := exceptions.NewPeerCreateError(context.DeadlineExceeded)
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in peer create: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceOther,
+		Code:   "CONTEXT_DEADLINE_EXCEEDED",
 	}, errInfo, "Unexpected error info")
 }
