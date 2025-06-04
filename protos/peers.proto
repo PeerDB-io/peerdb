@@ -29,7 +29,6 @@ message SnowflakeConfig {
   optional string password = 10 [(peerdb_redacted) = true];
   // defaults to _PEERDB_INTERNAL
   optional string metadata_schema = 11;
-  optional S3Config s3 = 12;
 }
 
 message GcpServiceAccount {

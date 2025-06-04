@@ -636,7 +636,6 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("s3_integration")
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
-                s3: None,
             };
             Config::SnowflakeConfig(snowflake_config)
         }

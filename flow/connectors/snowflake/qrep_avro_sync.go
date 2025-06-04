@@ -179,7 +179,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 		s.logger.Info("OCF: Writing records to S3",
 			slog.String(string(shared.PartitionIDKey), partitionID))
 
-		provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.NewPeerAWSCredentials(s.SnowflakeConnector.config.S3))
+		provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
 		if err != nil {
 			return nil, err
 		}
