@@ -225,7 +225,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		defer connectors.CloseConnector(ctx, dstConn)
 
 		syncState.Store(shared.Ptr("updating schema"))
-		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, config.TableMappings, recordBatchSync.SchemaDeltas); err != nil {
+		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, recordBatchSync.SchemaDeltas); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
