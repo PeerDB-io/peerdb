@@ -28,7 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *MySqlConnector) GetTableSchema(
@@ -525,7 +525,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								qvalue.QValueKind(fd.Type), val)
+								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
 							}
@@ -559,7 +559,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								qvalue.QValueKind(fd.Type), val)
+								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
 							}
@@ -573,7 +573,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								qvalue.QValueKind(fd.Type), val)
+								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
 							}
@@ -608,7 +608,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								qvalue.QValueKind(fd.Type), val)
+								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
 							}

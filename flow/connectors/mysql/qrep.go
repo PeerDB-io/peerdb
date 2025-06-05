@@ -17,7 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *MySqlConnector) GetQRepPartitions(
@@ -229,7 +229,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		if err != nil {
 			return err
 		}
-		record := make([]qvalue.QValue, 0, len(row))
+		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
 			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, val)
 			if err != nil {

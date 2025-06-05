@@ -13,7 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type PostgresSchemaDeltaTestSuite struct {
@@ -63,7 +63,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		AddedColumns: []*protos.FieldDescription{
 			{
 				Name:         "hi",
-				Type:         string(qvalue.QValueKindInt64),
+				Type:         string(types.QValueKindInt64),
 				TypeModifier: -1,
 				Nullable:     true,
 			},
@@ -81,12 +81,12 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         "id",
-				Type:         string(qvalue.QValueKindInt32),
+				Type:         string(types.QValueKindInt32),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "hi",
-				Type:         string(qvalue.QValueKindInt64),
+				Type:         string(types.QValueKindInt64),
 				TypeModifier: -1,
 				Nullable:     true,
 			},

@@ -17,7 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type SnowflakeAvroSyncHandler struct {
@@ -132,7 +132,7 @@ func (s *SnowflakeAvroSyncHandler) getAvroSchema(
 	ctx context.Context,
 	env map[string]string,
 	dstTableName string,
-	schema qvalue.QRecordSchema,
+	schema types.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	// TODO: Support avroNameMap for avro-incompatible column name support
 	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_SNOWFLAKE, nil)

@@ -12,7 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func SnowflakeIdentifierNormalize(identifier string) string {
@@ -37,15 +37,15 @@ func snowflakeSchemaTableNormalize(schemaTable *utils.SchemaTable) string {
 		SnowflakeIdentifierNormalize(schemaTable.Table))
 }
 
-func (c *SnowflakeConnector) columnTypeToQField(ct *sql.ColumnType) (qvalue.QField, error) {
+func (c *SnowflakeConnector) columnTypeToQField(ct *sql.ColumnType) (types.QField, error) {
 	qvKind, ok := snowflakeTypeToQValueKindMap[ct.DatabaseTypeName()]
 	if !ok {
-		return qvalue.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
+		return types.QField{}, fmt.Errorf("unsupported database type %s", ct.DatabaseTypeName())
 	}
 
 	nullable, ok := ct.Nullable()
 
-	return qvalue.QField{
+	return types.QField{
 		Name:     ct.Name(),
 		Type:     qvKind,
 		Nullable: ok && nullable,
@@ -59,7 +59,7 @@ func (c *SnowflakeConnector) processRows(rows *sql.Rows) (*model.QRecordBatch, e
 	}
 
 	// Convert dbColTypes to QFields
-	qfields := make([]qvalue.QField, len(dbColTypes))
+	qfields := make([]types.QField, len(dbColTypes))
 	for i, ct := range dbColTypes {
 		qfield, err := c.columnTypeToQField(ct)
 		if err != nil {
@@ -70,7 +70,7 @@ func (c *SnowflakeConnector) processRows(rows *sql.Rows) (*model.QRecordBatch, e
 		qfields[i] = qfield
 	}
 
-	var records [][]qvalue.QValue
+	var records [][]types.QValue
 	totalRowsProcessed := 0
 	const logEveryNumRows = 50000
 
@@ -83,27 +83,27 @@ func (c *SnowflakeConnector) processRows(rows *sql.Rows) (*model.QRecordBatch, e
 		values := make([]any, len(columns))
 		for i := range values {
 			switch qfields[i].Type {
-			case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ, qvalue.QValueKindTime, qvalue.QValueKindDate:
+			case types.QValueKindTimestamp, types.QValueKindTimestampTZ, types.QValueKindTime, types.QValueKindDate:
 				var t sql.NullTime
 				values[i] = &t
-			case qvalue.QValueKindInt32:
+			case types.QValueKindInt32:
 				var n sql.NullInt32
 				values[i] = &n
-			case qvalue.QValueKindInt64:
+			case types.QValueKindInt64:
 				var n sql.NullInt64
 				values[i] = &n
-			case qvalue.QValueKindFloat64:
+			case types.QValueKindFloat64:
 				var f sql.NullFloat64
 				values[i] = &f
-			case qvalue.QValueKindBoolean:
+			case types.QValueKindBoolean:
 				var b sql.NullBool
 				values[i] = &b
-			case qvalue.QValueKindString, qvalue.QValueKindHStore:
+			case types.QValueKindString, types.QValueKindHStore:
 				var s sql.NullString
 				values[i] = &s
-			case qvalue.QValueKindBytes:
+			case types.QValueKindBytes:
 				values[i] = new([]byte)
-			case qvalue.QValueKindNumeric:
+			case types.QValueKindNumeric:
 				var s sql.Null[decimal.Decimal]
 				values[i] = &s
 			default:
@@ -115,7 +115,7 @@ func (c *SnowflakeConnector) processRows(rows *sql.Rows) (*model.QRecordBatch, e
 			return nil, err
 		}
 
-		qValues := make([]qvalue.QValue, len(values))
+		qValues := make([]types.QValue, len(values))
 		for i, val := range values {
 			qv, err := toQValue(qfields[i].Type, val)
 			if err != nil {
@@ -139,7 +139,7 @@ func (c *SnowflakeConnector) processRows(rows *sql.Rows) (*model.QRecordBatch, e
 	}
 
 	return &model.QRecordBatch{
-		Schema:  qvalue.NewQRecordSchema(qfields),
+		Schema:  types.NewQRecordSchema(qfields),
 		Records: records,
 	}, nil
 }
@@ -158,108 +158,108 @@ func (c *SnowflakeConnector) ExecuteAndProcessQuery(
 	return c.processRows(rows)
 }
 
-func toQValue(kind qvalue.QValueKind, val any) (qvalue.QValue, error) {
+func toQValue(kind types.QValueKind, val any) (types.QValue, error) {
 	if val == nil {
-		return qvalue.QValueNull(kind), nil
+		return types.QValueNull(kind), nil
 	}
 	switch kind {
-	case qvalue.QValueKindInt32:
+	case types.QValueKindInt32:
 		if v, ok := val.(*sql.NullInt32); ok {
 			if v.Valid {
-				return qvalue.QValueInt32{Val: v.Int32}, nil
+				return types.QValueInt32{Val: v.Int32}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindInt32), nil
+				return types.QValueNull(types.QValueKindInt32), nil
 			}
 		}
-	case qvalue.QValueKindInt64:
+	case types.QValueKindInt64:
 		if v, ok := val.(*sql.NullInt64); ok {
 			if v.Valid {
-				return qvalue.QValueInt64{Val: v.Int64}, nil
+				return types.QValueInt64{Val: v.Int64}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindInt64), nil
+				return types.QValueNull(types.QValueKindInt64), nil
 			}
 		}
-	case qvalue.QValueKindFloat64:
+	case types.QValueKindFloat64:
 		if v, ok := val.(*sql.NullFloat64); ok {
 			if v.Valid {
-				return qvalue.QValueFloat64{Val: v.Float64}, nil
+				return types.QValueFloat64{Val: v.Float64}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindFloat64), nil
+				return types.QValueNull(types.QValueKindFloat64), nil
 			}
 		}
-	case qvalue.QValueKindString:
+	case types.QValueKindString:
 		if v, ok := val.(*sql.NullString); ok {
 			if v.Valid {
-				return qvalue.QValueString{Val: v.String}, nil
+				return types.QValueString{Val: v.String}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindString), nil
+				return types.QValueNull(types.QValueKindString), nil
 			}
 		}
-	case qvalue.QValueKindBoolean:
+	case types.QValueKindBoolean:
 		if v, ok := val.(*sql.NullBool); ok {
 			if v.Valid {
-				return qvalue.QValueBoolean{Val: v.Bool}, nil
+				return types.QValueBoolean{Val: v.Bool}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindBoolean), nil
+				return types.QValueNull(types.QValueKindBoolean), nil
 			}
 		}
-	case qvalue.QValueKindTimestamp:
+	case types.QValueKindTimestamp:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
-				return qvalue.QValueTimestamp{Val: t.Time}, nil
+				return types.QValueTimestamp{Val: t.Time}, nil
 			} else {
-				return qvalue.QValueNull(kind), nil
+				return types.QValueNull(kind), nil
 			}
 		}
-	case qvalue.QValueKindTimestampTZ:
+	case types.QValueKindTimestampTZ:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
-				return qvalue.QValueTimestampTZ{Val: t.Time}, nil
+				return types.QValueTimestampTZ{Val: t.Time}, nil
 			} else {
-				return qvalue.QValueNull(kind), nil
+				return types.QValueNull(kind), nil
 			}
 		}
-	case qvalue.QValueKindDate:
+	case types.QValueKindDate:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
-				return qvalue.QValueDate{Val: t.Time}, nil
+				return types.QValueDate{Val: t.Time}, nil
 			} else {
-				return qvalue.QValueNull(kind), nil
+				return types.QValueNull(kind), nil
 			}
 		}
-	case qvalue.QValueKindTime:
+	case types.QValueKindTime:
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
 				tt := t.Time
 				// anchor on unix epoch, some drivers anchor on 0001-01-01
-				return qvalue.QValueTime{
+				return types.QValueTime{
 					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), time.UTC),
 				}, nil
 			} else {
-				return qvalue.QValueNull(kind), nil
+				return types.QValueNull(kind), nil
 			}
 		}
-	case qvalue.QValueKindNumeric:
+	case types.QValueKindNumeric:
 		if v, ok := val.(*sql.Null[decimal.Decimal]); ok {
 			if v.Valid {
-				return qvalue.QValueNumeric{Val: v.V}, nil
+				return types.QValueNumeric{Val: v.V}, nil
 			} else {
-				return qvalue.QValueNull(qvalue.QValueKindNumeric), nil
+				return types.QValueNull(types.QValueKindNumeric), nil
 			}
 		}
-	case qvalue.QValueKindBytes:
+	case types.QValueKindBytes:
 		if v, ok := val.(*[]byte); ok && v != nil {
-			return qvalue.QValueBytes{Val: *v}, nil
+			return types.QValueBytes{Val: *v}, nil
 		}
 
-	case qvalue.QValueKindJSON:
+	case types.QValueKindJSON:
 		vraw := val.(*any)
 		vstring, ok := (*vraw).(string)
 		if !ok {
 			slog.Warn("A parsed JSON value was not a string. Likely a null field value")
 		}
 
-		return qvalue.QValueJSON{Val: vstring}, nil
+		return types.QValueJSON{Val: vstring}, nil
 	}
 
 	// If type is unsupported or doesn't match the specified kind, return error

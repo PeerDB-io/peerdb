@@ -23,7 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type (
@@ -76,7 +76,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	ctx context.Context,
 	env map[string]string,
 	w io.Writer,
-	typeConversions map[string]qvalue.TypeConversion,
+	typeConversions map[string]types.TypeConversion,
 ) (int64, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
@@ -98,7 +98,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	key string,
 	s3Creds utils.AWSCredentialsProvider,
 	avroSize *atomic.Int64,
-	typeConversions map[string]qvalue.TypeConversion,
+	typeConversions map[string]types.TypeConversion,
 ) (*AvroFile, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
@@ -224,7 +224,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	ctx context.Context,
 	env map[string]string,
 	ocfWriter *ocf.Encoder,
-	typeConversions map[string]qvalue.TypeConversion,
+	typeConversions map[string]types.TypeConversion,
 ) (int64, error) {
 	logger := internal.LoggerFromCtx(ctx)
 

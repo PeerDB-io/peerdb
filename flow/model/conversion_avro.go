@@ -10,8 +10,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRecordAvroConverter struct {
@@ -51,15 +51,15 @@ func NewQRecordAvroConverter(
 func (qac *QRecordAvroConverter) Convert(
 	ctx context.Context,
 	env map[string]string,
-	qrecord []qvalue.QValue,
-	typeConversions map[string]qvalue.TypeConversion,
+	qrecord []types.QValue,
+	typeConversions map[string]types.TypeConversion,
 ) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
 		if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
 			val = typeConversion.ValueConversion(val)
 		}
-		avroVal, err := _qvalue.QValueToAvro(
+		avroVal, err := qvalue.QValueToAvro(
 			ctx, env, val,
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
 		)
@@ -86,21 +86,21 @@ type QRecordAvroSchema struct {
 
 type QRecordAvroSchemaDefinition struct {
 	Schema *avro.RecordSchema
-	Fields []qvalue.QField
+	Fields []types.QField
 }
 
 func GetAvroSchemaDefinition(
 	ctx context.Context,
 	env map[string]string,
 	dstTableName string,
-	qRecordSchema qvalue.QRecordSchema,
+	qRecordSchema types.QRecordSchema,
 	targetDWH protos.DBType,
 	avroNameMap map[string]string,
 ) (*QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]*avro.Field, 0, len(qRecordSchema.Fields))
 
 	for _, qField := range qRecordSchema.Fields {
-		avroType, err := _qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
+		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
 		}
@@ -135,10 +135,10 @@ func GetAvroSchemaDefinition(
 	}, nil
 }
 
-func ConstructColumnNameAvroFieldMap(fields []qvalue.QField) map[string]string {
+func ConstructColumnNameAvroFieldMap(fields []types.QField) map[string]string {
 	m := make(map[string]string, len(fields))
 	for i, field := range fields {
-		m[field.Name] = _qvalue.ConvertToAvroCompatibleName(field.Name) + "_" + strconv.FormatInt(int64(i), 10)
+		m[field.Name] = qvalue.ConvertToAvroCompatibleName(field.Name) + "_" + strconv.FormatInt(int64(i), 10)
 	}
 	return m
 }

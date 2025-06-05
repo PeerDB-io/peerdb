@@ -8,9 +8,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	numeric "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type mergeStmtGenerator struct {
@@ -35,26 +35,26 @@ func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[stri
 	flattenedCastsSQLArray := make([]string, 0, len(columns))
 	for _, column := range columns {
 		genericColumnType := column.Type
-		qvKind := qvalue.QValueKind(genericColumnType)
-		sfType, err := _qvalue.ToDWHColumnType(ctx, qvKind, env, protos.DBType_SNOWFLAKE, column, normalizedTableSchema.NullableEnabled)
+		qvKind := types.QValueKind(genericColumnType)
+		sfType, err := qvalue.ToDWHColumnType(ctx, qvKind, env, protos.DBType_SNOWFLAKE, column, normalizedTableSchema.NullableEnabled)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}
 
 		targetColumnName := SnowflakeIdentifierNormalize(column.Name)
 		switch qvKind {
-		case qvalue.QValueKindBytes:
+		case types.QValueKindBytes:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("BASE64_DECODE_BINARY(%s:\"%s\") "+
 				"AS %s", toVariantColumnName, column.Name, targetColumnName))
-		case qvalue.QValueKindGeography:
+		case types.QValueKindGeography:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("TO_GEOGRAPHY(CAST(%s:\"%s\" AS STRING),true) AS %s",
 					toVariantColumnName, column.Name, targetColumnName))
-		case qvalue.QValueKindGeometry:
+		case types.QValueKindGeometry:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("TO_GEOMETRY(CAST(%s:\"%s\" AS STRING),true) AS %s",
 					toVariantColumnName, column.Name, targetColumnName))
-		case qvalue.QValueKindJSON, qvalue.QValueKindJSONB, qvalue.QValueKindHStore, qvalue.QValueKindInterval:
+		case types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindHStore, types.QValueKindInterval:
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s",
 					toVariantColumnName, column.Name, targetColumnName))
@@ -63,7 +63,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[stri
 		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
 		// 		"Microseconds*1000) "+
 		// 		"AS %s", toVariantColumnName, columnName, columnName))
-		case qvalue.QValueKindNumeric:
+		case types.QValueKindNumeric:
 			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
 			numericType := fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,

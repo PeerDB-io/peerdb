@@ -7,7 +7,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, column *protos.FieldDescription) (string, error) {
@@ -28,7 +28,7 @@ func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]strin
 
 func ToDWHColumnType(
 	ctx context.Context,
-	kind qvalue.QValueKind,
+	kind types.QValueKind,
 	env map[string]string,
 	dwhType protos.DBType,
 	column *protos.FieldDescription,
@@ -37,10 +37,10 @@ func ToDWHColumnType(
 	var colType string
 	switch dwhType {
 	case protos.DBType_SNOWFLAKE:
-		if kind == qvalue.QValueKindNumeric {
+		if kind == types.QValueKindNumeric {
 			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.SnowflakeNumericCompatibility{})
 			colType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
-		} else if val, ok := qvalue.QValueKindToSnowflakeTypeMap[kind]; ok {
+		} else if val, ok := types.QValueKindToSnowflakeTypeMap[kind]; ok {
 			colType = val
 		} else {
 			colType = "STRING"
@@ -49,13 +49,13 @@ func ToDWHColumnType(
 			colType += " NOT NULL"
 		}
 	case protos.DBType_CLICKHOUSE:
-		if kind == qvalue.QValueKindNumeric {
+		if kind == types.QValueKindNumeric {
 			var err error
 			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column)
 			if err != nil {
 				return "", err
 			}
-		} else if val, ok := qvalue.QValueKindToClickHouseTypeMap[kind]; ok {
+		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
 		} else {
 			colType = "String"

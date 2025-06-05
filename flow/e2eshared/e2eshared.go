@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
-	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type Suite interface {
@@ -80,7 +80,7 @@ func ReadFileToBytes(path string) ([]byte, error) {
 }
 
 // checks if two QRecords are identical
-func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue) bool {
+func CheckQRecordEquality(t *testing.T, q []types.QValue, other []types.QValue) bool {
 	t.Helper()
 
 	if len(q) != len(other) {
@@ -90,7 +90,7 @@ func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue
 
 	for i, entry := range q {
 		otherEntry := other[i]
-		if !_qvalue.Equals(entry, otherEntry) {
+		if !qvalue.Equals(entry, otherEntry) {
 			t.Logf("entry %d: %T %+v != %T %+v", i, entry, entry, otherEntry, otherEntry)
 			return false
 		}

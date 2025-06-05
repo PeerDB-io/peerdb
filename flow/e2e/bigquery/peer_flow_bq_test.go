@@ -15,7 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -73,7 +73,7 @@ func (s PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDele
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
 			switch entry.(type) {
-			case qvalue.QValueBoolean, qvalue.QValueTimestamp:
+			case types.QValueBoolean, types.QValueTimestamp:
 				recordCount += 1
 			}
 		}

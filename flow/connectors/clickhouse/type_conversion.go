@@ -3,7 +3,7 @@ package connclickhouse
 import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func GetColumnsTypeConversion() (*protos.ColumnsTypeConversionResponse, error) {
@@ -19,10 +19,10 @@ func GetColumnsTypeConversion() (*protos.ColumnsTypeConversionResponse, error) {
 	}, nil
 }
 
-func findTypeConversions(schema qvalue.QRecordSchema, columns []*protos.ColumnSetting) map[string]qvalue.TypeConversion {
-	typeConversions := make(map[string]qvalue.TypeConversion)
+func findTypeConversions(schema types.QRecordSchema, columns []*protos.ColumnSetting) map[string]types.TypeConversion {
+	typeConversions := make(map[string]types.TypeConversion)
 
-	colNameToType := make(map[string]qvalue.QValueKind, len(schema.Fields))
+	colNameToType := make(map[string]types.QValueKind, len(schema.Fields))
 	for _, field := range schema.Fields {
 		colNameToType[field.Name] = field.Type
 	}
@@ -46,7 +46,7 @@ func findTypeConversions(schema qvalue.QRecordSchema, columns []*protos.ColumnSe
 	return typeConversions
 }
 
-func applyTypeConversions(schema qvalue.QRecordSchema, typeConversions map[string]qvalue.TypeConversion) qvalue.QRecordSchema {
+func applyTypeConversions(schema types.QRecordSchema, typeConversions map[string]types.TypeConversion) types.QRecordSchema {
 	for i, field := range schema.Fields {
 		if conversion, exist := typeConversions[field.Name]; exist {
 			schema.Fields[i] = conversion.SchemaConversion(field)

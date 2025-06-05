@@ -19,7 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -565,8 +565,8 @@ func (s ClickHouseSuite) Test_Large_Numeric() {
 	require.Len(s.t, rows.Records, 2, "expected 2 rows")
 	for _, row := range rows.Records {
 		require.Len(s.t, row, 2, "expected 2 columns")
-		require.Equal(s.t, qvalue.QValueKindNumeric, row[0].Kind(), "expected NUMERIC(76,0) to be Decimal")
-		require.Equal(s.t, qvalue.QValueKindString, row[1].Kind(), "expected NUMERIC(78,0) to be String")
+		require.Equal(s.t, types.QValueKindNumeric, row[0].Kind(), "expected NUMERIC(76,0) to be Decimal")
+		require.Equal(s.t, types.QValueKindString, row[1].Kind(), "expected NUMERIC(78,0) to be String")
 		c1, ok := row[0].Value().(decimal.Decimal)
 		require.True(s.t, ok, "expected NUMERIC(76,0) to be Decimal")
 		require.Equal(s.t, strings.Repeat("7", 76), c1.String(), "expected NUMERIC(76,0) to be 7s")
@@ -639,8 +639,8 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	require.Len(s.t, rows.Records, 4, "expected 4 rows")
 	for i, row := range rows.Records {
 		require.Len(s.t, row, 2, "expected 2 columns")
-		require.Equal(s.t, qvalue.QValueKindString, row[0].Kind(), "c1 type mismatch")
-		require.Equal(s.t, qvalue.QValueKindString, row[1].Kind(), "c2 type mismatch")
+		require.Equal(s.t, types.QValueKindString, row[0].Kind(), "c1 type mismatch")
+		require.Equal(s.t, types.QValueKindString, row[1].Kind(), "c2 type mismatch")
 		require.Equal(s.t, strings.Repeat("9", 77), row[0].Value(), "c1 value mismatch")
 		if i%2 == 0 {
 			require.Equal(s.t, strings.Repeat("9", 78), row[1].Value(), "c2 value mismatch")

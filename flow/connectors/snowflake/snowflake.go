@@ -22,9 +22,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -360,8 +360,8 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			qvKind := qvalue.QValueKind(addedColumn.Type)
-			sfColtype, err := _qvalue.ToDWHColumnType(
+			qvKind := types.QValueKind(addedColumn.Type)
+			sfColtype, err := qvalue.ToDWHColumnType(
 				ctx, qvKind, env, protos.DBType_SNOWFLAKE, addedColumn, schemaDelta.NullableEnabled,
 			)
 			if err != nil {
@@ -656,8 +656,8 @@ func generateCreateTableSQLForNormalizedTable(
 	for _, column := range tableSchema.Columns {
 		genericColumnType := column.Type
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
-		qvKind := qvalue.QValueKind(genericColumnType)
-		sfColType, err := _qvalue.ToDWHColumnType(
+		qvKind := types.QValueKind(genericColumnType)
+		sfColType, err := qvalue.ToDWHColumnType(
 			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, column, tableSchema.NullableEnabled,
 		)
 		if err != nil {

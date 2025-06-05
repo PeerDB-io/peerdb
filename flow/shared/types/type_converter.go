@@ -1,4 +1,4 @@
-package qvalue
+package types
 
 //nolint:iface
 type TypeConversion interface {

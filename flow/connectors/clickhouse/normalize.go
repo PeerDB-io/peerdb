@@ -18,10 +18,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -112,7 +112,7 @@ func generateCreateTableSQLForNormalizedTable(
 	for _, column := range tableSchema.Columns {
 		colName := column.Name
 		dstColName := colName
-		colType := qvalue.QValueKind(column.Type)
+		colType := types.QValueKind(column.Type)
 		var columnNullableEnabled bool
 		var clickHouseType string
 		if tableMapping != nil {
@@ -133,7 +133,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 		if clickHouseType == "" {
 			var err error
-			clickHouseType, err = _qvalue.ToDWHColumnType(
+			clickHouseType, err = qvalue.ToDWHColumnType(
 				ctx, colType, config.Env, protos.DBType_CLICKHOUSE, column, tableSchema.NullableEnabled || columnNullableEnabled,
 			)
 			if err != nil {
@@ -404,7 +404,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			for _, column := range schema.Columns {
 				colName := column.Name
 				dstColName := colName
-				colType := qvalue.QValueKind(column.Type)
+				colType := types.QValueKind(column.Type)
 
 				var clickHouseType string
 				var columnNullableEnabled bool
@@ -427,7 +427,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
 				if clickHouseType == "" {
 					var err error
-					clickHouseType, err = _qvalue.ToDWHColumnType(
+					clickHouseType, err = qvalue.ToDWHColumnType(
 						ctx, colType, req.Env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
 					)
 					if err != nil {
@@ -465,7 +465,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					}
 				default:
 					projLen := projection.Len()
-					if colType == qvalue.QValueKindBytes {
+					if colType == types.QValueKindBytes {
 						format, err := internal.PeerDBBinaryFormat(ctx, req.Env)
 						if err != nil {
 							return model.NormalizeResponse{}, err

@@ -13,10 +13,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -138,8 +138,8 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			qvKind := qvalue.QValueKind(addedColumn.Type)
-			clickHouseColType, err := _qvalue.ToDWHColumnType(
+			qvKind := types.QValueKind(addedColumn.Type)
+			clickHouseColType, err := qvalue.ToDWHColumnType(
 				ctx, qvKind, env, protos.DBType_CLICKHOUSE, addedColumn, schemaDelta.NullableEnabled,
 			)
 			if err != nil {

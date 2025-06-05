@@ -6,7 +6,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tm *protos.TableMapping) (*protos.TableSchema, error) {
@@ -24,7 +24,7 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tm *pro
 		genericColType, err := snowflakeTypeToQValueKind(sfColumn.ColumnType)
 		if err != nil {
 			// we use string for invalid types
-			genericColType = qvalue.QValueKindString
+			genericColType = types.QValueKindString
 		}
 
 		colFields = append(colFields, &protos.FieldDescription{

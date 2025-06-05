@@ -1,7 +1,7 @@
 package clickhouse
 
 import (
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 /*
@@ -13,7 +13,7 @@ stage the schema/data in the converted type format, and therefore
 successfully uploaded to the desired destination type in ClickHouse.
 
 To add a type conversion:
-	(1) In flow/model/qvalue/type_converter.go:
+	(1) In flow/model/types/type_converter.go:
 	- implement a SchemaConversionFn interface to convert the QField type
 	- implement a ValueConversionFn interface to convert the QValue data
 
@@ -25,15 +25,15 @@ type conversions. Note that the source types are QValueKind, this allows
 the implementation to be source-connector agnostic.
 */
 
-var SupportedDestinationTypes = map[string][]qvalue.TypeConversion{
-	"String": {qvalue.NewTypeConversion(
-		qvalue.NumericToStringSchemaConversion,
-		qvalue.NumericToStringValueConversion,
+var SupportedDestinationTypes = map[string][]types.TypeConversion{
+	"String": {types.NewTypeConversion(
+		types.NumericToStringSchemaConversion,
+		types.NumericToStringValueConversion,
 	)},
 }
 
-func ListSupportedTypeConversions() map[qvalue.QValueKind][]string {
-	typeConversions := make(map[qvalue.QValueKind][]string)
+func ListSupportedTypeConversions() map[types.QValueKind][]string {
+	typeConversions := make(map[types.QValueKind][]string)
 
 	for dstType, l := range SupportedDestinationTypes {
 		for _, conversion := range l {

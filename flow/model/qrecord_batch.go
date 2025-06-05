@@ -1,13 +1,13 @@
 package model
 
 import (
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 // QRecordBatch holds a batch of []QValue slices
 type QRecordBatch struct {
-	Schema  qvalue.QRecordSchema
-	Records [][]qvalue.QValue
+	Schema  types.QRecordSchema
+	Records [][]types.QValue
 }
 
 func (q *QRecordBatch) ToQRecordStream(buffer int) *QRecordStream {

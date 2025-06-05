@@ -17,7 +17,7 @@ import (
 
 	datatypes "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping map[uint32]shared.CustomDataType) (string, error) {
@@ -50,83 +50,83 @@ func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping 
 func (c *PostgresConnector) postgresOIDToQValueKind(
 	recvOID uint32,
 	customTypeMapping map[uint32]shared.CustomDataType,
-) qvalue.QValueKind {
+) types.QValueKind {
 	switch recvOID {
 	case pgtype.BoolOID:
-		return qvalue.QValueKindBoolean
+		return types.QValueKindBoolean
 	case pgtype.Int2OID:
-		return qvalue.QValueKindInt16
+		return types.QValueKindInt16
 	case pgtype.Int4OID:
-		return qvalue.QValueKindInt32
+		return types.QValueKindInt32
 	case pgtype.Int8OID:
-		return qvalue.QValueKindInt64
+		return types.QValueKindInt64
 	case pgtype.Float4OID:
-		return qvalue.QValueKindFloat32
+		return types.QValueKindFloat32
 	case pgtype.Float8OID:
-		return qvalue.QValueKindFloat64
+		return types.QValueKindFloat64
 	case pgtype.QCharOID:
-		return qvalue.QValueKindQChar
+		return types.QValueKindQChar
 	case pgtype.TextOID, pgtype.VarcharOID, pgtype.BPCharOID:
-		return qvalue.QValueKindString
+		return types.QValueKindString
 	case pgtype.ByteaOID:
-		return qvalue.QValueKindBytes
+		return types.QValueKindBytes
 	case pgtype.JSONOID:
-		return qvalue.QValueKindJSON
+		return types.QValueKindJSON
 	case pgtype.JSONBOID:
-		return qvalue.QValueKindJSONB
+		return types.QValueKindJSONB
 	case pgtype.UUIDOID:
-		return qvalue.QValueKindUUID
+		return types.QValueKindUUID
 	case pgtype.TimeOID:
-		return qvalue.QValueKindTime
+		return types.QValueKindTime
 	case pgtype.DateOID:
-		return qvalue.QValueKindDate
+		return types.QValueKindDate
 	case pgtype.CIDROID:
-		return qvalue.QValueKindCIDR
+		return types.QValueKindCIDR
 	case pgtype.MacaddrOID:
-		return qvalue.QValueKindMacaddr
+		return types.QValueKindMacaddr
 	case pgtype.InetOID:
-		return qvalue.QValueKindINET
+		return types.QValueKindINET
 	case pgtype.TimestampOID:
-		return qvalue.QValueKindTimestamp
+		return types.QValueKindTimestamp
 	case pgtype.TimestamptzOID:
-		return qvalue.QValueKindTimestampTZ
+		return types.QValueKindTimestampTZ
 	case pgtype.NumericOID:
-		return qvalue.QValueKindNumeric
+		return types.QValueKindNumeric
 	case pgtype.Int2ArrayOID:
-		return qvalue.QValueKindArrayInt16
+		return types.QValueKindArrayInt16
 	case pgtype.Int4ArrayOID:
-		return qvalue.QValueKindArrayInt32
+		return types.QValueKindArrayInt32
 	case pgtype.Int8ArrayOID:
-		return qvalue.QValueKindArrayInt64
+		return types.QValueKindArrayInt64
 	case pgtype.PointOID:
-		return qvalue.QValueKindPoint
+		return types.QValueKindPoint
 	case pgtype.Float4ArrayOID:
-		return qvalue.QValueKindArrayFloat32
+		return types.QValueKindArrayFloat32
 	case pgtype.Float8ArrayOID:
-		return qvalue.QValueKindArrayFloat64
+		return types.QValueKindArrayFloat64
 	case pgtype.BoolArrayOID:
-		return qvalue.QValueKindArrayBoolean
+		return types.QValueKindArrayBoolean
 	case pgtype.DateArrayOID:
-		return qvalue.QValueKindArrayDate
+		return types.QValueKindArrayDate
 	case pgtype.TimestampArrayOID:
-		return qvalue.QValueKindArrayTimestamp
+		return types.QValueKindArrayTimestamp
 	case pgtype.TimestamptzArrayOID:
-		return qvalue.QValueKindArrayTimestampTZ
+		return types.QValueKindArrayTimestampTZ
 	case pgtype.UUIDArrayOID:
-		return qvalue.QValueKindArrayUUID
+		return types.QValueKindArrayUUID
 	case pgtype.TextArrayOID, pgtype.VarcharArrayOID, pgtype.BPCharArrayOID:
-		return qvalue.QValueKindArrayString
+		return types.QValueKindArrayString
 	case pgtype.JSONArrayOID:
-		return qvalue.QValueKindArrayJSON
+		return types.QValueKindArrayJSON
 	case pgtype.JSONBArrayOID:
-		return qvalue.QValueKindArrayJSONB
+		return types.QValueKindArrayJSONB
 	case pgtype.IntervalOID:
-		return qvalue.QValueKindInterval
+		return types.QValueKindInterval
 	case pgtype.TstzrangeOID:
-		return qvalue.QValueKindTSTZRange
+		return types.QValueKindTSTZRange
 	default:
 		if typeName, ok := c.typeMap.TypeForOID(recvOID); ok {
-			colType := qvalue.QValueKindString
+			colType := types.QValueKindString
 			if typeData, ok := customTypeMapping[recvOID]; ok {
 				colType = customTypeToQKind(typeData)
 			}
@@ -140,108 +140,108 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 			// workaround for some types not being defined by pgtype
 			switch oid.Oid(recvOID) {
 			case oid.T_timetz:
-				return qvalue.QValueKindTimeTZ
+				return types.QValueKindTimeTZ
 			case oid.T_point:
-				return qvalue.QValueKindPoint
+				return types.QValueKindPoint
 			default:
 				if typeData, ok := customTypeMapping[recvOID]; ok {
 					return customTypeToQKind(typeData)
 				}
-				return qvalue.QValueKindString
+				return types.QValueKindString
 			}
 		}
 	}
 }
 
 func qValueKindToPostgresType(colTypeStr string) string {
-	switch qvalue.QValueKind(colTypeStr) {
-	case qvalue.QValueKindBoolean:
+	switch types.QValueKind(colTypeStr) {
+	case types.QValueKindBoolean:
 		return "BOOLEAN"
-	case qvalue.QValueKindInt16, qvalue.QValueKindUInt16, qvalue.QValueKindInt8, qvalue.QValueKindUInt8:
+	case types.QValueKindInt16, types.QValueKindUInt16, types.QValueKindInt8, types.QValueKindUInt8:
 		return "SMALLINT"
-	case qvalue.QValueKindInt32, qvalue.QValueKindUInt32:
+	case types.QValueKindInt32, types.QValueKindUInt32:
 		return "INTEGER"
-	case qvalue.QValueKindInt64, qvalue.QValueKindUInt64:
+	case types.QValueKindInt64, types.QValueKindUInt64:
 		return "BIGINT"
-	case qvalue.QValueKindFloat32:
+	case types.QValueKindFloat32:
 		return "REAL"
-	case qvalue.QValueKindFloat64:
+	case types.QValueKindFloat64:
 		return "DOUBLE PRECISION"
-	case qvalue.QValueKindQChar:
+	case types.QValueKindQChar:
 		return "\"char\""
-	case qvalue.QValueKindString, qvalue.QValueKindEnum:
+	case types.QValueKindString, types.QValueKindEnum:
 		return "TEXT"
-	case qvalue.QValueKindBytes:
+	case types.QValueKindBytes:
 		return "BYTEA"
-	case qvalue.QValueKindJSON:
+	case types.QValueKindJSON:
 		return "JSON"
-	case qvalue.QValueKindJSONB:
+	case types.QValueKindJSONB:
 		return "JSONB"
-	case qvalue.QValueKindHStore:
+	case types.QValueKindHStore:
 		return "HSTORE"
-	case qvalue.QValueKindUUID:
+	case types.QValueKindUUID:
 		return "UUID"
-	case qvalue.QValueKindArrayUUID:
+	case types.QValueKindArrayUUID:
 		return "UUID[]"
-	case qvalue.QValueKindTime:
+	case types.QValueKindTime:
 		return "TIME"
-	case qvalue.QValueKindTimeTZ:
+	case types.QValueKindTimeTZ:
 		return "TIMETZ"
-	case qvalue.QValueKindDate:
+	case types.QValueKindDate:
 		return "DATE"
-	case qvalue.QValueKindTimestamp:
+	case types.QValueKindTimestamp:
 		return "TIMESTAMP"
-	case qvalue.QValueKindTimestampTZ:
+	case types.QValueKindTimestampTZ:
 		return "TIMESTAMPTZ"
-	case qvalue.QValueKindNumeric:
+	case types.QValueKindNumeric:
 		return "NUMERIC"
-	case qvalue.QValueKindINET:
+	case types.QValueKindINET:
 		return "INET"
-	case qvalue.QValueKindCIDR:
+	case types.QValueKindCIDR:
 		return "CIDR"
-	case qvalue.QValueKindMacaddr:
+	case types.QValueKindMacaddr:
 		return "MACADDR"
-	case qvalue.QValueKindArrayInt16:
+	case types.QValueKindArrayInt16:
 		return "SMALLINT[]"
-	case qvalue.QValueKindArrayInt32:
+	case types.QValueKindArrayInt32:
 		return "INTEGER[]"
-	case qvalue.QValueKindArrayInt64:
+	case types.QValueKindArrayInt64:
 		return "BIGINT[]"
-	case qvalue.QValueKindArrayFloat32:
+	case types.QValueKindArrayFloat32:
 		return "REAL[]"
-	case qvalue.QValueKindArrayFloat64:
+	case types.QValueKindArrayFloat64:
 		return "DOUBLE PRECISION[]"
-	case qvalue.QValueKindArrayDate:
+	case types.QValueKindArrayDate:
 		return "DATE[]"
-	case qvalue.QValueKindArrayTimestamp:
+	case types.QValueKindArrayTimestamp:
 		return "TIMESTAMP[]"
-	case qvalue.QValueKindArrayTimestampTZ:
+	case types.QValueKindArrayTimestampTZ:
 		return "TIMESTAMPTZ[]"
-	case qvalue.QValueKindArrayBoolean:
+	case types.QValueKindArrayBoolean:
 		return "BOOLEAN[]"
-	case qvalue.QValueKindArrayString, qvalue.QValueKindArrayEnum:
+	case types.QValueKindArrayString, types.QValueKindArrayEnum:
 		return "TEXT[]"
-	case qvalue.QValueKindArrayJSON:
+	case types.QValueKindArrayJSON:
 		return "JSON[]"
-	case qvalue.QValueKindArrayJSONB:
+	case types.QValueKindArrayJSONB:
 		return "JSONB[]"
-	case qvalue.QValueKindGeography:
+	case types.QValueKindGeography:
 		return "GEOGRAPHY"
-	case qvalue.QValueKindGeometry:
+	case types.QValueKindGeometry:
 		return "GEOMETRY"
-	case qvalue.QValueKindPoint:
+	case types.QValueKindPoint:
 		return "POINT"
 	default:
 		return "TEXT"
 	}
 }
 
-func parseJSON(value any, isArray bool) (qvalue.QValue, error) {
+func parseJSON(value any, isArray bool) (types.QValue, error) {
 	jsonVal, err := json.Marshal(value)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
-	return qvalue.QValueJSON{Val: string(jsonVal), IsArray: isArray}, nil
+	return types.QValueJSON{Val: string(jsonVal), IsArray: isArray}, nil
 }
 
 func parseUUID(value any) (uuid.UUID, error) {
@@ -259,7 +259,7 @@ func parseUUID(value any) (uuid.UUID, error) {
 	}
 }
 
-func parseUUIDArray(value any) (qvalue.QValue, error) {
+func parseUUIDArray(value any) (types.QValue, error) {
 	switch v := value.(type) {
 	case []string:
 		uuids := make([]uuid.UUID, 0, len(v))
@@ -270,15 +270,15 @@ func parseUUIDArray(value any) (qvalue.QValue, error) {
 			}
 			uuids = append(uuids, id)
 		}
-		return qvalue.QValueArrayUUID{Val: uuids}, nil
+		return types.QValueArrayUUID{Val: uuids}, nil
 	case [][16]byte:
 		uuids := make([]uuid.UUID, 0, len(v))
 		for _, v := range v {
 			uuids = append(uuids, uuid.UUID(v))
 		}
-		return qvalue.QValueArrayUUID{Val: uuids}, nil
+		return types.QValueArrayUUID{Val: uuids}, nil
 	case []uuid.UUID:
-		return qvalue.QValueArrayUUID{Val: v}, nil
+		return types.QValueArrayUUID{Val: v}, nil
 	case []any:
 		uuids := make([]uuid.UUID, 0, len(v))
 		for _, v := range v {
@@ -288,13 +288,13 @@ func parseUUIDArray(value any) (qvalue.QValue, error) {
 			}
 			uuids = append(uuids, id)
 		}
-		return qvalue.QValueArrayUUID{Val: uuids}, nil
+		return types.QValueArrayUUID{Val: uuids}, nil
 	default:
 		return nil, fmt.Errorf("unsupported type for UUID array: %T", value)
 	}
 }
 
-func convertToArray[T any](kind qvalue.QValueKind, value any) ([]T, error) {
+func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 	switch v := value.(type) {
 	case pgtype.Array[T]:
 		if v.Valid {
@@ -310,28 +310,28 @@ func convertToArray[T any](kind qvalue.QValueKind, value any) ([]T, error) {
 
 func (c *PostgresConnector) parseFieldFromPostgresOID(
 	oid uint32, value any, customTypeMapping map[uint32]shared.CustomDataType,
-) (qvalue.QValue, error) {
+) (types.QValue, error) {
 	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping)
 	if value == nil {
-		return qvalue.QValueNull(qvalueKind), nil
+		return types.QValueNull(qvalueKind), nil
 	}
 
 	switch qvalueKind {
-	case qvalue.QValueKindTimestamp:
+	case types.QValueKindTimestamp:
 		switch val := value.(type) {
 		case time.Time:
-			return qvalue.QValueTimestamp{Val: val}, nil
+			return types.QValueTimestamp{Val: val}, nil
 		case pgtype.InfinityModifier:
-			return qvalue.QValueNull(qvalueKind), nil
+			return types.QValueNull(qvalueKind), nil
 		}
-	case qvalue.QValueKindTimestampTZ:
+	case types.QValueKindTimestampTZ:
 		switch val := value.(type) {
 		case time.Time:
-			return qvalue.QValueTimestampTZ{Val: val}, nil
+			return types.QValueTimestampTZ{Val: val}, nil
 		case pgtype.InfinityModifier:
-			return qvalue.QValueNull(qvalueKind), nil
+			return types.QValueNull(qvalueKind), nil
 		}
-	case qvalue.QValueKindInterval:
+	case types.QValueKindInterval:
 		intervalObject := value.(pgtype.Interval)
 		var interval datatypes.PeerDBInterval
 		interval.Hours = int(intervalObject.Microseconds / 3600000000)
@@ -351,8 +351,8 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return nil, fmt.Errorf("invalid interval: %v", value)
 		}
 
-		return qvalue.QValueString{Val: string(intervalJSON)}, nil
-	case qvalue.QValueKindTSTZRange:
+		return types.QValueString{Val: string(intervalJSON)}, nil
+	case types.QValueKindTSTZRange:
 		tstzrangeObject := value.(pgtype.Range[any])
 		lowerBoundType := tstzrangeObject.LowerType
 		upperBoundType := tstzrangeObject.UpperType
@@ -376,21 +376,21 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		}
 		tstzrangeStr := fmt.Sprintf("%s%v,%v%s",
 			lowerBracket, lowerTime, upperTime, upperBracket)
-		return qvalue.QValueTSTZRange{Val: tstzrangeStr}, nil
-	case qvalue.QValueKindDate:
+		return types.QValueTSTZRange{Val: tstzrangeStr}, nil
+	case types.QValueKindDate:
 		switch val := value.(type) {
 		case time.Time:
-			return qvalue.QValueDate{Val: val}, nil
+			return types.QValueDate{Val: val}, nil
 		case pgtype.InfinityModifier:
-			return qvalue.QValueNull(qvalueKind), nil
+			return types.QValueNull(qvalueKind), nil
 		}
-	case qvalue.QValueKindTime:
+	case types.QValueKindTime:
 		timeVal := value.(pgtype.Time)
 		if timeVal.Valid {
 			// 86399999999 to prevent 24:00:00
-			return qvalue.QValueTime{Val: time.UnixMicro(min(timeVal.Microseconds, 86399999999))}, nil
+			return types.QValueTime{Val: time.UnixMicro(min(timeVal.Microseconds, 86399999999))}, nil
 		}
-	case qvalue.QValueKindTimeTZ:
+	case types.QValueKindTimeTZ:
 		timeVal := value.(string)
 		// edge case, Postgres supports this extreme value for time
 		timeVal = strings.Replace(timeVal, "24:00:00.000000", "23:59:59.999999", 1)
@@ -411,87 +411,87 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse time: %w", err)
 		}
-		return qvalue.QValueTimeTZ{Val: t.AddDate(1970, 0, 0)}, nil
-	case qvalue.QValueKindBoolean:
+		return types.QValueTimeTZ{Val: t.AddDate(1970, 0, 0)}, nil
+	case types.QValueKindBoolean:
 		boolVal := value.(bool)
-		return qvalue.QValueBoolean{Val: boolVal}, nil
-	case qvalue.QValueKindJSON, qvalue.QValueKindJSONB:
+		return types.QValueBoolean{Val: boolVal}, nil
+	case types.QValueKindJSON, types.QValueKindJSONB:
 		tmp, err := parseJSON(value, false)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON: %w", err)
 		}
 		return tmp, nil
-	case qvalue.QValueKindArrayJSON, qvalue.QValueKindArrayJSONB:
+	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
 		tmp, err := parseJSON(value, true)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse JSON Array: %w", err)
 		}
 		return tmp, nil
-	case qvalue.QValueKindInt16:
+	case types.QValueKindInt16:
 		intVal := value.(int16)
-		return qvalue.QValueInt16{Val: intVal}, nil
-	case qvalue.QValueKindInt32:
+		return types.QValueInt16{Val: intVal}, nil
+	case types.QValueKindInt32:
 		intVal := value.(int32)
-		return qvalue.QValueInt32{Val: intVal}, nil
-	case qvalue.QValueKindInt64:
+		return types.QValueInt32{Val: intVal}, nil
+	case types.QValueKindInt64:
 		intVal := value.(int64)
-		return qvalue.QValueInt64{Val: intVal}, nil
-	case qvalue.QValueKindFloat32:
+		return types.QValueInt64{Val: intVal}, nil
+	case types.QValueKindFloat32:
 		floatVal := value.(float32)
-		return qvalue.QValueFloat32{Val: floatVal}, nil
-	case qvalue.QValueKindFloat64:
+		return types.QValueFloat32{Val: floatVal}, nil
+	case types.QValueKindFloat64:
 		floatVal := value.(float64)
-		return qvalue.QValueFloat64{Val: floatVal}, nil
-	case qvalue.QValueKindQChar:
-		return qvalue.QValueQChar{Val: uint8(value.(rune))}, nil
-	case qvalue.QValueKindString:
+		return types.QValueFloat64{Val: floatVal}, nil
+	case types.QValueKindQChar:
+		return types.QValueQChar{Val: uint8(value.(rune))}, nil
+	case types.QValueKindString:
 		// handling all unsupported types with strings as well for now.
-		return qvalue.QValueString{Val: fmt.Sprint(value)}, nil
-	case qvalue.QValueKindEnum:
-		return qvalue.QValueEnum{Val: fmt.Sprint(value)}, nil
-	case qvalue.QValueKindUUID:
+		return types.QValueString{Val: fmt.Sprint(value)}, nil
+	case types.QValueKindEnum:
+		return types.QValueEnum{Val: fmt.Sprint(value)}, nil
+	case types.QValueKindUUID:
 		tmp, err := parseUUID(value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse UUID: %w", err)
 		}
-		return qvalue.QValueUUID{Val: tmp}, nil
-	case qvalue.QValueKindArrayUUID:
+		return types.QValueUUID{Val: tmp}, nil
+	case types.QValueKindArrayUUID:
 		tmp, err := parseUUIDArray(value)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse UUID array: %w", err)
 		}
 		return tmp, nil
-	case qvalue.QValueKindINET:
+	case types.QValueKindINET:
 		switch v := value.(type) {
 		case string:
-			return qvalue.QValueINET{Val: v}, nil
+			return types.QValueINET{Val: v}, nil
 		case netip.Prefix:
-			return qvalue.QValueINET{Val: v.String()}, nil
+			return types.QValueINET{Val: v.String()}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse INET: %v", v)
 		}
-	case qvalue.QValueKindCIDR:
+	case types.QValueKindCIDR:
 		switch v := value.(type) {
 		case string:
-			return qvalue.QValueCIDR{Val: v}, nil
+			return types.QValueCIDR{Val: v}, nil
 		case netip.Prefix:
-			return qvalue.QValueCIDR{Val: v.String()}, nil
+			return types.QValueCIDR{Val: v.String()}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse CIDR: %v", value)
 		}
-	case qvalue.QValueKindMacaddr:
+	case types.QValueKindMacaddr:
 		switch v := value.(type) {
 		case string:
-			return qvalue.QValueMacaddr{Val: v}, nil
+			return types.QValueMacaddr{Val: v}, nil
 		case net.HardwareAddr:
-			return qvalue.QValueMacaddr{Val: v.String()}, nil
+			return types.QValueMacaddr{Val: v.String()}, nil
 		default:
 			return nil, fmt.Errorf("failed to parse MACADDR: %v %T", value, v)
 		}
-	case qvalue.QValueKindBytes:
+	case types.QValueKindBytes:
 		rawBytes := value.([]byte)
-		return qvalue.QValueBytes{Val: rawBytes}, nil
-	case qvalue.QValueKindNumeric:
+		return types.QValueBytes{Val: rawBytes}, nil
+	case types.QValueKindNumeric:
 		numVal := value.(pgtype.Numeric)
 		if numVal.Valid {
 			num, err := numericToDecimal(numVal)
@@ -500,103 +500,103 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			}
 			return num, nil
 		}
-	case qvalue.QValueKindArrayFloat32:
+	case types.QValueKindArrayFloat32:
 		a, err := convertToArray[float32](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		return qvalue.QValueArrayFloat32{Val: a}, nil
-	case qvalue.QValueKindArrayFloat64:
+		return types.QValueArrayFloat32{Val: a}, nil
+	case types.QValueKindArrayFloat64:
 		a, err := convertToArray[float64](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		return qvalue.QValueArrayFloat64{Val: a}, nil
-	case qvalue.QValueKindArrayInt16:
+		return types.QValueArrayFloat64{Val: a}, nil
+	case types.QValueKindArrayInt16:
 		a, err := convertToArray[int16](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		return qvalue.QValueArrayInt16{Val: a}, nil
-	case qvalue.QValueKindArrayInt32:
+		return types.QValueArrayInt16{Val: a}, nil
+	case types.QValueKindArrayInt32:
 		a, err := convertToArray[int32](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		return qvalue.QValueArrayInt32{Val: a}, nil
-	case qvalue.QValueKindArrayInt64:
+		return types.QValueArrayInt32{Val: a}, nil
+	case types.QValueKindArrayInt64:
 		a, err := convertToArray[int64](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		return qvalue.QValueArrayInt64{Val: a}, nil
-	case qvalue.QValueKindArrayDate, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ:
+		return types.QValueArrayInt64{Val: a}, nil
+	case types.QValueKindArrayDate, types.QValueKindArrayTimestamp, types.QValueKindArrayTimestampTZ:
 		a, err := convertToArray[time.Time](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
 		switch qvalueKind {
-		case qvalue.QValueKindArrayDate:
-			return qvalue.QValueArrayDate{Val: a}, nil
-		case qvalue.QValueKindArrayTimestamp:
-			return qvalue.QValueArrayTimestamp{Val: a}, nil
-		case qvalue.QValueKindArrayTimestampTZ:
-			return qvalue.QValueArrayTimestampTZ{Val: a}, nil
+		case types.QValueKindArrayDate:
+			return types.QValueArrayDate{Val: a}, nil
+		case types.QValueKindArrayTimestamp:
+			return types.QValueArrayTimestamp{Val: a}, nil
+		case types.QValueKindArrayTimestampTZ:
+			return types.QValueArrayTimestampTZ{Val: a}, nil
 		}
-	case qvalue.QValueKindArrayBoolean:
+	case types.QValueKindArrayBoolean:
 		a, err := convertToArray[bool](qvalueKind, value)
 		if err != nil {
 			return nil, err
 		}
-		return qvalue.QValueArrayBoolean{Val: a}, nil
-	case qvalue.QValueKindArrayString:
+		return types.QValueArrayBoolean{Val: a}, nil
+	case types.QValueKindArrayString:
 		if str, ok := value.(string); ok {
 			delim := byte(',')
 			if typeData, ok := customTypeMapping[oid]; ok {
 				delim = typeData.Delim
 			}
-			return qvalue.QValueArrayString{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
+			return types.QValueArrayString{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
 		} else {
 			a, err := convertToArray[string](qvalueKind, value)
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueArrayString{Val: a}, nil
+			return types.QValueArrayString{Val: a}, nil
 		}
-	case qvalue.QValueKindArrayEnum:
+	case types.QValueKindArrayEnum:
 		if str, ok := value.(string); ok {
 			delim := byte(',')
 			if typeData, ok := customTypeMapping[oid]; ok {
 				delim = typeData.Delim
 			}
-			return qvalue.QValueArrayEnum{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
+			return types.QValueArrayEnum{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
 		} else {
 			a, err := convertToArray[string](qvalueKind, value)
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueArrayEnum{Val: a}, nil
+			return types.QValueArrayEnum{Val: a}, nil
 		}
-	case qvalue.QValueKindPoint:
+	case types.QValueKindPoint:
 		coord := value.(pgtype.Point).P
-		return qvalue.QValuePoint{
+		return types.QValuePoint{
 			Val: fmt.Sprintf("POINT(%f %f)", coord.X, coord.Y),
 		}, nil
-	case qvalue.QValueKindHStore:
-		return qvalue.QValueHStore{Val: fmt.Sprint(value)}, nil
-	case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
+	case types.QValueKindHStore:
+		return types.QValueHStore{Val: fmt.Sprint(value)}, nil
+	case types.QValueKindGeography, types.QValueKindGeometry:
 		wkbString, ok := value.(string)
 		wkt, err := datatypes.GeoValidate(wkbString)
 		if err != nil || !ok {
-			return qvalue.QValueNull(qvalue.QValueKindGeography), nil
-		} else if qvalueKind == qvalue.QValueKindGeography {
-			return qvalue.QValueGeography{Val: wkt}, nil
+			return types.QValueNull(types.QValueKindGeography), nil
+		} else if qvalueKind == types.QValueKindGeography {
+			return types.QValueGeography{Val: wkt}, nil
 		} else {
-			return qvalue.QValueGeometry{Val: wkt}, nil
+			return types.QValueGeometry{Val: wkt}, nil
 		}
 	default:
 		if textVal, ok := value.(string); ok {
-			return qvalue.QValueString{Val: textVal}, nil
+			return types.QValueString{Val: textVal}, nil
 		}
 	}
 
@@ -604,40 +604,40 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
 }
 
-func numericToDecimal(numVal pgtype.Numeric) (qvalue.QValue, error) {
+func numericToDecimal(numVal pgtype.Numeric) (types.QValue, error) {
 	switch {
 	case !numVal.Valid:
-		return qvalue.QValueNull(qvalue.QValueKindNumeric), errors.New("invalid numeric")
+		return types.QValueNull(types.QValueKindNumeric), errors.New("invalid numeric")
 	case numVal.NaN, numVal.InfinityModifier == pgtype.Infinity,
 		numVal.InfinityModifier == pgtype.NegativeInfinity:
-		return qvalue.QValueNull(qvalue.QValueKindNumeric), nil
+		return types.QValueNull(types.QValueKindNumeric), nil
 	default:
-		return qvalue.QValueNumeric{Val: decimal.NewFromBigInt(numVal.Int, numVal.Exp)}, nil
+		return types.QValueNumeric{Val: decimal.NewFromBigInt(numVal.Int, numVal.Exp)}, nil
 	}
 }
 
-func customTypeToQKind(typeData shared.CustomDataType) qvalue.QValueKind {
+func customTypeToQKind(typeData shared.CustomDataType) types.QValueKind {
 	if typeData.Type == 'e' {
 		if typeData.Delim != 0 {
-			return qvalue.QValueKindArrayEnum
+			return types.QValueKindArrayEnum
 		} else {
-			return qvalue.QValueKindEnum
+			return types.QValueKindEnum
 		}
 	}
 
 	if typeData.Delim != 0 {
-		return qvalue.QValueKindArrayString
+		return types.QValueKindArrayString
 	}
 
 	switch typeData.Name {
 	case "geometry":
-		return qvalue.QValueKindGeometry
+		return types.QValueKindGeometry
 	case "geography":
-		return qvalue.QValueKindGeography
+		return types.QValueKindGeography
 	case "hstore":
-		return qvalue.QValueKindHStore
+		return types.QValueKindHStore
 	default:
-		return qvalue.QValueKindString
+		return types.QValueKindString
 	}
 }
 

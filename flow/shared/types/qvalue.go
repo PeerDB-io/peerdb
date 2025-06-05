@@ -1,4 +1,4 @@
-package qvalue
+package types
 
 import (
 	"time"

@@ -16,9 +16,9 @@ import (
 	avroutils "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRepAvroSyncMethod struct {
@@ -226,7 +226,7 @@ func DefineAvroSchema(dstTableName string,
 	softDeleteCol string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]*avro.Field, 0, len(dstTableMetadata.Schema))
-	qFields := make([]qvalue.QField, 0, len(avroFields))
+	qFields := make([]types.QField, 0, len(avroFields))
 	for _, bqField := range dstTableMetadata.Schema {
 		if bqField.Name == syncedAtCol || bqField.Name == softDeleteCol {
 			continue
@@ -251,7 +251,7 @@ func DefineAvroSchema(dstTableName string,
 }
 
 func GetAvroType(bqField *bigquery.FieldSchema) (avro.Schema, error) {
-	avroNumericPrecision, avroNumericScale := _qvalue.DetermineNumericSettingForDWH(
+	avroNumericPrecision, avroNumericScale := qvalue.DetermineNumericSettingForDWH(
 		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY)
 
 	considerRepeated := func(typ avro.Type, repeated bool) avro.Schema {

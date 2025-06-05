@@ -13,7 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type SnowflakeTestHelper struct {
@@ -138,11 +138,11 @@ func (s *SnowflakeTestHelper) RunIntQuery(ctx context.Context, query string) (in
 	}
 
 	switch v := rec[0].(type) {
-	case qvalue.QValueInt32:
+	case types.QValueInt32:
 		return int(v.Val), nil
-	case qvalue.QValueInt64:
+	case types.QValueInt64:
 		return int(v.Val), nil
-	case qvalue.QValueNumeric:
+	case types.QValueNumeric:
 		return int(v.Val.IntPart()), nil
 	default:
 		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec[0].Kind())
@@ -157,7 +157,7 @@ func (s *SnowflakeTestHelper) checkSyncedAt(ctx context.Context, query string) e
 
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
-			_, ok := entry.(qvalue.QValueTimestamp)
+			_, ok := entry.(types.QValueTimestamp)
 			if !ok {
 				return errors.New("synced_at column failed: _PEERDB_SYNCED_AT is not a timestamp")
 			}
@@ -175,7 +175,7 @@ func (s *SnowflakeTestHelper) checkIsDeleted(ctx context.Context, query string) 
 
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
-			_, ok := entry.(qvalue.QValueBoolean)
+			_, ok := entry.(types.QValueBoolean)
 			if !ok {
 				return errors.New("is_deleted column failed: _PEERDB_IS_DELETED is not a boolean")
 			}
