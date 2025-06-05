@@ -585,13 +585,12 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		if items, ok := value.([]any); ok {
 			a := make([]string, len(items))
 			success := true
-		loop:
 			for i, item := range items {
 				var numeric pgtype.Numeric
 				var ok bool
 				if numeric, ok = item.(pgtype.Numeric); !ok {
 					success = false
-					break loop
+					break
 				}
 				bytes, _ := numeric.MarshalJSON()
 				a[i] = shared.UnsafeFastReadOnlyBytesToString(bytes)
