@@ -497,7 +497,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Types_SF() {
 	'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
 	'{true, false}'::boolean[],
 	'{1,2}'::smallint[],
-	'{1.2, 1.23}::numeric(16, 5)[], '{1.2, 1.23}::numeric[]';
+	'{1.2, 1.23}'::numeric(16, 5)[], '{1.2, 1.23}'::numeric[];
 	`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
