@@ -915,6 +915,10 @@ func (s Suite) TestQRep() {
 	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
 
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualified)))
+
+	e2e.EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tblName, "id,val")
 	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
 		FlowJobName:     qrepConfig.FlowJobName,
 		IncludeFlowInfo: true,
@@ -926,8 +930,4 @@ func (s Suite) TestQRep() {
 	require.Len(s.t, qStatus.Partitions, 1)
 	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsInPartition)
 	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsSynced)
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualified)))
-
-	e2e.EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tblName, "id,val")
 }

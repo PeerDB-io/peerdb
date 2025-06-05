@@ -1562,10 +1562,17 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, srcFullName)))
 
 	for i := 1; i <= 100; i++ {
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
+		if _, ok := s.source.(*e2e.PostgresSource); ok {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
+			VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL '%d seconds')`,
+					srcFullName, i, i, i)))
+		} else {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
 			VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`,
-				srcFullName, i, i, i)))
+					srcFullName, i, i, i)))
+		}
 	}
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
