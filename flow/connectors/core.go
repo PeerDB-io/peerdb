@@ -199,7 +199,8 @@ type CDCSyncConnectorCore interface {
 	// This could involve adding or dropping multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
 	ReplayTableSchemaDeltas(
-		ctx context.Context, env map[string]string, flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+		ctx context.Context, env map[string]string, flowJobName string,
+		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
 	) error
 }
 

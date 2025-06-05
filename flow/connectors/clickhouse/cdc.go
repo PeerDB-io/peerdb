@@ -101,7 +101,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}
 	warnings := numericTruncator.Warnings()
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -133,6 +133,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	env map[string]string,
 	flowJobName string,
+	tableMappings []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	if len(schemaDeltas) == 0 {
@@ -144,6 +145,18 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			continue
 		}
 
+		var tm *protos.TableMapping
+		for _, tableMapping := range tableMappings {
+			if tableMapping.SourceTableIdentifier == schemaDelta.SrcTableName {
+				tm = tableMapping
+				break
+			}
+		}
+		onCluster := ""
+		if tm != nil && tm.Cluster != "" {
+			onCluster = " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(tm.Cluster)
+		}
+
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			clickHouseColType, err := qvalue.ToDWHColumnType(
@@ -152,17 +165,30 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
+
+			if tm != nil && tm.Distributed {
+				if err := c.execWithLogging(ctx,
+					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
+						peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName+"_shard"), onCluster,
+						peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
+				); err != nil {
+					return fmt.Errorf("failed to add column %s for table shards %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
+				}
+			}
+
 			if err := c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s",
 					peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName),
+					peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName), onCluster,
 					peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
 			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
 			}
 			c.logger.Info(
-				fmt.Sprintf("[schema delta replay] added column %s with data type %s", addedColumn.Name, clickHouseColType),
-				"destination table name", schemaDelta.DstTableName,
-				"source table name", schemaDelta.SrcTableName)
+				"[schema delta replay] added column",
+				slog.String("column", addedColumn.Name), slog.String("type", clickHouseColType),
+				slog.String("destination table name", schemaDelta.DstTableName), slog.String("source table name", schemaDelta.SrcTableName),
+			)
 		}
 	}
 
