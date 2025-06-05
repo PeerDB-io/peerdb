@@ -12,8 +12,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRepQueryExecutor struct {
@@ -70,14 +70,14 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) qvalue.QRecordSchema {
-	qfields := make([]qvalue.QField, len(fds))
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) types.QRecordSchema {
+	qfields := make([]types.QField, len(fds))
 	for i, fd := range fds {
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping)
 		// there isn't a way to know if a column is nullable or not
-		if ctype == qvalue.QValueKindNumeric {
+		if ctype == types.QValueKindNumeric {
 			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
-			qfields[i] = qvalue.QField{
+			qfields[i] = types.QField{
 				Name:      fd.Name,
 				Type:      ctype,
 				Nullable:  true,
@@ -85,14 +85,14 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 				Scale:     scale,
 			}
 		} else {
-			qfields[i] = qvalue.QField{
+			qfields[i] = types.QField{
 				Name:     fd.Name,
 				Type:     ctype,
 				Nullable: true,
 			}
 		}
 	}
-	return qvalue.NewQRecordSchema(qfields)
+	return types.NewQRecordSchema(qfields)
 }
 
 func (qe *QRepQueryExecutor) processRowsStream(
@@ -308,9 +308,9 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 func (qe *QRepQueryExecutor) mapRowToQRecord(
 	row pgx.Rows,
 	fds []pgconn.FieldDescription,
-) ([]qvalue.QValue, error) {
+) ([]types.QValue, error) {
 	// make vals an empty array of QValue of size len(fds)
-	record := make([]qvalue.QValue, len(fds))
+	record := make([]types.QValue, len(fds))
 
 	values, err := row.Values()
 	if err != nil {

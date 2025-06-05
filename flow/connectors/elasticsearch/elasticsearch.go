@@ -24,8 +24,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -103,7 +103,7 @@ func recordItemsProcessor(items model.RecordItems) ([]byte, error) {
 	qRecordJsonMap := make(map[string]any)
 
 	for key, val := range items.ColToVal {
-		if r, ok := val.(qvalue.QValueJSON); ok { // JSON is stored as a string, fix that
+		if r, ok := val.(types.QValueJSON); ok { // JSON is stored as a string, fix that
 			qRecordJsonMap[key] = json.RawMessage(
 				shared.UnsafeFastStringToReadOnlyBytes(r.Val))
 		} else {

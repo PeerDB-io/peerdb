@@ -16,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -137,8 +138,9 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			clickHouseColType, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(
-				ctx, env, protos.DBType_CLICKHOUSE, addedColumn, schemaDelta.NullableEnabled,
+			qvKind := types.QValueKind(addedColumn.Type)
+			clickHouseColType, err := qvalue.ToDWHColumnType(
+				ctx, qvKind, env, protos.DBType_CLICKHOUSE, addedColumn, schemaDelta.NullableEnabled,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)

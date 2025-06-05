@@ -20,7 +20,7 @@ import (
 	e2e_s3 "github.com/PeerDB-io/peerdb/flow/e2e/s3"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type ClickHouseSuite struct {
@@ -134,19 +134,19 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	defer rows.Close()
 
 	batch := &model.QRecordBatch{}
-	types := rows.ColumnTypes()
-	row := make([]any, 0, len(types))
-	tableSchema, err := connclickhouse.GetTableSchemaForTable(&protos.TableMapping{SourceTableIdentifier: table}, types)
+	colTypes := rows.ColumnTypes()
+	row := make([]any, 0, len(colTypes))
+	tableSchema, err := connclickhouse.GetTableSchemaForTable(&protos.TableMapping{SourceTableIdentifier: table}, colTypes)
 	if err != nil {
 		return nil, err
 	}
 
-	for idx, ty := range types {
+	for idx, ty := range colTypes {
 		fieldDesc := tableSchema.Columns[idx]
 		row = append(row, reflect.New(ty.ScanType()).Interface())
-		batch.Schema.Fields = append(batch.Schema.Fields, qvalue.QField{
+		batch.Schema.Fields = append(batch.Schema.Fields, types.QField{
 			Name:      ty.Name(),
-			Type:      qvalue.QValueKind(fieldDesc.Type),
+			Type:      types.QValueKind(fieldDesc.Type),
 			Precision: 0,
 			Scale:     0,
 			Nullable:  fieldDesc.Nullable,
@@ -157,135 +157,135 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 		if err := rows.Scan(row...); err != nil {
 			return nil, err
 		}
-		qrow := make([]qvalue.QValue, 0, len(row))
+		qrow := make([]types.QValue, 0, len(row))
 		for _, val := range row {
 			switch v := val.(type) {
 			case **string:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindString))
+					qrow = append(qrow, types.QValueNull(types.QValueKindString))
 				} else {
-					qrow = append(qrow, qvalue.QValueString{Val: **v})
+					qrow = append(qrow, types.QValueString{Val: **v})
 				}
 			case *string:
-				qrow = append(qrow, qvalue.QValueString{Val: *v})
+				qrow = append(qrow, types.QValueString{Val: *v})
 			case *[]string:
-				qrow = append(qrow, qvalue.QValueArrayString{Val: *v})
+				qrow = append(qrow, types.QValueArrayString{Val: *v})
 			case **int8:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt8))
+					qrow = append(qrow, types.QValueNull(types.QValueKindInt8))
 				} else {
-					qrow = append(qrow, qvalue.QValueInt8{Val: **v})
+					qrow = append(qrow, types.QValueInt8{Val: **v})
 				}
 			case *int8:
-				qrow = append(qrow, qvalue.QValueInt8{Val: *v})
+				qrow = append(qrow, types.QValueInt8{Val: *v})
 			case **int16:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt16))
+					qrow = append(qrow, types.QValueNull(types.QValueKindInt16))
 				} else {
-					qrow = append(qrow, qvalue.QValueInt16{Val: **v})
+					qrow = append(qrow, types.QValueInt16{Val: **v})
 				}
 			case *int16:
-				qrow = append(qrow, qvalue.QValueInt16{Val: *v})
+				qrow = append(qrow, types.QValueInt16{Val: *v})
 			case **int32:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt32))
+					qrow = append(qrow, types.QValueNull(types.QValueKindInt32))
 				} else {
-					qrow = append(qrow, qvalue.QValueInt32{Val: **v})
+					qrow = append(qrow, types.QValueInt32{Val: **v})
 				}
 			case *int32:
-				qrow = append(qrow, qvalue.QValueInt32{Val: *v})
+				qrow = append(qrow, types.QValueInt32{Val: *v})
 			case *[]int32:
-				qrow = append(qrow, qvalue.QValueArrayInt32{Val: *v})
+				qrow = append(qrow, types.QValueArrayInt32{Val: *v})
 			case **int64:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindInt64))
+					qrow = append(qrow, types.QValueNull(types.QValueKindInt64))
 				} else {
-					qrow = append(qrow, qvalue.QValueInt64{Val: **v})
+					qrow = append(qrow, types.QValueInt64{Val: **v})
 				}
 			case *int64:
-				qrow = append(qrow, qvalue.QValueInt64{Val: *v})
+				qrow = append(qrow, types.QValueInt64{Val: *v})
 			case **time.Time:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindTimestamp))
+					qrow = append(qrow, types.QValueNull(types.QValueKindTimestamp))
 				} else {
-					qrow = append(qrow, qvalue.QValueTimestamp{Val: **v})
+					qrow = append(qrow, types.QValueTimestamp{Val: **v})
 				}
 			case **uint8:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindUInt8))
+					qrow = append(qrow, types.QValueNull(types.QValueKindUInt8))
 				} else {
-					qrow = append(qrow, qvalue.QValueUInt8{Val: **v})
+					qrow = append(qrow, types.QValueUInt8{Val: **v})
 				}
 			case *uint8:
-				qrow = append(qrow, qvalue.QValueUInt8{Val: *v})
+				qrow = append(qrow, types.QValueUInt8{Val: *v})
 			case **uint16:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindUInt16))
+					qrow = append(qrow, types.QValueNull(types.QValueKindUInt16))
 				} else {
-					qrow = append(qrow, qvalue.QValueUInt16{Val: **v})
+					qrow = append(qrow, types.QValueUInt16{Val: **v})
 				}
 			case *uint16:
-				qrow = append(qrow, qvalue.QValueUInt16{Val: *v})
+				qrow = append(qrow, types.QValueUInt16{Val: *v})
 			case **uint32:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindUInt32))
+					qrow = append(qrow, types.QValueNull(types.QValueKindUInt32))
 				} else {
-					qrow = append(qrow, qvalue.QValueUInt32{Val: **v})
+					qrow = append(qrow, types.QValueUInt32{Val: **v})
 				}
 			case *uint32:
-				qrow = append(qrow, qvalue.QValueUInt32{Val: *v})
+				qrow = append(qrow, types.QValueUInt32{Val: *v})
 			case **uint64:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindUInt64))
+					qrow = append(qrow, types.QValueNull(types.QValueKindUInt64))
 				} else {
-					qrow = append(qrow, qvalue.QValueUInt64{Val: **v})
+					qrow = append(qrow, types.QValueUInt64{Val: **v})
 				}
 			case *uint64:
-				qrow = append(qrow, qvalue.QValueUInt64{Val: *v})
+				qrow = append(qrow, types.QValueUInt64{Val: *v})
 			case *time.Time:
-				qrow = append(qrow, qvalue.QValueTimestamp{Val: *v})
+				qrow = append(qrow, types.QValueTimestamp{Val: *v})
 			case **decimal.Decimal:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindNumeric))
+					qrow = append(qrow, types.QValueNull(types.QValueKindNumeric))
 				} else {
-					qrow = append(qrow, qvalue.QValueNumeric{Val: **v})
+					qrow = append(qrow, types.QValueNumeric{Val: **v})
 				}
 			case *decimal.Decimal:
-				qrow = append(qrow, qvalue.QValueNumeric{Val: *v})
+				qrow = append(qrow, types.QValueNumeric{Val: *v})
 			case **bool:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindBoolean))
+					qrow = append(qrow, types.QValueNull(types.QValueKindBoolean))
 				} else {
-					qrow = append(qrow, qvalue.QValueBoolean{Val: **v})
+					qrow = append(qrow, types.QValueBoolean{Val: **v})
 				}
 			case *bool:
-				qrow = append(qrow, qvalue.QValueBoolean{Val: *v})
+				qrow = append(qrow, types.QValueBoolean{Val: *v})
 			case **float32:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindFloat32))
+					qrow = append(qrow, types.QValueNull(types.QValueKindFloat32))
 				} else {
-					qrow = append(qrow, qvalue.QValueFloat32{Val: **v})
+					qrow = append(qrow, types.QValueFloat32{Val: **v})
 				}
 			case *float32:
-				qrow = append(qrow, qvalue.QValueFloat32{Val: *v})
+				qrow = append(qrow, types.QValueFloat32{Val: *v})
 			case *[]float32:
-				qrow = append(qrow, qvalue.QValueArrayFloat32{Val: *v})
+				qrow = append(qrow, types.QValueArrayFloat32{Val: *v})
 			case **float64:
 				if *v == nil {
-					qrow = append(qrow, qvalue.QValueNull(qvalue.QValueKindFloat64))
+					qrow = append(qrow, types.QValueNull(types.QValueKindFloat64))
 				} else {
-					qrow = append(qrow, qvalue.QValueFloat64{Val: **v})
+					qrow = append(qrow, types.QValueFloat64{Val: **v})
 				}
 			case *float64:
-				qrow = append(qrow, qvalue.QValueFloat64{Val: *v})
+				qrow = append(qrow, types.QValueFloat64{Val: *v})
 			case *[]float64:
-				qrow = append(qrow, qvalue.QValueArrayFloat64{Val: *v})
+				qrow = append(qrow, types.QValueArrayFloat64{Val: *v})
 			case *uuid.UUID:
-				qrow = append(qrow, qvalue.QValueUUID{Val: *v})
+				qrow = append(qrow, types.QValueUUID{Val: *v})
 			case *[]uuid.UUID:
-				qrow = append(qrow, qvalue.QValueArrayUUID{Val: *v})
+				qrow = append(qrow, types.QValueArrayUUID{Val: *v})
 			default:
-				return nil, fmt.Errorf("cannot convert %T to qvalue", v)
+				return nil, fmt.Errorf("cannot convert %T to types", v)
 			}
 		}
 		batch.Records = append(batch.Records, qrow)

@@ -15,6 +15,7 @@ import (
 	geom "github.com/twpayne/go-geos"
 
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func valueEmpty(value any) bool {
@@ -22,7 +23,7 @@ func valueEmpty(value any) bool {
 		(reflect.TypeOf(value).Kind() == reflect.Slice && reflect.ValueOf(value).Len() == 0)
 }
 
-func Equals(qv QValue, other QValue) bool {
+func Equals(qv types.QValue, other types.QValue) bool {
 	qvValue := qv.Value()
 	otherValue := other.Value()
 	if valueEmpty(qvValue) && valueEmpty(otherValue) {
@@ -30,72 +31,72 @@ func Equals(qv QValue, other QValue) bool {
 	}
 
 	switch q := qv.(type) {
-	case QValueInvalid:
+	case types.QValueInvalid:
 		return true
-	case QValueFloat32:
+	case types.QValueFloat32:
 		float2, ok2 := getFloat32(other.Value())
 		return ok2 && q.Val == float2
-	case QValueFloat64:
+	case types.QValueFloat64:
 		float2, ok2 := getFloat64(other.Value())
 		return ok2 && q.Val == float2
-	case QValueInt8:
+	case types.QValueInt8:
 		int2, ok2 := getInt64(other.Value())
 		return ok2 && int64(q.Val) == int2
-	case QValueInt16:
+	case types.QValueInt16:
 		int2, ok2 := getInt64(other.Value())
 		return ok2 && int64(q.Val) == int2
-	case QValueInt32:
+	case types.QValueInt32:
 		int2, ok2 := getInt64(other.Value())
 		return ok2 && int64(q.Val) == int2
-	case QValueInt64:
+	case types.QValueInt64:
 		int2, ok2 := getInt64(other.Value())
 		return ok2 && q.Val == int2
-	case QValueUInt8:
+	case types.QValueUInt8:
 		int2, ok2 := getUInt64(other.Value())
 		return ok2 && uint64(q.Val) == int2
-	case QValueUInt16:
+	case types.QValueUInt16:
 		int2, ok2 := getUInt64(other.Value())
 		return ok2 && uint64(q.Val) == int2
-	case QValueUInt32:
+	case types.QValueUInt32:
 		int2, ok2 := getUInt64(other.Value())
 		return ok2 && uint64(q.Val) == int2
-	case QValueUInt64:
+	case types.QValueUInt64:
 		int2, ok2 := getUInt64(other.Value())
 		return ok2 && q.Val == int2
-	case QValueBoolean:
-		if otherVal, ok := other.(QValueBoolean); ok {
+	case types.QValueBoolean:
+		if otherVal, ok := other.(types.QValueBoolean); ok {
 			return q.Val == otherVal.Val
 		}
 		return false
-	case QValueQChar:
-		if otherVal, ok := other.(QValueQChar); ok {
+	case types.QValueQChar:
+		if otherVal, ok := other.(types.QValueQChar); ok {
 			return q.Val == otherVal.Val
 		}
 		return false
-	case QValueString:
+	case types.QValueString:
 		return compareString(q.Val, otherValue)
-	case QValueEnum:
+	case types.QValueEnum:
 		return compareString(q.Val, otherValue)
-	case QValueINET:
+	case types.QValueINET:
 		return compareString(q.Val, otherValue)
-	case QValueCIDR:
+	case types.QValueCIDR:
 		return compareString(q.Val, otherValue)
-	case QValueMacaddr:
+	case types.QValueMacaddr:
 		return compareString(q.Val, otherValue)
 	// all internally represented as a Golang time.Time
-	case QValueTimestamp, QValueTimestampTZ:
+	case types.QValueTimestamp, types.QValueTimestampTZ:
 		return compareGoTimestamp(qvValue, otherValue)
-	case QValueTime, QValueTimeTZ:
+	case types.QValueTime, types.QValueTimeTZ:
 		return compareGoTime(qvValue, otherValue)
-	case QValueDate:
+	case types.QValueDate:
 		return compareGoDate(qvValue, otherValue)
-	case QValueNumeric:
+	case types.QValueNumeric:
 		return compareNumeric(q.Val, otherValue)
-	case QValueBytes:
+	case types.QValueBytes:
 		return compareBytes(qvValue, otherValue)
-	case QValueUUID:
+	case types.QValueUUID:
 		return compareUUID(qvValue, otherValue)
-	case QValueJSON:
+	case types.QValueJSON:
 		if otherValue == nil || otherValue == "" {
 			// TODO make this more strict
 			return true
@@ -109,26 +110,26 @@ func Equals(qv QValue, other QValue) bool {
 			return false
 		}
 		return reflect.DeepEqual(a, b)
-	case QValueGeometry:
+	case types.QValueGeometry:
 		return compareGeometry(q.Val, otherValue)
-	case QValueGeography:
+	case types.QValueGeography:
 		return compareGeometry(q.Val, otherValue)
-	case QValueHStore:
+	case types.QValueHStore:
 		return compareHStore(q.Val, otherValue)
-	case QValueArrayInt32, QValueArrayInt16, QValueArrayInt64, QValueArrayFloat32, QValueArrayFloat64:
+	case types.QValueArrayInt32, types.QValueArrayInt16, types.QValueArrayInt64, types.QValueArrayFloat32, types.QValueArrayFloat64:
 		return compareNumericArrays(qvValue, otherValue)
-	case QValueArrayDate:
+	case types.QValueArrayDate:
 		return compareDateArrays(q.Val, otherValue)
-	case QValueArrayTimestamp:
+	case types.QValueArrayTimestamp:
 		return compareTimeArrays(q.Val, otherValue)
-	case QValueArrayTimestampTZ:
+	case types.QValueArrayTimestampTZ:
 		return compareTimeArrays(q.Val, otherValue)
-	case QValueArrayBoolean:
+	case types.QValueArrayBoolean:
 		return compareArrays(q.Val, otherValue)
-	case QValueArrayUUID:
+	case types.QValueArrayUUID:
 		return compareArrays(q.Val, otherValue)
-	case QValueArrayString:
-		if qjson, ok := other.(QValueJSON); ok {
+	case types.QValueArrayString:
+		if qjson, ok := other.(types.QValueJSON); ok {
 			var val []string
 			if err := json.Unmarshal([]byte(qjson.Val), &val); err != nil {
 				return false
@@ -137,8 +138,8 @@ func Equals(qv QValue, other QValue) bool {
 		}
 
 		return compareArrays(q.Val, otherValue)
-	case QValueArrayEnum:
-		if qjson, ok := other.(QValueJSON); ok {
+	case types.QValueArrayEnum:
+		if qjson, ok := other.(types.QValueJSON); ok {
 			var val []string
 			if err := json.Unmarshal([]byte(qjson.Val), &val); err != nil {
 				return false

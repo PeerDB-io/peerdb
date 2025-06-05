@@ -15,10 +15,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type ClickHouseAvroSyncMethod struct {
@@ -150,11 +150,11 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	dstTableName string,
-	schema qvalue.QRecordSchema,
+	schema types.QRecordSchema,
 	columnNameAvroFieldMap map[string]string,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-	destTypeConversions map[string]qvalue.TypeConversion,
+	destTypeConversions map[string]types.TypeConversion,
 ) (*avro.AvroFile, error) {
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
@@ -232,7 +232,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	ctx context.Context,
 	avroFilePath string,
-	schema qvalue.QRecordSchema,
+	schema types.QRecordSchema,
 	columnNameAvroFieldMap map[string]string,
 	config *protos.QRepConfig,
 ) error {
@@ -328,7 +328,7 @@ func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 	ctx context.Context,
 	env map[string]string,
 	dstTableName string,
-	schema qvalue.QRecordSchema,
+	schema types.QRecordSchema,
 	avroNameMap map[string]string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_CLICKHOUSE, avroNameMap)
@@ -346,7 +346,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	identifierForFile string,
 	flowJobName string,
-	typeConversions map[string]qvalue.TypeConversion,
+	typeConversions map[string]types.TypeConversion,
 ) (*avro.AvroFile, error) {
 	stagingPath := s.credsProvider.BucketPath
 	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE)

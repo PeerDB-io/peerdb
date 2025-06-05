@@ -22,9 +22,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type ClickHouseConnector struct {
@@ -379,51 +379,51 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			continue
 		}
 
-		var qkind qvalue.QValueKind
+		var qkind types.QValueKind
 		switch column.DatabaseTypeName() {
 		case "String", "Nullable(String)", "LowCardinality(String)", "LowCardinality(Nullable(String))":
-			qkind = qvalue.QValueKindString
+			qkind = types.QValueKindString
 		case "Bool", "Nullable(Bool)":
-			qkind = qvalue.QValueKindBoolean
+			qkind = types.QValueKindBoolean
 		case "Int8", "Nullable(Int8)":
-			qkind = qvalue.QValueKindInt8
+			qkind = types.QValueKindInt8
 		case "Int16", "Nullable(Int16)":
-			qkind = qvalue.QValueKindInt16
+			qkind = types.QValueKindInt16
 		case "Int32", "Nullable(Int32)":
-			qkind = qvalue.QValueKindInt32
+			qkind = types.QValueKindInt32
 		case "Int64", "Nullable(Int64)":
-			qkind = qvalue.QValueKindInt64
+			qkind = types.QValueKindInt64
 		case "UInt8", "Nullable(UInt8)":
-			qkind = qvalue.QValueKindUInt8
+			qkind = types.QValueKindUInt8
 		case "UInt16", "Nullable(UInt16)":
-			qkind = qvalue.QValueKindUInt16
+			qkind = types.QValueKindUInt16
 		case "UInt32", "Nullable(UInt32)":
-			qkind = qvalue.QValueKindUInt32
+			qkind = types.QValueKindUInt32
 		case "UInt64", "Nullable(UInt64)":
-			qkind = qvalue.QValueKindUInt64
+			qkind = types.QValueKindUInt64
 		case "UUID", "Nullable(UUID)":
-			qkind = qvalue.QValueKindUUID
+			qkind = types.QValueKindUUID
 		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
-			qkind = qvalue.QValueKindTimestamp
+			qkind = types.QValueKindTimestamp
 		case "Date32", "Nullable(Date32)":
-			qkind = qvalue.QValueKindDate
+			qkind = types.QValueKindDate
 		case "Float32", "Nullable(Float32)":
-			qkind = qvalue.QValueKindFloat32
+			qkind = types.QValueKindFloat32
 		case "Float64", "Nullable(Float64)":
-			qkind = qvalue.QValueKindFloat64
+			qkind = types.QValueKindFloat64
 		case "Array(Int32)":
-			qkind = qvalue.QValueKindArrayInt32
+			qkind = types.QValueKindArrayInt32
 		case "Array(Float32)":
-			qkind = qvalue.QValueKindArrayFloat32
+			qkind = types.QValueKindArrayFloat32
 		case "Array(Float64)":
-			qkind = qvalue.QValueKindArrayFloat64
+			qkind = types.QValueKindArrayFloat64
 		case "Array(String)", "Array(LowCardinality(String))":
-			qkind = qvalue.QValueKindArrayString
+			qkind = types.QValueKindArrayString
 		case "Array(UUID)":
-			qkind = qvalue.QValueKindArrayUUID
+			qkind = types.QValueKindArrayUUID
 		default:
 			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
-				qkind = qvalue.QValueKindNumeric
+				qkind = types.QValueKindNumeric
 			} else {
 				return nil, fmt.Errorf("failed to resolve QValueKind for %s", column.DatabaseTypeName())
 			}

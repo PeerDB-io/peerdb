@@ -27,10 +27,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type PostgresCDCSource struct {
@@ -188,7 +188,7 @@ func (qProcessor) Process(
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
-		items.AddColumn(col.Name, qvalue.QValueNull(qvalue.QValueKindInvalid))
+		items.AddColumn(col.Name, types.QValueNull(types.QValueKindInvalid))
 	case 't': // text
 		// bytea also appears here as a hex
 		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.TextFormatCode, customTypeMapping)
@@ -246,7 +246,7 @@ func processTuple[Items model.Items](
 
 func (p *PostgresCDCSource) decodeColumnData(
 	data []byte, dataType uint32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType,
-) (qvalue.QValue, error) {
+) (types.QValue, error) {
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
@@ -267,13 +267,13 @@ func (p *PostgresCDCSource) decodeColumnData(
 					dt.Name, string(data)))
 				switch dtOid {
 				case oid.T_time:
-					return qvalue.QValueNull(qvalue.QValueKindTime), nil
+					return types.QValueNull(types.QValueKindTime), nil
 				case oid.T_timetz:
-					return qvalue.QValueNull(qvalue.QValueKindTimeTZ), nil
+					return types.QValueNull(types.QValueKindTimeTZ), nil
 				case oid.T_timestamp:
-					return qvalue.QValueNull(qvalue.QValueKindTimestamp), nil
+					return types.QValueNull(types.QValueKindTimestamp), nil
 				case oid.T_timestamptz:
-					return qvalue.QValueNull(qvalue.QValueKindTimestampTZ), nil
+					return types.QValueNull(types.QValueKindTimestampTZ), nil
 				}
 			}
 			return nil, err
@@ -284,31 +284,31 @@ func (p *PostgresCDCSource) decodeColumnData(
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
 		customQKind := customTypeToQKind(typeData)
 		switch customQKind {
-		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
+		case types.QValueKindGeography, types.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
 			if err != nil {
-				return qvalue.QValueNull(customQKind), nil
-			} else if customQKind == qvalue.QValueKindGeography {
-				return qvalue.QValueGeography{Val: wkt}, nil
+				return types.QValueNull(customQKind), nil
+			} else if customQKind == types.QValueKindGeography {
+				return types.QValueGeography{Val: wkt}, nil
 			} else {
-				return qvalue.QValueGeometry{Val: wkt}, nil
+				return types.QValueGeometry{Val: wkt}, nil
 			}
-		case qvalue.QValueKindHStore:
-			return qvalue.QValueHStore{Val: string(data)}, nil
-		case qvalue.QValueKindString:
-			return qvalue.QValueString{Val: string(data)}, nil
-		case qvalue.QValueKindEnum:
-			return qvalue.QValueEnum{Val: string(data)}, nil
-		case qvalue.QValueKindArrayString:
-			return qvalue.QValueArrayString{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
-		case qvalue.QValueKindArrayEnum:
-			return qvalue.QValueArrayEnum{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
+		case types.QValueKindHStore:
+			return types.QValueHStore{Val: string(data)}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: string(data)}, nil
+		case types.QValueKindEnum:
+			return types.QValueEnum{Val: string(data)}, nil
+		case types.QValueKindArrayString:
+			return types.QValueArrayString{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
+		case types.QValueKindArrayEnum:
+			return types.QValueArrayEnum{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
 		default:
 			return nil, fmt.Errorf("unknown custom qkind: %s", customQKind)
 		}
 	}
 
-	return qvalue.QValueString{Val: string(data)}, nil
+	return types.QValueString{Val: string(data)}, nil
 }
 
 // PullCdcRecords pulls records from req's cdc stream
@@ -908,7 +908,7 @@ func processRelationMessage[Items model.Items](
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
 			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping)
-			if qKind == qvalue.QValueKindInvalid {
+			if qKind == types.QValueKindInvalid {
 				typeName, ok := customTypeMapping[column.DataType]
 				if ok {
 					qKind = customTypeToQKind(typeName)

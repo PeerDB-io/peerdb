@@ -10,7 +10,7 @@ import (
 	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *S3Connector) SyncQRepRecords(
@@ -42,7 +42,7 @@ func getAvroSchema(
 	ctx context.Context,
 	env map[string]string,
 	dstTableName string,
-	schema qvalue.QRecordSchema,
+	schema types.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	// TODO: Support avro-incompatible column names
 	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_S3, nil)

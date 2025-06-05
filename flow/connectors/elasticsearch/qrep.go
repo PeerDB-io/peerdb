@@ -16,8 +16,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,
@@ -26,7 +26,7 @@ func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,
 	return nil
 }
 
-func upsertKeyColsHash(qRecord []qvalue.QValue, upsertColIndices []int) string {
+func upsertKeyColsHash(qRecord []types.QValue, upsertColIndices []int) string {
 	hasher := sha256.New()
 
 	for _, upsertColIndex := range upsertColIndices {
@@ -100,7 +100,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			docId = upsertKeyColsHash(qRecord, upsertKeyColIndices)
 		}
 		for i, field := range schema.Fields {
-			if r, ok := qRecord[i].(qvalue.QValueJSON); ok { // JSON is stored as a string, fix that
+			if r, ok := qRecord[i].(types.QValueJSON); ok { // JSON is stored as a string, fix that
 				qRecordJsonMap[field.Name] = json.RawMessage(
 					shared.UnsafeFastStringToReadOnlyBytes(r.Val))
 			} else {

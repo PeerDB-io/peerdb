@@ -17,8 +17,8 @@ import (
 	e2e_snowflake "github.com/PeerDB-io/peerdb/flow/e2e/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -219,22 +219,22 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(qvalue.QValueKindBoolean),
+				Type:         string(types.QValueKindBoolean),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 		},
@@ -255,22 +255,22 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 		},
@@ -292,27 +292,27 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 		},
@@ -334,27 +334,27 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 		},
@@ -475,27 +475,27 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(qvalue.QValueKindBoolean),
+				Type:         string(types.QValueKindBoolean),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 		},
@@ -505,22 +505,22 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(qvalue.QValueKindBoolean),
+				Type:         string(types.QValueKindBoolean),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 		},

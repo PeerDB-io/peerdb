@@ -21,7 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type BigQueryTestHelper struct {
@@ -173,33 +173,33 @@ func (b *BigQueryTestHelper) countRowsWithDataset(ctx context.Context, dataset, 
 	return int(cntI64), nil
 }
 
-func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
-	// Based on the real type of the bigquery.Value, we create a qvalue.QValue
+func toQValue(bqValue bigquery.Value) (types.QValue, error) {
+	// Based on the real type of the bigquery.Value, we create a types.QValue
 	switch v := bqValue.(type) {
 	case int64:
-		return qvalue.QValueInt64{Val: v}, nil
+		return types.QValueInt64{Val: v}, nil
 	case float64:
-		return qvalue.QValueFloat64{Val: v}, nil
+		return types.QValueFloat64{Val: v}, nil
 	case string:
-		return qvalue.QValueString{Val: v}, nil
+		return types.QValueString{Val: v}, nil
 	case bool:
-		return qvalue.QValueBoolean{Val: v}, nil
+		return types.QValueBoolean{Val: v}, nil
 	case civil.Date:
-		return qvalue.QValueDate{Val: v.In(time.UTC)}, nil
+		return types.QValueDate{Val: v.In(time.UTC)}, nil
 	case civil.Time:
 		tm := time.Unix(int64(v.Hour)*3600+int64(v.Minute)*60+int64(v.Second), int64(v.Nanosecond))
-		return qvalue.QValueTime{Val: tm}, nil
+		return types.QValueTime{Val: tm}, nil
 	case time.Time:
-		return qvalue.QValueTimestamp{Val: v}, nil
+		return types.QValueTimestamp{Val: v}, nil
 	case *big.Rat:
-		return qvalue.QValueNumeric{Val: decimal.NewFromBigRat(v, 32)}, nil
+		return types.QValueNumeric{Val: decimal.NewFromBigRat(v, 32)}, nil
 	case []uint8:
-		return qvalue.QValueBytes{Val: v}, nil
+		return types.QValueBytes{Val: v}, nil
 	case []bigquery.Value:
 		// If the type is an array, we need to convert each element
 		// we can assume all elements are of the same type, let us use first element
 		if len(v) == 0 {
-			return qvalue.QValueNull(qvalue.QValueKindInvalid), nil
+			return types.QValueNull(types.QValueKindInvalid), nil
 		}
 
 		firstElement := v[0]
@@ -209,44 +209,44 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 			for _, val := range v {
 				arr = append(arr, val.(int64))
 			}
-			return qvalue.QValueArrayInt64{Val: arr}, nil
+			return types.QValueArrayInt64{Val: arr}, nil
 		case float64:
 			var arr []float64
 			for _, val := range v {
 				arr = append(arr, val.(float64))
 			}
-			return qvalue.QValueArrayFloat64{Val: arr}, nil
+			return types.QValueArrayFloat64{Val: arr}, nil
 		case string:
 			var arr []string
 			for _, val := range v {
 				arr = append(arr, val.(string))
 			}
-			return qvalue.QValueArrayString{Val: arr}, nil
+			return types.QValueArrayString{Val: arr}, nil
 		case time.Time:
 			var arr []time.Time
 			for _, val := range v {
 				arr = append(arr, val.(time.Time))
 			}
-			return qvalue.QValueArrayTimestamp{Val: arr}, nil
+			return types.QValueArrayTimestamp{Val: arr}, nil
 		case civil.Date:
 			var arr []time.Time
 			for _, val := range v {
 				arr = append(arr, val.(civil.Date).In(time.UTC))
 			}
-			return qvalue.QValueArrayDate{Val: arr}, nil
+			return types.QValueArrayDate{Val: arr}, nil
 		case bool:
 			var arr []bool
 			for _, val := range v {
 				arr = append(arr, val.(bool))
 			}
-			return qvalue.QValueArrayBoolean{Val: arr}, nil
+			return types.QValueArrayBoolean{Val: arr}, nil
 		default:
 			// If type is unsupported, return error
 			return nil, fmt.Errorf("bqHelper unsupported type %T", et)
 		}
 
 	case nil:
-		return qvalue.QValueNull(qvalue.QValueKindInvalid), nil
+		return types.QValueNull(types.QValueKindInvalid), nil
 	default:
 		// If type is unsupported, return error
 		return nil, fmt.Errorf("bqHelper unsupported type %T", v)
@@ -254,12 +254,12 @@ func toQValue(bqValue bigquery.Value) (qvalue.QValue, error) {
 }
 
 // bqSchemaToQRecordSchema converts a bigquery schema to a QRecordSchema.
-func bqSchemaToQRecordSchema(schema bigquery.Schema) qvalue.QRecordSchema {
-	fields := make([]qvalue.QField, 0, len(schema))
+func bqSchemaToQRecordSchema(schema bigquery.Schema) types.QRecordSchema {
+	fields := make([]types.QField, 0, len(schema))
 	for _, fieldSchema := range schema {
 		fields = append(fields, peer_bq.BigQueryFieldToQField(fieldSchema))
 	}
-	return qvalue.QRecordSchema{Fields: fields}
+	return types.QRecordSchema{Fields: fields}
 }
 
 func (b *BigQueryTestHelper) ExecuteAndProcessQuery(ctx context.Context, query string) (*model.QRecordBatch, error) {
@@ -270,7 +270,7 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(ctx context.Context, query s
 		return nil, fmt.Errorf("failed to run command: %w", err)
 	}
 
-	var records [][]qvalue.QValue
+	var records [][]types.QValue
 	for {
 		var row []bigquery.Value
 		if err := it.Next(&row); err != nil {
@@ -280,8 +280,8 @@ func (b *BigQueryTestHelper) ExecuteAndProcessQuery(ctx context.Context, query s
 			return nil, fmt.Errorf("failed to iterate over query results: %w", err)
 		}
 
-		// Convert []bigquery.Value to []qvalue.QValue
-		qValues := make([]qvalue.QValue, len(row))
+		// Convert []bigquery.Value to []types.QValue
+		qValues := make([]types.QValue, len(row))
 		for i, val := range row {
 			qv, err := toQValue(val)
 			if err != nil {
@@ -371,7 +371,7 @@ func (b *BigQueryTestHelper) RunInt64Query(ctx context.Context, query string) (i
 		return 0, fmt.Errorf("expected only 1 record, got %d", len(recordBatch.Records))
 	}
 
-	if v, ok := recordBatch.Records[0][0].(qvalue.QValueInt64); ok {
+	if v, ok := recordBatch.Records[0][0].(types.QValueInt64); ok {
 		return v.Val, nil
 	}
 	return 0, fmt.Errorf("non-integer result: %T", recordBatch.Records[0][0])

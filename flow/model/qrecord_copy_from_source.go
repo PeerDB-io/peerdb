@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 
 	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func constructArray[T any](v []T) *pgtype.Array[T] {
@@ -21,7 +21,7 @@ func constructArray[T any](v []T) *pgtype.Array[T] {
 
 type QRecordCopyFromSource struct {
 	stream        *QRecordStream
-	currentRecord []qvalue.QValue
+	currentRecord []types.QValue
 }
 
 func NewQRecordCopyFromSource(
@@ -63,101 +63,101 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 		}
 
 		switch v := qValue.(type) {
-		case qvalue.QValueFloat32:
+		case types.QValueFloat32:
 			values[i] = v.Val
-		case qvalue.QValueFloat64:
+		case types.QValueFloat64:
 			values[i] = v.Val
-		case qvalue.QValueInt8:
+		case types.QValueInt8:
 			values[i] = v.Val
-		case qvalue.QValueInt16:
+		case types.QValueInt16:
 			values[i] = v.Val
-		case qvalue.QValueInt32:
+		case types.QValueInt32:
 			values[i] = v.Val
-		case qvalue.QValueInt64:
+		case types.QValueInt64:
 			values[i] = v.Val
-		case qvalue.QValueUInt8:
+		case types.QValueUInt8:
 			values[i] = v.Val
-		case qvalue.QValueUInt16:
+		case types.QValueUInt16:
 			values[i] = v.Val
-		case qvalue.QValueUInt32:
+		case types.QValueUInt32:
 			values[i] = v.Val
-		case qvalue.QValueUInt64:
+		case types.QValueUInt64:
 			values[i] = v.Val
-		case qvalue.QValueBoolean:
+		case types.QValueBoolean:
 			values[i] = v.Val
-		case qvalue.QValueQChar:
+		case types.QValueQChar:
 			values[i] = rune(v.Val)
-		case qvalue.QValueString:
+		case types.QValueString:
 			values[i] = v.Val
-		case qvalue.QValueEnum:
+		case types.QValueEnum:
 			values[i] = v.Val
-		case qvalue.QValueCIDR:
+		case types.QValueCIDR:
 			values[i] = v.Val
-		case qvalue.QValueINET:
+		case types.QValueINET:
 			values[i] = v.Val
-		case qvalue.QValueMacaddr:
+		case types.QValueMacaddr:
 			values[i] = v.Val
-		case qvalue.QValueTime:
+		case types.QValueTime:
 			values[i] = pgtype.Time{Microseconds: v.Val.UnixMicro(), Valid: true}
-		case qvalue.QValueTSTZRange:
+		case types.QValueTSTZRange:
 			values[i] = v.Val
-		case qvalue.QValueTimestamp:
+		case types.QValueTimestamp:
 			values[i] = pgtype.Timestamp{Time: v.Val, Valid: true}
-		case qvalue.QValueTimestampTZ:
+		case types.QValueTimestampTZ:
 			values[i] = pgtype.Timestamptz{Time: v.Val, Valid: true}
-		case qvalue.QValueUUID:
+		case types.QValueUUID:
 			values[i] = v.Val
-		case qvalue.QValueNumeric:
+		case types.QValueNumeric:
 			values[i] = v.Val
-		case qvalue.QValueBytes:
+		case types.QValueBytes:
 			values[i] = v.Val
-		case qvalue.QValueDate:
+		case types.QValueDate:
 			values[i] = pgtype.Date{Time: v.Val, Valid: true}
-		case qvalue.QValueHStore:
+		case types.QValueHStore:
 			values[i] = v.Val
-		case qvalue.QValueGeography:
+		case types.QValueGeography:
 			wkb, err := geoWktToWkb(v.Val)
 			if err != nil {
 				return nil, err
 			}
 			values[i] = wkb
-		case qvalue.QValueGeometry:
+		case types.QValueGeometry:
 			wkb, err := geoWktToWkb(v.Val)
 			if err != nil {
 				return nil, err
 			}
 			values[i] = wkb
-		case qvalue.QValuePoint:
+		case types.QValuePoint:
 			wkb, err := geoWktToWkb(v.Val)
 			if err != nil {
 				return nil, err
 			}
 			values[i] = wkb
-		case qvalue.QValueArrayString:
+		case types.QValueArrayString:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayEnum:
+		case types.QValueArrayEnum:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayDate:
+		case types.QValueArrayDate:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayTimestamp:
+		case types.QValueArrayTimestamp:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayTimestampTZ:
+		case types.QValueArrayTimestampTZ:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayInt16:
+		case types.QValueArrayInt16:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayInt32:
+		case types.QValueArrayInt32:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayInt64:
+		case types.QValueArrayInt64:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayFloat32:
+		case types.QValueArrayFloat32:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayFloat64:
+		case types.QValueArrayFloat64:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayBoolean:
+		case types.QValueArrayBoolean:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueArrayUUID:
+		case types.QValueArrayUUID:
 			values[i] = constructArray(v.Val)
-		case qvalue.QValueJSON:
+		case types.QValueJSON:
 			if v.IsArray {
 				var arrayJ []any
 				if err := json.Unmarshal([]byte(v.Val), &arrayJ); err != nil {

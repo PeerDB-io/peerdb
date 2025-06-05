@@ -20,8 +20,8 @@ import (
 	"github.com/PeerDB-io/gluautf8"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 var (
@@ -146,7 +146,7 @@ func LoadPeerdbScript(ls *lua.LState) int {
 	return 1
 }
 
-func GetRowQ(ls *lua.LState, row model.RecordItems, col string) qvalue.QValue {
+func GetRowQ(ls *lua.LState, row model.RecordItems, col string) types.QValue {
 	qv, err := row.GetValueByColName(col)
 	if err != nil {
 		ls.RaiseError("%s", err.Error())
@@ -182,182 +182,182 @@ func LuaRowNewIndex(ls *lua.LState) int {
 	qv := row.GetColumnValue(key)
 	kind := qv.Kind()
 	if val == lua.LNil {
-		row.AddColumn(key, qvalue.QValueNull(kind))
+		row.AddColumn(key, types.QValueNull(kind))
 	}
-	var newqv qvalue.QValue
+	var newqv types.QValue
 	switch kind {
-	case qvalue.QValueKindInvalid:
-		newqv = qvalue.QValueInvalid{Val: lua.LVAsString(val)}
-	case qvalue.QValueKindFloat32:
-		newqv = qvalue.QValueFloat32{Val: float32(lua.LVAsNumber(val))}
-	case qvalue.QValueKindFloat64:
-		newqv = qvalue.QValueFloat64{Val: float64(lua.LVAsNumber(val))}
-	case qvalue.QValueKindInt8:
-		newqv = qvalue.QValueInt8{Val: int8(lua.LVAsNumber(val))}
-	case qvalue.QValueKindInt16:
-		newqv = qvalue.QValueInt16{Val: int16(lua.LVAsNumber(val))}
-	case qvalue.QValueKindInt32:
-		newqv = qvalue.QValueInt32{Val: int32(lua.LVAsNumber(val))}
-	case qvalue.QValueKindInt64:
+	case types.QValueKindInvalid:
+		newqv = types.QValueInvalid{Val: lua.LVAsString(val)}
+	case types.QValueKindFloat32:
+		newqv = types.QValueFloat32{Val: float32(lua.LVAsNumber(val))}
+	case types.QValueKindFloat64:
+		newqv = types.QValueFloat64{Val: float64(lua.LVAsNumber(val))}
+	case types.QValueKindInt8:
+		newqv = types.QValueInt8{Val: int8(lua.LVAsNumber(val))}
+	case types.QValueKindInt16:
+		newqv = types.QValueInt16{Val: int16(lua.LVAsNumber(val))}
+	case types.QValueKindInt32:
+		newqv = types.QValueInt32{Val: int32(lua.LVAsNumber(val))}
+	case types.QValueKindInt64:
 		switch v := val.(type) {
 		case lua.LNumber:
-			newqv = qvalue.QValueInt64{Val: int64(v)}
+			newqv = types.QValueInt64{Val: int64(v)}
 		case *lua.LUserData:
 			switch i64 := v.Value.(type) {
 			case int64:
-				newqv = qvalue.QValueInt64{Val: i64}
+				newqv = types.QValueInt64{Val: i64}
 			case uint64:
-				newqv = qvalue.QValueInt64{Val: int64(i64)}
+				newqv = types.QValueInt64{Val: int64(i64)}
 			}
 		}
 		if newqv == nil {
 			ls.RaiseError("invalid int64")
 		}
-	case qvalue.QValueKindUInt8:
-		newqv = qvalue.QValueUInt8{Val: uint8(lua.LVAsNumber(val))}
-	case qvalue.QValueKindUInt16:
-		newqv = qvalue.QValueUInt16{Val: uint16(lua.LVAsNumber(val))}
-	case qvalue.QValueKindUInt32:
-		newqv = qvalue.QValueUInt32{Val: uint32(lua.LVAsNumber(val))}
-	case qvalue.QValueKindUInt64:
+	case types.QValueKindUInt8:
+		newqv = types.QValueUInt8{Val: uint8(lua.LVAsNumber(val))}
+	case types.QValueKindUInt16:
+		newqv = types.QValueUInt16{Val: uint16(lua.LVAsNumber(val))}
+	case types.QValueKindUInt32:
+		newqv = types.QValueUInt32{Val: uint32(lua.LVAsNumber(val))}
+	case types.QValueKindUInt64:
 		switch v := val.(type) {
 		case lua.LNumber:
-			newqv = qvalue.QValueUInt64{Val: uint64(v)}
+			newqv = types.QValueUInt64{Val: uint64(v)}
 		case *lua.LUserData:
 			switch i64 := v.Value.(type) {
 			case int64:
-				newqv = qvalue.QValueUInt64{Val: uint64(i64)}
+				newqv = types.QValueUInt64{Val: uint64(i64)}
 			case uint64:
-				newqv = qvalue.QValueUInt64{Val: i64}
+				newqv = types.QValueUInt64{Val: i64}
 			}
 		}
 		if newqv == nil {
 			ls.RaiseError("invalid uint64")
 		}
-	case qvalue.QValueKindBoolean:
-		newqv = qvalue.QValueBoolean{Val: lua.LVAsBool(val)}
-	case qvalue.QValueKindQChar:
+	case types.QValueKindBoolean:
+		newqv = types.QValueBoolean{Val: lua.LVAsBool(val)}
+	case types.QValueKindQChar:
 		switch v := val.(type) {
 		case lua.LNumber:
-			newqv = qvalue.QValueQChar{Val: uint8(v)}
+			newqv = types.QValueQChar{Val: uint8(v)}
 		case lua.LString:
 			if len(v) > 0 {
-				newqv = qvalue.QValueQChar{Val: v[0]}
+				newqv = types.QValueQChar{Val: v[0]}
 			}
 		default:
 			ls.RaiseError("invalid \"char\"")
 		}
-	case qvalue.QValueKindString:
-		newqv = qvalue.QValueString{Val: lua.LVAsString(val)}
-	case qvalue.QValueKindEnum:
-		newqv = qvalue.QValueEnum{Val: lua.LVAsString(val)}
-	case qvalue.QValueKindTimestamp:
-		newqv = qvalue.QValueTimestamp{Val: LVAsTime(ls, val)}
-	case qvalue.QValueKindTimestampTZ:
-		newqv = qvalue.QValueTimestampTZ{Val: LVAsTime(ls, val)}
-	case qvalue.QValueKindDate:
-		newqv = qvalue.QValueDate{Val: LVAsTime(ls, val)}
-	case qvalue.QValueKindTime:
-		newqv = qvalue.QValueTime{Val: LVAsTime(ls, val)}
-	case qvalue.QValueKindTimeTZ:
-		newqv = qvalue.QValueTimeTZ{Val: LVAsTime(ls, val)}
-	case qvalue.QValueKindNumeric:
-		newqv = qvalue.QValueNumeric{Val: LVAsDecimal(ls, val)}
-	case qvalue.QValueKindBytes:
-		newqv = qvalue.QValueBytes{Val: []byte(lua.LVAsString(val))}
-	case qvalue.QValueKindUUID:
+	case types.QValueKindString:
+		newqv = types.QValueString{Val: lua.LVAsString(val)}
+	case types.QValueKindEnum:
+		newqv = types.QValueEnum{Val: lua.LVAsString(val)}
+	case types.QValueKindTimestamp:
+		newqv = types.QValueTimestamp{Val: LVAsTime(ls, val)}
+	case types.QValueKindTimestampTZ:
+		newqv = types.QValueTimestampTZ{Val: LVAsTime(ls, val)}
+	case types.QValueKindDate:
+		newqv = types.QValueDate{Val: LVAsTime(ls, val)}
+	case types.QValueKindTime:
+		newqv = types.QValueTime{Val: LVAsTime(ls, val)}
+	case types.QValueKindTimeTZ:
+		newqv = types.QValueTimeTZ{Val: LVAsTime(ls, val)}
+	case types.QValueKindNumeric:
+		newqv = types.QValueNumeric{Val: LVAsDecimal(ls, val)}
+	case types.QValueKindBytes:
+		newqv = types.QValueBytes{Val: []byte(lua.LVAsString(val))}
+	case types.QValueKindUUID:
 		if ud, ok := val.(*lua.LUserData); ok {
 			if id, ok := ud.Value.(uuid.UUID); ok {
-				newqv = qvalue.QValueUUID{Val: id}
+				newqv = types.QValueUUID{Val: id}
 			}
 		}
-	case qvalue.QValueKindArrayUUID:
+	case types.QValueKindArrayUUID:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayUUID{
+			newqv = types.QValueArrayUUID{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) uuid.UUID {
 					return uuid.MustParse(lua.LVAsString(v))
 				}),
 			}
 		}
-	case qvalue.QValueKindJSON:
-		newqv = qvalue.QValueJSON{Val: lua.LVAsString(val)}
-	case qvalue.QValueKindArrayFloat32:
+	case types.QValueKindJSON:
+		newqv = types.QValueJSON{Val: lua.LVAsString(val)}
+	case types.QValueKindArrayFloat32:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayFloat32{
+			newqv = types.QValueArrayFloat32{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float32 {
 					return float32(lua.LVAsNumber(v))
 				}),
 			}
 		}
-	case qvalue.QValueKindArrayFloat64:
+	case types.QValueKindArrayFloat64:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayFloat64{
+			newqv = types.QValueArrayFloat64{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float64 {
 					return float64(lua.LVAsNumber(v))
 				}),
 			}
 		}
-	case qvalue.QValueKindArrayInt16:
+	case types.QValueKindArrayInt16:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayFloat64{
+			newqv = types.QValueArrayFloat64{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float64 {
 					return float64(lua.LVAsNumber(v))
 				}),
 			}
 		}
-	case qvalue.QValueKindArrayInt32:
+	case types.QValueKindArrayInt32:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayFloat64{
+			newqv = types.QValueArrayFloat64{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float64 {
 					return float64(lua.LVAsNumber(v))
 				}),
 			}
 		}
-	case qvalue.QValueKindArrayInt64:
+	case types.QValueKindArrayInt64:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayFloat64{
+			newqv = types.QValueArrayFloat64{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) float64 {
 					return float64(lua.LVAsNumber(v))
 				}),
 			}
 		}
-	case qvalue.QValueKindArrayString:
+	case types.QValueKindArrayString:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayString{
+			newqv = types.QValueArrayString{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) string {
 					return lua.LVAsString(v)
 				}),
 			}
 		}
-	case qvalue.QValueKindArrayEnum:
+	case types.QValueKindArrayEnum:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayEnum{
+			newqv = types.QValueArrayEnum{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) string {
 					return lua.LVAsString(v)
 				}),
 			}
 		}
-	case qvalue.QValueKindArrayDate:
+	case types.QValueKindArrayDate:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayDate{
+			newqv = types.QValueArrayDate{
 				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
 			}
 		}
-	case qvalue.QValueKindArrayTimestamp:
+	case types.QValueKindArrayTimestamp:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayDate{
+			newqv = types.QValueArrayDate{
 				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
 			}
 		}
-	case qvalue.QValueKindArrayTimestampTZ:
+	case types.QValueKindArrayTimestampTZ:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayDate{
+			newqv = types.QValueArrayDate{
 				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
 			}
 		}
-	case qvalue.QValueKindArrayBoolean:
+	case types.QValueKindArrayBoolean:
 		if tbl, ok := val.(*lua.LTable); ok {
-			newqv = qvalue.QValueArrayBoolean{
+			newqv = types.QValueArrayBoolean{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) bool {
 					return lua.LVAsBool(v)
 				}),

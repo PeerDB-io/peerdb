@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func getTimeForTesting(t *testing.T) time.Time {
@@ -55,10 +55,10 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordI
 		DestinationTableName: "test_dst_tbl",
 		CommitID:             2,
 		Items: model.RecordItems{
-			ColToVal: map[string]qvalue.QValue{
-				"id": qvalue.QValueInt64{Val: 1},
-				"ts": qvalue.QValueTime{Val: tv},
-				"rv": qvalue.QValueNumeric{Val: rv},
+			ColToVal: map[string]types.QValue{
+				"id": types.QValueInt64{Val: 1},
+				"ts": types.QValueTime{Val: tv},
+				"rv": types.QValueNumeric{Val: rv},
 			},
 		},
 	}

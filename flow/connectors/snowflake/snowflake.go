@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -359,8 +360,9 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			sfColtype, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(
-				ctx, env, protos.DBType_SNOWFLAKE, addedColumn, schemaDelta.NullableEnabled,
+			qvKind := types.QValueKind(addedColumn.Type)
+			sfColtype, err := qvalue.ToDWHColumnType(
+				ctx, qvKind, env, protos.DBType_SNOWFLAKE, addedColumn, schemaDelta.NullableEnabled,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
@@ -654,8 +656,9 @@ func generateCreateTableSQLForNormalizedTable(
 	for _, column := range tableSchema.Columns {
 		genericColumnType := column.Type
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
-		sfColType, err := qvalue.QValueKind(genericColumnType).ToDWHColumnType(
-			ctx, config.Env, protos.DBType_SNOWFLAKE, column, tableSchema.NullableEnabled,
+		qvKind := types.QValueKind(genericColumnType)
+		sfColType, err := qvalue.ToDWHColumnType(
+			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, column, tableSchema.NullableEnabled,
 		)
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
