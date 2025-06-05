@@ -1515,10 +1515,17 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, srcFullName)))
 
 	for i := 1; i <= 100; i++ {
-		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf(
-				`INSERT INTO %s (id,myname,updated_at) VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`,
-				srcFullName, i, i, i)))
+		if _, ok := s.source.(*e2e.PostgresSource); ok {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
+			VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL '%d seconds')`,
+					srcFullName, i, i, i)))
+		} else {
+			require.NoError(s.t, s.source.Exec(s.t.Context(),
+				fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
+			VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`,
+					srcFullName, i, i, i)))
+		}
 	}
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1548,6 +1555,9 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 	var partitionCount int
 	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
 	require.GreaterOrEqual(s.t, partitionCount, 10, "expected at least 10 partitions to be created")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
@@ -1602,4 +1612,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 	var partitionCount int
 	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
 	require.GreaterOrEqual(s.t, partitionCount, 10, "expected at least 10 partitions to be created")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
 }

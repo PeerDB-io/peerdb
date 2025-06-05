@@ -889,14 +889,13 @@ func (s Suite) TestQRep() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
 
-	sourcePeer := s.Source().GeneratePeer(s.t)
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
 		"qrepapiflow",
 		schemaQualified,
 		tblName,
 		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
-		sourcePeer.Name,
+		s.ch.Peer().Name,
 		"",
 		true,
 		"",
