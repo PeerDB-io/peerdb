@@ -10,7 +10,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 type QRecordAvroConverter struct {
@@ -58,7 +59,7 @@ func (qac *QRecordAvroConverter) Convert(
 		if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
 			val = typeConversion.ValueConversion(val)
 		}
-		avroVal, err := qvalue.QValueToAvro(
+		avroVal, err := _qvalue.QValueToAvro(
 			ctx, env, val,
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
 		)
@@ -99,7 +100,7 @@ func GetAvroSchemaDefinition(
 	avroFields := make([]*avro.Field, 0, len(qRecordSchema.Fields))
 
 	for _, qField := range qRecordSchema.Fields {
-		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
+		avroType, err := _qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
 		}
@@ -137,7 +138,7 @@ func GetAvroSchemaDefinition(
 func ConstructColumnNameAvroFieldMap(fields []qvalue.QField) map[string]string {
 	m := make(map[string]string, len(fields))
 	for i, field := range fields {
-		m[field.Name] = qvalue.ConvertToAvroCompatibleName(field.Name) + "_" + strconv.FormatInt(int64(i), 10)
+		m[field.Name] = _qvalue.ConvertToAvroCompatibleName(field.Name) + "_" + strconv.FormatInt(int64(i), 10)
 	}
 	return m
 }

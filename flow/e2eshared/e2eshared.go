@@ -11,7 +11,8 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 type Suite interface {
@@ -89,7 +90,7 @@ func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue
 
 	for i, entry := range q {
 		otherEntry := other[i]
-		if !qvalue.Equals(entry, otherEntry) {
+		if !_qvalue.Equals(entry, otherEntry) {
 			t.Logf("entry %d: %T %+v != %T %+v", i, entry, entry, otherEntry, otherEntry)
 			return false
 		}

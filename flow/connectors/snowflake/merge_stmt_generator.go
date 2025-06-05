@@ -8,8 +8,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	numeric "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 type mergeStmtGenerator struct {
@@ -35,7 +36,7 @@ func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[stri
 	for _, column := range columns {
 		genericColumnType := column.Type
 		qvKind := qvalue.QValueKind(genericColumnType)
-		sfType, err := qvKind.ToDWHColumnType(ctx, env, protos.DBType_SNOWFLAKE, column, normalizedTableSchema.NullableEnabled)
+		sfType, err := _qvalue.ToDWHColumnType(ctx, qvKind, env, protos.DBType_SNOWFLAKE, column, normalizedTableSchema.NullableEnabled)
 		if err != nil {
 			return "", fmt.Errorf("failed to convert column type %s to snowflake type: %w", genericColumnType, err)
 		}

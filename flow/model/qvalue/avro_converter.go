@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 var re = regexp.MustCompile(`[^A-Za-z0-9_]`)
@@ -65,35 +66,36 @@ func ConvertToAvroCompatibleName(columnName string) string {
 func GetAvroSchemaFromQValueKind(
 	ctx context.Context,
 	env map[string]string,
-	kind QValueKind,
+	kind qvalue.QValueKind,
 	targetDWH protos.DBType,
 	precision int16,
 	scale int16,
 ) (avro.Schema, error) {
 	switch kind {
-	case QValueKindString, QValueKindEnum, QValueKindQChar, QValueKindCIDR, QValueKindINET, QValueKindMacaddr:
+	case qvalue.QValueKindString, qvalue.QValueKindEnum, qvalue.QValueKindQChar, qvalue.QValueKindCIDR,
+		qvalue.QValueKindINET, qvalue.QValueKindMacaddr:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
-	case QValueKindInterval:
+	case qvalue.QValueKindInterval:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
-	case QValueKindUUID:
+	case qvalue.QValueKindUUID:
 		return avro.NewPrimitiveSchema(avro.String, avro.NewPrimitiveLogicalSchema(avro.UUID)), nil
-	case QValueKindArrayUUID:
+	case qvalue.QValueKindArrayUUID:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, avro.NewPrimitiveLogicalSchema(avro.UUID))), nil
-	case QValueKindGeometry, QValueKindGeography, QValueKindPoint:
+	case qvalue.QValueKindGeometry, qvalue.QValueKindGeography, qvalue.QValueKindPoint:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
-	case QValueKindInt8, QValueKindInt16, QValueKindInt32, QValueKindInt64,
-		QValueKindUInt8, QValueKindUInt16, QValueKindUInt32, QValueKindUInt64:
+	case qvalue.QValueKindInt8, qvalue.QValueKindInt16, qvalue.QValueKindInt32, qvalue.QValueKindInt64,
+		qvalue.QValueKindUInt8, qvalue.QValueKindUInt16, qvalue.QValueKindUInt32, qvalue.QValueKindUInt64:
 		return avro.NewPrimitiveSchema(avro.Long, nil), nil
-	case QValueKindFloat32:
+	case qvalue.QValueKindFloat32:
 		if targetDWH == protos.DBType_BIGQUERY {
 			return avro.NewPrimitiveSchema(avro.Double, nil), nil
 		}
 		return avro.NewPrimitiveSchema(avro.Float, nil), nil
-	case QValueKindFloat64:
+	case qvalue.QValueKindFloat64:
 		return avro.NewPrimitiveSchema(avro.Double, nil), nil
-	case QValueKindBoolean:
+	case qvalue.QValueKindBoolean:
 		return avro.NewPrimitiveSchema(avro.Boolean, nil), nil
-	case QValueKindBytes:
+	case qvalue.QValueKindBytes:
 		format, err := internal.PeerDBBinaryFormat(ctx, env)
 		if err != nil {
 			return nil, err
@@ -102,7 +104,7 @@ func GetAvroSchemaFromQValueKind(
 			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
 		return avro.NewPrimitiveSchema(avro.Bytes, nil), nil
-	case QValueKindNumeric:
+	case qvalue.QValueKindNumeric:
 		if targetDWH == protos.DBType_CLICKHOUSE {
 			if precision == 0 && scale == 0 {
 				asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
@@ -119,59 +121,59 @@ func GetAvroSchemaFromQValueKind(
 		}
 		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
 		return avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale))), nil
-	case QValueKindDate:
+	case qvalue.QValueKindDate:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
 		return avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date)), nil
-	case QValueKindTime, QValueKindTimeTZ:
+	case qvalue.QValueKindTime, qvalue.QValueKindTimeTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
 		return avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)), nil
-	case QValueKindTimestamp, QValueKindTimestampTZ:
+	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
 		return avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros)), nil
-	case QValueKindTSTZRange:
+	case qvalue.QValueKindTSTZRange:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
-	case QValueKindHStore, QValueKindJSON, QValueKindJSONB:
+	case qvalue.QValueKindHStore, qvalue.QValueKindJSON, qvalue.QValueKindJSONB:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
-	case QValueKindArrayFloat32:
+	case qvalue.QValueKindArrayFloat32:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Float, nil)), nil
-	case QValueKindArrayFloat64:
+	case qvalue.QValueKindArrayFloat64:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Double, nil)), nil
-	case QValueKindArrayInt32, QValueKindArrayInt16:
+	case qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt16:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, nil)), nil
-	case QValueKindArrayInt64:
+	case qvalue.QValueKindArrayInt64:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, nil)), nil
-	case QValueKindArrayBoolean:
+	case qvalue.QValueKindArrayBoolean:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Boolean, nil)), nil
-	case QValueKindArrayDate:
+	case qvalue.QValueKindArrayDate:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 		}
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date))), nil
-	case QValueKindArrayTimestamp, QValueKindArrayTimestampTZ:
+	case qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 		}
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros))), nil
-	case QValueKindArrayJSON, QValueKindArrayJSONB:
+	case qvalue.QValueKindArrayJSON, qvalue.QValueKindArrayJSONB:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
-	case QValueKindArrayString, QValueKindArrayEnum:
+	case qvalue.QValueKindArrayString, qvalue.QValueKindArrayEnum:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
-	case QValueKindInvalid:
+	case qvalue.QValueKindInvalid:
 		// lets attempt to do invalid as a string
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	default:
-		return nil, fmt.Errorf("unsupported QValueKind type: %s", kind)
+		return nil, fmt.Errorf("unsupported qvalue.QValueKind type: %s", kind)
 	}
 }
 
 type QValueAvroConverter struct {
-	*QField
+	*qvalue.QField
 	logger                   log.Logger
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
@@ -179,7 +181,7 @@ type QValueAvroConverter struct {
 
 func QValueToAvro(
 	ctx context.Context, env map[string]string,
-	value QValue, field *QField, targetDWH protos.DBType, logger log.Logger,
+	value qvalue.QValue, field *qvalue.QField, targetDWH protos.DBType, logger log.Logger,
 	unboundedNumericAsString bool,
 ) (any, error) {
 	if value.Value() == nil {
@@ -194,25 +196,25 @@ func QValueToAvro(
 	}
 
 	switch v := value.(type) {
-	case QValueInvalid:
+	case qvalue.QValueInvalid:
 		// we will attempt to convert invalid to a string
 		return c.processNullableUnion(v.Val)
-	case QValueTime:
+	case qvalue.QValueTime:
 		return c.processNullableUnion(c.processGoTime(v.Val))
-	case QValueTimeTZ:
+	case qvalue.QValueTimeTZ:
 		return c.processNullableUnion(c.processGoTimeTZ(v.Val))
-	case QValueTimestamp:
+	case qvalue.QValueTimestamp:
 		return c.processNullableUnion(c.processGoTimestamp(v.Val))
-	case QValueTimestampTZ:
+	case qvalue.QValueTimestampTZ:
 		return c.processNullableUnion(c.processGoTimestampTZ(v.Val))
-	case QValueDate:
+	case qvalue.QValueDate:
 		return c.processNullableUnion(c.processGoDate(v.Val))
-	case QValueQChar:
+	case qvalue.QValueQChar:
 		return c.processNullableUnion(string(v.Val))
-	case QValueString,
-		QValueCIDR, QValueINET, QValueMacaddr,
-		QValueInterval, QValueTSTZRange, QValueEnum,
-		QValueGeography, QValueGeometry, QValuePoint:
+	case qvalue.QValueString,
+		qvalue.QValueCIDR, qvalue.QValueINET, qvalue.QValueMacaddr,
+		qvalue.QValueInterval, qvalue.QValueTSTZRange, qvalue.QValueEnum,
+		qvalue.QValueGeography, qvalue.QValueGeometry, qvalue.QValuePoint:
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
 			slog.Warn("Clearing TEXT value > 15MB for Snowflake!")
@@ -220,68 +222,68 @@ func QValueToAvro(
 			return nil, nil
 		}
 		return c.processNullableUnion(v.Value())
-	case QValueFloat32:
+	case qvalue.QValueFloat32:
 		if c.TargetDWH == protos.DBType_BIGQUERY {
 			return c.processNullableUnion(float64(v.Val))
 		}
 		return c.processNullableUnion(v.Val)
-	case QValueFloat64:
+	case qvalue.QValueFloat64:
 		return c.processNullableUnion(v.Val)
-	case QValueInt8:
+	case qvalue.QValueInt8:
 		return c.processNullableUnion(int64(v.Val))
-	case QValueInt16:
+	case qvalue.QValueInt16:
 		return c.processNullableUnion(int64(v.Val))
-	case QValueInt32:
+	case qvalue.QValueInt32:
 		return c.processNullableUnion(int64(v.Val))
-	case QValueInt64:
+	case qvalue.QValueInt64:
 		return c.processNullableUnion(v.Val)
-	case QValueUInt8:
+	case qvalue.QValueUInt8:
 		return c.processNullableUnion(int64(v.Val))
-	case QValueUInt16:
+	case qvalue.QValueUInt16:
 		return c.processNullableUnion(int64(v.Val))
-	case QValueUInt32:
+	case qvalue.QValueUInt32:
 		return c.processNullableUnion(int64(v.Val))
-	case QValueUInt64:
+	case qvalue.QValueUInt64:
 		return c.processNullableUnion(int64(v.Val))
-	case QValueBoolean:
+	case qvalue.QValueBoolean:
 		return c.processNullableUnion(v.Val)
-	case QValueNumeric:
+	case qvalue.QValueNumeric:
 		return c.processNumeric(v.Val), nil
-	case QValueBytes:
+	case qvalue.QValueBytes:
 		format, err := internal.PeerDBBinaryFormat(ctx, env)
 		if err != nil {
 			return nil, err
 		}
 		return c.processBytes(v.Val, format), nil
-	case QValueJSON:
+	case qvalue.QValueJSON:
 		return c.processJSON(v.Val), nil
-	case QValueHStore:
+	case qvalue.QValueHStore:
 		return c.processHStore(v.Val)
-	case QValueArrayFloat32:
+	case qvalue.QValueArrayFloat32:
 		return c.processArrayFloat32(v.Val), nil
-	case QValueArrayFloat64:
+	case qvalue.QValueArrayFloat64:
 		return c.processArrayFloat64(v.Val), nil
-	case QValueArrayInt16:
+	case qvalue.QValueArrayInt16:
 		return c.processArrayInt16(v.Val), nil
-	case QValueArrayInt32:
+	case qvalue.QValueArrayInt32:
 		return c.processArrayInt32(v.Val), nil
-	case QValueArrayInt64:
+	case qvalue.QValueArrayInt64:
 		return c.processArrayInt64(v.Val), nil
-	case QValueArrayString:
+	case qvalue.QValueArrayString:
 		return c.processArrayString(v.Val), nil
-	case QValueArrayEnum:
+	case qvalue.QValueArrayEnum:
 		return c.processArrayString(v.Val), nil
-	case QValueArrayBoolean:
+	case qvalue.QValueArrayBoolean:
 		return c.processArrayBoolean(v.Val), nil
-	case QValueArrayTimestamp:
+	case qvalue.QValueArrayTimestamp:
 		return c.processArrayTime(v.Val), nil
-	case QValueArrayTimestampTZ:
+	case qvalue.QValueArrayTimestampTZ:
 		return c.processArrayTime(v.Val), nil
-	case QValueArrayDate:
+	case qvalue.QValueArrayDate:
 		return c.processArrayDate(v.Val), nil
-	case QValueUUID:
+	case qvalue.QValueUUID:
 		return c.processUUID(v.Val), nil
-	case QValueArrayUUID:
+	case qvalue.QValueArrayUUID:
 		return c.processArrayUUID(v.Val), nil
 	default:
 		return nil, fmt.Errorf("[toavro] unsupported %T", value)

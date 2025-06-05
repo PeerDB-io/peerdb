@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 // QRecordBatch holds a batch of []QValue slices

@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 func getTimeForTesting(t *testing.T) time.Time {

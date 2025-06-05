@@ -16,8 +16,9 @@ import (
 	avroutils "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 type QRepAvroSyncMethod struct {
@@ -250,7 +251,7 @@ func DefineAvroSchema(dstTableName string,
 }
 
 func GetAvroType(bqField *bigquery.FieldSchema) (avro.Schema, error) {
-	avroNumericPrecision, avroNumericScale := qvalue.DetermineNumericSettingForDWH(
+	avroNumericPrecision, avroNumericScale := _qvalue.DetermineNumericSettingForDWH(
 		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY)
 
 	considerRepeated := func(typ avro.Type, repeated bool) avro.Schema {

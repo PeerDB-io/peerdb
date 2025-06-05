@@ -22,9 +22,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 type ClickHouseConnector struct {

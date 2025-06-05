@@ -16,8 +16,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,

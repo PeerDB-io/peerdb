@@ -18,9 +18,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	_qvalue "github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared/qvalue"
 )
 
 const (
@@ -132,8 +133,8 @@ func generateCreateTableSQLForNormalizedTable(
 
 		if clickHouseType == "" {
 			var err error
-			clickHouseType, err = colType.ToDWHColumnType(
-				ctx, config.Env, protos.DBType_CLICKHOUSE, column, tableSchema.NullableEnabled || columnNullableEnabled,
+			clickHouseType, err = _qvalue.ToDWHColumnType(
+				ctx, colType, config.Env, protos.DBType_CLICKHOUSE, column, tableSchema.NullableEnabled || columnNullableEnabled,
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -426,8 +427,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
 				if clickHouseType == "" {
 					var err error
-					clickHouseType, err = colType.ToDWHColumnType(
-						ctx, req.Env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
+					clickHouseType, err = _qvalue.ToDWHColumnType(
+						ctx, colType, req.Env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
 					)
 					if err != nil {
 						close(queries)
