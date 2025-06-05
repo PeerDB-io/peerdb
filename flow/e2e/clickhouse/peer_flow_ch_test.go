@@ -1502,3 +1502,93 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_Partition_Key_Integer() {
+	srcTableName := "test_partition_key_integer"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_partition_key_integer"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id INT PRIMARY KEY,
+		myname TEXT NOT NULL,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, srcFullName)))
+
+	for i := 1; i <= 100; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at) VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`, srcFullName, i, i, i)))
+	}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_partition_key_integer"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			PartitionKey:               "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
+
+	countRow := s.Conn().QueryRow(s.t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+
+	var partitionCount int
+	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
+	require.GreaterOrEqual(s.t, partitionCount, 10, "expected at least 10 partitions to be created")
+}
+
+func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
+	srcTableName := "test_partition_key_timestamp"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_partition_key_timestamp"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id INT PRIMARY KEY,
+		myname TEXT NOT NULL,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, srcFullName)))
+
+	for i := 1; i <= 100; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at) VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`, srcFullName, i, i, i)))
+	}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_partition_key_timestamp"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			PartitionKey:               "updated_at",
+		}},
+		Destination: s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
+
+	countRow := s.Conn().QueryRow(s.t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+
+	var partitionCount int
+	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
+	require.GreaterOrEqual(s.t, partitionCount, 10, "expected at least 10 partitions to be created")
+}

@@ -68,7 +68,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
-		whereClause = fmt.Sprintf("WHERE %s > $1", quotedWatermarkColumn)
+		whereClause = fmt.Sprintf("WHERE %s > ?", quotedWatermarkColumn)
 	}
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -86,7 +86,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		case *protos.PartitionRange_UintRange:
 			minVal = lastRange.UintRange.End
 		case *protos.PartitionRange_TimestampRange:
-			minVal = lastRange.TimestampRange.End.AsTime()
+			minVal = lastRange.TimestampRange.End.AsTime().String()
 		}
 		c.logger.Info(fmt.Sprintf("count query: %s - minVal: %v", countQuery, minVal))
 
@@ -139,13 +139,13 @@ func (c *MySqlConnector) GetQRepPartitions(
 				`WITH stats AS (
 				SELECT MIN(%[2]s) AS min_watermark,
 				1.0 * (MAX(%[2]s) - MIN(%[2]s)) / (%[1]d) AS range_size
-				FROM %[3]s WHERE %[2]s > $1
+				FROM %[3]s WHERE %[2]s > ?
 			)
 			SELECT FLOOR((w.%[2]s - s.min_watermark) / s.range_size) AS bucket,
 			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
 			CROSS JOIN stats AS s
-			WHERE w.%[2]s > $1
+			WHERE w.%[2]s > ?
 			GROUP BY bucket
 			ORDER BY start;`,
 				numPartitions,
@@ -183,13 +183,13 @@ func (c *MySqlConnector) GetQRepPartitions(
 				`WITH stats AS (
 				SELECT MIN(%[2]s) AS min_watermark,
 				1.0 * (TIMESTAMPDIFF(MICROSECOND, MAX(%[2]s), MIN(%[2]s)) / (%[1]d)) AS range_size
-				FROM %[3]s WHERE %[2]s > $1
+				FROM %[3]s WHERE %[2]s > ?
 			)
 			SELECT FLOOR(TIMESTAMPDIFF(MICROSECOND, w.%[2]s, s.min_watermark) / s.range_size) AS bucket,
 			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
 			FROM %[3]s AS w
 			CROSS JOIN stats AS s
-			WHERE w.%[2]s > $1
+			WHERE w.%[2]s > ?
 			GROUP BY bucket
 			ORDER BY start;`,
 				numPartitions,
