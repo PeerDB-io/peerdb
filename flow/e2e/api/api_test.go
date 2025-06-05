@@ -926,7 +926,7 @@ func (s Suite) TestQRep() {
 	require.NoError(s.t, err)
 	qStatus := statusResponse.GetQrepStatus()
 	require.NotNil(s.t, qStatus)
-	require.Len(s.t, qStatus.Partitions, 1)
+	require.Len(s.t, qStatus.Partitions, 2)
 	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsInPartition)
 	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsSynced)
 }
