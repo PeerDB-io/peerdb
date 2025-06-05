@@ -65,6 +65,7 @@ const (
 	QValueKindArrayJSON        QValueKind = "array_json"
 	QValueKindArrayJSONB       QValueKind = "array_jsonb"
 	QValueKindArrayUUID        QValueKind = "array_uuid"
+	QValueKindArrayNumeric     QValueKind = "array_numeric"
 )
 
 func (kind QValueKind) IsArray() bool {
@@ -117,6 +118,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindArrayJSON:        "VARIANT",
 	QValueKindArrayJSONB:       "VARIANT",
 	QValueKindArrayUUID:        "VARIANT",
+	QValueKindArrayNumeric:     "VARIANT",
 }
 
 var QValueKindToClickHouseTypeMap = map[QValueKind]string{
@@ -160,6 +162,7 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindArrayJSON:        "String",
 	QValueKindArrayJSONB:       "String",
 	QValueKindArrayUUID:        "Array(UUID)",
+	QValueKindArrayNumeric:     "Array(String)",
 }
 
 func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, column *protos.FieldDescription) (string, error) {

@@ -797,7 +797,8 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME,c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
 		c39 TXID_SNAPSHOT,c40 UUID, c41 mood[], c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
-		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[], c52 UUID[]);
+		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[], c52 UUID[],
+		c53 NUMERIC(76,38)[], c54 NUMERIC[]);
 		INSERT INTO %[1]s SELECT 2,2,b'1',b'101',
 		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
@@ -818,7 +819,9 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
 		'{true, false}'::boolean[],
 		'{1, 2}'::smallint[],
-		'{"66073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[];`,
+		'{"66073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
+		'{0.12345678901234567890123456789012345678, 1.12345678901234567890123456789012345678}'::numeric(76,38)[],
+		'{0.12345678901234567890123456789012345678, 1.12345678901234567890123456789012345678}'::numeric[];`,
 		srcFullName))
 	require.NoError(s.t, err)
 
@@ -835,7 +838,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c52")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c52,c53,c54")
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 3,2,b'1',b'101',
@@ -858,7 +861,9 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
 		'{true, false}'::boolean[],
 		'{1, 2}'::smallint[],
-		'{"86073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[];`, srcFullName))
+		'{"86073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
+		'{2.12345678901234567890123456789012345678, 3.12345678901234567890123456789012345678}'::numeric(76,38)[],
+		'{2.12345678901234567890123456789012345678, 3.12345678901234567890123456789012345678}'::numeric[];`, srcFullName))
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName,
@@ -887,7 +892,9 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
 		'{true, false}'::boolean[],
 		'{1, 2}'::smallint[],
-		'{"66073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[];`, srcFullName))
+		'{"66073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
+		'{0.12345678901234567890123456789012345678, 1.12345678901234567890123456789012345678}'::numeric(76,38)[],
+		'{0.12345678901234567890123456789012345678, 1.12345678901234567890123456789012345678}'::numeric[];`, srcFullName))
 
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)

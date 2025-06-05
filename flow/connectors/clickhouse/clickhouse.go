@@ -414,7 +414,11 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = qvalue.QValueKindArrayUUID
 		default:
 			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
-				qkind = qvalue.QValueKindNumeric
+				if strings.HasPrefix(column.DatabaseTypeName(), "Array(") {
+					qkind = qvalue.QValueKindArrayNumeric
+				} else {
+					qkind = qvalue.QValueKindNumeric
+				}
 			} else {
 				return nil, fmt.Errorf("failed to resolve QValueKind for %s", column.DatabaseTypeName())
 			}

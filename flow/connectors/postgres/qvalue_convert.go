@@ -120,6 +120,8 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 		return qvalue.QValueKindArrayJSON
 	case pgtype.JSONBArrayOID:
 		return qvalue.QValueKindArrayJSONB
+	case pgtype.NumericArrayOID:
+		return qvalue.QValueKindArrayNumeric
 	case pgtype.IntervalOID:
 		return qvalue.QValueKindInterval
 	case pgtype.TstzrangeOID:
@@ -225,6 +227,8 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "JSON[]"
 	case qvalue.QValueKindArrayJSONB:
 		return "JSONB[]"
+	case qvalue.QValueKindArrayNumeric:
+		return "NUMERIC[]"
 	case qvalue.QValueKindGeography:
 		return "GEOGRAPHY"
 	case qvalue.QValueKindGeometry:
@@ -577,6 +581,26 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			}
 			return qvalue.QValueArrayEnum{Val: a}, nil
 		}
+	case qvalue.QValueKindArrayNumeric:
+		if items, ok := value.([]any); ok {
+			a := make([]string, len(items))
+			success := true
+		loop:
+			for i, item := range items {
+				var numeric pgtype.Numeric
+				var ok bool
+				if numeric, ok = item.(pgtype.Numeric); !ok {
+					success = false
+					break loop
+				}
+				bytes, _ := numeric.MarshalJSON()
+				a[i] = shared.UnsafeFastReadOnlyBytesToString(bytes)
+			}
+			if success {
+				return qvalue.QValueArrayString{Val: a}, nil
+			}
+		}
+		return nil, fmt.Errorf("failed to parse numeric array from %T: %v", value, value)
 	case qvalue.QValueKindPoint:
 		coord := value.(pgtype.Point).P
 		return qvalue.QValuePoint{

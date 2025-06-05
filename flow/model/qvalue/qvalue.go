@@ -776,3 +776,21 @@ func (v QValueArrayEnum) LValue(ls *lua.LState) lua.LValue {
 		return lua.LString(x)
 	})
 }
+
+type QValueArrayNumeric struct {
+	Val []decimal.Decimal
+}
+
+func (QValueArrayNumeric) Kind() QValueKind {
+	return QValueKindArrayNumeric
+}
+
+func (v QValueArrayNumeric) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayNumeric) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x decimal.Decimal) lua.LValue {
+		return shared.LuaDecimal.New(ls, x)
+	})
+}

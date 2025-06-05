@@ -65,7 +65,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 	case qvalue.QValueKindArrayDate:
 		bqField.Type = bigquery.DateFieldType
 		bqField.Repeated = true
-	case qvalue.QValueKindArrayString, qvalue.QValueKindArrayEnum:
+	case qvalue.QValueKindArrayString, qvalue.QValueKindArrayEnum, qvalue.QValueKindArrayNumeric:
 		bqField.Type = bigquery.StringFieldType
 		bqField.Repeated = true
 	case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
@@ -122,6 +122,9 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) qvalue.QValueKi
 	case bigquery.TimeFieldType:
 		return qvalue.QValueKindTime
 	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
+		if fieldSchema.Repeated {
+			return qvalue.QValueKindArrayNumeric
+		}
 		return qvalue.QValueKindNumeric
 	case bigquery.GeographyFieldType:
 		return qvalue.QValueKindGeography
