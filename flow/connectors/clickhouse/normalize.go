@@ -85,14 +85,12 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	chVersion *chproto.Version,
 ) ([]string, error) {
 	var engine string
-	var distributed bool
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
 
 	var tableMapping *protos.TableMapping
 	for _, tm := range config.TableMappings {
 		if tm.DestinationTableIdentifier == tableIdentifier {
 			tmEngine = tm.Engine
-			distributed = tm.Cluster != "" && tm.Distributed
 			tableMapping = tm
 			break
 		}
@@ -126,7 +124,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	var stmtBuilder strings.Builder
 	var stmtBuilderDistributed strings.Builder
 	var builders []*strings.Builder
-	if distributed {
+	if c.config.Cluster != "" {
 		builders = []*strings.Builder{&stmtBuilder, &stmtBuilderDistributed}
 	} else {
 		builders = []*strings.Builder{&stmtBuilder}
@@ -142,14 +140,14 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		if !config.IsResync {
 			builder.WriteString("IF NOT EXISTS ")
 		}
-		if distributed && idx == 0 {
+		if c.config.Cluster != "" && idx == 0 {
 			// distributed table gets destination name, avoid naming conflict
 			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier + "_shard"))
 		} else {
 			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
 		}
-		if tableMapping != nil && tableMapping.Cluster != "" {
-			fmt.Fprintf(builder, "ON CLUSTER %s", peerdb_clickhouse.QuoteIdentifier(tableMapping.Cluster))
+		if tableMapping != nil && c.config.Cluster != "" {
+			fmt.Fprintf(builder, " ON CLUSTER %s", peerdb_clickhouse.QuoteIdentifier(c.config.Cluster))
 		}
 		builder.WriteString(" (")
 
@@ -229,9 +227,9 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		}
 	}
 
-	if distributed {
+	if c.config.Cluster != "" {
 		fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
-			peerdb_clickhouse.QuoteIdentifier(tableMapping.Cluster),
+			peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
 			peerdb_clickhouse.QuoteIdentifier(c.config.Database),
 			peerdb_clickhouse.QuoteIdentifier(tableIdentifier+"_shard"),
 		)

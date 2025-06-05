@@ -38,6 +38,12 @@ export const clickhouseSetting: PeerSetting[] = [
     tips: 'Specify which database to associate with this peer.',
   },
   {
+    label: 'Cluster',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, cluster: value as string })),
+    tips: 'Specify which cluster to associate with this peer.',
+  },
+  {
     label: 'Disable TLS?',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, disableTls: value as boolean })),
@@ -232,4 +238,5 @@ export const blankClickHouseSetting: ClickhouseConfig = {
   disableTls: false,
   endpoint: undefined,
   tlsHost: '',
+  cluster: '',
 };

@@ -122,20 +122,6 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const updateDistributed = (source: string, distributed: boolean) => {
-    const newRows = [...rows];
-    const index = newRows.findIndex((row) => row.source === source);
-    newRows[index] = { ...newRows[index], distributed };
-    setRows(newRows);
-  };
-
-  const updateCluster = (source: string, cluster: string) => {
-    const newRows = [...rows];
-    const index = newRows.findIndex((row) => row.source === source);
-    newRows[index] = { ...newRows[index], cluster };
-    setRows(newRows);
-  };
-
   const updateShardingKey = (source: string, shardingKey: string) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
@@ -441,32 +427,6 @@ export default function SchemaBox({
                                     tableEngineFromJSON(selectedOption.value)
                                   )
                                 }
-                              />
-                            </div>
-                            <div style={{ width: '30%', fontSize: 12 }}>
-                              Distributed:
-                              <Checkbox
-                                disabled={row.editingDisabled}
-                                checked={row.distributed}
-                                onCheckedChange={(state: boolean) =>
-                                  updateDistributed(row.source, state)
-                                }
-                              />
-                            </div>
-                            <div style={{ width: '30%', fontSize: 12 }}>
-                              Cluster:
-                              <TextField
-                                disabled={row.editingDisabled}
-                                style={{
-                                  marginTop: '0.5rem',
-                                  cursor: 'pointer',
-                                }}
-                                variant='simple'
-                                placeholder='Cluster name'
-                                value={row.destination}
-                                onChange={(
-                                  e: React.ChangeEvent<HTMLInputElement>
-                                ) => updateCluster(row.source, e.target.value)}
                               />
                             </div>
                             <div style={{ width: '30%', fontSize: 12 }}>

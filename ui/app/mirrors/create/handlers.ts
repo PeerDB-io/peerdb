@@ -186,8 +186,6 @@ export function reformattedTableMapping(
       exclude: Array.from(row.exclude),
       columns: row.columns,
       engine: row.engine,
-      distributed: row.distributed,
-      cluster: row.cluster,
       shardingKey: row.shardingKey,
       policyName: row.policyName,
     }));
@@ -455,8 +453,6 @@ export async function fetchTables(
         editingDisabled: false,
         columns: [],
         engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
-        distributed: false,
-        cluster: '',
         shardingKey: '',
         policyName: '',
       });

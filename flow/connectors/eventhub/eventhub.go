@@ -371,7 +371,7 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 }
 
 func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, tableMapping []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	return nil
 }
