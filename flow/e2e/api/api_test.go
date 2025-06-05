@@ -894,7 +894,7 @@ func (s Suite) TestQRep() {
 		s.t,
 		"qrepapiflow",
 		schemaQualified,
-		schemaQualified+"dst",
+		tblName,
 		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
 		sourcePeer.Name,
 		"",
@@ -903,7 +903,8 @@ func (s Suite) TestQRep() {
 		"",
 	)
 	qrepConfig.WatermarkColumn = "id"
-
+	qrepConfig.InitialCopyOnly = false
+	qrepConfig.WaitBetweenBatchesSeconds = 5
 	_, err := s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
 		QrepConfig:         qrepConfig,
 		CreateCatalogEntry: true,
@@ -913,8 +914,6 @@ func (s Suite) TestQRep() {
 	tc := e2e.NewTemporalClient(s.t)
 	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error(s.t.Context()))
 
 	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
 		FlowJobName:     qrepConfig.FlowJobName,
@@ -922,10 +921,13 @@ func (s Suite) TestQRep() {
 		ExcludeBatches:  false,
 	})
 	require.NoError(s.t, err)
-	require.Equal(s.t, protos.FlowStatus_STATUS_COMPLETED, statusResponse.CurrentFlowState)
 	qStatus := statusResponse.GetQrepStatus()
 	require.NotNil(s.t, qStatus)
 	require.Len(s.t, qStatus.Partitions, 1)
 	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsInPartition)
 	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsSynced)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
+
+	e2e.EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tblName, "id,val")
 }
