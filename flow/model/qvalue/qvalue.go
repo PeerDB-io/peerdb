@@ -237,7 +237,7 @@ func (v QValueQChar) Value() any {
 }
 
 func (v QValueQChar) LValue(ls *lua.LState) lua.LValue {
-	return lua.LString(v.Val)
+	return lua.LString(string(v.Val))
 }
 
 type QValueString struct {
@@ -373,7 +373,7 @@ type QValueTSTZRange struct {
 }
 
 func (QValueTSTZRange) Kind() QValueKind {
-	return QValueKindInterval
+	return QValueKindTSTZRange
 }
 
 func (v QValueTSTZRange) Value() any {
@@ -620,7 +620,7 @@ type QValueArrayInt16 struct {
 }
 
 func (QValueArrayInt16) Kind() QValueKind {
-	return QValueKindInt16
+	return QValueKindArrayInt16
 }
 
 func (v QValueArrayInt16) Value() any {
@@ -638,7 +638,7 @@ type QValueArrayInt32 struct {
 }
 
 func (QValueArrayInt32) Kind() QValueKind {
-	return QValueKindInt32
+	return QValueKindArrayInt32
 }
 
 func (v QValueArrayInt32) Value() any {
