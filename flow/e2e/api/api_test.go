@@ -927,7 +927,7 @@ func (s Suite) TestQRep() {
 	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsInPartition)
 	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsSynced)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualified)))
 
 	e2e.EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tblName, "id,val")
 }
