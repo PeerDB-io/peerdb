@@ -162,7 +162,7 @@ func GetAvroSchemaFromQValueKind(
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros))), nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
-	case types.QValueKindArrayString, types.QValueKindArrayEnum:
+	case types.QValueKindArrayString, types.QValueKindArrayEnum, types.QValueKindArrayNumeric:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 	case types.QValueKindInvalid:
 		// lets attempt to do invalid as a string

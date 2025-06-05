@@ -65,7 +65,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 	case types.QValueKindArrayDate:
 		bqField.Type = bigquery.DateFieldType
 		bqField.Repeated = true
-	case types.QValueKindArrayString, types.QValueKindArrayEnum:
+	case types.QValueKindArrayString, types.QValueKindArrayEnum, types.QValueKindArrayNumeric:
 		bqField.Type = bigquery.StringFieldType
 		bqField.Repeated = true
 	case types.QValueKindGeography, types.QValueKindGeometry, types.QValueKindPoint:
