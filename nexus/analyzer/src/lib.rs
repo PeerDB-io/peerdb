@@ -792,6 +792,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
                 s3: None,
+                cluster: opts
+                    .get("cluster")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
             };
             Config::ClickhouseConfig(clickhouse_config)
         }
