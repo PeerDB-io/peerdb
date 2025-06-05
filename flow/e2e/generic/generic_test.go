@@ -17,8 +17,8 @@ import (
 	e2e_snowflake "github.com/PeerDB-io/peerdb/flow/e2e/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 

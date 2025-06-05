@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 )
 
 type Items interface {

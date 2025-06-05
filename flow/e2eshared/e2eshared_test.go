@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 )
 
 func TestReadMissingFileToBytes(t *testing.T) {

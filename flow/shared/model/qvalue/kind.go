@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 )
 
 type QValueKind string

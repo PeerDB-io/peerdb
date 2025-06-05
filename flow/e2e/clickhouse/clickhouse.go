@@ -20,7 +20,7 @@ import (
 	e2e_s3 "github.com/PeerDB-io/peerdb/flow/e2e/s3"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 )
 
 type ClickHouseSuite struct {

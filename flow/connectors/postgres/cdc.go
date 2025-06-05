@@ -23,14 +23,14 @@ import (
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
-	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 )
 
 type PostgresCDCSource struct {

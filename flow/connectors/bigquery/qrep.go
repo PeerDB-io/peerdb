@@ -8,11 +8,11 @@ import (
 
 	"cloud.google.com/go/bigquery"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 )
 
 func (c *BigQueryConnector) SyncQRepRecords(

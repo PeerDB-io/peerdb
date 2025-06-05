@@ -12,7 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 )
 
 func SnowflakeIdentifierNormalize(identifier string) string {

@@ -4,9 +4,9 @@ import (
 	"context"
 	"slices"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 )
 
 func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tm *protos.TableMapping) (*protos.TableSchema, error) {

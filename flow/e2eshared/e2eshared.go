@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 )
 
 type Suite interface {

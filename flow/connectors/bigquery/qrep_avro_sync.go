@@ -16,8 +16,8 @@ import (
 	avroutils "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/model/qvalue"
 )
 
 type QRepAvroSyncMethod struct {
