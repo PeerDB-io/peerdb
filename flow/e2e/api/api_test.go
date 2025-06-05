@@ -882,10 +882,6 @@ func (s Suite) TestCustomSync() {
 }
 
 func (s Suite) TestQRep() {
-	if _, ok := s.source.(*e2e.PostgresSource); !ok {
-		s.t.Skip("only run with pg as mysql qrep isn't really supported")
-	}
-
 	tblName := "qrepapi"
 	schemaQualified := e2e.AttachSchema(s, tblName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),

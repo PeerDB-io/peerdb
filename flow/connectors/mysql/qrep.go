@@ -153,7 +153,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 				parsedWatermarkTable.MySQL(),
 			)
 			c.logger.Info("partitions query", slog.String("query", partitionsQuery), slog.Any("minVal", minVal))
-			rs, err = c.Execute(ctx, partitionsQuery, minVal)
+			rs, err = c.Execute(ctx, partitionsQuery, minVal, minVal)
 		} else {
 			partitionsQuery := fmt.Sprintf(
 				`WITH stats AS (

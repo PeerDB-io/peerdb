@@ -1516,7 +1516,9 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 
 	for i := 1; i <= 100; i++ {
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at) VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`, srcFullName, i, i, i)))
+			fmt.Sprintf(
+				`INSERT INTO %s (id,myname,updated_at) VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`,
+				srcFullName, i, i, i)))
 	}
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1561,7 +1563,9 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 
 	for i := 1; i <= 100; i++ {
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at) VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`, srcFullName, i, i, i)))
+			fmt.Sprintf(`INSERT INTO %s (id,myname,updated_at)
+			VALUES (%d,'init_%d',CURRENT_TIMESTAMP + INTERVAL %d SECOND)`,
+				srcFullName, i, i, i)))
 	}
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
