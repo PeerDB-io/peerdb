@@ -134,14 +134,14 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	defer rows.Close()
 
 	batch := &model.QRecordBatch{}
-	types := rows.ColumnTypes()
-	row := make([]any, 0, len(types))
-	tableSchema, err := connclickhouse.GetTableSchemaForTable(&protos.TableMapping{SourceTableIdentifier: table}, types)
+	colTypes := rows.ColumnTypes()
+	row := make([]any, 0, len(colTypes))
+	tableSchema, err := connclickhouse.GetTableSchemaForTable(&protos.TableMapping{SourceTableIdentifier: table}, colTypes)
 	if err != nil {
 		return nil, err
 	}
 
-	for idx, ty := range types {
+	for idx, ty := range colTypes {
 		fieldDesc := tableSchema.Columns[idx]
 		row = append(row, reflect.New(ty.ScanType()).Interface())
 		batch.Schema.Fields = append(batch.Schema.Fields, types.QField{
