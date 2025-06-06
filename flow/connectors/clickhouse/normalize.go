@@ -91,27 +91,39 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	for _, tm := range config.TableMappings {
 		if tm.DestinationTableIdentifier == tableIdentifier {
 			tmEngine = tm.Engine
+			if c.config.Replicated {
+				switch tmEngine {
+				case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE:
+					tmEngine = protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE
+				case protos.TableEngine_CH_ENGINE_MERGE_TREE:
+					tmEngine = protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE
+				}
+			}
 			tableMapping = tm
 			break
 		}
 	}
 
 	switch tmEngine {
-	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE:
-		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
-	case protos.TableEngine_CH_ENGINE_MERGE_TREE:
-		engine = "MergeTree()"
-	case protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
-		engine = fmt.Sprintf(
-			"ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}',%s)",
-			peerdb_clickhouse.EscapeStr(tableIdentifier),
-			peerdb_clickhouse.QuoteIdentifier(versionColName),
-		)
-	case protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
-		engine = fmt.Sprintf(
-			"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}')",
-			peerdb_clickhouse.EscapeStr(tableIdentifier),
-		)
+	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
+		if c.config.Replicated {
+			engine = fmt.Sprintf(
+				"ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}',%s)",
+				peerdb_clickhouse.EscapeStr(tableIdentifier),
+				peerdb_clickhouse.QuoteIdentifier(versionColName),
+			)
+		} else {
+			engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
+		}
+	case protos.TableEngine_CH_ENGINE_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
+		if c.config.Replicated {
+			engine = fmt.Sprintf(
+				"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}')",
+				peerdb_clickhouse.EscapeStr(tableIdentifier),
+			)
+		} else {
+			engine = "MergeTree()"
+		}
 	case protos.TableEngine_CH_ENGINE_NULL:
 		engine = "Null"
 	}
