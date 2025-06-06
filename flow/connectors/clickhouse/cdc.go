@@ -46,6 +46,13 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		onCluster = " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(c.config.Cluster)
 	}
 
+	engine := "MergeTree()"
+	if c.config.Replicated {
+		engine = fmt.Sprintf(
+			"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}')",
+			peerdb_clickhouse.EscapeStr(rawTableName),
+		)
+	}
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s (
 		_peerdb_uid UUID,
 		_peerdb_timestamp Int64,
@@ -55,11 +62,11 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		_peerdb_match_data String,
 		_peerdb_batch_id Int64,
 		_peerdb_unchanged_toast_columns String
-	) ENGINE = MergeTree() ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name);`
+	) ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name);`
 
-	err := c.execWithLogging(ctx,
-		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster))
-	if err != nil {
+	if err := c.execWithLogging(ctx,
+		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, engine),
+	); err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
 	return &protos.CreateRawTableOutput{
