@@ -21,6 +21,7 @@ type S3Connector struct {
 	credentialsProvider utils.AWSCredentialsProvider
 	client              s3.Client
 	url                 string
+	codec               protos.AvroCodec
 }
 
 func NewS3Connector(
@@ -44,11 +45,12 @@ func NewS3Connector(
 		return nil, err
 	}
 	return &S3Connector{
-		url:                 config.Url,
 		PostgresMetadata:    pgMetadata,
 		client:              *s3Client,
 		credentialsProvider: provider,
 		logger:              logger,
+		url:                 config.Url,
+		codec:               config.Codec,
 	}, nil
 }
 
