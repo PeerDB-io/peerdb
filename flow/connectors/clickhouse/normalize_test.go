@@ -1,12 +1,12 @@
 package connclickhouse
 
 import (
-	"context"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
-	"github.com/stretchr/testify/require"
 )
 
 func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
@@ -147,7 +147,7 @@ func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
 }
 
 func TestBuildQuery_Basic(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tableName := "my_table"
 	rawTableName := "raw_my_table"
 	part := uint64(0)
@@ -203,7 +203,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 }
 
 func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tableName := "my_table"
 	rawTableName := "raw_my_table"
 	part := uint64(0)
@@ -254,7 +254,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 }
 
 func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tableName := "my_table"
 	rawTableName := "raw_my_table"
 	part := uint64(0)
@@ -302,7 +302,7 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 }
 
 func TestBuildQuery_WithNumParts(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	tableName := "my_table"
 	rawTableName := "raw_my_table"
 	part := uint64(2)

@@ -15,18 +15,18 @@ import (
 )
 
 type NormalizeQueryGenerator struct {
+	tableNameSchemaMapping          map[string]*protos.TableSchema
+	env                             map[string]string
 	Query                           string
 	TableName                       string
-	Part                            uint64
-	tableNameSchemaMapping          map[string]*protos.TableSchema
+	rawTableName                    string
 	tableMappings                   []*protos.TableMapping
+	Part                            uint64
 	syncBatchID                     int64
 	batchIDToLoadForTable           int64
 	numParts                        uint64
 	enablePrimaryUpdate             bool
 	sourceSchemaAsDestinationColumn bool
-	env                             map[string]string
-	rawTableName                    string
 }
 
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
