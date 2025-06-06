@@ -14,7 +14,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -257,12 +256,6 @@ func getOrderedOrderByColumns(
 	return orderbyColumns
 }
 
-type TableNormalizeQuery struct {
-	TableName string
-	Query     string
-	Part      uint64
-}
-
 func (c *ClickHouseConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
@@ -335,7 +328,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	numParts = max(numParts, 1)
 
-	queries := make(chan TableNormalizeQuery)
+	queries := make(chan NormalizeQueryGenerator)
 	rawTbl := c.GetRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
@@ -397,205 +390,32 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}
 
 		for numPart := range numParts {
-			selectQuery := strings.Builder{}
-			selectQuery.WriteString("SELECT ")
-
-			colSelector := strings.Builder{}
-			colSelector.WriteByte('(')
-
-			schema := req.TableNameSchemaMapping[tbl]
-
-			var tableMapping *protos.TableMapping
-			for _, tm := range req.TableMappings {
-				if tm.DestinationTableIdentifier == tbl {
-					tableMapping = tm
-					break
-				}
+			queryGenerator := NewNormalizeQueryGenerator(
+				tbl,
+				numPart,
+				req.TableNameSchemaMapping,
+				req.TableMappings,
+				req.SyncBatchID,
+				batchIdToLoadForTable,
+				numParts,
+				enablePrimaryUpdate,
+				sourceSchemaAsDestinationColumn,
+				req.Env,
+				rawTbl,
+			)
+			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
+			if err != nil {
+				close(queries)
+				c.logger.Error("[clickhouse] error while building insert into select query",
+					slog.String("table", tbl),
+					slog.Int64("syncBatchID", req.SyncBatchID),
+					slog.Int64("normalizeBatchID", normBatchID),
+					slog.Any("error", err))
+				return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
 			}
 
-			var escapedSourceSchemaSelectorFragment string
-			if sourceSchemaAsDestinationColumn {
-				if tableMapping == nil {
-					return model.NormalizeResponse{}, errors.New("could not look up source schema info")
-				}
-				schemaTable, err := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
-				if err != nil {
-					return model.NormalizeResponse{}, err
-				}
-				escapedSourceSchemaSelectorFragment = fmt.Sprintf("%s AS %s,",
-					peerdb_clickhouse.QuoteLiteral(schemaTable.Schema), peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
-			}
-
-			projection := strings.Builder{}
-			projectionUpdate := strings.Builder{}
-
-			for _, column := range schema.Columns {
-				colName := column.Name
-				dstColName := colName
-				colType := types.QValueKind(column.Type)
-
-				var clickHouseType string
-				var columnNullableEnabled bool
-				if tableMapping != nil {
-					for _, col := range tableMapping.Columns {
-						if col.SourceName == colName {
-							if col.DestinationName != "" {
-								dstColName = col.DestinationName
-							}
-							if col.DestinationType != "" {
-								// TODO can we restrict this to avoid injection?
-								clickHouseType = col.DestinationType
-							}
-							columnNullableEnabled = col.NullableEnabled
-							break
-						}
-					}
-				}
-
-				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
-				if clickHouseType == "" {
-					var err error
-					clickHouseType, err = qvalue.ToDWHColumnType(
-						ctx, colType, req.Env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
-					)
-					if err != nil {
-						close(queries)
-						return model.NormalizeResponse{}, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
-					}
-				}
-
-				switch clickHouseType {
-				case "Date32", "Nullable(Date32)":
-					fmt.Fprintf(&projection,
-						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6)) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
-						peerdb_clickhouse.QuoteIdentifier(dstColName),
-					)
-					if enablePrimaryUpdate {
-						fmt.Fprintf(&projectionUpdate,
-							"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6)) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
-							peerdb_clickhouse.QuoteIdentifier(dstColName),
-						)
-					}
-				case "DateTime64(6)", "Nullable(DateTime64(6))":
-					fmt.Fprintf(&projection,
-						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
-						peerdb_clickhouse.QuoteIdentifier(dstColName),
-					)
-					if enablePrimaryUpdate {
-						fmt.Fprintf(&projectionUpdate,
-							"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
-							peerdb_clickhouse.QuoteIdentifier(dstColName),
-						)
-					}
-				default:
-					projLen := projection.Len()
-					if colType == types.QValueKindBytes {
-						format, err := internal.PeerDBBinaryFormat(ctx, req.Env)
-						if err != nil {
-							return model.NormalizeResponse{}, err
-						}
-						switch format {
-						case internal.BinaryFormatRaw:
-							fmt.Fprintf(&projection,
-								"base64Decode(JSONExtractString(_peerdb_data, %s)) AS %s,",
-								peerdb_clickhouse.QuoteLiteral(colName),
-								peerdb_clickhouse.QuoteIdentifier(dstColName),
-							)
-							if enablePrimaryUpdate {
-								fmt.Fprintf(&projectionUpdate,
-									"base64Decode(JSONExtractString(_peerdb_match_data, %s)) AS %s,",
-									peerdb_clickhouse.QuoteLiteral(colName),
-									peerdb_clickhouse.QuoteIdentifier(dstColName),
-								)
-							}
-						case internal.BinaryFormatHex:
-							fmt.Fprintf(&projection, "hex(base64Decode(JSONExtractString(_peerdb_data, %s))) AS %s,",
-								peerdb_clickhouse.QuoteLiteral(colName),
-								peerdb_clickhouse.QuoteIdentifier(dstColName),
-							)
-							if enablePrimaryUpdate {
-								fmt.Fprintf(&projectionUpdate,
-									"hex(base64Decode(JSONExtractString(_peerdb_match_data, %s))) AS %s,",
-									peerdb_clickhouse.QuoteLiteral(colName),
-									peerdb_clickhouse.QuoteIdentifier(dstColName),
-								)
-							}
-						}
-					}
-
-					// proceed with default logic if logic above didn't add any sql
-					if projection.Len() == projLen {
-						fmt.Fprintf(
-							&projection,
-							"JSONExtract(_peerdb_data, %s, %s) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
-							peerdb_clickhouse.QuoteLiteral(clickHouseType),
-							peerdb_clickhouse.QuoteIdentifier(dstColName),
-						)
-						if enablePrimaryUpdate {
-							fmt.Fprintf(
-								&projectionUpdate,
-								"JSONExtract(_peerdb_match_data, %s, %s) AS %s,",
-								peerdb_clickhouse.QuoteLiteral(colName),
-								peerdb_clickhouse.QuoteLiteral(clickHouseType),
-								peerdb_clickhouse.QuoteIdentifier(dstColName),
-							)
-						}
-					}
-				}
-			}
-
-			if sourceSchemaAsDestinationColumn {
-				projection.WriteString(escapedSourceSchemaSelectorFragment)
-				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
-			}
-
-			// add _peerdb_sign as _peerdb_record_type / 2
-			fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-			fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-
-			// add _peerdb_timestamp as _peerdb_version
-			fmt.Fprintf(&projection, "_peerdb_timestamp AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
-			fmt.Fprintf(&colSelector, "%s) ", peerdb_clickhouse.QuoteIdentifier(versionColName))
-
-			selectQuery.WriteString(projection.String())
-			fmt.Fprintf(&selectQuery,
-				" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-				peerdb_clickhouse.QuoteIdentifier(rawTbl), batchIdToLoadForTable, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
-			if numParts > 1 {
-				fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart)
-			}
-
-			if enablePrimaryUpdate {
-				if sourceSchemaAsDestinationColumn {
-					projectionUpdate.WriteString(escapedSourceSchemaSelectorFragment)
-				}
-
-				// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
-				fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-				// decrement timestamp by 1 so delete is ordered before latest data,
-				// could be same if deletion records were only generated when ordering updated
-				fmt.Fprintf(&projectionUpdate, "_peerdb_timestamp - 1 AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
-
-				selectQuery.WriteString(" UNION ALL SELECT ")
-				selectQuery.WriteString(projectionUpdate.String())
-				fmt.Fprintf(&selectQuery,
-					" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
-						" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
-					peerdb_clickhouse.QuoteIdentifier(rawTbl), normBatchID, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
-				if numParts > 1 {
-					fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart)
-				}
-			}
-
-			insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
-				peerdb_clickhouse.QuoteIdentifier(tbl), colSelector.String(), selectQuery.String())
 			select {
-			case queries <- TableNormalizeQuery{
+			case queries <- NormalizeQueryGenerator{
 				TableName: tbl,
 				Query:     insertIntoSelectQuery,
 				Part:      numPart,
