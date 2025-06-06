@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -466,4 +467,11 @@ func (c *ClickHouseConnector) GetTableSchema(
 	}
 
 	return res, nil
+}
+
+func (c *ClickHouseConnector) onCluster() string {
+	if c.config.Cluster != "" {
+		return " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(c.config.Cluster)
+	}
+	return ""
 }
