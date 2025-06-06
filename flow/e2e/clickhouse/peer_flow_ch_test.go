@@ -1655,6 +1655,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE nulltarget"))
 	require.NoError(s.t, ch.Close())
+	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.Resync = true
 	env = e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
