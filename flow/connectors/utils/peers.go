@@ -87,6 +87,12 @@ func CreatePeerNoValidate(
 			return wrongConfigResponse, nil
 		}
 		innerConfig = esConfigObject.ElasticsearchConfig
+	case protos.DBType_MONGO:
+		mongoConfigObject, ok := config.(*protos.Peer_MongoConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		innerConfig = mongoConfigObject.MongoConfig
 	default:
 		return wrongConfigResponse, nil
 	}
