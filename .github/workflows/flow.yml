@@ -201,7 +201,124 @@ jobs:
 
       - name: Run ClickHouse
         run: |
-          ./clickhouse server &
+          cat > config1.xml <<EOF
+          <clickhouse>
+            <profiles><default></default></profiles>
+            <users>
+              <default>
+                <password></password>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+                <named_collection_control>1</named_collection_control>
+              </default>
+            </users>
+            <logger><level>none</level></logger>
+            <path>/var/lib/clickhouse</path>
+            <tmp_path>/var/lib/clickhouse/tmp</tmp_path>
+            <user_files_path>/var/lib/clickhouse/user_files</user_files_path>
+            <format_schema_path>/var/lib/clickhouse/format_schemas</format_schema_path>
+            <tcp_port>9000</tcp_port>
+            <http_port remove="1"/>
+            <postgresql_port remove="1"/>
+            <mysql_port remove="1"/>
+            <macros>
+              <shard>1</shard>
+              <replica>1</replica>
+            </macros>
+            <remote_servers>
+              <cicluster>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                  </replica>
+                </shard>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9001</port>
+                  </replica>
+                </shard>
+              </cicluster>
+            </remote_servers>
+          </clickhouse>
+          EOF
+          cat > config2.xml <<EOF
+          <clickhouse>
+            <profiles><default></default></profiles>
+            <users>
+              <default>
+                <password></password>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+                <named_collection_control>1</named_collection_control>
+              </default>
+            </users>
+            <logger><level>none</level></logger>
+            <path>/var/lib/clickhouse</path>
+            <tmp_path>/var/lib/clickhouse/tmp</tmp_path>
+            <user_files_path>/var/lib/clickhouse/user_files</user_files_path>
+            <format_schema_path>/var/lib/clickhouse/format_schemas</format_schema_path>
+            <tcp_port>9001</tcp_port>
+            <http_port remove="1"/>
+            <postgresql_port remove="1"/>
+            <mysql_port remove="1"/>
+            <macros>
+              <shard>2</shard>
+              <replica>1</replica>
+            </macros>
+            <remote_servers>
+              <cicluster>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                  </replica>
+                </shard>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9001</port>
+                  </replica>
+                </shard>
+              </cicluster>
+            </remote_servers>
+          </clickhouse>
+          EOF
+          cat > config-keeper.xml <<EOF
+          <clickhouse>
+            <keeper_server>
+                <tcp_port>2181</tcp_port>
+                <server_id>1</server_id>
+                <log_storage_path>/var/lib/clickhouse/coordination/log</log_storage_path>
+                <snapshot_storage_path>/var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+                <raft_configuration>
+                  <server>
+                    <id>1</id>
+                    <hostname>localhost</hostname>
+                    <port>9000</port>
+                  </server>
+                  <server>
+                    <id>2</id>
+                    <hostname>localhost</hostname>
+                    <port>9001</port>
+                  </server>
+                </raft_configuration>
+            </keeper_server>
+          </clickhouse>
+          EOF
+          mkdir ch1 ch2 chkeep
+          (cd ch1 && ../clickhouse server -C ../config1.xml) &
+          (cd ch2 && ../clickhouse server -C ../config2.xml) &
+          (cd chkeep && ../clickhouse keeper -C ../config-keeper.xml) &
 
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
