@@ -913,6 +913,7 @@ func (s Suite) TestQRep() {
 	tc := e2e.NewTemporalClient(s.t)
 	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
+	e2e.EnvWaitForEqualTables(env, s.ch, "qrep initial load", tblName, "id,val")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualified)))
