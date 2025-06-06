@@ -53,8 +53,8 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	customTypeMapping map[uint32]shared.CustomDataType,
 ) types.QValueKind {
 	colType, err := postgres.PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap)
-	_, isWarningSuppressed := c.hushWarnOID[recvOID]
-	if err != nil && !isWarningSuppressed {
+	_, warned := c.hushWarnOID[recvOID]
+	if err != nil && !warned {
 		c.logger.Warn(
 			"unsupported field type",
 			slog.Int64("oid", int64(recvOID)),
