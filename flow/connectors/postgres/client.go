@@ -16,10 +16,10 @@ import (
 	"github.com/lib/pq/oid"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	numeric "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 )
 
 const (

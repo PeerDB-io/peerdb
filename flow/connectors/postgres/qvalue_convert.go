@@ -15,8 +15,9 @@ import (
 	"github.com/lib/pq/oid"
 	"github.com/shopspring/decimal"
 
-	datatypes "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -51,106 +52,17 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	recvOID uint32,
 	customTypeMapping map[uint32]shared.CustomDataType,
 ) types.QValueKind {
-	switch recvOID {
-	case pgtype.BoolOID:
-		return types.QValueKindBoolean
-	case pgtype.Int2OID:
-		return types.QValueKindInt16
-	case pgtype.Int4OID:
-		return types.QValueKindInt32
-	case pgtype.Int8OID:
-		return types.QValueKindInt64
-	case pgtype.Float4OID:
-		return types.QValueKindFloat32
-	case pgtype.Float8OID:
-		return types.QValueKindFloat64
-	case pgtype.QCharOID:
-		return types.QValueKindQChar
-	case pgtype.TextOID, pgtype.VarcharOID, pgtype.BPCharOID:
-		return types.QValueKindString
-	case pgtype.ByteaOID:
-		return types.QValueKindBytes
-	case pgtype.JSONOID:
-		return types.QValueKindJSON
-	case pgtype.JSONBOID:
-		return types.QValueKindJSONB
-	case pgtype.UUIDOID:
-		return types.QValueKindUUID
-	case pgtype.TimeOID:
-		return types.QValueKindTime
-	case pgtype.DateOID:
-		return types.QValueKindDate
-	case pgtype.CIDROID:
-		return types.QValueKindCIDR
-	case pgtype.MacaddrOID:
-		return types.QValueKindMacaddr
-	case pgtype.InetOID:
-		return types.QValueKindINET
-	case pgtype.TimestampOID:
-		return types.QValueKindTimestamp
-	case pgtype.TimestamptzOID:
-		return types.QValueKindTimestampTZ
-	case pgtype.NumericOID:
-		return types.QValueKindNumeric
-	case pgtype.Int2ArrayOID:
-		return types.QValueKindArrayInt16
-	case pgtype.Int4ArrayOID:
-		return types.QValueKindArrayInt32
-	case pgtype.Int8ArrayOID:
-		return types.QValueKindArrayInt64
-	case pgtype.PointOID:
-		return types.QValueKindPoint
-	case pgtype.Float4ArrayOID:
-		return types.QValueKindArrayFloat32
-	case pgtype.Float8ArrayOID:
-		return types.QValueKindArrayFloat64
-	case pgtype.BoolArrayOID:
-		return types.QValueKindArrayBoolean
-	case pgtype.DateArrayOID:
-		return types.QValueKindArrayDate
-	case pgtype.TimestampArrayOID:
-		return types.QValueKindArrayTimestamp
-	case pgtype.TimestamptzArrayOID:
-		return types.QValueKindArrayTimestampTZ
-	case pgtype.UUIDArrayOID:
-		return types.QValueKindArrayUUID
-	case pgtype.TextArrayOID, pgtype.VarcharArrayOID, pgtype.BPCharArrayOID:
-		return types.QValueKindArrayString
-	case pgtype.JSONArrayOID:
-		return types.QValueKindArrayJSON
-	case pgtype.JSONBArrayOID:
-		return types.QValueKindArrayJSONB
-	case pgtype.IntervalOID:
-		return types.QValueKindInterval
-	case pgtype.TstzrangeOID:
-		return types.QValueKindTSTZRange
-	default:
-		if typeName, ok := c.typeMap.TypeForOID(recvOID); ok {
-			colType := types.QValueKindString
-			if typeData, ok := customTypeMapping[recvOID]; ok {
-				colType = customTypeToQKind(typeData)
-			}
-			if _, warned := c.hushWarnOID[recvOID]; !warned {
-				c.logger.Warn("unsupported field type",
-					slog.Int64("oid", int64(recvOID)), slog.String("typeName", typeName.Name), slog.String("mapping", string(colType)))
-				c.hushWarnOID[recvOID] = struct{}{}
-			}
-			return colType
-		} else {
-			// workaround for some types not being defined by pgtype
-			switch oid.Oid(recvOID) {
-			case oid.T_timetz:
-				return types.QValueKindTimeTZ
-			case oid.T_point:
-				return types.QValueKindPoint
-			default:
-				if typeData, ok := customTypeMapping[recvOID]; ok {
-					return customTypeToQKind(typeData)
-				}
-				return types.QValueKindString
-			}
-		}
+	colType, err := postgres.PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap)
+	_, isWarningSuppressed := c.hushWarnOID[recvOID]
+	if err != nil && !isWarningSuppressed {
+		c.logger.Warn(
+			err.Message,
+			slog.Int64("oid", int64(recvOID)),
+			slog.String("typeName", err.TypeName),
+			slog.String("mapping", string(colType)))
+		c.hushWarnOID[recvOID] = struct{}{}
 	}
+	return colType
 }
 
 func qValueKindToPostgresType(colTypeStr string) string {
@@ -613,31 +525,6 @@ func numericToDecimal(numVal pgtype.Numeric) (types.QValue, error) {
 		return types.QValueNull(types.QValueKindNumeric), nil
 	default:
 		return types.QValueNumeric{Val: decimal.NewFromBigInt(numVal.Int, numVal.Exp)}, nil
-	}
-}
-
-func customTypeToQKind(typeData shared.CustomDataType) types.QValueKind {
-	if typeData.Type == 'e' {
-		if typeData.Delim != 0 {
-			return types.QValueKindArrayEnum
-		} else {
-			return types.QValueKindEnum
-		}
-	}
-
-	if typeData.Delim != 0 {
-		return types.QValueKindArrayString
-	}
-
-	switch typeData.Name {
-	case "geometry":
-		return types.QValueKindGeometry
-	case "geography":
-		return types.QValueKindGeography
-	case "hstore":
-		return types.QValueKindHStore
-	default:
-		return types.QValueKindString
 	}
 }
 
