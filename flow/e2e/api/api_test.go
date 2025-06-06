@@ -882,10 +882,10 @@ func (s Suite) TestCustomSync() {
 }
 
 func (s Suite) TestQRep() {
-	if _, ok := s.source.(*e2e.PostgresSource); !ok {
-		s.t.Skip("only run with pg as mysql qrep isn't really supported")
-	}
-
+	peerType, err := s.GetPeerType(s.t.Context(), &protos.PeerInfoRequest{
+		PeerName: s.source.GeneratePeer(s.t).Name,
+	})
+	require.NoError(s.t, err)
 	tblName := "qrepapi"
 	schemaQualified := e2e.AttachSchema(s, tblName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -893,22 +893,24 @@ func (s Suite) TestQRep() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
 
-	sourcePeer := s.Source().GeneratePeer(s.t)
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
-		"qrepapiflow",
+		"qrepapiflow"+"_"+peerType.PeerType,
 		schemaQualified,
-		schemaQualified+"dst",
+		tblName,
 		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
-		sourcePeer.Name,
+		s.ch.Peer().Name,
 		"",
 		true,
 		"",
 		"",
 	)
+	qrepConfig.SourceName = s.source.GeneratePeer(s.t).Name
 	qrepConfig.WatermarkColumn = "id"
-
-	_, err := s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
+	qrepConfig.InitialCopyOnly = false
+	qrepConfig.WaitBetweenBatchesSeconds = 5
+	qrepConfig.NumRowsPerPartition = 1
+	_, err = s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
 		QrepConfig:         qrepConfig,
 		CreateCatalogEntry: true,
 	})
@@ -917,19 +919,23 @@ func (s Suite) TestQRep() {
 	tc := e2e.NewTemporalClient(s.t)
 	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error(s.t.Context()))
 
+	e2e.EnvWaitForEqualTables(env, s.ch, "qrep initial load", tblName, "id,val")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualified)))
+
+	e2e.EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tblName, "id,val")
 	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
 		FlowJobName:     qrepConfig.FlowJobName,
 		IncludeFlowInfo: true,
 		ExcludeBatches:  false,
 	})
 	require.NoError(s.t, err)
-	require.Equal(s.t, protos.FlowStatus_STATUS_COMPLETED, statusResponse.CurrentFlowState)
 	qStatus := statusResponse.GetQrepStatus()
 	require.NotNil(s.t, qStatus)
-	require.Len(s.t, qStatus.Partitions, 1)
-	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsInPartition)
-	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsSynced)
+	require.Len(s.t, qStatus.Partitions, 2)
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
 }
