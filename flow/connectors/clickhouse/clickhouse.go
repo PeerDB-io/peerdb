@@ -23,7 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -288,19 +288,19 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 }
 
 func (c *ClickHouseConnector) exec(ctx context.Context, query string) error {
-	return chvalidate.Exec(ctx, c.logger, c.database, query)
+	return peerdb_clickhouse.Exec(ctx, c.logger, c.database, query)
 }
 
 func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string) error {
-	return chvalidate.Exec(ctx, c.logger, conn, query)
+	return peerdb_clickhouse.Exec(ctx, c.logger, conn, query)
 }
 
 func (c *ClickHouseConnector) query(ctx context.Context, query string) (driver.Rows, error) {
-	return chvalidate.Query(ctx, c.logger, c.database, query)
+	return peerdb_clickhouse.Query(ctx, c.logger, c.database, query)
 }
 
 func (c *ClickHouseConnector) queryRow(ctx context.Context, query string) driver.Row {
-	return chvalidate.QueryRow(ctx, c.logger, c.database, query)
+	return peerdb_clickhouse.QueryRow(ctx, c.logger, c.database, query)
 }
 
 func (c *ClickHouseConnector) Close() error {
@@ -323,7 +323,7 @@ func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string)
 }
 
 func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
-	dstSchema []chvalidate.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
+	dstSchema []peerdb_clickhouse.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
 		colName := srcField.Name
@@ -482,4 +482,11 @@ func (c *ClickHouseConnector) GetTableSchema(
 	}
 
 	return res, nil
+}
+
+func (c *ClickHouseConnector) onCluster() string {
+	if c.config.Cluster != "" {
+		return " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(c.config.Cluster)
+	}
+	return ""
 }
