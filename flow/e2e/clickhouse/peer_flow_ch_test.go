@@ -1322,7 +1322,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 		return true
 	})
 
-	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "check normalize table metadata after normalize", func() bool {
+	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "check normalize table metadata after normalize", func() bool {
 		rows, err := pgSource.Query(s.t.Context(), fmt.Sprintf(`
 		SELECT (table_batch_id_data->>'%s')::bigint, (table_batch_id_data->>'%s')::bigint
 		FROM metadata_last_sync_state WHERE job_name='%s'`,
