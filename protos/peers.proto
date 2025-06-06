@@ -169,6 +169,7 @@ message ClickhouseConfig{
   string tls_host = 15;
   optional S3Config s3 = 16;
   string cluster = 17;
+  bool replicated = 18;
 }
 
 message SqlServerConfig {
