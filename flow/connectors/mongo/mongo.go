@@ -2,17 +2,26 @@ package connmongo
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type MongoConnector struct {
@@ -28,7 +37,12 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	if err != nil {
 		return nil, err
 	}
-	client, err := mongo.Connect(options.Client().ApplyURI(config.Uri))
+
+	client, err := mongo.Connect(options.Client().
+		SetAppName("PeerDB Mongo Connector").
+		SetReadPreference(readpref.Primary()).
+		SetCompressors([]string{"zstd", "snappy"}).
+		ApplyURI(config.Uri))
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +55,8 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 }
 
 func (c *MongoConnector) Close() error {
-	if c != nil {
+	if c != nil && c.client != nil {
+		// Use a timeout to ensure the disconnect operation does not hang indefinitely
 		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		return c.client.Disconnect(timeout)
@@ -49,16 +64,296 @@ func (c *MongoConnector) Close() error {
 	return nil
 }
 
+func (c *MongoConnector) ConnectionActive(ctx context.Context) error {
+	// Use a ping command to check if the connection is active
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	if err := c.client.Ping(ctx, nil); err != nil {
+		return fmt.Errorf("failed to ping MongoDB: %w", err)
+	}
+	return nil
+}
+
 func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
-	db := c.client.Database(c.config.Database)
+	db := c.client.Database("admin")
 
 	var buildInfoDoc bson.M
 	if err := db.RunCommand(ctx, bson.D{bson.E{Key: "buildInfo", Value: 1}}).Decode(&buildInfoDoc); err != nil {
 		return "", fmt.Errorf("failed to run buildInfo command: %w", err)
 	}
+
 	version, ok := buildInfoDoc["version"].(string)
 	if !ok {
 		return "", fmt.Errorf("buildInfo.version is not a string, but %T", buildInfoDoc["version"])
 	}
 	return version, nil
+}
+
+func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
+		return nil
+	}
+
+	// Check if MongoDB is configured as a replica set
+	var result bson.M
+	if err := c.client.Database("admin").RunCommand(ctx, bson.D{
+		{Key: "replSetGetStatus", Value: 1},
+	}).Decode(&result); err != nil {
+		return fmt.Errorf("failed to get replica set status: %w", err)
+	}
+
+	// Check if this is a replica set
+	if _, ok := result["set"]; !ok {
+		return errors.New("MongoDB is not configured as a replica set, which is required for CDC")
+	}
+	if myState, ok := result["myState"].(int32); !ok || myState != 1 {
+		return fmt.Errorf("MongoDB is not the primary node in the replica set, current state: %d", myState)
+	}
+
+	return nil
+}
+
+func (c *MongoConnector) GetTableSchema(
+	ctx context.Context,
+	_ map[string]string,
+	_ protos.TypeSystem,
+	tableMappings []*protos.TableMapping,
+) (map[string]*protos.TableSchema, error) {
+	result := make(map[string]*protos.TableSchema, len(tableMappings))
+	idFieldDescription := &protos.FieldDescription{
+		Name:         "_id",
+		Type:         string(types.QValueKindString),
+		TypeModifier: -1,
+		Nullable:     false,
+	}
+	dataFieldDescription := &protos.FieldDescription{
+		Name:         "_full_document",
+		Type:         string(types.QValueKindJSON),
+		TypeModifier: -1,
+		Nullable:     false,
+	}
+
+	for _, tm := range tableMappings {
+		result[tm.SourceTableIdentifier] = &protos.TableSchema{
+			TableIdentifier:       tm.SourceTableIdentifier,
+			PrimaryKeyColumns:     []string{"_id"},
+			IsReplicaIdentityFull: true,
+			System:                protos.TypeSystem_Q,
+			NullableEnabled:       false,
+			Columns: []*protos.FieldDescription{
+				idFieldDescription,
+				dataFieldDescription,
+			},
+		}
+	}
+
+	return result, nil
+}
+
+// stubs for CDCPullConnectorCore
+func (c *MongoConnector) EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (
+	*protos.EnsurePullabilityBatchOutput, error,
+) {
+	return nil, nil
+}
+
+func (c *MongoConnector) ExportTxSnapshot(context.Context, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+	return nil, nil, nil
+}
+
+func (c *MongoConnector) FinishExport(any) error {
+	return nil
+}
+
+func (c *MongoConnector) SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+	return model.SetupReplicationResult{}, nil
+}
+
+func (c *MongoConnector) SetupReplConn(context.Context) error {
+	return nil
+}
+
+func (c *MongoConnector) ReplPing(context.Context) error {
+	return nil
+}
+
+func (c *MongoConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error {
+	return nil
+}
+
+func (c *MongoConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
+	return nil
+}
+
+func (c *MongoConnector) HandleSlotInfo(
+	ctx context.Context,
+	alerter *alerting.Alerter,
+	catalogPool shared.CatalogPool,
+	alertKeys *alerting.AlertKeys,
+	slotMetricGauges otel_metrics.SlotMetricGauges,
+) error {
+	return nil
+}
+
+func (c *MongoConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
+	return nil, nil
+}
+
+func (c *MongoConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
+	return nil
+}
+
+func (c *MongoConnector) RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error {
+	return nil
+}
+
+// end stubs
+
+func (c *MongoConnector) PullRecords(
+	ctx context.Context,
+	catalogPool shared.CatalogPool,
+	otelManager *otel_metrics.OtelManager,
+	req *model.PullRecordsRequest[model.RecordItems],
+) error {
+	defer req.RecordStream.Close()
+	c.logger.Info("[started] PullRecords for mirror "+req.FlowJobName,
+		slog.Any("table_mapping", req.TableNameMapping),
+		slog.Int("max_batch_size", int(req.MaxBatchSize)),
+		slog.Duration("idle_timeout", req.IdleTimeout))
+
+	changeStreamOpts := options.ChangeStream().
+		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
+		SetFullDocument(options.UpdateLookup).
+		SetFullDocumentBeforeChange(options.WhenAvailable)
+	if req.LastOffset.Text != "" {
+		// If we have a last offset, we resume from that point
+		c.logger.Info("Resuming change stream from offset: " + req.LastOffset.Text)
+		resumeTokenBytes, err := base64.StdEncoding.DecodeString(req.LastOffset.Text)
+		if err != nil {
+			return fmt.Errorf("failed to parse last offset: %w", err)
+		}
+		changeStreamOpts.SetResumeAfter(bson.Raw(resumeTokenBytes))
+	}
+
+	changeStream, err := c.client.Watch(ctx, mongo.Pipeline{}, changeStreamOpts)
+	if err != nil {
+		var cmdErr mongo.CommandError
+		// ChangeStreamHistoryLost is basically slot invalidation
+		if errors.As(err, &cmdErr) && cmdErr.Code == 286 {
+			return errors.New("change stream history lost")
+		}
+		return err
+	}
+	defer changeStream.Close(ctx)
+	c.logger.Info("ChangeStream started for mirror " + req.FlowJobName)
+
+	var recordCount uint32
+	defer func() {
+		if recordCount == 0 {
+			req.RecordStream.SignalAsEmpty()
+		}
+		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
+	}()
+	// before first record, we wait indefinitely so give it ctx
+	// after first record, we wait for idle timeout
+	getCtx := ctx
+	var cancelTimeout context.CancelFunc
+	defer func() {
+		if cancelTimeout != nil {
+			cancelTimeout()
+		}
+	}()
+	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
+		recordCount += 1
+		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
+			return err
+		}
+		if recordCount == 1 {
+			req.RecordStream.SignalAsNotEmpty()
+			// after the first record, we switch to a timeout context
+			getCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+		}
+		return nil
+	}
+
+	for recordCount < req.MaxBatchSize && changeStream.Next(getCtx) {
+		var changeDoc bson.M
+		if err := changeStream.Decode(&changeDoc); err != nil {
+			return fmt.Errorf("failed to decode change stream document: %w", err)
+		}
+
+		clusterTime := changeDoc["clusterTime"].(bson.Timestamp)
+		clusterTimeNanos := time.Unix(int64(clusterTime.T), 0).UnixNano()
+
+		sourceTableName := changeDoc["ns"].(bson.D)[0].Value.(string) + "." + changeDoc["ns"].(bson.D)[1].Value.(string)
+		destinationTableName := req.TableNameMapping[sourceTableName].Name
+
+		documentKey := changeDoc["documentKey"].(bson.D)
+		items := model.NewRecordItems(2)
+		items.AddColumn("_id",
+			types.QValueString{Val: documentKey[0].Value.(bson.ObjectID).Hex()})
+		if fullDocument, ok := changeDoc["fullDocument"]; ok {
+			fullDocJSON, err := bson.MarshalExtJSON(fullDocument, true, true)
+			if err != nil {
+				return fmt.Errorf("failed to marshal fullDocument to JSON: %w", err)
+			}
+			items.AddColumn("_full_document", types.QValueJSON{Val: string(fullDocJSON)})
+		} else {
+			items.AddColumn("_full_document", types.QValueJSON{Val: "{}"})
+		}
+
+		if operationType, ok := changeDoc["operationType"]; ok {
+			switch operationType {
+			case "insert":
+				if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
+					BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+					Items:                items,
+					SourceTableName:      sourceTableName,
+					DestinationTableName: destinationTableName,
+				}); err != nil {
+					return fmt.Errorf("failed to add insert record: %w", err)
+				}
+			case "update", "replace":
+				if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
+					BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+					NewItems:             items,
+					SourceTableName:      sourceTableName,
+					DestinationTableName: destinationTableName,
+				}); err != nil {
+					return fmt.Errorf("failed to add update record: %w", err)
+				}
+			case "delete":
+				if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
+					BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+					Items:                items,
+					SourceTableName:      sourceTableName,
+					DestinationTableName: destinationTableName,
+				}); err != nil {
+					return fmt.Errorf("failed to add delete record: %w", err)
+				}
+			default:
+				return fmt.Errorf("unsupported operationType: %s", operationType)
+			}
+		}
+	}
+	if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
+		// Update the last offset with the resume token
+		req.RecordStream.UpdateLatestCheckpointText(base64.StdEncoding.EncodeToString(resumeToken))
+		c.logger.Info("Updated last offset to: " + req.LastOffset.Text)
+	} else {
+		c.logger.Warn("Change stream document does not contain a resume token")
+	}
+	if err := changeStream.Err(); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.logger.Info("PullRecords context deadline exceeded, stopping change stream")
+		} else if errors.Is(err, context.Canceled) {
+			c.logger.Info("PullRecords context canceled, stopping change stream")
+		} else {
+			c.logger.Error("PullRecords change stream error", "error", err)
+			return fmt.Errorf("change stream error: %w", err)
+		}
+	}
+
+	return nil
 }

@@ -645,10 +645,6 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("uri")
                     .context("no uri specified")?
                     .to_string(),
-                database: opts
-                    .get("database")
-                    .context("no db specified")?
-                    .to_string(),
             };
             Config::MongoConfig(mongo_config)
         }

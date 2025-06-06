@@ -61,7 +61,7 @@ type GetTableSchemaConnector interface {
 		ctx context.Context,
 		env map[string]string,
 		system protos.TypeSystem,
-		tableIdentifiers []*protos.TableMapping,
+		tableMappings []*protos.TableMapping,
 	) (map[string]*protos.TableSchema, error)
 }
 

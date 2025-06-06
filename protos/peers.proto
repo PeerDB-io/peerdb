@@ -63,8 +63,9 @@ message PubSubConfig {
 }
 
 message MongoConfig {
+  // can be a mongodb:// URI mapping to discrete hosts or a mongodb+srv:// URI
+  // mapping to a DNS SRV record.
   string uri = 1 [(peerdb_redacted) = true];
-  string database = 2;
 }
 
 message AwsAuthStaticCredentialsConfig {
