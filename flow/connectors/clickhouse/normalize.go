@@ -281,7 +281,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, req.SyncBatchID); err != nil {
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID, req.Env); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
@@ -357,17 +357,21 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				c.logger.Info("executing INSERT command to ClickHouse table",
 					slog.Int64("syncBatchId", req.SyncBatchID),
 					slog.Int64("normalizeBatchId", normBatchID),
-					slog.String("destinationTable", insertIntoSelectQuery.tableName),
-					slog.String("query", insertIntoSelectQuery.query))
+					slog.String("destinationTable", insertIntoSelectQuery.TableName),
+					slog.String("query", insertIntoSelectQuery.Query))
 
-				if err := chConn.Exec(errCtx, query.Query); err != nil {
+				if err := chConn.Exec(errCtx, insertIntoSelectQuery.Query); err != nil {
 					return fmt.Errorf("error while inserting into normalized table: %w", err)
 				}
 
-				if query.Part == numParts-1 {
-					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, query.TableName, req.SyncBatchID)
+				if insertIntoSelectQuery.Part == numParts-1 {
+					c.logger.Info("[clickhouse] set last normalized batch id for table",
+						slog.String("table", insertIntoSelectQuery.TableName),
+						slog.Int64("syncBatchID", req.SyncBatchID),
+						slog.Int64("lastNormalizedBatchID", normBatchID))
+					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, insertIntoSelectQuery.TableName, req.SyncBatchID)
 					if err != nil {
-						return fmt.Errorf("error while setting last synced batch id for table %s: %w", query.TableName, err)
+						return fmt.Errorf("error while setting last synced batch id for table %s: %w", insertIntoSelectQuery.TableName, err)
 					}
 				}
 			}
@@ -382,9 +386,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			return model.NormalizeResponse{}, err
 		}
 
-		if normalizeBatchIDForTable >= req.SyncBatchID {
+		c.logger.Info("[clickhouse] last normalized batch id for table",
+			"table", tbl, "lastNormalizedBatchID", normalizeBatchIDForTable,
+			"syncBatchID", req.SyncBatchID)
+		batchIdToLoadForTable := max(normBatchID, normalizeBatchIDForTable)
+		if batchIdToLoadForTable >= req.SyncBatchID {
 			c.logger.Info("[clickhouse] "+tbl+" already normalized, skipping",
-				"table", tbl, "batchIDForTable", normalizeBatchIDForTable, "syncBatchID", req.SyncBatchID)
+				"table", tbl, "batchIdToLoadForTable", batchIdToLoadForTable, "syncBatchID", req.SyncBatchID)
 			continue
 		}
 
@@ -557,7 +565,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			selectQuery.WriteString(projection.String())
 			fmt.Fprintf(&selectQuery,
 				" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-				peerdb_clickhouse.QuoteIdentifier(rawTbl), normBatchID, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
+				peerdb_clickhouse.QuoteIdentifier(rawTbl), batchIdToLoadForTable, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
 			if numParts > 1 {
 				fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart)
 			}
@@ -589,7 +597,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			select {
 			case queries <- TableNormalizeQuery{
 				TableName: tbl,
-				Query:     insertIntoSelectQuery.String(),
+				Query:     insertIntoSelectQuery,
 				Part:      numPart,
 			}:
 			case <-errCtx.Done():
@@ -680,14 +688,15 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, syncBatchID int64, env map[string]string,
+	ctx context.Context, flowJobName string, normBatchID int64, syncBatchID int64, env map[string]string,
 ) error {
 	lastSyncedBatchIdInRawTable, err := c.GetLastBatchIDInRawTable(ctx, flowJobName)
 	if err != nil {
 		return fmt.Errorf("failed to get last batch id in raw table: %w", err)
 	}
 
-	for s := lastSyncedBatchIdInRawTable + 1; s <= syncBatchID; s++ {
+	batchIdToLoad := max(lastSyncedBatchIdInRawTable, normBatchID)
+	for s := batchIdToLoad + 1; s <= syncBatchID; s++ {
 		if err := c.copyAvroStageToDestination(ctx, flowJobName, s, env); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}
