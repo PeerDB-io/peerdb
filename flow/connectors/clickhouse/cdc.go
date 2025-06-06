@@ -239,8 +239,8 @@ func (c *ClickHouseConnector) RenameTables(
 			}
 
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf("RENAME TABLE %s TO %s%s", peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName),
-					peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
+				fmt.Sprintf("RENAME TABLE %s TO %s%s", peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName),
+					peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster),
 			); err != nil {
 				return nil, fmt.Errorf("unable to rename table %s to %s: %w", renameRequest.CurrentName, renameRequest.NewName, err)
 			}
