@@ -78,6 +78,23 @@ export const clickhouseSetting: PeerSetting[] = [
     tips: 'This is only needed if the user is authenticated via certificate.',
   },
   {
+    label: 'Root Certificate',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          const newCurr = { ...curr } as ClickhouseConfig;
+          delete newCurr.rootCa;
+          return newCurr;
+        });
+      } else setter((curr) => ({ ...curr, rootCa: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'If not provided, host CA roots will be used.',
+    s3: true,
+  },
+  {
     label: 'S3 Path',
     stateHandler: (value, setter) =>
       setter((curr) => ({
