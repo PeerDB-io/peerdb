@@ -167,13 +167,19 @@ func (c *ClickHouseConnector) RenameTables(
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
 	for _, renameRequest := range req.RenameTableOptions {
+		if renameRequest.CurrentName == renameRequest.NewName {
+			c.logger.Info("table rename is nop, probably Null table engine, skipping rename for it",
+				slog.String("table", renameRequest.CurrentName))
+			continue
+		}
+
 		resyncTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.CurrentName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if resync table %s exists: %w", renameRequest.CurrentName, err)
 		}
 
 		if !resyncTableExists {
-			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping rename for it", renameRequest.CurrentName))
+			c.logger.Info("table does not exist, skipping rename for it", slog.String("table", renameRequest.CurrentName))
 			continue
 		}
 
