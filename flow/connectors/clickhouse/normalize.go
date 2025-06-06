@@ -91,14 +91,6 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	for _, tm := range config.TableMappings {
 		if tm.DestinationTableIdentifier == tableIdentifier {
 			tmEngine = tm.Engine
-			if c.config.Replicated {
-				switch tmEngine {
-				case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE:
-					tmEngine = protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE
-				case protos.TableEngine_CH_ENGINE_MERGE_TREE:
-					tmEngine = protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE
-				}
-			}
 			tableMapping = tm
 			break
 		}
