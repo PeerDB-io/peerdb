@@ -134,6 +134,13 @@ message EventHubGroupConfig {
   repeated string unnest_columns = 3;
 }
 
+enum AvroCodec {
+  Null = 0;
+  Deflate = 1;
+  Snappy = 2;
+  ZStandard = 3;
+}
+
 message S3Config {
   string url = 1;
   optional string access_key_id = 2 [(peerdb_redacted) = true];
@@ -143,6 +150,7 @@ message S3Config {
   optional string endpoint = 6;
   optional string root_ca = 7 [(peerdb_redacted) = true];
   string tls_host = 8;
+  AvroCodec codec = 9;
 }
 
 message ClickhouseConfig{

@@ -1,5 +1,6 @@
 import { ehSchema } from '@/components/PeerForms/Eventhubs/schema';
 import {
+  AvroCodec,
   ElasticsearchAuthType,
   MySqlFlavor,
   MySqlReplicationMechanism,
@@ -526,6 +527,12 @@ export const s3Schema = z.object({
       error: () => 'Endpoint must be a string',
     })
     .optional(),
+  codec: z.enum(AvroCodec, {
+    error: (issue) =>
+      issue.input === undefined
+        ? 'Avro codec is required'
+        : 'Avro codec must be one of [Null,Deflate,Snappy,ZStandard]',
+  }),
 });
 
 export const psSchema = z.object({
