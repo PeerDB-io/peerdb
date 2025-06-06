@@ -150,7 +150,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		} else {
 			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
 		}
-		if tableMapping != nil && c.config.Cluster != "" {
+		if c.config.Cluster != "" {
 			fmt.Fprintf(builder, " ON CLUSTER %s", peerdb_clickhouse.QuoteIdentifier(c.config.Cluster))
 		}
 		builder.WriteString(" (")
