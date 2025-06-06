@@ -122,6 +122,9 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKin
 	case bigquery.TimeFieldType:
 		return types.QValueKindTime
 	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
+		if fieldSchema.Repeated {
+			return types.QValueKindArrayNumeric
+		}
 		return types.QValueKindNumeric
 	case bigquery.GeographyFieldType:
 		return types.QValueKindGeography

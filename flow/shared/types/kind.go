@@ -156,4 +156,5 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindArrayJSON:        "String",
 	QValueKindArrayJSONB:       "String",
 	QValueKindArrayUUID:        "Array(UUID)",
+	QValueKindArrayNumeric:     "Array(String)",
 }

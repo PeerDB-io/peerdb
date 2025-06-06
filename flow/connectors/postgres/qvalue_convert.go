@@ -121,7 +121,7 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	case pgtype.JSONBArrayOID:
 		return types.QValueKindArrayJSONB
 	case pgtype.NumericArrayOID:
-		return types.QValueKindArrayNumeric
+		return types.QValueKindArrayString
 	case pgtype.IntervalOID:
 		return types.QValueKindInterval
 	case pgtype.TstzrangeOID:
