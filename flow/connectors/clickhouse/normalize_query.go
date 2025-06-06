@@ -247,7 +247,8 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		fmt.Fprintf(&selectQuery,
 			" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
 				" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
-			peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.batchIDToLoadForTable, t.syncBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+			peerdb_clickhouse.QuoteIdentifier(t.rawTableName),
+			t.batchIDToLoadForTable, t.syncBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
 		if t.numParts > 1 {
 			fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", t.numParts, t.Part)
 		}

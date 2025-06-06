@@ -1328,13 +1328,15 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 		FROM metadata_last_sync_state WHERE job_name='%s'`,
 			dstTableName1, dstTableName2, flowConnConfig.FlowJobName))
 		if err != nil {
+			s.t.Log("error querying metadata_last_sync_state:", err)
 			return false
 		}
 
 		if len(rows.Records) == 0 {
+			s.t.Log("no records found in metadata_last_sync_state")
 			return false
 		}
-
+		s.t.Log("metadata_last_sync_state:", rows.Records[0][0].Value(), rows.Records[0][1].Value())
 		return rows.Records[0][0].Value() == 2 && rows.Records[0][1].Value() == 2
 	})
 
