@@ -791,11 +791,15 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("tls_host")
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
-                s3: None,
                 cluster: opts
                     .get("cluster")
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
+                replicated: opts
+                    .get("replicated")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                s3: None,
             };
             Config::ClickhouseConfig(clickhouse_config)
         }
