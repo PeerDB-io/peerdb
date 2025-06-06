@@ -24,7 +24,7 @@ func (c *MySqlConnector) GetDataTypeOfWatermarkColumn(
 	ctx context.Context,
 	watermarkTableName string,
 	watermarkColumn string,
-) (qvalue.QValueKind, error) {
+) (types.QValueKind, error) {
 	if watermarkColumn == "" {
 		return "", errors.New("watermark column is not specified in the config")
 	}
@@ -132,8 +132,8 @@ func (c *MySqlConnector) GetQRepPartitions(
 	var rs *mysql.Result
 
 	switch watermarkQKind {
-	case qvalue.QValueKindInt8, qvalue.QValueKindInt16, qvalue.QValueKindInt32, qvalue.QValueKindInt64,
-		qvalue.QValueKindUInt8, qvalue.QValueKindUInt16, qvalue.QValueKindUInt32, qvalue.QValueKindUInt64:
+	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
+		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64:
 		if minVal != nil {
 			partitionsQuery := fmt.Sprintf(
 				`WITH stats AS (
@@ -177,7 +177,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		if err != nil {
 			return nil, fmt.Errorf("failed to query for partitions: %w", err)
 		}
-	case qvalue.QValueKindTimestamp, qvalue.QValueKindTimestampTZ:
+	case types.QValueKindTimestamp, types.QValueKindTimestampTZ:
 		if minVal != nil {
 			partitionsQuery := fmt.Sprintf(
 				`WITH stats AS (
