@@ -1,6 +1,8 @@
 package postgres
 
 import (
+	"errors"
+
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 
@@ -8,16 +10,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-type UnsupportedError struct {
-	TypeName string
-	Message  string
-}
-
 func PostgresOIDToQValueKind(
 	recvOID uint32,
 	customTypeMapping map[uint32]shared.CustomDataType,
 	typeMap *pgtype.Map,
-) (types.QValueKind, *UnsupportedError) {
+) (types.QValueKind, error) {
 	switch recvOID {
 	case pgtype.BoolOID:
 		return types.QValueKindBoolean, nil
@@ -97,10 +94,7 @@ func PostgresOIDToQValueKind(
 			if typeData, ok := customTypeMapping[recvOID]; ok {
 				colType = CustomTypeToQKind(typeData)
 			}
-			return colType, &UnsupportedError{
-				TypeName: typeName.Name,
-				Message:  "unsupported field type",
-			}
+			return colType, errors.New(typeName.Name)
 		} else {
 			// workaround for some types not being defined by pgtype
 			switch oid.Oid(recvOID) {

@@ -56,9 +56,9 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	_, isWarningSuppressed := c.hushWarnOID[recvOID]
 	if err != nil && !isWarningSuppressed {
 		c.logger.Warn(
-			err.Message,
+			"unsupported field type",
 			slog.Int64("oid", int64(recvOID)),
-			slog.String("typeName", err.TypeName),
+			slog.String("typeName", err.Error()),
 			slog.String("mapping", string(colType)))
 		c.hushWarnOID[recvOID] = struct{}{}
 	}
