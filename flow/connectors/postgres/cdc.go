@@ -23,13 +23,14 @@ import (
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
-	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -282,7 +283,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
 		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
-		customQKind := customTypeToQKind(typeData)
+		customQKind := postgres.CustomTypeToQKind(typeData)
 		switch customQKind {
 		case types.QValueKindGeography, types.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
@@ -911,7 +912,7 @@ func processRelationMessage[Items model.Items](
 			if qKind == types.QValueKindInvalid {
 				typeName, ok := customTypeMapping[column.DataType]
 				if ok {
-					qKind = customTypeToQKind(typeName)
+					qKind = postgres.CustomTypeToQKind(typeName)
 				}
 			}
 			currRelMap[column.Name] = string(qKind)
