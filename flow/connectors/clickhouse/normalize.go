@@ -353,8 +353,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.String("destinationTable", insertIntoSelectQuery.TableName),
 					slog.String("query", insertIntoSelectQuery.Query))
 
-				if err := chConn.Exec(errCtx, insertIntoSelectQuery.Query); err != nil {
-					return fmt.Errorf("error while inserting into normalized table: %w", err)
+				if err := c.execWithConnection(errCtx, chConn, insertIntoSelectQuery.Query); err != nil {
+					c.logger.Error("[clickhouse] error while inserting into target clickhouse table",
+						slog.String("table", insertIntoSelectQuery.TableName),
+						slog.Int64("syncBatchID", req.SyncBatchID),
+						slog.Int64("normalizeBatchID", normBatchID),
+						slog.Any("error", err))
+					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", insertIntoSelectQuery.TableName, err)
 				}
 
 				if insertIntoSelectQuery.Part == numParts-1 {
@@ -384,7 +389,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			"syncBatchID", req.SyncBatchID)
 		batchIdToLoadForTable := max(normBatchID, normalizeBatchIDForTable)
 		if batchIdToLoadForTable >= req.SyncBatchID {
-			c.logger.Info("[clickhouse] "+tbl+" already normalized, skipping",
+			c.logger.Info("[clickhouse] "+tbl+" already synced to destination for this batch, skipping",
 				"table", tbl, "batchIdToLoadForTable", batchIdToLoadForTable, "syncBatchID", req.SyncBatchID)
 			continue
 		}
