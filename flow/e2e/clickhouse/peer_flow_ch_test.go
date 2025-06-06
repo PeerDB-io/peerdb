@@ -1337,7 +1337,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 			return false
 		}
 		s.t.Log("metadata_last_sync_state:", rows.Records[0][0].Value(), rows.Records[0][1].Value())
-		return rows.Records[0][0].Value() == 2 && rows.Records[0][1].Value() == 2
+		return rows.Records[0][0].Value().(int64) == 2 && rows.Records[0][1].Value().(int64) == 2
 	})
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "after 2 batches of cdc for table 1", srcTableName1, dstTableName1, "id,\"key\"")
