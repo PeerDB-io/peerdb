@@ -38,6 +38,20 @@ export const clickhouseSetting: PeerSetting[] = [
     tips: 'Specify which database to associate with this peer.',
   },
   {
+    label: 'Cluster',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, cluster: value as string })),
+    tips: 'Specify which cluster to associate with this peer.',
+  },
+  {
+    label: 'Replicated?',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, replicated: value as boolean })),
+    type: 'switch',
+    tips: 'Enable to use ReplicatedMergeTree & ReplicatedReplacingMergeTree.',
+    optional: true,
+  },
+  {
     label: 'Disable TLS?',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, disableTls: value as boolean })),
@@ -233,4 +247,6 @@ export const blankClickHouseSetting: ClickhouseConfig = {
   disableTls: false,
   endpoint: undefined,
   tlsHost: '',
+  cluster: '',
+  replicated: false,
 };
