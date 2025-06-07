@@ -580,10 +580,6 @@ func (s ClickHouseSuite) Test_Large_Numeric() {
 }
 
 func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
-	if _, ok := s.source.(*e2e.PostgresSource); !ok {
-		s.t.Skip("only applies to postgres")
-	}
-
 	srcTableName := "test_destination_type_conversion"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_destination_type_conversion"
