@@ -31,6 +31,7 @@ type ClickHouseSuite struct {
 	s3Helper  *e2e_s3.S3TestHelper
 	connector *connclickhouse.ClickHouseConnector
 	suffix    string
+	cluster   bool
 }
 
 func (s ClickHouseSuite) T() *testing.T {
@@ -62,7 +63,28 @@ func (s ClickHouseSuite) Suffix() string {
 }
 
 func (s ClickHouseSuite) Peer() *protos.Peer {
-	return s.PeerForDatabase("e2e_test_" + s.suffix)
+	dbname := "e2e_test_" + s.suffix
+	if s.cluster {
+		ret := &protos.Peer{
+			Name: e2e.AddSuffix(s, dbname),
+			Type: protos.DBType_CLICKHOUSE,
+			Config: &protos.Peer_ClickhouseConfig{
+				ClickhouseConfig: &protos.ClickhouseConfig{
+					Host:       "localhost",
+					Port:       9001,
+					Database:   dbname,
+					DisableTls: true,
+					S3:         s.s3Helper.S3Config,
+					Cluster:    "cicluster",
+					Replicated: true,
+				},
+			},
+		}
+		e2e.CreatePeer(s.t, ret)
+		return ret
+	} else {
+		return s.PeerForDatabase(dbname)
+	}
 }
 
 func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
@@ -311,6 +333,7 @@ func (s ClickHouseSuite) queryRawTable(conn clickhouse.Conn, table string, cols 
 
 func SetupSuite[TSource e2e.SuiteSource](
 	t *testing.T,
+	cluster bool,
 	setupSource func(*testing.T) (TSource, string, error),
 ) func(*testing.T) ClickHouseSuite {
 	t.Helper()
@@ -328,6 +351,7 @@ func SetupSuite[TSource e2e.SuiteSource](
 			source:   e2e.SuiteSource(source),
 			suffix:   suffix,
 			s3Helper: s3Helper,
+			cluster:  cluster,
 		}
 
 		ch, err := connclickhouse.Connect(t.Context(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
