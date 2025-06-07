@@ -150,6 +150,13 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 			jsonStruct[col] = formattedDateArr
 		case types.QValueNumeric:
 			jsonStruct[col] = v.Val.String()
+		case types.QValueArrayNumeric:
+			numericArr := v.Val
+			strArr := make([]any, 0, len(numericArr))
+			for _, val := range numericArr {
+				strArr = append(strArr, val.String())
+			}
+			jsonStruct[col] = strArr
 		case types.QValueFloat64:
 			if math.IsNaN(v.Val) || math.IsInf(v.Val, 0) {
 				jsonStruct[col] = nil

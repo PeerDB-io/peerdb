@@ -10,20 +10,32 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, column *protos.FieldDescription) (string, error) {
-	if column.TypeModifier == -1 {
+func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, typeModifier int32, isArray bool) (string, error) {
+	if typeModifier == -1 {
 		numericAsStringEnabled, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
 		if err != nil {
 			return "", err
 		}
 		if numericAsStringEnabled {
+			if isArray {
+				return "Array(String)", nil
+			} else {
+				return "String", nil
+			}
+		}
+	} else if rawPrecision, _ := datatypes.ParseNumericTypmod(typeModifier); rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
+		if isArray {
+			return "Array(String)", nil
+		} else {
 			return "String", nil
 		}
-	} else if rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier); rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
-		return "String", nil
 	}
-	precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-	return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
+	precision, scale := datatypes.GetNumericTypeForWarehouse(typeModifier, datatypes.ClickHouseNumericCompatibility{})
+	prefix, suffix := "", ""
+	if isArray {
+		prefix, suffix = "Array(", ")"
+	}
+	return fmt.Sprintf("%sDecimal(%d, %d)%s", prefix, precision, scale, suffix), nil
 }
 
 func ToDWHColumnType(
@@ -51,7 +63,13 @@ func ToDWHColumnType(
 	case protos.DBType_CLICKHOUSE:
 		if kind == types.QValueKindNumeric {
 			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column)
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier, false)
+			if err != nil {
+				return "", err
+			}
+		} else if kind == types.QValueKindArrayNumeric {
+			var err error
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier, true)
 			if err != nil {
 				return "", err
 			}
