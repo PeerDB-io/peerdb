@@ -363,6 +363,14 @@ func LuaRowNewIndex(ls *lua.LState) int {
 				}),
 			}
 		}
+	case types.QValueKindArrayNumeric:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = types.QValueArrayNumeric{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) decimal.Decimal {
+					return LVAsDecimal(ls, val)
+				}),
+			}
+		}
 	default:
 		ls.RaiseError("no support for reassigning %s", kind)
 		return 0

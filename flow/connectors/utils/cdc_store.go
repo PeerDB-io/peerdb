@@ -123,6 +123,7 @@ func init() {
 	gob.Register(types.QValueArrayBoolean{})
 	gob.Register(types.QValueTSTZRange{})
 	gob.Register(types.QValueArrayUUID{})
+	gob.Register(types.QValueArrayNumeric{})
 }
 
 func (c *cdcStore[T]) initPebbleDB() error {

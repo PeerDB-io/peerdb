@@ -31,6 +31,12 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 		bqField.Type = bigquery.BigNumericFieldType
 		bqField.Precision = int64(precision)
 		bqField.Scale = int64(scale)
+	case types.QValueKindArrayNumeric:
+		precision, scale := datatypes.GetNumericTypeForWarehouse(columnDescription.TypeModifier, datatypes.BigQueryNumericCompatibility{})
+		bqField.Type = bigquery.BigNumericFieldType
+		bqField.Precision = int64(precision)
+		bqField.Scale = int64(scale)
+		bqField.Repeated = true
 	// string related
 	case types.QValueKindString, types.QValueKindEnum:
 		bqField.Type = bigquery.StringFieldType
@@ -122,6 +128,9 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKin
 	case bigquery.TimeFieldType:
 		return types.QValueKindTime
 	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
+		if fieldSchema.Repeated {
+			return types.QValueKindArrayNumeric
+		}
 		return types.QValueKindNumeric
 	case bigquery.GeographyFieldType:
 		return types.QValueKindGeography

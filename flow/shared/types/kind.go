@@ -59,6 +59,7 @@ const (
 	QValueKindArrayJSON        QValueKind = "array_json"
 	QValueKindArrayJSONB       QValueKind = "array_jsonb"
 	QValueKindArrayUUID        QValueKind = "array_uuid"
+	QValueKindArrayNumeric     QValueKind = "array_numeric"
 )
 
 func (kind QValueKind) IsArray() bool {
@@ -111,6 +112,7 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindArrayJSON:        "VARIANT",
 	QValueKindArrayJSONB:       "VARIANT",
 	QValueKindArrayUUID:        "VARIANT",
+	QValueKindArrayNumeric:     "VARIANT",
 }
 
 var QValueKindToClickHouseTypeMap = map[QValueKind]string{

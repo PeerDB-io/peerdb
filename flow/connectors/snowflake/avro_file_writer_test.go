@@ -58,6 +58,10 @@ func createQValue(t *testing.T, kind types.QValueKind, placeholder int) types.QV
 		// 	value = `{"key": "value"}` // placeholder JSON, replace with actual logic
 	case types.QValueKindBytes:
 		return types.QValueBytes{Val: []byte("sample bytes")} // placeholder bytes, replace with actual logic
+	case types.QValueKindArrayNumeric:
+		return types.QValueArrayNumeric{Val: []decimal.Decimal{
+			decimal.New(int64(placeholder), 1),
+		}}
 	default:
 		require.Failf(t, "unsupported QValueKind", "unsupported QValueKind: %s", kind)
 		return types.QValueNull(kind)
@@ -92,6 +96,7 @@ func generateRecords(
 		types.QValueKindUUID,
 		types.QValueKindQChar,
 		// types.QValueKindJSON,
+		types.QValueKindArrayNumeric,
 	}
 
 	numKinds := len(allQValueKinds)

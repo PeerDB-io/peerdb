@@ -75,7 +75,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 	for i, fd := range fds {
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping)
 		// there isn't a way to know if a column is nullable or not
-		if ctype == types.QValueKindNumeric {
+		if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
 			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = types.QField{
 				Name:      fd.Name,
