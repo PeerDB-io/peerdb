@@ -217,10 +217,10 @@ jobs:
               </default>
             </users>
             <logger><level>none</level></logger>
-            <path>/var/lib/clickhouse</path>
-            <tmp_path>/var/lib/clickhouse/tmp</tmp_path>
-            <user_files_path>/var/lib/clickhouse/user_files</user_files_path>
-            <format_schema_path>/var/lib/clickhouse/format_schemas</format_schema_path>
+            <path>var/lib/clickhouse</path>
+            <tmp_path>var/lib/clickhouse/tmp</tmp_path>
+            <user_files_path>var/lib/clickhouse/user_files</user_files_path>
+            <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
             <tcp_port>9000</tcp_port>
             <http_port remove="1"/>
             <postgresql_port remove="1"/>
@@ -263,10 +263,10 @@ jobs:
               </default>
             </users>
             <logger><level>none</level></logger>
-            <path>/var/lib/clickhouse</path>
-            <tmp_path>/var/lib/clickhouse/tmp</tmp_path>
-            <user_files_path>/var/lib/clickhouse/user_files</user_files_path>
-            <format_schema_path>/var/lib/clickhouse/format_schemas</format_schema_path>
+            <path>var/lib/clickhouse</path>
+            <tmp_path>var/lib/clickhouse/tmp</tmp_path>
+            <user_files_path>var/lib/clickhouse/user_files</user_files_path>
+            <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
             <tcp_port>9001</tcp_port>
             <http_port remove="1"/>
             <postgresql_port remove="1"/>
