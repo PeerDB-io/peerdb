@@ -139,7 +139,12 @@ func (s ClickHouseSuite) CreateRMTTable(tableName string, columns []TestClickHou
 	columnStr := strings.Join(columnStrings, ", ")
 
 	// Create the table with ReplacingMergeTree engine
-	createTableQuery := fmt.Sprintf("CREATE TABLE `%s` (%s) ENGINE = ReplacingMergeTree() ORDER BY `%s`", tableName, columnStr, orderingKey)
+	onCluster := ""
+	if s.cluster {
+		onCluster = " ON CLUSTER cicluster"
+	}
+	createTableQuery := fmt.Sprintf("CREATE TABLE `%s`%s (%s) ENGINE = ReplacingMergeTree() ORDER BY `%s`",
+		tableName, onCluster, columnStr, orderingKey)
 	return ch.Exec(s.t.Context(), createTableQuery)
 }
 
@@ -384,7 +389,11 @@ func SetupSuite[TSource e2e.SuiteSource](
 
 		ch, err := connclickhouse.Connect(t.Context(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
 		require.NoError(t, err, "failed to connect to clickhouse")
-		err = ch.Exec(t.Context(), "CREATE DATABASE e2e_test_"+suffix)
+		if cluster {
+			err = ch.Exec(t.Context(), "CREATE DATABASE e2e_test_"+suffix+" ON CLUSTER cicluster")
+		} else {
+			err = ch.Exec(t.Context(), "CREATE DATABASE e2e_test_"+suffix)
+		}
 		require.NoError(t, err, "failed to create clickhouse database")
 
 		connector, err := connclickhouse.NewClickHouseConnector(t.Context(), nil, s.Peer().GetClickhouseConfig())
