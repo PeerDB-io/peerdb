@@ -331,7 +331,7 @@ jobs:
           mkdir ch1 ch2 chkeep
           (cd ch1 && ../clickhouse server -C ../config1.xml) &
           (cd ch2 && ../clickhouse server -C ../config2.xml) &
-          (cd chkeep && ../clickhouse keeper -C ../config-keeper.xml) &
+          (cd chkeep && ../clickhouse keeper -C ../config-keeper.xml)
 
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
