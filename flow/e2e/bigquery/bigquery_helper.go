@@ -240,6 +240,12 @@ func toQValue(bqValue bigquery.Value) (types.QValue, error) {
 				arr = append(arr, val.(bool))
 			}
 			return types.QValueArrayBoolean{Val: arr}, nil
+		case *big.Rat:
+			var arr []decimal.Decimal
+			for _, val := range v {
+				arr = append(arr, decimal.NewFromBigRat(val.(*big.Rat), 32))
+			}
+			return types.QValueArrayNumeric{Val: arr}, nil
 		default:
 			// If type is unsupported, return error
 			return nil, fmt.Errorf("bqHelper unsupported type %T", et)

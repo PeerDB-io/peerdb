@@ -157,6 +157,8 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 			values[i] = constructArray(v.Val)
 		case types.QValueArrayUUID:
 			values[i] = constructArray(v.Val)
+		case types.QValueArrayNumeric:
+			values[i] = constructArray(v.Val)
 		case types.QValueJSON:
 			if v.IsArray {
 				var arrayJ []any

@@ -45,7 +45,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 		case types.QValueKindArrayFloat32, types.QValueKindArrayFloat64, types.QValueKindArrayInt16,
 			types.QValueKindArrayInt32, types.QValueKindArrayInt64, types.QValueKindArrayString,
 			types.QValueKindArrayBoolean, types.QValueKindArrayTimestamp, types.QValueKindArrayTimestampTZ,
-			types.QValueKindArrayDate, types.QValueKindArrayUUID:
+			types.QValueKindArrayDate, types.QValueKindArrayUUID, types.QValueKindArrayNumeric:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
 				bqTypeString, column.Name, shortCol)

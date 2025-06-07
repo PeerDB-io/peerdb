@@ -2,7 +2,6 @@ package connpostgres
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -138,6 +137,8 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "JSON[]"
 	case types.QValueKindArrayJSONB:
 		return "JSONB[]"
+	case types.QValueKindArrayNumeric:
+		return "NUMERIC[]"
 	case types.QValueKindGeography:
 		return "GEOGRAPHY"
 	case types.QValueKindGeometry:
@@ -407,11 +408,11 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	case types.QValueKindNumeric:
 		numVal := value.(pgtype.Numeric)
 		if numVal.Valid {
-			num, err := numericToDecimal(numVal)
-			if err != nil {
-				return nil, fmt.Errorf("failed to convert numeric [%v] to decimal: %w", value, err)
+			num, ok := validNumericToDecimal(numVal)
+			if !ok {
+				return types.QValueNull(types.QValueKindNumeric), nil
 			}
-			return num, nil
+			return types.QValueNumeric{Val: num}, nil
 		}
 	case types.QValueKindArrayFloat32:
 		a, err := convertToArray[float32](qvalueKind, value)
@@ -490,6 +491,34 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			}
 			return types.QValueArrayEnum{Val: a}, nil
 		}
+	case types.QValueKindArrayNumeric:
+		if v, ok := value.([]any); ok {
+			numArr := make([]decimal.Decimal, 0, len(v))
+			allValid := true
+			for _, anyVal := range v {
+				if anyVal == nil {
+					numArr = append(numArr, decimal.Decimal{})
+					continue
+				}
+				numVal, ok := anyVal.(pgtype.Numeric)
+				if !ok {
+					return nil, fmt.Errorf("failed to cast ArrayNumeric as []pgtype.Numeric: got %T", anyVal)
+				}
+				if !numVal.Valid {
+					allValid = false
+					break
+				}
+				num, ok := validNumericToDecimal(numVal)
+				if !ok {
+					numArr = append(numArr, decimal.Decimal{})
+				} else {
+					numArr = append(numArr, num)
+				}
+			}
+			if allValid {
+				return types.QValueArrayNumeric{Val: numArr}, nil
+			}
+		}
 	case types.QValueKindPoint:
 		coord := value.(pgtype.Point).P
 		return types.QValuePoint{
@@ -514,18 +543,15 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	}
 
 	// parsing into pgtype failed.
-	return nil, fmt.Errorf("failed to parse value %v into QValueKind %v", value, qvalueKind)
+	return nil, fmt.Errorf("failed to parse value %v (%T) into QValueKind %v", value, value, qvalueKind)
 }
 
-func numericToDecimal(numVal pgtype.Numeric) (types.QValue, error) {
-	switch {
-	case !numVal.Valid:
-		return types.QValueNull(types.QValueKindNumeric), errors.New("invalid numeric")
-	case numVal.NaN, numVal.InfinityModifier == pgtype.Infinity,
-		numVal.InfinityModifier == pgtype.NegativeInfinity:
-		return types.QValueNull(types.QValueKindNumeric), nil
-	default:
-		return types.QValueNumeric{Val: decimal.NewFromBigInt(numVal.Int, numVal.Exp)}, nil
+func validNumericToDecimal(numVal pgtype.Numeric) (decimal.Decimal, bool) {
+	if numVal.NaN || numVal.InfinityModifier == pgtype.Infinity ||
+		numVal.InfinityModifier == pgtype.NegativeInfinity {
+		return decimal.Decimal{}, false
+	} else {
+		return decimal.NewFromBigInt(numVal.Int, numVal.Exp), true
 	}
 }
 
