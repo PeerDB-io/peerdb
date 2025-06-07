@@ -40,6 +40,7 @@ func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseNa
 }
 
 func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
+	var rawDistributedName string
 	rawTableName := c.GetRawTableName(req.FlowJobName)
 	engine := "MergeTree()"
 	if c.config.Replicated {
@@ -48,6 +49,12 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 			peerdb_clickhouse.EscapeStr(rawTableName),
 		)
 	}
+	onCluster := c.onCluster()
+	if onCluster != "" {
+		rawDistributedName = rawTableName
+		rawTableName += "_shard"
+	}
+
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s (
 		_peerdb_uid UUID,
 		_peerdb_timestamp Int64,
@@ -57,13 +64,34 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		_peerdb_match_data String,
 		_peerdb_batch_id Int64,
 		_peerdb_unchanged_toast_columns String
-	) ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name);`
-
+	) ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)`
 	if err := c.execWithLogging(ctx,
-		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), c.onCluster(), engine),
+		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, engine),
 	); err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
+
+	if onCluster != "" {
+		createRawDistributedSQL := `CREATE TABLE IF NOT EXISTS %s%s (
+			_peerdb_uid UUID,
+			_peerdb_timestamp Int64,
+			_peerdb_destination_table_name String,
+			_peerdb_data String,
+			_peerdb_record_type Int,
+			_peerdb_match_data String,
+			_peerdb_batch_id Int64,
+			_peerdb_unchanged_toast_columns String
+		) ENGINE = Distributed(%s,%s,%s,cityHash64(_peerdb_uid))`
+		if err := c.execWithLogging(ctx,
+			fmt.Sprintf(createRawDistributedSQL, peerdb_clickhouse.QuoteIdentifier(rawDistributedName), onCluster,
+				peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
+				peerdb_clickhouse.QuoteIdentifier(c.config.Database),
+				peerdb_clickhouse.QuoteIdentifier(rawTableName)),
+		); err != nil {
+			return nil, fmt.Errorf("unable to create raw table: %w", err)
+		}
+	}
+
 	return &protos.CreateRawTableOutput{
 		TableIdentifier: rawTableName,
 	}, nil
@@ -266,10 +294,18 @@ func (c *ClickHouseConnector) RenameTables(
 func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	// delete raw table if exists
 	rawTableIdentifier := c.GetRawTableName(jobName)
+	onCluster := c.onCluster()
 	if err := c.execWithLogging(ctx,
-		fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), c.onCluster()),
+		fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), onCluster),
 	); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
+	}
+	if onCluster != "" {
+		if err := c.execWithLogging(ctx,
+			fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier+"_shard"), onCluster),
+		); err != nil {
+			return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
+		}
 	}
 	c.logger.Info("successfully dropped raw table " + rawTableIdentifier)
 

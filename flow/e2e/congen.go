@@ -31,6 +31,7 @@ func TableMappings(s GenericSuite, tables ...string) []*protos.TableMapping {
 		tm = append(tm, &protos.TableMapping{
 			SourceTableIdentifier:      AttachSchema(s, tables[i]),
 			DestinationTableIdentifier: s.DestinationTable(tables[i+1]),
+			ShardingKey:                "id",
 		})
 	}
 	return tm
@@ -64,6 +65,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(s Suite) 
 			tblMappings = append(tblMappings, &protos.TableMapping{
 				SourceTableIdentifier:      k,
 				DestinationTableIdentifier: v,
+				ShardingKey:                "id",
 			})
 		}
 	}
