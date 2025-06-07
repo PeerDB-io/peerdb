@@ -35,7 +35,7 @@ func TestGenericBQ(t *testing.T) {
 }
 
 func TestGenericCH_PG(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, false, func(t *testing.T) (*e2e.PostgresSource, string, error) {
 		t.Helper()
 		suffix := "pgchg_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupPostgres(t, suffix)
@@ -44,7 +44,25 @@ func TestGenericCH_PG(t *testing.T) {
 }
 
 func TestGenericCH_MySQL(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, false, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mychg_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupMySQL(t, suffix)
+		return source, suffix, err
+	})))
+}
+
+func TestGenericChCluster_PG(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, true, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+		t.Helper()
+		suffix := "pgchg_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupPostgres(t, suffix)
+		return source, suffix, err
+	})))
+}
+
+func TestGenericChCluster_MySQL(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, true, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
 		suffix := "mychg_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupMySQL(t, suffix)

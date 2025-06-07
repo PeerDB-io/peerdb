@@ -32,7 +32,7 @@ import (
 var testData embed.FS
 
 func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite(t, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+	e2eshared.RunSuite(t, SetupSuite(t, false, func(t *testing.T) (*e2e.PostgresSource, string, error) {
 		t.Helper()
 		suffix := "pgch_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupPostgres(t, suffix)
@@ -41,7 +41,25 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 }
 
 func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite(t, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+	e2eshared.RunSuite(t, SetupSuite(t, false, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupMySQL(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+		t.Helper()
+		suffix := "pgch_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupPostgres(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
 		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupMySQL(t, suffix)
