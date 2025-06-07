@@ -229,6 +229,15 @@ jobs:
               <shard>1</shard>
               <replica>1</replica>
             </macros>
+            <zookeeper>
+              <node>
+                <host>localhost</host>
+                <port>2181</port>
+              </node>
+            </zookeeper>
+            <distributed_ddl>
+              <path>/clickhouse/task_queue/ddl</path>
+            </distributed_ddl>
             <remote_servers>
               <cicluster>
                 <shard>
@@ -275,6 +284,15 @@ jobs:
               <shard>2</shard>
               <replica>1</replica>
             </macros>
+            <zookeeper>
+              <node>
+                <host>localhost</host>
+                <port>2181</port>
+              </node>
+            </zookeeper>
+            <distributed_ddl>
+              <path>/clickhouse/task_queue/ddl</path>
+            </distributed_ddl>
             <remote_servers>
               <cicluster>
                 <shard>
@@ -304,12 +322,7 @@ jobs:
                   <server>
                     <id>1</id>
                     <hostname>localhost</hostname>
-                    <port>9000</port>
-                  </server>
-                  <server>
-                    <id>2</id>
-                    <hostname>localhost</hostname>
-                    <port>9001</port>
+                    <port>9234</port>
                   </server>
                 </raft_configuration>
             </keeper_server>
