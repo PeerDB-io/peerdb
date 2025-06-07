@@ -238,9 +238,11 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			peerdb_clickhouse.QuoteIdentifier(tableIdentifier+"_shard"),
 		)
 		if tableMapping.ShardingKey != "" {
-			fmt.Fprintf(&stmtBuilderDistributed, ",%s", tableMapping.ShardingKey)
+			stmtBuilderDistributed.WriteByte(',')
+			stmtBuilderDistributed.WriteString(tableMapping.ShardingKey)
 			if tableMapping.PolicyName != "" {
-				fmt.Fprintf(&stmtBuilderDistributed, ",%s", peerdb_clickhouse.QuoteLiteral(tableMapping.PolicyName))
+				stmtBuilderDistributed.WriteByte(',')
+				stmtBuilderDistributed.WriteString(peerdb_clickhouse.QuoteLiteral(tableMapping.PolicyName))
 			}
 		}
 		stmtBuilderDistributed.WriteByte(')')
