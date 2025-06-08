@@ -78,7 +78,7 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 					DisableTls: true,
 					S3:         s.s3Helper.S3Config,
 					Cluster:    "cicluster",
-					Replicated: true,
+					Replicated: false,
 				},
 			},
 		}
