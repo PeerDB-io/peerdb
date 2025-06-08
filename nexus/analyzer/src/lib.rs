@@ -731,6 +731,11 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("tls_host")
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
+                codec: opts
+                    .get("codec")
+                    .and_then(|s| pt::peerdb_peers::AvroCodec::from_str_name(s))
+                    .map(|codec| codec.into())
+                    .unwrap_or_default(),
             };
             Config::S3Config(s3_config)
         }

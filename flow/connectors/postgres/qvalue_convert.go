@@ -53,14 +53,15 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	customTypeMapping map[uint32]shared.CustomDataType,
 ) types.QValueKind {
 	colType, err := postgres.PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap)
-	_, warned := c.hushWarnOID[recvOID]
-	if err != nil && !warned {
-		c.logger.Warn(
-			"unsupported field type",
-			slog.Int64("oid", int64(recvOID)),
-			slog.String("typeName", err.Error()),
-			slog.String("mapping", string(colType)))
-		c.hushWarnOID[recvOID] = struct{}{}
+	if err != nil {
+		if _, warned := c.hushWarnOID[recvOID]; !warned {
+			c.logger.Warn(
+				"unsupported field type",
+				slog.Int64("oid", int64(recvOID)),
+				slog.String("typeName", err.Error()),
+				slog.String("mapping", string(colType)))
+			c.hushWarnOID[recvOID] = struct{}{}
+		}
 	}
 	return colType
 }

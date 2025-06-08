@@ -1,14 +1,20 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { s3Setting } from '@/app/peers/create/[peerType]/helpers/s3';
+import SelectTheme from '@/app/styles/select';
 import { GCS_ENDPOINT } from '@/app/utils/gcsEndpoint';
 import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
-import { RowWithRadiobutton, RowWithTextField } from '@/lib/Layout';
+import {
+  RowWithRadiobutton,
+  RowWithSelect,
+  RowWithTextField,
+} from '@/lib/Layout';
 import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useEffect, useState } from 'react';
+import ReactSelect from 'react-select';
 import { handleFieldChange } from './common';
 
 interface S3Props {
@@ -65,9 +71,25 @@ export default function S3Form({ setter }: S3Props) {
           action={<RadioButton value='GCS' />}
         />
       </RadioButtonGroup>
-      {s3Setting.map((setting, index) => {
-        if (displayCondition(setting.label))
-          return (
+      {s3Setting.map(
+        (setting, index) =>
+          displayCondition(setting.label) &&
+          (setting.type === 'select' ? (
+            <RowWithSelect
+              key={index}
+              label={<Label>{setting.label}</Label>}
+              action={
+                <ReactSelect
+                  placeholder={setting.placeholder}
+                  onChange={(val) =>
+                    val && setting.stateHandler(val.value, setter)
+                  }
+                  options={setting.options}
+                  theme={SelectTheme}
+                />
+              }
+            />
+          ) : (
             <RowWithTextField
               key={index}
               label={
@@ -115,8 +137,8 @@ export default function S3Form({ setter }: S3Props) {
                 </div>
               }
             />
-          );
-      })}
+          ))
+      )}
     </div>
   );
 }

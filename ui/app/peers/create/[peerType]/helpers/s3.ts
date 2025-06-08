@@ -1,4 +1,4 @@
-import { S3Config } from '@/grpc_generated/peers';
+import { AvroCodec, S3Config, avroCodecFromJSON } from '@/grpc_generated/peers';
 import { PeerSetting } from './common';
 
 export const s3Setting: PeerSetting[] = [
@@ -74,6 +74,20 @@ export const s3Setting: PeerSetting[] = [
     tips: 'Overrides expected hostname during tls cert verification.',
     optional: true,
   },
+  {
+    label: 'Avro Codec',
+    field: 'codec',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, codec: avroCodecFromJSON(value) })),
+    type: 'select',
+    placeholder: 'Select avro codec',
+    options: [
+      { value: 'Null', label: 'Null' },
+      { value: 'Deflate', label: 'Deflate' },
+      { value: 'Snappy', label: 'Snappy' },
+      { value: 'ZStandard', label: 'ZStandard' },
+    ],
+  },
 ];
 
 export const blankS3Setting: S3Config = {
@@ -85,4 +99,5 @@ export const blankS3Setting: S3Config = {
   endpoint: '',
   rootCa: undefined,
   tlsHost: '',
+  codec: AvroCodec.Null,
 };
