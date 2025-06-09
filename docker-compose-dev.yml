@@ -39,7 +39,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:17-alpine@sha256:bcb90dc18910057ff49ce2ea157d8a0d534964090d39af959df41083f18c3318
+    image: postgres:17-alpine@sha256:fbe21607052bb5c298674f2fd8cf044a63aa3ddf50b81627f894f91f40f50bcb
     command: -c config_file=/etc/postgresql.conf
     ports:
       - 9901:5432
