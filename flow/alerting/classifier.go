@@ -287,6 +287,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.QueryCanceled:
 			return ErrorRetryRecoverable, pgErrorInfo
+		}
 	}
 
 	var pgConnErr *pgconn.ConnectError
