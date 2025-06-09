@@ -42,6 +42,7 @@ export const clickhouseSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, cluster: value as string })),
     tips: 'Specify which cluster to associate with this peer.',
+    optional: true,
   },
   {
     label: 'Replicated?',
