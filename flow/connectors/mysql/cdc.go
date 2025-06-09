@@ -28,7 +28,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
-	chmysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
+	qmysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -106,7 +106,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
-		qkind, err := chmysql.QkindFromMysqlColumnType(dataType)
+		qkind, err := qmysql.QkindFromMysqlColumnType(dataType)
 		if err != nil {
 			return nil, err
 		}
@@ -673,7 +673,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 						slog.String("tableName", sourceTableName))
 					continue
 				}
-				qkind, err := chmysql.QkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
+				qkind, err := qmysql.QkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
 				if err != nil {
 					return err
 				}
