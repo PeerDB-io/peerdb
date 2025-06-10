@@ -84,6 +84,8 @@ func PostgresOIDToQValueKind(
 		return types.QValueKindArrayJSON, nil
 	case pgtype.JSONBArrayOID:
 		return types.QValueKindArrayJSONB, nil
+	case pgtype.NumericArrayOID:
+		return types.QValueKindArrayNumeric, nil
 	case pgtype.IntervalOID:
 		return types.QValueKindInterval, nil
 	case pgtype.TstzrangeOID:

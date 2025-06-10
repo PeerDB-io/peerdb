@@ -260,6 +260,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *decimal.Decimal:
 				qrow = append(qrow, types.QValueNumeric{Val: *v})
+			case *[]decimal.Decimal:
+				qrow = append(qrow, types.QValueArrayNumeric{Val: *v})
 			case **bool:
 				if *v == nil {
 					qrow = append(qrow, types.QValueNull(types.QValueKindBoolean))
