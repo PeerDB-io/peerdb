@@ -25,20 +25,26 @@ func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*ut
 }
 
 func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
-	// GTID -> check GTID and error out if not enabled, check filepos as well
-	// AUTO -> check GTID and fall back to filepos check
-	// FILEPOS -> check filepos only
-	if c.config.ReplicationMechanism != protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
-		if _, err := c.GetMasterGTIDSet(ctx); err != nil {
-			if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID {
-				return fmt.Errorf("failed to check replication status: %w", err)
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		if err := c.getMariaDBMasterGTIDSet(ctx); err != nil {
+			return fmt.Errorf("failed to get MariaDB master GTID set: %w", err)
+		}
+	} else if c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
+		// GTID -> check GTID and error out if not enabled, check filepos as well
+		// AUTO -> check GTID and fall back to filepos check
+		// FILEPOS -> check filepos only
+		if c.config.ReplicationMechanism != protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
+			if _, err := c.GetMasterGTIDSet(ctx); err != nil {
+				if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID {
+					return fmt.Errorf("failed to check replication status: %w", err)
+				}
 			}
 		}
-	}
-	if namePos, err := c.GetMasterPos(ctx); err != nil {
-		return fmt.Errorf("failed to check replication status: %w", err)
-	} else if namePos.Name == "" || namePos.Pos <= 0 {
-		return errors.New("invalid replication status: missing log file or position")
+		if namePos, err := c.GetMasterPos(ctx); err != nil {
+			return fmt.Errorf("failed to check replication status: %w", err)
+		} else if namePos.Name == "" || namePos.Pos <= 0 {
+			return errors.New("invalid replication status: missing log file or position")
+		}
 	}
 
 	return nil
@@ -143,6 +149,27 @@ func (c *MySqlConnector) checkMariaDB_BinlogSettings(ctx context.Context, requir
 			c.logger.Warn("binlog_expire_logs_seconds should be at least 24 hours",
 				slog.Uint64("binlog_expire_logs_seconds", binlogExpireLogsSeconds))
 		}
+	}
+
+	return nil
+}
+
+func (c *MySqlConnector) getMariaDBMasterGTIDSet(ctx context.Context) error {
+	// assume GTID is always enabled
+	rr, err := c.Execute(ctx, "SELECT @@GLOBAL.gtid_current_pos")
+	if err != nil {
+		return fmt.Errorf("failed to get masterGTIDSet: %w", err)
+	}
+	if len(rr.Values) == 0 {
+		return errors.New("no value returned for gtid_current_pos")
+	}
+
+	gtid_current_pos, err := rr.GetString(0, 0)
+	if err != nil {
+		return fmt.Errorf("failed to GetString for masterGTIDSet: %w", err)
+	}
+	if _, err := mysql.ParseGTIDSet(mysql.MariaDBFlavor, gtid_current_pos); err != nil {
+		return fmt.Errorf("failed to parse GTID: %w", err)
 	}
 
 	return nil
