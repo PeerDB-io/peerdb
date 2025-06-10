@@ -43,7 +43,14 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 		if namePos, err := c.GetMasterPos(ctx); err != nil {
 			return fmt.Errorf("failed to check replication status: %w", err)
 		} else if namePos.Name == "" || namePos.Pos <= 0 {
-			return errors.New("invalid replication status: missing log file or position")
+			posErrors := make([]string, 0, 2)
+			if namePos.Name == "" {
+				posErrors = append(posErrors, "empty binlog file name")
+			}
+			if namePos.Pos <= 0 {
+				posErrors = append(posErrors, "invalid binlog position")
+			}
+			return fmt.Errorf("failed to check replication status: %s", strings.Join(posErrors, ", "))
 		}
 	}
 
