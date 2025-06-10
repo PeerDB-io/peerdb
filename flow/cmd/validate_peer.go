@@ -8,6 +8,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 func (h *FlowRequestHandler) ValidatePeer(
@@ -17,27 +20,20 @@ func (h *FlowRequestHandler) ValidatePeer(
 	ctx, cancelCtx := context.WithTimeout(ctx, time.Minute)
 	defer cancelCtx()
 	if req.Peer == nil {
-		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: "no peer provided",
-		}, nil
+		return nil, status.Errorf(codes.InvalidArgument, "no peer provided")
 	}
 
 	if req.Peer.Name == "" {
-		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: "no peer name provided",
-		}, nil
+		return nil, status.Errorf(codes.InvalidArgument, "no peer name provided")
 	}
 
 	conn, err := connectors.GetConnector(ctx, nil, req.Peer)
 	if err != nil {
 		displayErr := fmt.Sprintf("%s peer %s was invalidated: %v", req.Peer.Type, req.Peer.Name, err)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name, displayErr)
-		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: displayErr,
-		}, nil
+		// Consider codes.Internal if it's an unexpected system issue, 
+		// or codes.Unavailable if a dependent service is temporarily down.
+		return nil, status.Errorf(codes.Internal, displayErr)
 	}
 	defer conn.Close()
 
@@ -47,10 +43,9 @@ func (h *FlowRequestHandler) ValidatePeer(
 			h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
 				displayErr,
 			)
-			return &protos.ValidatePeerResponse{
-				Status:  protos.ValidatePeerStatus_INVALID,
-				Message: displayErr,
-			}, nil
+			// codes.FailedPrecondition if the peer's state is not suitable for the operation
+			// codes.InvalidArgument if the peer's configuration itself is invalid
+			return nil, status.Errorf(codes.FailedPrecondition, displayErr)
 		}
 	}
 
@@ -59,10 +54,9 @@ func (h *FlowRequestHandler) ValidatePeer(
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
 			displayErr,
 		)
-		return &protos.ValidatePeerResponse{
-			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: displayErr,
-		}, nil
+		// codes.Unavailable if the peer is temporarily unreachable
+		// codes.FailedPrecondition if there's a persistent issue preventing connection
+		return nil, status.Errorf(codes.Unavailable, displayErr)
 	}
 
 	return &protos.ValidatePeerResponse{

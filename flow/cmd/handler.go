@@ -22,6 +22,9 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // grpc server implementation
@@ -452,18 +455,25 @@ func (h *FlowRequestHandler) CreatePeer(
 	ctx context.Context,
 	req *protos.CreatePeerRequest,
 ) (*protos.CreatePeerResponse, error) {
-	status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
+	// ValidatePeer now returns a gRPC status error directly if validation fails.
+	// The first return value (ValidatePeerResponse) is not explicitly used here if error is nil,
+	// as a nil error implies successful validation.
+	_, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
 	if validateErr != nil {
-		return nil, validateErr
-	}
-	if status.Status != protos.ValidatePeerStatus_VALID {
-		return &protos.CreatePeerResponse{
-			Status:  protos.CreatePeerStatus_FAILED,
-			Message: status.Message,
-		}, nil
+		return nil, validateErr // Propagate gRPC error from ValidatePeer
 	}
 
-	return utils.CreatePeerNoValidate(ctx, h.pool, req.Peer, req.AllowUpdate)
+	// If validateErr is nil, peer validation was successful.
+	createResp, createErr := utils.CreatePeerNoValidate(ctx, h.pool, req.Peer, req.AllowUpdate)
+	if createErr != nil {
+		// Check if createErr is already a gRPC status error
+		if _, ok := status.FromError(createErr); ok {
+			return nil, createErr // It's already a gRPC error, propagate it
+		}
+		// If not, wrap it as an internal error
+		return nil, status.Errorf(codes.Internal, "failed to create peer configuration: %v", createErr)
+	}
+	return createResp, nil
 }
 
 func (h *FlowRequestHandler) DropPeer(
