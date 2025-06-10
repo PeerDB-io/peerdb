@@ -20,6 +20,7 @@ ENV CGO_ENABLED=1
 RUN go build -o /root/peer-flow
 
 FROM alpine:3.22@sha256:8a1f59ffb675680d47db6337b49d22281a139e9d709335b492be023728e11715 AS flow-base
+ENV TZ=UTC
 ADD --checksum=sha256:5fa49cac7e6e9202ef85331c6f83377a71339d692d5644c9417a2d81406f0c03 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem
 RUN apk add --no-cache ca-certificates geos && \
   update-ca-certificates && \
