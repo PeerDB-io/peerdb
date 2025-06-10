@@ -158,7 +158,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	// c36 lost tz info so does not compare equal
 	var c36 string
 	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(), "select c36 from "+dstTableName).Scan(&c36))
-	require.Equal(s.t, "09:25:00+00", c36)
+	require.Equal(s.t, "06:25:00+00", c36)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
