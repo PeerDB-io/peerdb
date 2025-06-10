@@ -472,13 +472,13 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
-
 	env = e2e.ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowConnConfig.FlowJobName,
 		DropFlowStats:         false,
 		FlowConnectionConfigs: flowConnConfig,
 	})
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+
 	// now test weird names with rename based resync
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
@@ -1617,12 +1617,13 @@ func (s ClickHouseSuite) Test_Extra_CH_Columns() {
 }
 
 func (s ClickHouseSuite) Test_NullEngine() {
+	chPeer := s.Peer().GetClickhouseConfig()
 	srcTableName := "test_nullengine"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_nullengine"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL)`, srcFullName)))
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, "key" TEXT NOT NULL, val TEXT)`, srcFullName)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_nullengine"),
@@ -1639,7 +1640,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, chPeer)
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(s.t.Context(),
 		`create table nulltarget (id Int32, "key" String, _peerdb_is_deleted Int8) engine = ReplacingMergeTree() order by id`))
@@ -1648,8 +1649,39 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	require.NoError(s.t, ch.Close())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s values (1, 'cdc')`, srcFullName)))
+		fmt.Sprintf(`insert into %s values (1, 'cdc', 'val')`, srcFullName)))
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "null insert", srcTableName, "nulltarget", "id,\"key\"")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+	env = e2e.ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: flowConnConfig,
+	})
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s DROP COLUMN val", srcFullName)))
+
+	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	require.NoError(s.t, err)
+	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE nulltarget"))
+	require.NoError(s.t, ch.Close())
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Resync = true
+	env = e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, "nulltarget", "id,\"key\"")
+
+	var count uint64
+	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	require.NoError(s.t, err)
+	row := ch.QueryRow(s.t.Context(),
+		fmt.Sprintf("select count(*) from system.columns where database = '%s' and table = 'test_nullengine'", chPeer.Database))
+	require.NoError(s.t, row.Err())
+	require.NoError(s.t, row.Scan(&count))
+	require.NoError(s.t, ch.Close())
+	require.Equal(s.t, uint64(5), count)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
