@@ -256,6 +256,17 @@ func (p *PostgresMetadata) UpdateNormalizeBatchID(ctx context.Context, jobName s
 	return nil
 }
 
+func (p *PostgresMetadata) UpdatePushedRows(ctx context.Context, jobName string, tableRowsPerBatchMap map[int64]uint64) error {
+	for batchID, numRows := range tableRowsPerBatchMap {
+		if err := monitoring.UpdateRowsPushedForCDCBatch(ctx, p.pool, jobName, batchID, numRows); err != nil {
+			p.logger.Error("failed to update rows pushed for cdc batch", slog.Int64("batchID", batchID), slog.Any("error", err))
+			return fmt.Errorf("failed to update rows pushed for cdc batch: %w", err)
+		}
+	}
+
+	return nil
+}
+
 func (p *PostgresMetadata) FinishQRepPartition(
 	ctx context.Context,
 	partition *protos.QRepPartition,
