@@ -58,11 +58,6 @@ func (m *mergeStmtGenerator) generateMergeStmt(ctx context.Context, env map[stri
 			flattenedCastsSQLArray = append(flattenedCastsSQLArray,
 				fmt.Sprintf("PARSE_JSON(CAST(%s:\"%s\" AS STRING)) AS %s",
 					toVariantColumnName, column.Name, targetColumnName))
-		// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle time types and interval types
-		// case model.ColumnTypeTime:
-		// 	flattenedCastsSQLArray = append(flattenedCastsSQLArray, fmt.Sprintf("TIME_FROM_PARTS(0,0,0,%s:%s:"+
-		// 		"Microseconds*1000) "+
-		// 		"AS %s", toVariantColumnName, columnName, columnName))
 		case types.QValueKindNumeric:
 			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
 			numericType := fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)

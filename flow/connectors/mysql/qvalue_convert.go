@@ -166,7 +166,7 @@ func processGeometryData(data []byte) types.QValueGeometry {
 }
 
 // https://dev.mysql.com/doc/refman/8.4/en/time.html
-func processTime(str string) (time.Time, error) {
+func processTime(str string) (time.Duration, error) {
 	abs, isNeg := strings.CutPrefix(str, "-")
 	tpart, frac, _ := strings.Cut(abs, ".")
 
@@ -174,7 +174,7 @@ func processTime(str string) (time.Time, error) {
 	if frac != "" {
 		fint, err := strconv.ParseUint(frac, 10, 64)
 		if err != nil {
-			return time.Time{}, err
+			return 0, err
 		}
 		if len(frac) <= 9 {
 			nsec = fint * uint64(math.Pow10(9-len(frac)))
@@ -215,14 +215,14 @@ func processTime(str string) (time.Time, error) {
 	}
 
 	if err != nil {
-		return time.Time{}, err
+		return 0, err
 	}
 
 	sec := hpart*3600 + mpart*60 + spart
 	if isNeg {
-		return time.Unix(-int64(sec), -int64(nsec)).UTC(), nil
+		return -time.Duration(sec)*time.Second - time.Duration(nsec), nil
 	}
-	return time.Unix(int64(sec), int64(nsec)).UTC(), nil
+	return time.Duration(sec)*time.Second + time.Duration(nsec), nil
 }
 
 func QValueFromMysqlFieldValue(qkind types.QValueKind, fv mysql.FieldValue) (types.QValue, error) {

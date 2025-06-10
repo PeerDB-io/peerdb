@@ -233,7 +233,10 @@ func toQValue(kind types.QValueKind, val any) (types.QValue, error) {
 				tt := t.Time
 				// anchor on unix epoch, some drivers anchor on 0001-01-01
 				return types.QValueTime{
-					Val: time.Date(1970, time.January, 1, tt.Hour(), tt.Minute(), tt.Second(), tt.Nanosecond(), time.UTC),
+					Val: time.Duration(tt.Hour())*time.Hour +
+						time.Duration(tt.Minute())*time.Minute +
+						time.Duration(tt.Second())*time.Second +
+						time.Duration(tt.Nanosecond())*time.Nanosecond,
 				}, nil
 			} else {
 				return types.QValueNull(kind), nil
