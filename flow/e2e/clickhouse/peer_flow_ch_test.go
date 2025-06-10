@@ -1661,6 +1661,8 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	})
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s DROP COLUMN val", srcFullName)))
+
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
 	require.NoError(s.t, err)
 	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE nulltarget"))
