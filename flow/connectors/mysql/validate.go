@@ -48,7 +48,7 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 				posErrors = append(posErrors, "empty binlog file name")
 			}
 			if namePos.Pos <= 0 {
-				posErrors = append(posErrors, "invalid binlog position")
+				posErrors = append(posErrors, "invalid binlog position "+strconv.FormatUint(uint64(namePos.Pos), 10))
 			}
 			return fmt.Errorf("failed to check replication status: %s", strings.Join(posErrors, ", "))
 		}
