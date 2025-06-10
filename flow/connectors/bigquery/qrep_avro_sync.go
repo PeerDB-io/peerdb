@@ -304,7 +304,11 @@ func GetAvroType(bqField *bigquery.FieldSchema) (avro.Schema, error) {
 		}
 		return avro.NewRecordSchema("datetime", "", []*avro.Field{dateField, timeField})
 	case bigquery.BigNumericFieldType:
-		return avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale))), nil
+		bigNumericSchema := avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale)))
+		if bqField.Repeated {
+			return avro.NewArraySchema(bigNumericSchema), nil
+		}
+		return bigNumericSchema, nil
 	case bigquery.RecordFieldType:
 		avroFields := []*avro.Field{}
 		for _, bqSubField := range bqField.Schema {
