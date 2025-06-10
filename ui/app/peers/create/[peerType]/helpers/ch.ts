@@ -92,7 +92,6 @@ export const clickhouseSetting: PeerSetting[] = [
     type: 'file',
     optional: true,
     tips: 'If not provided, host CA roots will be used.',
-    s3: true,
   },
   {
     label: 'S3 Path',
