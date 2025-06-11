@@ -231,12 +231,12 @@ func toQValue(kind types.QValueKind, val any) (types.QValue, error) {
 		if t, ok := val.(*sql.NullTime); ok {
 			if t.Valid {
 				tt := t.Time
-				// anchor on unix epoch, some drivers anchor on 0001-01-01
+				h, m, s := tt.Clock()
 				return types.QValueTime{
-					Val: time.Duration(tt.Hour())*time.Hour +
-						time.Duration(tt.Minute())*time.Minute +
-						time.Duration(tt.Second())*time.Second +
-						time.Duration(tt.Nanosecond())*time.Nanosecond,
+					Val: time.Duration(h)*time.Hour +
+						time.Duration(m)*time.Minute +
+						time.Duration(s)*time.Second +
+						time.Duration(tt.Nanosecond()),
 				}, nil
 			} else {
 				return types.QValueNull(kind), nil

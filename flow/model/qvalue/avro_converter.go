@@ -314,7 +314,7 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		t = max(min(t, 86399999999), 0)
-		return time.Unix(0, 0).UTC().Add(t).Format("15:04:05.999999")
+		return time.Time{}.Add(t).Format("15:04:05.999999")
 	} else if c.TargetDWH == protos.DBType_BIGQUERY {
 		return max(min(t, 86399999999), 0)
 	} else if c.TargetDWH == protos.DBType_POSTGRES {
