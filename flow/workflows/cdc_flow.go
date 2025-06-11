@@ -224,8 +224,43 @@ func processTableAdditions(
 	additionalTablesCfg.InitialSnapshotOnly = true
 	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
 	additionalTablesCfg.Resync = false
+
+	addTablesSelector := workflow.NewNamedSelector(ctx, "AddTables")
+	addTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
+	flowSignalStateChangeChan.AddToSelector(addTablesSelector, func(val *protos.FlowStateChangeRequest, _ bool) {
+		if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
+			logger.Info("terminating CDCFlow during table additions")
+			state.ActiveSignal = model.TerminateSignal
+			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+			state.DropFlowInput = &protos.DropFlowInput{
+				FlowJobName:           dropCfg.FlowJobName,
+				FlowConnectionConfigs: dropCfg,
+				DropFlowStats:         val.DropMirrorStats,
+				SkipDestinationDrop:   val.SkipDestinationDrop,
+			}
+		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
+			logger.Info("resync requested during table additions")
+			state.ActiveSignal = model.ResyncSignal
+			// additional tables should also be resynced, we don't know how much was done so far
+			state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
+			cfg.Resync = true
+			cfg.DoInitialSnapshot = true
+			resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+			state.DropFlowInput = &protos.DropFlowInput{
+				FlowJobName:           resyncCfg.FlowJobName,
+				FlowConnectionConfigs: resyncCfg,
+				DropFlowStats:         val.DropMirrorStats,
+				SkipDestinationDrop:   val.SkipDestinationDrop,
+				Resync:                true,
+			}
+		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED {
+			logger.Info("pause requested during table additions, ignoring")
+		}
+	})
+
 	// execute the sync flow as a child workflow
-	childAdditionalTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
+	childAddTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
 		WorkflowID:        childAdditionalTablesCDCFlowID,
 		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		RetryPolicy: &temporal.RetryPolicy{
@@ -234,16 +269,32 @@ func processTableAdditions(
 		TypedSearchAttributes: mirrorNameSearch,
 		WaitForCancellation:   true,
 	}
-	childAdditionalTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAdditionalTablesCDCFlowOpts)
-	childAdditionalTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
-		childAdditionalTablesCDCFlowCtx,
+	childAddTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAddTablesCDCFlowOpts)
+	childAddTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
+		childAddTablesCDCFlowCtx,
 		CDCFlowWorkflow,
 		additionalTablesCfg,
 		nil,
 	)
 	var res *CDCFlowWorkflowResult
-	if err := childAdditionalTablesCDCFlowFuture.Get(childAdditionalTablesCDCFlowCtx, &res); err != nil {
-		return err
+	var addTablesFlowErr error
+	addTablesSelector.AddFuture(childAddTablesCDCFlowFuture, func(f workflow.Future) {
+		addTablesFlowErr = f.Get(childAddTablesCDCFlowCtx, &res)
+	})
+
+	for res == nil {
+		addTablesSelector.Select(ctx)
+		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+			return workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+		}
+		if err := ctx.Err(); err != nil {
+			logger.Info("CDCFlow canceled during table additions", slog.Any("error", err))
+			return err
+		}
+		if addTablesFlowErr != nil {
+			logger.Error("failed to execute child CDCFlow for additional tables", slog.Any("error", addTablesFlowErr))
+			return fmt.Errorf("failed to execute child CDCFlow for additional tables: %w", addTablesFlowErr)
+		}
 	}
 
 	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
@@ -471,9 +522,9 @@ func CDCFlowWorkflow(
 		// it should return the table schema for the source peer
 		setupFlowID := GetChildWorkflowID("setup-flow", cfg.FlowJobName, originalRunID)
 
-		selector := workflow.NewNamedSelector(ctx, "Setup/Snapshot")
-		selector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
-		flowSignalStateChangeChan.AddToSelector(selector, func(val *protos.FlowStateChangeRequest, _ bool) {
+		setupSnapshotSelector := workflow.NewNamedSelector(ctx, "Setup/Snapshot")
+		setupSnapshotSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+		flowSignalStateChangeChan.AddToSelector(setupSnapshotSelector, func(val *protos.FlowStateChangeRequest, _ bool) {
 			if val.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED {
 				logger.Warn("pause requested during setup, ignoring")
 			} else if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
@@ -490,6 +541,8 @@ func CDCFlowWorkflow(
 				cfg.Resync = true
 				cfg.DoInitialSnapshot = true
 				cfg.TableMappings = originalTableMappings
+				// this is the only place where we can have a resync during a resync
+				// so we need to NOT sync the tableMappings to catalog to preserve original names
 				uploadConfigToCatalog(ctx, cfg)
 				state.DropFlowInput = &protos.DropFlowInput{
 					FlowJobName:           cfg.FlowJobName,
@@ -515,12 +568,12 @@ func CDCFlowWorkflow(
 
 		var setupFlowOutput *protos.SetupFlowOutput
 		var setupFlowError error
-		selector.AddFuture(setupFlowFuture, func(f workflow.Future) {
+		setupSnapshotSelector.AddFuture(setupFlowFuture, func(f workflow.Future) {
 			setupFlowError = f.Get(setupFlowCtx, &setupFlowOutput)
 		})
 
 		for setupFlowOutput == nil {
-			selector.Select(ctx)
+			setupSnapshotSelector.Select(ctx)
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
@@ -554,13 +607,13 @@ func CDCFlowWorkflow(
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
 		var snapshotDone bool
 		var snapshotError error
-		selector.AddFuture(snapshotFlowFuture, func(f workflow.Future) {
+		setupSnapshotSelector.AddFuture(snapshotFlowFuture, func(f workflow.Future) {
 			snapshotError = f.Get(snapshotFlowCtx, nil)
 			snapshotDone = true
 		})
 
 		for !snapshotDone {
-			selector.Select(ctx)
+			setupSnapshotSelector.Select(ctx)
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
