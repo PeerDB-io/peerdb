@@ -313,15 +313,10 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		t = max(min(t, 86399999999), 0)
+		t = max(min(t, 86399999999*time.Microsecond), 0)
 		return time.Time{}.Add(t).Format("15:04:05.999999")
-	} else if c.TargetDWH == protos.DBType_BIGQUERY {
-		return max(min(t, 86399999999), 0)
-	} else if c.TargetDWH == protos.DBType_POSTGRES {
-		return max(min(t, 86400000000), 0)
-	} else {
-		return t
 	}
+	return t
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
