@@ -170,6 +170,10 @@ func processTime(str string) (time.Duration, error) {
 		}
 	}
 
+	if nsec > 999999999 {
+		return 0, fmt.Errorf("nanoseconds (%d) should not exceed one second", nsec)
+	}
+
 	var err error
 	var spart, mpart, hpart uint64
 	h, ms, hasMS := strings.Cut(tpart, ":")
