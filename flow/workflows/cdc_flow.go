@@ -242,14 +242,14 @@ func processTableAdditions(
 		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
 			logger.Info("resync requested during table additions")
 			state.ActiveSignal = model.ResyncSignal
-			// additional tables should also be resynced, we don't know how much was done so far
-			state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
+			// since we are adding to TableMappings, multiple signals can lead to duplicates
+			// we should ContinueAsNew after the first signal in the selector, but just in case
 			cfg.Resync = true
 			cfg.DoInitialSnapshot = true
-			resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
 			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           resyncCfg.FlowJobName,
-				FlowConnectionConfigs: resyncCfg,
+				// to be filled in just before ContinueAsNew
+				FlowJobName:           "",
+				FlowConnectionConfigs: nil,
 				DropFlowStats:         val.DropMirrorStats,
 				SkipDestinationDrop:   val.SkipDestinationDrop,
 				Resync:                true,
@@ -285,6 +285,13 @@ func processTableAdditions(
 	for res == nil {
 		addTablesSelector.Select(ctx)
 		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+			if state.ActiveSignal == model.ResyncSignal {
+				// additional tables should also be resynced, we don't know how much was done so far
+				state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
+				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+				state.DropFlowInput.FlowJobName = resyncCfg.FlowJobName
+				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
+			}
 			return workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 		}
 		if err := ctx.Err(); err != nil {
