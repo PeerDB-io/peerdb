@@ -54,28 +54,15 @@ func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 		return types.QValueKindFloat64, nil
 	case mysql.MYSQL_TYPE_NULL:
 		return types.QValueKindInvalid, nil
-	case mysql.MYSQL_TYPE_TIMESTAMP:
-		return types.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_DATE:
+	case mysql.MYSQL_TYPE_DATE, mysql.MYSQL_TYPE_NEWDATE:
 		return types.QValueKindDate, nil
-	case mysql.MYSQL_TYPE_TIME:
-		return types.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_DATETIME:
+	case mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_TIME, mysql.MYSQL_TYPE_DATETIME,
+		mysql.MYSQL_TYPE_TIMESTAMP2, mysql.MYSQL_TYPE_DATETIME2, mysql.MYSQL_TYPE_TIME2:
 		return types.QValueKindTimestamp, nil
 	case mysql.MYSQL_TYPE_YEAR:
 		return types.QValueKindInt16, nil
-	case mysql.MYSQL_TYPE_NEWDATE:
-		return types.QValueKindDate, nil
-	case mysql.MYSQL_TYPE_VARCHAR:
-		return types.QValueKindString, nil
 	case mysql.MYSQL_TYPE_BIT:
 		return types.QValueKindInt64, nil
-	case mysql.MYSQL_TYPE_TIMESTAMP2:
-		return types.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_DATETIME2:
-		return types.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_TIME2:
-		return types.QValueKindTimestamp, nil
 	case mysql.MYSQL_TYPE_JSON:
 		return types.QValueKindJSON, nil
 	case mysql.MYSQL_TYPE_DECIMAL, mysql.MYSQL_TYPE_NEWDECIMAL:
@@ -90,7 +77,7 @@ func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 		} else {
 			return types.QValueKindString, nil
 		}
-	case mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING:
+	case mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING, mysql.MYSQL_TYPE_VARCHAR:
 		return types.QValueKindString, nil
 	case mysql.MYSQL_TYPE_GEOMETRY:
 		return types.QValueKindGeometry, nil
@@ -219,10 +206,11 @@ func processTime(str string) (time.Duration, error) {
 	}
 
 	sec := hpart*3600 + mpart*60 + spart
+	val := time.Duration(sec)*time.Second + time.Duration(nsec)
 	if isNeg {
-		return -time.Duration(sec)*time.Second - time.Duration(nsec), nil
+		return -val, nil
 	}
-	return time.Duration(sec)*time.Second + time.Duration(nsec), nil
+	return val, nil
 }
 
 func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.FieldValue) (types.QValue, error) {
