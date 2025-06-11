@@ -59,7 +59,7 @@ func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 	case mysql.MYSQL_TYPE_DATE:
 		return types.QValueKindDate, nil
 	case mysql.MYSQL_TYPE_TIME:
-		return types.QValueKindTime, nil
+		return types.QValueKindTimestamp, nil
 	case mysql.MYSQL_TYPE_DATETIME:
 		return types.QValueKindTimestamp, nil
 	case mysql.MYSQL_TYPE_YEAR:
@@ -75,7 +75,7 @@ func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 	case mysql.MYSQL_TYPE_DATETIME2:
 		return types.QValueKindTimestamp, nil
 	case mysql.MYSQL_TYPE_TIME2:
-		return types.QValueKindTime, nil
+		return types.QValueKindTimestamp, nil
 	case mysql.MYSQL_TYPE_JSON:
 		return types.QValueKindJSON, nil
 	case mysql.MYSQL_TYPE_DECIMAL, mysql.MYSQL_TYPE_NEWDECIMAL:
@@ -225,7 +225,7 @@ func processTime(str string) (time.Duration, error) {
 	return time.Duration(sec)*time.Second + time.Duration(nsec), nil
 }
 
-func QValueFromMysqlFieldValue(qkind types.QValueKind, fv mysql.FieldValue) (types.QValue, error) {
+func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.FieldValue) (types.QValue, error) {
 	switch fv.Type {
 	case mysql.FieldValueTypeNull:
 		return types.QValueNull(qkind), nil
@@ -314,6 +314,13 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, fv mysql.FieldValue) (typ
 			}
 			return types.QValueNumeric{Val: val}, nil
 		case types.QValueKindTimestamp:
+			if mytype == mysql.MYSQL_TYPE_TIME || mytype == mysql.MYSQL_TYPE_TIME2 {
+				tm, err := processTime(unsafeString)
+				if err != nil {
+					return nil, err
+				}
+				return types.QValueTimestamp{Val: time.Unix(0, 0).UTC().Add(tm)}, nil
+			}
 			if strings.HasPrefix(unsafeString, "0000-00-00") {
 				return types.QValueTimestamp{Val: time.Unix(0, 0)}, nil
 			}
@@ -323,6 +330,9 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, fv mysql.FieldValue) (typ
 			}
 			return types.QValueTimestamp{Val: val}, nil
 		case types.QValueKindTime:
+			// deprecated: most databases expect time to be time part of datetime
+			// mysql it's a +/- 800 hour range to represent duration
+			// keep codepath for backwards compat when mysql time was mapped to QValueKindTime
 			tm, err := processTime(unsafeString)
 			if err != nil {
 				return nil, err
@@ -475,14 +485,21 @@ func QValueFromMysqlRowEvent(
 			}
 			return types.QValueDate{Val: val}, nil
 		case types.QValueKindTimestamp: // 0000-00-00 ends up here
+			if mytype == mysql.MYSQL_TYPE_TIME || mytype == mysql.MYSQL_TYPE_TIME2 {
+				tm, err := processTime(val)
+				if err != nil {
+					return nil, err
+				}
+				return types.QValueTimestamp{Val: time.Unix(0, 0).UTC().Add(tm)}, nil
+			}
 			if strings.HasPrefix(val, "0000-00-00") {
 				return types.QValueTimestamp{Val: time.Unix(0, 0)}, nil
 			}
-			val, err := time.Parse("2006-01-02 15:04:05.999999", val)
+			tm, err := time.Parse("2006-01-02 15:04:05.999999", val)
 			if err != nil {
 				return nil, err
 			}
-			return types.QValueTimestamp{Val: val}, nil
+			return types.QValueTimestamp{Val: tm}, nil
 		}
 	}
 	return nil, fmt.Errorf("unexpected type %T for mysql type %d, qkind %s", val, mytype, qkind)
