@@ -1,8 +1,12 @@
 package shared
 
 import (
+	"time"
+
 	"go.temporal.io/sdk/temporal"
 )
+
+var Year0000 = time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)
 
 type (
 	ContextKey  string
