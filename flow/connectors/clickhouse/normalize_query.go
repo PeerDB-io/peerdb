@@ -140,17 +140,34 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				)
 			}
 		case "DateTime64(6)", "Nullable(DateTime64(6))":
-			fmt.Fprintf(&projection,
-				"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6) AS %s,",
-				peerdb_clickhouse.QuoteLiteral(colName),
-				peerdb_clickhouse.QuoteIdentifier(dstColName),
-			)
-			if t.enablePrimaryUpdate {
-				fmt.Fprintf(&projectionUpdate,
-					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6) AS %s,",
+			if colType == types.QValueKindTime || colType == types.QValueKindTimeTZ {
+				// parseDateTime64BestEffortOrNull for hh:mm:ss puts the year as current year
+				// (or previous year if result would be in future) so explicitly anchor to unix epoch
+				fmt.Fprintf(&projection,
+					"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_data, %s),6) AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
+				if t.enablePrimaryUpdate {
+					fmt.Fprintf(&projectionUpdate,
+						"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_match_data, %s),6) AS %s,",
+						peerdb_clickhouse.QuoteLiteral(colName),
+						peerdb_clickhouse.QuoteIdentifier(dstColName),
+					)
+				}
+			} else {
+				fmt.Fprintf(&projection,
+					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6) AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+				if t.enablePrimaryUpdate {
+					fmt.Fprintf(&projectionUpdate,
+						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6) AS %s,",
+						peerdb_clickhouse.QuoteLiteral(colName),
+						peerdb_clickhouse.QuoteIdentifier(dstColName),
+					)
+				}
 			}
 		default:
 			projLen := projection.Len()
