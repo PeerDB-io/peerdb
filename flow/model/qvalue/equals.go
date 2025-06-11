@@ -178,14 +178,12 @@ func compareGoTime(value1, value2 any) bool {
 	if !ok1 {
 		var tm time.Time
 		tm, ok1 = value1.(time.Time)
-		h, m, s := tm.Clock()
-		t1 = time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(s)*time.Second
+		t1 = tm.Sub(time.Unix(0, 0).UTC())
 	}
 	if !ok2 {
 		var tm time.Time
 		tm, ok2 = value2.(time.Time)
-		h, m, s := tm.Clock()
-		t2 = time.Duration(h)*time.Hour + time.Duration(m)*time.Minute + time.Duration(s)*time.Second
+		t2 = tm.Sub(time.Unix(0, 0).UTC())
 	}
 
 	return ok1 && ok2 && t1 == t2
