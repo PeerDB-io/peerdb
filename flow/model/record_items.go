@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/google/uuid"
-
-	"github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type Items interface {
@@ -26,20 +24,20 @@ func ItemsToJSON(items Items) (string, error) {
 
 // encoding/gob cannot encode unexported fields
 type RecordItems struct {
-	ColToVal map[string]qvalue.QValue
+	ColToVal map[string]types.QValue
 }
 
 func NewRecordItems(capacity int) RecordItems {
 	return RecordItems{
-		ColToVal: make(map[string]qvalue.QValue, capacity),
+		ColToVal: make(map[string]types.QValue, capacity),
 	}
 }
 
-func (r RecordItems) AddColumn(col string, val qvalue.QValue) {
+func (r RecordItems) AddColumn(col string, val types.QValue) {
 	r.ColToVal[col] = val
 }
 
-func (r RecordItems) GetColumnValue(col string) qvalue.QValue {
+func (r RecordItems) GetColumnValue(col string) types.QValue {
 	return r.ColToVal[col]
 }
 
@@ -59,7 +57,7 @@ func (r RecordItems) UpdateIfNotExists(input_ Items) []string {
 	return updatedCols
 }
 
-func (r RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
+func (r RecordItems) GetValueByColName(colName string) (types.QValue, error) {
 	val, ok := r.ColToVal[colName]
 	if !ok {
 		return nil, fmt.Errorf("column name %s not found", colName)
@@ -79,8 +77,8 @@ func (r RecordItems) Len() int {
 	return len(r.ColToVal)
 }
 
-func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
-	jsonStruct := make(map[string]interface{}, len(r.ColToVal))
+func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
+	jsonStruct := make(map[string]any, len(r.ColToVal))
 	for col, qv := range r.ColToVal {
 		if qv == nil {
 			jsonStruct[col] = nil
@@ -88,11 +86,11 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 		}
 
 		switch v := qv.(type) {
-		case qvalue.QValueUUID:
-			jsonStruct[col] = uuid.UUID(v.Val)
-		case qvalue.QValueQChar:
+		case types.QValueUUID:
+			jsonStruct[col] = v.Val
+		case types.QValueQChar:
 			jsonStruct[col] = string(v.Val)
-		case qvalue.QValueString:
+		case types.QValueString:
 			strVal := v.Val
 
 			if len(strVal) > 15*1024*1024 {
@@ -100,13 +98,12 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 			} else {
 				jsonStruct[col] = strVal
 			}
-		case qvalue.QValueJSON:
+		case types.QValueJSON:
 			if len(v.Val) > 15*1024*1024 {
 				jsonStruct[col] = "{}"
 			} else if _, ok := opts.UnnestColumns[col]; ok {
-				var unnestStruct map[string]interface{}
-				err := json.Unmarshal([]byte(v.Val), &unnestStruct)
-				if err != nil {
+				var unnestStruct map[string]any
+				if err := json.Unmarshal([]byte(v.Val), &unnestStruct); err != nil {
 					return nil, err
 				}
 
@@ -116,7 +113,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 			} else {
 				jsonStruct[col] = v.Val
 			}
-		case qvalue.QValueHStore:
+		case types.QValueHStore:
 			hstoreVal := v.Val
 
 			if !opts.HStoreAsJSON {
@@ -134,40 +131,47 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 				}
 			}
 
-		case qvalue.QValueTimestamp:
+		case types.QValueTimestamp:
 			jsonStruct[col] = v.Val.Format("2006-01-02 15:04:05.999999")
-		case qvalue.QValueTimestampTZ:
+		case types.QValueTimestampTZ:
 			jsonStruct[col] = v.Val.Format("2006-01-02 15:04:05.999999-0700")
-		case qvalue.QValueDate:
+		case types.QValueDate:
 			jsonStruct[col] = v.Val.Format("2006-01-02")
-		case qvalue.QValueTime:
+		case types.QValueTime:
 			jsonStruct[col] = v.Val.Format("15:04:05.999999")
-		case qvalue.QValueTimeTZ:
+		case types.QValueTimeTZ:
 			jsonStruct[col] = v.Val.Format("15:04:05.999999")
-		case qvalue.QValueArrayDate:
+		case types.QValueArrayDate:
 			dateArr := v.Val
 			formattedDateArr := make([]string, 0, len(dateArr))
 			for _, val := range dateArr {
 				formattedDateArr = append(formattedDateArr, val.Format("2006-01-02"))
 			}
 			jsonStruct[col] = formattedDateArr
-		case qvalue.QValueNumeric:
+		case types.QValueNumeric:
 			jsonStruct[col] = v.Val.String()
-		case qvalue.QValueFloat64:
+		case types.QValueArrayNumeric:
+			numericArr := v.Val
+			strArr := make([]any, 0, len(numericArr))
+			for _, val := range numericArr {
+				strArr = append(strArr, val.String())
+			}
+			jsonStruct[col] = strArr
+		case types.QValueFloat64:
 			if math.IsNaN(v.Val) || math.IsInf(v.Val, 0) {
 				jsonStruct[col] = nil
 			} else {
 				jsonStruct[col] = v.Val
 			}
-		case qvalue.QValueFloat32:
+		case types.QValueFloat32:
 			if math.IsNaN(float64(v.Val)) || math.IsInf(float64(v.Val), 0) {
 				jsonStruct[col] = nil
 			} else {
 				jsonStruct[col] = v.Val
 			}
-		case qvalue.QValueArrayFloat64:
+		case types.QValueArrayFloat64:
 			floatArr := v.Val
-			nullableFloatArr := make([]interface{}, 0, len(floatArr))
+			nullableFloatArr := make([]any, 0, len(floatArr))
 			for _, val := range floatArr {
 				if math.IsNaN(val) || math.IsInf(val, 0) {
 					nullableFloatArr = append(nullableFloatArr, nil)
@@ -176,9 +180,9 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 				}
 			}
 			jsonStruct[col] = nullableFloatArr
-		case qvalue.QValueArrayFloat32:
+		case types.QValueArrayFloat32:
 			floatArr := v.Val
-			nullableFloatArr := make([]interface{}, 0, len(floatArr))
+			nullableFloatArr := make([]any, 0, len(floatArr))
 			for _, val := range floatArr {
 				if math.IsNaN(float64(val)) || math.IsInf(float64(val), 0) {
 					nullableFloatArr = append(nullableFloatArr, nil)
@@ -187,7 +191,6 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]interface{}, error) {
 				}
 			}
 			jsonStruct[col] = nullableFloatArr
-
 		default:
 			jsonStruct[col] = v.Value()
 		}

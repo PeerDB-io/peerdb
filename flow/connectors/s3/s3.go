@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.temporal.io/sdk/log"
 
-	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/model"
+	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
 type S3Connector struct {
@@ -22,23 +21,16 @@ type S3Connector struct {
 	credentialsProvider utils.AWSCredentialsProvider
 	client              s3.Client
 	url                 string
+	codec               protos.AvroCodec
 }
 
 func NewS3Connector(
 	ctx context.Context,
 	config *protos.S3Config,
 ) (*S3Connector, error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 
-	provider, err := utils.GetAWSCredentialsProvider(ctx, "s3", utils.PeerAWSCredentials{
-		Credentials: aws.Credentials{
-			AccessKeyID:     config.GetAccessKeyId(),
-			SecretAccessKey: config.GetSecretAccessKey(),
-		},
-		RoleArn:     config.RoleArn,
-		EndpointUrl: config.Endpoint,
-		Region:      config.GetRegion(),
-	})
+	provider, err := utils.GetAWSCredentialsProvider(ctx, "s3", utils.NewPeerAWSCredentials(config))
 	if err != nil {
 		return nil, err
 	}
@@ -53,11 +45,12 @@ func NewS3Connector(
 		return nil, err
 	}
 	return &S3Connector{
-		url:                 config.Url,
 		PostgresMetadata:    pgMetadata,
 		client:              *s3Client,
 		credentialsProvider: provider,
 		logger:              logger,
+		url:                 config.Url,
+		codec:               config.Codec,
 	}, nil
 }
 
@@ -93,6 +86,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	qrepConfig := &protos.QRepConfig{
 		FlowJobName:                req.FlowJobName,
 		DestinationTableIdentifier: "raw_table_" + req.FlowJobName,
+		Env:                        req.Env,
 	}
 	partition := &protos.QRepPartition{
 		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),
@@ -104,21 +98,23 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		c.logger.Error("failed to increment id", "error", err)
 		return nil, err
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       int64(numRecords),
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		LastSyncedCheckpoint: lastCheckpoint,
+		NumRecordsSynced:     numRecords,
+		CurrentSyncBatchID:   req.SyncBatchID,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 
-func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
+	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	c.logger.Info("ReplayTableSchemaDeltas for S3 is a no-op")
 	return nil
 }

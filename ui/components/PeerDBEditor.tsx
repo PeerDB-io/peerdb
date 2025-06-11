@@ -13,7 +13,8 @@ interface CodeEditorProps {
   height?: string;
   options?: Object;
 }
-const PeerDBCodeEditor = (props: CodeEditorProps) => {
+
+export default function PeerDBCodeEditor(props: CodeEditorProps) {
   return (
     <Editor
       options={props.options ?? defaultOptions}
@@ -23,6 +24,4 @@ const PeerDBCodeEditor = (props: CodeEditorProps) => {
       onChange={(value) => props.setter(value as string)}
     />
   );
-};
-
-export default PeerDBCodeEditor;
+}

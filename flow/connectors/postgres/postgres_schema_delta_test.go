@@ -9,11 +9,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type PostgresSchemaDeltaTestSuite struct {
@@ -25,25 +25,24 @@ type PostgresSchemaDeltaTestSuite struct {
 func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 	t.Helper()
 
-	connector, err := NewPostgresConnector(context.Background(), peerdbenv.GetCatalogPostgresConfigFromEnv())
+	connector, err := NewPostgresConnector(t.Context(), nil, internal.GetCatalogPostgresConfigFromEnv(t.Context()))
 	require.NoError(t, err)
 
-	setupTx, err := connector.conn.Begin(context.Background())
+	setupTx, err := connector.conn.Begin(t.Context())
 	require.NoError(t, err)
 	defer func() {
-		err := setupTx.Rollback(context.Background())
+		err := setupTx.Rollback(t.Context())
 		if err != pgx.ErrTxClosed {
 			require.NoError(t, err)
 		}
 	}()
 	schema := "pgdelta_" + strings.ToLower(shared.RandomString(8))
-	_, err = setupTx.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
+	_, err = setupTx.Exec(t.Context(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
 		schema))
 	require.NoError(t, err)
-	_, err = setupTx.Exec(context.Background(), "CREATE SCHEMA "+schema)
+	_, err = setupTx.Exec(t.Context(), "CREATE SCHEMA "+schema)
 	require.NoError(t, err)
-	err = setupTx.Commit(context.Background())
-	require.NoError(t, err)
+	require.NoError(t, setupTx.Commit(t.Context()))
 
 	return PostgresSchemaDeltaTestSuite{
 		t:         t,
@@ -54,17 +53,17 @@ func SetupSuite(t *testing.T) PostgresSchemaDeltaTestSuite {
 
 func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	tableName := s.schema + ".simple_add_column"
-	_, err := s.connector.conn.Exec(context.Background(),
+	_, err := s.connector.conn.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
-	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: []*protos.FieldDescription{
 			{
 				Name:         "hi",
-				Type:         string(qvalue.QValueKindInt64),
+				Type:         string(types.QValueKindInt64),
 				TypeModifier: -1,
 				Nullable:     true,
 			},
@@ -72,7 +71,8 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
 		TableIdentifier:   tableName,
@@ -81,12 +81,12 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         "id",
-				Type:         string(qvalue.QValueKindInt32),
+				Type:         string(types.QValueKindInt32),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "hi",
-				Type:         string(qvalue.QValueKindInt64),
+				Type:         string(types.QValueKindInt64),
 				TypeModifier: -1,
 				Nullable:     true,
 			},
@@ -96,7 +96,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 
 func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	tableName := s.schema + ".add_drop_all_column_types"
-	_, err := s.connector.conn.Exec(context.Background(),
+	_, err := s.connector.conn.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
@@ -113,21 +113,22 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	tableName := s.schema + ".add_drop_tricky_column_names"
-	_, err := s.connector.conn.Exec(context.Background(),
+	_, err := s.connector.conn.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
@@ -144,21 +145,22 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
 
 func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	tableName := s.schema + ".add_drop_whitespace_column_names"
-	_, err := s.connector.conn.Exec(context.Background(),
+	_, err := s.connector.conn.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(\" \" INT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
@@ -175,14 +177,15 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas(context.Background(), "schema_delta_flow", []*protos.TableSchemaDelta{{
+	err = s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(context.Background(), nil, protos.TypeSystem_Q, []string{tableName})
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
 }
@@ -191,22 +194,22 @@ func TestPostgresSchemaDeltaTestSuite(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite)
 }
 
-func (s PostgresSchemaDeltaTestSuite) Teardown() {
-	teardownTx, err := s.connector.conn.Begin(context.Background())
+func (s PostgresSchemaDeltaTestSuite) Teardown(ctx context.Context) {
+	teardownTx, err := s.connector.conn.Begin(ctx)
 	require.NoError(s.t, err)
 	defer func() {
-		err := teardownTx.Rollback(context.Background())
+		err := teardownTx.Rollback(ctx)
 		if err != pgx.ErrTxClosed {
 			require.NoError(s.t, err)
 		}
 	}()
-	_, err = teardownTx.Exec(context.Background(), fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
+	_, err = teardownTx.Exec(ctx, fmt.Sprintf("DROP SCHEMA IF EXISTS %s CASCADE",
 		s.schema))
 	require.NoError(s.t, err)
-	err = teardownTx.Commit(context.Background())
+	err = teardownTx.Commit(ctx)
 	require.NoError(s.t, err)
 
-	require.NoError(s.t, s.connector.ConnectionActive(context.Background()))
+	require.NoError(s.t, s.connector.ConnectionActive(ctx))
 	require.NoError(s.t, s.connector.Close())
-	require.Error(s.t, s.connector.ConnectionActive(context.Background()))
+	require.Error(s.t, s.connector.ConnectionActive(ctx))
 }

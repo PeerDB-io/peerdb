@@ -1,32 +1,33 @@
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Write,
+    fmt::{Debug, Write},
+    fs::File,
+    io,
     sync::Arc,
     time::Duration,
 };
 
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
-use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
-use aws_sdk_kms::{primitives::Blob, Client as KmsClient};
-use base64::{engine::general_purpose, Engine as _};
 use bytes::{BufMut, BytesMut};
-use catalog::{Catalog, CatalogConfig};
+use catalog::{Catalog, CatalogConfig, kms_decrypt};
 use clap::Parser;
 use cursor::PeerCursors;
-use dashmap::{mapref::entry::Entry as DashEntry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry as DashEntry};
 use flow_rs::grpc::{FlowGrpcClient, PeerCreationResult};
+use futures::Sink;
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
-    util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, Schema,
+    util::{records_to_query_response, sendable_stream_to_query_response},
 };
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
+        ClientInfo, ClientPortalStore, NoopErrorHandler, PgWireServerHandlers, Type,
         auth::{
-            scram::{gen_salted_password, SASLScramAuthStartupHandler},
             AuthSource, LoginInfo, Password, ServerParameterProvider,
+            scram::{SASLScramAuthStartupHandler, gen_salted_password},
         },
         copy::NoopCopyHandler,
         portal::Portal,
@@ -35,21 +36,26 @@ use pgwire::{
             DescribePortalResponse, DescribeResponse, DescribeStatementResponse, Response, Tag,
         },
         stmt::StoredStatement,
-        ClientInfo, PgWireHandlerFactory, Type,
+        store::PortalStore,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
+    messages::PgWireBackendMessage,
     tokio::process_socket,
 };
 use pt::{
     flow_model::QRepFlowJob,
-    peerdb_peers::{peer::Config, Peer},
+    peerdb_peers::{Peer, peer::Config},
 };
 use rand::Rng;
-use tokio::signal::unix::{signal, SignalKind};
+use rustls_pemfile::{certs, pkcs8_private_keys};
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 mod cursor;
 
@@ -69,7 +75,7 @@ impl AuthSource for FixedPasswordAuthSource {
         tracing::info!("login info: {:?}", login_info);
 
         // randomly generate a 4 byte salt
-        let salt = rand::thread_rng().gen::<[u8; 4]>();
+        let salt = rand::rng().random::<[u8; 4]>();
         let hash_password = gen_salted_password(&self.password, &salt, 4096);
         Ok(Password::new(Some(salt.to_vec()), hash_password))
     }
@@ -105,14 +111,12 @@ impl NexusBackend {
     }
 
     // execute a statement on a peer
-    async fn execute_statement<'a>(
+    async fn process_execution<'a>(
         &self,
-        executor: &dyn QueryExecutor,
-        stmt: &sqlparser::ast::Statement,
+        result: QueryOutput,
         peer_holder: Option<Box<Peer>>,
     ) -> PgWireResult<Vec<Response<'a>>> {
-        let res = executor.execute(stmt).await?;
-        match res {
+        match result {
             QueryOutput::AffectedRows(rows) => {
                 Ok(vec![Response::Execution(Tag::new("OK").with_rows(rows))])
             }
@@ -171,7 +175,7 @@ impl NexusBackend {
         }
     }
 
-    async fn create_peer<'a>(&self, peer: &Peer) -> anyhow::Result<()> {
+    async fn create_peer(&self, peer: &Peer) -> anyhow::Result<()> {
         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
 
         let create_request = pt::peerdb_route::CreatePeerRequest {
@@ -413,6 +417,20 @@ impl NexusBackend {
                         ))))
                     }
                 }
+                PeerDDL::ExecutePeer { peer_name, query } => {
+                    let peer = self.catalog.get_peer(peer_name).await.map_err(|err| {
+                        PgWireError::ApiError(
+                            format!("unable to get peer config: {:?}", err).into(),
+                        )
+                    })?;
+                    let executor = self.get_peer_executor(&peer).await.map_err(|err| {
+                        PgWireError::ApiError(
+                            format!("unable to get peer executor: {:?}", err).into(),
+                        )
+                    })?;
+                    let res = executor.execute_raw(query).await?;
+                    self.process_execution(res, Some(Box::new(peer))).await
+                }
                 PeerDDL::DropMirror { .. } => self.handle_drop_mirror(&nexus_stmt).await,
                 PeerDDL::DropPeer {
                     if_exists,
@@ -578,14 +596,8 @@ impl NexusBackend {
                     }
                 };
 
-                let res = self
-                    .execute_statement(executor.as_ref(), &stmt, peer_holder)
-                    .await;
-                // log the error if execution failed
-                if let Err(err) = &res {
-                    tracing::error!("query execution failed: {:?}", err);
-                }
-                res
+                let res = executor.execute(&stmt).await?;
+                self.process_execution(res, peer_holder).await
             }
 
             NexusStatement::PeerCursor { stmt, cursor } => {
@@ -606,12 +618,13 @@ impl NexusBackend {
                     }
                 };
 
-                self.execute_statement(executor.as_ref(), &stmt, None).await
+                let res = executor.execute(&stmt).await?;
+                self.process_execution(res, None).await
             }
 
             NexusStatement::Rollback { stmt } => {
-                self.execute_statement(self.catalog.as_ref(), &stmt, None)
-                    .await
+                let res = self.catalog.execute(&stmt).await?;
+                self.process_execution(res, None).await
             }
 
             NexusStatement::Empty => Ok(vec![Response::EmptyQuery]),
@@ -649,7 +662,7 @@ impl NexusBackend {
             DashEntry::Occupied(entry) => Arc::clone(entry.get()),
             DashEntry::Vacant(entry) => {
                 let executor: Arc<dyn QueryExecutor> = match &peer.config {
-                    Some(Config::BigqueryConfig(ref c)) => {
+                    Some(Config::BigqueryConfig(c)) => {
                         let executor = peer_bigquery::BigQueryQueryExecutor::new(
                             peer.name.clone(),
                             c,
@@ -658,17 +671,17 @@ impl NexusBackend {
                         .await?;
                         Arc::new(executor)
                     }
-                    Some(Config::MysqlConfig(ref c)) => {
+                    Some(Config::MysqlConfig(c)) => {
                         let executor =
                             peer_mysql::MySqlQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
-                    Some(Config::PostgresConfig(ref c)) => {
+                    Some(Config::PostgresConfig(c)) => {
                         let executor =
                             peer_postgres::PostgresQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
-                    Some(Config::SnowflakeConfig(ref c)) => {
+                    Some(Config::SnowflakeConfig(c)) => {
                         let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
                         Arc::new(executor)
                     }
@@ -741,13 +754,11 @@ impl NexusBackend {
 
 #[async_trait]
 impl SimpleQueryHandler for NexusBackend {
-    async fn do_query<'a, C>(
-        &self,
-        _client: &mut C,
-        sql: &'a str,
-    ) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<'a, C>(&self, _client: &mut C, sql: &str) -> PgWireResult<Vec<Response<'a>>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let parsed = self.query_parser.parse_simple_sql(sql).await?;
         let nexus_stmt = parsed.statement;
@@ -808,11 +819,14 @@ impl ExtendedQueryHandler for NexusBackend {
     async fn do_query<'a, C>(
         &self,
         _client: &mut C,
-        portal: &'a Portal<Self::Statement>,
+        portal: &Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response<'a>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let stmt = &portal.statement.statement;
         tracing::info!("[eqp] do_query: {}", stmt.query);
@@ -936,43 +950,19 @@ struct Args {
     #[clap(long, default_value = "false", env = "PEERDB_MIGRATIONS_ONLY")]
     migrations_only: bool,
 
+    /// If set to true, nexus will not run any migrations
+    #[clap(long, default_value = "false", env = "PEERDB_MIGRATIONS_DISABLED")]
+    migrations_disabled: bool,
+
     /// KMS Key ID for decrypting the catalog password
     #[clap(long, env = "PEERDB_KMS_KEY_ID")]
-    kms_key_id: Option<String>,
-}
-
-async fn decrypt_password(encrypted_password: &str, kms_key_id: &str) -> anyhow::Result<String> {
-    let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
-    let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
-        .region(region_provider)
-        .load()
-        .await;
-    let client = KmsClient::new(&config);
-
-    let decoded = general_purpose::STANDARD
-        .decode(encrypted_password)
-        .expect("Input does not contain valid base64 characters.");
-
-    let resp = client
-        .decrypt()
-        .key_id(kms_key_id)
-        .ciphertext_blob(Blob::new(decoded))
-        .send()
-        .await?;
-
-    let inner = resp.plaintext.unwrap();
-    let bytes = inner.as_ref();
-
-    let password =
-        String::from_utf8(bytes.to_vec()).expect("Could not convert decrypted data to UTF-8");
-
-    Ok(password)
+    kms_key_id: Option<Arc<String>>,
 }
 
 // Get catalog config from args
 async fn get_catalog_config(args: &Args) -> anyhow::Result<CatalogConfig<'_>> {
     let password = if let Some(kms_key_id) = &args.kms_key_id {
-        decrypt_password(&args.catalog_password, kms_key_id).await?
+        kms_decrypt(&args.catalog_password, kms_key_id).await?
     } else {
         args.catalog_password.clone()
     };
@@ -1035,11 +1025,14 @@ fn setup_tracing(log_dir: Option<&str>) -> TracerGuards {
     }
 }
 
-async fn run_migrations<'a>(config: &CatalogConfig<'a>) -> anyhow::Result<()> {
+async fn run_migrations(
+    config: &CatalogConfig<'_>,
+    kms_key_id: &Option<Arc<String>>,
+) -> anyhow::Result<()> {
     // retry connecting to the catalog 3 times with 30 seconds delay
     // if it fails, return an error
     for _ in 0..3 {
-        match Catalog::new(config.to_postgres_config()).await {
+        match Catalog::new(config.to_postgres_config(), kms_key_id).await {
             Ok(mut catalog) => {
                 catalog.run_migrations().await?;
                 return Ok(());
@@ -1057,6 +1050,29 @@ async fn run_migrations<'a>(config: &CatalogConfig<'a>) -> anyhow::Result<()> {
     Err(anyhow::anyhow!("Failed to connect to catalog"))
 }
 
+fn setup_tls(args: &Args) -> Result<Option<TlsAcceptor>, io::Error> {
+    if let (Some(tls_cert), Some(tls_key)) = (args.tls_cert.as_deref(), args.tls_key.as_deref()) {
+        let cert = certs(&mut io::BufReader::new(File::open(tls_cert)?))
+            .collect::<Result<Vec<CertificateDer>, io::Error>>()?;
+
+        let key = pkcs8_private_keys(&mut io::BufReader::new(File::open(tls_key)?))
+            .map(|key| key.map(PrivateKeyDer::from))
+            .collect::<Result<Vec<PrivateKeyDer>, io::Error>>()?
+            .remove(0);
+
+        let mut config = ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(cert, key)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+
+        config.alpn_protocols = vec![b"postgresql".to_vec()];
+
+        Ok(Some(TlsAcceptor::from(Arc::new(config))))
+    } else {
+        Ok(None)
+    }
+}
+
 pub struct Handlers {
     authenticator: (
         Arc<FixedPasswordAuthSource>,
@@ -1065,12 +1081,13 @@ pub struct Handlers {
     nexus: Arc<NexusBackend>,
 }
 
-impl PgWireHandlerFactory for Handlers {
+impl PgWireServerHandlers for Handlers {
     type StartupHandler =
         SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>;
     type SimpleQueryHandler = NexusBackend;
     type ExtendedQueryHandler = NexusBackend;
     type CopyHandler = NoopCopyHandler;
+    type ErrorHandler = NoopErrorHandler;
 
     fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
         self.nexus.clone()
@@ -1090,6 +1107,10 @@ impl PgWireHandlerFactory for Handlers {
     fn copy_handler(&self) -> Arc<Self::CopyHandler> {
         Arc::new(NoopCopyHandler)
     }
+
+    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
+        Arc::new(NoopErrorHandler)
+    }
 }
 
 #[tokio::main]
@@ -1097,10 +1118,18 @@ pub async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
 
     let args = Args::parse();
-    let _guard = setup_tracing(args.log_dir.as_ref().map(|s| &s[..]));
+    let _guard = setup_tracing(args.log_dir.as_deref());
     let catalog_config = get_catalog_config(&args).await?;
 
-    run_migrations(&catalog_config).await?;
+    if args.migrations_disabled && args.migrations_only {
+        return Err(anyhow::anyhow!(
+            "Invalid configuration, migrations cannot be enabled and disabled at the same time"
+        ));
+    }
+
+    if !args.migrations_disabled {
+        run_migrations(&catalog_config, &args.kms_key_id).await?;
+    }
     if args.migrations_only {
         return Ok(());
     }
@@ -1109,6 +1138,8 @@ pub async fn main() -> anyhow::Result<()> {
         Arc::new(FixedPasswordAuthSource::new(args.peerdb_password.clone())),
         Arc::new(NexusServerParameterProvider),
     );
+
+    let tls_acceptor = setup_tls(&args)?;
 
     let peer_conns = {
         let conn_str = catalog_config.to_pg_connection_string();
@@ -1139,9 +1170,11 @@ pub async fn main() -> anyhow::Result<()> {
         let conn_peer_conns = peer_conns.clone();
         let authenticator = authenticator.clone();
         let pg_config = catalog_config.to_postgres_config();
+        let kms_key_id = args.kms_key_id.clone();
+        let tls_acceptor = tls_acceptor.clone();
 
         tokio::task::spawn(async move {
-            match Catalog::new(pg_config).await {
+            match Catalog::new(pg_config, &kms_key_id).await {
                 Ok(catalog) => {
                     let conn_uuid = uuid::Uuid::new_v4();
                     let tracker = PeerConnectionTracker::new(conn_uuid, conn_peer_conns);
@@ -1154,7 +1187,7 @@ pub async fn main() -> anyhow::Result<()> {
                     ));
                     process_socket(
                         socket,
-                        None,
+                        tls_acceptor,
                         Arc::new(Handlers {
                             nexus,
                             authenticator,

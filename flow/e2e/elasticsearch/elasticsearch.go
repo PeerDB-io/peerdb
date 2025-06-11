@@ -9,11 +9,11 @@ import (
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/stretchr/testify/require"
 
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type elasticsearchSuite struct {
@@ -32,6 +32,10 @@ func (s elasticsearchSuite) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
+func (s elasticsearchSuite) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
+}
+
 func (s elasticsearchSuite) Suffix() string {
 	return s.suffix
 }
@@ -42,7 +46,7 @@ func SetupSuite(t *testing.T) elasticsearchSuite {
 	suffix := "es_" + strings.ToLower(shared.RandomString(8))
 	conn, err := e2e.SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
-	esAddresses := strings.Split(peerdbenv.GetEnvString("ELASTICSEARCH_TEST_ADDRESS", ""), ",")
+	esAddresses := strings.Split(internal.GetEnvString("ELASTICSEARCH_TEST_ADDRESS", ""), ",")
 
 	esClient, err := elasticsearch.NewTypedClient(elasticsearch.Config{
 		Addresses: esAddresses,
@@ -54,15 +58,15 @@ func SetupSuite(t *testing.T) elasticsearchSuite {
 
 	return elasticsearchSuite{
 		t:           t,
-		conn:        conn,
+		conn:        conn.PostgresConnector,
 		esClient:    esClient,
 		esAddresses: esAddresses,
 		suffix:      suffix,
 	}
 }
 
-func (s elasticsearchSuite) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s elasticsearchSuite) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 }
 
 func (s elasticsearchSuite) Peer() *protos.Peer {
@@ -81,7 +85,7 @@ func (s elasticsearchSuite) Peer() *protos.Peer {
 }
 
 func (s elasticsearchSuite) countDocumentsInIndex(index string) int64 {
-	res, err := s.esClient.Count().Index(index).Do(context.Background())
+	res, err := s.esClient.Count().Index(index).Do(s.t.Context())
 	// index may not exist yet, don't error out for that
 	// search can occasionally fail, retry for that
 	if err != nil && (strings.Contains(err.Error(), "index_not_found_exception") ||

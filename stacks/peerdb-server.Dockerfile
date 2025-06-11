@@ -1,15 +1,17 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:9857836c9ee4268391bb5b09f9f157f3c91bb15821bb77969642813b0d00518d
 
-FROM lukemathwalker/cargo-chef:latest-rust-alpine3.20 as chef
+FROM lukemathwalker/cargo-chef:latest-rust-alpine@sha256:a606ba969b599ae35cd977542b33986e00b0a5d8b6e63ed920befc764fec4969 AS chef
+
 WORKDIR /root
 
-FROM chef as planner
+FROM chef AS planner
 COPY nexus nexus
 WORKDIR /root/nexus
 RUN cargo chef prepare --recipe-path recipe.json
 
-FROM chef as builder
-RUN apk add --no-cache build-base pkgconfig curl unzip
+FROM chef AS builder
+ENV OPENSSL_STATIC=1
+RUN apk add --no-cache build-base pkgconfig curl unzip openssl-dev openssl-libs-static
 WORKDIR /root/nexus
 COPY scripts /root/scripts
 RUN /root/scripts/install-protobuf.sh
@@ -21,11 +23,16 @@ COPY protos /root/protos
 WORKDIR /root/nexus
 RUN cargo build --release --bin peerdb-server
 
-FROM alpine:3.20
+FROM alpine:3.22@sha256:8a1f59ffb675680d47db6337b49d22281a139e9d709335b492be023728e11715
+ENV TZ=UTC
 RUN apk add --no-cache ca-certificates postgresql-client curl iputils && \
   adduser -s /bin/sh -D peerdb && \
   install -d -m 0755 -o peerdb /var/log/peerdb
 USER peerdb
 WORKDIR /home/peerdb
 COPY --from=builder --chown=peerdb /root/nexus/target/release/peerdb-server .
+
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+
 ENTRYPOINT ["./peerdb-server"]

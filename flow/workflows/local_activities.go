@@ -9,28 +9,27 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-func getParallelSyncNormalize(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
+func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
 	checkCtx := workflow.WithLocalActivityOptions(wCtx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: time.Minute,
 	})
 
-	getParallelFuture := workflow.ExecuteLocalActivity(checkCtx, peerdbenv.PeerDBEnableParallelSyncNormalize, env)
-	var parallel bool
-	if err := getParallelFuture.Get(checkCtx, &parallel); err != nil {
-		logger.Warn("Failed to get status of parallel sync-normalize", slog.Any("error", err))
+	getFullRefreshFuture := workflow.ExecuteLocalActivity(checkCtx, internal.PeerDBFullRefreshOverwriteMode, env)
+	var fullRefreshEnabled bool
+	if err := getFullRefreshFuture.Get(checkCtx, &fullRefreshEnabled); err != nil {
+		logger.Warn("Failed to check if full refresh mode is enabled", slog.Any("error", err))
 		return false
 	}
-	return parallel
+	return fullRefreshEnabled
 }
 
 func localPeerType(ctx context.Context, name string) (protos.DBType, error) {
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -49,9 +48,21 @@ func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
 }
 
 func updateCDCConfigInCatalogActivity(ctx context.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) error {
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get catalog connection pool: %w", err)
 	}
-	return shared.UpdateCDCConfigInCatalog(ctx, pool, logger, cfg)
+	return internal.UpdateCDCConfigInCatalog(ctx, pool, logger, cfg)
+}
+
+func updateFlowStatusInCatalogActivity(
+	ctx context.Context,
+	workflowID string,
+	status protos.FlowStatus,
+) (protos.FlowStatus, error) {
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return status, fmt.Errorf("failed to get catalog connection pool: %w", err)
+	}
+	return internal.UpdateFlowStatusInCatalog(ctx, pool, workflowID, status)
 }

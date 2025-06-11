@@ -1,5 +1,5 @@
 'use client';
-import { DropDialog } from '@/components/DropDialog';
+import DropDialog from '@/components/DropDialog';
 import { Script } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button/Button';
 import { Label } from '@/lib/Label/Label';
@@ -12,18 +12,17 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 
-const LanguageIcon = (language: string) => {
+function LanguageIcon(language: string) {
   switch (language.toLowerCase()) {
     case 'lua':
       return '/svgs/lua.svg';
     default:
       return '/svgs/lua.svg';
   }
-};
+}
 
-const ScriptsTable = ({ scripts }: { scripts: Script[] }) => {
+export default function ScriptsTable({ scripts }: { scripts: Script[] }) {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
   const displayedScripts = useMemo(() => {
@@ -107,6 +106,4 @@ const ScriptsTable = ({ scripts }: { scripts: Script[] }) => {
       <ToastContainer />
     </>
   );
-};
-
-export default ScriptsTable;
+}

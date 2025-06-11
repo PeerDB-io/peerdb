@@ -2,20 +2,24 @@ package connmetadata
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"time"
 
+	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils/monitoring"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -24,23 +28,23 @@ const (
 )
 
 type PostgresMetadata struct {
-	pool   *pgxpool.Pool
+	pool   shared.CatalogPool
 	logger log.Logger
 }
 
 func NewPostgresMetadata(ctx context.Context) (*PostgresMetadata, error) {
-	pool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create catalog connection pool: %w", err)
 	}
 
 	return &PostgresMetadata{
 		pool:   pool,
-		logger: logger.LoggerFromCtx(ctx),
+		logger: internal.LoggerFromCtx(ctx),
 	}, nil
 }
 
-func NewPostgresMetadataFromCatalog(logger log.Logger, pool *pgxpool.Pool) *PostgresMetadata {
+func NewPostgresMetadataFromCatalog(logger log.Logger, pool shared.CatalogPool) *PostgresMetadata {
 	return &PostgresMetadata{
 		pool:   pool,
 		logger: logger,
@@ -48,9 +52,8 @@ func NewPostgresMetadataFromCatalog(logger log.Logger, pool *pgxpool.Pool) *Post
 }
 
 func (p *PostgresMetadata) Ping(ctx context.Context) error {
-	pingErr := p.pool.Ping(ctx)
-	if pingErr != nil {
-		return fmt.Errorf("metadata db ping failed: %w", pingErr)
+	if err := p.pool.Ping(ctx); err != nil {
+		return fmt.Errorf("metadata db ping failed: %w", err)
 	}
 
 	return nil
@@ -63,44 +66,115 @@ func (p *PostgresMetadata) LogFlowInfo(ctx context.Context, flowName string, inf
 	return err
 }
 
-func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
+func (p *PostgresMetadata) NeedsSetupMetadataTables(_ context.Context) (bool, error) {
+	return false, nil
+}
+
+// GetLastNormalizedBatchIDForTable returns the last batch ID normalized for the given target table.
+func (p *PostgresMetadata) GetLastNormalizedBatchIDForTable(ctx context.Context, jobName string, dstTableName string) (int64, error) {
+	var tableBatchIDDataJSON string
+	if err := p.pool.QueryRow(ctx,
+		`SELECT table_batch_id_data FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&tableBatchIDDataJSON); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+
+		p.logger.Error("failed to get last synced batch id for table", "error", err)
+		return 0, err
+	}
+
+	var tableBatchIDData map[string]int64
+	if err := json.Unmarshal([]byte(tableBatchIDDataJSON), &tableBatchIDData); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal table batch id data: %w", err)
+	}
+
+	lastSyncedBatchID, ok := tableBatchIDData[dstTableName]
+	if !ok {
+		return 0, nil
+	}
+
+	return lastSyncedBatchID, nil
+}
+
+// SetLastNormalizedBatchIDForTable updates the last batch ID normalized for the given target table.
+func (p *PostgresMetadata) SetLastNormalizedBatchIDForTable(ctx context.Context, jobName string, dstTableName string, batchID int64) error {
+	if _, err := p.pool.Exec(ctx,
+		`UPDATE `+lastSyncStateTableName+`
+		SET table_batch_id_data = jsonb_set(table_batch_id_data::jsonb, ARRAY[$2], $3::jsonb, true)
+		WHERE job_name = $1`, jobName, dstTableName, strconv.FormatInt(batchID, 10),
+	); err != nil {
+		p.logger.Error("failed to update table batch id data", "error", err)
+		return fmt.Errorf("failed to update table batch id data: %w", err)
+	}
+
+	return nil
+}
+
+// GetLastBatchIDInRawTable returns the last batch ID in the raw table.
+func (p *PostgresMetadata) GetLastBatchIDInRawTable(ctx context.Context, jobName string) (int64, error) {
+	var latestBatchIDInRawTable pgtype.Int8
+	if err := p.pool.QueryRow(ctx,
+		`SELECT latest_batch_id_in_raw_table FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&latestBatchIDInRawTable); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, nil
+		}
+
+		p.logger.Error("failed to get last batch id in raw table", "error", err)
+		return 0, err
+	}
+
+	return latestBatchIDInRawTable.Int64, nil
+}
+
+// SetLastBatchIDInRawTable updates the last batch ID in the raw table.
+func (p *PostgresMetadata) SetLastBatchIDInRawTable(ctx context.Context, jobName string, batchID int64) error {
+	if _, err := p.pool.Exec(ctx,
+		`UPDATE `+lastSyncStateTableName+`
+		SET latest_batch_id_in_raw_table = $2
+		WHERE job_name = $1`, jobName, batchID,
+	); err != nil {
+		p.logger.Error("failed to update last batch id in raw table", "error", err)
+		return err
+	}
+
+	return nil
 }
 
 func (p *PostgresMetadata) SetupMetadataTables(_ context.Context) error {
 	return nil
 }
 
-func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (int64, error) {
-	row := p.pool.QueryRow(ctx,
-		`SELECT last_offset FROM `+
-			lastSyncStateTableName+
-			` WHERE job_name = $1`, jobName)
-	var offset pgtype.Int8
-	err := row.Scan(&offset)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			return 0, nil
+func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error) {
+	var offset model.CdcCheckpoint
+	if err := p.pool.QueryRow(ctx,
+		`SELECT last_offset, last_text FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&offset.ID, &offset.Text); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return offset, nil
 		}
 
 		p.logger.Error("failed to get last offset", "error", err)
-		return 0, err
+		return offset, err
 	}
 
-	p.logger.Info("got last offset for job", "offset", offset.Int64)
+	p.logger.Info("got last offset for job", "offset", offset)
 
-	return offset.Int64, nil
+	return offset, nil
 }
 
 func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
-	row := p.pool.QueryRow(ctx,
-		`SELECT sync_batch_id FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName)
-
 	var syncBatchID pgtype.Int8
-	err := row.Scan(&syncBatchID)
-	if err != nil {
+	if err := p.pool.QueryRow(ctx,
+		`SELECT sync_batch_id FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&syncBatchID); err != nil {
 		// if the job doesn't exist, return 0
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return 0, nil
 		}
 
@@ -113,14 +187,11 @@ func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName strin
 }
 
 func (p *PostgresMetadata) GetLastNormalizeBatchID(ctx context.Context, jobName string) (int64, error) {
-	rows := p.pool.QueryRow(ctx,
-		`SELECT normalize_batch_id FROM `+
-			lastSyncStateTableName+
-			` WHERE job_name = $1`, jobName)
-
 	var normalizeBatchID pgtype.Int8
-	err := rows.Scan(&normalizeBatchID)
-	if err != nil {
+	if err := p.pool.QueryRow(ctx,
+		`SELECT normalize_batch_id FROM `+lastSyncStateTableName+` WHERE job_name = $1`,
+		jobName,
+	).Scan(&normalizeBatchID); err != nil {
 		// if the job doesn't exist, return 0
 		if err.Error() == "no rows in result set" {
 			return 0, nil
@@ -129,21 +200,20 @@ func (p *PostgresMetadata) GetLastNormalizeBatchID(ctx context.Context, jobName 
 		p.logger.Error("failed to get last normalize", "error", err)
 		return 0, err
 	}
-	p.logger.Info("got last normalize batch normalize id for job", "batch id", normalizeBatchID.Int64)
-
 	return normalizeBatchID.Int64, nil
 }
 
-func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, offset int64) error {
-	p.logger.Info("updating last offset", "offset", offset)
-	_, err := p.pool.Exec(ctx, `
-		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
-		VALUES ($1, $2, $3)
+func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, offset model.CdcCheckpoint) error {
+	p.logger.Debug("updating last offset", slog.String("offsetID", pglogrepl.LSN(offset.ID).String()), slog.String("offsetText", offset.Text))
+	if _, err := p.pool.Exec(ctx, `
+		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, last_text, sync_batch_id)
+		VALUES ($1, $2, $3, 0)
 		ON CONFLICT (job_name)
-		DO UPDATE SET last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+		DO UPDATE SET
+			last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+			last_text = excluded.last_text,
 			updated_at = NOW()
-	`, jobName, offset, 0)
-	if err != nil {
+	`, jobName, offset.ID, offset.Text); err != nil {
 		p.logger.Error("failed to update last offset", "error", err)
 		return err
 	}
@@ -151,18 +221,18 @@ func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, of
 	return nil
 }
 
-func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, syncBatchID int64, offset int64) error {
+func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, syncBatchID int64, offset model.CdcCheckpoint) error {
 	p.logger.Info("finishing batch", "SyncBatchID", syncBatchID, "offset", offset)
-	_, err := p.pool.Exec(ctx, `
-		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, sync_batch_id)
-		VALUES ($1, $2, $3)
+	if _, err := p.pool.Exec(ctx, `
+		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, last_text, sync_batch_id)
+		VALUES ($1, $2, $3, $4)
 		ON CONFLICT (job_name)
 		DO UPDATE SET
 			last_offset = GREATEST(`+lastSyncStateTableName+`.last_offset, excluded.last_offset),
+			last_text = excluded.last_text,
 			sync_batch_id = GREATEST(`+lastSyncStateTableName+`.sync_batch_id, excluded.sync_batch_id),
 			updated_at = NOW()
-	`, jobName, offset, syncBatchID)
-	if err != nil {
+	`, jobName, offset.ID, offset.Text, syncBatchID); err != nil {
 		p.logger.Error("failed to finish batch", slog.Any("error", err))
 		return err
 	}
@@ -171,18 +241,15 @@ func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, sync
 }
 
 func (p *PostgresMetadata) UpdateNormalizeBatchID(ctx context.Context, jobName string, batchID int64) error {
-	p.logger.Info("updating normalize batch id for job")
-	_, err := p.pool.Exec(ctx,
-		`UPDATE `+lastSyncStateTableName+
-			` SET normalize_batch_id=$2 WHERE job_name=$1`, jobName, batchID)
-	if err != nil {
-		p.logger.Error("failed to update normalize batch id", slog.Any("error", err))
+	if _, err := p.pool.Exec(ctx,
+		`UPDATE `+lastSyncStateTableName+` SET normalize_batch_id=$2 WHERE job_name=$1`, jobName, batchID,
+	); err != nil {
+		p.logger.Error("failed to update normalize batch id", slog.Int64("batchID", batchID), slog.Any("error", err))
 		return err
 	}
 
-	err = monitoring.UpdateEndTimeForCDCBatch(ctx, p.pool, jobName, batchID)
-	if err != nil {
-		p.logger.Error(fmt.Sprintf("failed to update end time for cdc batch - %d", batchID), slog.Any("error", err))
+	if err := monitoring.UpdateEndTimeForCDCBatch(ctx, p.pool, jobName, batchID); err != nil {
+		p.logger.Error("failed to update end time for cdc batch", slog.Int64("batchID", batchID), slog.Any("error", err))
 		return err
 	}
 
@@ -222,14 +289,29 @@ func (p *PostgresMetadata) IsQRepPartitionSynced(ctx context.Context, req *proto
 }
 
 func (p *PostgresMetadata) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	_, err := p.pool.Exec(ctx,
-		`DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName)
+	tx, err := p.pool.Begin(ctx)
 	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer shared.RollbackTx(tx, p.logger)
+
+	if err := SyncFlowCleanupInTx(ctx, tx, jobName); err != nil {
+		return fmt.Errorf("failed to cleanup flow: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
+}
+
+func SyncFlowCleanupInTx(ctx context.Context, tx pgx.Tx, jobName string) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM `+qrepTableName+` WHERE job_name = $1`, jobName); err != nil {
 		return err
 	}
 
-	_, err = p.pool.Exec(ctx, `DELETE FROM `+qrepTableName+` WHERE job_name = $1`, jobName)
-	if err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM `+lastSyncStateTableName+` WHERE job_name = $1`, jobName); err != nil {
 		return err
 	}
 

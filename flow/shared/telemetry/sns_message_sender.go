@@ -12,23 +12,32 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sns/types"
 	"go.temporal.io/sdk/activity"
 
-	"github.com/PeerDB-io/peer-flow/shared/aws_common"
+	"github.com/PeerDB-io/peerdb/flow/shared/aws_common"
 )
-
-type SNSMessageSender interface {
-	Sender
-}
-
-type SNSMessageSenderImpl struct {
-	client *sns.Client
-	topic  string
-}
 
 type SNSMessageSenderConfig struct {
 	Topic string `json:"topic"`
 }
 
-func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (*string, error) {
+type SNSMessageSender struct {
+	client *sns.Client
+	topic  string
+}
+
+func NewSNSMessageSenderWithNewClient(ctx context.Context, config *SNSMessageSenderConfig) (*SNSMessageSender, error) {
+	// Topic Region must match client region
+	region := strings.Split(strings.TrimPrefix(config.Topic, "arn:aws:sns:"), ":")[0]
+	client, err := newSnsClient(ctx, &region)
+	if err != nil {
+		return nil, err
+	}
+	return &SNSMessageSender{
+		client: client,
+		topic:  config.Topic,
+	}, nil
+}
+
+func (s *SNSMessageSender) SendMessage(ctx context.Context, subject string, body string, attributes Attributes) (string, error) {
 	activityInfo := activity.Info{}
 	if activity.IsActivity(ctx) {
 		activityInfo = activity.GetInfo(ctx)
@@ -87,29 +96,9 @@ func (s *SNSMessageSenderImpl) SendMessage(ctx context.Context, subject string, 
 		TopicArn: aws.String(s.topic),
 	})
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	return publish.MessageId, nil
-}
-
-func NewSNSMessageSenderWithNewClient(ctx context.Context, config *SNSMessageSenderConfig) (SNSMessageSender, error) {
-	// Topic Region must match client region
-	region := strings.Split(strings.TrimPrefix(config.Topic, "arn:aws:sns:"), ":")[0]
-	client, err := newSnsClient(ctx, &region)
-	if err != nil {
-		return nil, err
-	}
-	return &SNSMessageSenderImpl{
-		client: client,
-		topic:  config.Topic,
-	}, nil
-}
-
-func NewSNSMessageSender(client *sns.Client, config *SNSMessageSenderConfig) SNSMessageSender {
-	return &SNSMessageSenderImpl{
-		client: client,
-		topic:  config.Topic,
-	}
+	return *publish.MessageId, nil
 }
 
 func newSnsClient(ctx context.Context, region *string) (*sns.Client, error) {

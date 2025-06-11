@@ -20,7 +20,6 @@ import { Callout } from '@tremor/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import TablePicker from '../../create/cdc/tablemapping';
 import {
   changesToTablesMapping,
@@ -35,7 +34,7 @@ type EditMirrorProps = {
   params: { mirrorId: string };
 };
 
-const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
+export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   const defaultBatchSize = blankCDCSetting.maxBatchSize;
   const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
 
@@ -111,11 +110,12 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
     setLoading(true);
     const req: FlowStateChangeRequest = {
       flowJobName: mirrorId,
-      requestedFlowState: FlowStatus.STATUS_UNKNOWN,
+      requestedFlowState: FlowStatus.STATUS_RUNNING,
       flowConfigUpdate: {
         cdcFlowConfigUpdate: { ...config, additionalTables, removedTables },
       },
       dropMirrorStats: false,
+      skipDestinationDrop: false,
     };
     const res = await fetch('/api/v1/mirrors/state_change', {
       method: 'POST',
@@ -248,6 +248,4 @@ const EditMirror = ({ params: { mirrorId } }: EditMirrorProps) => {
       <ToastContainer />
     </div>
   );
-};
-
-export default EditMirror;
+}

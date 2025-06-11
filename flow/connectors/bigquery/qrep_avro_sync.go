@@ -2,7 +2,6 @@ package connbigquery
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
@@ -11,12 +10,15 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
+	"github.com/hamba/avro/v2"
+	"github.com/hamba/avro/v2/ocf"
 
-	avro "github.com/PeerDB-io/peer-flow/connectors/utils/avro"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	avroutils "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRepAvroSyncMethod struct {
@@ -55,7 +57,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	stagingTable := fmt.Sprintf("%s_%s_staging", rawTableName, strconv.FormatInt(syncBatchID, 10))
-	numRecords, err := s.writeToStage(ctx, strconv.FormatInt(syncBatchID, 10), rawTableName, avroSchema,
+	numRecords, err := s.writeToStage(ctx, req.Env, strconv.FormatInt(syncBatchID, 10), rawTableName, avroSchema,
 		&datasetTable{
 			project: s.connector.projectID,
 			dataset: s.connector.datasetID,
@@ -79,8 +81,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 	}
 
 	lastCP := req.Records.GetLastCheckpoint()
-	err = s.connector.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP)
-	if err != nil {
+	if err := s.connector.FinishBatch(ctx, req.FlowJobName, syncBatchID, lastCP); err != nil {
 		return nil, fmt.Errorf("failed to update metadata: %w", err)
 	}
 
@@ -97,17 +98,16 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("dstTableName", rawTableName))
 
-	err = s.connector.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
-	if err != nil {
+	if err := s.connector.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: lastCP,
-		NumRecordsSynced:       int64(numRecords),
-		CurrentSyncBatchID:     syncBatchID,
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		LastSyncedCheckpoint: lastCP,
+		NumRecordsSynced:     numRecords,
+		CurrentSyncBatchID:   syncBatchID,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 
@@ -139,6 +139,7 @@ func getTransformedColumns(dstSchema *bigquery.Schema, syncedAtCol string, softD
 
 func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	ctx context.Context,
+	env map[string]string,
 	flowJobName string,
 	dstTableName string,
 	partition *protos.QRepPartition,
@@ -146,7 +147,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	stream *model.QRecordStream,
 	syncedAtCol string,
 	softDeleteCol string,
-) (int, error) {
+) (int64, error) {
 	startTime := time.Now()
 	flowLog := slog.Group("sync_metadata",
 		slog.String(string(shared.FlowNameKey), flowJobName),
@@ -167,7 +168,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		table: fmt.Sprintf("%s_%s_staging", dstDatasetTable.table,
 			strings.ReplaceAll(partition.PartitionId, "-", "_")),
 	}
-	numRecords, err := s.writeToStage(ctx, partition.PartitionId, flowJobName, avroSchema,
+	numRecords, err := s.writeToStage(ctx, env, partition.PartitionId, flowJobName, avroSchema,
 		stagingDatasetTable, stream, flowJobName)
 	if err != nil {
 		return -1, fmt.Errorf("failed to push to avro stage: %w", err)
@@ -202,8 +203,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 		s.connector.logger.Info("SyncQRepRecords: no rows to sync, hence skipping transaction", flowLog)
 	}
 
-	err = s.connector.FinishQRepPartition(ctx, partition, flowJobName, startTime)
-	if err != nil {
+	if err := s.connector.FinishQRepPartition(ctx, partition, flowJobName, startTime); err != nil {
 		return -1, err
 	}
 
@@ -220,24 +220,13 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	return numRecords, nil
 }
 
-type AvroField struct {
-	Type interface{} `json:"type"`
-	Name string      `json:"name"`
-}
-
-type AvroSchema struct {
-	Type   string      `json:"type"`
-	Name   string      `json:"name"`
-	Fields []AvroField `json:"fields"`
-}
-
 func DefineAvroSchema(dstTableName string,
 	dstTableMetadata *bigquery.TableMetadata,
 	syncedAtCol string,
 	softDeleteCol string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
-	avroFields := make([]AvroField, 0, len(dstTableMetadata.Schema))
-	qFields := make([]qvalue.QField, 0, len(avroFields))
+	avroFields := make([]*avro.Field, 0, len(dstTableMetadata.Schema))
+	qFields := make([]types.QField, 0, len(avroFields))
 	for _, bqField := range dstTableMetadata.Schema {
 		if bqField.Name == syncedAtCol || bqField.Name == softDeleteCol {
 			continue
@@ -250,43 +239,34 @@ func DefineAvroSchema(dstTableName string,
 		qFields = append(qFields, BigQueryFieldToQField(bqField))
 	}
 
-	avroSchema := AvroSchema{
-		Type:   "record",
-		Name:   dstTableName,
-		Fields: avroFields,
-	}
-
-	avroSchemaJSON, err := json.Marshal(avroSchema)
+	avroSchema, err := avro.NewRecordSchema(dstTableName, "", avroFields)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %w", err)
+		return nil, fmt.Errorf("failed to create Avro schema: %w", err)
 	}
 
 	return &model.QRecordAvroSchemaDefinition{
-		Schema: string(avroSchemaJSON),
+		Schema: avroSchema,
 		Fields: qFields,
 	}, nil
 }
 
-func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
+func GetAvroType(bqField *bigquery.FieldSchema) (avro.Schema, error) {
 	avroNumericPrecision, avroNumericScale := qvalue.DetermineNumericSettingForDWH(
 		int16(bqField.Precision), int16(bqField.Scale), protos.DBType_BIGQUERY)
 
-	considerRepeated := func(typ string, repeated bool) interface{} {
+	considerRepeated := func(typ avro.Type, repeated bool) avro.Schema {
 		if repeated {
-			return qvalue.AvroSchemaArray{
-				Type:  "array",
-				Items: typ,
-			}
+			return avro.NewArraySchema(avro.NewPrimitiveSchema(typ, nil))
 		} else {
-			return typ
+			return avro.NewPrimitiveSchema(typ, nil)
 		}
 	}
 
 	switch bqField.Type {
 	case bigquery.StringFieldType, bigquery.GeographyFieldType, bigquery.JSONFieldType:
-		return considerRepeated("string", bqField.Repeated), nil
+		return considerRepeated(avro.String, bqField.Repeated), nil
 	case bigquery.BytesFieldType:
-		return "bytes", nil
+		return avro.NewPrimitiveSchema(avro.Bytes, nil), nil
 	case bigquery.IntegerFieldType:
 		return considerRepeated("long", bqField.Repeated), nil
 	case bigquery.FloatFieldType:
@@ -294,110 +274,92 @@ func GetAvroType(bqField *bigquery.FieldSchema) (interface{}, error) {
 	case bigquery.BooleanFieldType:
 		return considerRepeated("boolean", bqField.Repeated), nil
 	case bigquery.TimestampFieldType:
-		timestampSchema := qvalue.AvroSchemaField{
-			Type:        "long",
-			LogicalType: "timestamp-micros",
-		}
+		timestampSchema := avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros))
 		if bqField.Repeated {
-			return qvalue.AvroSchemaComplexArray{
-				Type:  "array",
-				Items: timestampSchema,
-			}, nil
+			return avro.NewArraySchema(timestampSchema), nil
 		}
 		return timestampSchema, nil
 	case bigquery.DateFieldType:
-		dateSchema := qvalue.AvroSchemaField{
-			Type:        "int",
-			LogicalType: "date",
-		}
+		dateSchema := avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date))
 		if bqField.Repeated {
-			return qvalue.AvroSchemaComplexArray{
-				Type:  "array",
-				Items: dateSchema,
-			}, nil
+			return avro.NewArraySchema(dateSchema), nil
 		}
 		return dateSchema, nil
-
 	case bigquery.TimeFieldType:
-		return qvalue.AvroSchemaField{
-			Type:        "long",
-			LogicalType: "time-micros",
-		}, nil
+		timeSchema := avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros))
+		if bqField.Repeated {
+			return avro.NewArraySchema(timeSchema), nil
+		}
+		return timeSchema, nil
 	case bigquery.DateTimeFieldType:
-		return qvalue.AvroSchemaRecord{
-			Type: "record",
-			Name: "datetime",
-			Fields: []qvalue.AvroSchemaField{
-				{
-					Name:        "date",
-					Type:        "int",
-					LogicalType: "date",
-				},
-				{
-					Name:        "time",
-					Type:        "long",
-					LogicalType: "time-micros",
-				},
-			},
-		}, nil
+		dateField, err := avro.NewField("date",
+			avro.NewPrimitiveSchema(avro.Int, avro.NewPrimitiveLogicalSchema(avro.Date)))
+		if err != nil {
+			return nil, err
+		}
+		timeField, err := avro.NewField("time",
+			avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimeMicros)))
+		if err != nil {
+			return nil, err
+		}
+		return avro.NewRecordSchema("datetime", "", []*avro.Field{dateField, timeField})
 	case bigquery.BigNumericFieldType:
-		return qvalue.AvroSchemaNumeric{
-			Type:        "bytes",
-			LogicalType: "decimal",
-			Precision:   avroNumericPrecision,
-			Scale:       avroNumericScale,
-		}, nil
+		bigNumericSchema := avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale)))
+		if bqField.Repeated {
+			return avro.NewArraySchema(bigNumericSchema), nil
+		}
+		return bigNumericSchema, nil
 	case bigquery.RecordFieldType:
-		avroFields := []qvalue.AvroSchemaField{}
+		avroFields := []*avro.Field{}
 		for _, bqSubField := range bqField.Schema {
 			avroType, err := GetAvroType(bqSubField)
 			if err != nil {
 				return nil, err
 			}
-			avroFields = append(avroFields, qvalue.AvroSchemaField{
-				Name: bqSubField.Name,
-				Type: avroType,
-			})
+			avroField, err := avro.NewField(
+				bqSubField.Name,
+				avroType,
+			)
+			if err != nil {
+				return nil, err
+			}
+			avroFields = append(avroFields, avroField)
 		}
-		return qvalue.AvroSchemaRecord{
-			Type:   "record",
-			Name:   bqField.Name,
-			Fields: avroFields,
-		}, nil
+		return avro.NewRecordSchema(bqField.Name, "", avroFields)
 
 	default:
 		return nil, fmt.Errorf("unsupported BigQuery field type: %s", bqField.Type)
 	}
 }
 
-func GetAvroField(bqField *bigquery.FieldSchema) (AvroField, error) {
+func GetAvroField(bqField *bigquery.FieldSchema) (*avro.Field, error) {
 	avroType, err := GetAvroType(bqField)
 	if err != nil {
-		return AvroField{}, err
+		return nil, err
 	}
 
-	// If a field is nullable, its Avro type should be ["null", actualType]
 	if !bqField.Required {
-		avroType = []interface{}{"null", avroType}
+		avroType, err = avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), avroType})
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return AvroField{
-		Name: bqField.Name,
-		Type: avroType,
-	}, nil
+	return avro.NewField(bqField.Name, avroType)
 }
 
 func (s *QRepAvroSyncMethod) writeToStage(
 	ctx context.Context,
+	env map[string]string,
 	syncID string,
 	objectFolder string,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	stagingTable *datasetTable,
 	stream *model.QRecordStream,
 	flowName string,
-) (int, error) {
-	var avroFile *avro.AvroFile
-	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, avro.CompressSnappy, protos.DBType_BIGQUERY)
+) (int64, error) {
+	var avroFile *avroutils.AvroFile
+	ocfWriter := avroutils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("batchOrPartitionID", syncID),
@@ -408,13 +370,17 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		obj := bucket.Object(avroFilePath)
 		w := obj.NewWriter(ctx)
 
-		numRecords, err := ocfWriter.WriteOCF(ctx, w)
+		numRecords, err := ocfWriter.WriteOCF(ctx, env, w, nil)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to Avro file on GCS: %w", err)
 		}
-		avroFile = &avro.AvroFile{
+		if err := w.Close(); err != nil {
+			return 0, fmt.Errorf("failed to close Avro file on GCS after writing: %w", err)
+		}
+
+		avroFile = &avroutils.AvroFile{
 			NumRecords:      numRecords,
-			StorageLocation: avro.AvroGCSStorage,
+			StorageLocation: avroutils.AvroGCSStorage,
 			FilePath:        avroFilePath,
 		}
 	} else {
@@ -426,7 +392,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 
 		avroFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, syncID)
 		s.connector.logger.Info("writing records to local file", idLog)
-		avroFile, err = ocfWriter.WriteRecordsToAvroFile(ctx, avroFilePath)
+		avroFile, err = ocfWriter.WriteRecordsToAvroFile(ctx, env, avroFilePath)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to local Avro file: %w", err)
 		}
@@ -474,8 +440,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	}
 	s.connector.logger.Info(fmt.Sprintf("Pushed from %s to BigQuery", avroFile.FilePath), idLog)
 
-	err = s.connector.waitForTableReady(ctx, stagingTable)
-	if err != nil {
+	if err := s.connector.waitForTableReady(ctx, stagingTable); err != nil {
 		return 0, fmt.Errorf("failed to wait for table to be ready: %w", err)
 	}
 

@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"strings"
 	"time"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 type SnowflakeAvroConsolidateHandler struct {
@@ -136,15 +137,19 @@ func (s *SnowflakeAvroConsolidateHandler) getCopyTransformation(copyDstTable str
 		s.config.SyncedAtColName,
 		s.config.SoftDeleteColName,
 	)
-	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) FILE_FORMAT=(TYPE=AVRO), PURGE=TRUE",
-		copyDstTable, columnsSQL, transformationSQL, s.stage)
+	onErrorStr := ""
+	if onError := internal.GetEnvString("PEERDB_SNOWFLAKE_ON_ERROR", ""); onError != "" {
+		onErrorStr = ", ON_ERROR=" + onError
+	}
+	return fmt.Sprintf("COPY INTO %s(%s) FROM (SELECT %s FROM @%s) FILE_FORMAT=(TYPE=AVRO), PURGE=TRUE%s",
+		copyDstTable, columnsSQL, transformationSQL, s.stage, onErrorStr)
 }
 
 func (s *SnowflakeAvroConsolidateHandler) handleAppendMode(ctx context.Context) error {
 	parsedDstTable, _ := utils.ParseSchemaTable(s.dstTableName)
 	copyCmd := s.getCopyTransformation(snowflakeSchemaTableNormalize(parsedDstTable))
 	s.connector.logger.Info("running copy command: " + copyCmd)
-	_, err := s.connector.database.ExecContext(ctx, copyCmd)
+	_, err := s.connector.ExecContext(ctx, copyCmd)
 	if err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
@@ -209,24 +214,21 @@ func (s *SnowflakeAvroConsolidateHandler) generateUpsertMergeCommand(
 
 // handleUpsertMode handles the upsert mode
 func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) error {
-	runID, err := shared.RandomUInt64()
-	if err != nil {
-		return fmt.Errorf("failed to generate run ID: %w", err)
-	}
+	//nolint:gosec // number has no cryptographic significance
+	runID := rand.Uint64()
 
 	tempTableName := fmt.Sprintf("%s_temp_%d", s.dstTableName, runID)
 
-	//nolint:gosec
 	createTempTableCmd := fmt.Sprintf("CREATE TEMPORARY TABLE %s AS SELECT * FROM %s LIMIT 0",
 		tempTableName, s.dstTableName)
-	if _, err := s.connector.database.ExecContext(ctx, createTempTableCmd); err != nil {
+	if _, err := s.connector.ExecContext(ctx, createTempTableCmd); err != nil {
 		return fmt.Errorf("failed to create temp table: %w", err)
 	}
 	s.connector.logger.Info("created temp table " + tempTableName)
 
 	copyCmd := s.getCopyTransformation(tempTableName)
-	_, err = s.connector.database.ExecContext(ctx, copyCmd)
-	if err != nil {
+
+	if _, err := s.connector.ExecContext(ctx, copyCmd); err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
 	s.connector.logger.Info("copied file from stage " + s.stage + " to temp table " + tempTableName)
@@ -234,15 +236,15 @@ func (s *SnowflakeAvroConsolidateHandler) handleUpsertMode(ctx context.Context) 
 	mergeCmd := s.generateUpsertMergeCommand(tempTableName)
 
 	startTime := time.Now()
-	rows, err := s.connector.database.ExecContext(ctx, mergeCmd)
+	rows, err := s.connector.ExecContext(ctx, mergeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to merge data into destination table '%s': %w", mergeCmd, err)
 	}
 	rowCount, err := rows.RowsAffected()
 	if err == nil {
-		totalRowsAtTarget, err := s.connector.getTableCounts(ctx, []string{s.dstTableName})
-		if err != nil {
-			return err
+		var totalRowsAtTarget int64
+		if err := s.connector.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+s.dstTableName).Scan(&totalRowsAtTarget); err != nil {
+			return fmt.Errorf("failed to get count for table %s: %w", s.dstTableName, err)
 		}
 		s.connector.logger.Info(fmt.Sprintf("merged %d rows into destination table %s, total rows at target: %d",
 			rowCount, s.dstTableName, totalRowsAtTarget))

@@ -10,13 +10,13 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type PeerFlowE2ETestSuiteSF struct {
@@ -34,6 +34,10 @@ func (s PeerFlowE2ETestSuiteSF) T() *testing.T {
 
 func (s PeerFlowE2ETestSuiteSF) Connector() *connpostgres.PostgresConnector {
 	return s.conn
+}
+
+func (s PeerFlowE2ETestSuiteSF) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
 }
 
 func (s PeerFlowE2ETestSuiteSF) DestinationConnector() connectors.Connector {
@@ -70,7 +74,7 @@ func (s PeerFlowE2ETestSuiteSF) GetRows(tableName string, sfSelector string) (*m
 	qualifiedTableName := fmt.Sprintf(`%s.%s.%s`, s.sfHelper.testDatabaseName, s.sfHelper.testSchemaName, tableName)
 	sfSelQuery := fmt.Sprintf(`SELECT %s FROM %s ORDER BY id`, sfSelector, qualifiedTableName)
 	s.t.Logf("running query on snowflake: %s", sfSelQuery)
-	return s.sfHelper.ExecuteAndProcessQuery(sfSelQuery)
+	return s.sfHelper.ExecuteAndProcessQuery(s.t.Context(), sfSelQuery)
 }
 
 func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
@@ -91,7 +95,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	}
 
 	connector, err := connsnowflake.NewSnowflakeConnector(
-		context.Background(),
+		t.Context(),
 		sfHelper.Config,
 	)
 	require.NoError(t, err)
@@ -99,7 +103,7 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	suite := PeerFlowE2ETestSuiteSF{
 		t:         t,
 		pgSuffix:  pgSuffix,
-		conn:      conn,
+		conn:      conn.PostgresConnector,
 		sfHelper:  sfHelper,
 		connector: connector,
 	}
@@ -107,18 +111,16 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuiteSF {
 	return suite
 }
 
-func (s PeerFlowE2ETestSuiteSF) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s PeerFlowE2ETestSuiteSF) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 
 	if s.sfHelper != nil {
-		err := s.sfHelper.Cleanup()
-		if err != nil {
+		if err := s.sfHelper.Cleanup(ctx); err != nil {
 			s.t.Fatalf("failed to tear down Snowflake: %v", err)
 		}
 	}
 
-	err := s.connector.Close()
-	if err != nil {
+	if err := s.connector.Close(); err != nil {
 		s.t.Fatalf("failed to close Snowflake connector: %v", err)
 	}
 }

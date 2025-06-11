@@ -1,5 +1,4 @@
 use anyhow::Context;
-use async_recursion::async_recursion;
 use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use std::cmp::min;
@@ -8,7 +7,7 @@ use stream::SnowflakeDataType;
 
 use auth::SnowflakeAuth;
 use pt::peerdb_peers::SnowflakeConfig;
-use reqwest::{header, StatusCode};
+use reqwest::{StatusCode, header};
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use sqlparser::ast::{CloseCursor, Declare, FetchDirection, Query, Statement};
@@ -148,51 +147,50 @@ impl SnowflakeQueryExecutor {
         })
     }
 
-    #[async_recursion]
     #[tracing::instrument(name = "peer_sflake::process_query", skip_all)]
     async fn process_query(&self, query_str: &str) -> anyhow::Result<ResultSet> {
-        let mut auth = self.auth.clone();
-        let jwt = auth.get_jwt()?;
-        let secret = jwt.expose_secret();
-        // TODO: for things other than SELECTs, the robust way to handle retrys is by
-        // generating a UUID from our end to mark the query as unique and then sending it with the request.
-        // If we need to retry, send same UUID with retry=true parameter set and Snowflake should prevent duplicate execution.
-        let query_status_res = self
-            .reqwest_client
-            .post(self.endpoint_url.to_owned())
-            .bearer_auth(secret)
-            .query(&[("async", "true")])
-            .json(&SQLStatement {
-                statement: query_str,
-                timeout: self.query_timeout,
-                database: &self.config.database,
-                warehouse: &self.config.warehouse,
-                role: &self.config.role,
-                parameters: SQLStatementParameters {
-                    date_output_format: DATE_OUTPUT_FORMAT,
-                    time_output_format: TIME_OUTPUT_FORMAT,
-                    timestamp_ltz_output_format: TIMESTAMP_TZ_OUTPUT_FORMAT,
-                    timestamp_ntz_output_format: TIMESTAMP_OUTPUT_FORMAT,
-                    timestamp_tz_output_format: TIMESTAMP_TZ_OUTPUT_FORMAT,
-                },
-            })
-            .send()
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!("failed in making request for QueryStatus. error: {:?}", e)
+        loop {
+            let mut auth = self.auth.clone();
+            let jwt = auth.get_jwt()?;
+            let secret = jwt.expose_secret();
+            // TODO: for things other than SELECTs, the robust way to handle retrys is by
+            // generating a UUID from our end to mark the query as unique and then sending it with the request.
+            // If we need to retry, send same UUID with retry=true parameter set and Snowflake should prevent duplicate execution.
+            let query_status_res = self
+                .reqwest_client
+                .post(self.endpoint_url.to_owned())
+                .bearer_auth(secret)
+                .query(&[("async", "true")])
+                .json(&SQLStatement {
+                    statement: query_str,
+                    timeout: self.query_timeout,
+                    database: &self.config.database,
+                    warehouse: &self.config.warehouse,
+                    role: &self.config.role,
+                    parameters: SQLStatementParameters {
+                        date_output_format: DATE_OUTPUT_FORMAT,
+                        time_output_format: TIME_OUTPUT_FORMAT,
+                        timestamp_ltz_output_format: TIMESTAMP_TZ_OUTPUT_FORMAT,
+                        timestamp_ntz_output_format: TIMESTAMP_OUTPUT_FORMAT,
+                        timestamp_tz_output_format: TIMESTAMP_TZ_OUTPUT_FORMAT,
+                    },
+                })
+                .send()
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!("failed in making request for QueryStatus. error: {:?}", e)
+                })?;
+
+            let query_json = query_status_res.json::<serde_json::Value>().await?;
+            let query_status = serde_json::from_value(query_json.clone()).map_err(|e| {
+                anyhow::anyhow!("failed in parsing json {:?}, error: {:?}", query_json, e)
             })?;
 
-        let query_json = query_status_res.json::<serde_json::Value>().await?;
-        let query_status = serde_json::from_value(query_json.clone()).map_err(|e| {
-            anyhow::anyhow!("failed in parsing json {:?}, error: {:?}", query_json, e)
-        })?;
-
-        // TODO: remove this blind retry logic for anything other than a SELECT.
-        let res = self.query_poll(query_status).await?;
-        Ok(match res {
-            Some(result_set) => result_set,
-            None => self.process_query(query_str).await?,
-        })
+            // TODO: remove this blind retry logic for anything other than a SELECT.
+            if let Some(res) = self.query_poll(query_status).await? {
+                return Ok(res);
+            }
+        }
     }
 
     pub async fn query(&self, query: &Query) -> PgWireResult<ResultSet> {
@@ -282,7 +280,7 @@ impl SnowflakeQueryExecutor {
                     return Ok(None);
                 }
                 QueryAttemptResult::ErrorAbort { error_message } => {
-                    return Err(anyhow::anyhow!(error_message))
+                    return Err(anyhow::anyhow!(error_message));
                 }
             }
         }
@@ -292,6 +290,22 @@ impl SnowflakeQueryExecutor {
 
 #[async_trait::async_trait]
 impl QueryExecutor for SnowflakeQueryExecutor {
+    async fn execute_raw(&self, query: &str) -> PgWireResult<QueryOutput> {
+        let result_set = self
+            .process_query(query)
+            .await
+            .map_err(|err| PgWireError::ApiError(err.into()))?;
+
+        let cursor = stream::SnowflakeRecordStream::new(
+            result_set,
+            self.partition_index,
+            self.partition_number,
+            self.endpoint_url.clone(),
+            self.auth.clone(),
+        );
+        Ok(QueryOutput::Stream(Box::pin(cursor)))
+    }
+
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         match stmt {
@@ -362,7 +376,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
                             "ERROR".to_owned(),
                             "fdw_error".to_owned(),
                             "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
-                        ))))
+                        ))));
                     }
                 };
 

@@ -46,6 +46,7 @@ pub enum QueryOutput {
 
 #[async_trait::async_trait]
 pub trait QueryExecutor: Send + Sync {
+    async fn execute_raw(&self, stmt: &str) -> PgWireResult<QueryOutput>;
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput>;
     async fn describe(&self, stmt: &Statement) -> PgWireResult<Option<Schema>>;
 }

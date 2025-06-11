@@ -6,9 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -20,12 +18,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"go.temporal.io/sdk/log"
 
-	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type ClickHouseConnector struct {
@@ -34,7 +33,98 @@ type ClickHouseConnector struct {
 	logger        log.Logger
 	config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
-	s3Stage       *ClickHouseS3Stage
+}
+
+func NewClickHouseConnector(
+	ctx context.Context,
+	env map[string]string,
+	config *protos.ClickhouseConfig,
+) (*ClickHouseConnector, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	database, err := Connect(ctx, env, config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)
+	}
+
+	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
+	if err != nil {
+		logger.Error("failed to create postgres metadata store", "error", err)
+		return nil, err
+	}
+
+	var awsConfig utils.PeerAWSCredentials
+	var awsBucketPath string
+	if config.S3 != nil {
+		awsConfig = utils.NewPeerAWSCredentials(config.S3)
+		awsBucketPath = config.S3.Url
+	} else {
+		awsConfig = utils.PeerAWSCredentials{
+			Credentials: aws.Credentials{
+				AccessKeyID:     config.AccessKeyId,
+				SecretAccessKey: config.SecretAccessKey,
+			},
+			EndpointUrl: config.Endpoint,
+			Region:      config.Region,
+		}
+		awsBucketPath = config.S3Path
+	}
+
+	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", awsConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	if awsBucketPath == "" {
+		deploymentUID := internal.PeerDBDeploymentUID()
+		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+		bucketPathSuffix := fmt.Sprintf("%s/%s", url.PathEscape(deploymentUID), url.PathEscape(flowName))
+		// Fallback: Get S3 credentials from environment
+		awsBucketName, err := internal.PeerDBClickHouseAWSS3BucketName(ctx, env)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
+		}
+		if awsBucketName == "" {
+			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
+		}
+
+		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
+	}
+
+	credentials, err := credentialsProvider.Retrieve(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	connector := &ClickHouseConnector{
+		database:         database,
+		PostgresMetadata: pgMetadata,
+		config:           config,
+		logger:           logger,
+		credsProvider: &utils.ClickHouseS3Credentials{
+			Provider:   credentialsProvider,
+			BucketPath: awsBucketPath,
+		},
+	}
+
+	if credentials.AWS.SessionToken != "" {
+		// 24.3.1 is minimum version of ClickHouse that actually supports session token
+		// https://github.com/ClickHouse/ClickHouse/issues/61230
+		clickHouseVersion, err := database.ServerVersion()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
+		}
+		if !chproto.CheckMinVersion(
+			chproto.Version{Major: 24, Minor: 3, Patch: 1},
+			clickHouseVersion.Version,
+		) {
+			return nil, fmt.Errorf(
+				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
+				clickHouseVersion,
+				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
+		}
+	}
+
+	return connector, nil
 }
 
 func ValidateS3(ctx context.Context, creds *utils.ClickHouseS3Credentials) error {
@@ -70,7 +160,7 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 // Performs some checks on the ClickHouse peer to ensure it will work for mirrors
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
-	allowedDomains := peerdbenv.PeerDBClickHouseAllowedDomains()
+	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 	if err := ValidateClickHouseHost(ctx, c.config.Host, allowedDomains); err != nil {
 		return err
 	}
@@ -84,7 +174,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
 		if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
 			c.logger.Error("validation failed to drop table", slog.String("table", validateDummyTableName), slog.Any("error", err))
@@ -93,21 +183,21 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 
 	// add a column
 	if err := c.exec(ctx,
-		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
+		fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
 	); err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// rename the table
 	if err := c.exec(ctx,
-		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableName+"_renamed"),
+		fmt.Sprintf("RENAME TABLE `%s` TO `%s`", validateDummyTableName, validateDummyTableName+"_renamed"),
 	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
 	validateDummyTableName += "_renamed"
 
 	// insert a row
-	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
+	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO `%s` VALUES (1, now64())", validateDummyTableName)); err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
@@ -124,110 +214,44 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	return nil
 }
 
-func NewClickHouseConnector(
-	ctx context.Context,
-	env map[string]string,
-	config *protos.ClickhouseConfig,
-) (*ClickHouseConnector, error) {
-	logger := logger.LoggerFromCtx(ctx)
-	database, err := Connect(ctx, config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open connection to ClickHouse peer: %w", err)
-	}
-
-	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
-	if err != nil {
-		logger.Error("failed to create postgres metadata store", "error", err)
-		return nil, err
-	}
-
-	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", utils.PeerAWSCredentials{
-		Credentials: aws.Credentials{
-			AccessKeyID:     config.AccessKeyId,
-			SecretAccessKey: config.SecretAccessKey,
-		},
-		EndpointUrl: config.Endpoint,
-		Region:      config.Region,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	awsBucketPath := config.S3Path
-
-	if awsBucketPath == "" {
-		deploymentUID := peerdbenv.PeerDBDeploymentUID()
-		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-		bucketPathSuffix := fmt.Sprintf("%s/%s",
-			url.PathEscape(deploymentUID), url.PathEscape(flowName))
-		// Fallback: Get S3 credentials from environment
-		awsBucketName, err := peerdbenv.PeerDBClickHouseAWSS3BucketName(ctx, env)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get PeerDB ClickHouse Bucket Name: %w", err)
-		}
-		if awsBucketName == "" {
-			return nil, errors.New("PeerDB ClickHouse Bucket Name not set")
-		}
-
-		awsBucketPath = fmt.Sprintf("s3://%s/%s", awsBucketName, bucketPathSuffix)
-	}
-	clickHouseS3CredentialsNew := utils.ClickHouseS3Credentials{
-		Provider:   credentialsProvider,
-		BucketPath: awsBucketPath,
-	}
-	credentials, err := credentialsProvider.Retrieve(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if credentials.AWS.SessionToken != "" {
-		// 24.3.1 is minimum version of ClickHouse that actually supports session token
-		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		clickHouseVersion, err := database.ServerVersion()
-		if err != nil {
-			return nil, fmt.Errorf("failed to query ClickHouse version: %w", err)
-		}
-		if !chproto.CheckMinVersion(
-			chproto.Version{Major: 24, Minor: 3, Patch: 1},
-			clickHouseVersion.Version,
-		) {
-			return nil, fmt.Errorf(
-				"provide S3 Transient Stage details explicitly or upgrade to ClickHouse version >= 24.3.1, current version is %s. %s",
-				clickHouseVersion,
-				"You can also contact PeerDB support for implicit S3 stage setup for older versions of ClickHouse.")
-		}
-	}
-
-	return &ClickHouseConnector{
-		database:         database,
-		PostgresMetadata: pgMetadata,
-		config:           config,
-		logger:           logger,
-		credsProvider:    &clickHouseS3CredentialsNew,
-		s3Stage:          NewClickHouseS3Stage(),
-	}, nil
-}
-
-func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
+func Connect(ctx context.Context, env map[string]string, config *protos.ClickhouseConfig) (clickhouse.Conn, error) {
 	var tlsSetting *tls.Config
 	if !config.DisableTls {
 		tlsSetting = &tls.Config{MinVersion: tls.VersionTLS13}
+		if config.Certificate != nil || config.PrivateKey != nil {
+			if config.Certificate == nil || config.PrivateKey == nil {
+				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+			}
+			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+			}
+			tlsSetting.Certificates = []tls.Certificate{cert}
+		}
+		if config.RootCa != nil {
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
+				return nil, errors.New("failed to parse provided root CA")
+			}
+			tlsSetting.RootCAs = caPool
+		}
+		if config.TlsHost != "" {
+			tlsSetting.ServerName = config.TlsHost
+		}
 	}
-	if config.Certificate != nil || config.PrivateKey != nil {
-		if config.Certificate == nil || config.PrivateKey == nil {
-			return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
-		}
-		cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
-		}
-		tlsSetting.Certificates = []tls.Certificate{cert}
+
+	settings := clickhouse.Settings{
+		// See: https://clickhouse.com/docs/en/cloud/reference/shared-merge-tree#consistency
+		"select_sequential_consistency": uint64(1),
+		// broken downstream views should not interrupt ingestion
+		"ignore_materialized_views_with_dropped_target_table": true,
+		// avoid "there is no metadata of table ..."
+		"alter_sync": uint64(1),
 	}
-	if config.RootCa != nil {
-		caPool := x509.NewCertPool()
-		if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
-			return nil, errors.New("failed to parse provided root CA")
-		}
-		tlsSetting.RootCAs = caPool
+	if maxInsertThreads, err := internal.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
+		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
+	} else if maxInsertThreads != 0 {
+		settings["max_insert_threads"] = maxInsertThreads
 	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
@@ -247,6 +271,7 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 				{Name: "peerdb"},
 			},
 		},
+		Settings:    settings,
 		DialTimeout: 3600 * time.Second,
 		ReadTimeout: 3600 * time.Second,
 	})
@@ -262,90 +287,26 @@ func Connect(ctx context.Context, config *protos.ClickhouseConfig) (clickhouse.C
 	return conn, nil
 }
 
-// https://github.com/ClickHouse/clickhouse-kafka-connect/blob/2e0c17e2f900d29c00482b9d0a1f55cb678244e5/src/main/java/com/clickhouse/kafka/connect/util/Utils.java#L78-L93
-//
-//nolint:lll
-var retryableExceptions = map[int32]struct{}{
-	3:   {}, // UNEXPECTED_END_OF_FILE
-	107: {}, // FILE_DOESNT_EXIST
-	159: {}, // TIMEOUT_EXCEEDED
-	164: {}, // READONLY
-	202: {}, // TOO_MANY_SIMULTANEOUS_QUERIES
-	203: {}, // NO_FREE_CONNECTION
-	209: {}, // SOCKET_TIMEOUT
-	210: {}, // NETWORK_ERROR
-	241: {}, // MEMORY_LIMIT_EXCEEDED
-	242: {}, // TABLE_IS_READ_ONLY
-	252: {}, // TOO_MANY_PARTS
-	285: {}, // TOO_FEW_LIVE_REPLICAS
-	319: {}, // UNKNOWN_STATUS_OF_INSERT
-	425: {}, // SYSTEM_ERROR
-	999: {}, // KEEPER_EXCEPTION
-}
-
-func isRetryableException(err error) bool {
-	if ex, ok := err.(*clickhouse.Exception); ok {
-		if ex == nil {
-			return false
-		}
-		_, yes := retryableExceptions[ex.Code]
-		return yes
-	}
-	return errors.Is(err, io.EOF)
-}
-
 //nolint:unparam
 func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
-	var err error
-	for i := range 5 {
-		err = c.database.Exec(ctx, query, args...)
-		if !isRetryableException(err) {
-			break
-		}
-		c.logger.Info("[exec] retryable error", slog.Any("error", err), slog.Any("query", query), slog.Int64("i", int64(i)))
-		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
-		}
-	}
-	return err
+	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
+}
+
+func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string, args ...any) error {
+	return chvalidate.Exec(ctx, c.logger, conn, query, args...)
 }
 
 func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
-	var rows driver.Rows
-	var err error
-	for i := range 5 {
-		rows, err = c.database.Query(ctx, query, args...)
-		if !isRetryableException(err) {
-			break
-		}
-		c.logger.Info("[query] retryable error", slog.Any("error", err), slog.Any("query", query), slog.Int64("i", int64(i)))
-		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
-		}
-	}
-	return rows, err
+	return chvalidate.Query(ctx, c.logger, c.database, query, args...)
 }
 
 func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args ...any) driver.Row {
-	var row driver.Row
-	for i := range 5 {
-		row = c.database.QueryRow(ctx, query, args...)
-		err := row.Err()
-		if !isRetryableException(err) {
-			break
-		}
-		c.logger.Info("[queryRow] retryable error", slog.Any("error", row.Err()), slog.Any("query", query), slog.Int64("i", int64(i)))
-		if i < 4 {
-			time.Sleep(time.Second * time.Duration(i*5+1))
-		}
-	}
-	return row
+	return chvalidate.QueryRow(ctx, c.logger, c.database, query, args...)
 }
 
 func (c *ClickHouseConnector) Close() error {
 	if c != nil {
-		err := c.database.Close()
-		if err != nil {
+		if err := c.database.Close(); err != nil {
 			return fmt.Errorf("error while closing connection to ClickHouse peer: %w", err)
 		}
 	}
@@ -359,77 +320,11 @@ func (c *ClickHouseConnector) ConnectionActive(ctx context.Context) error {
 
 func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string) error {
 	c.logger.Info("[clickhouse] executing DDL statement", slog.String("query", query))
-	return c.database.Exec(ctx, query)
-}
-
-func (c *ClickHouseConnector) checkTablesEmptyAndEngine(ctx context.Context, tables []string) error {
-	queryInput := make([]interface{}, 0, len(tables)+1)
-	queryInput = append(queryInput, c.config.Database)
-	for _, table := range tables {
-		queryInput = append(queryInput, table)
-	}
-	rows, err := c.query(ctx,
-		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=? AND table IN (%s)",
-			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
-	if err != nil {
-		return fmt.Errorf("failed to get information for destination tables: %w", err)
-	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var tableName, engine string
-		var totalRows uint64
-		err = rows.Scan(&tableName, &engine, &totalRows)
-		if err != nil {
-			return fmt.Errorf("failed to scan information for tables: %w", err)
-		}
-		if totalRows != 0 {
-			return fmt.Errorf("table %s exists and is not empty", tableName)
-		}
-		if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
-			c.logger.Warn("[clickhouse] table engine not explicitly supported",
-				slog.String("table", tableName), slog.String("engine", engine))
-		}
-	}
-	if rows.Err() != nil {
-		return fmt.Errorf("failed to read rows: %w", rows.Err())
-	}
-	return nil
-}
-
-func (c *ClickHouseConnector) getTableColumnsMapping(ctx context.Context,
-	tables []string,
-) (map[string][]*protos.FieldDescription, error) {
-	tableColumnsMapping := make(map[string][]*protos.FieldDescription, len(tables))
-	queryInput := make([]interface{}, 0, len(tables)+1)
-	queryInput = append(queryInput, c.config.Database)
-	for _, table := range tables {
-		queryInput = append(queryInput, table)
-	}
-	rows, err := c.query(ctx,
-		fmt.Sprintf("SELECT name,type,table FROM system.columns WHERE database=? AND table IN (%s)",
-			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get columns for destination tables: %w", err)
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var tableName string
-		var fieldDescription protos.FieldDescription
-		err = rows.Scan(&fieldDescription.Name, &fieldDescription.Type, &tableName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan columns for tables: %w", err)
-		}
-		tableColumnsMapping[tableName] = append(tableColumnsMapping[tableName], &fieldDescription)
-	}
-	if rows.Err() != nil {
-		return nil, fmt.Errorf("failed to read rows: %w", rows.Err())
-	}
-	return tableColumnsMapping, nil
+	return c.exec(ctx, query)
 }
 
 func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
-	dstSchema []*protos.FieldDescription, peerDBColumns []string, tableMapping *protos.TableMapping,
+	dstSchema []chvalidate.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
 		colName := srcField.Name
@@ -468,47 +363,111 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 	return nil
 }
 
-func (c *ClickHouseConnector) CheckDestinationTables(ctx context.Context, req *protos.FlowConnectionConfigs,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
-) error {
-	peerDBColumns := []string{signColName, versionColName}
-	if req.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, strings.ToLower(req.SyncedAtColName))
-	}
-	// this is for handling column exclusion, processed schema does that in a step
-	processedMapping := shared.BuildProcessedSchemaMapping(req.TableMappings, tableNameSchemaMapping, c.logger)
-	dstTableNames := slices.Collect(maps.Keys(processedMapping))
-
-	// In the case of resync, we don't need to check the content or structure of the original tables;
-	// they'll anyways get swapped out with the _resync tables which we CREATE OR REPLACE
-	if !req.Resync {
-		err := c.checkTablesEmptyAndEngine(ctx, dstTableNames)
-		if err != nil {
-			return err
-		}
-	}
-	// optimization: fetching columns for all tables at once
-	chTableColumnsMapping, err := c.getTableColumnsMapping(ctx, dstTableNames)
+func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
+	clickhouseVersion, err := c.database.ServerVersion()
 	if err != nil {
-		return err
+		return "", fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
+	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
+	return clickhouseVersion.Version.String(), nil
+}
 
-	for _, tableMapping := range req.TableMappings {
-		dstTableName := tableMapping.DestinationTableIdentifier
-		if _, ok := processedMapping[dstTableName]; !ok {
-			// if destination table is not a key, that means source table was not a key in the original schema mapping(?)
-			return fmt.Errorf("source table %s not found in schema mapping", tableMapping.SourceTableIdentifier)
-		}
-		// if destination table does not exist, we're good
-		if _, ok := chTableColumnsMapping[dstTableName]; !ok {
+func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType) (*protos.TableSchema, error) {
+	colFields := make([]*protos.FieldDescription, 0, len(columns))
+	for _, column := range columns {
+		if slices.Contains(tm.Exclude, column.Name()) {
 			continue
 		}
 
-		err = c.processTableComparison(dstTableName, processedMapping[dstTableName],
-			chTableColumnsMapping[dstTableName], peerDBColumns, tableMapping)
-		if err != nil {
-			return err
+		var qkind types.QValueKind
+		switch column.DatabaseTypeName() {
+		case "String", "Nullable(String)", "LowCardinality(String)", "LowCardinality(Nullable(String))":
+			qkind = types.QValueKindString
+		case "Bool", "Nullable(Bool)":
+			qkind = types.QValueKindBoolean
+		case "Int8", "Nullable(Int8)":
+			qkind = types.QValueKindInt8
+		case "Int16", "Nullable(Int16)":
+			qkind = types.QValueKindInt16
+		case "Int32", "Nullable(Int32)":
+			qkind = types.QValueKindInt32
+		case "Int64", "Nullable(Int64)":
+			qkind = types.QValueKindInt64
+		case "UInt8", "Nullable(UInt8)":
+			qkind = types.QValueKindUInt8
+		case "UInt16", "Nullable(UInt16)":
+			qkind = types.QValueKindUInt16
+		case "UInt32", "Nullable(UInt32)":
+			qkind = types.QValueKindUInt32
+		case "UInt64", "Nullable(UInt64)":
+			qkind = types.QValueKindUInt64
+		case "UUID", "Nullable(UUID)":
+			qkind = types.QValueKindUUID
+		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
+			qkind = types.QValueKindTimestamp
+		case "Date32", "Nullable(Date32)":
+			qkind = types.QValueKindDate
+		case "Float32", "Nullable(Float32)":
+			qkind = types.QValueKindFloat32
+		case "Float64", "Nullable(Float64)":
+			qkind = types.QValueKindFloat64
+		case "Array(Int32)":
+			qkind = types.QValueKindArrayInt32
+		case "Array(Float32)":
+			qkind = types.QValueKindArrayFloat32
+		case "Array(Float64)":
+			qkind = types.QValueKindArrayFloat64
+		case "Array(String)", "Array(LowCardinality(String))":
+			qkind = types.QValueKindArrayString
+		case "Array(UUID)":
+			qkind = types.QValueKindArrayUUID
+		default:
+			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
+				if strings.HasPrefix(column.DatabaseTypeName(), "Array(") {
+					qkind = types.QValueKindArrayNumeric
+				} else {
+					qkind = types.QValueKindNumeric
+				}
+			} else {
+				return nil, fmt.Errorf("failed to resolve QValueKind for %s", column.DatabaseTypeName())
+			}
 		}
+
+		colFields = append(colFields, &protos.FieldDescription{
+			Name:         column.Name(),
+			Type:         string(qkind),
+			TypeModifier: -1,
+			Nullable:     column.Nullable(),
+		})
 	}
-	return nil
+
+	return &protos.TableSchema{
+		TableIdentifier: tm.SourceTableIdentifier,
+		Columns:         colFields,
+		System:          protos.TypeSystem_Q,
+	}, nil
+}
+
+func (c *ClickHouseConnector) GetTableSchema(
+	ctx context.Context,
+	_env map[string]string,
+	_system protos.TypeSystem,
+	tableMappings []*protos.TableMapping,
+) (map[string]*protos.TableSchema, error) {
+	res := make(map[string]*protos.TableSchema, len(tableMappings))
+	for _, tm := range tableMappings {
+		rows, err := c.database.Query(ctx, fmt.Sprintf("select * from %s limit 0", tm.SourceTableIdentifier))
+		if err != nil {
+			return nil, err
+		}
+
+		tableSchema, err := GetTableSchemaForTable(tm, rows.ColumnTypes())
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		res[tm.SourceTableIdentifier] = tableSchema
+	}
+
+	return res, nil
 }

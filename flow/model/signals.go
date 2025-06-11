@@ -8,7 +8,7 @@ import (
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 // typed wrapper around temporal signals
@@ -30,13 +30,7 @@ func (self TypedSignal[T]) SignalClientWorkflow(
 	runID string,
 	value T,
 ) error {
-	return c.SignalWorkflow(
-		ctx,
-		workflowID,
-		runID,
-		self.Name,
-		value,
-	)
+	return c.SignalWorkflow(ctx, workflowID, runID, self.Name, value)
 }
 
 func (self TypedSignal[T]) SignalChildWorkflow(
@@ -84,11 +78,6 @@ func (self TypedReceiveChannel[T]) ReceiveAsyncWithMoreFlag() (T, bool, bool) {
 	return result, ok, more
 }
 
-func (self TypedReceiveChannel[T]) Drain() {
-	for self.Chan.ReceiveAsync(nil) {
-	}
-}
-
 func (self TypedReceiveChannel[T]) AddToSelector(selector workflow.Selector, f func(T, bool)) workflow.Selector {
 	return selector.AddReceive(self.Chan, func(c workflow.ReceiveChannel, more bool) {
 		var result T
@@ -99,12 +88,14 @@ func (self TypedReceiveChannel[T]) AddToSelector(selector workflow.Selector, f f
 	})
 }
 
-type CDCFlowSignal int64
+type CDCFlowSignal int32
 
 const (
 	NoopSignal CDCFlowSignal = iota
 	_
 	PauseSignal
+	TerminateSignal
+	ResyncSignal
 )
 
 func FlowSignalHandler(activeSignal CDCFlowSignal,
@@ -123,6 +114,10 @@ func FlowSignalHandler(activeSignal CDCFlowSignal,
 			logger.Info("workflow was paused, resuming it")
 			return v
 		}
+	case TerminateSignal:
+		return v
+	case ResyncSignal:
+		return v
 	}
 	return activeSignal
 }
@@ -131,18 +126,22 @@ var FlowSignal = TypedSignal[CDCFlowSignal]{
 	Name: "peer-flow-signal",
 }
 
+var FlowSignalStateChange = TypedSignal[*protos.FlowStateChangeRequest]{
+	Name: "flow-state-change-signal",
+}
+
 var CDCDynamicPropertiesSignal = TypedSignal[*protos.CDCFlowConfigUpdate]{
 	Name: "cdc-dynamic-properties",
 }
 
-var SyncStopSignal = TypedSignal[struct{}]{
-	Name: "sync-stop",
+var StartMaintenanceSignal = TypedSignal[*protos.StartMaintenanceSignal]{
+	Name: "start-maintenance-signal",
 }
 
-var NormalizeSignal = TypedSignal[NormalizePayload]{
-	Name: "normalize",
-}
-
-var NormalizeDoneSignal = TypedSignal[struct{}]{
-	Name: "normalize-done",
+func SleepFuture(ctx workflow.Context, d time.Duration) workflow.Future {
+	f, set := workflow.NewFuture(ctx)
+	workflow.Go(ctx, func(ctx workflow.Context) {
+		set.Set(nil, workflow.Sleep(ctx, d))
+	})
+	return f
 }

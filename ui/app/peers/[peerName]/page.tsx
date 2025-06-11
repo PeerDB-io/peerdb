@@ -8,7 +8,9 @@ type DataConfigProps = {
   params: { peerName: string };
 };
 
-const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
+export default async function PeerData({
+  params: { peerName },
+}: DataConfigProps) {
   return (
     <div
       style={{
@@ -41,6 +43,4 @@ const PeerData = async ({ params: { peerName } }: DataConfigProps) => {
       </div>
     </div>
   );
-};
-
-export default PeerData;
+}

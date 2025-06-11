@@ -6,16 +6,21 @@ on:
   push:
     branches: [main]
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   flow_test:
     strategy:
       matrix:
-        runner: [ubicloud-standard-16-ubuntu-2204-arm]
+        runner: [ubuntu-latest-16-cores]
+        db-version: [{pg: 15, mysql: 'mysql-gtid'}, {pg: 16, mysql: 'mysql-pos'}, {pg: 17, mysql: 'maria'}]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
       catalog:
-        image: imresamu/postgis:15-3.4-alpine
+        image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
         ports:
           - 5432:5432
         env:
@@ -23,29 +28,55 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+      mysql:
+        image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
+        ports:
+          - 3306:3306
+        env:
+          MYSQL_ROOT_PASSWORD: cipass
+      redpanda:
+        image: redpandadata/redpanda@sha256:a138e257877c494fa6854502273ee8db07637395c0a6da076da5babb0735b181
+        ports:
+          - 9092:9092
+          - 9644:9644
       elasticsearch:
-        image: elasticsearch:8.13.0
+        image: elasticsearch:9.0.2@sha256:3ac773aed0d76bf094d29ffbc408902dd2bc57f8c41dc5b31d777bd45b984288
         ports:
           - 9200:9200
         env:
           discovery.type: single-node
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
+      minio:
+        image: bitnami/minio:2025.5.24@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
+        ports:
+          - 9999:9999
+        env:
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: miniosecret
+          MINIO_API_PORT_NUMBER: 9999
+          AWS_EC2_METADATA_DISABLED: true
+          MINIO_DEFAULT_BUCKETS: peerdb
+      otelcol:
+        image: otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7
+        ports:
+          - 4317:4317
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
-      - uses: ubicloud/setup-go@v5
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: '1.23.0'
+          go-version: '1.24.4'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
         run: |
-          sudo apt-get update
+          # No need to update man pages on package install
+          sudo apt-get remove --purge man-db
           sudo apt-get install libgeos-dev
 
       - run: go mod download
@@ -53,38 +84,54 @@ jobs:
 
       - name: setup gcp service account
         id: gcp-service-account
-        uses: jsdaniell/create-json@v1.2.3
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
         with:
           name: "bq_service_account.json"
           json: ${{ secrets.GCP_GH_CI_PKEY }}
 
       - name: setup snowflake credentials
         id: sf-credentials
-        uses: jsdaniell/create-json@v1.2.3
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
         with:
           name: "snowflake_creds.json"
           json: ${{ secrets.SNOWFLAKE_GH_CI_PKEY }}
 
-      - name: setup S3 credentials
-        id: s3-credentials
-        uses: jsdaniell/create-json@v1.2.3
-        with:
-          name: "s3_creds.json"
-          json: ${{ secrets.S3_CREDS }}
-
       - name: setup GCS credentials
         id: gcs-credentials
-        uses: jsdaniell/create-json@v1.2.3
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
         with:
           name: "gcs_creds.json"
           json: ${{ secrets.GCS_CREDS }}
 
       - name: setup Eventhubs credentials
         id: eventhubs-credentials
-        uses: jsdaniell/create-json@v1.2.3
+        uses: jsdaniell/create-json@b8e77fa01397ca39cc4a6198cc29a3be5481afef # v1.2.3
         with:
           name: "eh_creds.json"
           json: ${{ secrets.EH_CREDS }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4
+        id: setup-aws
+        with:
+          audience: sts.amazonaws.com
+          aws-region: us-west-2
+          role-to-assume: ${{ secrets.FLOW_TESTS_AWS_ROLE_ARN }}
+          mask-aws-account-id: true
+          output-credentials: true
+
+      - name: MariaDB
+        if: matrix.db-version.mysql == 'maria'
+        run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
+
+      - name: MinIO TLS
+        run: >
+          mkdir -p certs &&
+          openssl genrsa -out certs/cert.key 2048 &&
+          openssl req -new -key certs/cert.key -out certs/cert.csr -subj /CN=minio.local &&
+          openssl x509 -req -days 3650 -in certs/cert.csr -signkey certs/cert.key -out certs/cert.crt &&
+          chown -R 1001 certs &&
+          docker run -d --rm --name miniotls -p 9998:9998 -v "$PWD/certs:/certs" -e MINIO_SCHEME=https bitnami/minio:latest
 
       - name: create hstore extension, increase logical replication limits, and setup catalog database
         run: >
@@ -98,30 +145,63 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - name: start redpanda
-        uses: redpanda-data/github-action@v0.1.4
+      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        id: cache-clickhouse
         with:
-          version: "latest"
+          path: ./clickhouse
+          key: ${{ runner.os }}-clickhouse
 
-      - name: start clickhouse
-        uses: getsentry/action-clickhouse-in-ci@v1
+      - name: Install ClickHouse
+        if: steps.cache-clickhouse.outputs.cache-hit != 'true'
+        run: |
+          curl https://clickhouse.com | sh
+
+      - name: Run ClickHouse
+        run: |
+          ./clickhouse server &
 
       - name: Install Temporal CLI
-        uses: temporalio/setup-temporal@v0
+        uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
+
+      - name: Setup AWS CA Certs
+        env:
+          URL: https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem
+        run: |
+          curl -fsSL -o aws-global-bundle.pem "$URL"
+          sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- aws-global-bundle.pem '/-----BEGIN CERTIFICATE-----/' '{*}'
+          sudo update-ca-certificates
 
       - name: run tests
         run: |
           temporal server start-dev --namespace default --headless &
-          go build -ldflags="-s -w" -o peer-flow
+          mkdir coverage
+          go build -cover -ldflags="-s -w" -o peer-flow
           temporal operator search-attribute create --name MirrorName --type Text --namespace default
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
-          go test -p 32 ./... -timeout 900s
+          ./peer-flow api --port 8112 --gateway-port 8113 &
+          go test -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          killall peer-flow
+          sleep 1
+          go tool covdata textfmt -i=coverage -o ../coverage.out
         working-directory: ./flow
         env:
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: ${{ secrets.AWS_REGION }}
+          GOCOVERDIR: coverage
+          AWS_ENDPOINT_URL_S3: http://localhost:9999
+          AWS_ACCESS_KEY_ID: minio
+          AWS_SECRET_ACCESS_KEY: miniosecret
+          AWS_REGION: us-east-1
+          AWS_ENDPOINT_URL_S3_TLS: https://localhost:9998
+          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
+          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
+          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
+          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://localhost:9999
+          PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdb
+          PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
+          PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
+          PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_REGION: us-east-1
+          PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://localhost:9999
+          PEERDB_SNOWFLAKE_AWS_S3_BUCKET_NAME: peerdb
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
           TEST_S3_CREDS: ${{ github.workspace }}/s3_creds.json
@@ -131,12 +211,6 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          ENABLE_SQLSERVER_TESTS: "true"
-          SQLSERVER_HOST: ${{ secrets.SQLSERVER_HOST }}
-          SQLSERVER_PORT: ${{ secrets.SQLSERVER_PORT }}
-          SQLSERVER_USER: ${{ secrets.SQLSERVER_USER }}
-          SQLSERVER_PASSWORD: ${{ secrets.SQLSERVER_PASSWORD }}
-          SQLSERVER_DB: ${{ secrets.SQLSERVER_DB }}
           PEERDB_CATALOG_HOST: localhost
           PEERDB_CATALOG_PORT: 5432
           PEERDB_CATALOG_USER: postgres
@@ -144,3 +218,33 @@ jobs:
           PEERDB_CATALOG_DATABASE: postgres
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
+          CI_PG_VERSION: ${{ matrix.db-version.pg }}
+          CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
+          OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
+          OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
+          PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
+          PEERDB_OTEL_TEMPORAL_METRICS_EXPORT_LIST: '__ALL__'
+          PEERDB_OTEL_METRICS_PANIC_ON_EXPORT_FAILURE: 'true'
+          # Below are used to test RDS IAM Auth for Postgres and MySQL
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
+          FLOW_TESTS_RDS_IAM_AUTH_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_POSTGRES_PROXY }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL }}
+          FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_HOST_MYSQL_PROXY }}
+          FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_POSTGRES }}
+          FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_USERNAME_MYSQL }}
+          FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_ASSUME_ROLE }}
+          FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE: ${{ secrets.FLOW_TESTS_RDS_IAM_AUTH_CHAINED_ROLE }}
+          # For ClickHouse S3 IAM Role based tests
+          FLOW_TESTS_AWS_S3_BUCKET_NAME: ${{ secrets.FLOW_TESTS_AWS_S3_BUCKET_NAME }}
+          FLOW_TESTS_AWS_ACCESS_KEY_ID: ${{ steps.setup-aws.outputs.aws-access-key-id }}
+          FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
+          FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@18283e04ce6e62d37312384ff67231eb8fd56d24 # v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

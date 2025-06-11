@@ -9,9 +9,9 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio_postgres::{types::Type, Row, RowStream};
+use tokio_postgres::{Row, RowStream, types::Type};
 use uuid::Uuid;
-use value::{array::ArrayValue, Value};
+use value::{Value, array::ArrayValue};
 pub struct PgRecordStream {
     row_stream: Pin<Box<RowStream>>,
     schema: Schema,
@@ -185,6 +185,12 @@ fn values_from_row(row: &Row) -> Vec<Value> {
                 &Type::UUID => {
                     let uuid: Option<Uuid> = row.get(i);
                     uuid.map(Value::Uuid).unwrap_or(Value::Null)
+                }
+                &Type::UUID_ARRAY => {
+                    let uuid: Option<Vec<Uuid>> = row.get(i);
+                    uuid.map(ArrayValue::Uuid)
+                        .map(Value::Array)
+                        .unwrap_or(Value::Null)
                 }
                 &Type::INET | &Type::CIDR => {
                     let s: Option<MaskedIpAddr> = row.get(i);

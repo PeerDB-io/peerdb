@@ -16,10 +16,10 @@ import (
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func encVal(val any) ([]byte, error) {
@@ -45,11 +45,11 @@ type cdcStore[Items model.Items] struct {
 }
 
 func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, flowJobName string) (*cdcStore[Items], error) {
-	numRecordsSwitchThreshold, err := peerdbenv.PeerDBCDCDiskSpillRecordsThreshold(ctx, env)
+	numRecordsSwitchThreshold, err := internal.PeerDBCDCDiskSpillRecordsThreshold(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill records threshold: %w", err)
 	}
-	memPercent, err := peerdbenv.PeerDBCDCDiskSpillMemPercentThreshold(ctx, env)
+	memPercent, err := internal.PeerDBCDCDiskSpillMemPercentThreshold(ctx, env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get CDC disk spill memory percent threshold: %w", err)
 	}
@@ -62,7 +62,7 @@ func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, 
 		dbFolderName:              fmt.Sprintf("%s/%s_%s", os.TempDir(), flowJobName, shared.RandomString(8)),
 		numRecordsSwitchThreshold: int(numRecordsSwitchThreshold),
 		memThresholdBytes: func() uint64 {
-			maxMemBytes := peerdbenv.PeerDBFlowWorkerMaxMemBytes()
+			maxMemBytes := internal.PeerDBFlowWorkerMaxMemBytes()
 			if memPercent > 0 && maxMemBytes > 0 {
 				return maxMemBytes * uint64(memPercent) / 100
 			}
@@ -77,44 +77,53 @@ func init() {
 	// register future record classes here as well, if they are passed/stored as interfaces
 	gob.Register(time.Time{})
 	gob.Register(decimal.Decimal{})
-	gob.Register(qvalue.QValueNull(""))
-	gob.Register(qvalue.QValueInvalid{})
-	gob.Register(qvalue.QValueFloat32{})
-	gob.Register(qvalue.QValueFloat64{})
-	gob.Register(qvalue.QValueInt16{})
-	gob.Register(qvalue.QValueInt32{})
-	gob.Register(qvalue.QValueInt64{})
-	gob.Register(qvalue.QValueBoolean{})
-	gob.Register(qvalue.QValueStruct{})
-	gob.Register(qvalue.QValueQChar{})
-	gob.Register(qvalue.QValueString{})
-	gob.Register(qvalue.QValueTimestamp{})
-	gob.Register(qvalue.QValueTimestampTZ{})
-	gob.Register(qvalue.QValueDate{})
-	gob.Register(qvalue.QValueTime{})
-	gob.Register(qvalue.QValueTimeTZ{})
-	gob.Register(qvalue.QValueInterval{})
-	gob.Register(qvalue.QValueNumeric{})
-	gob.Register(qvalue.QValueBytes{})
-	gob.Register(qvalue.QValueUUID{})
-	gob.Register(qvalue.QValueJSON{})
-	gob.Register(qvalue.QValueHStore{})
-	gob.Register(qvalue.QValueGeography{})
-	gob.Register(qvalue.QValueGeometry{})
-	gob.Register(qvalue.QValuePoint{})
-	gob.Register(qvalue.QValueCIDR{})
-	gob.Register(qvalue.QValueINET{})
-	gob.Register(qvalue.QValueMacaddr{})
-	gob.Register(qvalue.QValueArrayFloat32{})
-	gob.Register(qvalue.QValueArrayFloat64{})
-	gob.Register(qvalue.QValueArrayInt16{})
-	gob.Register(qvalue.QValueArrayInt32{})
-	gob.Register(qvalue.QValueArrayInt64{})
-	gob.Register(qvalue.QValueArrayString{})
-	gob.Register(qvalue.QValueArrayDate{})
-	gob.Register(qvalue.QValueArrayTimestamp{})
-	gob.Register(qvalue.QValueArrayTimestampTZ{})
-	gob.Register(qvalue.QValueArrayBoolean{})
+	gob.Register(types.QValueNull(""))
+	gob.Register(types.QValueInvalid{})
+	gob.Register(types.QValueFloat32{})
+	gob.Register(types.QValueFloat64{})
+	gob.Register(types.QValueInt8{})
+	gob.Register(types.QValueInt16{})
+	gob.Register(types.QValueInt32{})
+	gob.Register(types.QValueInt64{})
+	gob.Register(types.QValueUInt8{})
+	gob.Register(types.QValueUInt16{})
+	gob.Register(types.QValueUInt32{})
+	gob.Register(types.QValueUInt64{})
+	gob.Register(types.QValueBoolean{})
+	gob.Register(types.QValueQChar{})
+	gob.Register(types.QValueString{})
+	gob.Register(types.QValueEnum{})
+	gob.Register(types.QValueTimestamp{})
+	gob.Register(types.QValueTimestampTZ{})
+	gob.Register(types.QValueDate{})
+	gob.Register(types.QValueTime{})
+	gob.Register(types.QValueTimeTZ{})
+	gob.Register(types.QValueInterval{})
+	gob.Register(types.QValueNumeric{})
+	gob.Register(types.QValueBytes{})
+	gob.Register(types.QValueUUID{})
+	gob.Register(types.QValueJSON{})
+	gob.Register(types.QValueHStore{})
+	gob.Register(types.QValueGeography{})
+	gob.Register(types.QValueGeometry{})
+	gob.Register(types.QValuePoint{})
+	gob.Register(types.QValueCIDR{})
+	gob.Register(types.QValueINET{})
+	gob.Register(types.QValueMacaddr{})
+	gob.Register(types.QValueArrayFloat32{})
+	gob.Register(types.QValueArrayFloat64{})
+	gob.Register(types.QValueArrayInt16{})
+	gob.Register(types.QValueArrayInt32{})
+	gob.Register(types.QValueArrayInt64{})
+	gob.Register(types.QValueArrayString{})
+	gob.Register(types.QValueArrayEnum{})
+	gob.Register(types.QValueArrayDate{})
+	gob.Register(types.QValueArrayTimestamp{})
+	gob.Register(types.QValueArrayTimestampTZ{})
+	gob.Register(types.QValueArrayBoolean{})
+	gob.Register(types.QValueTSTZRange{})
+	gob.Register(types.QValueArrayUUID{})
+	gob.Register(types.QValueArrayNumeric{})
 }
 
 func (c *cdcStore[T]) initPebbleDB() error {
@@ -142,7 +151,7 @@ func (c *cdcStore[T]) initPebbleDB() error {
 }
 
 func (c *cdcStore[T]) diskSpillThresholdsExceeded() bool {
-	if len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
+	if c.numRecordsSwitchThreshold >= 0 && len(c.inMemoryRecords) >= c.numRecordsSwitchThreshold {
 		c.thresholdReason = fmt.Sprintf("more than %d primary keys read, spilling to disk",
 			c.numRecordsSwitchThreshold)
 		return true
@@ -184,10 +193,9 @@ func (c *cdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.
 				return err
 			}
 			// we're using Pebble as a cache, no need for durability here.
-			err = c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
+			if err := c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
 				Sync: false,
-			})
-			if err != nil {
+			}); err != nil {
 				return fmt.Errorf("unable to store value in Pebble: %w", err)
 			}
 		}
@@ -216,8 +224,7 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 			}
 		}
 		defer func() {
-			err := closer.Close()
-			if err != nil {
+			if err := closer.Close(); err != nil {
 				slog.Warn("failed to close database",
 					slog.Any("error", err),
 					slog.String("flowName", c.flowJobName))
@@ -226,8 +233,7 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 
 		dec := gob.NewDecoder(bytes.NewReader(encodedRec))
 		var rec model.Record[T]
-		err = dec.Decode(&rec)
-		if err != nil {
+		if err := dec.Decode(&rec); err != nil {
 			return nil, false, fmt.Errorf("failed to decode record: %w", err)
 		}
 
@@ -247,13 +253,11 @@ func (c *cdcStore[T]) IsEmpty() bool {
 func (c *cdcStore[T]) Close() error {
 	c.inMemoryRecords = nil
 	if c.pebbleDB != nil {
-		err := c.pebbleDB.Close()
-		if err != nil {
+		if err := c.pebbleDB.Close(); err != nil {
 			return fmt.Errorf("failed to close database: %w", err)
 		}
 	}
-	err := os.RemoveAll(c.dbFolderName)
-	if err != nil {
+	if err := os.RemoveAll(c.dbFolderName); err != nil {
 		return fmt.Errorf("failed to delete database file: %w", err)
 	}
 	return nil

@@ -1,6 +1,7 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { blankBigquerySetting } from '@/app/peers/create/[peerType]/helpers/bq';
+import InfoPopover from '@/components/InfoPopover';
 import { BigqueryConfig } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
@@ -8,7 +9,6 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useState } from 'react';
-import { InfoPopover } from '../InfoPopover';
 
 interface BQProps {
   setter: PeerSetter;
@@ -68,7 +68,7 @@ export default function BigqueryForm(props: BQProps) {
             Service Account JSON
             <Tooltip
               style={{ width: '100%' }}
-              content={'This is a required field.'}
+              content='This is a required field.'
             >
               <Label colorName='lowContrast' colorSet='destructive'>
                 *
@@ -94,7 +94,7 @@ export default function BigqueryForm(props: BQProps) {
             Dataset ID
             <Tooltip
               style={{ width: '100%' }}
-              content={'This is a required field.'}
+              content='This is a required field.'
             >
               <Label colorName='lowContrast' colorSet='destructive'>
                 *
@@ -121,7 +121,7 @@ export default function BigqueryForm(props: BQProps) {
               }}
             />
             <InfoPopover
-              tips={'ID of the dataset containing the tables you want to sync.'}
+              tips='ID of the dataset containing the tables you want to sync.'
               link='https://cloud.google.com/bigquery/docs/datasets'
             />
           </div>

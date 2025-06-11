@@ -1,37 +1,37 @@
 package model
 
 import (
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRecordStream struct {
 	schemaLatch chan struct{}
-	Records     chan []qvalue.QValue
+	Records     chan []types.QValue
 	err         error
-	schema      qvalue.QRecordSchema
+	schema      types.QRecordSchema
 	schemaSet   bool
 }
 
 func NewQRecordStream(buffer int) *QRecordStream {
 	return &QRecordStream{
 		schemaLatch: make(chan struct{}),
-		Records:     make(chan []qvalue.QValue, buffer),
-		schema:      qvalue.QRecordSchema{},
+		Records:     make(chan []types.QValue, buffer),
+		schema:      types.QRecordSchema{},
 		err:         nil,
 		schemaSet:   false,
 	}
 }
 
-func (s *QRecordStream) Schema() qvalue.QRecordSchema {
+func (s *QRecordStream) Schema() (types.QRecordSchema, error) {
 	<-s.schemaLatch
-	return s.schema
+	return s.schema, s.Err()
 }
 
-func (s *QRecordStream) SetSchema(schema qvalue.QRecordSchema) {
+func (s *QRecordStream) SetSchema(schema types.QRecordSchema) {
 	if !s.schemaSet {
 		s.schema = schema
-		close(s.schemaLatch)
 		s.schemaSet = true
+		close(s.schemaLatch)
 	}
 }
 
@@ -54,5 +54,8 @@ func (s *QRecordStream) Close(err error) {
 	if s.err == nil {
 		s.err = err
 		close(s.Records)
+	}
+	if !s.schemaSet {
+		s.SetSchema(types.QRecordSchema{})
 	}
 }

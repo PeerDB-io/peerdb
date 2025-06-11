@@ -11,10 +11,9 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import { GetScriptById, HandleAddScript, HandleEditScript } from '../handlers';
 
-const EditScript = () => {
+export default function EditScript() {
   const params = useSearchParams();
   const router = useRouter();
   const scriptId = params.get('scriptid');
@@ -181,6 +180,4 @@ end`,
       <ToastContainer />
     </div>
   );
-};
-
-export default EditScript;
+}

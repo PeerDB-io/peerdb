@@ -1,6 +1,7 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
+import InfoPopover from '@/components/InfoPopover';
 import { Button } from '@/lib/Button/Button';
 import { Icon } from '@/lib/Icon/Icon';
 import { Label } from '@/lib/Label';
@@ -10,7 +11,8 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import Link from 'next/link';
 import { useState } from 'react';
-import { InfoPopover } from '../InfoPopover';
+import { handleFieldChange } from './common';
+
 interface ConfigProps {
   settings: PeerSetting[];
   setter: PeerSetter;
@@ -18,48 +20,11 @@ interface ConfigProps {
 
 export default function ClickHouseForm({ settings, setter }: ConfigProps) {
   const [show, setShow] = useState(false);
-  const S3Labels = [
-    'S3 Path',
-    'Access Key ID',
-    'Secret Access Key',
-    'Region',
-    'Endpoint',
-  ];
-
-  const handleFile = (
-    file: File,
-    setFile: (value: string, setter: PeerSetter) => void
-  ) => {
-    if (file) {
-      const reader = new FileReader();
-      reader.readAsText(file);
-      reader.onload = () => {
-        setFile(reader.result as string, setter);
-      };
-      reader.onerror = (error) => {
-        console.log(error);
-      };
-    }
-  };
-
-  const handleSwitchChange = (val: string | boolean, setting: PeerSetting) => {
-    setting.stateHandler(val, setter);
-  };
-  const handleTextFieldChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    setting: PeerSetting
-  ) => {
-    if (setting.type === 'file') {
-      if (e.target.files) handleFile(e.target.files[0], setting.stateHandler);
-    } else {
-      setting.stateHandler(e.target.value, setter);
-    }
-  };
 
   return (
     <>
       {settings
-        .filter((setting) => !S3Labels.includes(setting.label))
+        .filter((setting) => !setting.s3)
         .map((setting, id) => {
           return setting.type == 'switch' ? (
             <RowWithSwitch
@@ -70,7 +35,7 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
                   {!setting.optional && (
                     <Tooltip
                       style={{ width: '100%' }}
-                      content={'This is a required field.'}
+                      content='This is a required field.'
                     >
                       <Label colorName='lowContrast' colorSet='destructive'>
                         *
@@ -82,8 +47,8 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
               action={
                 <div>
                   <Switch
-                    onCheckedChange={(state: boolean) =>
-                      handleSwitchChange(state, setting)
+                    onCheckedChange={(val: boolean) =>
+                      setting.stateHandler(val, setter)
                     }
                   />
                   {setting.tips && (
@@ -104,7 +69,7 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
                   {!setting.optional && (
                     <Tooltip
                       style={{ width: '100%' }}
-                      content={'This is a required field.'}
+                      content='This is a required field.'
                     >
                       <Label colorName='lowContrast' colorSet='destructive'>
                         *
@@ -131,7 +96,7 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
                     type={setting.type}
                     defaultValue={setting.default}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      handleTextFieldChange(e, setting)
+                      handleFieldChange(e, setting, setter)
                     }
                   />
                   {setting.tips && (
@@ -186,7 +151,7 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
 
       {show &&
         settings
-          .filter((setting) => S3Labels.includes(setting.label))
+          .filter((setting) => setting.s3)
           .map((setting, id) => (
             <RowWithTextField
               key={id}
@@ -202,7 +167,7 @@ export default function ClickHouseForm({ settings, setter }: ConfigProps) {
                   <TextField
                     variant='simple'
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      handleSwitchChange(e.target.value, setting)
+                      handleFieldChange(e, setting, setter)
                     }
                     type={setting.type}
                     placeholder={setting.placeholder}

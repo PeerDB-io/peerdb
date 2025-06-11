@@ -12,14 +12,13 @@ import (
 	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
-	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/pua"
-	"github.com/PeerDB-io/peer-flow/shared"
+	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/pua"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type EventHubConnector struct {
@@ -35,7 +34,7 @@ func NewEventHubConnector(
 	ctx context.Context,
 	config *protos.EventHubGroupConfig,
 ) (*EventHubConnector, error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	defaultAzureCreds, err := azidentity.NewDefaultAzureCredential(nil)
 	if err != nil {
 		logger.Error("failed to get default azure credentials", "error", err)
@@ -73,14 +72,6 @@ func (c *EventHubConnector) Close() error {
 }
 
 func (c *EventHubConnector) ConnectionActive(ctx context.Context) error {
-	return nil
-}
-
-func (c *EventHubConnector) NeedsSetupMetadataTables(_ context.Context) bool {
-	return false
-}
-
-func (c *EventHubConnector) SetupMetadataTables(_ context.Context) error {
 	return nil
 }
 
@@ -184,7 +175,7 @@ func (c *EventHubConnector) processBatch(
 	batchPerTopic := NewHubBatches(c.hubManager)
 	toJSONOpts := model.NewToJSONOptions(c.config.UnnestColumns, false)
 
-	flushTimeout, err := peerdbenv.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+	flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get flush timeout: %w", err)
 	}
@@ -297,7 +288,7 @@ func (c *EventHubConnector) processBatch(
 						partitionKey = fmt.Sprint(partitionValue)
 					}
 
-					partitionKey = utils.HashedPartitionKey(partitionKey, ehConfig.PartitionCount)
+					partitionKey = HashedPartitionKey(partitionKey, ehConfig.PartitionCount)
 					event.Hub.PartitionKeyValue = partitionKey
 				}
 				err := batchPerTopic.AddEvent(ctx, event.Hub, event.Data, false)
@@ -320,7 +311,7 @@ func (c *EventHubConnector) processBatch(
 			if err != nil {
 				return 0, err
 			} else if lastSeenLSN > req.ConsumedOffset.Load() {
-				if err := c.SetLastOffset(ctx, req.FlowJobName, lastSeenLSN); err != nil {
+				if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeenLSN}); err != nil {
 					c.logger.Warn("[eventhubs] SetLastOffset error", slog.Any("error", err))
 				} else {
 					shared.AtomicInt64Max(req.ConsumedOffset, lastSeenLSN)
@@ -339,18 +330,17 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
 
 	return &model.SyncResponse{
-		CurrentSyncBatchID:     req.SyncBatchID,
-		LastSyncedCheckpointID: lastCheckpoint,
-		NumRecordsSynced:       int64(numRecords),
-		TableNameRowsMapping:   make(map[string]*model.RecordTypeCounts),
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		CurrentSyncBatchID:   req.SyncBatchID,
+		LastSyncedCheckpoint: lastCheckpoint,
+		NumRecordsSynced:     int64(numRecords),
+		TableNameRowsMapping: make(map[string]*model.RecordTypeCounts),
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 
@@ -368,8 +358,7 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 			return nil, err
 		}
 
-		err = c.hubManager.EnsureEventHubExists(ctx, name)
-		if err != nil {
+		if err := c.hubManager.EnsureEventHubExists(ctx, name); err != nil {
 			c.logger.Error("failed to ensure eventhub exists",
 				slog.Any("error", err), slog.String("destinationTable", destinationTable))
 			return nil, err
@@ -381,7 +370,9 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}, nil
 }
 
-func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error {
+func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
+	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+) error {
 	c.logger.Info("ReplayTableSchemaDeltas for event hub is a no-op")
 	return nil
 }

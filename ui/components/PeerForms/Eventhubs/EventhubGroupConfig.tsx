@@ -7,14 +7,13 @@ import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { useEffect, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
-import 'react-toastify/dist/ReactToastify.css';
 import EventhubsConfig from './EventhubConfig';
 interface EventhubsProps {
   groupConfig: EventHubGroupConfig;
   setter: PeerSetter;
 }
 
-const EventhubsForm = ({ groupConfig, setter }: EventhubsProps) => {
+export default function EventhubsForm({ groupConfig, setter }: EventhubsProps) {
   const [currConfigForms, setCurrConfigForms] = useState<
     (EventHubConfig & { id: number })[]
   >([]);
@@ -76,9 +75,7 @@ const EventhubsForm = ({ groupConfig, setter }: EventhubsProps) => {
       >
         <Icon name='add' /> Namespace
       </Button>
-      <ToastContainer containerId={'for eventhubs'} />
+      <ToastContainer containerId='for eventhubs' />
     </div>
   );
-};
-
-export default EventhubsForm;
+}

@@ -6,6 +6,7 @@ import {
   ElasticsearchConfig,
   EventHubGroupConfig,
   KafkaConfig,
+  MySqlConfig,
   Peer,
   PostgresConfig,
   PubSubConfig,
@@ -30,6 +31,7 @@ import {
   ehGroupSchema,
   esSchema,
   kaSchema,
+  mySchema,
   peerNameSchema,
   pgSchema,
   psSchema,
@@ -48,6 +50,12 @@ function constructPeer(
         name,
         type: DBType.POSTGRES,
         postgresConfig: config as PostgresConfig,
+      };
+    case 'MYSQL':
+      return {
+        name,
+        type: DBType.MYSQL,
+        mysqlConfig: config as MySqlConfig,
       };
     case 'SNOWFLAKE':
       return {
@@ -102,21 +110,20 @@ function constructPeer(
   }
 }
 
-const GetClickHouseAllowedDomains = async (): Promise<string[]> => {
+async function GetClickHouseAllowedDomains(): Promise<string[]> {
   const response = await fetch('/api/peer-types/validation/clickhouse', {
     method: 'GET',
     cache: 'force-cache',
   });
-  const hostDomains: string[] = await response.json();
-  return hostDomains;
-};
+  return response.json();
+}
 
-const validateFields = async (
+async function validateFields(
   type: string,
   config: PeerConfig,
   notify: (msg: string) => void,
   name?: string
-): Promise<boolean> => {
+): Promise<boolean> {
   const peerNameValid = peerNameSchema.safeParse(name);
   if (!peerNameValid.success) {
     const peerNameErr = peerNameValid.error.issues[0].message;
@@ -137,6 +144,10 @@ const validateFields = async (
     case 'POSTGRES':
       const pgConfig = pgSchema.safeParse(config);
       if (!pgConfig.success) validationErr = pgConfig.error.issues[0].message;
+      break;
+    case 'MYSQL':
+      const myConfig = mySchema.safeParse(config);
+      if (!myConfig.success) validationErr = myConfig.error.issues[0].message;
       break;
     case 'SNOWFLAKE':
       const sfConfig = sfSchema.safeParse(config);
@@ -180,16 +191,16 @@ const validateFields = async (
     return false;
   }
   return true;
-};
+}
 
 // API call to validate peer
-export const handleValidate = async (
+export async function handleValidate(
   type: string,
   config: PeerConfig,
   notify: (msg: string, success?: boolean) => void,
   setLoading: Dispatch<SetStateAction<boolean>>,
   name?: string
-) => {
+) {
   const isValid = await validateFields(type, config, notify, name);
   if (!isValid) return;
   setLoading(true);
@@ -209,14 +220,14 @@ export const handleValidate = async (
   }
   notify('Peer is valid', true);
   setLoading(false);
-};
+}
 
-const S3Validation = (config: S3Config): string => {
+function S3Validation(config: S3Config): string {
   if (!config.secretAccessKey && !config.accessKeyId && !config.roleArn) {
     return 'Either both access key and secret or role ARN is required';
   }
   return '';
-};
+}
 
 // API call to create peer
 export async function handleCreate(

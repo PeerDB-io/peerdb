@@ -1,19 +1,22 @@
 package e2eshared
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type Suite interface {
-	Teardown()
+	Teardown(context.Context)
 }
 
 func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
@@ -30,7 +33,10 @@ func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
 					subtest.Parallel()
 					suite := setup(subtest)
 					subtest.Cleanup(func() {
-						suite.Teardown()
+						//nolint
+						ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+						defer cancel()
+						suite.Teardown(ctx)
 					})
 					m.Func.Call([]reflect.Value{reflect.ValueOf(suite)})
 				})
@@ -39,27 +45,42 @@ func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
 	}
 }
 
-// ReadFileToBytes reads a file to a byte array.
-func ReadFileToBytes(path string) ([]byte, error) {
-	var ret []byte
+func RunSuiteNoParallel[T Suite](t *testing.T, setup func(t *testing.T) T) {
+	t.Helper()
 
+	typ := reflect.TypeFor[T]()
+	mcount := typ.NumMethod()
+	for i := range mcount {
+		m := typ.Method(i)
+		if strings.HasPrefix(m.Name, "Test") {
+			if m.Type.NumIn() == 1 && m.Type.NumOut() == 0 {
+				t.Run(m.Name, func(subtest *testing.T) {
+					suite := setup(subtest)
+					subtest.Cleanup(func() {
+						//nolint
+						ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+						defer cancel()
+						suite.Teardown(ctx)
+					})
+					m.Func.Call([]reflect.Value{reflect.ValueOf(suite)})
+				})
+			}
+		}
+	}
+}
+
+func ReadFileToBytes(path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return ret, fmt.Errorf("failed to open file: %w", err)
+		return nil, fmt.Errorf("failed to open file: %w", err)
 	}
-
 	defer f.Close()
 
-	ret, err = io.ReadAll(f)
-	if err != nil {
-		return ret, fmt.Errorf("failed to read file: %w", err)
-	}
-
-	return ret, nil
+	return io.ReadAll(f)
 }
 
 // checks if two QRecords are identical
-func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue) bool {
+func CheckQRecordEquality(t *testing.T, q []types.QValue, other []types.QValue) bool {
 	t.Helper()
 
 	if len(q) != len(other) {

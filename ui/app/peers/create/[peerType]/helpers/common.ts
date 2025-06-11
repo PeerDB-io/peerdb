@@ -4,6 +4,7 @@ import { blankClickHouseSetting } from './ch';
 import { blankEventHubGroupSetting } from './eh';
 import { blankElasticsearchSetting } from './es';
 import { blankKafkaSetting } from './ka';
+import { blankMySqlSetting } from './my';
 import { blankPostgresSetting } from './pg';
 import { blankPubSubSetting } from './ps';
 import { blankS3Setting } from './s3';
@@ -20,12 +21,15 @@ export interface PeerSetting {
   default?: string | number;
   placeholder?: string;
   options?: { value: string; label: string }[];
+  s3?: true | undefined;
 }
 
-export const getBlankSetting = (dbType: string): PeerConfig => {
+export function getBlankSetting(dbType: string): PeerConfig {
   switch (dbType) {
     case 'POSTGRES':
       return blankPostgresSetting;
+    case 'MYSQL':
+      return blankMySqlSetting;
     case 'SNOWFLAKE':
       return blankSnowflakeSetting;
     case 'BIGQUERY':
@@ -45,4 +49,4 @@ export const getBlankSetting = (dbType: string): PeerConfig => {
     default:
       return blankPostgresSetting;
   }
-};
+}

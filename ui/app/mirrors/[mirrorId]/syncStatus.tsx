@@ -1,6 +1,6 @@
 'use client';
 import { fetcher } from '@/app/utils/swr';
-import { CDCBatch, CDCTableTotalCountsResponse } from '@/grpc_generated/route';
+import { CDCTableTotalCountsResponse } from '@/grpc_generated/route';
 import useSWR from 'swr';
 import CdcGraph from './cdcGraph';
 import RowsDisplay from './rowsDisplay';
@@ -9,10 +9,9 @@ import TableStats from './tableStats';
 
 type SyncStatusProps = {
   flowJobName: string;
-  rows: CDCBatch[];
 };
 
-export default function SyncStatus({ flowJobName, rows }: SyncStatusProps) {
+export default function SyncStatus({ flowJobName }: SyncStatusProps) {
   const {
     data: tableStats,
     error,
@@ -31,9 +30,9 @@ export default function SyncStatus({ flowJobName, rows }: SyncStatusProps) {
       <div>
         <RowsDisplay totalRowsData={tableStats.totalData} />
         <div className='my-10'>
-          <CdcGraph syncs={rows} />
+          <CdcGraph mirrorName={flowJobName} />
         </div>
-        <SyncStatusTable rows={rows} />
+        <SyncStatusTable mirrorName={flowJobName} />
         <TableStats tableSyncs={tableStats.tablesData} />
       </div>
     )

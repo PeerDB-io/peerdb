@@ -2,7 +2,7 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { ehSetting } from '@/app/peers/create/[peerType]/helpers/eh';
 import { notifyErr } from '@/app/utils/notify';
-import { InfoPopover } from '@/components/InfoPopover';
+import InfoPopover from '@/components/InfoPopover';
 import { EventHubConfig } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
@@ -27,11 +27,11 @@ interface EventhubConfigProps {
   onDelete: () => void;
 }
 
-const EventhubsConfig = ({
+export default function EventhubsConfig({
   eventhubConfig,
   updateForms,
   onDelete,
-}: EventhubConfigProps) => {
+}: EventhubConfigProps) {
   const [ehConfig, setEhConfig] = useState<
     EventHubConfig & {
       id: number;
@@ -104,7 +104,7 @@ const EventhubsConfig = ({
                   {!setting.optional && (
                     <Tooltip
                       style={{ width: '100%' }}
-                      content={'This is a required field.'}
+                      content='This is a required field.'
                     >
                       <Label colorName='lowContrast' colorSet='destructive'>
                         *
@@ -183,6 +183,4 @@ const EventhubsConfig = ({
       </div>
     </div>
   );
-};
-
-export default EventhubsConfig;
+}

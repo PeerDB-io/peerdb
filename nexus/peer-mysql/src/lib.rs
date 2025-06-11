@@ -59,7 +59,11 @@ impl MySqlQueryExecutor {
 
 #[async_trait::async_trait]
 impl QueryExecutor for MySqlQueryExecutor {
-    // #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
+    async fn execute_raw(&self, query: &str) -> PgWireResult<QueryOutput> {
+        let cursor = self.query(query.to_string()).await?;
+        Ok(QueryOutput::Stream(Box::pin(cursor)))
+    }
+
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         // only support SELECT statements
         match stmt {
@@ -155,7 +159,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                             "ERROR".to_owned(),
                             "fdw_error".to_owned(),
                             "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
-                        ))))
+                        ))));
                     }
                 };
 

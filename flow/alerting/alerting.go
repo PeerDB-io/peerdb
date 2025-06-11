@@ -5,24 +5,35 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jackc/pgx/v5/pgconn"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
+	"go.temporal.io/sdk/log"
+	"golang.org/x/crypto/ssh"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared/telemetry"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
 // alerting service, no cool name :(
 type Alerter struct {
-	catalogPool     *pgxpool.Pool
-	telemetrySender telemetry.Sender
+	shared.CatalogPool
+	snsTelemetrySender        telemetry.Sender
+	incidentIoTelemetrySender telemetry.Sender
+	otelManager               *otel_metrics.OtelManager
 }
 
 type AlertSenderConfig struct {
@@ -37,20 +48,56 @@ type AlertKeys struct {
 	SlotName string
 }
 
+// doesn't take care of closing pool, needs to be done externally.
+func NewAlerter(ctx context.Context, catalogPool shared.CatalogPool, otelManager *otel_metrics.OtelManager) *Alerter {
+	if catalogPool.Pool == nil {
+		panic("catalog pool is nil for Alerter")
+	}
+	snsTopic := internal.PeerDBTelemetryAWSSNSTopicArn()
+	var snsMessageSender telemetry.Sender
+	if snsTopic != "" {
+		var err error
+		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
+			Topic: snsTopic,
+		})
+		internal.LoggerFromCtx(ctx).Info("Successfully registered sns telemetry sender")
+		if err != nil {
+			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
+		}
+	}
+
+	incidentIoURL := internal.PeerDBGetIncidentIoUrl()
+	incidentIoAuth := internal.PeerDBGetIncidentIoToken()
+	var incidentIoTelemetrySender telemetry.Sender
+	if incidentIoURL != "" && incidentIoAuth != "" {
+		var err error
+		incidentIoTelemetrySender, err = telemetry.NewIncidentIoMessageSender(ctx, telemetry.IncidentIoMessageSenderConfig{
+			URL:   incidentIoURL,
+			Token: incidentIoAuth,
+		})
+		internal.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
+		if err != nil {
+			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
+		}
+	}
+
+	return &Alerter{
+		CatalogPool:               catalogPool,
+		snsTelemetrySender:        snsMessageSender,
+		incidentIoTelemetrySender: incidentIoTelemetrySender,
+		otelManager:               otelManager,
+	}
+}
+
 func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderConfig, error) {
-	rows, err := a.catalogPool.Query(ctx,
-		`SELECT
-			id,
-			service_type,
-			service_config,
-			enc_key_id,
-			alert_for_mirrors
+	rows, err := a.CatalogPool.Query(ctx,
+		`SELECT id, service_type, service_config, enc_key_id, alert_for_mirrors
 		FROM peerdb_stats.alerting_config`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read alerter config from catalog: %w", err)
 	}
 
-	keys := peerdbenv.PeerDBEncKeys()
+	keys := internal.PeerDBEncKeys(ctx)
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (AlertSenderConfig, error) {
 		var alertSenderConfig AlertSenderConfig
 		var serviceType ServiceType
@@ -82,12 +129,12 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 		case EMAIL:
 			var replyToAddresses []string
 			if replyToEnvString := strings.TrimSpace(
-				peerdbenv.PeerDBAlertingEmailSenderReplyToAddresses()); replyToEnvString != "" {
+				internal.PeerDBAlertingEmailSenderReplyToAddresses()); replyToEnvString != "" {
 				replyToAddresses = strings.Split(replyToEnvString, ",")
 			}
 			emailServiceConfig := EmailAlertSenderConfig{
-				sourceEmail:          peerdbenv.PeerDBAlertingEmailSenderSourceEmail(),
-				configurationSetName: peerdbenv.PeerDBAlertingEmailSenderConfigurationSet(),
+				sourceEmail:          internal.PeerDBAlertingEmailSenderSourceEmail(),
+				configurationSetName: internal.PeerDBAlertingEmailSenderConfigurationSet(),
 				replyToAddresses:     replyToAddresses,
 			}
 			if emailServiceConfig.sourceEmail == "" {
@@ -97,7 +144,7 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 				return alertSenderConfig, fmt.Errorf("failed to unmarshal %s service config: %w", serviceType, err)
 			}
 			var region *string
-			if envRegion := peerdbenv.PeerDBAlertingEmailSenderRegion(); envRegion != "" {
+			if envRegion := internal.PeerDBAlertingEmailSenderRegion(); envRegion != "" {
 				region = &envRegion
 			}
 
@@ -114,78 +161,64 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 	})
 }
 
-// doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(ctx context.Context, catalogPool *pgxpool.Pool) *Alerter {
-	if catalogPool == nil {
-		panic("catalog pool is nil for Alerter")
-	}
-	snsTopic := peerdbenv.PeerDBTelemetryAWSSNSTopicArn()
-	var snsMessageSender telemetry.Sender
-	if snsTopic != "" {
-		var err error
-		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
-			Topic: snsTopic,
-		})
-		logger.LoggerFromCtx(ctx).Info("Successfully registered telemetry sender")
-		if err != nil {
-			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
-		}
-	}
-	return &Alerter{
-		catalogPool:     catalogPool,
-		telemetrySender: snsMessageSender,
-	}
-}
-
 func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slotInfo *protos.SlotInfo) {
 	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
 		return
 	}
 
 	deploymentUIDPrefix := ""
-	if peerdbenv.PeerDBDeploymentUID() != "" {
-		deploymentUIDPrefix = fmt.Sprintf("[%s] ", peerdbenv.PeerDBDeploymentUID())
+	if internal.PeerDBDeploymentUID() != "" {
+		deploymentUIDPrefix = fmt.Sprintf("[%s] ", internal.PeerDBDeploymentUID())
 	}
 
-	defaultSlotLagMBAlertThreshold, err := peerdbenv.PeerDBSlotLagMBAlertThreshold(ctx, nil)
+	defaultSlotLagMBAlertThreshold, err := internal.PeerDBSlotLagMBAlertThreshold(ctx, nil)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to get slot lag alert threshold from catalog", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).Warn("failed to get slot lag alert threshold from catalog", slog.Any("error", err))
 		return
 	}
+
 	// catalog cannot use default threshold to space alerts properly, use the lowest set threshold instead
 	lowestSlotLagMBAlertThreshold := defaultSlotLagMBAlertThreshold
-	for _, alertSender := range alertSenderConfigs {
-		if alertSender.Sender.getSlotLagMBAlertThreshold() > 0 {
-			lowestSlotLagMBAlertThreshold = min(lowestSlotLagMBAlertThreshold, alertSender.Sender.getSlotLagMBAlertThreshold())
+	var alertSendersForMirrors []AlertSenderConfig
+	for _, alertSenderConfig := range alertSenderConfigs {
+		if len(alertSenderConfig.AlertForMirrors) == 0 || slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
+			alertSendersForMirrors = append(alertSendersForMirrors, alertSenderConfig)
+			if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
+				lowestSlotLagMBAlertThreshold = min(lowestSlotLagMBAlertThreshold, alertSenderConfig.Sender.getSlotLagMBAlertThreshold())
+			}
 		}
 	}
 
-	alertKey := fmt.Sprintf("%s Slot Lag Threshold Exceeded for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
-	alertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
+	thresholdAlertKey := fmt.Sprintf("%s Slot Lag Threshold Exceeded for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
+	thresholdAlertMessageTemplate := fmt.Sprintf("%sSlot `%s` on peer `%s` has exceeded threshold size of %%dMB, "+
 		`currently at %.2fMB!`, deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.LagInMb)
 
-	if slotInfo.LagInMb > float32(lowestSlotLagMBAlertThreshold) {
-		for _, alertSenderConfig := range alertSenderConfigs {
-			if len(alertSenderConfig.AlertForMirrors) > 0 &&
-				!slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
-				continue
-			}
-			if a.checkAndAddAlertToCatalog(ctx,
-				alertSenderConfig.Id, alertKey, fmt.Sprintf(alertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
-				if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
-					if slotInfo.LagInMb > float32(alertSenderConfig.Sender.getSlotLagMBAlertThreshold()) {
-						a.alertToProvider(ctx, alertSenderConfig, alertKey,
-							fmt.Sprintf(alertMessageTemplate, alertSenderConfig.Sender.getSlotLagMBAlertThreshold()))
-					}
-				} else {
-					if slotInfo.LagInMb > float32(defaultSlotLagMBAlertThreshold) {
-						a.alertToProvider(ctx, alertSenderConfig, alertKey,
-							fmt.Sprintf(alertMessageTemplate, defaultSlotLagMBAlertThreshold))
-					}
+	badWalStatusAlertKey := fmt.Sprintf("%s Bad WAL Status for Peer %s", deploymentUIDPrefix, alertKeys.PeerName)
+	badWalStatusAlertMessage := fmt.Sprintf("%sSlot `%s` on peer `%s` has bad WAL status: `%s`",
+		deploymentUIDPrefix, slotInfo.SlotName, alertKeys.PeerName, slotInfo.WalStatus)
+
+	for _, alertSenderConfig := range alertSendersForMirrors {
+		if a.checkAndAddAlertToCatalog(ctx,
+			alertSenderConfig.Id, thresholdAlertKey,
+			fmt.Sprintf(thresholdAlertMessageTemplate, lowestSlotLagMBAlertThreshold)) {
+			if alertSenderConfig.Sender.getSlotLagMBAlertThreshold() > 0 {
+				if slotInfo.LagInMb > float32(alertSenderConfig.Sender.getSlotLagMBAlertThreshold()) {
+					a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
+						fmt.Sprintf(thresholdAlertMessageTemplate, alertSenderConfig.Sender.getSlotLagMBAlertThreshold()))
+				}
+			} else {
+				if slotInfo.LagInMb > float32(defaultSlotLagMBAlertThreshold) {
+					a.alertToProvider(ctx, alertSenderConfig, thresholdAlertKey,
+						fmt.Sprintf(thresholdAlertMessageTemplate, defaultSlotLagMBAlertThreshold))
 				}
 			}
+		}
+
+		if (slotInfo.WalStatus == "lost" || slotInfo.WalStatus == "unreserved") &&
+			a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, badWalStatusAlertKey, badWalStatusAlertMessage) {
+			a.alertToProvider(ctx, alertSenderConfig, badWalStatusAlertKey, badWalStatusAlertMessage)
 		}
 	}
 }
@@ -195,19 +228,19 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, alertKeys *AlertKe
 ) {
 	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to set Slack senders", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
 		return
 	}
 
 	deploymentUIDPrefix := ""
-	if peerdbenv.PeerDBDeploymentUID() != "" {
-		deploymentUIDPrefix = fmt.Sprintf("[%s] - ", peerdbenv.PeerDBDeploymentUID())
+	if internal.PeerDBDeploymentUID() != "" {
+		deploymentUIDPrefix = fmt.Sprintf("[%s] - ", internal.PeerDBDeploymentUID())
 	}
 
 	// same as with slot lag, use lowest threshold for catalog
-	defaultOpenConnectionsThreshold, err := peerdbenv.PeerDBOpenConnectionsAlertThreshold(ctx, nil)
+	defaultOpenConnectionsThreshold, err := internal.PeerDBOpenConnectionsAlertThreshold(ctx, nil)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to get open connections alert threshold from catalog", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).Warn("failed to get open connections alert threshold from catalog", slog.Any("error", err))
 		return
 	}
 	lowestOpenConnectionsThreshold := defaultOpenConnectionsThreshold
@@ -247,11 +280,50 @@ func (a *Alerter) AlertIfOpenConnections(ctx context.Context, alertKeys *AlertKe
 	}
 }
 
-func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSenderConfig, alertKey string, alertMessage string) {
-	err := alertSenderConfig.Sender.sendAlert(ctx, alertKey, alertMessage)
+func (a *Alerter) AlertIfTooLongSinceLastNormalize(ctx context.Context, alertKeys *AlertKeys, intervalSinceLastNormalize time.Duration) {
+	intervalSinceLastNormalizeThreshold, err := internal.PeerDBIntervalSinceLastNormalizeThresholdMinutes(ctx, nil)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("error", err))
+		internal.LoggerFromCtx(ctx).
+			Warn("failed to get interval since last normalize threshold from catalog", slog.Any("error", err))
+	}
+
+	if intervalSinceLastNormalizeThreshold == 0 {
+		internal.LoggerFromCtx(ctx).Info("Alerting disabled via environment variable, returning")
 		return
+	}
+	alertSenderConfigs, err := a.registerSendersFromPool(ctx)
+	if err != nil {
+		internal.LoggerFromCtx(ctx).Warn("failed to set alert senders", slog.Any("error", err))
+		return
+	}
+
+	deploymentUIDPrefix := ""
+	if internal.PeerDBDeploymentUID() != "" {
+		deploymentUIDPrefix = fmt.Sprintf("[%s] - ", internal.PeerDBDeploymentUID())
+	}
+
+	if intervalSinceLastNormalize > time.Duration(intervalSinceLastNormalizeThreshold)*time.Minute {
+		alertKey := fmt.Sprintf("%s Too long since last data normalize for PeerDB mirror %s",
+			deploymentUIDPrefix, alertKeys.FlowName)
+		alertMessage := fmt.Sprintf("%sData hasn't been synced to the target for mirror `%s` since the last `%s`."+
+			` This could indicate an issue with the pipeline — please check the UI and logs to confirm.`+
+			` Alternatively, it might be that the source database is idle and not receiving new updates.`, deploymentUIDPrefix,
+			alertKeys.FlowName, intervalSinceLastNormalize)
+
+		for _, alertSenderConfig := range alertSenderConfigs {
+			if len(alertSenderConfig.AlertForMirrors) == 0 ||
+				slices.Contains(alertSenderConfig.AlertForMirrors, alertKeys.FlowName) {
+				if a.checkAndAddAlertToCatalog(ctx, alertSenderConfig.Id, alertKey, alertMessage) {
+					a.alertToProvider(ctx, alertSenderConfig, alertKey, alertMessage)
+				}
+			}
+		}
+	}
+}
+
+func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSenderConfig, alertKey string, alertMessage string) {
+	if err := alertSenderConfig.Sender.sendAlert(ctx, alertKey, alertMessage); err != nil {
+		internal.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("error", err))
 	}
 }
 
@@ -259,56 +331,82 @@ func (a *Alerter) alertToProvider(ctx context.Context, alertSenderConfig AlertSe
 // in the past X minutes, where X is configurable and defaults to 15 minutes
 // returns true if alert added to catalog, so proceed with processing alerts to slack
 func (a *Alerter) checkAndAddAlertToCatalog(ctx context.Context, alertConfigId int64, alertKey string, alertMessage string) bool {
-	dur, err := peerdbenv.PeerDBAlertingGapMinutesAsDuration(ctx, nil)
+	logger := internal.LoggerFromCtx(ctx)
+	dur, err := internal.PeerDBAlertingGapMinutesAsDuration(ctx, nil)
 	if err != nil {
-		logger.LoggerFromCtx(ctx).Warn("failed to get alerting gap duration from catalog", slog.Any("error", err))
+		logger.Warn("failed to get alerting gap duration from catalog", slog.Any("error", err))
 		return false
 	}
 	if dur == 0 {
-		logger.LoggerFromCtx(ctx).Warn("Alerting disabled via environment variable, returning")
+		logger.Warn("Alerting disabled via environment variable, returning")
 		return false
 	}
 
-	row := a.catalogPool.QueryRow(ctx,
+	var createdTimestamp time.Time
+	if err := a.CatalogPool.QueryRow(ctx,
 		`SELECT created_timestamp FROM peerdb_stats.alerts_v1 WHERE alert_key=$1 AND alert_config_id=$2
 		 ORDER BY created_timestamp DESC LIMIT 1`,
-		alertKey, alertConfigId)
-	var createdTimestamp time.Time
-	err = row.Scan(&createdTimestamp)
-	if err != nil && err != pgx.ErrNoRows {
-		logger.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("err", err))
+		alertKey, alertConfigId,
+	).Scan(&createdTimestamp); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		internal.LoggerFromCtx(ctx).Warn("failed to send alert", slog.Any("err", err))
 		return false
 	}
 
 	if time.Since(createdTimestamp) >= dur {
-		_, err = a.catalogPool.Exec(ctx,
+		if _, err := a.CatalogPool.Exec(ctx,
 			"INSERT INTO peerdb_stats.alerts_v1(alert_key,alert_message,alert_config_id) VALUES($1,$2,$3)",
-			alertKey, alertMessage, alertConfigId)
-		if err != nil {
-			logger.LoggerFromCtx(ctx).Warn("failed to insert alert", slog.Any("error", err))
+			alertKey, alertMessage, alertConfigId,
+		); err != nil {
+			internal.LoggerFromCtx(ctx).Warn("failed to insert alert", slog.Any("error", err))
 			return false
 		}
 		return true
 	}
 
-	logger.LoggerFromCtx(ctx).Info(
-		fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was >=%s ago",
-			createdTimestamp.String(), dur.String()))
+	logger.Info(fmt.Sprintf("Skipped sending alerts: last alert was sent at %s, which was <=%s ago", createdTimestamp.String(), dur.String()))
 	return false
 }
 
-func (a *Alerter) sendTelemetryMessage(ctx context.Context, flowName string, more string, level telemetry.Level) {
-	if a.telemetrySender != nil {
-		details := fmt.Sprintf("[%s] %s", flowName, more)
-		_, err := a.telemetrySender.SendMessage(ctx, details, details, telemetry.Attributes{
-			Level:         level,
-			DeploymentUID: peerdbenv.PeerDBDeploymentUID(),
-			Tags:          []string{flowName, peerdbenv.PeerDBDeploymentUID()},
-			Type:          flowName,
-		})
-		if err != nil {
-			logger.LoggerFromCtx(ctx).Warn("failed to send message to telemetrySender", slog.Any("error", err))
-			return
+func (a *Alerter) sendTelemetryMessage(
+	ctx context.Context,
+	logger log.Logger,
+	flowName string,
+	more string,
+	level telemetry.Level,
+	additionalTags ...string,
+) {
+	allTags := []string{flowName, internal.PeerDBDeploymentUID()}
+	allTags = append(allTags, additionalTags...)
+
+	if flowTags, err := GetTags(ctx, a.CatalogPool, flowName); err != nil {
+		logger.Warn("failed to get flow tags", slog.Any("error", err))
+	} else {
+		for key, value := range flowTags {
+			allTags = append(allTags, fmt.Sprintf("%s:%s", key, value))
+		}
+	}
+
+	details := fmt.Sprintf("[%s] %s", flowName, more)
+	attributes := telemetry.Attributes{
+		Level:         level,
+		DeploymentUID: internal.PeerDBDeploymentUID(),
+		Tags:          allTags,
+		Type:          flowName,
+	}
+
+	if a.snsTelemetrySender != nil {
+		if response, err := a.snsTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
+			logger.Warn("failed to send message to snsTelemetrySender", slog.Any("error", err))
+		} else {
+			logger.Debug("received response from snsTelemetrySender", slog.String("response", response))
+		}
+	}
+
+	if a.incidentIoTelemetrySender != nil {
+		if status, err := a.incidentIoTelemetrySender.SendMessage(ctx, details, details, attributes); err != nil {
+			logger.Warn("failed to send message to incidentIoTelemetrySender", slog.Any("error", err))
+		} else {
+			logger.Debug("received response from incident.io", slog.String("response", status))
 		}
 	}
 }
@@ -331,36 +429,85 @@ func (a *Alerter) LogNonFlowCritical(ctx context.Context, eventType telemetry.Ev
 }
 
 func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.EventType, key string, message string, level telemetry.Level) {
-	a.sendTelemetryMessage(ctx, string(eventType)+":"+key, message, level)
+	logger := internal.LoggerFromCtx(ctx)
+	a.sendTelemetryMessage(ctx, logger, string(eventType)+":"+key, message, level)
 }
 
-func (a *Alerter) LogFlowError(ctx context.Context, flowName string, err error) {
-	logger := logger.LoggerFromCtx(ctx)
-	errorWithStack := fmt.Sprintf("%+v", err)
-	logger.Error(err.Error(), slog.Any("stack", errorWithStack))
-	_, err = a.catalogPool.Exec(ctx,
-		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
-		flowName, errorWithStack, "error")
-	if err != nil {
-		logger.Warn("failed to insert flow error", slog.Any("error", err))
-		return
+// LogFlowError pushes the error to the errors table and emits a metric as well as a telemetry message
+func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
+	errorWithStack := fmt.Sprintf("%+v", inErr)
+	logger := internal.LoggerFromCtx(ctx)
+	logger.Error(inErr.Error(), slog.Any("stack", errorWithStack))
+	if _, err := a.CatalogPool.Exec(
+		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
+		flowName, errorWithStack, "error",
+	); err != nil {
+		logger.Error("failed to insert flow error", slog.Any("error", err))
+		return inErr
 	}
-	a.sendTelemetryMessage(ctx, flowName, errorWithStack, telemetry.ERROR)
+
+	var tags []string
+	if errors.Is(inErr, context.Canceled) {
+		tags = append(tags, string(shared.ErrTypeCanceled))
+	}
+	if errors.Is(inErr, io.EOF) || errors.Is(inErr, io.ErrUnexpectedEOF) {
+		tags = append(tags, string(shared.ErrTypeEOF))
+	}
+	if errors.Is(inErr, net.ErrClosed) {
+		tags = append(tags, string(shared.ErrTypeClosed))
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(inErr, &pgErr) {
+		tags = append(tags, "pgcode:"+pgErr.Code)
+	}
+	var myErr *mysql.MyError
+	if errors.As(inErr, &myErr) {
+		tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
+	}
+	var chErr *clickhouse.Exception
+	if errors.As(inErr, &chErr) {
+		tags = append(tags, fmt.Sprintf("chcode:%d", chErr.Code))
+	}
+	var netErr *net.OpError
+	if errors.As(inErr, &netErr) {
+		tags = append(tags, string(shared.ErrTypeNet))
+	}
+	// For SSH connection errors, we currently tag them as "err:Net"
+	var sshErr *ssh.OpenChannelError
+	if errors.As(inErr, &sshErr) {
+		tags = append(tags, string(shared.ErrTypeNet))
+	}
+
+	errorClass, errInfo := GetErrorClass(ctx, inErr)
+	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
+
+	if !internal.PeerDBTelemetryErrorActionBasedAlertingEnabled() || errorClass.ErrorAction() == NotifyTelemetry {
+		a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
+	}
+	errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(
+		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
+		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
+		attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),
+		attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
+	))
+	a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, errorAttributeSet)
+	a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, errorAttributeSet)
+
+	return inErr
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
-	logger.LoggerFromCtx(ctx).Info(info)
-	a.sendTelemetryMessage(ctx, flowName, info, telemetry.INFO)
+	logger := internal.LoggerFromCtx(ctx)
+	logger.Info(info)
+	a.sendTelemetryMessage(ctx, logger, flowName, info, telemetry.INFO)
 }
 
 func (a *Alerter) LogFlowInfo(ctx context.Context, flowName string, info string) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	logger.Info(info)
-	_, err := a.catalogPool.Exec(ctx,
-		"INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
-		flowName, info, "info")
-	if err != nil {
+	if _, err := a.CatalogPool.Exec(
+		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)", flowName, info, "info",
+	); err != nil {
 		logger.Warn("failed to insert flow info", slog.Any("error", err))
-		return
 	}
 }

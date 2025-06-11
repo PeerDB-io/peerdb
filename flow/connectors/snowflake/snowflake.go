@@ -17,15 +17,14 @@ import (
 	"go.temporal.io/sdk/log"
 	"golang.org/x/sync/errgroup"
 
-	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	numeric "github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -67,110 +66,22 @@ const (
 
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
-	checkIfSchemaExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA
-	 WHERE SCHEMA_NAME=?`
-	getLastOffsetSQL            = "SELECT OFFSET FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	setLastOffsetSQL            = "UPDATE %s.%s SET OFFSET=GREATEST(OFFSET, ?) WHERE MIRROR_JOB_NAME=?"
-	getLastSyncBatchID_SQL      = "SELECT SYNC_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	getLastNormalizeBatchID_SQL = "SELECT NORMALIZE_BATCH_ID FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	dropTableIfExistsSQL        = "DROP TABLE IF EXISTS %s.%s"
-	deleteJobMetadataSQL        = "DELETE FROM %s.%s WHERE MIRROR_JOB_NAME=?"
-	dropSchemaIfExistsSQL       = "DROP SCHEMA IF EXISTS %s"
+	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"
 )
 
 type SnowflakeConnector struct {
 	*metadataStore.PostgresMetadata
-	database  *sql.DB
+	*sql.DB
 	logger    log.Logger
 	config    *protos.SnowflakeConfig
 	rawSchema string
-}
-
-// creating this to capture array results from snowflake.
-type ArrayString []string
-
-func (a *ArrayString) Scan(src interface{}) error {
-	switch v := src.(type) {
-	case string:
-		return json.Unmarshal([]byte(v), a)
-	case []byte:
-		return json.Unmarshal(v, a)
-	default:
-		return errors.New("invalid type")
-	}
-}
-
-type UnchangedToastColumnResult struct {
-	TableName             string
-	UnchangedToastColumns ArrayString
-}
-
-func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
-	schemaName := c.rawSchema
-	// check if schema exists
-	var schemaExists sql.NullBool
-	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, schemaName).Scan(&schemaExists)
-	if err != nil {
-		return fmt.Errorf("error while checking if schema exists: %w", err)
-	}
-
-	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
-
-	// In a transaction, create a table, insert a row into the table and then drop the table
-	// If any of these steps fail, the transaction will be rolled back
-	tx, err := c.database.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("failed to begin transaction for table check: %w", err)
-	}
-	// in case we return after error, ensure transaction is rolled back
-	defer func() {
-		deferErr := tx.Rollback()
-		if deferErr != sql.ErrTxDone && deferErr != nil {
-			logger.LoggerFromCtx(ctx).Error("error while rolling back transaction for table check",
-				"error", deferErr)
-		}
-	}()
-
-	if !schemaExists.Valid || !schemaExists.Bool {
-		// create schema
-		_, err = tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, schemaName))
-		if err != nil {
-			return fmt.Errorf("failed to create schema %s: %w", schemaName, err)
-		}
-	}
-
-	// create table
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(createDummyTableSQL, schemaName, dummyTable))
-	if err != nil {
-		return fmt.Errorf("failed to create table: %w", err)
-	}
-
-	// insert row
-	_, err = tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.%s VALUES ('dummy')", schemaName, dummyTable))
-	if err != nil {
-		return fmt.Errorf("failed to insert row: %w", err)
-	}
-
-	// drop table
-	_, err = tx.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, schemaName, dummyTable))
-	if err != nil {
-		return fmt.Errorf("failed to drop table: %w", err)
-	}
-
-	// commit transaction
-	err = tx.Commit()
-	if err != nil {
-		return fmt.Errorf("failed to commit transaction for table check: %w", err)
-	}
-
-	return nil
 }
 
 func NewSnowflakeConnector(
 	ctx context.Context,
 	snowflakeProtoConfig *protos.SnowflakeConfig,
 ) (*SnowflakeConnector, error) {
-	logger := logger.LoggerFromCtx(ctx)
+	logger := internal.LoggerFromCtx(ctx)
 	PrivateKeyRSA, err := shared.DecodePKCS8PrivateKey([]byte(snowflakeProtoConfig.PrivateKey),
 		snowflakeProtoConfig.Password)
 	if err != nil {
@@ -204,8 +115,7 @@ func NewSnowflakeConnector(
 	}
 
 	// checking if connection was actually established, since sql.Open doesn't guarantee that
-	err = database.PingContext(ctx)
-	if err != nil {
+	if err := database.PingContext(ctx); err != nil {
 		return nil, fmt.Errorf("failed to open connection to Snowflake peer: %w", err)
 	}
 
@@ -221,36 +131,106 @@ func NewSnowflakeConnector(
 
 	return &SnowflakeConnector{
 		PostgresMetadata: pgMetadata,
-		database:         database,
+		DB:               database,
 		rawSchema:        rawSchema,
 		logger:           logger,
 		config:           snowflakeProtoConfig,
 	}, nil
 }
 
+// creating this to capture array results from snowflake.
+type ArrayString []string
+
+func (a *ArrayString) Scan(src any) error {
+	switch v := src.(type) {
+	case string:
+		return json.Unmarshal([]byte(v), a)
+	case []byte:
+		return json.Unmarshal(v, a)
+	default:
+		return errors.New("invalid type")
+	}
+}
+
+type UnchangedToastColumnResult struct {
+	TableName             string
+	UnchangedToastColumns ArrayString
+}
+
+func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
+	// check if schema exists
+	schemaExists, err := c.checkIfRawSchemaExists(ctx)
+	if err != nil {
+		return fmt.Errorf("error while checking if schema exists: %w", err)
+	}
+	schemaName := c.rawSchema
+
+	dummyTable := "PEERDB_DUMMY_TABLE_" + shared.RandomString(4)
+
+	// In a transaction, create a table, insert a row into the table and then drop the table
+	// If any of these steps fail, the transaction will be rolled back
+	tx, err := c.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction for table check: %w", err)
+	}
+	// in case we return after error, ensure transaction is rolled back
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			c.logger.Error("error while rolling back transaction for table check", "error", err)
+		}
+	}()
+
+	if !schemaExists {
+		// create schema
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(createSchemaSQL, schemaName)); err != nil {
+			return fmt.Errorf("failed to create schema %s: %w", schemaName, err)
+		}
+	}
+
+	// create table
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(createDummyTableSQL, schemaName, dummyTable)); err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+
+	// insert row
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("INSERT INTO %s.%s VALUES ('dummy')", schemaName, dummyTable)); err != nil {
+		return fmt.Errorf("failed to insert row: %w", err)
+	}
+
+	// drop table
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(dropTableIfExistsSQL, schemaName, dummyTable)); err != nil {
+		return fmt.Errorf("failed to drop table: %w", err)
+	}
+
+	// commit transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction for table check: %w", err)
+	}
+
+	return nil
+}
+
 func (c *SnowflakeConnector) Close() error {
 	if c != nil {
-		err := c.database.Close()
-		if err != nil {
-			return fmt.Errorf("error while closing connection to Snowflake peer: %w", err)
-		}
+		return c.DB.Close()
 	}
 	return nil
 }
 
 func (c *SnowflakeConnector) ConnectionActive(ctx context.Context) error {
 	// This also checks if database exists
-	return c.database.PingContext(ctx)
+	return c.PingContext(ctx)
 }
 
 func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	batchId int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.rawSchema,
+	rows, err := c.QueryContext(ctx, fmt.Sprintf(getDistinctDestinationTableNames, c.rawSchema,
 		rawTableIdentifier, batchId))
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -260,15 +240,17 @@ func (c *SnowflakeConnector) getDistinctTableNamesInBatch(
 	var result pgtype.Text
 	destinationTableNames := make([]string, 0)
 	for rows.Next() {
-		err = rows.Scan(&result)
-		if err != nil {
+		if err := rows.Scan(&result); err != nil {
 			return nil, fmt.Errorf("failed to read row: %w", err)
 		}
-		destinationTableNames = append(destinationTableNames, result.String)
+		if _, ok := tableToSchema[result.String]; ok {
+			destinationTableNames = append(destinationTableNames, result.String)
+		} else {
+			c.logger.Warn("table not found in table to schema mapping", "table", result.String)
+		}
 	}
 
-	err = rows.Err()
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 	return destinationTableNames, nil
@@ -281,7 +263,7 @@ func (c *SnowflakeConnector) getTableNameToUnchangedCols(
 ) (map[string][]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
-	rows, err := c.database.QueryContext(ctx, fmt.Sprintf(getTableNameToUnchangedColsSQL, c.rawSchema,
+	rows, err := c.QueryContext(ctx, fmt.Sprintf(getTableNameToUnchangedColsSQL, c.rawSchema,
 		rawTableIdentifier, batchId))
 	if err != nil {
 		return nil, fmt.Errorf("error while retrieving table names for normalization: %w", err)
@@ -305,20 +287,20 @@ func (c *SnowflakeConnector) getTableNameToUnchangedCols(
 	return resultMap, nil
 }
 
-func (c *SnowflakeConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+func (c *SnowflakeConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
 	return nil, nil
 }
 
-func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+func (c *SnowflakeConnector) FinishSetupNormalizedTables(_ context.Context, _ any) error {
 	return nil
 }
 
-func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *SnowflakeConnector) CleanupSetupNormalizedTables(_ context.Context, _ any) {
 }
 
 func (c *SnowflakeConnector) SetupNormalizedTable(
 	ctx context.Context,
-	tx interface{},
+	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -341,7 +323,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 		return true, nil
 	}
 
-	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(config, normalizedSchemaTable, tableSchema)
+	normalizedTableCreateSQL := generateCreateTableSQLForNormalizedTable(ctx, config, normalizedSchemaTable, tableSchema)
 	if _, err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
 		return false, fmt.Errorf("[sf] error while creating normalized table: %w", err)
 	}
@@ -352,6 +334,7 @@ func (c *SnowflakeConnector) SetupNormalizedTable(
 // This could involve adding or dropping multiple columns.
 func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
+	env map[string]string,
 	flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
@@ -359,7 +342,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		return nil
 	}
 
-	tableSchemaModifyTx, err := c.database.Begin()
+	tableSchemaModifyTx, err := c.Begin()
 	if err != nil {
 		return fmt.Errorf("error starting transaction for schema modification: %w",
 			err)
@@ -377,21 +360,19 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			sfColtype, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(protos.DBType_SNOWFLAKE)
+			qvKind := types.QValueKind(addedColumn.Type)
+			sfColtype, err := qvalue.ToDWHColumnType(
+				ctx, qvKind, env, protos.DBType_SNOWFLAKE, addedColumn, schemaDelta.NullableEnabled,
+			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
 					addedColumn.Type, err)
 			}
 
-			if addedColumn.Type == string(qvalue.QValueKindNumeric) {
-				precision, scale := numeric.GetNumericTypeForWarehouse(addedColumn.TypeModifier, numeric.SnowflakeNumericCompatibility{})
-				sfColtype = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
-			}
-
-			_, err = tableSchemaModifyTx.ExecContext(ctx,
+			if _, err := tableSchemaModifyTx.ExecContext(ctx,
 				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS \"%s\" %s",
-					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype))
-			if err != nil {
+					schemaDelta.DstTableName, strings.ToUpper(addedColumn.Name), sfColtype),
+			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
@@ -402,8 +383,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 	}
 
-	err = tableSchemaModifyTx.Commit()
-	if err != nil {
+	if err := tableSchemaModifyTx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction for table schema modification: %w",
 			err)
 	}
@@ -426,8 +406,7 @@ func (c *SnowflakeConnector) SyncRecords(ctx context.Context, req *model.SyncRec
 		return nil, err
 	}
 
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpointID)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint); err != nil {
 		return nil, err
 	}
 
@@ -452,6 +431,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		FlowJobName: req.FlowJobName,
 		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.rawSchema,
 			rawTableIdentifier)),
+		Env: req.Env,
 	}
 	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
 	destinationTableSchema, err := c.getTableSchema(ctx, qrepConfig.DestinationTableIdentifier)
@@ -459,37 +439,35 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	numRecords, err := avroSyncer.SyncRecords(ctx, destinationTableSchema, stream, req.FlowJobName)
+	numRecords, err := avroSyncer.SyncRecords(ctx, req.Env, destinationTableSchema, stream, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
 
-	err = c.ReplayTableSchemaDeltas(ctx, req.FlowJobName, req.Records.SchemaDeltas)
-	if err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
 	return &model.SyncResponse{
-		LastSyncedCheckpointID: req.Records.GetLastCheckpoint(),
-		NumRecordsSynced:       int64(numRecords),
-		CurrentSyncBatchID:     syncBatchID,
-		TableNameRowsMapping:   tableNameRowsMapping,
-		TableSchemaDeltas:      req.Records.SchemaDeltas,
+		LastSyncedCheckpoint: req.Records.GetLastCheckpoint(),
+		NumRecordsSynced:     numRecords,
+		CurrentSyncBatchID:   syncBatchID,
+		TableNameRowsMapping: tableNameRowsMapping,
+		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 
 // NormalizeRecords normalizes raw table to destination table.
-func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, req.FlowJobName)
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, err
+		return model.NormalizeResponse{}, err
 	}
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
-		return &model.NormalizeResponse{
-			Done:         false,
+		return model.NormalizeResponse{
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
 		}, nil
@@ -505,17 +483,15 @@ func (c *SnowflakeConnector) NormalizeRecords(ctx context.Context, req *model.No
 			},
 		)
 		if mergeErr != nil {
-			return nil, mergeErr
+			return model.NormalizeResponse{}, mergeErr
 		}
 
-		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
-		if err != nil {
-			return nil, err
+		if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId); err != nil {
+			return model.NormalizeResponse{}, err
 		}
 	}
 
-	return &model.NormalizeResponse{
-		Done:         true,
+	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
@@ -529,7 +505,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 	tableToSchema map[string]*protos.TableSchema,
 	peerdbCols *protos.PeerDBColumns,
 ) error {
-	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId)
+	destinationTableNames, err := c.getDistinctTableNamesInBatch(ctx, flowName, batchId, tableToSchema)
 	if err != nil {
 		return err
 	}
@@ -541,7 +517,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 
 	var totalRowsAffected int64 = 0
 	g, gCtx := errgroup.WithContext(ctx)
-	mergeParallelism, err := peerdbenv.PeerDBSnowflakeMergeParallelism(ctx, env)
+	mergeParallelism, err := internal.PeerDBSnowflakeMergeParallelism(ctx, env)
 	if err != nil {
 		return fmt.Errorf("failed to get merge parallelism: %w", err)
 	}
@@ -561,7 +537,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 		}
 
 		g.Go(func() error {
-			mergeStatement, err := mergeGen.generateMergeStmt(tableName)
+			mergeStatement, err := mergeGen.generateMergeStmt(gCtx, env, tableName)
 			if err != nil {
 				return err
 			}
@@ -569,7 +545,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 			startTime := time.Now()
 			c.logger.Info("[merge] merging records...", "destTable", tableName, "batchId", batchId)
 
-			result, err := c.database.ExecContext(gCtx, mergeStatement, tableName)
+			result, err := c.ExecContext(gCtx, mergeStatement, tableName)
 			if err != nil {
 				return fmt.Errorf("failed to merge records into %s (statement: %s): %w",
 					tableName, mergeStatement, err)
@@ -602,13 +578,9 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, req.FlowJobName)
 
-	var schemaExists sql.NullBool
-	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, c.rawSchema).Scan(&schemaExists)
-	if err != nil {
+	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
 		return nil, fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
-	}
-
-	if !schemaExists.Valid || !schemaExists.Bool {
+	} else if !schemaExists {
 		_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
 		if err != nil {
 			return nil, err
@@ -617,15 +589,14 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 	// there is no easy way to check if a table has the same schema in Snowflake,
 	// so just executing the CREATE TABLE IF NOT EXISTS blindly.
 	rawTableIdentifier := getRawTableIdentifier(req.FlowJobName)
-	_, err = c.execWithLogging(ctx,
-		fmt.Sprintf(createRawTableSQL, c.rawSchema, rawTableIdentifier))
-	if err != nil {
+
+	if _, err := c.execWithLogging(ctx,
+		fmt.Sprintf(createRawTableSQL, c.rawSchema, rawTableIdentifier)); err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
 
 	stage := c.getStageNameForJob(req.FlowJobName)
-	err = c.createStage(ctx, stage, &protos.QRepConfig{})
-	if err != nil {
+	if err := c.createStage(ctx, stage, &protos.QRepConfig{}); err != nil {
 		return nil, err
 	}
 
@@ -636,24 +607,30 @@ func (c *SnowflakeConnector) CreateRawTable(ctx context.Context, req *protos.Cre
 
 func (c *SnowflakeConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	ctx = c.withMirrorNameQueryTag(ctx, jobName)
-	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
-	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to clear metadata for sync flow cleanup: %w", err)
-	}
 
-	// delete raw table if exists
-	rawTableIdentifier := getRawTableIdentifier(jobName)
-	_, err = c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier))
-	if err != nil {
-		return fmt.Errorf("[snowflake drop mirror] unable to drop raw table: %w", err)
-	}
-
-	err = c.dropStage(ctx, "", jobName)
-	if err != nil {
-		return err
+	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
+		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
+	} else if schemaExists {
+		// delete raw table if exists
+		rawTableIdentifier := getRawTableIdentifier(jobName)
+		if _, err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, c.rawSchema, rawTableIdentifier)); err != nil {
+			return fmt.Errorf("[snowflake] unable to drop raw table: %w", err)
+		}
+		if err := c.dropStage(ctx, "", jobName); err != nil {
+			return err
+		}
 	}
 
 	return nil
+}
+
+func (c *SnowflakeConnector) checkIfRawSchemaExists(ctx context.Context) (bool, error) {
+	var result pgtype.Bool
+	if err := c.QueryRowContext(ctx, `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.SCHEMATA
+	 WHERE SCHEMA_NAME=?`, c.rawSchema).Scan(&result); err != nil {
+		return false, fmt.Errorf("error while checking if schema %s exists: %w", c.rawSchema, err)
+	}
+	return result.Valid && result.Bool, nil
 }
 
 func (c *SnowflakeConnector) checkIfTableExists(
@@ -662,7 +639,7 @@ func (c *SnowflakeConnector) checkIfTableExists(
 	tableIdentifier string,
 ) (bool, error) {
 	var result pgtype.Bool
-	err := c.database.QueryRowContext(ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier).Scan(&result)
+	err := c.QueryRowContext(ctx, checkIfTableExistsSQL, schemaIdentifier, tableIdentifier).Scan(&result)
 	if err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
@@ -670,6 +647,7 @@ func (c *SnowflakeConnector) checkIfTableExists(
 }
 
 func generateCreateTableSQLForNormalizedTable(
+	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 	dstSchemaTable *utils.SchemaTable,
 	tableSchema *protos.TableSchema,
@@ -678,16 +656,14 @@ func generateCreateTableSQLForNormalizedTable(
 	for _, column := range tableSchema.Columns {
 		genericColumnType := column.Type
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
-		sfColType, err := qvalue.QValueKind(genericColumnType).ToDWHColumnType(protos.DBType_SNOWFLAKE)
+		qvKind := types.QValueKind(genericColumnType)
+		sfColType, err := qvalue.ToDWHColumnType(
+			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, column, tableSchema.NullableEnabled,
+		)
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
 				slog.Any("error", err))
 			continue
-		}
-
-		if genericColumnType == "numeric" {
-			precision, scale := numeric.GetNumericTypeForWarehouse(column.TypeModifier, numeric.SnowflakeNumericCompatibility{})
-			sfColType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
 		}
 
 		var notNull string
@@ -740,7 +716,7 @@ func (c *SnowflakeConnector) RenameTables(
 	req *protos.RenameTablesInput,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
-	renameTablesTx, err := c.database.BeginTx(ctx, nil)
+	renameTablesTx, err := c.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
 	}
@@ -835,8 +811,7 @@ func (c *SnowflakeConnector) RenameTables(
 		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
 	}
 
-	err = renameTablesTx.Commit()
-	if err != nil {
+	if err := renameTablesTx.Commit(); err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for rename tables: %w", err)
 	}
 
@@ -848,7 +823,7 @@ func (c *SnowflakeConnector) RenameTables(
 func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *protos.CreateTablesFromExistingInput) (
 	*protos.CreateTablesFromExistingOutput, error,
 ) {
-	createTablesFromExistingTx, err := c.database.BeginTx(ctx, nil)
+	createTablesFromExistingTx, err := c.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to begin transaction for rename tables: %w", err)
 	}
@@ -863,17 +838,16 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 		c.logger.Info(fmt.Sprintf("creating table '%s' similar to '%s'", newTable, existingTable))
 
 		// rename the src table to dst
-		_, err = c.execWithLoggingTx(ctx,
-			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable), createTablesFromExistingTx)
-		if err != nil {
+		if _, err := c.execWithLoggingTx(ctx,
+			fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s LIKE %s", newTable, existingTable), createTablesFromExistingTx,
+		); err != nil {
 			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully created table '%s'", newTable))
 	}
 
-	err = createTablesFromExistingTx.Commit()
-	if err != nil {
+	if err := createTablesFromExistingTx.Commit(); err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for creating tables: %w", err)
 	}
 
@@ -903,7 +877,7 @@ func (c *SnowflakeConnector) RemoveTableEntriesFromRawTable(
 
 func (c *SnowflakeConnector) execWithLogging(ctx context.Context, query string) (sql.Result, error) {
 	c.logger.Info("[snowflake] executing DDL statement", slog.String("query", query))
-	return c.database.ExecContext(ctx, query)
+	return c.ExecContext(ctx, query)
 }
 
 func (c *SnowflakeConnector) execWithLoggingTx(ctx context.Context, query string, tx *sql.Tx) (sql.Result, error) {

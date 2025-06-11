@@ -2,18 +2,19 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { kaSetting } from '@/app/peers/create/[peerType]/helpers/ka';
 import SelectTheme from '@/app/styles/select';
+import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import ReactSelect from 'react-select';
-import { InfoPopover } from '../InfoPopover';
+
 interface KafkaProps {
   setter: PeerSetter;
 }
 
-const KafkaForm = ({ setter }: KafkaProps) => {
+export default function KafkaForm({ setter }: KafkaProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', rowGap: '0.5rem' }}>
       {kaSetting.map((setting, index) => {
@@ -25,7 +26,7 @@ const KafkaForm = ({ setter }: KafkaProps) => {
                 {!setting.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -49,10 +50,10 @@ const KafkaForm = ({ setter }: KafkaProps) => {
           />
         ) : setting.type === 'select' ? (
           <RowWithSelect
+            key={index}
             label={<Label>{setting.label}</Label>}
             action={
               <ReactSelect
-                key={index}
                 placeholder={setting.placeholder}
                 onChange={(val) =>
                   val && setting.stateHandler(val.value, setter)
@@ -71,7 +72,7 @@ const KafkaForm = ({ setter }: KafkaProps) => {
                 {!setting.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -111,6 +112,4 @@ const KafkaForm = ({ setter }: KafkaProps) => {
       })}
     </div>
   );
-};
-
-export default KafkaForm;
+}

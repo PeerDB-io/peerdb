@@ -2,11 +2,12 @@
 
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
+import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
-import { InfoPopover } from '../InfoPopover';
+import { handleFieldChange } from './common';
 
 interface ConfigProps {
   settings: PeerSetting[];
@@ -14,32 +15,6 @@ interface ConfigProps {
 }
 
 export default function SnowflakeForm(props: ConfigProps) {
-  const handleFile = (
-    file: File,
-    setFile: (value: string, setter: PeerSetter) => void
-  ) => {
-    if (file) {
-      const reader = new FileReader();
-      reader.readAsText(file);
-      reader.onload = () => {
-        setFile(reader.result as string, props.setter);
-      };
-      reader.onerror = (error) => {
-        console.log(error);
-      };
-    }
-  };
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    setting: PeerSetting
-  ) => {
-    if (setting.type === 'file') {
-      if (e.target.files) handleFile(e.target.files[0], setting.stateHandler);
-    } else {
-      setting.stateHandler(e.target.value, props.setter);
-    }
-  };
   return (
     <>
       {props.settings.map((setting, id) => {
@@ -52,7 +27,7 @@ export default function SnowflakeForm(props: ConfigProps) {
                 {!setting.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -79,7 +54,7 @@ export default function SnowflakeForm(props: ConfigProps) {
                   type={setting.type}
                   defaultValue={setting.default}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleChange(e, setting)
+                    handleFieldChange(e, setting, props.setter)
                   }
                 />
                 {setting.tips && (

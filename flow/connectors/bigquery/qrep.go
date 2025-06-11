@@ -8,11 +8,11 @@ import (
 
 	"cloud.google.com/go/bigquery"
 
-	"github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *BigQueryConnector) SyncQRepRecords(
@@ -20,10 +20,13 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
-	srcSchema := stream.Schema()
+	srcSchema, err := stream.Schema()
+	if err != nil {
+		return 0, err
+	}
 
 	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, config, partition, srcSchema)
 	if err != nil {
@@ -35,7 +38,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
-	return avroSync.SyncQRepRecords(ctx, config.FlowJobName, destTable, partition,
+	return avroSync.SyncQRepRecords(ctx, config.Env, config.FlowJobName, destTable, partition,
 		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName)
 }
 
@@ -43,7 +46,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	srcSchema qvalue.QRecordSchema,
+	srcSchema types.QRecordSchema,
 ) (*bigquery.TableMetadata, error) {
 	destDatasetTable, _ := c.convertToDatasetTable(config.DestinationTableIdentifier)
 	bqTable := c.client.DatasetInProject(c.projectID, destDatasetTable.dataset).Table(destDatasetTable.table)
@@ -75,13 +78,13 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 				Name:         col.Name,
 				Type:         string(col.Type),
 				TypeModifier: datatypes.MakeNumericTypmod(int32(col.Precision), int32(col.Scale)),
-			},
-			)
+			})
 		}
 	}
 
-	err = c.ReplayTableSchemaDeltas(ctx, config.FlowJobName, []*protos.TableSchemaDelta{tableSchemaDelta})
-	if err != nil {
+	if err := c.ReplayTableSchemaDeltas(
+		ctx, config.Env, config.FlowJobName, []*protos.TableSchemaDelta{tableSchemaDelta},
+	); err != nil {
 		return nil, fmt.Errorf("failed to add columns to destination table: %w", err)
 	}
 	dstTableMetadata, err = bqTable.Metadata(ctx)

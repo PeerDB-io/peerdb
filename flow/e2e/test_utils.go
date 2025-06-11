@@ -21,17 +21,16 @@ import (
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
 
-	"github.com/PeerDB-io/peer-flow/connectors"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 func init() {
@@ -45,6 +44,7 @@ type Suite interface {
 	T() *testing.T
 	Connector() *connpostgres.PostgresConnector
 	Suffix() string
+	Source() SuiteSource
 }
 
 type RowSource interface {
@@ -57,6 +57,10 @@ type GenericSuite interface {
 	Peer() *protos.Peer
 	DestinationConnector() connectors.Connector
 	DestinationTable(table string) string
+}
+
+func Schema(s Suite) string {
+	return "e2e_test_" + s.Suffix()
 }
 
 func AttachSchema(s Suite, table string) string {
@@ -75,7 +79,7 @@ func EnvNoError(t *testing.T, env WorkflowRun, err error) {
 	t.Helper()
 
 	if err != nil {
-		env.Cancel()
+		env.Cancel(t.Context())
 		t.Fatal("UNEXPECTED ERROR", err.Error())
 	}
 }
@@ -84,48 +88,45 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 	t.Helper()
 
 	if !val {
-		env.Cancel()
+		env.Cancel(t.Context())
 		t.Fatal("UNEXPECTED FALSE")
 	}
 }
 
-func GetPgRows(conn *connpostgres.PostgresConnector, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor := conn.NewQRepQueryExecutor("testflow", "testpart")
-
-	return pgQueryExecutor.ExecuteAndProcessQuery(
-		context.Background(),
-		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, connpostgres.QuoteIdentifier(table)),
-	)
+func RequireEqualTables(suite RowSource, table string, cols string) {
+	RequireEqualTablesWithNames(suite, table, table, cols)
 }
 
-func RequireEqualTables(suite RowSource, table string, cols string) {
+func RequireEqualTablesWithNames(suite RowSource, srcTable string, dstTable string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), table, cols)
+	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
 	require.NoError(t, err)
 
-	rows, err := suite.GetRows(table, cols)
+	rows, err := suite.GetRows(dstTable, cols)
 	require.NoError(t, err)
 
-	require.True(t, e2eshared.CheckEqualRecordBatches(t, pgRows, rows))
+	require.True(t, e2eshared.CheckEqualRecordBatches(t, sourceRows, rows))
 }
 
-func EnvEqualTables(env WorkflowRun, suite RowSource, table string, cols string) {
+func EnvEqualTables[TSource connectors.Connector](env WorkflowRun, suite RowSource, table string, cols string) {
 	EnvEqualTablesWithNames(env, suite, table, table, cols)
 }
 
-func EnvEqualTablesWithNames(env WorkflowRun, suite RowSource, srcTable string, dstTable string, cols string) {
+func EnvEqualTablesWithNames(
+	env WorkflowRun, suite RowSource, srcTable string, dstTable string, cols string,
+) {
 	t := suite.T()
 	t.Helper()
 
-	pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
+	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
 	EnvNoError(t, env, err)
 
 	rows, err := suite.GetRows(dstTable, cols)
 	EnvNoError(t, env, err)
 
-	EnvEqualRecordBatches(t, env, pgRows, rows)
+	EnvEqualRecordBatches(t, env, sourceRows, rows)
 }
 
 func EnvWaitForEqualTables(
@@ -153,7 +154,7 @@ func EnvWaitForEqualTablesWithNames(
 	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
 		t.Helper()
 
-		pgRows, err := GetPgRows(suite.Connector(), suite.Suffix(), srcTable, cols)
+		sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
 		if err != nil {
 			t.Log(err)
 			return false
@@ -165,17 +166,75 @@ func EnvWaitForEqualTablesWithNames(
 			return false
 		}
 
-		return e2eshared.CheckEqualRecordBatches(t, pgRows, rows)
+		return e2eshared.CheckEqualRecordBatches(t, sourceRows, rows)
+	})
+}
+
+func EnvWaitForEqualTablesWithNames_Only(
+	env WorkflowRun,
+	suite RowSource,
+	reason string,
+	srcTable string,
+	dstTable string,
+	cols string,
+) {
+	t := suite.T()
+	pgSource, ok := suite.Source().(*PostgresSource)
+	if !ok {
+		t.Fatal("EnvWaitForEqualTablesWithNames_Only only works with PostgresSource")
+	}
+
+	t.Helper()
+
+	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+		t.Helper()
+
+		sourceRows, err := pgSource.GetRowsOnly(t.Context(), suite.Suffix(), srcTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		rows, err := suite.GetRows(dstTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		return e2eshared.CheckEqualRecordBatches(t, sourceRows, rows)
+	})
+}
+
+func EnvWaitForCount(
+	env WorkflowRun,
+	suite RowSource,
+	reason string,
+	dstTable string,
+	cols string,
+	expectedCount int,
+) {
+	t := suite.T()
+	t.Helper()
+
+	EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+		t.Helper()
+
+		rows, err := suite.GetRows(dstTable, cols)
+		if err != nil {
+			t.Log(err)
+			return false
+		}
+
+		return len(rows.Records) == expectedCount
 	})
 }
 
 func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 	t.Helper()
 	EnvWaitForFinished(t, env, time.Minute)
-	err := env.Error()
 	var panicErr *temporal.PanicError
 	var canceledErr *temporal.CanceledError
-	if err == nil {
+	if err := env.Error(t.Context()); err == nil {
 		t.Fatal("Expected workflow to be canceled, not completed")
 	} else if errors.As(err, &panicErr) {
 		t.Fatalf("Workflow panic: %s %s", panicErr.Error(), panicErr.StackTrace())
@@ -191,20 +250,19 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.Query(shared.FlowStatusQuery, config.FlowJobName)
+		response, err := env.Query(t.Context(), shared.FlowStatusQuery, config.FlowJobName)
 		if err == nil {
 			var status protos.FlowStatus
-			err = response.Get(&status)
-			if err != nil {
+			if err := response.Get(&status); err != nil {
 				t.Fatal(err)
-			} else if status == protos.FlowStatus_STATUS_RUNNING {
+			} else if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
 			} else if counter > 30 {
-				env.Cancel()
+				env.Cancel(t.Context())
 				t.Fatal("UNEXPECTED STATUS TIMEOUT", status)
 			}
 		} else if counter > 15 {
-			env.Cancel()
+			env.Cancel(t.Context())
 			t.Fatal("UNEXPECTED STATUS QUERY TIMEOUT", err.Error())
 		} else if counter > 5 {
 			// log the error for informational purposes
@@ -213,7 +271,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 	}
 }
 
-func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
+func CreateTableForQRep(ctx context.Context, conn *pgx.Conn, suffix string, tableName string) error {
 	createMoodEnum := "CREATE TYPE mood AS ENUM ('happy', 'sad', 'angry');"
 
 	tblFields := []string{
@@ -277,16 +335,15 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 		"mymac MACADDR",
 	}
 	tblFieldStr := strings.Join(tblFields, ",")
-	_, enumErr := conn.Exec(context.Background(), createMoodEnum)
-	if enumErr != nil &&
-		!shared.IsSQLStateError(enumErr, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
-		return enumErr
+	if _, err := conn.Exec(
+		ctx, createMoodEnum,
+	); err != nil && !shared.IsSQLStateError(err, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
+		return err
 	}
-	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`
 		CREATE TABLE e2e_test_%s.%s (
 			%s
-		);`, suffix, tableName, tblFieldStr))
-	if err != nil {
+		);`, suffix, tableName, tblFieldStr)); err != nil {
 		return fmt.Errorf("error creating table for qrep tests: %w", err)
 	}
 
@@ -294,7 +351,7 @@ func CreateTableForQRep(conn *pgx.Conn, suffix string, tableName string) error {
 }
 
 func generate20MBJson() ([]byte, error) {
-	xn := make(map[string]interface{}, 215000)
+	xn := make(map[string]any, 215000)
 	for range 215000 {
 		xn[uuid.New().String()] = uuid.New().String()
 	}
@@ -307,7 +364,7 @@ func generate20MBJson() ([]byte, error) {
 	return v, nil
 }
 
-func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCount int) error {
+func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tableName string, rowCount int) error {
 	var id0 string
 	rows := make([]string, 0, rowCount)
 	for i := range rowCount - 1 {
@@ -315,8 +372,7 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 		if i == 0 {
 			id0 = id
 		}
-		row := fmt.Sprintf(`
-					(
+		row := fmt.Sprintf(`(
 						'%s', '%s', CURRENT_TIMESTAMP, 3.86487206688919, CURRENT_TIMESTAMP,
 						CURRENT_TIMESTAMP, E'\\\\xDEADBEEF', 'type1', '%s',
 						1, 0, 1, 'dealType1',
@@ -343,36 +399,31 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 		rows = append(rows, row)
 	}
 
-	_, err := conn.Exec(context.Background(), fmt.Sprintf(`
-			INSERT INTO e2e_test_%s.%s (
-					id, card_id, "from", price, created_at,
-					updated_at, transaction_hash, ownerable_type, ownerable_id,
-					user_nonce, transfer_type, blockchain, deal_type,
-					deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
-					paid_eth_price, card_bought_notified, address, account_id,
-					asset_id, status, transaction_id, settled_at, reference_id,
-					settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date,
-					my_time, my_mood, myh,
-					"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon,
-					myreal, myreal2, myreal3,
-					myinet, mycidr, mymac
-			) VALUES %s;
-	`, suffix, tableName, strings.Join(rows, ",")))
-	if err != nil {
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`INSERT INTO e2e_test_%s.%s (
+				id, card_id, "from", price, created_at,
+				updated_at, transaction_hash, ownerable_type, ownerable_id,
+				user_nonce, transfer_type, blockchain, deal_type,
+				deal_id, ethereum_transaction_id, ignore_price, card_eth_value,
+				paid_eth_price, card_bought_notified, address, account_id,
+				asset_id, status, transaction_id, settled_at, reference_id,
+				settle_at, settlement_delay_reason, f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, my_date,
+				my_time, my_mood, myh,
+				"geometryPoint", geography_point,geometry_linestring, geography_linestring,geometry_polygon, geography_polygon,
+				myreal, myreal2, myreal3,
+				myinet, mycidr, mymac
+		) VALUES %s;
+	`, suffix, tableName, strings.Join(rows, ","))); err != nil {
 		return fmt.Errorf("error populating source table with initial data: %w", err)
 	}
 
 	// add a row where all the nullable fields are null
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
-	INSERT INTO e2e_test_%s.%s (
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`INSERT INTO e2e_test_%s.%s (
 			id, "from", created_at, updated_at,
 			transfer_type, blockchain, card_bought_notified, asset_id
 	) VALUES (
 			'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
 			0, 1, false, 12345
-	);
-	`, suffix, tableName, uuid.New().String()))
-	if err != nil {
+	);`, suffix, tableName, uuid.New().String())); err != nil {
 		return err
 	}
 
@@ -381,18 +432,16 @@ func PopulateSourceTable(conn *pgx.Conn, suffix string, tableName string, rowCou
 	if err != nil {
 		return err
 	}
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`
 		UPDATE e2e_test_%s.%s SET f5 = $1 WHERE id = $2;
-	`, suffix, tableName), v, id0)
-	if err != nil {
+	`, suffix, tableName), v, id0); err != nil {
 		return err
 	}
 
 	// update my_date to a date before 1970
-	_, err = conn.Exec(context.Background(), fmt.Sprintf(`
+	if _, err := conn.Exec(ctx, fmt.Sprintf(`
 		UPDATE e2e_test_%s.%s SET old_date = '1950-01-01' WHERE id = $1;
-	`, suffix, tableName), id0)
-	if err != nil {
+	`, suffix, tableName), id0); err != nil {
 		return err
 	}
 
@@ -433,67 +482,67 @@ func CreateQRepWorkflowConfig(
 	}
 }
 
-func RunQRepFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(tc, peerflow.QRepFlowWorkflow, config, nil)
+func RunQRepFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
+	return ExecutePeerflow(ctx, tc, peerflow.QRepFlowWorkflow, config, nil)
 }
 
-func RunXminFlowWorkflow(tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(tc, peerflow.XminFlowWorkflow, config, nil)
+func RunXminFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
+	return ExecutePeerflow(ctx, tc, peerflow.XminFlowWorkflow, config, nil)
 }
 
-func GetOwnersSchema() *qvalue.QRecordSchema {
-	return &qvalue.QRecordSchema{
-		Fields: []qvalue.QField{
-			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
-			{Name: "created_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "updated_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "transaction_hash", Type: qvalue.QValueKindBytes, Nullable: true},
-			{Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
-			{Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
-			{Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
-			{Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
-			{Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
-			{Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
-			{Name: "status", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "transaction_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "settled_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
-			{Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
-			{Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
-			{Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
-			{Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
-			{Name: "f13", Type: qvalue.QValueKindArrayInt16, Nullable: true},
-			{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
-			{Name: "old_date", Type: qvalue.QValueKindDate, Nullable: true},
-			{Name: "my_time", Type: qvalue.QValueKindTime, Nullable: true},
-			{Name: "my_mood", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
-			{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
-			{Name: "geometry_polygon", Type: qvalue.QValueKindGeometry, Nullable: true},
-			{Name: "geography_point", Type: qvalue.QValueKindGeography, Nullable: true},
-			{Name: "geography_linestring", Type: qvalue.QValueKindGeography, Nullable: true},
-			{Name: "geography_polygon", Type: qvalue.QValueKindGeography, Nullable: true},
-			{Name: "myreal", Type: qvalue.QValueKindFloat32, Nullable: true},
-			{Name: "myreal2", Type: qvalue.QValueKindFloat32, Nullable: true},
-			{Name: "myreal3", Type: qvalue.QValueKindFloat32, Nullable: true},
+func GetOwnersSchema() *types.QRecordSchema {
+	return &types.QRecordSchema{
+		Fields: []types.QField{
+			{Name: "id", Type: types.QValueKindString, Nullable: true},
+			{Name: "card_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "from", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "price", Type: types.QValueKindNumeric, Nullable: true},
+			{Name: "created_at", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "updated_at", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "transaction_hash", Type: types.QValueKindBytes, Nullable: true},
+			{Name: "ownerable_type", Type: types.QValueKindString, Nullable: true},
+			{Name: "ownerable_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "user_nonce", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "transfer_type", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "blockchain", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "deal_type", Type: types.QValueKindString, Nullable: true},
+			{Name: "deal_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "ethereum_transaction_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "ignore_price", Type: types.QValueKindBoolean, Nullable: true},
+			{Name: "card_eth_value", Type: types.QValueKindFloat64, Nullable: true},
+			{Name: "paid_eth_price", Type: types.QValueKindFloat64, Nullable: true},
+			{Name: "card_bought_notified", Type: types.QValueKindBoolean, Nullable: true},
+			{Name: "address", Type: types.QValueKindNumeric, Nullable: true},
+			{Name: "account_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "asset_id", Type: types.QValueKindNumeric, Nullable: true},
+			{Name: "status", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "transaction_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "settled_at", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "reference_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "settle_at", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "settlement_delay_reason", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "f1", Type: types.QValueKindArrayString, Nullable: true},
+			{Name: "f2", Type: types.QValueKindArrayInt64, Nullable: true},
+			{Name: "f3", Type: types.QValueKindArrayInt32, Nullable: true},
+			{Name: "f4", Type: types.QValueKindArrayString, Nullable: true},
+			{Name: "f5", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "f6", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "f7", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "f8", Type: types.QValueKindInt16, Nullable: true},
+			{Name: "f13", Type: types.QValueKindArrayInt16, Nullable: true},
+			{Name: "my_date", Type: types.QValueKindDate, Nullable: true},
+			{Name: "old_date", Type: types.QValueKindDate, Nullable: true},
+			{Name: "my_time", Type: types.QValueKindTime, Nullable: true},
+			{Name: "my_mood", Type: types.QValueKindString, Nullable: true},
+			{Name: "geometryPoint", Type: types.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_linestring", Type: types.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_polygon", Type: types.QValueKindGeometry, Nullable: true},
+			{Name: "geography_point", Type: types.QValueKindGeography, Nullable: true},
+			{Name: "geography_linestring", Type: types.QValueKindGeography, Nullable: true},
+			{Name: "geography_polygon", Type: types.QValueKindGeography, Nullable: true},
+			{Name: "myreal", Type: types.QValueKindFloat32, Nullable: true},
+			{Name: "myreal2", Type: types.QValueKindFloat32, Nullable: true},
+			{Name: "myreal3", Type: types.QValueKindFloat32, Nullable: true},
 		},
 	}
 }
@@ -543,7 +592,7 @@ func (tw *testWriter) Write(p []byte) (int, error) {
 func NewTemporalClient(t *testing.T) client.Client {
 	t.Helper()
 
-	logger := slog.New(logger.NewHandler(
+	logger := slog.New(shared.NewSlogHandler(
 		slog.NewJSONHandler(
 			&testWriter{t},
 			&slog.HandlerOptions{Level: slog.LevelWarn},
@@ -565,15 +614,25 @@ type WorkflowRun struct {
 	c client.Client
 }
 
-func ExecutePeerflow(tc client.Client, wf interface{}, args ...interface{}) WorkflowRun {
-	return ExecuteWorkflow(tc, shared.PeerFlowTaskQueue, wf, args...)
+func GetPeerflow(ctx context.Context, catalog *pgx.Conn, tc client.Client, flowName string) (WorkflowRun, error) {
+	var workflowID string
+	if err := catalog.QueryRow(
+		ctx, "select workflow_id from flows where name = $1", flowName,
+	).Scan(&workflowID); err != nil {
+		return WorkflowRun{}, nil
+	}
+	return WorkflowRun{WorkflowRun: tc.GetWorkflow(ctx, workflowID, ""), c: tc}, nil
 }
 
-func ExecuteWorkflow(tc client.Client, taskQueueID shared.TaskQueueID, wf interface{}, args ...interface{}) WorkflowRun {
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(taskQueueID)
+func ExecutePeerflow(ctx context.Context, tc client.Client, wf any, args ...any) WorkflowRun {
+	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, wf, args...)
+}
+
+func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf any, args ...any) WorkflowRun {
+	taskQueue := internal.PeerFlowTaskQueueName(taskQueueID)
 
 	wr, err := tc.ExecuteWorkflow(
-		context.Background(),
+		ctx,
 		client.StartWorkflowOptions{
 			TaskQueue:                taskQueue,
 			WorkflowExecutionTimeout: 5 * time.Minute,
@@ -590,32 +649,41 @@ func ExecuteWorkflow(tc client.Client, taskQueueID shared.TaskQueueID, wf interf
 	}
 }
 
-func (env WorkflowRun) Finished() bool {
-	desc, err := env.c.DescribeWorkflowExecution(context.Background(), env.GetID(), "")
+func (env WorkflowRun) Finished(ctx context.Context) bool {
+	desc, err := env.c.DescribeWorkflowExecution(ctx, env.GetID(), "")
 	if err != nil {
 		return false
 	}
 	return desc.GetWorkflowExecutionInfo().GetStatus() != enums.WORKFLOW_EXECUTION_STATUS_RUNNING
 }
 
-func (env WorkflowRun) Error() error {
-	if env.Finished() {
-		return env.Get(context.Background(), nil)
+func (env WorkflowRun) Error(ctx context.Context) error {
+	if env.Finished(ctx) {
+		return env.Get(ctx, nil)
 	} else {
 		return nil
 	}
 }
 
-func (env WorkflowRun) Cancel() {
-	_ = env.c.CancelWorkflow(context.Background(), env.GetID(), "")
+func (env WorkflowRun) Cancel(ctx context.Context) {
+	_ = env.c.CancelWorkflow(ctx, env.GetID(), "")
 }
 
-func (env WorkflowRun) Query(queryType string, args ...interface{}) (converter.EncodedValue, error) {
-	return env.c.QueryWorkflow(context.Background(), env.GetID(), "", queryType, args...)
+func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any) (converter.EncodedValue, error) {
+	return env.c.QueryWorkflow(ctx, env.GetID(), "", queryType, args...)
 }
 
-func SignalWorkflow[T any](env WorkflowRun, signal model.TypedSignal[T], value T) {
-	err := env.c.SignalWorkflow(context.Background(), env.GetID(), "", signal.Name, value)
+func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
+	t.Helper()
+	res, err := env.c.QueryWorkflow(t.Context(), env.GetID(), "", shared.FlowStatusQuery)
+	EnvNoError(t, env, err)
+	var flowStatus protos.FlowStatus
+	EnvNoError(t, env, res.Get(&flowStatus))
+	return flowStatus
+}
+
+func SignalWorkflow[T any](ctx context.Context, env WorkflowRun, signal model.TypedSignal[T], value T) {
+	err := env.c.SignalWorkflow(ctx, env.GetID(), "", signal.Name, value)
 	if err != nil {
 		panic(err)
 	}
@@ -665,10 +733,13 @@ func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason str
 	deadline := time.Now().Add(timeout)
 	for !f() {
 		if time.Now().After(deadline) {
-			env.Cancel()
+			env.Cancel(t.Context())
 			t.Fatal("UNEXPECTED TIMEOUT", reason, time.Now())
 		}
 		time.Sleep(time.Second)
+		if err := t.Context().Err(); err != nil {
+			t.Fatal(reason, err)
+		}
 	}
 }
 
@@ -678,7 +749,7 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 	EnvWaitFor(t, env, timeout, "finish", func() bool {
 		t.Helper()
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 		defer cancel()
 		desc, err := env.c.DescribeWorkflowExecution(ctx, env.GetID(), "")
 		if err != nil {
@@ -692,4 +763,20 @@ func EnvWaitForFinished(t *testing.T, env WorkflowRun, timeout time.Duration) {
 		}
 		return false
 	})
+}
+
+func EnvGetWorkflowState(t *testing.T, env WorkflowRun) peerflow.CDCFlowWorkflowState {
+	t.Helper()
+	var state peerflow.CDCFlowWorkflowState
+	val, err := env.Query(t.Context(), shared.CDCFlowStateQuery)
+	EnvNoError(t, env, err)
+	EnvNoError(t, env, val.Get(&state))
+	return state
+}
+
+func EnvGetRunID(t *testing.T, env WorkflowRun) string {
+	t.Helper()
+	execData, err := env.c.DescribeWorkflowExecution(t.Context(), env.GetID(), "")
+	require.NoError(t, err)
+	return execData.WorkflowExecutionInfo.Execution.RunId
 }

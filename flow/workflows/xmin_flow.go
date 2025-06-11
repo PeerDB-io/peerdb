@@ -7,11 +7,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func XminFlowWorkflow(
@@ -41,7 +42,7 @@ func XminFlowWorkflow(
 		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
 		startTime := workflow.Now(ctx)
 		q.activeSignal = model.PauseSignal
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 
 		for q.activeSignal == model.PauseSignal {
 			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
@@ -53,7 +54,7 @@ func XminFlowWorkflow(
 				return state, err
 			}
 		}
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
 
 	if err := q.setupWatermarkTableOnDestination(ctx); err != nil {
@@ -73,6 +74,9 @@ func XminFlowWorkflow(
 	replicateXminPartitionCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
 	})
 	if err := workflow.ExecuteActivity(
 		replicateXminPartitionCtx,
@@ -118,7 +122,7 @@ func XminFlowWorkflow(
 		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 	}
 	return state, workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
 }

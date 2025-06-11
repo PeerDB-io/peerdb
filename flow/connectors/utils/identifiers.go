@@ -6,10 +6,6 @@ import (
 	"unicode"
 )
 
-func QuoteIdentifier(identifier string) string {
-	return fmt.Sprintf(`"%s"`, identifier)
-}
-
 // SchemaTable is a table in a schema.
 type SchemaTable struct {
 	Schema string
@@ -17,7 +13,11 @@ type SchemaTable struct {
 }
 
 func (t *SchemaTable) String() string {
-	return fmt.Sprintf(`"%s"."%s"`, t.Schema, t.Table)
+	return fmt.Sprintf("%s.%s", QuoteIdentifier(t.Schema), QuoteIdentifier(t.Table))
+}
+
+func (t *SchemaTable) MySQL() string {
+	return fmt.Sprintf("`%s`.`%s`", t.Schema, t.Table)
 }
 
 // ParseSchemaTable parses a table name into schema and table name.

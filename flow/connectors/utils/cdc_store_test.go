@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"context"
 	"crypto/rand"
 	"log/slog"
 	"testing"
@@ -10,8 +9,8 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func getTimeForTesting(t *testing.T) time.Time {
@@ -56,10 +55,10 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordI
 		DestinationTableName: "test_dst_tbl",
 		CommitID:             2,
 		Items: model.RecordItems{
-			ColToVal: map[string]qvalue.QValue{
-				"id": qvalue.QValueInt64{Val: 1},
-				"ts": qvalue.QValueTime{Val: tv},
-				"rv": qvalue.QValueNumeric{Val: rv},
+			ColToVal: map[string]types.QValue{
+				"id": types.QValueInt64{Val: 1},
+				"ts": types.QValueTime{Val: tv},
+				"rv": types.QValueNumeric{Val: rv},
 			},
 		},
 	}
@@ -68,13 +67,12 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordI
 
 func TestSingleRecord(t *testing.T) {
 	t.Parallel()
-	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), nil, "test_single_record")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](t.Context(), nil, "test_single_record")
 	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	key, rec := genKeyAndRec(t)
-	err = cdcRecordsStore.Set(slog.Default(), key, rec)
-	require.NoError(t, err)
+	require.NoError(t, cdcRecordsStore.Set(slog.Default(), key, rec))
 	// should not spill into DB
 	require.Len(t, cdcRecordsStore.inMemoryRecords, 1)
 	require.Nil(t, cdcRecordsStore.pebbleDB)
@@ -89,7 +87,7 @@ func TestSingleRecord(t *testing.T) {
 
 func TestRecordsTillSpill(t *testing.T) {
 	t.Parallel()
-	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), nil, "test_records_till_spill")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](t.Context(), nil, "test_records_till_spill")
 	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
@@ -104,8 +102,7 @@ func TestRecordsTillSpill(t *testing.T) {
 
 	// this record should be spilled to DB
 	key, rec := genKeyAndRec(t)
-	err = cdcRecordsStore.Set(slog.Default(), key, rec)
-	require.NoError(t, err)
+	require.NoError(t, cdcRecordsStore.Set(slog.Default(), key, rec))
 	_, ok := cdcRecordsStore.inMemoryRecords[key]
 	require.False(t, ok)
 	require.NotNil(t, cdcRecordsStore.pebbleDB)
@@ -121,13 +118,12 @@ func TestRecordsTillSpill(t *testing.T) {
 func TestTimeAndDecimalEncoding(t *testing.T) {
 	t.Parallel()
 
-	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), nil, "test_time_encoding")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](t.Context(), nil, "test_time_encoding")
 	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 
 	key, rec := genKeyAndRec(t)
-	err = cdcRecordsStore.Set(slog.Default(), key, rec)
-	require.NoError(t, err)
+	require.NoError(t, cdcRecordsStore.Set(slog.Default(), key, rec))
 
 	retreived, ok, err := cdcRecordsStore.Get(key)
 	require.NoError(t, err)
@@ -143,13 +139,12 @@ func TestTimeAndDecimalEncoding(t *testing.T) {
 func TestNullKeyDoesntStore(t *testing.T) {
 	t.Parallel()
 
-	cdcRecordsStore, err := NewCDCStore[model.RecordItems](context.Background(), nil, "test_time_encoding")
+	cdcRecordsStore, err := NewCDCStore[model.RecordItems](t.Context(), nil, "test_time_encoding")
 	require.NoError(t, err)
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 
 	key, rec := genKeyAndRec(t)
-	err = cdcRecordsStore.Set(slog.Default(), model.TableWithPkey{}, rec)
-	require.NoError(t, err)
+	require.NoError(t, cdcRecordsStore.Set(slog.Default(), model.TableWithPkey{}, rec))
 
 	retreived, ok, err := cdcRecordsStore.Get(key)
 	require.Nil(t, retreived)

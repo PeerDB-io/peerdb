@@ -6,7 +6,11 @@ import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
 import { RowDataFormatter } from './rowsDisplay';
 
-const TableStats = ({ tableSyncs }: { tableSyncs: CDCTableRowCounts[] }) => {
+export default function TableStats({
+  tableSyncs,
+}: {
+  tableSyncs: CDCTableRowCounts[];
+}) {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const tableDataToShow = useMemo(() => {
     return tableSyncs.filter((tableSync) =>
@@ -68,6 +72,4 @@ const TableStats = ({ tableSyncs }: { tableSyncs: CDCTableRowCounts[] }) => {
       </div>
     </div>
   );
-};
-
-export default TableStats;
+}

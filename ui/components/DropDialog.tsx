@@ -28,37 +28,36 @@ interface deleteScriptArgs {
   scriptId: number;
 }
 
-export const handleDropMirror = async (
+async function handleDropMirror(
   dropArgs: dropMirrorArgs,
   setLoading: Dispatch<SetStateAction<boolean>>,
   setMsg: Dispatch<SetStateAction<string>>,
   dropStats: boolean
-) => {
+) {
   setLoading(true);
   const res = await changeFlowState(
     dropArgs.flowJobName,
-    FlowStatus.STATUS_TERMINATED,
+    FlowStatus.STATUS_TERMINATING,
     dropStats
   );
   setLoading(false);
   if (res.status !== 200) {
-    setMsg(`Unable to drop mirror ${dropArgs.flowJobName}.`);
+    setMsg(`Unable to start dropping mirror ${dropArgs.flowJobName}.`);
     return false;
   }
 
-  setMsg('Mirror dropped successfully.');
-  window.location.reload();
+  setMsg('Request to drop mirror sent successfully.');
 
   return true;
-};
+}
 
-export const DropDialog = ({
+export default function DropDialog({
   mode,
   dropArgs,
 }: {
   mode: 'PEER' | 'MIRROR' | 'ALERT' | 'SCRIPT';
   dropArgs: dropMirrorArgs | dropPeerArgs | deleteAlertArgs | deleteScriptArgs;
-}) => {
+}) {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState('');
   const [dropStats, setDropStats] = useState(true);
@@ -209,4 +208,4 @@ export const DropDialog = ({
       </div>
     </Dialog>
   );
-};
+}

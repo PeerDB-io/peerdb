@@ -7,8 +7,8 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func TestEquals(t *testing.T) {
@@ -17,32 +17,32 @@ func TestEquals(t *testing.T) {
 
 	tests := []struct {
 		name string
-		q1   []qvalue.QValue
-		q2   []qvalue.QValue
+		q1   []types.QValue
+		q2   []types.QValue
 		want bool
 	}{
 		{
 			name: "Equal - Same UUID",
-			q1:   []qvalue.QValue{qvalue.QValueUUID{Val: uuidVal1}},
-			q2:   []qvalue.QValue{qvalue.QValueString{Val: uuidVal1.String()}},
+			q1:   []types.QValue{types.QValueUUID{Val: uuidVal1}},
+			q2:   []types.QValue{types.QValueString{Val: uuidVal1.String()}},
 			want: true,
 		},
 		{
 			name: "Not Equal - Different UUID",
-			q1:   []qvalue.QValue{qvalue.QValueUUID{Val: uuidVal1}},
-			q2:   []qvalue.QValue{qvalue.QValueUUID{Val: uuidVal2}},
+			q1:   []types.QValue{types.QValueUUID{Val: uuidVal1}},
+			q2:   []types.QValue{types.QValueUUID{Val: uuidVal2}},
 			want: false,
 		},
 		{
 			name: "Equal - Same numeric",
-			q1:   []qvalue.QValue{qvalue.QValueNumeric{Val: decimal.NewFromInt(5)}},
-			q2:   []qvalue.QValue{qvalue.QValueString{Val: "5"}},
+			q1:   []types.QValue{types.QValueNumeric{Val: decimal.NewFromInt(5)}},
+			q2:   []types.QValue{types.QValueString{Val: "5"}},
 			want: true,
 		},
 		{
 			name: "Not Equal - Different numeric",
-			q1:   []qvalue.QValue{qvalue.QValueNumeric{Val: decimal.NewFromInt(5)}},
-			q2:   []qvalue.QValue{qvalue.QValueString{Val: "4.99"}},
+			q1:   []types.QValue{types.QValueNumeric{Val: decimal.NewFromInt(5)}},
+			q2:   []types.QValue{types.QValueString{Val: "4.99"}},
 			want: false,
 		},
 	}

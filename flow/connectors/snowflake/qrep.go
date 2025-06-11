@@ -11,10 +11,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type SnowflakeTableColumn struct {
@@ -29,7 +29,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, config.FlowJobName)
 
 	// Ensure the destination table is available.
@@ -54,11 +54,8 @@ func (c *SnowflakeConnector) getTableSchema(ctx context.Context, tableName strin
 		return nil, fmt.Errorf("failed to parse table '%s'", tableName)
 	}
 
-	//nolint:gosec
-	queryString := fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(schematable))
-
 	//nolint:rowserrcheck
-	rows, err := c.database.QueryContext(ctx, queryString)
+	rows, err := c.QueryContext(ctx, fmt.Sprintf("SELECT * FROM %s LIMIT 0", snowflakeSchemaTableNormalize(schematable)))
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
@@ -75,13 +72,9 @@ func (c *SnowflakeConnector) getTableSchema(ctx context.Context, tableName strin
 func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config *protos.QRepConfig) error {
 	ctx = c.withMirrorNameQueryTag(ctx, config.FlowJobName)
 
-	var schemaExists sql.NullBool
-	err := c.database.QueryRowContext(ctx, checkIfSchemaExistsSQL, c.rawSchema).Scan(&schemaExists)
-	if err != nil {
+	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
 		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
-	}
-
-	if !schemaExists.Valid || !schemaExists.Bool {
+	} else if !schemaExists {
 		_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
 		if err != nil {
 			return err
@@ -89,14 +82,12 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	}
 
 	stageName := c.getStageNameForJob(config.FlowJobName)
-	err = c.createStage(ctx, stageName, config)
-	if err != nil {
+	if err := c.createStage(ctx, stageName, config); err != nil {
 		return err
 	}
 
 	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
-		_, err = c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier)
-		if err != nil {
+		if _, err := c.execWithLogging(ctx, "TRUNCATE TABLE "+config.DestinationTableIdentifier); err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
 	}
@@ -140,7 +131,6 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
-	s3Int := c.config.S3Integration
 	provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
 	if err != nil {
 		return "", err
@@ -150,7 +140,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 	if err != nil {
 		return "", err
 	}
-	if s3Int == "" {
+	if c.config.S3Integration == "" {
 		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s' AWS_TOKEN='%s')",
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, creds.AWS.SessionToken)
 		stageStatement := `
@@ -165,7 +155,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 		URL = '%s'
 		STORAGE_INTEGRATION = %s
 		FILE_FORMAT = (TYPE = AVRO);`
-		return fmt.Sprintf(stageStatement, stageName, cleanURL, s3Int), nil
+		return fmt.Sprintf(stageStatement, stageName, cleanURL, c.config.S3Integration), nil
 	}
 }
 
@@ -198,7 +188,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
-	rows, err := c.database.QueryContext(
+	rows, err := c.QueryContext(
 		ctx,
 		getTableSchemaSQL,
 		strings.ToUpper(schemaTable.Schema),
@@ -224,8 +214,7 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		})
 	}
 
-	err = rows.Err()
-	if err != nil {
+	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
@@ -241,7 +230,7 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 	stageName := c.getStageNameForJob(job)
 	stmt := "DROP STAGE IF EXISTS " + stageName
 
-	_, err := c.database.ExecContext(ctx, stmt)
+	_, err := c.ExecContext(ctx, stmt)
 	if err != nil {
 		return fmt.Errorf("failed to drop stage %s: %w", stageName, err)
 	}
@@ -280,11 +269,10 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 			}
 
 			for _, object := range page.Contents {
-				_, err = s3svc.DeleteObject(ctx, &s3.DeleteObjectInput{
+				if _, err := s3svc.DeleteObject(ctx, &s3.DeleteObjectInput{
 					Bucket: aws.String(s3o.Bucket),
 					Key:    object.Key,
-				})
-				if err != nil {
+				}); err != nil {
 					c.logger.Error("failed to delete objects from bucket", slog.Any("error", err))
 					return fmt.Errorf("failed to delete objects from bucket: %w", err)
 				}

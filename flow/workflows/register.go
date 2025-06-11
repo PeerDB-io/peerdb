@@ -7,9 +7,7 @@ import (
 func RegisterFlowWorkerWorkflows(w worker.WorkflowRegistry) {
 	w.RegisterWorkflow(CDCFlowWorkflow)
 	w.RegisterWorkflow(DropFlowWorkflow)
-	w.RegisterWorkflow(NormalizeFlowWorkflow)
 	w.RegisterWorkflow(SetupFlowWorkflow)
-	w.RegisterWorkflow(SyncFlowWorkflow)
 	w.RegisterWorkflow(QRepFlowWorkflow)
 	w.RegisterWorkflow(QRepWaitForNewRowsWorkflow)
 	w.RegisterWorkflow(QRepPartitionWorkflow)
@@ -18,4 +16,7 @@ func RegisterFlowWorkerWorkflows(w worker.WorkflowRegistry) {
 	w.RegisterWorkflow(GlobalScheduleManagerWorkflow)
 	w.RegisterWorkflow(HeartbeatFlowWorkflow)
 	w.RegisterWorkflow(RecordSlotSizeWorkflow)
+
+	w.RegisterWorkflow(StartMaintenanceWorkflow)
+	w.RegisterWorkflow(EndMaintenanceWorkflow)
 }

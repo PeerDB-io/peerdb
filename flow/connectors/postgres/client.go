@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgerrcode"
@@ -14,11 +15,11 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/lib/pq/oid"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	numeric "github.com/PeerDB-io/peer-flow/datatypes"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 )
 
 const (
@@ -40,9 +41,10 @@ const (
 	getLastNormalizeBatchID_SQL = "SELECT normalize_batch_id FROM %s.%s WHERE mirror_job_name=$1"
 	createNormalizedTableSQL    = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	checkTableExistsSQL         = "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_tables WHERE schemaname = $1 AND tablename = $2)"
-	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j VALUES ($1,$2,$3,$4)
-	 ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset), sync_batch_id=EXCLUDED.sync_batch_id`
-	checkIfJobMetadataExistsSQL          = "SELECT COUNT(1)::TEXT::BOOL FROM %s.%s WHERE mirror_job_name=$1"
+	upsertJobMetadataForSyncSQL = `INSERT INTO %s.%s AS j (mirror_job_name,lsn_offset,sync_batch_id,normalize_batch_id)
+		VALUES ($1,$2,$3,0) ON CONFLICT(mirror_job_name) DO UPDATE SET lsn_offset=GREATEST(j.lsn_offset, EXCLUDED.lsn_offset),
+		sync_batch_id=EXCLUDED.sync_batch_id`
+	checkIfJobMetadataExistsSQL          = "SELECT EXISTS(SELECT * FROM %s.%s WHERE mirror_job_name=$1)"
 	updateMetadataForNormalizeRecordsSQL = "UPDATE %s.%s SET normalize_batch_id=$1 WHERE mirror_job_name=$2"
 
 	getDistinctDestinationTableNamesSQL = `SELECT DISTINCT _peerdb_destination_table_name FROM %s.%s WHERE
@@ -75,13 +77,21 @@ const (
 	)
 	%s src_rank WHERE %s AND src_rank._peerdb_rank=1 AND src_rank._peerdb_record_type=2`
 
-	dropTableIfExistsSQL         = "DROP TABLE IF EXISTS %s.%s"
-	deleteJobMetadataSQL         = "DELETE FROM %s.%s WHERE mirror_job_name=$1"
-	getNumConnectionsForUser     = "SELECT COUNT(*) FROM pg_stat_activity WHERE usename=$1 AND client_addr IS NOT NULL"
-	getNumReplicationConnections = "select COUNT(*) from pg_stat_replication WHERE usename = $1 AND client_addr IS NOT NULL"
+	dropTableIfExistsSQL     = "DROP TABLE IF EXISTS %s.%s"
+	deleteJobMetadataSQL     = "DELETE FROM %s.%s WHERE mirror_job_name=$1"
+	getNumConnectionsForUser = `SELECT COUNT(*) FROM pg_stat_activity WHERE usename=$1
+	 AND application_name LIKE 'peerdb%' AND client_addr IS NOT NULL`
+	getNumReplicationConnections = `select COUNT(*) from pg_stat_replication WHERE usename = $1
+	 AND application_name LIKE 'peerdb%' AND client_addr IS NOT NULL`
 )
 
-type ReplicaIdentityType rune
+type (
+	ReplicaIdentityType rune
+	NullableLSN         struct {
+		pglogrepl.LSN
+		Null bool
+	}
+)
 
 const (
 	ReplicaIdentityDefault ReplicaIdentityType = 'd'
@@ -89,8 +99,6 @@ const (
 	ReplicaIdentityIndex   ReplicaIdentityType = 'i'
 	ReplicaIdentityNothing ReplicaIdentityType = 'n'
 )
-
-var ErrSlotAlreadyExists error = errors.New("slot already exists")
 
 // getRelIDForTable returns the relation ID for a table.
 func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *utils.SchemaTable) (uint32, error) {
@@ -100,6 +108,9 @@ func (c *PostgresConnector) getRelIDForTable(ctx context.Context, schemaTable *u
 		 ON n.oid = c.relnamespace WHERE n.nspname=$1 AND c.relname=$2`,
 		schemaTable.Schema, schemaTable.Table).Scan(&relID)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, shared.ErrTableDoesNotExist
+		}
 		return 0, fmt.Errorf("error getting relation ID for table %s: %w", schemaTable, err)
 	}
 
@@ -147,7 +158,7 @@ func (c *PostgresConnector) getUniqueColumns(
 		relID).Scan(&pkIndexOID)
 	if err != nil {
 		// don't error out if no pkey index, this would happen in EnsurePullability or UI.
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return []string{}, nil
 		}
 		return nil, fmt.Errorf("error finding primary key index for table %s: %w", schemaTable, err)
@@ -168,7 +179,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(
 		`SELECT indexrelid FROM pg_index WHERE indrelid=$1 AND indisreplident=true`,
 		relID).Scan(&indexRelID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, fmt.Errorf("no replica identity index for table %s", schemaTable)
 		}
 		return nil, fmt.Errorf("error finding replica identity index for table %s: %w", schemaTable, err)
@@ -212,7 +223,7 @@ func (c *PostgresConnector) getNullableColumns(ctx context.Context, relID uint32
 
 func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.SchemaTable) (bool, error) {
 	var exists pgtype.Bool
-	err := c.conn.QueryRow(ctx,
+	if err := c.conn.QueryRow(ctx,
 		`SELECT EXISTS (
 			SELECT FROM pg_tables
 			WHERE schemaname = $1
@@ -220,8 +231,7 @@ func (c *PostgresConnector) tableExists(ctx context.Context, schemaTable *utils.
 		)`,
 		schemaTable.Schema,
 		schemaTable.Table,
-	).Scan(&exists)
-	if err != nil {
+	).Scan(&exists); err != nil {
 		return false, fmt.Errorf("error checking if table exists: %w", err)
 	}
 
@@ -240,7 +250,7 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 		slot).Scan(&slotName)
 	if err != nil {
 		// check if the error is a "no rows" error
-		if err != pgx.ErrNoRows {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return SlotCheckResult{}, fmt.Errorf("error checking for replication slot - %s: %w", slot, err)
 		}
 	} else {
@@ -249,12 +259,11 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 
 	// Check if the publication exists
 	var pubName pgtype.Text
-	err = c.conn.QueryRow(ctx,
-		"SELECT pubname FROM pg_publication WHERE pubname = $1",
-		publication).Scan(&pubName)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx,
+		"SELECT pubname FROM pg_publication WHERE pubname = $1", publication,
+	).Scan(&pubName); err != nil {
 		// check if the error is a "no rows" error
-		if err != pgx.ErrNoRows {
+		if !errors.Is(err, pgx.ErrNoRows) {
 			return SlotCheckResult{}, fmt.Errorf("error checking for publication - %s: %w", publication, err)
 		}
 	} else {
@@ -270,9 +279,9 @@ func (c *PostgresConnector) checkSlotAndPublication(ctx context.Context, slot st
 func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database string) ([]*protos.SlotInfo, error) {
 	var whereClause string
 	if slotName != "" {
-		whereClause = "WHERE slot_name=" + QuoteLiteral(slotName)
+		whereClause = "WHERE slot_name=" + utils.QuoteLiteral(slotName)
 	} else {
-		whereClause = "WHERE database=" + QuoteLiteral(database)
+		whereClause = "WHERE database=" + utils.QuoteLiteral(database)
 	}
 
 	pgversion, err := shared.GetMajorVersion(ctx, conn)
@@ -323,7 +332,7 @@ func getSlotInfo(ctx context.Context, conn *pgx.Conn, slotName string, database 
 // If slotName input is empty, all slot info rows are returned - this is for UI.
 // Else, only the row pertaining to that slotName will be returned.
 func (c *PostgresConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	return getSlotInfo(ctx, c.conn, slotName, c.config.Database)
+	return getSlotInfo(ctx, c.conn, slotName, c.Config.Database)
 }
 
 func (c *PostgresConnector) CreatePublication(
@@ -335,7 +344,7 @@ func (c *PostgresConnector) CreatePublication(
 	// check and enable publish_via_partition_root
 	pgversion, err := c.MajorVersion(ctx)
 	if err != nil {
-		return fmt.Errorf("[publication-creation]:error checking Postgres version: %w", err)
+		return fmt.Errorf("[publication-creation] error checking Postgres version: %w", err)
 	}
 	var pubViaRootString string
 	if pgversion >= shared.POSTGRES_13 {
@@ -344,8 +353,8 @@ func (c *PostgresConnector) CreatePublication(
 	// Create the publication to help filter changes only for the given tables
 	stmt := fmt.Sprintf("CREATE PUBLICATION %s FOR TABLE %s%s", publication, tableNameString, pubViaRootString)
 	if _, err = c.execWithLogging(ctx, stmt); err != nil {
-		c.logger.Warn(fmt.Sprintf("Error creating publication '%s': %v", publication, err))
-		return fmt.Errorf("error creating publication '%s' : %w", publication, err)
+		c.logger.Warn("error creating publication", slog.String("publication", publication), slog.Any("error", err))
+		return fmt.Errorf("error creating publication %s: %w", publication, err)
 	}
 	return nil
 }
@@ -353,13 +362,13 @@ func (c *PostgresConnector) CreatePublication(
 // createSlotAndPublication creates the replication slot and publication.
 func (c *PostgresConnector) createSlotAndPublication(
 	ctx context.Context,
-	signal SlotSignal,
 	s SlotCheckResult,
 	slot string,
 	publication string,
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
-) error {
+	skipSnapshotExport bool,
+) (model.SetupReplicationResult, error) {
 	// iterate through source tables and create publication,
 	// expecting tablenames to be schema qualified
 	if !s.PublicationExists {
@@ -367,13 +376,12 @@ func (c *PostgresConnector) createSlotAndPublication(
 		for srcTableName := range tableNameMapping {
 			parsedSrcTableName, err := utils.ParseSchemaTable(srcTableName)
 			if err != nil {
-				return fmt.Errorf("[publication-creation]:source table identifier %s is invalid", srcTableName)
+				return model.SetupReplicationResult{}, fmt.Errorf("[publication-creation] source table identifier %s is invalid", srcTableName)
 			}
 			srcTableNames = append(srcTableNames, parsedSrcTableName.String())
 		}
-		err := c.CreatePublication(ctx, srcTableNames, publication)
-		if err != nil {
-			return err
+		if err := c.CreatePublication(ctx, srcTableNames, publication); err != nil {
+			return model.SetupReplicationResult{}, err
 		}
 	}
 
@@ -381,66 +389,67 @@ func (c *PostgresConnector) createSlotAndPublication(
 	if !s.SlotExists {
 		conn, err := c.CreateReplConn(ctx)
 		if err != nil {
-			return fmt.Errorf("[slot] error acquiring connection: %w", err)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error acquiring connection: %w", err)
 		}
-		defer conn.Close(ctx)
-
-		c.logger.Warn(fmt.Sprintf("Creating replication slot '%s'", slot))
 
 		// THIS IS NOT IN A TX!
-		if _, err = conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
-			return fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
+		if _, err := conn.Exec(ctx, "SET idle_in_transaction_session_timeout=0"); err != nil {
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error setting idle_in_transaction_session_timeout: %w", err)
 		}
 
 		if _, err := conn.Exec(ctx, "SET lock_timeout=0"); err != nil {
-			return fmt.Errorf("[slot] error setting lock_timeout: %w", err)
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error setting lock_timeout: %w", err)
 		}
 
+		pgversion, err := c.MajorVersion(ctx)
+		if err != nil {
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error getting PG version: %w", err)
+		}
+
+		c.logger.Info(fmt.Sprintf("Creating replication slot '%s'", slot))
 		opts := pglogrepl.CreateReplicationSlotOptions{
 			Temporary: false,
 			Mode:      pglogrepl.LogicalReplication,
 		}
 		res, err := pglogrepl.CreateReplicationSlot(ctx, conn.PgConn(), slot, "pgoutput", opts)
 		if err != nil {
-			return fmt.Errorf("[slot] error creating replication slot: %w", err)
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error creating replication slot: %w", err)
 		}
-
-		pgversion, err := c.MajorVersion(ctx)
-		if err != nil {
-			return fmt.Errorf("[slot] error getting PG version: %w", err)
-		}
-
 		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
-		slotDetails := SlotCreationResult{
+
+		if skipSnapshotExport {
+			conn.Close(ctx)
+			return model.SetupReplicationResult{
+				Conn:             nil,
+				SlotName:         res.SlotName,
+				SnapshotName:     "",
+				SupportsTIDScans: pgversion >= shared.POSTGRES_13,
+			}, nil
+		}
+		return model.SetupReplicationResult{
+			Conn:             conn,
 			SlotName:         res.SlotName,
 			SnapshotName:     res.SnapshotName,
-			Err:              nil,
 			SupportsTIDScans: pgversion >= shared.POSTGRES_13,
-		}
-		signal.SlotCreated <- slotDetails
-		c.logger.Info("Waiting for clone to complete")
-		<-signal.CloneComplete
-		c.logger.Info("Clone complete")
+		}, nil
 	} else {
 		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
-		slotDetails := SlotCreationResult{
-			SlotName:         slot,
-			SnapshotName:     "",
-			Err:              nil,
-			SupportsTIDScans: false,
-		}
+		var err error
 		if doInitialCopy {
-			slotDetails.Err = ErrSlotAlreadyExists
+			err = shared.ErrSlotAlreadyExists
 		}
-		signal.SlotCreated <- slotDetails
+		return model.SetupReplicationResult{SlotName: slot}, err
 	}
-
-	return nil
 }
 
 func (c *PostgresConnector) createMetadataSchema(ctx context.Context) error {
-	_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.metadataSchema))
-	if err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
+	if _, err := c.execWithLogging(ctx,
+		fmt.Sprintf(createSchemaSQL, c.metadataSchema),
+	); err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("error while creating internal schema: %w", err)
 	}
 	return nil
@@ -471,24 +480,24 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		createTableSQLArray = append(createTableSQLArray,
-			fmt.Sprintf("%s %s%s", QuoteIdentifier(column.Name), pgColumnType, notNull))
+			fmt.Sprintf("%s %s%s", utils.QuoteIdentifier(column.Name), pgColumnType, notNull))
 	}
 
 	if config.SoftDeleteColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			QuoteIdentifier(config.SoftDeleteColName)+` BOOL DEFAULT FALSE`)
+			utils.QuoteIdentifier(config.SoftDeleteColName)+` BOOL DEFAULT FALSE`)
 	}
 
 	if config.SyncedAtColName != "" {
 		createTableSQLArray = append(createTableSQLArray,
-			QuoteIdentifier(config.SyncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
+			utils.QuoteIdentifier(config.SyncedAtColName)+` TIMESTAMP DEFAULT CURRENT_TIMESTAMP`)
 	}
 
 	// add composite primary key to the table
 	if len(tableSchema.PrimaryKeyColumns) > 0 && !tableSchema.IsReplicaIdentityFull {
 		primaryKeyColsQuoted := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
 		for _, primaryKeyCol := range tableSchema.PrimaryKeyColumns {
-			primaryKeyColsQuoted = append(primaryKeyColsQuoted, QuoteIdentifier(primaryKeyCol))
+			primaryKeyColsQuoted = append(primaryKeyColsQuoted, utils.QuoteIdentifier(primaryKeyCol))
 		}
 		createTableSQLArray = append(createTableSQLArray, fmt.Sprintf("PRIMARY KEY(%s)",
 			strings.Join(primaryKeyColsQuoted, ",")))
@@ -499,13 +508,12 @@ func generateCreateTableSQLForNormalizedTable(
 
 func (c *PostgresConnector) GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error) {
 	var result pgtype.Int8
-	err := c.conn.QueryRow(ctx, fmt.Sprintf(
+	if err := c.conn.QueryRow(ctx, fmt.Sprintf(
 		getLastSyncBatchID_SQL,
 		c.metadataSchema,
 		mirrorJobsTableIdentifier,
-	), jobName).Scan(&result)
-	if err != nil {
-		if err == pgx.ErrNoRows {
+	), jobName).Scan(&result); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning 0")
 			return 0, nil
 		}
@@ -516,13 +524,12 @@ func (c *PostgresConnector) GetLastSyncBatchID(ctx context.Context, jobName stri
 
 func (c *PostgresConnector) GetLastNormalizeBatchID(ctx context.Context, jobName string) (int64, error) {
 	var result pgtype.Int8
-	err := c.conn.QueryRow(ctx, fmt.Sprintf(
+	if err := c.conn.QueryRow(ctx, fmt.Sprintf(
 		getLastNormalizeBatchID_SQL,
 		c.metadataSchema,
 		mirrorJobsTableIdentifier,
-	), jobName).Scan(&result)
-	if err != nil {
-		if err == pgx.ErrNoRows {
+	), jobName).Scan(&result); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
 			c.logger.Info("No row found, returning 0")
 			return 0, nil
 		}
@@ -533,25 +540,32 @@ func (c *PostgresConnector) GetLastNormalizeBatchID(ctx context.Context, jobName
 
 func (c *PostgresConnector) jobMetadataExists(ctx context.Context, jobName string) (bool, error) {
 	var result pgtype.Bool
-	err := c.conn.QueryRow(ctx,
-		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName).Scan(&result)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx,
+		fmt.Sprintf(checkIfJobMetadataExistsSQL, c.metadataSchema, mirrorJobsTableIdentifier), jobName,
+	).Scan(&result); err != nil {
 		return false, fmt.Errorf("error reading result row: %w", err)
 	}
 	return result.Bool, nil
 }
 
 func (c *PostgresConnector) MajorVersion(ctx context.Context) (shared.PGVersion, error) {
-	return shared.GetMajorVersion(ctx, c.conn)
+	if c.pgVersion == 0 {
+		pgVersion, err := shared.GetMajorVersion(ctx, c.conn)
+		if err != nil {
+			return 0, err
+		}
+		c.pgVersion = pgVersion
+	}
+	return c.pgVersion, nil
 }
 
-func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName string, lastCP int64, syncBatchID int64,
+func (c *PostgresConnector) updateSyncMetadata(ctx context.Context, flowJobName string, lastCP model.CdcCheckpoint, syncBatchID int64,
 	syncRecordsTx pgx.Tx,
 ) error {
-	_, err := syncRecordsTx.Exec(ctx,
+	if _, err := syncRecordsTx.Exec(ctx,
 		fmt.Sprintf(upsertJobMetadataForSyncSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		flowJobName, lastCP, syncBatchID, 0)
-	if err != nil {
+		flowJobName, lastCP.ID, syncBatchID,
+	); err != nil {
 		return fmt.Errorf("failed to upsert flow job status: %w", err)
 	}
 
@@ -564,10 +578,10 @@ func (c *PostgresConnector) updateNormalizeMetadata(
 	normalizeBatchID int64,
 	normalizeRecordsTx pgx.Tx,
 ) error {
-	_, err := normalizeRecordsTx.Exec(ctx,
+	if _, err := normalizeRecordsTx.Exec(ctx,
 		fmt.Sprintf(updateMetadataForNormalizeRecordsSQL, c.metadataSchema, mirrorJobsTableIdentifier),
-		normalizeBatchID, flowJobName)
-	if err != nil {
+		normalizeBatchID, flowJobName,
+	); err != nil {
 		return fmt.Errorf("failed to update metadata for NormalizeTables: %w", err)
 	}
 
@@ -579,6 +593,7 @@ func (c *PostgresConnector) getDistinctTableNamesInBatch(
 	flowJobName string,
 	syncBatchID int64,
 	normalizeBatchID int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableIdentifier := getRawTableIdentifier(flowJobName)
 
@@ -592,7 +607,13 @@ func (c *PostgresConnector) getDistinctTableNamesInBatch(
 	if err != nil {
 		return nil, fmt.Errorf("failed to scan row: %w", err)
 	}
-	return destinationTableNames, nil
+	return slices.DeleteFunc(destinationTableNames, func(name string) bool {
+		if _, ok := tableToSchema[name]; !ok {
+			c.logger.Warn("table not found in table to schema mapping", "table", name)
+			return true
+		}
+		return false
+	}), nil
 }
 
 func (c *PostgresConnector) getTableNametoUnchangedCols(
@@ -628,15 +649,21 @@ func (c *PostgresConnector) getTableNametoUnchangedCols(
 	return resultMap, nil
 }
 
-func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (pglogrepl.LSN, error) {
+func (c *PostgresConnector) getCurrentLSN(ctx context.Context) (NullableLSN, error) {
 	row := c.conn.QueryRow(ctx,
 		"SELECT CASE WHEN pg_is_in_recovery() THEN pg_last_wal_receive_lsn() ELSE pg_current_wal_lsn() END")
 	var result pgtype.Text
-	err := row.Scan(&result)
-	if err != nil {
-		return 0, fmt.Errorf("error while running query: %w", err)
+	if err := row.Scan(&result); err != nil {
+		return NullableLSN{}, fmt.Errorf("error while running query for current LSN: %w", err)
 	}
-	return pglogrepl.ParseLSN(result.String)
+	if !result.Valid || result.String == "" {
+		return NullableLSN{Null: true}, nil
+	}
+	lsn, err := pglogrepl.ParseLSN(result.String)
+	if err != nil {
+		return NullableLSN{}, fmt.Errorf("error while parsing LSN %s: %w", result.String, err)
+	}
+	return NullableLSN{LSN: lsn}, nil
 }
 
 func (c *PostgresConnector) getDefaultPublicationName(jobName string) string {

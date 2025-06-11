@@ -27,12 +27,16 @@ type AvatarProps = { className?: string; size: AvatarSize } & (
   | AvatarTextProps
 );
 
-const isAvatarImage = (
+function isAvatarImage(
   props: AvatarImageProps | AvatarIconProps | AvatarTextProps
-): props is AvatarImageProps => props.variant === 'image';
-const isAvatarIcon = (
+): props is AvatarImageProps {
+  return props.variant === 'image';
+}
+function isAvatarIcon(
   props: AvatarImageProps | AvatarIconProps | AvatarTextProps
-): props is AvatarIconProps => props.variant === 'icon';
+): props is AvatarIconProps {
+  return props.variant === 'icon';
+}
 
 /**
  * Avatar component

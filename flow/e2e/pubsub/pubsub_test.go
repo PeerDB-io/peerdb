@@ -14,14 +14,14 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
-	peer_bq "github.com/PeerDB-io/peer-flow/connectors/bigquery"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/e2e"
-	"github.com/PeerDB-io/peer-flow/e2eshared"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	peer_bq "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/e2e"
+	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 type PubSubSuite struct {
@@ -36,6 +36,10 @@ func (s PubSubSuite) T() *testing.T {
 
 func (s PubSubSuite) Connector() *connpostgres.PostgresConnector {
 	return s.conn
+}
+
+func (s PubSubSuite) Source() e2e.SuiteSource {
+	return &e2e.PostgresSource{PostgresConnector: s.conn}
 }
 
 func (s PubSubSuite) Conn() *pgx.Conn {
@@ -95,8 +99,8 @@ func (s PubSubSuite) DestinationTable(table string) string {
 	return table
 }
 
-func (s PubSubSuite) Teardown() {
-	e2e.TearDownPostgres(s)
+func (s PubSubSuite) Teardown(ctx context.Context) {
+	e2e.TearDownPostgres(ctx, s)
 }
 
 func SetupSuite(t *testing.T) PubSubSuite {
@@ -108,7 +112,7 @@ func SetupSuite(t *testing.T) PubSubSuite {
 
 	return PubSubSuite{
 		t:      t,
-		conn:   conn,
+		conn:   conn.PostgresConnector,
 		suffix: suffix,
 	}
 }
@@ -120,7 +124,7 @@ func Test_PubSub(t *testing.T) {
 func (s PubSubSuite) TestCreateTopic() {
 	srcTableName := e2e.AttachSchema(s, "pscreate")
 
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			val text
@@ -131,7 +135,7 @@ func (s PubSubSuite) TestCreateTopic() {
 	sa, err := ServiceAccount()
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
 	('e2e_pscreate', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
@@ -141,38 +145,38 @@ func (s PubSubSuite) TestCreateTopic() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(sa).Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "e2e_pscreate"
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s (id, val) VALUES (1, 'testval')
 	`, srcTableName))
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "create topic", func() bool {
-		psclient, err := sa.CreatePubSubClient(context.Background())
+		psclient, err := sa.CreatePubSubClient(s.t.Context())
 		defer func() {
 			_ = psclient.Close()
 		}()
 		require.NoError(s.t, err)
 		topic := psclient.Topic(flowName)
-		exists, err := topic.Exists(context.Background())
+		exists, err := topic.Exists(s.t.Context())
 		require.NoError(s.t, err)
 		return exists
 	})
 
-	env.Cancel()
+	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PubSubSuite) TestSimple() {
 	srcTableName := e2e.AttachSchema(s, "pssimple")
 
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			val text
@@ -183,7 +187,7 @@ func (s PubSubSuite) TestSimple() {
 	sa, err := ServiceAccount()
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
 	('e2e_pssimple', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
@@ -193,15 +197,15 @@ func (s PubSubSuite) TestSimple() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(sa).Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "e2e_pssimple"
 
-	psclient, err := sa.CreatePubSubClient(context.Background())
+	psclient, err := sa.CreatePubSubClient(s.t.Context())
 	require.NoError(s.t, err)
 	defer psclient.Close()
-	topic, err := psclient.CreateTopic(context.Background(), flowName)
+	topic, err := psclient.CreateTopic(s.t.Context(), flowName)
 	require.NoError(s.t, err)
-	sub, err := psclient.CreateSubscription(context.Background(), flowName, pubsub.SubscriptionConfig{
+	sub, err := psclient.CreateSubscription(s.t.Context(), flowName, pubsub.SubscriptionConfig{
 		Topic:             topic,
 		RetentionDuration: 10 * time.Minute,
 		ExpirationPolicy:  24 * time.Hour,
@@ -209,15 +213,15 @@ func (s PubSubSuite) TestSimple() {
 	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s (id, val) VALUES (1, 'testval')
 	`, srcTableName))
 	require.NoError(s.t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(s.t.Context(), 3*time.Minute)
 	defer cancel()
 
 	msgs := make(chan *pubsub.Message)
@@ -235,14 +239,14 @@ func (s PubSubSuite) TestSimple() {
 		s.t.Fail()
 	}
 
-	env.Cancel()
+	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s PubSubSuite) TestInitialLoad() {
 	srcTableName := e2e.AttachSchema(s, "psinitial")
 
-	_, err := s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			val text
@@ -253,7 +257,7 @@ func (s PubSubSuite) TestInitialLoad() {
 	sa, err := ServiceAccount()
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(context.Background(), `insert into public.scripts (name, lang, source) values
+	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
 	('e2e_psinitial', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
@@ -263,31 +267,31 @@ func (s PubSubSuite) TestInitialLoad() {
 		TableNameMapping: map[string]string{srcTableName: flowName},
 		Destination:      s.Peer(sa).Name,
 	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s.t)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "e2e_psinitial"
 	flowConnConfig.DoInitialSnapshot = true
 
-	psclient, err := sa.CreatePubSubClient(context.Background())
+	psclient, err := sa.CreatePubSubClient(s.t.Context())
 	require.NoError(s.t, err)
 	defer psclient.Close()
-	topic, err := psclient.CreateTopic(context.Background(), flowName)
+	topic, err := psclient.CreateTopic(s.t.Context(), flowName)
 	require.NoError(s.t, err)
-	sub, err := psclient.CreateSubscription(context.Background(), flowName, pubsub.SubscriptionConfig{
+	sub, err := psclient.CreateSubscription(s.t.Context(), flowName, pubsub.SubscriptionConfig{
 		Topic:             topic,
 		RetentionDuration: 10 * time.Minute,
 		ExpirationPolicy:  24 * time.Hour,
 	})
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(context.Background(), fmt.Sprintf(`
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s (id, val) VALUES (1, 'testval')
 	`, srcTableName))
 	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(s.t.Context(), 3*time.Minute)
 	defer cancel()
 
 	msgs := make(chan *pubsub.Message)
@@ -305,6 +309,6 @@ func (s PubSubSuite) TestInitialLoad() {
 		s.t.Fail()
 	}
 
-	env.Cancel()
+	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }

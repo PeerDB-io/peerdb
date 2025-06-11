@@ -5,13 +5,17 @@ import (
 
 	lua "github.com/yuin/gopher-lua"
 
-	"github.com/PeerDB-io/peer-flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model"
 )
 
 func AttachToStream(ls *lua.LState, lfn *lua.LFunction, stream *model.QRecordStream) *model.QRecordStream {
 	output := model.NewQRecordStream(0)
 	go func() {
-		schema := stream.Schema()
+		schema, err := stream.Schema()
+		if err != nil {
+			output.Close(err)
+			return
+		}
 		output.SetSchema(schema)
 		for record := range stream.Records {
 			row := model.NewRecordItems(len(record))
@@ -72,7 +76,9 @@ func AttachToCdcStream(
 			}
 		}
 		outstream.SchemaDeltas = stream.SchemaDeltas
-		outstream.UpdateLatestCheckpoint(stream.GetLastCheckpoint())
+		lastCP := stream.GetLastCheckpoint()
+		outstream.UpdateLatestCheckpointID(lastCP.ID)
+		outstream.UpdateLatestCheckpointText(lastCP.Text)
 		outstream.Close()
 	}()
 	return outstream

@@ -11,9 +11,9 @@ import (
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type QRepFlowExecution struct {
@@ -32,13 +32,15 @@ type QRepPartitionFlowExecution struct {
 	runUUID         string
 }
 
+var InitialLastPartition = &protos.QRepPartition{
+	PartitionId: "not-applicable-partition",
+	Range:       nil,
+}
+
 // returns a new empty QRepFlowState
 func newQRepFlowState() *protos.QRepFlowState {
 	return &protos.QRepFlowState{
-		LastPartition: &protos.QRepPartition{
-			PartitionId: "not-applicable-partition",
-			Range:       nil,
-		},
+		LastPartition:          InitialLastPartition,
 		NumPartitionsProcessed: 0,
 		NeedsResync:            true,
 		CurrentFlowStatus:      protos.FlowStatus_STATUS_RUNNING,
@@ -104,8 +106,7 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 	})
 
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
-		PeerName:         q.config.SourceName,
-		TableIdentifiers: []string{tableName},
+		PeerName: q.config.SourceName,
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      tableName,
@@ -185,9 +186,8 @@ func (q *QRepFlowExecution) getPartitions(
 		},
 	})
 
-	partitionsFuture := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID)
 	var partitions *protos.QRepParitionResult
-	if err := partitionsFuture.Get(ctx, &partitions); err != nil {
+	if err := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID).Get(ctx, &partitions); err != nil {
 		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
 	}
 
@@ -211,8 +211,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 		},
 	})
 
-	msg := fmt.Sprintf("replicating partition batch - %d", partitions.BatchId)
-	q.logger.Info(msg)
+	q.logger.Info("replicating partition batch", slog.Int64("BatchID", int64(partitions.BatchId)))
 	if err := workflow.ExecuteActivity(ctx,
 		flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to replicate partition: %w", err)
@@ -223,8 +222,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 
 // getPartitionWorkflowID returns the child workflow ID for a new sync flow.
 func (q *QRepFlowExecution) getPartitionWorkflowID(ctx workflow.Context) string {
-	id := GetUUID(ctx)
-	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, id)
+	return fmt.Sprintf("qrep-part-%s-%s", q.config.FlowJobName, GetUUID(ctx))
 }
 
 // startChildWorkflow starts a single child workflow.
@@ -239,9 +237,8 @@ func (q *QRepFlowExecution) startChildWorkflow(
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 20,
 		},
-		SearchAttributes: map[string]interface{}{
-			shared.MirrorNameSearchAttribute: q.config.FlowJobName,
-		},
+		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
+		WaitForCancellation:   true,
 	})
 
 	return workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, q.config, partitions, q.runUUID)
@@ -268,11 +265,10 @@ func (q *QRepFlowExecution) processPartitions(
 
 	partitionWorkflows := make([]workflow.Future, 0, len(batches))
 	for i, parts := range batches {
-		batch := &protos.QRepPartitionBatch{
+		future := q.startChildWorkflow(ctx, &protos.QRepPartitionBatch{
 			Partitions: parts,
 			BatchId:    int32(i + 1),
-		}
-		future := q.startChildWorkflow(ctx, batch)
+		})
 		partitionWorkflows = append(partitionWorkflows, future)
 	}
 
@@ -326,10 +322,9 @@ func (q *QRepFlowExecution) waitForNewRows(
 	lastPartition *protos.QRepPartition,
 ) error {
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		SearchAttributes: map[string]interface{}{
-			shared.MirrorNameSearchAttribute: q.config.FlowJobName,
-		},
+		ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
+		WaitForCancellation:   true,
 	})
 	future := workflow.ExecuteChildWorkflow(ctx, QRepWaitForNewRowsWorkflow, q.config, lastPartition)
 
@@ -426,18 +421,16 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 
 func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error {
 	// Support a Query for the current state of the qrep flow.
-	err := workflow.SetQueryHandler(ctx, shared.QRepFlowStateQuery, func() (*protos.QRepFlowState, error) {
+	if err := workflow.SetQueryHandler(ctx, shared.QRepFlowStateQuery, func() (*protos.QRepFlowState, error) {
 		return state, nil
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.QRepFlowStateQuery, err)
 	}
 
 	// Support a Query for the current status of the qrep flow.
-	err = workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
 		return state.CurrentFlowStatus, nil
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
 	}
 
@@ -465,8 +458,10 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 		return fmt.Errorf("error checking for new rows: %w", err)
 	}
 
+	optedForOverwrite := config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE
+	fullRefresh := optedForOverwrite && getQRepOverwriteFullRefreshMode(ctx, logger, config.Env)
 	// If no new rows are found, continue as new
-	if !hasNewRows {
+	if !hasNewRows || fullRefresh {
 		waitBetweenBatches := 5 * time.Second
 		if config.WaitBetweenBatchesSeconds > 0 {
 			waitBetweenBatches = time.Duration(config.WaitBetweenBatchesSeconds) * time.Second
@@ -476,6 +471,9 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 			return sleepErr
 		}
 
+		if fullRefresh {
+			return nil
+		}
 		logger.Info("QRepWaitForNewRowsWorkflow: continuing the loop")
 		return workflow.NewContinueAsNewError(ctx, QRepWaitForNewRowsWorkflow, config, lastPartition)
 	}
@@ -484,6 +482,14 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 
 	// New rows found, workflow can complete and allow the parent workflow to proceed
 	return nil
+}
+
+func updateStatus(ctx workflow.Context, logger log.Logger, state *protos.QRepFlowState, status protos.FlowStatus) {
+	state.CurrentFlowStatus = status
+	// update the status in the catalog only if this is the root workflow
+	if workflow.GetInfo(ctx).ParentWorkflowExecution == nil {
+		syncStatusToCatalog(ctx, logger, status)
+	}
 }
 
 func QRepFlowWorkflow(
@@ -509,6 +515,10 @@ func QRepFlowWorkflow(
 		return state, err
 	}
 
+	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {
+		return state, nil
+	}
+
 	signalChan := model.FlowSignal.GetSignalChannel(ctx)
 	q := newQRepFlowExecution(ctx, config, originalRunID)
 
@@ -516,7 +526,7 @@ func QRepFlowWorkflow(
 		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
 		startTime := workflow.Now(ctx)
 		q.activeSignal = model.PauseSignal
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 
 		for q.activeSignal == model.PauseSignal {
 			q.logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
@@ -528,7 +538,7 @@ func QRepFlowWorkflow(
 				return state, err
 			}
 		}
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
 
 	maxParallelWorkers := 16
@@ -549,8 +559,16 @@ func QRepFlowWorkflow(
 		return state, err
 	}
 
-	if !config.InitialCopyOnly && state.LastPartition != nil {
-		if err := q.waitForNewRows(ctx, signalChan, state.LastPartition); err != nil {
+	fullRefresh := false
+	lastPartition := state.LastPartition
+	if config.WriteMode.WriteType == protos.QRepWriteType_QREP_WRITE_MODE_OVERWRITE {
+		if fullRefresh = getQRepOverwriteFullRefreshMode(ctx, q.logger, config.Env); fullRefresh {
+			lastPartition = InitialLastPartition
+		}
+	}
+
+	if !config.InitialCopyOnly && lastPartition != nil {
+		if err := q.waitForNewRows(ctx, signalChan, lastPartition); err != nil {
 			return state, err
 		}
 	}
@@ -574,7 +592,8 @@ func QRepFlowWorkflow(
 
 		if config.InitialCopyOnly {
 			q.logger.Info("initial copy completed for peer flow")
-			return state, nil
+			updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_COMPLETED)
+			return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 		}
 
 		if err := q.handleTableRenameForResync(ctx, state); err != nil {
@@ -584,7 +603,7 @@ func QRepFlowWorkflow(
 		q.logger.Info(fmt.Sprintf("%d partitions processed", len(partitions.Partitions)))
 		state.NumPartitionsProcessed += uint64(len(partitions.Partitions))
 
-		if len(partitions.Partitions) > 0 {
+		if len(partitions.Partitions) > 0 && !fullRefresh {
 			state.LastPartition = partitions.Partitions[len(partitions.Partitions)-1]
 		}
 	}
@@ -603,7 +622,7 @@ func QRepFlowWorkflow(
 		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 	}
 	return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 }

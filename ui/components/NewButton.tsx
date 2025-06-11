@@ -3,13 +3,13 @@ import { Icon } from '@/lib/Icon/Icon';
 import { Label } from '@/lib/Label/Label';
 import Link from 'next/link';
 
-const NewButton = ({
+export default function NewButton({
   targetPage,
   buttonText,
 }: {
   targetPage: string;
   buttonText: string;
-}) => {
+}) {
   return (
     <Button as={Link} href={targetPage} variant='normalSolid'>
       <div
@@ -24,6 +24,4 @@ const NewButton = ({
       </div>
     </Button>
   );
-};
-
-export default NewButton;
+}

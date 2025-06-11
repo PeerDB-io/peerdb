@@ -14,21 +14,22 @@ import (
 	"github.com/google/uuid"
 	"github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/PeerDB-io/peer-flow/auth"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
-	peerflow "github.com/PeerDB-io/peer-flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/middleware"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 type APIServerParams struct {
@@ -36,6 +37,7 @@ type APIServerParams struct {
 	TemporalNamespace string
 	Port              uint16
 	GatewayPort       uint16
+	EnableOtelMetrics bool
 }
 
 type RecryptItem struct {
@@ -48,13 +50,13 @@ type RecryptItem struct {
 // updateSql should take id, field, keyId as parameters respectively
 func recryptDatabase(
 	ctx context.Context,
-	catalogPool *pgxpool.Pool,
+	catalogPool shared.CatalogPool,
 	tag string,
 	selectSql string,
 	updateSql string,
 ) {
-	newKeyID := peerdbenv.PeerDBCurrentEncKeyID()
-	keys := peerdbenv.PeerDBEncKeys()
+	newKeyID := internal.PeerDBCurrentEncKeyID()
+	keys := internal.PeerDBEncKeys(ctx)
 	if newKeyID == "" {
 		if len(keys) == 0 {
 			slog.Warn("Encryption disabled. This is not recommended.")
@@ -136,7 +138,7 @@ func recryptDatabase(
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
-func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
+func setupGRPCGatewayServer(ctx context.Context, args *APIServerParams) (*http.Server, error) {
 	conn, err := grpc.NewClient(
 		fmt.Sprintf("0.0.0.0:%d", args.Port),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -146,17 +148,15 @@ func setupGRPCGatewayServer(args *APIServerParams) (*http.Server, error) {
 	}
 
 	gwmux := runtime.NewServeMux()
-	err = protos.RegisterFlowServiceHandler(context.Background(), gwmux, conn)
-	if err != nil {
+	if err := protos.RegisterFlowServiceHandler(ctx, gwmux, conn); err != nil {
 		return nil, fmt.Errorf("unable to register gateway: %w", err)
 	}
 
-	server := &http.Server{
+	return &http.Server{
 		Addr:              fmt.Sprintf(":%d", args.GatewayPort),
 		Handler:           gwmux,
 		ReadHeaderTimeout: 5 * time.Minute,
-	}
-	return server, nil
+	}, nil
 }
 
 func killExistingScheduleFlows(
@@ -176,9 +176,9 @@ func killExistingScheduleFlows(
 	slog.Info("Requesting cancellation of pre-existing scheduler flows")
 	for _, workflow := range listRes.Executions {
 		slog.Info("Cancelling workflow", slog.String("workflowId", workflow.Execution.WorkflowId))
-		err := tc.CancelWorkflow(ctx,
-			workflow.Execution.WorkflowId, workflow.Execution.RunId)
-		if err != nil && err.Error() != "workflow execution already completed" {
+		if err := tc.CancelWorkflow(
+			ctx, workflow.Execution.WorkflowId, workflow.Execution.RunId,
+		); err != nil && err.Error() != "workflow execution already completed" {
 			return fmt.Errorf("unable to cancel workflow: %w", err)
 		}
 	}
@@ -189,50 +189,61 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
-		Logger:    slog.New(logger.NewHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
 
-	if peerdbenv.PeerDBTemporalEnableCertAuth() {
-		slog.Info("Using temporal certificate/key for authentication")
-
-		certs, err := parseTemporalCertAndKey()
-		if err != nil {
-			return fmt.Errorf("unable to base64 decode certificate and key: %w", err)
-		}
-
-		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: certs,
-				MinVersion:   tls.VersionTLS13,
-			},
-		}
-		clientOptions.ConnectionOptions = connOptions
+	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowApiServiceName, args.EnableOtelMetrics)
+	if metricsErr != nil {
+		return metricsErr
 	}
+	clientOptions.MetricsHandler = temporalotel.NewMetricsHandler(temporalotel.MetricsHandlerOptions{
+		Meter: metricsProvider.Meter("temporal-sdk-go"),
+	})
 
-	tc, err := client.Dial(clientOptions)
+	tc, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
-	options, err := auth.AuthGrpcMiddleware([]string{
+	authGrpcMiddleware, err := middleware.AuthGrpcMiddleware([]string{
 		grpc_health_v1.Health_Check_FullMethodName,
 		grpc_health_v1.Health_Watch_FullMethodName,
 	})
 	if err != nil {
 		return err
 	}
-	grpcServer := grpc.NewServer(options...)
 
-	catalogPool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
+	requestLoggingMiddleware := middleware.RequestLoggingMiddleWare()
+
+	serverOptions := []grpc.ServerOption{
+		// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged
+		grpc.ChainUnaryInterceptor(
+			authGrpcMiddleware,
+			requestLoggingMiddleware,
+		),
+	}
+
+	componentManager, err := otel_metrics.SetupComponentMetricsProvider(
+		ctx, otel_metrics.FlowApiServiceName, "grpc-api", args.EnableOtelMetrics,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to metrics provider for grpc api: %w", err)
+	}
+	serverOptions = append(serverOptions, grpc.StatsHandler(otelgrpc.NewServerHandler(
+		otelgrpc.WithMeterProvider(componentManager),
+	)))
+
+	grpcServer := grpc.NewServer(serverOptions...)
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to get catalog connection pool: %w", err)
 	}
 
-	taskQueue := peerdbenv.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
-	flowHandler := NewFlowRequestHandler(tc, catalogPool, taskQueue)
+	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
+	flowHandler := NewFlowRequestHandler(ctx, tc, catalogPool, taskQueue)
 
-	err = killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue)
-	if err != nil {
+	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue); err != nil {
 		return fmt.Errorf("unable to kill existing scheduler flows: %w", err)
 	}
 
@@ -242,12 +253,11 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		TaskQueue: taskQueue,
 	}
 
-	_, err = flowHandler.temporalClient.ExecuteWorkflow(
+	if _, err := flowHandler.temporalClient.ExecuteWorkflow(
 		ctx,
 		workflowOptions,
 		peerflow.GlobalScheduleManagerWorkflow,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("unable to start scheduler workflow: %w", err)
 	}
 
@@ -267,7 +277,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		}
 	}()
 
-	gateway, err := setupGRPCGatewayServer(args)
+	gateway, err := setupGRPCGatewayServer(ctx, args)
 	if err != nil {
 		return fmt.Errorf("unable to setup gateway server: %w", err)
 	}
@@ -300,4 +310,26 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	slog.Info("Server has been shut down gracefully. Exiting...")
 
 	return nil
+}
+
+func setupTemporalClient(ctx context.Context, clientOptions client.Options) (client.Client, error) {
+	if internal.PeerDBTemporalEnableCertAuth() {
+		slog.Info("Using temporal certificate/key for authentication")
+
+		certs, err := parseTemporalCertAndKey(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to base64 decode certificate and key: %w", err)
+		}
+
+		connOptions := client.ConnectionOptions{
+			TLS: &tls.Config{
+				Certificates: certs,
+				MinVersion:   tls.VersionTLS13,
+			},
+		}
+		clientOptions.ConnectionOptions = connOptions
+	}
+
+	tc, err := client.Dial(clientOptions)
+	return tc, err
 }

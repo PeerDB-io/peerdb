@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model/qvalue"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type mergeStmtGenerator struct {
@@ -33,23 +33,23 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 		bqTypeString := qValueKindToBigQueryTypeString(column, normalizedTableSchema.NullableEnabled, true)
 		var castStmt string
 		shortCol := m.shortColumn[column.Name]
-		switch qvalue.QValueKind(colType) {
-		case qvalue.QValueKindJSON, qvalue.QValueKindHStore:
+		switch types.QValueKind(colType) {
+		case types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindHStore:
 			// if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)
 		// expecting data in BASE64 format
-		case qvalue.QValueKindBytes:
+		case types.QValueKindBytes:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data,'$.%s')) AS `%s`",
 				column.Name, shortCol)
-		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64, qvalue.QValueKindArrayInt16,
-			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString,
-			qvalue.QValueKindArrayBoolean, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ,
-			qvalue.QValueKindArrayDate:
+		case types.QValueKindArrayFloat32, types.QValueKindArrayFloat64, types.QValueKindArrayInt16,
+			types.QValueKindArrayInt32, types.QValueKindArrayInt64, types.QValueKindArrayString,
+			types.QValueKindArrayBoolean, types.QValueKindArrayTimestamp, types.QValueKindArrayTimestampTZ,
+			types.QValueKindArrayDate, types.QValueKindArrayUUID, types.QValueKindArrayNumeric:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
 				bqTypeString, column.Name, shortCol)
-		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
+		case types.QValueKindGeography, types.QValueKindGeometry, types.QValueKindPoint:
 			castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)
 		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
@@ -90,9 +90,9 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 // This function is to support datatypes like JSON which cannot be partitioned by or compared by BigQuery
 func (m *mergeStmtGenerator) transformedPkeyStrings(normalizedTableSchema *protos.TableSchema, forPartition bool) []string {
 	pkeys := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
-	columnNameTypeMap := make(map[string]qvalue.QValueKind, len(normalizedTableSchema.Columns))
+	columnNameTypeMap := make(map[string]types.QValueKind, len(normalizedTableSchema.Columns))
 	for _, col := range normalizedTableSchema.Columns {
-		columnNameTypeMap[col.Name] = qvalue.QValueKind(col.Type)
+		columnNameTypeMap[col.Name] = types.QValueKind(col.Type)
 	}
 
 	for _, pkeyCol := range normalizedTableSchema.PrimaryKeyColumns {
@@ -101,14 +101,14 @@ func (m *mergeStmtGenerator) transformedPkeyStrings(normalizedTableSchema *proto
 			continue
 		}
 		switch pkeyColType {
-		case qvalue.QValueKindJSON:
+		case types.QValueKindJSON:
 			if forPartition {
 				pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(%s)", m.shortColumn[pkeyCol]))
 			} else {
 				pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(_t.`%s`)=TO_JSON_STRING(_d.%s)",
 					pkeyCol, m.shortColumn[pkeyCol]))
 			}
-		case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
+		case types.QValueKindFloat32, types.QValueKindFloat64:
 			if forPartition {
 				pkeys = append(pkeys, fmt.Sprintf("CAST(%s as STRING)", m.shortColumn[pkeyCol]))
 			} else {

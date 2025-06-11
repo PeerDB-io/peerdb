@@ -12,33 +12,20 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/api/iterator"
 
-	metadataStore "github.com/PeerDB-io/peer-flow/connectors/external_metadata"
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
-	"github.com/PeerDB-io/peer-flow/shared"
+	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
 	SyncRecordsBatchSize = 1024
 )
-
-type BigQueryConnector struct {
-	*metadataStore.PostgresMetadata
-	logger        log.Logger
-	bqConfig      *protos.BigqueryConfig
-	client        *bigquery.Client
-	storageClient *storage.Client
-	catalogPool   *pgxpool.Pool
-	datasetID     string
-	projectID     string
-}
 
 func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServiceAccount, error) {
 	var serviceAccount utils.GcpServiceAccount
@@ -58,6 +45,70 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 	}
 
 	return &serviceAccount, nil
+}
+
+type BigQueryConnector struct {
+	*metadataStore.PostgresMetadata
+	logger        log.Logger
+	bqConfig      *protos.BigqueryConfig
+	client        *bigquery.Client
+	storageClient *storage.Client
+	catalogPool   shared.CatalogPool
+	datasetID     string
+	projectID     string
+}
+
+func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
+	logger := internal.LoggerFromCtx(ctx)
+
+	bqsa, err := NewBigQueryServiceAccount(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
+	}
+
+	datasetID := config.GetDatasetId()
+	projectID := config.GetProjectId()
+	projectPart, datasetPart, found := strings.Cut(datasetID, ".")
+	if found && strings.Contains(datasetPart, ".") {
+		return nil,
+			fmt.Errorf("invalid dataset ID: %s. Ensure that it is just a single string or string1.string2", datasetID)
+	}
+	if projectPart != "" && datasetPart != "" {
+		datasetID = datasetPart
+		projectID = projectPart
+	}
+
+	client, err := bqsa.CreateBigQueryClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
+	}
+
+	_, datasetErr := client.DatasetInProject(projectID, datasetID).Metadata(ctx)
+	if datasetErr != nil {
+		logger.Error("failed to get dataset metadata", "error", datasetErr)
+		return nil, fmt.Errorf("failed to get dataset metadata: %v", datasetErr)
+	}
+
+	storageClient, err := bqsa.CreateStorageClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Storage client: %v", err)
+	}
+
+	catalogPool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create catalog connection pool: %v", err)
+	}
+
+	return &BigQueryConnector{
+		bqConfig:         config,
+		client:           client,
+		datasetID:        datasetID,
+		projectID:        projectID,
+		PostgresMetadata: metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
+		storageClient:    storageClient,
+		catalogPool:      catalogPool,
+		logger:           logger,
+	}, nil
 }
 
 // ValidateCheck:
@@ -103,59 +154,6 @@ func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
-	logger := logger.LoggerFromCtx(ctx)
-
-	bqsa, err := NewBigQueryServiceAccount(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
-	}
-
-	datasetID := config.GetDatasetId()
-	projectID := config.GetProjectId()
-	projectPart, datasetPart, found := strings.Cut(datasetID, ".")
-	if found && strings.Contains(datasetPart, ".") {
-		return nil,
-			fmt.Errorf("invalid dataset ID: %s. Ensure that it is just a single string or string1.string2", datasetID)
-	}
-	if projectPart != "" && datasetPart != "" {
-		datasetID = datasetPart
-		projectID = projectPart
-	}
-
-	client, err := bqsa.CreateBigQueryClient(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
-	}
-
-	_, datasetErr := client.DatasetInProject(projectID, datasetID).Metadata(ctx)
-	if datasetErr != nil {
-		logger.Error("failed to get dataset metadata", "error", datasetErr)
-		return nil, fmt.Errorf("failed to get dataset metadata: %v", datasetErr)
-	}
-
-	storageClient, err := bqsa.CreateStorageClient(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Storage client: %v", err)
-	}
-
-	catalogPool, err := peerdbenv.GetCatalogConnectionPoolFromEnv(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create catalog connection pool: %v", err)
-	}
-
-	return &BigQueryConnector{
-		bqConfig:         config,
-		client:           client,
-		datasetID:        datasetID,
-		projectID:        projectID,
-		PostgresMetadata: metadataStore.NewPostgresMetadataFromCatalog(logger, catalogPool),
-		storageClient:    storageClient,
-		catalogPool:      catalogPool,
-		logger:           logger,
-	}, nil
 }
 
 // Close closes the BigQuery driver.
@@ -204,6 +202,7 @@ func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable 
 // This could involve adding or dropping multiple columns.
 func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
+	env map[string]string,
 	flowJobName string,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
@@ -214,7 +213,11 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 
 	AddedColumnsLoop:
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			dstDatasetTable, _ := c.convertToDatasetTable(schemaDelta.DstTableName)
+			dstDatasetTable, err := c.convertToDatasetTable(schemaDelta.DstTableName)
+			if err != nil {
+				return err
+			}
+
 			table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
 			dstMetadata, metadataErr := table.Metadata(ctx)
 			if metadataErr != nil {
@@ -232,12 +235,11 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 
 			addedColumnBigQueryType := qValueKindToBigQueryTypeString(addedColumn, schemaDelta.NullableEnabled, false)
 			query := c.queryWithLogging(fmt.Sprintf(
-				"ALTER TABLE %s ADD COLUMN IF NOT EXISTS `%s` %s",
+				"ALTER TABLE `%s` ADD COLUMN IF NOT EXISTS `%s` %s",
 				dstDatasetTable.table, addedColumn.Name, addedColumnBigQueryType))
 			query.DefaultProjectID = c.projectID
 			query.DefaultDatasetID = dstDatasetTable.dataset
-			_, err := query.Read(ctx)
-			if err != nil {
+			if _, err := query.Read(ctx); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name,
 					schemaDelta.DstTableName, err)
 			}
@@ -253,6 +255,7 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 	ctx context.Context,
 	flowJobName string,
 	batchId int64,
+	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
 	rawTableName := c.getRawTableName(flowJobName)
 
@@ -266,8 +269,7 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 	q.DefaultDatasetID = c.datasetID
 	it, err := q.Read(ctx)
 	if err != nil {
-		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
-		return nil, err
+		return nil, fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
 	}
 
 	// Store the distinct values in an array
@@ -283,7 +285,11 @@ func (c *BigQueryConnector) getDistinctTableNamesInBatch(
 		}
 		if len(row) > 0 {
 			value := row[0].(string)
-			distinctTableNames = append(distinctTableNames, value)
+			if _, ok := tableToSchema[value]; ok {
+				distinctTableNames = append(distinctTableNames, value)
+			} else {
+				c.logger.Warn("table not found in table to schema mapping", "table", value)
+			}
 		}
 	}
 
@@ -312,8 +318,7 @@ func (c *BigQueryConnector) getTableNametoUnchangedCols(
 	q.DefaultProjectID = c.projectID
 	it, err := q.Read(ctx)
 	if err != nil {
-		err = fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
-		return nil, err
+		return nil, fmt.Errorf("failed to run query %s on BigQuery:\n %w", query, err)
 	}
 	// Create a map to store the results.
 	resultMap := make(map[string][]string)
@@ -383,42 +388,44 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 
 // NormalizeRecords normalizes raw table to destination table,
 // one batch at a time from the previous normalized batch to the currently synced batch.
-func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error) {
+func (c *BigQueryConnector) NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error) {
+	unchangedToastMergeChunking, err := internal.PeerDBBigQueryToastMergeChunking(ctx, req.Env)
+	if err != nil {
+		c.logger.Warn("failed to load PEERDB_BIGQUERY_TOAST_MERGE_CHUNKING, continuing with 8", slog.Any("error", err))
+		unchangedToastMergeChunking = 8
+	} else if unchangedToastMergeChunking == 0 {
+		unchangedToastMergeChunking = 8
+	}
+
 	rawTableName := c.getRawTableName(req.FlowJobName)
 
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get batch for the current mirror: %v", err)
+		return model.NormalizeResponse{}, fmt.Errorf("failed to get batch for the current mirror: %v", err)
 	}
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
-		return &model.NormalizeResponse{
-			Done:         false,
+		return model.NormalizeResponse{
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
 		}, nil
 	}
 
 	for batchId := normBatchID + 1; batchId <= req.SyncBatchID; batchId++ {
-		mergeErr := c.mergeTablesInThisBatch(ctx, batchId,
-			req.FlowJobName, rawTableName, req.TableNameSchemaMapping,
-			&protos.PeerDBColumns{
-				SoftDeleteColName: req.SoftDeleteColName,
-				SyncedAtColName:   req.SyncedAtColName,
-			})
-		if mergeErr != nil {
-			return nil, mergeErr
+		if err := c.mergeTablesInThisBatch(ctx, batchId,
+			req.FlowJobName, rawTableName, req.TableNameSchemaMapping, unchangedToastMergeChunking,
+			&protos.PeerDBColumns{SoftDeleteColName: req.SoftDeleteColName, SyncedAtColName: req.SyncedAtColName},
+		); err != nil {
+			return model.NormalizeResponse{}, err
 		}
 
-		err = c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId)
-		if err != nil {
-			return nil, err
+		if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, batchId); err != nil {
+			return model.NormalizeResponse{}, err
 		}
 	}
 
-	return &model.NormalizeResponse{
-		Done:         true,
+	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
 		EndBatchID:   req.SyncBatchID,
 	}, nil
@@ -440,12 +447,14 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 	flowName string,
 	rawTableName string,
 	tableToSchema map[string]*protos.TableSchema,
+	unchangedToastMergeChunking uint32,
 	peerdbColumns *protos.PeerDBColumns,
 ) error {
 	tableNames, err := c.getDistinctTableNamesInBatch(
 		ctx,
 		flowName,
 		batchId,
+		tableToSchema,
 	)
 	if err != nil {
 		return fmt.Errorf("couldn't get distinct table names to normalize: %w", err)
@@ -474,13 +483,12 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 
 	for _, tableName := range tableNames {
 		unchangedToastColumns := tableNametoUnchangedToastCols[tableName]
-		dstDatasetTable, _ := c.convertToDatasetTable(tableName)
+		dstDatasetTable, err := c.convertToDatasetTable(tableName)
+		if err != nil {
+			return err
+		}
 
 		// normalize anything between last normalized batch id to last sync batchid
-		// TODO (kaushik): This is so that the statement size for individual merge statements
-		// doesn't exceed the limit. We should make this configurable.
-		const batchSize = 8
-		chunkNumber := 0
 		if len(unchangedToastColumns) == 0 {
 			c.logger.Info("running single merge statement", slog.String("table", tableName))
 			mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, nil)
@@ -488,7 +496,10 @@ func (c *BigQueryConnector) mergeTablesInThisBatch(
 				return err
 			}
 		} else {
-			for chunk := range slices.Chunk(unchangedToastColumns, batchSize) {
+			// This is so that the statement size for individual merge statements
+			// doesn't exceed the limit
+			chunkNumber := 0
+			for chunk := range slices.Chunk(unchangedToastColumns, int(unchangedToastMergeChunking)) {
 				chunkNumber += 1
 				c.logger.Info("running merge statement", slog.Int("chunk", chunkNumber), slog.String("table", tableName))
 				mergeStmt := mergeGen.generateMergeStmt(tableName, dstDatasetTable, chunk)
@@ -574,8 +585,7 @@ func (c *BigQueryConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	c.logger.Info("creating raw table",
 		slog.String("table", rawTableName),
 		slog.Any("metadata", metadata))
-	err = table.Create(ctx, metadata)
-	if err != nil {
+	if err := table.Create(ctx, metadata); err != nil {
 		return nil, fmt.Errorf("failed to create table %s.%s: %w", c.datasetID, rawTableName, err)
 	}
 
@@ -584,22 +594,22 @@ func (c *BigQueryConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}, nil
 }
 
-func (c *BigQueryConnector) StartSetupNormalizedTables(_ context.Context) (interface{}, error) {
+func (c *BigQueryConnector) StartSetupNormalizedTables(_ context.Context) (any, error) {
 	// needed since CreateNormalizedTable duplicate check isn't accurate enough
 	return make(map[datasetTable]struct{}), nil
 }
 
-func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context, _ interface{}) error {
+func (c *BigQueryConnector) FinishSetupNormalizedTables(_ context.Context, _ any) error {
 	return nil
 }
 
-func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ interface{}) {
+func (c *BigQueryConnector) CleanupSetupNormalizedTables(_ context.Context, _ any) {
 }
 
 // This runs CREATE TABLE IF NOT EXISTS on bigquery, using the schema and table name provided.
 func (c *BigQueryConnector) SetupNormalizedTable(
 	ctx context.Context,
-	tx interface{},
+	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
@@ -618,9 +628,8 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	}
 	datasetTablesSet[datasetTable] = struct{}{}
 	dataset := c.client.DatasetInProject(c.projectID, datasetTable.dataset)
-	_, err = dataset.Metadata(ctx)
 	// just assume this means dataset don't exist, and create it
-	if err != nil {
+	if _, err := dataset.Metadata(ctx); err != nil {
 		// if err message does not contain `notFound`, then other error happened.
 		if !strings.Contains(err.Error(), "notFound") {
 			return false, fmt.Errorf("error while checking metadata for BigQuery dataset %s: %w",
@@ -636,11 +645,23 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 	// check if the table exists
 	existingMetadata, err := table.Metadata(ctx)
 	if err == nil {
-		// table exists, go to next table
-		c.logger.Info("[bigquery] table already exists, skipping",
-			slog.String("table", tableIdentifier),
-			slog.Any("existingMetadata", existingMetadata))
-		return true, nil
+		if config.IsResync {
+			c.logger.Info("[bigquery] deleting existing resync table",
+				slog.String("table", tableIdentifier))
+			deleteErr := table.Delete(ctx)
+			if deleteErr != nil {
+				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
+			}
+		} else {
+			// table exists, go to next table
+			c.logger.Info("[bigquery] table already exists, skipping",
+				slog.String("table", tableIdentifier),
+				slog.Any("existingMetadata", existingMetadata))
+			return true, nil
+		}
+	} else if !strings.Contains(err.Error(), "notFound") {
+		return false, fmt.Errorf("error while checking metadata for BigQuery table existence %s: %w",
+			tableIdentifier, err)
 	}
 
 	// convert the column names and types to bigquery types
@@ -680,7 +701,7 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		}
 	}
 
-	timePartitionEnabled, err := peerdbenv.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, config.Env)
+	timePartitionEnabled, err := internal.PeerDBBigQueryEnableSyncedAtPartitioning(ctx, config.Env)
 	if err != nil {
 		return false, fmt.Errorf("failed to get dynamic setting for BigQuery time partitioning: %w", err)
 	}
@@ -699,26 +720,10 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 		TimePartitioning: timePartitioning,
 	}
 
-	if config.IsResync {
-		_, existsErr := table.Metadata(ctx)
-		if existsErr == nil {
-			c.logger.Info("[bigquery] deleting existing resync table",
-				slog.String("table", tableIdentifier))
-			deleteErr := table.Delete(ctx)
-			if deleteErr != nil {
-				return false, fmt.Errorf("failed to delete table %s: %w", tableIdentifier, deleteErr)
-			}
-		} else if !strings.Contains(existsErr.Error(), "notFound") {
-			return false, fmt.Errorf("error while checking metadata for BigQuery resynced table %s: %w",
-				tableIdentifier, existsErr)
-		}
-	}
-
 	c.logger.Info("[bigquery] creating table",
 		slog.String("table", tableIdentifier),
 		slog.Any("metadata", metadata))
-	err = table.Create(ctx, metadata)
-	if err != nil {
+	if err := table.Create(ctx, metadata); err != nil {
 		return false, fmt.Errorf("failed to create table %s: %w", tableIdentifier, err)
 	}
 
@@ -727,20 +732,14 @@ func (c *BigQueryConnector) SetupNormalizedTable(
 }
 
 func (c *BigQueryConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
-	err := c.PostgresMetadata.SyncFlowCleanup(ctx, jobName)
-	if err != nil {
-		return fmt.Errorf("unable to clear metadata for sync flow cleanup: %w", err)
-	}
-
 	dataset := c.client.DatasetInProject(c.projectID, c.datasetID)
 	rawTableHandle := dataset.Table(c.getRawTableName(jobName))
 	// check if exists, then delete
-	_, err = rawTableHandle.Metadata(ctx)
-	if err == nil {
-		c.logger.Info("deleting raw table", slog.String("table", rawTableHandle.FullyQualifiedName()))
+	if _, err := rawTableHandle.Metadata(ctx); err == nil {
+		c.logger.Info("[bigquery] deleting raw table", slog.String("table", rawTableHandle.FullyQualifiedName()))
 		deleteErr := rawTableHandle.Delete(ctx)
 		if deleteErr != nil {
-			return fmt.Errorf("failed to delete raw table: %w", deleteErr)
+			return fmt.Errorf("[bigquery] failed to delete raw table: %w", deleteErr)
 		}
 	}
 

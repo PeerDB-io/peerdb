@@ -6,26 +6,25 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peer-flow/alerting"
-	connbigquery "github.com/PeerDB-io/peer-flow/connectors/bigquery"
-	connclickhouse "github.com/PeerDB-io/peer-flow/connectors/clickhouse"
-	connelasticsearch "github.com/PeerDB-io/peer-flow/connectors/connelasticsearch"
-	conneventhub "github.com/PeerDB-io/peer-flow/connectors/eventhub"
-	connkafka "github.com/PeerDB-io/peer-flow/connectors/kafka"
-	connmysql "github.com/PeerDB-io/peer-flow/connectors/mysql"
-	connpostgres "github.com/PeerDB-io/peer-flow/connectors/postgres"
-	connpubsub "github.com/PeerDB-io/peer-flow/connectors/pubsub"
-	conns3 "github.com/PeerDB-io/peer-flow/connectors/s3"
-	connsnowflake "github.com/PeerDB-io/peer-flow/connectors/snowflake"
-	connsqlserver "github.com/PeerDB-io/peer-flow/connectors/sqlserver"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/logger"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/otel_metrics/peerdb_gauges"
-	"github.com/PeerDB-io/peer-flow/peerdbenv"
+	"github.com/PeerDB-io/peerdb/flow/alerting"
+	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
+	connelasticsearch "github.com/PeerDB-io/peerdb/flow/connectors/elasticsearch"
+	conneventhub "github.com/PeerDB-io/peerdb/flow/connectors/eventhub"
+	connkafka "github.com/PeerDB-io/peerdb/flow/connectors/kafka"
+	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
+	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	connpubsub "github.com/PeerDB-io/peerdb/flow/connectors/pubsub"
+	conns3 "github.com/PeerDB-io/peerdb/flow/connectors/s3"
+	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type Connector interface {
@@ -41,16 +40,37 @@ type ValidationConnector interface {
 	ValidateCheck(context.Context) error
 }
 
+type MirrorSourceValidationConnector interface {
+	GetTableSchemaConnector
+
+	ValidateMirrorSource(context.Context, *protos.FlowConnectionConfigs) error
+}
+
+type MirrorDestinationValidationConnector interface {
+	Connector
+
+	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigs, map[string]*protos.TableSchema) error
+}
+
 type GetTableSchemaConnector interface {
 	Connector
 
-	// GetTableSchema returns the schema of a table in terms of QValueKind.
+	// GetTableSchema returns the schema of a table in terms of type system.
 	GetTableSchema(
 		ctx context.Context,
 		env map[string]string,
 		system protos.TypeSystem,
-		tableIdentifiers []string,
+		tableIdentifiers []*protos.TableMapping,
 	) (map[string]*protos.TableSchema, error)
+}
+
+type GetSchemaConnector interface {
+	Connector
+
+	GetAllTables(context.Context) (*protos.AllTablesResponse, error)
+	GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error)
+	GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error)
+	GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error)
 }
 
 type CDCPullConnectorCore interface {
@@ -62,10 +82,13 @@ type CDCPullConnectorCore interface {
 
 	// For InitialSnapshotOnly correctness without replication slot
 	// `any` is for returning transaction if necessary
-	ExportTxSnapshot(context.Context) (*protos.ExportTxSnapshotOutput, any, error)
+	ExportTxSnapshot(context.Context, map[string]string) (*protos.ExportTxSnapshotOutput, any, error)
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
 	FinishExport(any) error
+
+	// Setup replication in prep for initial copy
+	SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error)
 
 	// Methods related to retrieving and pushing records for this connector as a source and destination.
 	SetupReplConn(context.Context) error
@@ -74,7 +97,7 @@ type CDCPullConnectorCore interface {
 	ReplPing(context.Context) error
 
 	// Called when offset has been confirmed to destination
-	UpdateReplStateLastOffset(lastOffset int64)
+	UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
@@ -83,9 +106,9 @@ type CDCPullConnectorCore interface {
 	HandleSlotInfo(
 		ctx context.Context,
 		alerter *alerting.Alerter,
-		catalogPool *pgxpool.Pool,
+		catalogPool shared.CatalogPool,
 		alertKeys *alerting.AlertKeys,
-		slotMetricGauges peerdb_gauges.SlotMetricGauges,
+		slotMetricGauges otel_metrics.SlotMetricGauges,
 	) error
 
 	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
@@ -102,7 +125,12 @@ type CDCPullConnector interface {
 	CDCPullConnectorCore
 
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	PullRecords(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.RecordItems]) error
+	PullRecords(
+		ctx context.Context,
+		catalogPool shared.CatalogPool,
+		otelManager *otel_metrics.OtelManager,
+		req *model.PullRecordsRequest[model.RecordItems],
+	) error
 }
 
 type CDCPullPgConnector interface {
@@ -110,7 +138,12 @@ type CDCPullPgConnector interface {
 
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
 	// It's signature, aside from type parameter, should match CDCPullConnector.PullRecords.
-	PullPg(ctx context.Context, catalogPool *pgxpool.Pool, req *model.PullRecordsRequest[model.PgItems]) error
+	PullPg(
+		ctx context.Context,
+		catalogPool shared.CatalogPool,
+		otelManager *otel_metrics.OtelManager,
+		req *model.PullRecordsRequest[model.PgItems],
+	) error
 }
 
 type NormalizedTablesConnector interface {
@@ -140,16 +173,16 @@ type CDCSyncConnectorCore interface {
 	Connector
 
 	// NeedsSetupMetadataTables checks if the metadata table [PEERDB_MIRROR_JOBS] needs to be created.
-	NeedsSetupMetadataTables(ctx context.Context) bool
+	NeedsSetupMetadataTables(ctx context.Context) (bool, error)
 
 	// SetupMetadataTables creates the metadata table [PEERDB_MIRROR_JOBS] if necessary.
 	SetupMetadataTables(ctx context.Context) error
 
 	// GetLastOffset gets the last offset from the metadata table on the destination
-	GetLastOffset(ctx context.Context, jobName string) (int64, error)
+	GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error)
 
 	// SetLastOffset updates the last offset on the metadata table on the destination
-	SetLastOffset(ctx context.Context, jobName string, lastOffset int64) error
+	SetLastOffset(ctx context.Context, jobName string, lastOffset model.CdcCheckpoint) error
 
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error)
@@ -163,7 +196,9 @@ type CDCSyncConnectorCore interface {
 	// ReplayTableSchemaDelta changes a destination table to match the schema at source
 	// This could involve adding or dropping multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
-	ReplayTableSchemaDeltas(ctx context.Context, flowJobName string, schemaDeltas []*protos.TableSchemaDelta) error
+	ReplayTableSchemaDeltas(
+		ctx context.Context, env map[string]string, flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+	) error
 }
 
 type CDCSyncConnector interface {
@@ -188,7 +223,7 @@ type CDCNormalizeConnector interface {
 
 	// NormalizeRecords merges records pushed earlier into the destination table.
 	// This method should be idempotent, and should be able to be called multiple times with the same request.
-	NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (*model.NormalizeResponse, error)
+	NormalizeRecords(ctx context.Context, req *model.NormalizeRecordsRequest) (model.NormalizeResponse, error)
 }
 
 type CreateTablesFromExistingConnector interface {
@@ -208,14 +243,14 @@ type QRepPullConnector interface {
 	QRepPullConnectorCore
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int, error)
+	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int64, int64, error)
 }
 
 type QRepPullPgConnector interface {
 	QRepPullConnectorCore
 
 	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int, error)
+	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int64, int64, error)
 }
 
 type QRepSyncConnectorCore interface {
@@ -234,7 +269,7 @@ type QRepSyncConnector interface {
 	// SyncQRepRecords syncs the records for a given partition.
 	// returns the number of records synced.
 	SyncQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-		stream *model.QRecordStream) (int, error)
+		stream *model.QRecordStream) (int64, error)
 }
 
 type QRepSyncPgConnector interface {
@@ -243,7 +278,7 @@ type QRepSyncPgConnector interface {
 	// SyncPgQRepRecords syncs the records for a given partition.
 	// returns the number of records synced.
 	SyncPgQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-		stream connpostgres.PgCopyReader) (int, error)
+		stream connpostgres.PgCopyReader) (int64, error)
 }
 
 type QRepConsolidateConnector interface {
@@ -268,14 +303,43 @@ type RenameTablesConnector interface {
 	RenameTables(context.Context, *protos.RenameTablesInput, map[string]*protos.TableSchema) (*protos.RenameTablesOutput, error)
 }
 
-func LoadPeerType(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (protos.DBType, error) {
+type GetVersionConnector interface {
+	Connector
+
+	GetVersion(context.Context) (string, error)
+}
+
+func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (protos.DBType, error) {
 	row := catalogPool.QueryRow(ctx, "SELECT type FROM peers WHERE name = $1", peerName)
 	var dbtype protos.DBType
 	err := row.Scan(&dbtype)
 	return dbtype, err
 }
 
-func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (*protos.Peer, error) {
+func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]protos.DBType, error) {
+	if len(peerNames) == 0 {
+		return nil, nil
+	}
+
+	rows, err := catalogPool.Query(ctx, "SELECT name, type FROM peers WHERE name = ANY($1)", peerNames)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	peerTypes := make(map[string]protos.DBType)
+	for rows.Next() {
+		var peerName string
+		var dbtype protos.DBType
+		if err := rows.Scan(&peerName, &dbtype); err != nil {
+			return nil, err
+		}
+		peerTypes[peerName] = dbtype
+	}
+	return peerTypes, nil
+}
+
+func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (*protos.Peer, error) {
 	row := catalogPool.QueryRow(ctx, `
 		SELECT type, options, enc_key_id
 		FROM peers
@@ -288,7 +352,7 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 
-	peerOptions, err := peerdbenv.Decrypt(encKeyID, encPeerOptions)
+	peerOptions, err := internal.Decrypt(ctx, encKeyID, encPeerOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
@@ -376,7 +440,7 @@ func LoadPeer(ctx context.Context, catalogPool *pgxpool.Pool, peerName string) (
 func GetConnector(ctx context.Context, env map[string]string, config *protos.Peer) (Connector, error) {
 	switch inner := config.Config.(type) {
 	case *protos.Peer_PostgresConfig:
-		return connpostgres.NewPostgresConnector(ctx, inner.PostgresConfig)
+		return connpostgres.NewPostgresConnector(ctx, env, inner.PostgresConfig)
 	case *protos.Peer_BigqueryConfig:
 		return connbigquery.NewBigQueryConnector(ctx, inner.BigqueryConfig)
 	case *protos.Peer_SnowflakeConfig:
@@ -385,10 +449,8 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, inner.S3Config)
-	case *protos.Peer_SqlserverConfig:
-		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
 	case *protos.Peer_MysqlConfig:
-		return connmysql.MySqlConnector{}, nil
+		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:
 		return connclickhouse.NewClickHouseConnector(ctx, env, inner.ClickhouseConfig)
 	case *protos.Peer_KafkaConfig:
@@ -406,17 +468,18 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 	var none T
 	conn, err := GetConnector(ctx, env, config)
 	if err != nil {
-		return none, err
+		return none, exceptions.NewPeerCreateError(err)
 	}
 
-	if conn, ok := conn.(T); ok {
-		return conn, nil
+	if tconn, ok := conn.(T); ok {
+		return tconn, nil
 	} else {
+		conn.Close()
 		return none, errors.ErrUnsupported
 	}
 }
 
-func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool *pgxpool.Pool, name string) (T, error) {
+func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string) (T, error) {
 	peer, err := LoadPeer(ctx, catalogPool, name)
 	if err != nil {
 		var none T
@@ -426,15 +489,15 @@ func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalo
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {
-	err := conn.Close()
-	if err != nil {
-		logger.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
+	if err := conn.Close(); err != nil {
+		internal.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
 	}
 }
 
 // create type assertions to cause compile time error if connector interface not implemented
 var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
+	_ CDCPullConnector = &connmysql.MySqlConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -456,7 +519,12 @@ var (
 	_ CDCNormalizeConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
+	_ GetTableSchemaConnector = &connclickhouse.ClickHouseConnector{}
+
+	_ GetSchemaConnector = &connpostgres.PostgresConnector{}
+	_ GetSchemaConnector = &connmysql.MySqlConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
@@ -467,7 +535,7 @@ var (
 	_ CreateTablesFromExistingConnector = &connsnowflake.SnowflakeConnector{}
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
-	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
+	_ QRepPullConnector = &connmysql.MySqlConnector{}
 
 	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -494,10 +562,19 @@ var (
 	_ RawTableConnector = &connsnowflake.SnowflakeConnector{}
 	_ RawTableConnector = &connpostgres.PostgresConnector{}
 
+	_ ValidationConnector = &connpostgres.PostgresConnector{}
 	_ ValidationConnector = &connsnowflake.SnowflakeConnector{}
 	_ ValidationConnector = &connclickhouse.ClickHouseConnector{}
 	_ ValidationConnector = &connbigquery.BigQueryConnector{}
 	_ ValidationConnector = &conns3.S3Connector{}
+	_ ValidationConnector = &connmysql.MySqlConnector{}
 
-	_ Connector = &connmysql.MySqlConnector{}
+	_ MirrorSourceValidationConnector = &connpostgres.PostgresConnector{}
+	_ MirrorSourceValidationConnector = &connmysql.MySqlConnector{}
+
+	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
+
+	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
+	_ GetVersionConnector = &connpostgres.PostgresConnector{}
+	_ GetVersionConnector = &connmysql.MySqlConnector{}
 )

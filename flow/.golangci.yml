@@ -1,75 +1,108 @@
-issues:
-  exclude-dirs:
-    - generated
-    - connectors/postgres/sanitize
+version: "2"
 linters:
   enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - canonicalheader
     - containedctx
     - copyloopvar
     - dogsled
     - durationcheck
-    - errcheck
+    - errchkjson
+    - errname
+    - exptostd
     - forbidigo
-    - gci
+    - funcorder
     - gocritic
-    - gofumpt
     - gosec
-    - gosimple
-    - ineffassign
+    - iface
     - intrange
     - lll
     - misspell
     - musttag
     - nakedret
+    - nilnesserr
     - nolintlint
     - nonamedreturns
     - perfsprint
     - prealloc
+    - recvcheck
     - rowserrcheck
-    - staticcheck
-    - stylecheck
     - sqlclosecheck
+    - staticcheck
     - testifylint
     - thelper
     - unconvert
     - unparam
-    - unused
+    - usestdlibvars
+    - usetesting
     - wastedassign
     - whitespace
-linters-settings:
-  gci:
-    sections:
-      - standard
-      - 'prefix(github.com/PeerDB-io)'
-      - default
-  gocritic:
-    enabled-tags:
-      - diagnostic
-      - experimental
-      - opinionated
-      - performance
-      - style
-    disabled-checks:
-      - ifElseChain
-      - importShadow
-      - paramTypeCombine
-      - sprintfQuotedString
-      - unnamedResult
-      - whyNoLint
-    settings:
-      hugeParam:
-        sizeThreshold: 512
-  gosec:
-    excludes:
-      - G115
-  govet:
-    enable-all: true
-    disable:
-      - shadow
-  stylecheck:
-    checks:
-      - all
-      - '-ST1003'
-  lll:
-    line-length: 144
-    tab-width: 4
+  settings:
+    funcorder:
+      struct-method: false
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+        - importShadow
+        - paramTypeCombine
+        - sprintfQuotedString
+        - unnamedResult
+        - whyNoLint
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      settings:
+        hugeParam:
+          sizeThreshold: 512
+    gosec:
+      excludes:
+        - G115
+    govet:
+      disable:
+        - shadow
+      enable-all: true
+    iface:
+      enable:
+        - identical
+        - unused
+        - opaque
+    lll:
+      line-length: 144
+      tab-width: 4
+    staticcheck:
+      checks:
+        - all
+        - -ST1003
+        - -QF1001
+        - -QF1003
+        - -QF1008
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+    paths:
+      - generated
+      - connectors/postgres/sanitize
+formatters:
+  enable:
+    - gci
+    - gofumpt
+  settings:
+    gci:
+      sections:
+        - standard
+        - prefix(github.com/PeerDB-io)
+        - default
+  exclusions:
+    generated: lax
+    paths:
+      - generated
+      - connectors/postgres/sanitize

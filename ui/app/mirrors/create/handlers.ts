@@ -12,6 +12,7 @@ import {
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import {
   AllTablesResponse,
+  ColumnsTypeConversionResponse,
   CreateCDCFlowRequest,
   CreateQRepFlowRequest,
   PeerPublicationsResponse,
@@ -46,12 +47,12 @@ export function IsEventhubsPeer(peerType?: DBType): boolean {
   );
 }
 
-export const IsPostgresPeer = (peerType?: DBType): boolean => {
+export function IsPostgresPeer(peerType?: DBType): boolean {
   return (
     (!!peerType && peerType === DBType.POSTGRES) ||
     peerType?.toString() === DBType[DBType.POSTGRES]
   );
-};
+}
 
 function ValidSchemaQualifiedTarget(
   peerType: DBType,
@@ -257,8 +258,7 @@ export async function handleCreateCDC(
     } as CreateCDCFlowRequest),
   });
   if (!res.ok) {
-    // I don't know why but if the order is reversed the error message is not
-    // shown
+    // don't know why but if order is reversed the error message is not shown
     setLoading(false);
     notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;
@@ -364,7 +364,7 @@ export async function handleCreateQRep(
   route();
 }
 
-export const fetchSchemas = async (peer_name: string) => {
+export async function fetchSchemas(peer_name: string) {
   const schemasRes: PeerSchemasResponse = await fetch(
     `/api/v1/peers/schemas?peer_name=${encodeURIComponent(peer_name)}`,
     {
@@ -372,13 +372,13 @@ export const fetchSchemas = async (peer_name: string) => {
     }
   ).then((res) => res.json());
   return schemasRes.schemas;
-};
+}
 
-const getDefaultDestinationTable = (
+function getDefaultDestinationTable(
   peerType: DBType,
   schemaName: string,
   tableName: string
-) => {
+) {
   if (
     peerType.toString() == 'BIGQUERY' ||
     dBTypeToJSON(peerType) == 'BIGQUERY'
@@ -411,7 +411,7 @@ const getDefaultDestinationTable = (
   }
 
   return `${schemaName}.${tableName}`;
-};
+}
 
 export async function fetchTables(
   peerName: string,
@@ -479,7 +479,7 @@ export async function fetchColumns(
   return columnsRes.columns;
 }
 
-export const fetchAllTables = async (peerName: string) => {
+export async function fetchAllTables(peerName: string) {
   if (peerName?.length === 0) return [];
   const tablesRes: AllTablesResponse = await fetch(
     `/api/v1/peers/tables/all?peer_name=${encodeURIComponent(peerName)}`,
@@ -488,7 +488,17 @@ export const fetchAllTables = async (peerName: string) => {
     }
   ).then((res) => res.json());
   return tablesRes.tables;
-};
+}
+
+export async function fetchAllTypeConversions(peerType: DBType) {
+  const typeConversionsRes: ColumnsTypeConversionResponse = await fetch(
+    `/api/v1/peers/columns/all_type_conversions?destination_peer_type=${encodeURIComponent(peerType)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
+  return typeConversionsRes.conversions;
+}
 
 export async function handleValidateCDC(
   flowJobName: string,

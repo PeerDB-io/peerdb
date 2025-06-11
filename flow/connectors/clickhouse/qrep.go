@@ -6,14 +6,13 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
-	"github.com/PeerDB-io/peer-flow/model"
-	"github.com/PeerDB-io/peer-flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (*ClickHouseConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {
@@ -25,7 +24,7 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	flowLog := slog.Group("sync_metadata",
@@ -33,26 +32,11 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	tblSchema, err := c.getTableSchema(ctx, destTable)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
-	}
-	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
+	c.logger.Info("Called QRep sync function", flowLog)
 
 	avroSync := NewClickHouseAvroSyncMethod(config, c)
 
-	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
-}
-
-func (c *ClickHouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
-	queryString := fmt.Sprintf(`SELECT * FROM %s LIMIT 0`, tableName)
-	rows, err := c.query(ctx, queryString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-	defer rows.Close()
-
-	return rows.ColumnTypes(), nil
+	return avroSync.SyncQRepRecords(ctx, config, partition, stream)
 }
 
 func (c *ClickHouseConnector) ConsolidateQRepPartitions(_ context.Context, config *protos.QRepConfig) error {
@@ -76,7 +60,8 @@ func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string,
 			return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 		}
 
-		c.logger.Info(fmt.Sprintf("Deleting contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
+		prefix := fmt.Sprintf("%s/%s", s3o.Prefix, job)
+		c.logger.Info("Deleting contents of bucket", slog.String("bucket", s3o.Bucket), slog.String("prefix", prefix))
 
 		// deleting the contents of the bucket with prefix
 		s3svc, err := utils.CreateS3Client(ctx, c.credsProvider.Provider)
@@ -88,7 +73,7 @@ func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string,
 		// Create a list of all objects with the defined prefix in the bucket
 		pages := s3.NewListObjectsV2Paginator(s3svc, &s3.ListObjectsV2Input{
 			Bucket: aws.String(s3o.Bucket),
-			Prefix: aws.String(fmt.Sprintf("%s/%s", s3o.Prefix, job)),
+			Prefix: aws.String(prefix),
 		})
 		for pages.HasMorePages() {
 			page, err := pages.NextPage(ctx)
@@ -109,9 +94,9 @@ func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string,
 			}
 		}
 
-		c.logger.Info(fmt.Sprintf("Deleted contents of bucket %s with prefix %s/%s", s3o.Bucket, s3o.Prefix, job))
+		c.logger.Info("Deleted contents of bucket", slog.String("bucket", s3o.Bucket), slog.String("prefix", prefix))
 	}
 
-	c.logger.Info("Dropped stage " + stagingPath)
+	c.logger.Info("Dropped stage", slog.String("path", stagingPath))
 	return nil
 }

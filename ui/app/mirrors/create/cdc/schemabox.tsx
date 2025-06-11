@@ -7,6 +7,7 @@ import {
   TableMapping,
 } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
+import { ColumnsItem } from '@/grpc_generated/route';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
@@ -25,7 +26,7 @@ import {
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
-import { SchemaSettings } from './schemasettings';
+import SchemaSettings from './schemasettings';
 import {
   columnBoxDividerStyle,
   engineOptionStyles,
@@ -37,15 +38,16 @@ import {
 
 import { Divider } from '@tremor/react';
 import ReactSelect from 'react-select';
-
+import CustomColumnType from './customColumnType';
+import SelectSortingKeys from './sortingkey';
 interface SchemaBoxProps {
   sourcePeer: string;
   schema: string;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
-  tableColumns: { tableName: string; columns: string[] }[];
+  tableColumns: { tableName: string; columns: ColumnsItem[] }[];
   setTableColumns: Dispatch<
-    SetStateAction<{ tableName: string; columns: string[] }[]>
+    SetStateAction<{ tableName: string; columns: ColumnsItem[] }[]>
   >;
   peerType?: DBType;
   alreadySelectedTables: TableMapping[] | undefined;
@@ -69,7 +71,6 @@ export default function SchemaBox({
   const [tableQuery, setTableQuery] = useState<string>('');
   const [defaultTargetSchema, setDefaultTargetSchema] =
     useState<string>(schema);
-
   const searchedTables = useMemo(() => {
     const tableQueryLower = tableQuery.toLowerCase();
     return rows
@@ -107,6 +108,13 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
+  const updatePartitionKey = (source: string, partitionKey: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], partitionKey };
+    setRows(newRows);
+  };
+
   const updateEngine = (source: string, engine: TableEngine) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
@@ -116,14 +124,14 @@ export default function SchemaBox({
 
   const addTableColumns = useCallback(
     (table: string) => {
-      const schemaName = table.split('.')[0];
-      const tableName = table.split('.')[1];
+      const [schemaName, tableName] = table.split('.');
 
       fetchColumns(sourcePeer, schemaName, tableName, setColumnsLoading).then(
         (res) => {
-          setTableColumns((prev) => {
-            return [...prev, { tableName: table, columns: res }];
-          });
+          setTableColumns((prev) => [
+            ...prev,
+            { tableName: table, columns: res },
+          ]);
         }
       );
     },
@@ -193,19 +201,25 @@ export default function SchemaBox({
         peerType,
         initialLoadOnly
       ).then((newRows) => {
-        for (const row of newRows) {
-          if (
-            alreadySelectedTables
-              ?.map((tableMap) => tableMap.sourceTableIdentifier)
-              .includes(row.source)
-          ) {
-            row.selected = true;
-            row.editingDisabled = true;
-            row.destination =
-              alreadySelectedTables?.find(
+        if (alreadySelectedTables) {
+          for (const row of newRows) {
+            if (
+              alreadySelectedTables
+                .map((tableMap) => tableMap.sourceTableIdentifier)
+                .includes(row.source)
+            ) {
+              const existingRow = alreadySelectedTables.find(
                 (tableMap) => tableMap.sourceTableIdentifier === row.source
-              )?.destinationTableIdentifier ?? '';
-            addTableColumns(row.source);
+              );
+              row.selected = true;
+              row.engine =
+                existingRow?.engine ??
+                TableEngine.CH_ENGINE_REPLACING_MERGE_TREE;
+              row.editingDisabled = true;
+              row.exclude = new Set(existingRow?.exclude ?? []);
+              row.destination = existingRow?.destinationTableIdentifier ?? '';
+              addTableColumns(row.source);
+            }
           }
         }
         setRows((oldRows) => {
@@ -231,6 +245,12 @@ export default function SchemaBox({
   const engineOptions = [
     { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
     { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
+    {
+      value: 'CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE',
+      label: 'ReplicatedReplacingMergeTree',
+    },
+    { value: 'CH_ENGINE_REPLICATED_MERGE_TREE', label: 'ReplicatedMergeTree' },
+    { value: 'CH_ENGINE_NULL', label: 'Null' },
   ];
 
   useEffect(() => {
@@ -280,7 +300,7 @@ export default function SchemaBox({
         </div>
         {/* TABLE BOX */}
         {schemaIsExpanded(schema) && (
-          <div className='ml-5 mt-3' style={{ width: '90%' }}>
+          <div className='ml-5 mt-3'>
             {searchedTables.length ? (
               searchedTables.map((row) => {
                 const columns = getTableColumns(row.source);
@@ -337,19 +357,16 @@ export default function SchemaBox({
                       <div
                         style={{
                           rowGap: '0.5rem',
-                          width: '80%',
                           columnGap: '3rem',
                           display: row.selected ? 'flex' : 'none',
                         }}
                         key={row.source}
                       >
-                        <div style={{ width: '40%' }}>
-                          <p style={{ fontSize: 12 }}>Target Table:</p>
+                        <div style={{ width: '30%', fontSize: 12 }}>
+                          Target Table:
                           <TextField
-                            key={row.source}
                             disabled={row.editingDisabled}
                             style={{
-                              fontSize: 12,
                               marginTop: '0.5rem',
                               cursor: 'pointer',
                             }}
@@ -362,13 +379,29 @@ export default function SchemaBox({
                           />
                         </div>
 
+                        <div style={{ width: '30%', fontSize: 12 }}>
+                          Custom Partitioning Key:
+                          <TextField
+                            disabled={row.editingDisabled}
+                            style={{
+                              marginTop: '0.5rem',
+                              cursor: 'pointer',
+                            }}
+                            variant='simple'
+                            placeholder='Enter optional custom partiton key'
+                            value={row.partitionKey}
+                            onChange={(
+                              e: React.ChangeEvent<HTMLInputElement>
+                            ) => updatePartitionKey(row.source, e.target.value)}
+                          />
+                        </div>
+
                         {peerType?.toString() ===
                           DBType[DBType.CLICKHOUSE].toString() && (
-                          <div style={{ width: '40%' }}>
-                            <p style={{ fontSize: 12, marginBottom: '0.5rem' }}>
-                              Engine:
-                            </p>
+                          <div style={{ width: '30%', fontSize: 12 }}>
+                            Engine:
                             <ReactSelect
+                              isDisabled={row.editingDisabled}
                               styles={engineOptionStyles}
                               options={engineOptions}
                               placeholder='ReplacingMergeTree (default)'
@@ -389,25 +422,73 @@ export default function SchemaBox({
                     {row.selected && (
                       <div className='ml-5 mt-3' style={{ width: '100%' }}>
                         <Divider style={columnBoxDividerStyle} />
-                        <Label
-                          as='label'
-                          colorName='lowContrast'
-                          style={{ fontSize: 13 }}
+
+                        <div
+                          style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            rowGap: '0.5rem',
+                            width: '100%',
+                          }}
                         >
-                          Columns
-                        </Label>
+                          <Label
+                            as='label'
+                            colorName='lowContrast'
+                            style={{ fontSize: 13 }}
+                          >
+                            Columns
+                          </Label>
+                        </div>
                         {columns ? (
-                          <ColumnBox
-                            columns={columns}
-                            tableRow={row}
-                            rows={rows}
-                            setRows={setRows}
-                            disabled={row.editingDisabled}
-                            showOrdering={
-                              peerType?.toString() ===
-                              DBType[DBType.CLICKHOUSE].toString()
-                            }
-                          />
+                          <>
+                            <ColumnBox
+                              columns={columns}
+                              tableRow={row}
+                              rows={rows}
+                              setRows={setRows}
+                              disabled={row.editingDisabled}
+                              showOrdering={
+                                peerType?.toString() ===
+                                DBType[DBType.CLICKHOUSE].toString()
+                              }
+                            />
+                            {peerType?.toString() ===
+                              DBType[DBType.CLICKHOUSE].toString() && (
+                              <div
+                                style={{
+                                  width: '100%',
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  rowGap: '0.5rem',
+                                }}
+                              >
+                                <Divider
+                                  style={{
+                                    ...columnBoxDividerStyle,
+                                    marginTop: '0.5rem',
+                                  }}
+                                />
+                                <div style={{ width: '50%' }}>
+                                  <SelectSortingKeys
+                                    columns={
+                                      columns?.map((column) => column.name) ??
+                                      []
+                                    }
+                                    loading={columnsLoading}
+                                    tableRow={row}
+                                    setRows={setRows}
+                                  />
+                                </div>
+                                <CustomColumnType
+                                  columns={columns}
+                                  tableRow={row}
+                                  rows={rows}
+                                  setRows={setRows}
+                                  peerType={peerType}
+                                />
+                              </div>
+                            )}
+                          </>
                         ) : columnsLoading ? (
                           <BarLoader />
                         ) : (

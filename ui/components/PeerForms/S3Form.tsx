@@ -1,19 +1,27 @@
 'use client';
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { s3Setting } from '@/app/peers/create/[peerType]/helpers/s3';
+import SelectTheme from '@/app/styles/select';
 import { GCS_ENDPOINT } from '@/app/utils/gcsEndpoint';
+import InfoPopover from '@/components/InfoPopover';
 import { Label } from '@/lib/Label';
-import { RowWithRadiobutton, RowWithTextField } from '@/lib/Layout';
+import {
+  RowWithRadiobutton,
+  RowWithSelect,
+  RowWithTextField,
+} from '@/lib/Layout';
 import { RadioButton, RadioButtonGroup } from '@/lib/RadioButtonGroup';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useEffect, useState } from 'react';
-import { InfoPopover } from '../InfoPopover';
+import ReactSelect from 'react-select';
+import { handleFieldChange } from './common';
 
 interface S3Props {
   setter: PeerSetter;
 }
-const S3Form = ({ setter }: S3Props) => {
+
+export default function S3Form({ setter }: S3Props) {
   const [storageType, setStorageType] = useState<'S3' | 'GCS'>('S3');
   const displayCondition = (label: string) => {
     return !(
@@ -63,9 +71,25 @@ const S3Form = ({ setter }: S3Props) => {
           action={<RadioButton value='GCS' />}
         />
       </RadioButtonGroup>
-      {s3Setting.map((setting, index) => {
-        if (displayCondition(setting.label))
-          return (
+      {s3Setting.map(
+        (setting, index) =>
+          displayCondition(setting.label) &&
+          (setting.type === 'select' ? (
+            <RowWithSelect
+              key={index}
+              label={<Label>{setting.label}</Label>}
+              action={
+                <ReactSelect
+                  placeholder={setting.placeholder}
+                  onChange={(val) =>
+                    val && setting.stateHandler(val.value, setter)
+                  }
+                  options={setting.options}
+                  theme={SelectTheme}
+                />
+              }
+            />
+          ) : (
             <RowWithTextField
               key={index}
               label={
@@ -74,7 +98,7 @@ const S3Form = ({ setter }: S3Props) => {
                   {!setting.optional && (
                     <Tooltip
                       style={{ width: '100%' }}
-                      content={'This is a required field.'}
+                      content='This is a required field.'
                     >
                       <Label colorName='lowContrast' colorSet='destructive'>
                         *
@@ -101,7 +125,7 @@ const S3Form = ({ setter }: S3Props) => {
                     type={setting.type}
                     defaultValue={setting.default}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      setting.stateHandler(e.target.value, setter)
+                      handleFieldChange(e, setting, setter)
                     }
                   />
                   {setting.tips && (
@@ -113,10 +137,8 @@ const S3Form = ({ setter }: S3Props) => {
                 </div>
               }
             />
-          );
-      })}
+          ))
+      )}
     </div>
   );
-};
-
-export default S3Form;
+}

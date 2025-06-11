@@ -4,8 +4,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/PeerDB-io/peer-flow/connectors/utils"
-	"github.com/PeerDB-io/peer-flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func TestGenerateUpdateStatement(t *testing.T) {

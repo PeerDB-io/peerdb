@@ -49,6 +49,25 @@ export const columnBoxDividerStyle: CSSProperties = {
   opacity: 0.5,
 };
 
+export const sortingKeyPillStyle: CSSProperties = {
+  display: 'flex',
+  columnGap: '0.3rem',
+  alignItems: 'center',
+  border: '1px solid #e5e7eb',
+  borderRadius: '1rem',
+  paddingLeft: '0.5rem',
+  paddingRight: '0.5rem',
+};
+
+export const sortingKeyPillContainerStyle: CSSProperties = {
+  display: 'flex',
+  marginTop: '0.5rem',
+  columnGap: '0.5rem',
+  rowGap: '0.5rem',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+};
+
 const targetHeight = 30;
 
 export const engineOptionStyles = {

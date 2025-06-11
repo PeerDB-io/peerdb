@@ -5,6 +5,11 @@ import "peers.proto";
 
 package peerdb_flow;
 
+message AlertInput {
+  string flow_name = 1;
+  string message = 2;
+}
+
 message TableNameMapping {
   string source_table_name = 1;
   string destination_table_name = 2;
@@ -109,17 +114,12 @@ message CreateTablesFromExistingOutput {
 }
 
 message SyncFlowOptions {
+  reserved 5;
   uint32 batch_size = 1;
   uint64 idle_timeout_seconds = 3;
   map<uint32, string> src_table_id_name_mapping = 4;
-  map<string, TableSchema> table_name_schema_mapping = 5;
   repeated TableMapping table_mappings = 6;
   int32 number_of_syncs = 7;
-}
-
-message StartNormalizeInput {
-  FlowConnectionConfigs flow_connection_configs = 1;
-  int64 SyncBatchID = 3;
 }
 
 message EnsurePullabilityBatchInput {
@@ -140,6 +140,7 @@ message EnsurePullabilityBatchOutput {
 message SetupReplicationInput {
   string flow_job_name = 2;
   map<string, string> table_name_mapping = 3;
+  map<string, string> env = 4;
 
   // replicate to destination using ctid
   bool do_initial_snapshot = 5;
@@ -181,8 +182,8 @@ message FieldDescription {
 }
 
 message SetupTableSchemaBatchInput {
+  reserved 2;
   map<string, string> env = 1;
-  repeated string table_identifiers = 2;
   string flow_name = 3;
   TypeSystem system = 4;
   string peer_name = 5;
@@ -231,18 +232,27 @@ message TIDPartitionRange {
   TID end = 2;
 }
 
+message UIntPartitionRange {
+  uint64 start = 1;
+  uint64 end = 2;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
     IntPartitionRange int_range = 1;
     TimestampPartitionRange timestamp_range = 2;
     TIDPartitionRange tid_range = 3;
+    UIntPartitionRange uint_range = 4;
   }
 }
 
 enum TableEngine {
   CH_ENGINE_REPLACING_MERGE_TREE = 0;
   CH_ENGINE_MERGE_TREE = 1;
+  CH_ENGINE_NULL = 2;
+  CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE = 3;
+  CH_ENGINE_REPLICATED_MERGE_TREE = 4;
 }
 
 // protos for qrep
@@ -315,6 +325,9 @@ message QRepConfig {
   map<string, string> env = 24;
 
   string parent_mirror_name = 25;
+  repeated string exclude = 26;
+
+  repeated ColumnSetting columns = 27;
 }
 
 message QRepPartition {
@@ -333,10 +346,13 @@ message QRepParitionResult {
 }
 
 message DropFlowInput {
+  reserved 2,3;
   string flow_job_name = 1;
-  string source_peer_name = 2;
-  string destination_peer_name = 3;
   bool drop_flow_stats = 4;
+  FlowConnectionConfigs flow_connection_configs = 5;
+  bool skip_destination_drop = 6;
+  bool skip_source_drop = 7;
+  bool resync = 8;
 }
 
 message TableSchemaDelta {
@@ -366,11 +382,7 @@ message GetOpenConnectionsForUserResult {
 }
 
 // UI reads current workflow status and also requests status changes using same enum
-// UI can request STATUS_PAUSED, STATUS_RUNNING and STATUS_TERMINATED
-// STATUS_RUNNING -> STATUS_PAUSED/STATUS_TERMINATED
-// STATUS_PAUSED -> STATUS_RUNNING/STATUS_TERMINATED
-// UI can read everything except STATUS_UNKNOWN
-// terminate button should always be enabled
+// see flow/cmd/handler.go FlowStateChange
 enum FlowStatus {
   // should never be read by UI, bail
   STATUS_UNKNOWN = 0;
@@ -385,6 +397,8 @@ enum FlowStatus {
   STATUS_SNAPSHOT = 5;
   STATUS_TERMINATING = 6;
   STATUS_TERMINATED = 7;
+  STATUS_COMPLETED = 8;
+  STATUS_RESYNC = 9;
 }
 
 message CDCFlowConfigUpdate {
@@ -466,3 +480,66 @@ message DropFlowActivityInput {
   string peer_name = 2;
 }
 
+message StartMaintenanceFlowInput {
+}
+
+message StartMaintenanceFlowOutput {
+  string version = 1;
+}
+
+message StartMaintenanceSignal {
+  repeated string skipped_snapshot_wait_flows = 1;
+}
+
+message EndMaintenanceFlowInput {
+}
+
+message EndMaintenanceFlowOutput {
+  string version = 1;
+}
+
+message MaintenanceMirror {
+  int64 mirror_id = 1;
+  string mirror_name = 2;
+  string workflow_id = 3;
+  bool is_cdc = 4;
+  google.protobuf.Timestamp mirror_created_at = 5;
+  google.protobuf.Timestamp mirror_updated_at = 6;
+}
+
+message MaintenanceMirrors {
+  repeated MaintenanceMirror mirrors = 1;
+}
+
+message PeerContextMetadata {
+  string name = 1;
+  peerdb_peers.DBType type = 2;
+}
+
+message FlowContextMetadataInput {
+  string flow_name = 1;
+  string source_name = 2;
+  string destination_name = 3;
+  FlowStatus status = 4;
+  bool is_resync = 5;
+}
+
+enum FlowOperation {
+  FLOW_OPERATION_UNKNOWN = 0;
+  FLOW_OPERATION_SYNC = 1;
+  FLOW_OPERATION_NORMALIZE = 2;
+}
+
+// FlowContextMetadata has contextual information of a flow and is universal at the flow level, it cannot be different for children context
+// it is referenced via pointer
+message FlowContextMetadata{
+  string flow_name = 1;
+  PeerContextMetadata source = 2;
+  PeerContextMetadata destination = 3;
+  FlowStatus status = 4;
+  bool is_resync = 5;
+}
+
+message AdditionalContextMetadata{
+  FlowOperation operation = 1;
+}

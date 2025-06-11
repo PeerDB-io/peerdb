@@ -1,22 +1,26 @@
 use std::collections::HashMap;
 use std::env;
+use std::sync::Arc;
 
-use anyhow::{anyhow, Context};
+use anyhow::{Context, anyhow};
+use aws_config::{BehaviorVersion, meta::region::RegionProviderChain};
+use aws_sdk_kms::{Client as KmsClient, primitives::Blob};
 use base64::prelude::*;
-use chacha20poly1305::{aead::Aead, KeyInit, XChaCha20Poly1305, XNonce};
+use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
 use peer_cursor::{QueryExecutor, QueryOutput, Schema};
 use peer_postgres::{self, ast};
 use pgwire::error::PgWireResult;
 use postgres_connection::{connect_postgres, get_pg_connection_string};
+use pt::peerdb_peers::PostgresAuthType;
 use pt::{
     flow_model::QRepFlowJob,
     peerdb_peers::PostgresConfig,
-    peerdb_peers::{peer::Config, DbType, Peer},
+    peerdb_peers::{DbType, Peer, peer::Config},
     prost::Message,
 };
 use serde_json::{self, Value};
 use sqlparser::ast::Statement;
-use tokio_postgres::{types, Client};
+use tokio_postgres::{Client, types};
 
 mod embedded {
     use refinery::embed_migrations;
@@ -25,6 +29,32 @@ mod embedded {
 
 pub struct Catalog {
     pg: Client,
+    kms_key_id: Option<Arc<String>>,
+}
+
+pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
+    let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
+    let config = aws_config::defaults(BehaviorVersion::v2025_01_17())
+        .region(region_provider)
+        .load()
+        .await;
+    let client = KmsClient::new(&config);
+
+    let decoded = BASE64_STANDARD
+        .decode(encrypted_payload)
+        .expect("Input does not contain valid base64 characters.");
+
+    let resp = client
+        .decrypt()
+        .key_id(kms_key_id)
+        .ciphertext_blob(Blob::new(decoded))
+        .send()
+        .await?;
+
+    let inner = resp.plaintext.unwrap();
+    let bytes = inner.as_ref();
+
+    Ok(String::from_utf8(bytes.to_vec()).expect("Could not convert decrypted data to UTF-8"))
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
@@ -34,7 +64,7 @@ async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {
         .context("Failed to run migrations")?;
     for migration in migration_report.applied_migrations() {
         tracing::info!(
-            "Migration Applied -  Name: {}, Version: {}",
+            "Migration Applied - Name: {}, Version: {}",
             migration.name(),
             migration.version()
         );
@@ -51,7 +81,7 @@ pub struct CatalogConfig<'a> {
     pub database: &'a str,
 }
 
-impl<'a> CatalogConfig<'a> {
+impl CatalogConfig<'_> {
     // convert catalog config to PostgresConfig
     pub fn to_postgres_config(&self) -> pt::peerdb_peers::PostgresConfig {
         PostgresConfig {
@@ -62,6 +92,11 @@ impl<'a> CatalogConfig<'a> {
             database: self.database.to_string(),
             metadata_schema: Some("".to_string()),
             ssh_config: None,
+            root_ca: None,
+            tls_host: String::new(),
+            require_tls: false,
+            auth_type: PostgresAuthType::PostgresPassword.into(),
+            aws_auth: None,
         }
     }
 
@@ -71,17 +106,27 @@ impl<'a> CatalogConfig<'a> {
 }
 
 impl Catalog {
-    pub async fn new(pt_config: pt::peerdb_peers::PostgresConfig) -> anyhow::Result<Self> {
-        let client = connect_postgres(&pt_config).await?;
-        Ok(Self { pg: client })
+    pub async fn new(
+        pt_config: pt::peerdb_peers::PostgresConfig,
+        kms_key_id: &Option<Arc<String>>,
+    ) -> anyhow::Result<Self> {
+        let (pg, _) = connect_postgres(&pt_config).await?;
+        Ok(Self {
+            pg,
+            kms_key_id: kms_key_id.clone(),
+        })
     }
 
     pub async fn run_migrations(&mut self) -> anyhow::Result<()> {
         run_migrations(&mut self.pg).await
     }
 
-    fn env_enc_key(enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
-        let enc_keys = env::var("PEERDB_ENC_KEYS")?;
+    async fn env_enc_key(&self, enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
+        let mut enc_keys = env::var("PEERDB_ENC_KEYS")?;
+
+        if let Some(kms_key_id) = &self.kms_key_id {
+            enc_keys = kms_decrypt(&enc_keys, kms_key_id.as_ref()).await?;
+        }
 
         // TODO use serde derive
         let Value::Array(keys) = serde_json::from_str(&enc_keys)? else {
@@ -108,13 +153,13 @@ impl Catalog {
         Err(anyhow!("failed to find default encryption key"))
     }
 
-    pub fn decrypt(payload: &[u8], enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
+    pub async fn decrypt(&self, payload: &[u8], enc_key_id: &str) -> anyhow::Result<Vec<u8>> {
         if enc_key_id.is_empty() {
             return Ok(payload.to_vec());
         }
 
         const NONCE_SIZE: usize = 24;
-        let key = Self::env_enc_key(enc_key_id)?;
+        let key = self.env_enc_key(enc_key_id).await?;
         if payload.len() < NONCE_SIZE {
             return Err(anyhow!("ciphertext too short"));
         }
@@ -201,7 +246,7 @@ impl Catalog {
         let stmt = self
             .pg
             .prepare_typed(
-                "SELECT id, name, type, options, enc_key_id FROM public.peers WHERE name = $1",
+                "SELECT name, type, options, enc_key_id FROM public.peers WHERE name = $1",
                 &[],
             )
             .await?;
@@ -280,7 +325,7 @@ impl Catalog {
         options: &[u8],
         enc_key_id: &str,
     ) -> anyhow::Result<Option<Config>> {
-        let options = Self::decrypt(options, enc_key_id)?;
+        let options = self.decrypt(options, enc_key_id).await?;
         Ok(if let Some(db_type) = db_type {
             let err = || {
                 format!(
@@ -516,6 +561,10 @@ impl Catalog {
 
 #[async_trait::async_trait]
 impl QueryExecutor for Catalog {
+    async fn execute_raw(&self, query: &str) -> PgWireResult<QueryOutput> {
+        peer_postgres::pg_execute_raw(&self.pg, query).await
+    }
+
     #[tracing::instrument(skip(self, stmt), fields(stmt = %stmt))]
     async fn execute(&self, stmt: &Statement) -> PgWireResult<QueryOutput> {
         peer_postgres::pg_execute(&self.pg, ast::PostgresAst { peername: None }, stmt).await

@@ -1,6 +1,7 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { esSetting } from '@/app/peers/create/[peerType]/helpers/es';
 import SelectTheme from '@/app/styles/select';
+import InfoPopover from '@/components/InfoPopover';
 import {
   ElasticsearchAuthType,
   ElasticsearchConfig,
@@ -10,14 +11,16 @@ import { RowWithSelect, RowWithTextField } from '@/lib/Layout';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import ReactSelect from 'react-select';
-import { InfoPopover } from '../InfoPopover';
 
 interface ElasticsearchProps {
   config: ElasticsearchConfig;
   setter: PeerSetter;
 }
 
-const ElasticsearchConfigForm = ({ config, setter }: ElasticsearchProps) => {
+export default function ElasticsearchConfigForm({
+  config,
+  setter,
+}: ElasticsearchProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', rowGap: '0.5rem' }}>
       {esSetting.map((setting, index) => {
@@ -49,7 +52,7 @@ const ElasticsearchConfigForm = ({ config, setter }: ElasticsearchProps) => {
                 {!setting.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -91,6 +94,4 @@ const ElasticsearchConfigForm = ({ config, setter }: ElasticsearchProps) => {
       })}
     </div>
   );
-};
-
-export default ElasticsearchConfigForm;
+}
