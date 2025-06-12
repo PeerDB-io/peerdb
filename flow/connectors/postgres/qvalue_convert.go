@@ -234,15 +234,22 @@ func intervalToString(intervalObject pgtype.Interval) (string, error) {
 var ErrMismatchingRangeType = errors.New("mismatching range type")
 
 func rangeToTyped[T any](r pgtype.Range[any]) (any, error) {
-	lower, ok := r.Lower.(T)
-	if !ok {
-		return nil, ErrMismatchingRangeType
+	var lower, upper *T
+	if r.Lower != nil {
+		lowerVal, ok := r.Lower.(T)
+		if !ok {
+			return nil, ErrMismatchingRangeType
+		}
+		lower = &lowerVal
 	}
-	upper, ok := r.Upper.(T)
-	if !ok {
-		return nil, ErrMismatchingRangeType
+	if r.Upper != nil {
+		upperVal, ok := r.Upper.(T)
+		if !ok {
+			return nil, ErrMismatchingRangeType
+		}
+		upper = &upperVal
 	}
-	return pgtype.Range[T]{
+	return pgtype.Range[*T]{
 		Lower:     lower,
 		Upper:     upper,
 		LowerType: r.LowerType,
@@ -252,18 +259,21 @@ func rangeToTyped[T any](r pgtype.Range[any]) (any, error) {
 }
 
 func multirangeToTyped[T any](multirange pgtype.Multirange[pgtype.Range[any]]) (any, error) {
-	ranges := make([]pgtype.Range[T], 0, multirange.Len())
+	ranges := make([]pgtype.Range[*T], 0, multirange.Len())
 	for _, anyR := range multirange {
 		r, err := rangeToTyped[T](anyR)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		ranges = append(ranges, r.(pgtype.Range[T]))
+		ranges = append(ranges, r.(pgtype.Range[*T]))
 	}
-	return pgtype.Multirange[pgtype.Range[T]](ranges), nil
+	return pgtype.Multirange[pgtype.Range[*T]](ranges), nil
 }
 
 func (c *PostgresConnector) convertToString(oid uint32, value any) string {
+	if value == nil {
+		return ""
+	}
 	if buf, err := c.typeMap.Encode(oid, pgtype.TextFormatCode, value, nil); err == nil {
 		return shared.UnsafeFastReadOnlyBytesToString(buf)
 	}
@@ -402,22 +412,34 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return types.QValueNull(qvalueKind), nil
 		}
 	case types.QValueKindInterval:
-		str, err := intervalToString(value.(pgtype.Interval))
-		if err != nil {
-			return nil, err
+		if interval, ok := value.(pgtype.Interval); ok {
+			str, err := intervalToString(interval)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueInterval{Val: str}, nil
 		}
-		return types.QValueInterval{Val: str}, nil
 	case types.QValueKindArrayInterval:
 		if arr, ok := value.([]any); ok {
+			success := true
 			strs := make([]string, 0, len(arr))
-			for _, interval := range arr {
-				str, err := intervalToString(interval.(pgtype.Interval))
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse interval array: %w", err)
+			for _, item := range arr {
+				if item == nil {
+					strs = append(strs, "")
+				} else if interval, ok := item.(pgtype.Interval); ok {
+					str, err := intervalToString(interval)
+					if err != nil {
+						return nil, fmt.Errorf("failed to parse interval array: %w", err)
+					}
+					strs = append(strs, str)
+				} else {
+					success = false
+					break
 				}
-				strs = append(strs, str)
 			}
-			return types.QValueArrayInterval{Val: strs}, nil
+			if success {
+				return types.QValueArrayInterval{Val: strs}, nil
+			}
 		}
 	case types.QValueKindDate:
 		switch val := value.(type) {
