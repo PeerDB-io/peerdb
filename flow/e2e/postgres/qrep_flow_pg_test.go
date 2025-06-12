@@ -238,8 +238,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
-	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*"))
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {

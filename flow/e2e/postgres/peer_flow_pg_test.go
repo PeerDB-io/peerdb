@@ -153,7 +153,11 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
 	}, ",")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
-		return s.comparePGTables(srcTableName, dstTableName, allCols) == nil
+		err := s.comparePGTables(srcTableName, dstTableName, allCols)
+		if err != nil {
+			s.t.Log("QQQ", err)
+		}
+		return err == nil
 	})
 
 	env.Cancel(s.t.Context())
