@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -208,6 +209,161 @@ func parseUUIDArray(value any) (types.QValue, error) {
 	}
 }
 
+func intervalToString(intervalObject pgtype.Interval) (string, error) {
+	var interval datatypes.PeerDBInterval
+	interval.Hours = int(intervalObject.Microseconds / 3600000000)
+	interval.Minutes = int((intervalObject.Microseconds % 3600000000) / 60000000)
+	interval.Seconds = float64(intervalObject.Microseconds%60000000) / 1000000.0
+	interval.Days = int(intervalObject.Days)
+	interval.Years = int(intervalObject.Months / 12)
+	interval.Months = int(intervalObject.Months % 12)
+	interval.Valid = intervalObject.Valid
+
+	intervalJSON, err := json.Marshal(interval)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse interval: %w", err)
+	}
+
+	if !interval.Valid {
+		return "", fmt.Errorf("invalid interval: %v", intervalObject)
+	}
+
+	return string(intervalJSON), nil
+}
+
+var ErrMismatchingRangeType = errors.New("mismatching range type")
+
+func rangeToTyped[T any](r pgtype.Range[any]) (any, error) {
+	lower, ok := r.Lower.(T)
+	if !ok {
+		return nil, ErrMismatchingRangeType
+	}
+	upper, ok := r.Upper.(T)
+	if !ok {
+		return nil, ErrMismatchingRangeType
+	}
+	return pgtype.Range[T]{
+		Lower:     lower,
+		Upper:     upper,
+		LowerType: r.LowerType,
+		UpperType: r.UpperType,
+		Valid:     r.Valid,
+	}, nil
+}
+
+func multirangeToTyped[T any](multirange pgtype.Multirange[pgtype.Range[any]]) (any, error) {
+	ranges := make([]pgtype.Range[T], 0, multirange.Len())
+	for _, anyR := range multirange {
+		r, err := rangeToTyped[T](anyR)
+		if err != nil {
+			return "", err
+		}
+		ranges = append(ranges, r.(pgtype.Range[T]))
+	}
+	return pgtype.Multirange[pgtype.Range[T]](ranges), nil
+}
+
+func (c *PostgresConnector) convertToString(oid uint32, value any) string {
+	if buf, err := c.typeMap.Encode(oid, pgtype.TextFormatCode, value, nil); err == nil {
+		return shared.UnsafeFastReadOnlyBytesToString(buf)
+	}
+	// pgx returns us type-erased ranges that it doesn't know how to encode
+	// but if we bring the types back it becomes able to
+	if r, ok := value.(pgtype.Range[any]); ok {
+		var typedR any
+		var err error
+		switch oid {
+		case pgtype.Int4rangeOID:
+			typedR, err = rangeToTyped[int32](r)
+		case pgtype.Int8rangeOID:
+			typedR, err = rangeToTyped[int64](r)
+		case pgtype.NumrangeOID:
+			typedR, err = rangeToTyped[pgtype.Numeric](r)
+		case pgtype.DaterangeOID, pgtype.TsrangeOID, pgtype.TstzrangeOID:
+			// It might seem like tstzrange needs special handling
+			// but it's actually all UTC under the hood
+			typedR, err = rangeToTyped[time.Time](r)
+		default:
+			err = errors.ErrUnsupported
+		}
+		if err == nil {
+			var buf []byte
+			buf, err = c.typeMap.Encode(oid, pgtype.TextFormatCode, typedR, nil)
+			if err == nil {
+				return shared.UnsafeFastReadOnlyBytesToString(buf)
+			}
+		}
+		c.logger.Warn(fmt.Sprintf(
+			"couldn't encode range %v (%T, oid %d): %v", value, value, oid, err,
+		))
+	}
+	if multirange, ok := value.(pgtype.Multirange[pgtype.Range[any]]); ok {
+		var typedM any
+		var err error
+		switch oid {
+		case pgtype.Int4multirangeOID:
+			typedM, err = multirangeToTyped[int32](multirange)
+		case pgtype.Int8multirangeOID:
+			typedM, err = multirangeToTyped[int64](multirange)
+		case pgtype.NummultirangeOID:
+			typedM, err = multirangeToTyped[pgtype.Numeric](multirange)
+		case pgtype.DatemultirangeOID, pgtype.TsmultirangeOID, pgtype.TstzmultirangeOID:
+			typedM, err = multirangeToTyped[time.Time](multirange)
+		default:
+			err = errors.ErrUnsupported
+		}
+		if err == nil {
+			var buf []byte
+			buf, err = c.typeMap.Encode(oid, pgtype.TextFormatCode, typedM, nil)
+			if err == nil {
+				return shared.UnsafeFastReadOnlyBytesToString(buf)
+			}
+		}
+		c.logger.Warn(fmt.Sprintf(
+			"couldn't encode multirange %v (%T, oid %d): %v", value, value, oid, err,
+		))
+	}
+	return fmt.Sprint(value)
+}
+
+var arrayOidToRangeOid = map[uint32]uint32{
+	pgtype.Int4rangeArrayOID:      pgtype.Int4rangeOID,
+	pgtype.Int8rangeArrayOID:      pgtype.Int8rangeOID,
+	pgtype.NumrangeArrayOID:       pgtype.NumrangeOID,
+	pgtype.DaterangeArrayOID:      pgtype.DaterangeOID,
+	pgtype.TsrangeArrayOID:        pgtype.TsrangeOID,
+	pgtype.TstzrangeArrayOID:      pgtype.TstzrangeOID,
+	pgtype.Int4multirangeArrayOID: pgtype.Int4multirangeOID,
+	pgtype.Int8multirangeArrayOID: pgtype.Int8multirangeOID,
+	pgtype.NummultirangeArrayOID:  pgtype.NummultirangeOID,
+	pgtype.DatemultirangeArrayOID: pgtype.DatemultirangeOID,
+	pgtype.TsmultirangeArrayOID:   pgtype.TsmultirangeOID,
+	pgtype.TstzmultirangeArrayOID: pgtype.TstzmultirangeOID,
+}
+
+func (c *PostgresConnector) convertToStringArray(kind types.QValueKind, oid uint32, value any) ([]string, error) {
+	switch v := value.(type) {
+	case pgtype.Array[string]:
+		if v.Valid {
+			return v.Elements, nil
+		}
+	case []string:
+		return v, nil
+	case []any:
+		itemOid := oid
+		if rangeOid, ok := arrayOidToRangeOid[oid]; ok {
+			itemOid = rangeOid
+		}
+		res := make([]string, 0, len(v))
+		for _, item := range v {
+			str := c.convertToString(itemOid, item)
+			res = append(res, str)
+		}
+		return res, nil
+	}
+	return nil, fmt.Errorf("failed to parse array %s from %T: %v", kind, value, value)
+}
+
 func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 	switch v := value.(type) {
 	case pgtype.Array[T]:
@@ -246,56 +402,23 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return types.QValueNull(qvalueKind), nil
 		}
 	case types.QValueKindInterval:
-		intervalObject := value.(pgtype.Interval)
-		var interval datatypes.PeerDBInterval
-		interval.Hours = int(intervalObject.Microseconds / 3600000000)
-		interval.Minutes = int((intervalObject.Microseconds % 3600000000) / 60000000)
-		interval.Seconds = float64(intervalObject.Microseconds%60000000) / 1000000.0
-		interval.Days = int(intervalObject.Days)
-		interval.Years = int(intervalObject.Months / 12)
-		interval.Months = int(intervalObject.Months % 12)
-		interval.Valid = intervalObject.Valid
-
-		intervalJSON, err := json.Marshal(interval)
+		str, err := intervalToString(value.(pgtype.Interval))
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse interval: %w", err)
+			return nil, err
 		}
-
-		if !interval.Valid {
-			return nil, fmt.Errorf("invalid interval: %v", value)
+		return types.QValueInterval{Val: str}, nil
+	case types.QValueKindArrayInterval:
+		if arr, ok := value.([]any); ok {
+			strs := make([]string, 0, len(arr))
+			for _, interval := range arr {
+				str, err := intervalToString(interval.(pgtype.Interval))
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse interval array: %w", err)
+				}
+				strs = append(strs, str)
+			}
+			return types.QValueArrayInterval{Val: strs}, nil
 		}
-
-		return types.QValueInterval{Val: string(intervalJSON)}, nil
-	case types.QValueKindTSTZRange:
-		tstzrangeObject := value.(pgtype.Range[any])
-		lowerBoundType := tstzrangeObject.LowerType
-		upperBoundType := tstzrangeObject.UpperType
-		lowerTime, err := convertTimeRangeBound(tstzrangeObject.Lower)
-		if err != nil {
-			return nil, fmt.Errorf("[tstzrange]error for lower time bound: %w", err)
-		}
-
-		upperTime, err := convertTimeRangeBound(tstzrangeObject.Upper)
-		if err != nil {
-			return nil, fmt.Errorf("[tstzrange]error for upper time bound: %w", err)
-		}
-
-		lowerBracket := byte('[')
-		if lowerBoundType == pgtype.Exclusive {
-			lowerBracket = '('
-		}
-		upperBracket := byte(']')
-		if upperBoundType == pgtype.Exclusive {
-			upperBracket = ')'
-		}
-		var sb strings.Builder
-		sb.Grow(len(lowerTime) + len(upperTime) + 3)
-		sb.WriteByte(lowerBracket)
-		sb.WriteString(lowerTime)
-		sb.WriteByte(',')
-		sb.WriteString(upperTime)
-		sb.WriteByte(upperBracket)
-		return types.QValueTSTZRange{Val: sb.String()}, nil
 	case types.QValueKindDate:
 		switch val := value.(type) {
 		case time.Time:
@@ -364,7 +487,8 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		return types.QValueQChar{Val: uint8(value.(rune))}, nil
 	case types.QValueKindString:
 		// handling all unsupported types with strings as well for now.
-		return types.QValueString{Val: fmt.Sprint(value)}, nil
+		str := c.convertToString(oid, value)
+		return types.QValueString{Val: str}, nil
 	case types.QValueKindEnum:
 		return types.QValueEnum{Val: fmt.Sprint(value)}, nil
 	case types.QValueKindUUID:
@@ -475,11 +599,12 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			}
 			return types.QValueArrayString{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
 		} else {
-			a, err := convertToArray[string](qvalueKind, value)
+			// Arrays of unsupported types become string arrays too
+			arr, err := c.convertToStringArray(qvalueKind, oid, value)
 			if err != nil {
 				return nil, err
 			}
-			return types.QValueArrayString{Val: a}, nil
+			return types.QValueArrayString{Val: arr}, nil
 		}
 	case types.QValueKindArrayEnum:
 		if str, ok := value.(string); ok {
@@ -557,24 +682,4 @@ func validNumericToDecimal(numVal pgtype.Numeric) (decimal.Decimal, bool) {
 	} else {
 		return decimal.NewFromBigInt(numVal.Int, numVal.Exp), true
 	}
-}
-
-// Postgres does not like timestamps of the form 2006-01-02 15:04:05 +0000 UTC
-// in tstzrange.
-// convertTimeRangeBound removes the +0000 UTC part
-func convertTimeRangeBound(timeBound any) (string, error) {
-	if timeBound, isInfinite := timeBound.(pgtype.InfinityModifier); isInfinite {
-		return timeBound.String(), nil
-	}
-
-	layout := "2006-01-02 15:04:05 -0700 MST"
-	postgresFormat := "2006-01-02 15:04:05"
-	if timeBound != nil {
-		lowerParsed, err := time.Parse(layout, fmt.Sprint(timeBound))
-		if err != nil {
-			return "", fmt.Errorf("unexpected bound value in tstzrange. Error: %v", err)
-		}
-		return lowerParsed.Format(postgresFormat), nil
-	}
-	return "", nil
 }
