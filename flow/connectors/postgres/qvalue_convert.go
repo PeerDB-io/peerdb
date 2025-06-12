@@ -329,7 +329,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse time: %w", err)
 		}
-		return types.QValueTimeTZ{Val: t.Sub(shared.Year0000)}, nil
+		return types.QValueTimeTZ{Val: t.UTC().Sub(shared.Year0000)}, nil
 	case types.QValueKindBoolean:
 		boolVal := value.(bool)
 		return types.QValueBoolean{Val: boolVal}, nil
