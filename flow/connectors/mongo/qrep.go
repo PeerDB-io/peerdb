@@ -61,12 +61,12 @@ func (c *MongoConnector) GetQRepPartitions(
 
 	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for _, result := range results {
-		if err := partitionHelepr.AddPartition(result.ID.Min, result.ID.Max); err != nil {
+		if err := partitionHelper.AddPartition(result.ID.Min, result.ID.Max); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
 		}
 	}
 
-	return partitionHelepr.GetPartitions(), nil
+	return partitionHelper.GetPartitions(), nil
 }
 
 func (c *MongoConnector) PullQRepRecords(
