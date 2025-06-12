@@ -368,6 +368,24 @@ func (v QValueInterval) LValue(ls *lua.LState) lua.LValue {
 	return lua.LString(v.Val)
 }
 
+type QValueArrayInterval struct {
+	Val []string
+}
+
+func (QValueArrayInterval) Kind() QValueKind {
+	return QValueKindArrayInterval
+}
+
+func (v QValueArrayInterval) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayInterval) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x string) lua.LValue {
+		return lua.LString(x)
+	})
+}
+
 type QValueNumeric struct {
 	Val decimal.Decimal
 }
