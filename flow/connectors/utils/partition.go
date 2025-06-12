@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -128,6 +129,20 @@ func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
 	}
 }
 
+func createObjectIdPartition(start bson.ObjectID, end bson.ObjectID) *protos.QRepPartition {
+	return &protos.QRepPartition{
+		PartitionId: uuid.New().String(),
+		Range: &protos.PartitionRange{
+			Range: &protos.PartitionRange_ObjectIdRange{
+				ObjectIdRange: &protos.ObjectIdPartitionRange{
+					Start: start.Hex(),
+					End:   end.Hex(),
+				},
+			},
+		},
+	}
+}
+
 type PartitionHelper struct {
 	logger     log.Logger
 	prevStart  any
@@ -200,6 +215,10 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 		p.prevEnd = end
 	case pgtype.TID:
 		p.partitions = append(p.partitions, createTIDPartition(v, end.(pgtype.TID)))
+		p.prevStart = v
+		p.prevEnd = end
+	case bson.ObjectID:
+		p.partitions = append(p.partitions, createObjectIdPartition(v, end.(bson.ObjectID)))
 		p.prevStart = v
 		p.prevEnd = end
 	default:

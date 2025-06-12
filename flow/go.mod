@@ -54,7 +54,7 @@ require (
 	github.com/urfave/cli/v3 v3.3.3
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	github.com/yuin/gopher-lua v1.1.1
-	go.mongodb.org/mongo-driver/v2 v2.2.1
+	go.mongodb.org/mongo-driver/v2 v2.2.2
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0
 	go.opentelemetry.io/otel v1.36.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.36.0
