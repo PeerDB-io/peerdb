@@ -59,7 +59,7 @@ func (c *MongoConnector) GetQRepPartitions(
 		log.Fatal("Failed to start snapshot for collection:", err)
 	}
 
-	partitionHelepr := utils.NewPartitionHelper(c.logger)
+	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for _, result := range results {
 		if err := partitionHelepr.AddPartition(result.ID.Min, result.ID.Max); err != nil {
 			return nil, fmt.Errorf("failed to add partition: %w", err)
