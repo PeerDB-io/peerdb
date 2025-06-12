@@ -8,7 +8,7 @@ WORKDIR /root/flow
 COPY flow/go.mod flow/go.sum ./
 
 # download all the dependencies
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy all the code
 COPY flow .
@@ -17,7 +17,9 @@ RUN rm -f go.work*
 # build the binary from flow folder
 WORKDIR /root/flow
 ENV CGO_ENABLED=1
-RUN go build -o /root/peer-flow
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go build -o /root/peer-flow
 
 FROM alpine:3.22@sha256:8a1f59ffb675680d47db6337b49d22281a139e9d709335b492be023728e11715 AS flow-base
 ADD --checksum=sha256:5fa49cac7e6e9202ef85331c6f83377a71339d692d5644c9417a2d81406f0c03 https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem
