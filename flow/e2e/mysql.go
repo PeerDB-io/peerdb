@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
+	"github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -185,7 +185,7 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 	for _, row := range rs.Values {
 		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := connmysql.QValueFromMysqlFieldValue(schema.Fields[idx].Type, val)
+			qv, err := connmysql.QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val)
 			if err != nil {
 				return nil, err
 			}

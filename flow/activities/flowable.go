@@ -248,7 +248,9 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
-	for tableIdentifier, tableSchema := range tableNameSchemaMapping {
+	for _, tableMapping := range config.TableMappings {
+		tableIdentifier := tableMapping.DestinationTableIdentifier
+		tableSchema := tableNameSchemaMapping[tableIdentifier]
 		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,

@@ -175,6 +175,20 @@ func LVAsTime(ls *lua.LState, lv lua.LValue) time.Time {
 	return time.Time{}
 }
 
+func LVAsDuration(ls *lua.LState, lv lua.LValue) time.Duration {
+	switch v := lv.(type) {
+	case lua.LNumber:
+		ipart, fpart := math.Modf(float64(v))
+		return time.Duration(ipart)*time.Second + time.Duration(fpart*1e9)
+	case *lua.LUserData:
+		if tm, ok := v.Value.(time.Time); ok {
+			return tm.Sub(time.Unix(0, 0))
+		}
+	}
+	ls.RaiseError("Cannot convert %T to time.Time", lv)
+	return 0
+}
+
 func LuaRowNewIndex(ls *lua.LState) int {
 	_, row := LuaRow.Check(ls, 1)
 	key := ls.CheckString(2)
@@ -258,9 +272,9 @@ func LuaRowNewIndex(ls *lua.LState) int {
 	case types.QValueKindDate:
 		newqv = types.QValueDate{Val: LVAsTime(ls, val)}
 	case types.QValueKindTime:
-		newqv = types.QValueTime{Val: LVAsTime(ls, val)}
+		newqv = types.QValueTime{Val: LVAsDuration(ls, val)}
 	case types.QValueKindTimeTZ:
-		newqv = types.QValueTimeTZ{Val: LVAsTime(ls, val)}
+		newqv = types.QValueTimeTZ{Val: LVAsDuration(ls, val)}
 	case types.QValueKindNumeric:
 		newqv = types.QValueNumeric{Val: LVAsDecimal(ls, val)}
 	case types.QValueKindBytes:
@@ -360,6 +374,14 @@ func LuaRowNewIndex(ls *lua.LState) int {
 			newqv = types.QValueArrayBoolean{
 				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) bool {
 					return lua.LVAsBool(v)
+				}),
+			}
+		}
+	case types.QValueKindArrayNumeric:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = types.QValueArrayNumeric{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) decimal.Decimal {
+					return LVAsDecimal(ls, val)
 				}),
 			}
 		}

@@ -153,12 +153,16 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
 	}, ",")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
-		return s.comparePGTables(srcTableName, dstTableName, allCols) == nil
+		err := s.comparePGTables(srcTableName, dstTableName, allCols)
+		if err != nil {
+			s.t.Log("QQQ", err)
+		}
+		return err == nil
 	})
-	// c36 lost tz info so does not compare equal
+	// c36 converted to UTC, losing tz info, so does not compare equal
 	var c36 string
 	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(), "select c36 from "+dstTableName).Scan(&c36))
-	require.Equal(s.t, "09:25:00+00", c36)
+	require.Equal(s.t, "06:25:00+00", c36)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

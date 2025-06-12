@@ -31,6 +31,12 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 		bqField.Type = bigquery.BigNumericFieldType
 		bqField.Precision = int64(precision)
 		bqField.Scale = int64(scale)
+	case types.QValueKindArrayNumeric:
+		precision, scale := datatypes.GetNumericTypeForWarehouse(columnDescription.TypeModifier, datatypes.BigQueryNumericCompatibility{})
+		bqField.Type = bigquery.BigNumericFieldType
+		bqField.Precision = int64(precision)
+		bqField.Scale = int64(scale)
+		bqField.Repeated = true
 	// string related
 	case types.QValueKindString, types.QValueKindEnum:
 		bqField.Type = bigquery.StringFieldType
@@ -40,13 +46,10 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 	// time related
 	case types.QValueKindTimestamp, types.QValueKindTimestampTZ:
 		bqField.Type = bigquery.TimestampFieldType
-	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - DATE support is incomplete
 	case types.QValueKindDate:
 		bqField.Type = bigquery.DateFieldType
-	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - TIME/TIMETZ support is incomplete
 	case types.QValueKindTime, types.QValueKindTimeTZ:
 		bqField.Type = bigquery.TimeFieldType
-	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle INTERVAL types again,
 	// bytes
 	case types.QValueKindBytes:
 		bqField.Type = bigquery.BytesFieldType
@@ -70,7 +73,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 		bqField.Repeated = true
 	case types.QValueKindGeography, types.QValueKindGeometry, types.QValueKindPoint:
 		bqField.Type = bigquery.GeographyFieldType
-	// UUID related - stored as strings for now
+	// UUID related - stored as strings
 	case types.QValueKindUUID:
 		bqField.Type = bigquery.StringFieldType
 	case types.QValueKindArrayUUID:
@@ -122,6 +125,9 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKin
 	case bigquery.TimeFieldType:
 		return types.QValueKindTime
 	case bigquery.NumericFieldType, bigquery.BigNumericFieldType:
+		if fieldSchema.Repeated {
+			return types.QValueKindArrayNumeric
+		}
 		return types.QValueKindNumeric
 	case bigquery.GeographyFieldType:
 		return types.QValueKindGeography

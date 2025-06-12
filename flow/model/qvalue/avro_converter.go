@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"regexp"
 	"strings"
 	"time"
@@ -105,22 +106,7 @@ func GetAvroSchemaFromQValueKind(
 		}
 		return avro.NewPrimitiveSchema(avro.Bytes, nil), nil
 	case types.QValueKindNumeric:
-		if targetDWH == protos.DBType_CLICKHOUSE {
-			if precision == 0 && scale == 0 {
-				asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
-				if err != nil {
-					return nil, err
-				}
-				if asString {
-					return avro.NewPrimitiveSchema(avro.String, nil), nil
-				}
-			}
-			if precision > datatypes.PeerDBClickHouseMaxPrecision {
-				return avro.NewPrimitiveSchema(avro.String, nil), nil
-			}
-		}
-		avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
-		return avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale))), nil
+		return getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
 	case types.QValueKindDate:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return avro.NewPrimitiveSchema(avro.String, nil), nil
@@ -164,12 +150,43 @@ func GetAvroSchemaFromQValueKind(
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case types.QValueKindArrayString, types.QValueKindArrayEnum:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
+	case types.QValueKindArrayNumeric:
+		numericSchema, err := getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
+		if err != nil {
+			return nil, err
+		}
+		return avro.NewArraySchema(numericSchema), nil
 	case types.QValueKindInvalid:
 		// lets attempt to do invalid as a string
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	default:
 		return nil, fmt.Errorf("unsupported types.QValueKind type: %s", kind)
 	}
+}
+
+func getAvroNumericSchema(
+	ctx context.Context,
+	env map[string]string,
+	targetDWH protos.DBType,
+	precision int16,
+	scale int16,
+) (avro.Schema, error) {
+	if targetDWH == protos.DBType_CLICKHOUSE {
+		if precision == 0 && scale == 0 {
+			asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
+			if err != nil {
+				return nil, err
+			}
+			if asString {
+				return avro.NewPrimitiveSchema(avro.String, nil), nil
+			}
+		}
+		if precision > datatypes.PeerDBClickHouseMaxPrecision {
+			return avro.NewPrimitiveSchema(avro.String, nil), nil
+		}
+	}
+	avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
+	return avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale))), nil
 }
 
 type QValueAvroConverter struct {
@@ -202,7 +219,7 @@ func QValueToAvro(
 	case types.QValueTime:
 		return c.processNullableUnion(c.processGoTime(v.Val))
 	case types.QValueTimeTZ:
-		return c.processNullableUnion(c.processGoTimeTZ(v.Val))
+		return c.processNullableUnion(c.processGoTime(v.Val))
 	case types.QValueTimestamp:
 		return c.processNullableUnion(c.processGoTimestamp(v.Val))
 	case types.QValueTimestampTZ:
@@ -285,27 +302,21 @@ func QValueToAvro(
 		return c.processUUID(v.Val), nil
 	case types.QValueArrayUUID:
 		return c.processArrayUUID(v.Val), nil
+	case types.QValueArrayNumeric:
+		return c.processArrayNumeric(v.Val), nil
 	default:
 		return nil, fmt.Errorf("[toavro] unsupported %T", value)
 	}
 }
 
-func (c *QValueAvroConverter) processGoTimeTZ(t time.Time) any {
+func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("15:04:05.999999-0700")
+		t = max(min(t, 86399999999*time.Microsecond), 0)
+		return time.Time{}.Add(t).Format("15:04:05.999999")
 	}
-	return time.Duration(t.UnixMicro()) * time.Microsecond
-}
-
-func (c *QValueAvroConverter) processGoTime(t time.Time) any {
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("15:04:05.999999")
-	}
-	return time.Duration(t.UnixMicro()) * time.Microsecond
+	return t
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
@@ -384,6 +395,28 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 		return &rat
 	}
 	return rat
+}
+
+func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) any {
+	if (c.UnboundedNumericAsString && c.Precision == 0 && c.Scale == 0) ||
+		(c.TargetDWH == protos.DBType_CLICKHOUSE && c.Precision > datatypes.PeerDBClickHouseMaxPrecision) {
+		transformedNumArr := make([]string, 0, len(arrayNum))
+		for _, num := range arrayNum {
+			transformedNumArr = append(transformedNumArr, num.String())
+		}
+		return transformedNumArr
+	}
+
+	transformedNumArr := make([]*big.Rat, 0, len(arrayNum))
+	for _, num := range arrayNum {
+		num, err := TruncateOrLogNumeric(num, c.Precision, c.Scale, c.TargetDWH)
+		if err != nil {
+			transformedNumArr = append(transformedNumArr, nil)
+			continue
+		}
+		transformedNumArr = append(transformedNumArr, num.Rat())
+	}
+	return transformedNumArr
 }
 
 func (c *QValueAvroConverter) processBytes(byteData []byte, format internal.BinaryFormat) any {

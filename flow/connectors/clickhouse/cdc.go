@@ -24,8 +24,8 @@ const (
 	dropTableIfExistsSQL  = "DROP TABLE IF EXISTS `%s`;"
 )
 
-// getRawTableName returns the raw table name for the given table identifier.
-func (c *ClickHouseConnector) getRawTableName(flowJobName string) string {
+// GetRawTableName returns the raw table name for the given table identifier.
+func (c *ClickHouseConnector) GetRawTableName(flowJobName string) string {
 	return "_peerdb_raw_" + shared.ReplaceIllegalCharactersWithUnderscores(flowJobName)
 }
 
@@ -44,7 +44,7 @@ func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseNa
 }
 
 func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
-	rawTableName := c.getRawTableName(req.FlowJobName)
+	rawTableName := c.GetRawTableName(req.FlowJobName)
 
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s (
 		_peerdb_uid UUID,
@@ -71,7 +71,7 @@ func (c *ClickHouseConnector) avroSyncMethod(flowJobName string, env map[string]
 	qrepConfig := &protos.QRepConfig{
 		StagingPath:                c.credsProvider.BucketPath,
 		FlowJobName:                flowJobName,
-		DestinationTableIdentifier: c.getRawTableName(flowJobName),
+		DestinationTableIdentifier: c.GetRawTableName(flowJobName),
 		Env:                        env,
 	}
 	return NewClickHouseAvroSyncMethod(qrepConfig, c)
@@ -167,13 +167,19 @@ func (c *ClickHouseConnector) RenameTables(
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
 	for _, renameRequest := range req.RenameTableOptions {
+		if renameRequest.CurrentName == renameRequest.NewName {
+			c.logger.Info("table rename is nop, probably Null table engine, skipping rename for it",
+				slog.String("table", renameRequest.CurrentName))
+			continue
+		}
+
 		resyncTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.CurrentName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if resync table %s exists: %w", renameRequest.CurrentName, err)
 		}
 
 		if !resyncTableExists {
-			c.logger.Info(fmt.Sprintf("table '%s' does not exist, skipping rename for it", renameRequest.CurrentName))
+			c.logger.Info("table does not exist, skipping rename for it", slog.String("table", renameRequest.CurrentName))
 			continue
 		}
 
@@ -225,7 +231,7 @@ func (c *ClickHouseConnector) RenameTables(
 
 func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	// delete raw table if exists
-	rawTableIdentifier := c.getRawTableName(jobName)
+	rawTableIdentifier := c.GetRawTableName(jobName)
 	if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier)); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
@@ -244,7 +250,7 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 		// INSERT INTO SELECT queries
 		err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM `%s` WHERE _peerdb_destination_table_name = %s"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			c.getRawTableName(req.FlowJobName), peerdb_clickhouse.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
+			c.GetRawTableName(req.FlowJobName), peerdb_clickhouse.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
 			return fmt.Errorf("unable to remove table %s from raw table: %w", tableName, err)
 		}

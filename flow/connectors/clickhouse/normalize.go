@@ -14,7 +14,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -48,23 +47,23 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
-	tableSchema *protos.TableSchema,
+	destinationTableIdentifier string,
+	sourceTableSchema *protos.TableSchema,
 ) (bool, error) {
-	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
+	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, destinationTableIdentifier)
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if destination ClickHouse table exists: %w", err)
 	}
 	if tableAlreadyExists && !config.IsResync {
-		c.logger.Info("[ch] destination ClickHouse table already exists, skipping", "table", tableIdentifier)
+		c.logger.Info("[ch] destination ClickHouse table already exists, skipping", "table", destinationTableIdentifier)
 		return true, nil
 	}
 
 	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
 		ctx,
 		config,
-		tableIdentifier,
-		tableSchema,
+		destinationTableIdentifier,
+		sourceTableSchema,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
@@ -257,11 +256,6 @@ func getOrderedOrderByColumns(
 	return orderbyColumns
 }
 
-type NormalizeInsertQuery struct {
-	query     string
-	tableName string
-}
-
 func (c *ClickHouseConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
@@ -334,8 +328,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	numParts = max(numParts, 1)
 
-	queries := make(chan NormalizeInsertQuery)
-	rawTbl := c.getRawTableName(req.FlowJobName)
+	queries := make(chan NormalizeQueryGenerator)
+	rawTbl := c.GetRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
 	for i := range parallelNormalize {
@@ -356,11 +350,27 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				c.logger.Info("executing INSERT command to ClickHouse table",
 					slog.Int64("syncBatchId", req.SyncBatchID),
 					slog.Int64("normalizeBatchId", normBatchID),
-					slog.String("destinationTable", insertIntoSelectQuery.tableName),
-					slog.String("query", insertIntoSelectQuery.query))
+					slog.String("destinationTable", insertIntoSelectQuery.TableName),
+					slog.String("query", insertIntoSelectQuery.Query))
 
-				if err := c.execWithConnection(ctx, chConn, insertIntoSelectQuery.query); err != nil {
-					return fmt.Errorf("error while inserting into destination ClickHouse table %s: %w", insertIntoSelectQuery.tableName, err)
+				if err := c.execWithConnection(errCtx, chConn, insertIntoSelectQuery.Query); err != nil {
+					c.logger.Error("[clickhouse] error while inserting into target clickhouse table",
+						slog.String("table", insertIntoSelectQuery.TableName),
+						slog.Int64("syncBatchID", req.SyncBatchID),
+						slog.Int64("normalizeBatchID", normBatchID),
+						slog.Any("error", err))
+					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", insertIntoSelectQuery.TableName, err)
+				}
+
+				if insertIntoSelectQuery.Part == numParts-1 {
+					c.logger.Info("[clickhouse] set last normalized batch id for table",
+						slog.String("table", insertIntoSelectQuery.TableName),
+						slog.Int64("syncBatchID", req.SyncBatchID),
+						slog.Int64("lastNormalizedBatchID", normBatchID))
+					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, insertIntoSelectQuery.TableName, req.SyncBatchID)
+					if err != nil {
+						return fmt.Errorf("error while setting last synced batch id for table %s: %w", insertIntoSelectQuery.TableName, err)
+					}
 				}
 			}
 			return nil
@@ -368,208 +378,52 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	for _, tbl := range destinationTableNames {
+		normalizeBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
+		if err != nil {
+			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, "error", err)
+			return model.NormalizeResponse{}, err
+		}
+
+		c.logger.Info("[clickhouse] last normalized batch id for table",
+			"table", tbl, "lastNormalizedBatchID", normalizeBatchIDForTable,
+			"syncBatchID", req.SyncBatchID)
+		batchIdToLoadForTable := max(normBatchID, normalizeBatchIDForTable)
+		if batchIdToLoadForTable >= req.SyncBatchID {
+			c.logger.Info("[clickhouse] table already synced to destination for this batch, skipping",
+				"table", tbl, "batchIdToLoadForTable", batchIdToLoadForTable, "syncBatchID", req.SyncBatchID)
+			continue
+		}
+
 		for numPart := range numParts {
-			selectQuery := strings.Builder{}
-			selectQuery.WriteString("SELECT ")
-
-			colSelector := strings.Builder{}
-			colSelector.WriteByte('(')
-
-			schema := req.TableNameSchemaMapping[tbl]
-
-			var tableMapping *protos.TableMapping
-			for _, tm := range req.TableMappings {
-				if tm.DestinationTableIdentifier == tbl {
-					tableMapping = tm
-					break
-				}
+			queryGenerator := NewNormalizeQueryGenerator(
+				tbl,
+				numPart,
+				req.TableNameSchemaMapping,
+				req.TableMappings,
+				req.SyncBatchID,
+				batchIdToLoadForTable,
+				numParts,
+				enablePrimaryUpdate,
+				sourceSchemaAsDestinationColumn,
+				req.Env,
+				rawTbl,
+			)
+			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
+			if err != nil {
+				close(queries)
+				c.logger.Error("[clickhouse] error while building insert into select query",
+					slog.String("table", tbl),
+					slog.Int64("syncBatchID", req.SyncBatchID),
+					slog.Int64("normalizeBatchID", normBatchID),
+					slog.Any("error", err))
+				return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
 			}
 
-			var escapedSourceSchemaSelectorFragment string
-			if sourceSchemaAsDestinationColumn {
-				if tableMapping == nil {
-					return model.NormalizeResponse{}, errors.New("could not look up source schema info")
-				}
-				schemaTable, err := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
-				if err != nil {
-					return model.NormalizeResponse{}, err
-				}
-				escapedSourceSchemaSelectorFragment = fmt.Sprintf("%s AS %s,",
-					peerdb_clickhouse.QuoteLiteral(schemaTable.Schema), peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
-			}
-
-			projection := strings.Builder{}
-			projectionUpdate := strings.Builder{}
-
-			for _, column := range schema.Columns {
-				colName := column.Name
-				dstColName := colName
-				colType := types.QValueKind(column.Type)
-
-				var clickHouseType string
-				var columnNullableEnabled bool
-				if tableMapping != nil {
-					for _, col := range tableMapping.Columns {
-						if col.SourceName == colName {
-							if col.DestinationName != "" {
-								dstColName = col.DestinationName
-							}
-							if col.DestinationType != "" {
-								// TODO can we restrict this to avoid injection?
-								clickHouseType = col.DestinationType
-							}
-							columnNullableEnabled = col.NullableEnabled
-							break
-						}
-					}
-				}
-
-				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
-				if clickHouseType == "" {
-					var err error
-					clickHouseType, err = qvalue.ToDWHColumnType(
-						ctx, colType, req.Env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
-					)
-					if err != nil {
-						close(queries)
-						return model.NormalizeResponse{}, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
-					}
-				}
-
-				switch clickHouseType {
-				case "Date32", "Nullable(Date32)":
-					fmt.Fprintf(&projection,
-						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6)) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
-						peerdb_clickhouse.QuoteIdentifier(dstColName),
-					)
-					if enablePrimaryUpdate {
-						fmt.Fprintf(&projectionUpdate,
-							"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6)) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
-							peerdb_clickhouse.QuoteIdentifier(dstColName),
-						)
-					}
-				case "DateTime64(6)", "Nullable(DateTime64(6))":
-					fmt.Fprintf(&projection,
-						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
-						peerdb_clickhouse.QuoteIdentifier(dstColName),
-					)
-					if enablePrimaryUpdate {
-						fmt.Fprintf(&projectionUpdate,
-							"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
-							peerdb_clickhouse.QuoteIdentifier(dstColName),
-						)
-					}
-				default:
-					projLen := projection.Len()
-					if colType == types.QValueKindBytes {
-						format, err := internal.PeerDBBinaryFormat(ctx, req.Env)
-						if err != nil {
-							return model.NormalizeResponse{}, err
-						}
-						switch format {
-						case internal.BinaryFormatRaw:
-							fmt.Fprintf(&projection,
-								"base64Decode(JSONExtractString(_peerdb_data, %s)) AS %s,",
-								peerdb_clickhouse.QuoteLiteral(colName),
-								peerdb_clickhouse.QuoteIdentifier(dstColName),
-							)
-							if enablePrimaryUpdate {
-								fmt.Fprintf(&projectionUpdate,
-									"base64Decode(JSONExtractString(_peerdb_match_data, %s)) AS %s,",
-									peerdb_clickhouse.QuoteLiteral(colName),
-									peerdb_clickhouse.QuoteIdentifier(dstColName),
-								)
-							}
-						case internal.BinaryFormatHex:
-							fmt.Fprintf(&projection, "hex(base64Decode(JSONExtractString(_peerdb_data, %s))) AS %s,",
-								peerdb_clickhouse.QuoteLiteral(colName),
-								peerdb_clickhouse.QuoteIdentifier(dstColName),
-							)
-							if enablePrimaryUpdate {
-								fmt.Fprintf(&projectionUpdate,
-									"hex(base64Decode(JSONExtractString(_peerdb_match_data, %s))) AS %s,",
-									peerdb_clickhouse.QuoteLiteral(colName),
-									peerdb_clickhouse.QuoteIdentifier(dstColName),
-								)
-							}
-						}
-					}
-
-					// proceed with default logic if logic above didn't add any sql
-					if projection.Len() == projLen {
-						fmt.Fprintf(
-							&projection,
-							"JSONExtract(_peerdb_data, %s, %s) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
-							peerdb_clickhouse.QuoteLiteral(clickHouseType),
-							peerdb_clickhouse.QuoteIdentifier(dstColName),
-						)
-						if enablePrimaryUpdate {
-							fmt.Fprintf(
-								&projectionUpdate,
-								"JSONExtract(_peerdb_match_data, %s, %s) AS %s,",
-								peerdb_clickhouse.QuoteLiteral(colName),
-								peerdb_clickhouse.QuoteLiteral(clickHouseType),
-								peerdb_clickhouse.QuoteIdentifier(dstColName),
-							)
-						}
-					}
-				}
-			}
-
-			if sourceSchemaAsDestinationColumn {
-				projection.WriteString(escapedSourceSchemaSelectorFragment)
-				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
-			}
-
-			// add _peerdb_sign as _peerdb_record_type / 2
-			fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-			fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-
-			// add _peerdb_timestamp as _peerdb_version
-			fmt.Fprintf(&projection, "_peerdb_timestamp AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
-			fmt.Fprintf(&colSelector, "%s) ", peerdb_clickhouse.QuoteIdentifier(versionColName))
-
-			selectQuery.WriteString(projection.String())
-			fmt.Fprintf(&selectQuery,
-				" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-				peerdb_clickhouse.QuoteIdentifier(rawTbl), normBatchID, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
-			if numParts > 1 {
-				fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart)
-			}
-
-			if enablePrimaryUpdate {
-				if sourceSchemaAsDestinationColumn {
-					projectionUpdate.WriteString(escapedSourceSchemaSelectorFragment)
-				}
-
-				// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
-				fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-				// decrement timestamp by 1 so delete is ordered before latest data,
-				// could be same if deletion records were only generated when ordering updated
-				fmt.Fprintf(&projectionUpdate, "_peerdb_timestamp - 1 AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
-
-				selectQuery.WriteString(" UNION ALL SELECT ")
-				selectQuery.WriteString(projectionUpdate.String())
-				fmt.Fprintf(&selectQuery,
-					" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
-						" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
-					peerdb_clickhouse.QuoteIdentifier(rawTbl), normBatchID, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
-				if numParts > 1 {
-					fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart)
-				}
-			}
-
-			insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
-				peerdb_clickhouse.QuoteIdentifier(tbl), colSelector.String(), selectQuery.String())
 			select {
-			case queries <- NormalizeInsertQuery{
-				query:     insertIntoSelectQuery,
-				tableName: tbl,
+			case queries <- NormalizeQueryGenerator{
+				TableName: tbl,
+				Query:     insertIntoSelectQuery,
+				Part:      numPart,
 			}:
 			case <-errCtx.Done():
 				close(queries)
@@ -603,7 +457,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	normalizeBatchID int64,
 	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
-	rawTbl := c.getRawTableName(flowJobName)
+	rawTbl := c.GetRawTableName(flowJobName)
 
 	q := fmt.Sprintf(
 		"SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",
@@ -659,11 +513,30 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, normBatchID, syncBatchID int64, env map[string]string,
+	ctx context.Context, flowJobName string, normBatchID int64, syncBatchID int64, env map[string]string,
 ) error {
-	for s := normBatchID + 1; s <= syncBatchID; s++ {
+	lastSyncedBatchIdInRawTable, err := c.GetLastBatchIDInRawTable(ctx, flowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to get last batch id in raw table: %w", err)
+	}
+
+	batchIdToLoad := max(lastSyncedBatchIdInRawTable, normBatchID)
+	c.logger.Info("[clickhouse] pushing s3 data to raw table",
+		slog.Int64("BatchID", batchIdToLoad),
+		slog.String("flowJobName", flowJobName),
+		slog.Int64("syncBatchID", syncBatchID))
+
+	for s := batchIdToLoad + 1; s <= syncBatchID; s++ {
 		if err := c.copyAvroStageToDestination(ctx, flowJobName, s, env); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
+		}
+		c.logger.Info("[clickhouse] setting last batch id in raw table",
+			slog.Int64("BatchID", s),
+			slog.String("flowJobName", flowJobName))
+		if err := c.SetLastBatchIDInRawTable(ctx, flowJobName, s); err != nil {
+			c.logger.Error("[clickhouse] error while setting last batch id in raw table",
+				slog.Int64("BatchID", s), slog.Any("error", err))
+			return fmt.Errorf("failed to set last batch id in raw table: %w", err)
 		}
 	}
 	return nil

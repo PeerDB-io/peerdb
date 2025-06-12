@@ -18,7 +18,6 @@ import (
 	"github.com/djherbis/nio/v3"
 	"github.com/hamba/avro/v2/ocf"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -96,12 +95,12 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	env map[string]string,
 	bucketName string,
 	key string,
-	s3Creds utils.AWSCredentialsProvider,
+	s3Creds AWSCredentialsProvider,
 	avroSize *atomic.Int64,
 	typeConversions map[string]types.TypeConversion,
 ) (*AvroFile, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
+	s3svc, err := CreateS3Client(ctx, s3Creds)
 	if err != nil {
 		logger.Error("failed to create S3 client", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create S3 client: %w", err)

@@ -108,10 +108,6 @@ var (
 	ErrorNotifyTerminate = ErrorClass{
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
-	ErrorNotifyConnectTimeout = ErrorClass{
-		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
-		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
-	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
@@ -232,7 +228,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			pgerrcode.InvalidPassword,
 			pgerrcode.InsufficientPrivilege,
 			pgerrcode.UndefinedTable,
-			pgerrcode.CannotConnectNow:
+			pgerrcode.CannotConnectNow,
+			pgerrcode.ConfigurationLimitExceeded:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
 		case pgerrcode.UndefinedObject:
@@ -274,6 +271,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
+			}
+		case pgerrcode.SerializationFailure, pgerrcode.DeadlockDetected:
+			if strings.Contains(pgErr.Message, "canceling statement due to conflict with recovery") {
+				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?

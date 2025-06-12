@@ -321,7 +321,7 @@ func (v QValueDate) LValue(ls *lua.LState) lua.LValue {
 }
 
 type QValueTime struct {
-	Val time.Time
+	Val time.Duration
 }
 
 func (QValueTime) Kind() QValueKind {
@@ -333,11 +333,11 @@ func (v QValueTime) Value() any {
 }
 
 func (v QValueTime) LValue(ls *lua.LState) lua.LValue {
-	return shared.LuaTime.New(ls, v.Val)
+	return shared.LuaTime.New(ls, time.Unix(0, 0).UTC().Add(v.Val))
 }
 
 type QValueTimeTZ struct {
-	Val time.Time
+	Val time.Duration
 }
 
 func (QValueTimeTZ) Kind() QValueKind {
@@ -349,7 +349,7 @@ func (v QValueTimeTZ) Value() any {
 }
 
 func (v QValueTimeTZ) LValue(ls *lua.LState) lua.LValue {
-	return shared.LuaTime.New(ls, v.Val)
+	return shared.LuaTime.New(ls, time.Unix(0, 0).UTC().Add(v.Val))
 }
 
 type QValueInterval struct {
@@ -774,5 +774,23 @@ func (v QValueArrayEnum) Value() any {
 func (v QValueArrayEnum) LValue(ls *lua.LState) lua.LValue {
 	return shared.SliceToLTable(ls, v.Val, func(x string) lua.LValue {
 		return lua.LString(x)
+	})
+}
+
+type QValueArrayNumeric struct {
+	Val []decimal.Decimal
+}
+
+func (QValueArrayNumeric) Kind() QValueKind {
+	return QValueKindArrayNumeric
+}
+
+func (v QValueArrayNumeric) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayNumeric) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x decimal.Decimal) lua.LValue {
+		return shared.LuaDecimal.New(ls, x)
 	})
 }

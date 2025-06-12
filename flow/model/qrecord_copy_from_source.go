@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgtype"
 
@@ -98,7 +99,7 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 		case types.QValueMacaddr:
 			values[i] = v.Val
 		case types.QValueTime:
-			values[i] = pgtype.Time{Microseconds: v.Val.UnixMicro(), Valid: true}
+			values[i] = pgtype.Time{Microseconds: int64(v.Val / time.Microsecond), Valid: true}
 		case types.QValueTSTZRange:
 			values[i] = v.Val
 		case types.QValueTimestamp:
@@ -156,6 +157,8 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 		case types.QValueArrayBoolean:
 			values[i] = constructArray(v.Val)
 		case types.QValueArrayUUID:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayNumeric:
 			values[i] = constructArray(v.Val)
 		case types.QValueJSON:
 			if v.IsArray {

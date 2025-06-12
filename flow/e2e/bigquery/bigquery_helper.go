@@ -187,8 +187,10 @@ func toQValue(bqValue bigquery.Value) (types.QValue, error) {
 	case civil.Date:
 		return types.QValueDate{Val: v.In(time.UTC)}, nil
 	case civil.Time:
-		tm := time.Unix(int64(v.Hour)*3600+int64(v.Minute)*60+int64(v.Second), int64(v.Nanosecond))
-		return types.QValueTime{Val: tm}, nil
+		return types.QValueTime{Val: time.Duration(v.Hour)*time.Hour +
+			time.Duration(v.Minute)*time.Minute +
+			time.Duration(v.Second)*time.Second +
+			time.Duration(v.Nanosecond)*time.Nanosecond}, nil
 	case time.Time:
 		return types.QValueTimestamp{Val: v}, nil
 	case *big.Rat:
@@ -240,6 +242,12 @@ func toQValue(bqValue bigquery.Value) (types.QValue, error) {
 				arr = append(arr, val.(bool))
 			}
 			return types.QValueArrayBoolean{Val: arr}, nil
+		case *big.Rat:
+			var arr []decimal.Decimal
+			for _, val := range v {
+				arr = append(arr, decimal.NewFromBigRat(val.(*big.Rat), 32))
+			}
+			return types.QValueArrayNumeric{Val: arr}, nil
 		default:
 			// If type is unsupported, return error
 			return nil, fmt.Errorf("bqHelper unsupported type %T", et)

@@ -13,18 +13,14 @@ stage the schema/data in the converted type format, and therefore
 successfully uploaded to the desired destination type in ClickHouse.
 
 To add a type conversion:
-	(1) In flow/model/types/type_converter.go:
+
+	(1) In flow/model/shared/type_converter.go:
 	- implement a SchemaConversionFn interface to convert the QField type
 	- implement a ValueConversionFn interface to convert the QValue data
 
 	(2) Add the new conversion to the `supportedDestinationTypes` map here
 		(if destination type doesn't exist, create a new map entry for it).
-
-The ListSupportedTypeConversions function returns the full list of supported
-type conversions. Note that the source types are QValueKind, this allows
-the implementation to be source-connector agnostic.
 */
-
 var SupportedDestinationTypes = map[string][]types.TypeConversion{
 	"String": {types.NewTypeConversion(
 		types.NumericToStringSchemaConversion,
@@ -32,6 +28,8 @@ var SupportedDestinationTypes = map[string][]types.TypeConversion{
 	)},
 }
 
+// returns the full list of supported type conversions. The keys are
+// QValueKind to allows the implementation to be source-connector agnostic.
 func ListSupportedTypeConversions() map[types.QValueKind][]string {
 	typeConversions := make(map[types.QValueKind][]string)
 
