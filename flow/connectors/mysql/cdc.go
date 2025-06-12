@@ -452,14 +452,9 @@ func (c *MySqlConnector) PullRecords(
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.QueryEvent:
-			if !inTx {
-				if gset != nil {
-					gset = ev.GSet
-					req.RecordStream.UpdateLatestCheckpointText(gset.String())
-				} else if event.Header.LogPos > pos.Pos {
-					pos.Pos = event.Header.LogPos
-					req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-				}
+			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
+				pos.Pos = event.Header.LogPos
+				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
 			}
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
