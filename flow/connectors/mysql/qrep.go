@@ -24,22 +24,23 @@ func (c *MySqlConnector) GetDataTypeOfWatermarkColumn(
 	ctx context.Context,
 	watermarkTableName string,
 	watermarkColumn string,
-) (types.QValueKind, error) {
+) (types.QValueKind, byte, error) {
 	if watermarkColumn == "" {
-		return "", errors.New("watermark column is not specified in the config")
+		return "", 0, errors.New("watermark column is not specified in the config")
 	}
 
 	query := fmt.Sprintf("SELECT `%s` FROM %s LIMIT 0", watermarkColumn, watermarkTableName)
 	rs, err := c.Execute(ctx, query)
 	if err != nil {
-		return "", fmt.Errorf("failed to execute query for watermark column type: %w", err)
+		return "", 0, fmt.Errorf("failed to execute query for watermark column type: %w", err)
 	}
 
 	if len(rs.Fields) == 0 {
-		return "", errors.New("no fields returned from select query: " + query)
+		return "", 0, fmt.Errorf("no fields returned from select query: %s", query)
 	}
 
-	return qkindFromMysql(rs.Fields[0])
+	qk, err := qkindFromMysql(rs.Fields[0])
+	return qk, rs.Fields[0].Type, err
 }
 
 func (c *MySqlConnector) GetQRepPartitions(
@@ -122,7 +123,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		numPartitions++
 	}
 
-	watermarkQKind, err := c.GetDataTypeOfWatermarkColumn(ctx, parsedWatermarkTable.MySQL(), config.WatermarkColumn)
+	watermarkQKind, watermarkMyType, err := c.GetDataTypeOfWatermarkColumn(ctx, parsedWatermarkTable.MySQL(), config.WatermarkColumn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get data type of watermark column %s: %w", config.WatermarkColumn, err)
 	}
@@ -225,11 +226,11 @@ func (c *MySqlConnector) GetQRepPartitions(
 
 	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for _, row := range rs.Values {
-		val1, err := QValueFromMysqlFieldValue(watermarkQKind, row[1])
+		val1, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, row[1])
 		if err != nil {
 			return nil, err
 		}
-		val2, err := QValueFromMysqlFieldValue(watermarkQKind, row[2])
+		val2, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, row[2])
 		if err != nil {
 			return nil, err
 		}
@@ -268,8 +269,6 @@ func (c *MySqlConnector) PullQRepRecords(
 		totalRecords += 1
 		totalBytes += int64(len(row) / 8) // null bitmap
 		for idx, val := range row {
-			// TODO ideally go-mysql would give us row buffer, need upstream PR
-			// see mysql/rowdata.go in go-mysql for field sizes
 			// unfortunately we're using text protocol, so this is a weak estimate
 			switch rs.Fields[idx].Type {
 			case mysql.MYSQL_TYPE_NULL:
@@ -306,7 +305,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		}
 		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, val)
+			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val)
 			if err != nil {
 				return fmt.Errorf("could not convert mysql value for %s: %w", schema.Fields[idx].Name, err)
 			}

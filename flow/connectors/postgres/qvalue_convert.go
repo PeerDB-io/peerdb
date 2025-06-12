@@ -265,7 +265,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return nil, fmt.Errorf("invalid interval: %v", value)
 		}
 
-		return types.QValueString{Val: string(intervalJSON)}, nil
+		return types.QValueInterval{Val: string(intervalJSON)}, nil
 	case types.QValueKindTSTZRange:
 		tstzrangeObject := value.(pgtype.Range[any])
 		lowerBoundType := tstzrangeObject.LowerType
@@ -280,17 +280,22 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return nil, fmt.Errorf("[tstzrange]error for upper time bound: %w", err)
 		}
 
-		lowerBracket := "["
+		lowerBracket := byte('[')
 		if lowerBoundType == pgtype.Exclusive {
-			lowerBracket = "("
+			lowerBracket = '('
 		}
-		upperBracket := "]"
+		upperBracket := byte(']')
 		if upperBoundType == pgtype.Exclusive {
-			upperBracket = ")"
+			upperBracket = ')'
 		}
-		tstzrangeStr := fmt.Sprintf("%s%v,%v%s",
-			lowerBracket, lowerTime, upperTime, upperBracket)
-		return types.QValueTSTZRange{Val: tstzrangeStr}, nil
+		var sb strings.Builder
+		sb.Grow(len(lowerTime) + len(upperTime) + 3)
+		sb.WriteByte(lowerBracket)
+		sb.WriteString(lowerTime)
+		sb.WriteByte(',')
+		sb.WriteString(upperTime)
+		sb.WriteByte(upperBracket)
+		return types.QValueTSTZRange{Val: sb.String()}, nil
 	case types.QValueKindDate:
 		switch val := value.(type) {
 		case time.Time:
@@ -301,8 +306,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	case types.QValueKindTime:
 		timeVal := value.(pgtype.Time)
 		if timeVal.Valid {
-			// 86399999999 to prevent 24:00:00
-			return types.QValueTime{Val: time.UnixMicro(min(timeVal.Microseconds, 86399999999))}, nil
+			return types.QValueTime{Val: time.Duration(timeVal.Microseconds) * time.Microsecond}, nil
 		}
 	case types.QValueKindTimeTZ:
 		timeVal := value.(string)
@@ -325,7 +329,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse time: %w", err)
 		}
-		return types.QValueTimeTZ{Val: t.AddDate(1970, 0, 0)}, nil
+		return types.QValueTimeTZ{Val: t.UTC().Sub(shared.Year0000)}, nil
 	case types.QValueKindBoolean:
 		boolVal := value.(bool)
 		return types.QValueBoolean{Val: boolVal}, nil

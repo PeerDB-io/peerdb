@@ -262,10 +262,8 @@ func (p *PostgresCDCSource) decodeColumnData(
 			if dtOid == oid.T_time || dtOid == oid.T_timetz ||
 				dtOid == oid.T_timestamp || dtOid == oid.T_timestamptz {
 				// indicates year is more than 4 digits or something similar,
-				// which you can insert into postgres,
-				// but not representable by time.Time
-				p.logger.Warn(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
-					dt.Name, string(data)))
+				// which you can insert into postgres, but not representable by time.Time
+				p.logger.Warn("Invalidate time for destination, nulled", slog.String("typeName", dt.Name), slog.String("value", string(data)))
 				switch dtOid {
 				case oid.T_time:
 					return types.QValueNull(types.QValueKindTime), nil

@@ -46,13 +46,10 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 	// time related
 	case types.QValueKindTimestamp, types.QValueKindTimestampTZ:
 		bqField.Type = bigquery.TimestampFieldType
-	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - DATE support is incomplete
 	case types.QValueKindDate:
 		bqField.Type = bigquery.DateFieldType
-	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - TIME/TIMETZ support is incomplete
 	case types.QValueKindTime, types.QValueKindTimeTZ:
 		bqField.Type = bigquery.TimeFieldType
-	// TODO: https://github.com/PeerDB-io/peerdb/issues/189 - handle INTERVAL types again,
 	// bytes
 	case types.QValueKindBytes:
 		bqField.Type = bigquery.BytesFieldType
@@ -76,7 +73,7 @@ func qValueKindToBigQueryType(columnDescription *protos.FieldDescription, nullab
 		bqField.Repeated = true
 	case types.QValueKindGeography, types.QValueKindGeometry, types.QValueKindPoint:
 		bqField.Type = bigquery.GeographyFieldType
-	// UUID related - stored as strings for now
+	// UUID related - stored as strings
 	case types.QValueKindUUID:
 		bqField.Type = bigquery.StringFieldType
 	case types.QValueKindArrayUUID:

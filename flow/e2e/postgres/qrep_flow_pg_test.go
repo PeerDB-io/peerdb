@@ -238,8 +238,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
-	err = s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*")
-	require.NoError(s.t, err)
+	require.NoError(s.t, s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*"))
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
@@ -523,8 +522,7 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
-		err := s.compareCounts(dstSchemaQualified, int64(numRows))
-		return err == nil
+		return s.compareCounts(dstSchemaQualified, int64(numRows)) == nil
 	})
 	require.NoError(s.t, env.Error(s.t.Context()))
 

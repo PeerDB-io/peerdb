@@ -219,7 +219,7 @@ func QValueToAvro(
 	case types.QValueTime:
 		return c.processNullableUnion(c.processGoTime(v.Val))
 	case types.QValueTimeTZ:
-		return c.processNullableUnion(c.processGoTimeTZ(v.Val))
+		return c.processNullableUnion(c.processGoTime(v.Val))
 	case types.QValueTimestamp:
 		return c.processNullableUnion(c.processGoTimestamp(v.Val))
 	case types.QValueTimestampTZ:
@@ -309,22 +309,14 @@ func QValueToAvro(
 	}
 }
 
-func (c *QValueAvroConverter) processGoTimeTZ(t time.Time) any {
+func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("15:04:05.999999-0700")
+		t = max(min(t, 86399999999*time.Microsecond), 0)
+		return time.Time{}.Add(t).Format("15:04:05.999999")
 	}
-	return time.Duration(t.UnixMicro()) * time.Microsecond
-}
-
-func (c *QValueAvroConverter) processGoTime(t time.Time) any {
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("15:04:05.999999")
-	}
-	return time.Duration(t.UnixMicro()) * time.Microsecond
+	return t
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {

@@ -24,7 +24,7 @@ type mergeStmtGenerator struct {
 
 // generateFlattenedCTE generates a flattened CTE.
 func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTableSchema *protos.TableSchema) string {
-	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
+	// for each column in the normalized table, generate CAST + JSON_VALUE
 	// statement.
 	flattenedProjs := make([]string, 0, len(normalizedTableSchema.Columns)+3)
 
@@ -52,21 +52,6 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 		case types.QValueKindGeography, types.QValueKindGeometry, types.QValueKindPoint:
 			castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)
-		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
-		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
-		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
-		// this needs to be handled again
-		// TODO add interval types again
-		// case model.ColumnTypeInterval:
-		// castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
-		// 	"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
-		// 	"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
-		// 	column.Name, column.Name, column.Name, column.Name)
-		// TODO add proper granularity for time types, then restore this
-		// case model.ColumnTypeTime:
-		// 	castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds')"+
-		// 		" AS int64))) AS %s",
-		// 		column.Name, column.Name)
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_VALUE(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)

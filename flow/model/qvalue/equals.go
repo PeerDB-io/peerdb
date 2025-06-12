@@ -172,16 +172,21 @@ func compareGoTimestamp(value1, value2 any) bool {
 }
 
 func compareGoTime(value1, value2 any) bool {
-	t1, ok1 := value1.(time.Time)
-	t2, ok2 := value2.(time.Time)
+	t1, ok1 := value1.(time.Duration)
+	t2, ok2 := value2.(time.Duration)
 
-	if !ok1 || !ok2 {
-		return false
+	if !ok1 {
+		var tm time.Time
+		tm, ok1 = value1.(time.Time)
+		t1 = tm.Sub(time.Unix(0, 0).UTC())
+	}
+	if !ok2 {
+		var tm time.Time
+		tm, ok2 = value2.(time.Time)
+		t2 = tm.Sub(time.Unix(0, 0).UTC())
 	}
 
-	h1, m1, s1 := t1.Clock()
-	h2, m2, s2 := t2.Clock()
-	return h1 == h2 && m1 == m2 && s1 == s2
+	return ok1 && ok2 && t1 == t2
 }
 
 func compareGoDate(value1, value2 any) bool {

@@ -13,7 +13,6 @@ import (
 	_ "github.com/snowflakedb/gosnowflake"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -151,9 +150,9 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
 	flowJobName string,
-) (*avro.AvroFile, error) {
+) (*utils.AvroFile, error) {
 	if s.config.StagingPath == "" {
-		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
+		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
 		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
 		err := os.MkdirAll(tmpDir, os.ModePerm)
 		if err != nil {
@@ -169,7 +168,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		return avroFile, nil
 	} else if strings.HasPrefix(s.config.StagingPath, "s3://") {
-		ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
+		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse staging path: %w", err)
@@ -194,8 +193,8 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	return nil, fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
 }
 
-func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile *avro.AvroFile, stage string) error {
-	if avroFile.StorageLocation != avro.AvroLocalStorage {
+func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile *utils.AvroFile, stage string) error {
+	if avroFile.StorageLocation != utils.AvroLocalStorage {
 		s.logger.Info("no file to put to stage")
 		return nil
 	}

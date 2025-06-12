@@ -187,8 +187,10 @@ func toQValue(bqValue bigquery.Value) (types.QValue, error) {
 	case civil.Date:
 		return types.QValueDate{Val: v.In(time.UTC)}, nil
 	case civil.Time:
-		tm := time.Unix(int64(v.Hour)*3600+int64(v.Minute)*60+int64(v.Second), int64(v.Nanosecond))
-		return types.QValueTime{Val: tm}, nil
+		return types.QValueTime{Val: time.Duration(v.Hour)*time.Hour +
+			time.Duration(v.Minute)*time.Minute +
+			time.Duration(v.Second)*time.Second +
+			time.Duration(v.Nanosecond)*time.Nanosecond}, nil
 	case time.Time:
 		return types.QValueTimestamp{Val: v}, nil
 	case *big.Rat:
