@@ -76,6 +76,22 @@ func AddCDCBatchForFlow(ctx context.Context, pool shared.CatalogPool, flowJobNam
 	return nil
 }
 
+func UpdateRowsPushedForCDCBatch(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	flowJobName string,
+	batchID int64,
+	numRows uint64,
+) error {
+	if _, err := pool.Exec(ctx,
+		"UPDATE peerdb_stats.cdc_batches SET rows_pushed=$1 WHERE flow_name=$2 AND batch_id=$3",
+		numRows, flowJobName, batchID,
+	); err != nil {
+		return fmt.Errorf("error while updating rows_pushed in cdc_batch: %w", err)
+	}
+	return nil
+}
+
 // update num records and end-lsn for a cdc batch
 func UpdateNumRowsAndEndLSNForCDCBatch(
 	ctx context.Context,

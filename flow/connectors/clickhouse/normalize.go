@@ -329,7 +329,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	numParts = max(numParts, 1)
 
 	queries := make(chan NormalizeQueryGenerator)
-	rawTbl := c.GetRawTableName(req.FlowJobName)
+	rawTableName := c.GetRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
 	for i := range parallelNormalize {
@@ -371,32 +371,58 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					if err != nil {
 						return fmt.Errorf("error while setting last synced batch id for table %s: %w", insertIntoSelectQuery.TableName, err)
 					}
+
+					numRowsPerBatchMap, err := c.getRowCountForTableInRawTable(
+						errCtx,
+						req.FlowJobName,
+						insertIntoSelectQuery.TableName,
+						req.SyncBatchID,
+						normBatchID,
+					)
+					if err != nil {
+						c.logger.Error("[clickhouse] error while getting row count for table in raw table",
+							slog.String("table", insertIntoSelectQuery.TableName),
+							slog.Int64("syncBatchID", req.SyncBatchID),
+							slog.Int64("normalizeBatchID", normBatchID),
+							slog.Any("error", err))
+						return fmt.Errorf("error while getting row count for table %s in raw table: %w", insertIntoSelectQuery.TableName, err)
+					}
+
+					updateErr := c.UpdatePushedRows(ctx, req.FlowJobName, numRowsPerBatchMap)
+					if updateErr != nil {
+						c.logger.Error("[clickhouse] error while updating pushed rows",
+							slog.String("table", insertIntoSelectQuery.TableName),
+							slog.Int64("syncBatchID", req.SyncBatchID),
+							slog.Int64("normalizeBatchID", normBatchID),
+							slog.Any("error", updateErr))
+						return fmt.Errorf("error while updating pushed rows for table %s: %w", insertIntoSelectQuery.TableName, updateErr)
+					}
 				}
 			}
 			return nil
 		})
 	}
 
-	for _, tbl := range destinationTableNames {
-		normalizeBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
+	for _, destinationTableName := range destinationTableNames {
+		normalizeBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, destinationTableName)
 		if err != nil {
-			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, "error", err)
+			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", destinationTableName, "error", err)
 			return model.NormalizeResponse{}, err
 		}
 
 		c.logger.Info("[clickhouse] last normalized batch id for table",
-			"table", tbl, "lastNormalizedBatchID", normalizeBatchIDForTable,
+			"table", destinationTableName, "lastNormalizedBatchID", normalizeBatchIDForTable,
 			"syncBatchID", req.SyncBatchID)
 		batchIdToLoadForTable := max(normBatchID, normalizeBatchIDForTable)
 		if batchIdToLoadForTable >= req.SyncBatchID {
-			c.logger.Info("[clickhouse] "+tbl+" already synced to destination for this batch, skipping",
-				"table", tbl, "batchIdToLoadForTable", batchIdToLoadForTable, "syncBatchID", req.SyncBatchID)
+			c.logger.Info("[clickhouse] "+destinationTableName+" already synced to destination for this batch, skipping",
+				"table", destinationTableName, "batchIdToLoadForTable", batchIdToLoadForTable, "syncBatchID", req.SyncBatchID)
 			continue
 		}
 
 		for numPart := range numParts {
 			queryGenerator := NewNormalizeQueryGenerator(
-				tbl,
+				destinationTableName,
 				numPart,
 				req.TableNameSchemaMapping,
 				req.TableMappings,
@@ -406,22 +432,22 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				enablePrimaryUpdate,
 				sourceSchemaAsDestinationColumn,
 				req.Env,
-				rawTbl,
+				rawTableName,
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
 				close(queries)
 				c.logger.Error("[clickhouse] error while building insert into select query",
-					slog.String("table", tbl),
+					slog.String("table", destinationTableName),
 					slog.Int64("syncBatchID", req.SyncBatchID),
 					slog.Int64("normalizeBatchID", normBatchID),
 					slog.Any("error", err))
-				return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
+				return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", destinationTableName, err)
 			}
 
 			select {
 			case queries <- NormalizeQueryGenerator{
-				TableName: tbl,
+				TableName: destinationTableName,
 				Query:     insertIntoSelectQuery,
 				Part:      numPart,
 			}:
@@ -491,6 +517,52 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	}
 
 	return tableNames, nil
+}
+
+func (c *ClickHouseConnector) getRowCountForTableInRawTable(
+	ctx context.Context,
+	flowJobName string,
+	tableName string,
+	syncBatchID int64,
+	batchIDBeingLoaded int64,
+) (map[int64]uint64, error) {
+	rawTbl := c.GetRawTableName(flowJobName)
+
+	q := fmt.Sprintf(
+		`SELECT
+			COUNT(*) AS row_count
+		FROM
+			%s
+		WHERE
+			_peerdb_destination_table_name = ?
+			AND _peerdb_batch_id > ?
+			AND _peerdb_batch_id <= ?
+		GROUP BY _peerdb_batch_id`,
+		peerdb_clickhouse.QuoteIdentifier(rawTbl))
+
+	rowCount := make(map[int64]uint64)
+	rows, err := c.query(ctx, q, tableName, batchIDBeingLoaded, syncBatchID)
+	if err != nil {
+		return nil, fmt.Errorf("error while querying raw table for row count: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var count sql.NullInt64
+		if err := rows.Scan(&count); err != nil {
+			return nil, fmt.Errorf("error while scanning row count: %w", err)
+		}
+
+		if !count.Valid {
+			return nil, errors.New("row count is not valid")
+		}
+		rowCount[batchIDBeingLoaded] = uint64(count.Int64)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read rows: %w", err)
+	}
+
+	return rowCount, nil
 }
 
 func (c *ClickHouseConnector) copyAvroStageToDestination(
