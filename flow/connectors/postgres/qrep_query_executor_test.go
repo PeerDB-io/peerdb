@@ -262,6 +262,13 @@ func TestStringDataTypes(t *testing.T) {
 			ArrayExpected: []string{"(1,2)", "(3,4)", ""},
 		},
 		{
+			Type:          "line",
+			Literal:       "'{1,-1,0}'::line",
+			Expected:      "{1,-1,0}",
+			ArrayLiteral:  `'{"{1,-1,0}", "{2,-1,3}", NULL}'::line[]`,
+			ArrayExpected: []string{"{1,-1,0}", "{2,-1,3}", ""},
+		},
+		{
 			Type:          "lseg",
 			Literal:       "'[(1,1),(2,2)]'::lseg",
 			Expected:      "[(1,1),(2,2)]",
@@ -288,6 +295,13 @@ func TestStringDataTypes(t *testing.T) {
 			Expected:      "((1,1),(2,2),(3,1))",
 			ArrayLiteral:  `'{"((1,1),(2,2),(3,1))", "((4,4),(5,5),(6,4))", NULL}'::polygon[]`,
 			ArrayExpected: []string{"((1,1),(2,2),(3,1))", "((4,4),(5,5),(6,4))", ""},
+		},
+		{
+			Type:          "circle",
+			Literal:       "'<(1,-1),2>'::circle",
+			Expected:      "<(1,-1),2>",
+			ArrayLiteral:  `'{"<(1,-1),2>", "<(2,-1),3>", NULL}'::circle[]`,
+			ArrayExpected: []string{"<(1,-1),2>", "<(2,-1),3>", ""},
 		},
 		{
 			Type:          "macaddr",
