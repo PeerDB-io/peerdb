@@ -191,6 +191,7 @@ func TestSupportedDataTypes(t *testing.T) {
 }
 
 func TestStringDataTypes(t *testing.T) {
+	//nolint:lll
 	tests := []struct {
 		Type          string
 		Literal       string   // skipped if empty
