@@ -99,7 +99,6 @@ func init() {
 	gob.Register(types.QValueTime{})
 	gob.Register(types.QValueTimeTZ{})
 	gob.Register(types.QValueInterval{})
-	gob.Register(types.QValueArrayInterval{})
 	gob.Register(types.QValueNumeric{})
 	gob.Register(types.QValueBytes{})
 	gob.Register(types.QValueUUID{})

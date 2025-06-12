@@ -613,6 +613,23 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return nil, err
 		}
 		return types.QValueArrayBoolean{Val: a}, nil
+	case types.QValueKindArrayTimeTZ,
+		types.QValueKindArrayInt4Multirange, types.QValueKindArrayInt8Multirange,
+		types.QValueKindArrayNumMultirange, types.QValueKindArrayTsMultirange,
+		types.QValueKindArrayTsTzMultirange, types.QValueKindArrayDateMultirange:
+		if str, ok := value.(string); ok {
+			delim := byte(',')
+			if typeData, ok := customTypeMapping[oid]; ok {
+				delim = typeData.Delim
+			}
+			arr := shared.ParsePgArrayStringToStringSlice(str, delim)
+			for i, itemStr := range arr {
+				if itemStr == "NULL" {
+					arr[i] = ""
+				}
+			}
+			return types.QValueArrayString{Val: arr}, nil
+		}
 	case types.QValueKindArrayString:
 		if str, ok := value.(string); ok {
 			delim := byte(',')
