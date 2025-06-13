@@ -3,6 +3,7 @@ package connclickhouse
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -332,6 +333,56 @@ func getOrderedPartitionByColumns(
 	return partitionbyColumns
 }
 
+func (c *ClickHouseConnector) TryConsolidateSchema(
+	ctx context.Context,
+	conn clickhouse.Conn,
+	tableName string,
+	tableSchema *protos.TableSchema,
+	env map[string]string,
+) error {
+	rows, err := conn.Query(
+		ctx,
+		fmt.Sprintf(`SELECT * FROM %s LIMIT 0 SETTINGS use_query_cache = false`, peerdb_clickhouse.QuoteIdentifier(tableName)),
+	)
+	if err != nil {
+		return fmt.Errorf("could not lookup clickhouse schema: %w", err)
+	}
+	defer rows.Close()
+
+	expectedColumns := make(map[string]*protos.FieldDescription, len(tableSchema.Columns))
+	for _, fd := range tableSchema.Columns {
+		expectedColumns[fd.Name] = fd
+	}
+	for _, col := range rows.ColumnTypes() {
+		delete(expectedColumns, col.Name())
+	}
+	if len(expectedColumns) == 0 {
+		c.logger.Info("tried updating schema, but schema appears in sync")
+		return nil
+	}
+
+	var alterTable strings.Builder
+	alterTable.WriteString("ALTER TABLE")
+	alterTable.WriteString(peerdb_clickhouse.QuoteIdentifier(tableName))
+	prefixChar := byte(' ')
+	for _, fd := range expectedColumns {
+		clickHouseType, err := qvalue.ToDWHColumnType(
+			ctx, types.QValueKind(fd.Type), env, protos.DBType_CLICKHOUSE, fd, tableSchema.NullableEnabled,
+		)
+		if err != nil {
+			return fmt.Errorf("error converting column type to ClickHouse type trying to consolidate: %w", err)
+		}
+		fmt.Fprintf(&alterTable, "%cADD COLUMN %s %s", prefixChar,
+			peerdb_clickhouse.QuoteIdentifier(fd.Name), clickHouseType)
+		prefixChar = ','
+	}
+
+	if err := conn.Exec(ctx, alterTable.String()); err != nil {
+		return fmt.Errorf("error consolidating ClickHouse schema: %w", err)
+	}
+	return nil
+}
+
 func (c *ClickHouseConnector) NormalizeRecords(
 	ctx context.Context,
 	req *model.NormalizeRecordsRequest,
@@ -435,7 +486,15 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						slog.Int64("syncBatchID", req.SyncBatchID),
 						slog.Int64("normalizeBatchID", normBatchID),
 						slog.Any("error", err))
-					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", insertIntoSelectQuery.TableName, err)
+					var updateErr error
+					var chException *clickhouse.Exception
+					if errors.As(err, &chException) && chException.Code == 16 {
+						updateErr = c.TryConsolidateSchema(
+							ctx, chConn, insertIntoSelectQuery.TableName,
+							req.TableNameSchemaMapping[insertIntoSelectQuery.TableName], req.Env)
+					}
+					return fmt.Errorf("error while inserting into target clickhouse table %s: %w",
+						insertIntoSelectQuery.TableName, errors.Join(err, updateErr))
 				}
 
 				if insertIntoSelectQuery.Part == numParts-1 {
@@ -443,8 +502,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 						slog.String("table", insertIntoSelectQuery.TableName),
 						slog.Int64("syncBatchID", req.SyncBatchID),
 						slog.Int64("lastNormalizedBatchID", normBatchID))
-					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, insertIntoSelectQuery.TableName, req.SyncBatchID)
-					if err != nil {
+					if err := c.SetLastNormalizedBatchIDForTable(
+						ctx, req.FlowJobName, insertIntoSelectQuery.TableName, req.SyncBatchID,
+					); err != nil {
 						return fmt.Errorf("error while setting last synced batch id for table %s: %w", insertIntoSelectQuery.TableName, err)
 					}
 				}
