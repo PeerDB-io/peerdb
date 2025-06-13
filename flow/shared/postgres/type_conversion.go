@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq/oid"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -99,10 +98,10 @@ func PostgresOIDToQValueKind(
 			return colType, errors.New(typeName.Name)
 		} else {
 			// workaround for some types not being defined by pgtype
-			switch oid.Oid(recvOID) {
-			case oid.T_timetz:
+			switch recvOID {
+			case pgtype.TimetzOID:
 				return types.QValueKindTimeTZ, nil
-			case oid.T_point:
+			case pgtype.PointOID:
 				return types.QValueKindPoint, nil
 			default:
 				if typeData, ok := customTypeMapping[recvOID]; ok {

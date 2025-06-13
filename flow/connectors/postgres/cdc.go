@@ -17,7 +17,6 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq/oid"
 	"go.temporal.io/sdk/log"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -251,34 +250,34 @@ func (p *PostgresCDCSource) decodeColumnData(
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
-		dtOid := oid.Oid(dt.OID)
-		if dtOid == oid.T_cidr || dtOid == oid.T_inet || dtOid == oid.T_macaddr || dtOid == oid.T_xml {
+		dtOid := dt.OID
+		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
 			// below is required to decode above types to string
 			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, formatCode, data)
 		} else {
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
 		if err != nil {
-			if dtOid == oid.T_time || dtOid == oid.T_timetz ||
-				dtOid == oid.T_timestamp || dtOid == oid.T_timestamptz {
+			if dtOid == pgtype.TimeOID || dtOid == pgtype.TimetzOID ||
+				dtOid == pgtype.TimestampOID || dtOid == pgtype.TimestamptzOID {
 				// indicates year is more than 4 digits or something similar,
 				// which you can insert into postgres, but not representable by time.Time
 				p.logger.Warn("Invalidate time for destination, nulled", slog.String("typeName", dt.Name), slog.String("value", string(data)))
 				switch dtOid {
-				case oid.T_time:
+				case pgtype.TimeOID:
 					return types.QValueNull(types.QValueKindTime), nil
-				case oid.T_timetz:
+				case pgtype.TimetzOID:
 					return types.QValueNull(types.QValueKindTimeTZ), nil
-				case oid.T_timestamp:
+				case pgtype.TimestampOID:
 					return types.QValueNull(types.QValueKindTimestamp), nil
-				case oid.T_timestamptz:
+				case pgtype.TimestamptzOID:
 					return types.QValueNull(types.QValueKindTimestampTZ), nil
 				}
 			}
 			return nil, err
 		}
 		return p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping)
-	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
+	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
 		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
 		customQKind := postgres.CustomTypeToQKind(typeData)

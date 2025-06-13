@@ -100,6 +100,10 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 			values[i] = v.Val
 		case types.QValueTime:
 			values[i] = pgtype.Time{Microseconds: int64(v.Val / time.Microsecond), Valid: true}
+		case types.QValueTimeTZ:
+			values[i] = pgtype.Time{Microseconds: int64(v.Val / time.Microsecond), Valid: true}
+		case types.QValueInterval:
+			values[i] = v.Val
 		case types.QValueTimestamp:
 			values[i] = pgtype.Timestamp{Time: v.Val, Valid: true}
 		case types.QValueTimestampTZ:

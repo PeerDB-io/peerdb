@@ -273,6 +273,10 @@ const (
 	psQuotedEscape
 	psUnquoted
 	psUnquotedEscape
+	psN
+	psNU
+	psNUL
+	psNULL
 )
 
 // see array_in from postgres
@@ -285,6 +289,7 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 	var sb []byte
 	ps := psSearch2
 	for _, ch := range data {
+	retry:
 		switch ps {
 		case psSearch:
 			if ch == delim {
@@ -295,6 +300,8 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 				ps = psQuoted
 			} else if ch == '\\' {
 				ps = psUnquotedEscape
+			} else if ch == 'N' {
+				ps = psN
 			} else if ch != '{' && ch != ' ' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r' {
 				sb = append(sb, ch)
 				ps = psUnquoted
@@ -333,6 +340,43 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 		case psUnquotedEscape:
 			sb = append(sb, ch)
 			ps = psUnquoted
+		case psN:
+			if ch == 'U' {
+				ps = psNU
+			} else {
+				sb = append(sb, 'N')
+				ps = psUnquoted
+				goto retry
+			}
+		case psNU:
+			if ch == 'L' {
+				ps = psNUL
+			} else {
+				sb = append(sb, 'N', 'U')
+				ps = psUnquoted
+				goto retry
+			}
+		case psNUL:
+			if ch == 'L' {
+				ps = psNULL
+			} else {
+				sb = append(sb, 'N', 'U', 'L')
+				ps = psUnquoted
+				goto retry
+			}
+		case psNULL:
+			if ch == delim || ch == '}' {
+				result = append(result, "")
+				if ch == '}' {
+					ps = psSearch2
+				} else {
+					ps = psSearch
+				}
+			} else {
+				sb = append(sb, 'N', 'U', 'L', 'L')
+				ps = psUnquoted
+				goto retry
+			}
 		}
 	}
 	return result
