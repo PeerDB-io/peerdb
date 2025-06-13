@@ -11,7 +11,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq/oid"
 	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -25,18 +24,18 @@ func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping 
 		return ty.Name, nil
 	}
 	// workaround for some types not being defined by pgtype
-	switch oid.Oid(recvOID) {
-	case oid.T_timetz:
+	switch recvOID {
+	case pgtype.TimetzOID:
 		return "timetz", nil
-	case oid.T_xml:
+	case pgtype.XMLOID:
 		return "xml", nil
-	case oid.T_money:
+	case shared.MoneyOID:
 		return "money", nil
-	case oid.T_txid_snapshot:
+	case shared.TxidSnapshotOID:
 		return "txid_snapshot", nil
-	case oid.T_tsvector:
+	case shared.TsvectorOID:
 		return "tsvector", nil
-	case oid.T_tsquery:
+	case shared.TsqueryOID:
 		return "tsquery", nil
 	default:
 		typeData, ok := customTypeMapping[recvOID]

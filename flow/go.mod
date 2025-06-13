@@ -39,7 +39,6 @@ require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/joho/godotenv v1.5.1
 	github.com/lestrrat-go/jwx/v2 v2.1.6
-	github.com/lib/pq v1.10.9
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20250609110634-07e1f413e89c
