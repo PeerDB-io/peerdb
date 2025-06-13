@@ -169,6 +169,19 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					)
 				}
 			}
+		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
+			fmt.Fprintf(&projection,
+				`arrayMap(x -> parseDateTime64BestEffortOrNull(trimBoth(x, '"'), 6), JSONExtractArrayRaw(_peerdb_data, %s)) AS %s,`,
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					`arrayMap(x -> parseDateTime64BestEffortOrNull(trimBoth(x, '"'), 6), JSONExtractArrayRaw(_peerdb_match_data, %s)) AS %s,`,
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
 		default:
 			projLen := projection.Len()
 			if colType == types.QValueKindBytes {
