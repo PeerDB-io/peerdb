@@ -335,6 +335,11 @@ func (c *MySqlConnector) PullRecords(
 ) error {
 	defer req.RecordStream.Close()
 
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return err
+	}
+
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
 		return err
@@ -527,6 +532,9 @@ func (c *MySqlConnector) PullRecords(
 							}
 							items.AddColumn(fd.Name, val)
 						}
+						if sourceSchemaAsDestinationColumn {
+							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
+						}
 
 						if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
 							BaseRecord:           model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
@@ -575,6 +583,9 @@ func (c *MySqlConnector) PullRecords(
 							}
 							newItems.AddColumn(fd.Name, val)
 						}
+						if sourceSchemaAsDestinationColumn {
+							newItems.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
+						}
 
 						if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
 							BaseRecord:            model.BaseRecord{CommitTimeNano: int64(event.Header.Timestamp) * 1e9},
@@ -609,6 +620,9 @@ func (c *MySqlConnector) PullRecords(
 								return err
 							}
 							items.AddColumn(fd.Name, val)
+						}
+						if sourceSchemaAsDestinationColumn {
+							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 
 						if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
