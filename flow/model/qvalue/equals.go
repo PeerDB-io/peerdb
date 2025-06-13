@@ -122,6 +122,8 @@ func Equals(qv types.QValue, other types.QValue) bool {
 		return compareNumericArrays(q.Val, otherValue)
 	case types.QValueArrayDate:
 		return compareDateArrays(q.Val, otherValue)
+	case types.QValueArrayInterval:
+		return compareArrays(q.Val, otherValue)
 	case types.QValueArrayTimestamp:
 		return compareTimeArrays(q.Val, otherValue)
 	case types.QValueArrayTimestampTZ:
