@@ -287,7 +287,6 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	return conn, nil
 }
 
-//nolint:unparam
 func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
 	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
 }
