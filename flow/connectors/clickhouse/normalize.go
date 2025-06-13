@@ -389,7 +389,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			"syncBatchID", req.SyncBatchID)
 		batchIdToLoadForTable := max(normBatchID, normalizeBatchIDForTable)
 		if batchIdToLoadForTable >= req.SyncBatchID {
-			c.logger.Info("[clickhouse] "+tbl+" already synced to destination for this batch, skipping",
+			c.logger.Info("[clickhouse] table already synced to destination for this batch, skipping",
 				"table", tbl, "batchIdToLoadForTable", batchIdToLoadForTable, "syncBatchID", req.SyncBatchID)
 			continue
 		}
