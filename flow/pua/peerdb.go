@@ -275,6 +275,8 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		newqv = types.QValueTime{Val: LVAsDuration(ls, val)}
 	case types.QValueKindTimeTZ:
 		newqv = types.QValueTimeTZ{Val: LVAsDuration(ls, val)}
+	case types.QValueKindInterval:
+		newqv = types.QValueInterval{Val: lua.LVAsString(val)}
 	case types.QValueKindNumeric:
 		newqv = types.QValueNumeric{Val: LVAsDecimal(ls, val)}
 	case types.QValueKindBytes:
