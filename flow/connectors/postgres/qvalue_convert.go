@@ -621,17 +621,6 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 				delim = typeData.Delim
 			}
 			arr := shared.ParsePgArrayStringToStringSlice(str, delim)
-			switch oid {
-			case pgtype.TimetzArrayOID,
-				pgtype.Int4multirangeArrayOID, pgtype.Int8multirangeArrayOID,
-				pgtype.NummultirangeArrayOID, pgtype.TsmultirangeArrayOID,
-				pgtype.TstzmultirangeArrayOID, pgtype.DatemultirangeArrayOID:
-				for i, itemStr := range arr {
-					if itemStr == "NULL" {
-						arr[i] = ""
-					}
-				}
-			}
 			return types.QValueArrayString{Val: arr}, nil
 		} else {
 			// Arrays of unsupported types become string arrays too
