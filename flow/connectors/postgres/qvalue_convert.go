@@ -126,6 +126,8 @@ func qValueKindToPostgresType(colTypeStr string) string {
 		return "DOUBLE PRECISION[]"
 	case types.QValueKindArrayDate:
 		return "DATE[]"
+	case types.QValueKindArrayInterval:
+		return "TEXT[]"
 	case types.QValueKindArrayTimestamp:
 		return "TIMESTAMP[]"
 	case types.QValueKindArrayTimestampTZ:

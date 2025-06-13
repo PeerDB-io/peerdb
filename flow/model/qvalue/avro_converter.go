@@ -290,6 +290,8 @@ func QValueToAvro(
 		return c.processArrayString(v.Val), nil
 	case types.QValueArrayEnum:
 		return c.processArrayString(v.Val), nil
+	case types.QValueArrayInterval:
+		return c.processArrayString(v.Val), nil
 	case types.QValueArrayBoolean:
 		return c.processArrayBoolean(v.Val), nil
 	case types.QValueArrayTimestamp:

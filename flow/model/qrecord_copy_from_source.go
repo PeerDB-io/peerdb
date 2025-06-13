@@ -138,6 +138,8 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 			values[i] = constructArray(v.Val)
 		case types.QValueArrayDate:
 			values[i] = constructArray(v.Val)
+		case types.QValueArrayInterval:
+			values[i] = constructArray(v.Val)
 		case types.QValueArrayTimestamp:
 			values[i] = constructArray(v.Val)
 		case types.QValueArrayTimestampTZ:
