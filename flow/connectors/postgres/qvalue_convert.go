@@ -234,19 +234,19 @@ func intervalToString(intervalObject pgtype.Interval) (string, error) {
 
 var ErrMismatchingRangeType = errors.New("mismatching range type")
 
-func rangeToTyped[T any](r pgtype.Range[any]) (any, error) {
+func rangeToTyped[T any](r pgtype.Range[any]) (pgtype.Range[*T], error) {
 	var lower, upper *T
 	if r.Lower != nil {
 		lowerVal, ok := r.Lower.(T)
 		if !ok {
-			return nil, ErrMismatchingRangeType
+			return pgtype.Range[*T]{}, ErrMismatchingRangeType
 		}
 		lower = &lowerVal
 	}
 	if r.Upper != nil {
 		upperVal, ok := r.Upper.(T)
 		if !ok {
-			return nil, ErrMismatchingRangeType
+			return pgtype.Range[*T]{}, ErrMismatchingRangeType
 		}
 		upper = &upperVal
 	}
@@ -266,7 +266,7 @@ func multirangeToTyped[T any](multirange pgtype.Multirange[pgtype.Range[any]]) (
 		if err != nil {
 			return nil, err
 		}
-		ranges = append(ranges, r.(pgtype.Range[*T]))
+		ranges = append(ranges, r)
 	}
 	return pgtype.Multirange[pgtype.Range[*T]](ranges), nil
 }
