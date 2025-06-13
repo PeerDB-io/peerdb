@@ -283,6 +283,7 @@ func ParsePgArrayStringToStringSlice(data string, delim byte) []string {
 func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 	var result []string
 	var sb []byte
+	var null int
 	ps := psSearch2
 	for _, ch := range data {
 		switch ps {
@@ -298,6 +299,9 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 			} else if ch != '{' && ch != ' ' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r' {
 				sb = append(sb, ch)
 				ps = psUnquoted
+				if ch == 'N' {
+					null = 1
+				}
 			}
 		case psSearch2:
 			if ch == '{' {
@@ -313,18 +317,34 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 			}
 		case psUnquoted:
 			if ch == '\\' {
+				null = 0
 				ps = psUnquotedEscape
 			} else if ch == '"' {
+				null = 0
 				ps = psQuoted
 			} else if ch == delim || ch == '}' {
-				result = append(result, string(sb))
+				if null == 4 {
+					result = append(result, "")
+				} else {
+					result = append(result, string(sb))
+				}
 				sb = sb[:0]
+				null = 0
 				if ch == '}' {
 					ps = psSearch2
 				} else {
 					ps = psSearch
 				}
 			} else {
+				if null == 1 && ch == 'U' {
+					null = 2
+				} else if null == 2 && ch == 'L' {
+					null = 3
+				} else if null == 3 && ch == 'L' {
+					null = 4
+				} else if null == 4 {
+					null = 0
+				}
 				sb = append(sb, ch)
 			}
 		case psQuotedEscape:
