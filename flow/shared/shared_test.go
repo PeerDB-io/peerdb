@@ -136,7 +136,10 @@ func TestParsePgArray(t *testing.T) {
 		{"[1:2]{1,2,\\\"3}", []string{"1", "2", "\"3"}},
 		{"{  1,  \"a\\\"b\", 3\"2\"\\\\}", []string{"1", "a\"b", "32\\"}},
 		{"{{1,2},{3},{4,5},{{6,7,8},{9}}}", []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}},
-		{"{{N,NU,NUL,NULL,NUL\\L,\\NULL,NULLL},{{\"NULL\"},{ NULL}}}", []string{"N", "NU", "NUL", "", "NULL", "NULL", "NULLL", "NULL", ""}},
+		{
+			"{{N,NU,NUL,NULL,NUL\\L,\\NULL,NULLL},{{NO,NUO,NULO,\"NULL\"},{ NULL}}}",
+			[]string{"N", "NU", "NUL", "", "NULL", "NULL", "NULLL", "NO", "NUO", "NULO", "NULL", ""},
+		},
 		{"{}", nil},
 		{"{,}", []string{""}},
 	}
