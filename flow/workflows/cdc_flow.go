@@ -688,7 +688,6 @@ func CDCFlowWorkflow(
 					return state, renameTablesError
 				}
 			}
-
 		}
 
 		// if initial_copy_only is opted for, we end the flow here.
