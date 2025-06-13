@@ -8,6 +8,13 @@ import (
 
 var Year0000 = time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)
 
+const (
+	MoneyOID        uint32 = 790
+	TxidSnapshotOID uint32 = 2970
+	TsvectorOID     uint32 = 3614
+	TsqueryOID      uint32 = 3615
+)
+
 type (
 	ContextKey  string
 	TaskQueueID string
