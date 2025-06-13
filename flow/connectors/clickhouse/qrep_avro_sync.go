@@ -56,7 +56,7 @@ func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, a
 		params = append(params, creds.AWS.SessionToken)
 	}
 	params = append(params, "Avro")
-	return fmt.Sprintf("s3(%s)", strings.Repeat("?, ", len(params)-1)+"?"), params, nil
+	return fmt.Sprintf("s3(%s?)", strings.Repeat("?,", len(params)-1)), params, nil
 }
 
 func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile *utils.AvroFile) error {
