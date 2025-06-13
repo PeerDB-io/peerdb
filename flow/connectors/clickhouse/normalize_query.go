@@ -2,11 +2,9 @@ package connclickhouse
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -77,15 +75,9 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	var escapedSourceSchemaSelectorFragment string
 	if t.sourceSchemaAsDestinationColumn {
-		if tableMapping == nil {
-			return "", errors.New("could not look up source schema info")
-		}
-		schemaTable, err := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
-		if err != nil {
-			return "", err
-		}
-		escapedSourceSchemaSelectorFragment = fmt.Sprintf("%s AS %s,",
-			peerdb_clickhouse.QuoteLiteral(schemaTable.Schema), peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
+		escapedSourceSchemaSelectorFragment = fmt.Sprintf("JSONExtractString(_peerdb_data, %s) AS %s,",
+			peerdb_clickhouse.QuoteLiteral(sourceSchemaColName),
+			peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
 	}
 
 	projection := strings.Builder{}
