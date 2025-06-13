@@ -115,7 +115,7 @@ func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, ta
 	if err != nil {
 		return "", err
 	}
-	p.schemaNameForRelID[relID] = tableName
+	p.schemaNameForRelID[relID] = schemaTable.Schema
 	return schemaTable.Schema, nil
 }
 
