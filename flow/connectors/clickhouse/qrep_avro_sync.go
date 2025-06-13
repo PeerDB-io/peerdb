@@ -35,30 +35,41 @@ func NewClickHouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile *utils.AvroFile) error {
+func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, avroFilePath string) (string, []any, error) {
 	stagingPath := s.credsProvider.BucketPath
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
 
 	endpoint := s.credsProvider.Provider.GetEndpointURL()
 	region := s.credsProvider.Provider.GetRegion()
-	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
+	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFilePath)
 	creds, err := s.credsProvider.Provider.Retrieve(ctx)
 	if err != nil {
-		return err
+		return "", nil, err
 	}
 
-	sessionTokenPart := ""
+	params := make([]any, 0, 5)
+	params = append(params, avroFileUrl, creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey)
 	if creds.AWS.SessionToken != "" {
-		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
+		params = append(params, creds.AWS.SessionToken)
+	}
+	params = append(params, "Avro")
+	return fmt.Sprintf("s3(%s)", strings.Repeat("?, ", len(params)-1)+"?"), params, nil
+}
+
+func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile *utils.AvroFile) error {
+	s3TableFunction, params, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
+	if err != nil {
+		s.logger.Error("failed to build S3 table function",
+			slog.String("avroFilePath", avroFile.FilePath),
+			slog.Any("error", err))
+		return fmt.Errorf("failed to build S3 table function: %w", err)
 	}
 
-	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
-		s.config.DestinationTableIdentifier, avroFileUrl,
-		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
-	return s.exec(ctx, query)
+	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM %s", s.config.DestinationTableIdentifier, s3TableFunction)
+	return s.exec(ctx, query, params...)
 }
 
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
@@ -235,25 +246,11 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	columnNameAvroFieldMap map[string]string,
 	config *protos.QRepConfig,
 ) error {
-	stagingPath := s.credsProvider.BucketPath
-	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
-	if err != nil {
-		return err
-	}
-
-	creds, err := s.credsProvider.Provider.Retrieve(ctx)
-	if err != nil {
-		return err
-	}
-
 	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
 	if err != nil {
 		return err
 	}
 
-	endpoint := s.credsProvider.Provider.GetEndpointURL()
-	region := s.credsProvider.Provider.GetRegion()
-	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFilePath)
 	selectedColumnNames := make([]string, 0, len(schema.Fields))
 	insertedColumnNames := make([]string, 0, len(schema.Fields))
 	for _, colName := range schema.GetColumnNames() {
@@ -284,10 +281,6 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 
 	selectorStr := strings.Join(selectedColumnNames, ",")
 	insertedStr := strings.Join(insertedColumnNames, ",")
-	sessionTokenPart := ""
-	if creds.AWS.SessionToken != "" {
-		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
-	}
 
 	hashColName := columnNameAvroFieldMap[schema.Fields[0].Name]
 	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
@@ -297,22 +290,27 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	}
 	numParts = max(numParts, 1)
 
+	s3TableFunction, params, err := s.s3TableFunctionBuilder(ctx, avroFilePath)
+	if err != nil {
+		s.logger.Error("failed to build S3 table function",
+			slog.String("avroFilePath", avroFilePath),
+			slog.Any("error", err))
+		return fmt.Errorf("failed to build S3 table function: %w", err)
+	}
+
 	for i := range numParts {
 		var whereClause string
 		if numParts > 1 {
 			whereClause = fmt.Sprintf(" WHERE cityHash64(`%s`) %% %d = %d", hashColName, numParts, i)
 		}
 		query := fmt.Sprintf(
-			"INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s,'Avro')%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
-			config.DestinationTableIdentifier, insertedStr, selectorStr, avroFileUrl,
-			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
+			"INSERT INTO `%s`(%s) SELECT %s FROM %s%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
+			config.DestinationTableIdentifier, insertedStr, selectorStr, s3TableFunction, whereClause)
 		s.logger.Info("inserting part",
-			slog.String("query", query),
 			slog.Uint64("part", i),
 			slog.Uint64("numParts", numParts))
-		if err := s.exec(ctx, query); err != nil {
+		if err := s.exec(ctx, query, params...); err != nil {
 			s.logger.Error("failed to insert part",
-				slog.String("query", query),
 				slog.Uint64("part", i),
 				slog.Uint64("numParts", numParts),
 				slog.Any("error", err))
