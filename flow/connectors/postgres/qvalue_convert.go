@@ -259,7 +259,7 @@ func rangeToTyped[T any](r pgtype.Range[any]) (pgtype.Range[*T], error) {
 	}, nil
 }
 
-func multirangeToTyped[T any](multirange pgtype.Multirange[pgtype.Range[any]]) (any, error) {
+func multirangeToTyped[T any](multirange pgtype.Multirange[pgtype.Range[any]]) (pgtype.Multirange[pgtype.Range[*T]], error) {
 	ranges := make([]pgtype.Range[*T], 0, multirange.Len())
 	for _, anyR := range multirange {
 		r, err := rangeToTyped[T](anyR)
