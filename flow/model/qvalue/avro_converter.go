@@ -148,10 +148,7 @@ func GetAvroSchemaFromQValueKind(
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros))), nil
 	case types.QValueKindArrayJSON, types.QValueKindArrayJSONB:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
-	case types.QValueKindArrayString, types.QValueKindArrayEnum, types.QValueKindArrayTimeTZ,
-		types.QValueKindArrayInt4Multirange, types.QValueKindArrayInt8Multirange,
-		types.QValueKindArrayNumMultirange, types.QValueKindArrayTsMultirange,
-		types.QValueKindArrayTsTzMultirange, types.QValueKindArrayDateMultirange:
+	case types.QValueKindArrayString, types.QValueKindArrayEnum:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 	case types.QValueKindArrayNumeric:
 		numericSchema, err := getAvroNumericSchema(ctx, env, targetDWH, precision, scale)

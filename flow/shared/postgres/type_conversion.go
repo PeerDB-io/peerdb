@@ -72,8 +72,6 @@ func PostgresOIDToQValueKind(
 		return types.QValueKindArrayBoolean, nil
 	case pgtype.DateArrayOID:
 		return types.QValueKindArrayDate, nil
-	case pgtype.TimetzArrayOID:
-		return types.QValueKindArrayTimeTZ, nil
 	case pgtype.TimestampArrayOID:
 		return types.QValueKindArrayTimestamp, nil
 	case pgtype.TimestamptzArrayOID:
@@ -92,18 +90,6 @@ func PostgresOIDToQValueKind(
 		return types.QValueKindInterval, nil
 	case pgtype.IntervalArrayOID:
 		return types.QValueKindArrayInterval, nil
-	case pgtype.Int4multirangeArrayOID:
-		return types.QValueKindArrayInt4Multirange, nil
-	case pgtype.Int8multirangeArrayOID:
-		return types.QValueKindArrayInt8Multirange, nil
-	case pgtype.NummultirangeArrayOID:
-		return types.QValueKindArrayNumMultirange, nil
-	case pgtype.TsmultirangeArrayOID:
-		return types.QValueKindArrayTsMultirange, nil
-	case pgtype.TstzmultirangeArrayOID:
-		return types.QValueKindArrayTsTzMultirange, nil
-	case pgtype.DatemultirangeArrayOID:
-		return types.QValueKindArrayDateMultirange, nil
 	default:
 		if typeName, ok := typeMap.TypeForOID(recvOID); ok {
 			colType := types.QValueKindString

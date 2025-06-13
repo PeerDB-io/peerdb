@@ -44,29 +44,22 @@ const (
 	QValueKindMacaddr QValueKind = "macaddr"
 
 	// array types
-	QValueKindArrayFloat32        QValueKind = "array_float32"
-	QValueKindArrayFloat64        QValueKind = "array_float64"
-	QValueKindArrayInt16          QValueKind = "array_int16"
-	QValueKindArrayInt32          QValueKind = "array_int32"
-	QValueKindArrayInt64          QValueKind = "array_int64"
-	QValueKindArrayString         QValueKind = "array_string"
-	QValueKindArrayEnum           QValueKind = "array_enum"
-	QValueKindArrayDate           QValueKind = "array_date"
-	QValueKindArrayTimeTZ         QValueKind = "array_timetz"
-	QValueKindArrayTimestamp      QValueKind = "array_timestamp"
-	QValueKindArrayTimestampTZ    QValueKind = "array_timestamptz"
-	QValueKindArrayInterval       QValueKind = "array_interval"
-	QValueKindArrayBoolean        QValueKind = "array_bool"
-	QValueKindArrayJSON           QValueKind = "array_json"
-	QValueKindArrayJSONB          QValueKind = "array_jsonb"
-	QValueKindArrayUUID           QValueKind = "array_uuid"
-	QValueKindArrayNumeric        QValueKind = "array_numeric"
-	QValueKindArrayInt4Multirange QValueKind = "array_int4multirange"
-	QValueKindArrayInt8Multirange QValueKind = "array_int8multirange"
-	QValueKindArrayNumMultirange  QValueKind = "array_nummultirange"
-	QValueKindArrayTsMultirange   QValueKind = "array_tsmultirange"
-	QValueKindArrayTsTzMultirange QValueKind = "array_tstzmultirange"
-	QValueKindArrayDateMultirange QValueKind = "array_datemultirange"
+	QValueKindArrayFloat32     QValueKind = "array_float32"
+	QValueKindArrayFloat64     QValueKind = "array_float64"
+	QValueKindArrayInt16       QValueKind = "array_int16"
+	QValueKindArrayInt32       QValueKind = "array_int32"
+	QValueKindArrayInt64       QValueKind = "array_int64"
+	QValueKindArrayString      QValueKind = "array_string"
+	QValueKindArrayEnum        QValueKind = "array_enum"
+	QValueKindArrayDate        QValueKind = "array_date"
+	QValueKindArrayTimestamp   QValueKind = "array_timestamp"
+	QValueKindArrayTimestampTZ QValueKind = "array_timestamptz"
+	QValueKindArrayInterval    QValueKind = "array_interval"
+	QValueKindArrayBoolean     QValueKind = "array_bool"
+	QValueKindArrayJSON        QValueKind = "array_json"
+	QValueKindArrayJSONB       QValueKind = "array_jsonb"
+	QValueKindArrayUUID        QValueKind = "array_uuid"
+	QValueKindArrayNumeric     QValueKind = "array_numeric"
 )
 
 func (kind QValueKind) IsArray() bool {
@@ -105,29 +98,22 @@ var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
 	QValueKindPoint:       "GEOMETRY",
 
 	// array types will be mapped to VARIANT
-	QValueKindArrayFloat32:        "VARIANT",
-	QValueKindArrayFloat64:        "VARIANT",
-	QValueKindArrayInt32:          "VARIANT",
-	QValueKindArrayInt64:          "VARIANT",
-	QValueKindArrayInt16:          "VARIANT",
-	QValueKindArrayString:         "VARIANT",
-	QValueKindArrayEnum:           "VARIANT",
-	QValueKindArrayDate:           "VARIANT",
-	QValueKindArrayTimeTZ:         "VARIANT",
-	QValueKindArrayTimestamp:      "VARIANT",
-	QValueKindArrayTimestampTZ:    "VARIANT",
-	QValueKindArrayInterval:       "VARIANT",
-	QValueKindArrayBoolean:        "VARIANT",
-	QValueKindArrayJSON:           "VARIANT",
-	QValueKindArrayJSONB:          "VARIANT",
-	QValueKindArrayUUID:           "VARIANT",
-	QValueKindArrayNumeric:        "VARIANT",
-	QValueKindArrayInt4Multirange: "VARIANT",
-	QValueKindArrayInt8Multirange: "VARIANT",
-	QValueKindArrayNumMultirange:  "VARIANT",
-	QValueKindArrayTsMultirange:   "VARIANT",
-	QValueKindArrayTsTzMultirange: "VARIANT",
-	QValueKindArrayDateMultirange: "VARIANT",
+	QValueKindArrayFloat32:     "VARIANT",
+	QValueKindArrayFloat64:     "VARIANT",
+	QValueKindArrayInt32:       "VARIANT",
+	QValueKindArrayInt64:       "VARIANT",
+	QValueKindArrayInt16:       "VARIANT",
+	QValueKindArrayString:      "VARIANT",
+	QValueKindArrayEnum:        "VARIANT",
+	QValueKindArrayDate:        "VARIANT",
+	QValueKindArrayTimestamp:   "VARIANT",
+	QValueKindArrayTimestampTZ: "VARIANT",
+	QValueKindArrayInterval:    "VARIANT",
+	QValueKindArrayBoolean:     "VARIANT",
+	QValueKindArrayJSON:        "VARIANT",
+	QValueKindArrayJSONB:       "VARIANT",
+	QValueKindArrayUUID:        "VARIANT",
+	QValueKindArrayNumeric:     "VARIANT",
 }
 
 var QValueKindToClickHouseTypeMap = map[QValueKind]string{
@@ -156,26 +142,19 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindInvalid:     "String",
 	QValueKindHStore:      "String",
 
-	QValueKindArrayFloat32:        "Array(Float32)",
-	QValueKindArrayFloat64:        "Array(Float64)",
-	QValueKindArrayInt16:          "Array(Int16)",
-	QValueKindArrayInt32:          "Array(Int32)",
-	QValueKindArrayInt64:          "Array(Int64)",
-	QValueKindArrayString:         "Array(String)",
-	QValueKindArrayEnum:           "Array(LowCardinality(String))",
-	QValueKindArrayBoolean:        "Array(Bool)",
-	QValueKindArrayDate:           "Array(Date)",
-	QValueKindArrayTimeTZ:         "Array(String)",
-	QValueKindArrayTimestamp:      "Array(DateTime64(6))",
-	QValueKindArrayTimestampTZ:    "Array(DateTime64(6))",
-	QValueKindArrayInterval:       "Array(String)",
-	QValueKindArrayJSON:           "String",
-	QValueKindArrayJSONB:          "String",
-	QValueKindArrayUUID:           "Array(UUID)",
-	QValueKindArrayInt4Multirange: "Array(String)",
-	QValueKindArrayInt8Multirange: "Array(String)",
-	QValueKindArrayNumMultirange:  "Array(String)",
-	QValueKindArrayTsMultirange:   "Array(String)",
-	QValueKindArrayTsTzMultirange: "Array(String)",
-	QValueKindArrayDateMultirange: "Array(String)",
+	QValueKindArrayFloat32:     "Array(Float32)",
+	QValueKindArrayFloat64:     "Array(Float64)",
+	QValueKindArrayInt16:       "Array(Int16)",
+	QValueKindArrayInt32:       "Array(Int32)",
+	QValueKindArrayInt64:       "Array(Int64)",
+	QValueKindArrayString:      "Array(String)",
+	QValueKindArrayEnum:        "Array(LowCardinality(String))",
+	QValueKindArrayBoolean:     "Array(Bool)",
+	QValueKindArrayDate:        "Array(Date)",
+	QValueKindArrayTimestamp:   "Array(DateTime64(6))",
+	QValueKindArrayTimestampTZ: "Array(DateTime64(6))",
+	QValueKindArrayInterval:    "Array(String)",
+	QValueKindArrayJSON:        "String",
+	QValueKindArrayJSONB:       "String",
+	QValueKindArrayUUID:        "Array(UUID)",
 }

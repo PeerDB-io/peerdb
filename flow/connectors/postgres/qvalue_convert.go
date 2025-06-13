@@ -613,30 +613,25 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return nil, err
 		}
 		return types.QValueArrayBoolean{Val: a}, nil
-	case types.QValueKindArrayTimeTZ,
-		types.QValueKindArrayInt4Multirange, types.QValueKindArrayInt8Multirange,
-		types.QValueKindArrayNumMultirange, types.QValueKindArrayTsMultirange,
-		types.QValueKindArrayTsTzMultirange, types.QValueKindArrayDateMultirange:
-		if str, ok := value.(string); ok {
-			delim := byte(',')
-			if typeData, ok := customTypeMapping[oid]; ok {
-				delim = typeData.Delim
-			}
-			arr := shared.ParsePgArrayStringToStringSlice(str, delim)
-			for i, itemStr := range arr {
-				if itemStr == "NULL" {
-					arr[i] = ""
-				}
-			}
-			return types.QValueArrayString{Val: arr}, nil
-		}
 	case types.QValueKindArrayString:
 		if str, ok := value.(string); ok {
 			delim := byte(',')
 			if typeData, ok := customTypeMapping[oid]; ok {
 				delim = typeData.Delim
 			}
-			return types.QValueArrayString{Val: shared.ParsePgArrayStringToStringSlice(str, delim)}, nil
+			arr := shared.ParsePgArrayStringToStringSlice(str, delim)
+			switch oid {
+			case pgtype.TimetzArrayOID,
+				pgtype.Int4multirangeArrayOID, pgtype.Int8multirangeArrayOID,
+				pgtype.NummultirangeArrayOID, pgtype.TsmultirangeArrayOID,
+				pgtype.TstzmultirangeArrayOID, pgtype.DatemultirangeArrayOID:
+				for i, itemStr := range arr {
+					if itemStr == "NULL" {
+						arr[i] = ""
+					}
+				}
+			}
+			return types.QValueArrayString{Val: arr}, nil
 		} else {
 			// Arrays of unsupported types become string arrays too
 			arr, err := c.convertToStringArray(qvalueKind, oid, value)
