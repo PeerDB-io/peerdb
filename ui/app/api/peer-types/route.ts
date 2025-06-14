@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     'TEMBO',
     'CRUNCHY POSTGRES',
     'NEON',
+    'MONGO',
   ];
   if (process.env.SUPABASE_ID) {
     postgresTypes.push({
