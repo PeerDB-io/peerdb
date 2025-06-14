@@ -87,8 +87,8 @@ func PostgresOIDToQValueKind(
 		return types.QValueKindArrayNumeric, nil
 	case pgtype.IntervalOID:
 		return types.QValueKindInterval, nil
-	case pgtype.TstzrangeOID:
-		return types.QValueKindTSTZRange, nil
+	case pgtype.IntervalArrayOID:
+		return types.QValueKindArrayInterval, nil
 	default:
 		if typeName, ok := typeMap.TypeForOID(recvOID); ok {
 			colType := types.QValueKindString

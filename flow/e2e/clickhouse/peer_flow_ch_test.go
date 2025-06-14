@@ -804,7 +804,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME,c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
 		c39 TXID_SNAPSHOT,c40 UUID, c41 mood[], c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
 		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[], c52 UUID[],
-		c53 NUMERIC(16,2)[], c54 NUMERIC[], c55 NUMERIC(16,2)[], c56 NUMERIC[]);
+		c53 NUMERIC(16,2)[], c54 NUMERIC[], c55 NUMERIC(16,2)[], c56 NUMERIC[], c57 INTERVAL[]);
 		INSERT INTO %[1]s SELECT 2,2,b'1',b'101',
 		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
@@ -826,7 +826,8 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{true, false}'::boolean[],
 		'{1, 2}'::smallint[],
 		'{"66073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
-		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[];`,
+		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
+		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[];`,
 		srcFullName))
 	require.NoError(s.t, err)
 
@@ -843,7 +844,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57")
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s SELECT 3,2,b'1',b'101',
@@ -867,11 +868,12 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{true, false}'::boolean[],
 		'{1, 2}'::smallint[],
 		'{"86073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
-		'{2.2, 2.23, null}'::numeric(16,2)[], '{2.2, 2.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[];`, srcFullName))
+		'{2.2, 2.23, null}'::numeric(16,2)[], '{2.2, 2.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
+		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[];`, srcFullName))
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57")
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		UPDATE %[1]s SET c1=3,c32='testery' WHERE id=2;
@@ -897,12 +899,13 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{true, false}'::boolean[],
 		'{1, 2}'::smallint[],
 		'{"66073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
-		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[];`, srcFullName))
+		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
+		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[];`, srcFullName))
 
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 3", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
@@ -1452,30 +1455,30 @@ func (s ClickHouseSuite) Test_Geometric_Types() {
 	}{
 		{
 			point:   "POINT(1.000000 2.000000)",
-			line:    "{1 2 3 true}",
-			lseg:    "{[{1 2} {3 4}] true}",
-			box:     "{[{3 4} {1 2}] true}",
-			path:    "{[{1 2} {3 4} {5 6}] true true}",
-			polygon: "{[{1 2} {3 4} {5 6} {1 2}] true}",
-			circle:  "{{1 2} 3 true}",
+			line:    "{1,2,3}",
+			lseg:    "[(1,2),(3,4)]",
+			box:     "(3,4),(1,2)",
+			path:    "((1,2),(3,4),(5,6))",
+			polygon: "((1,2),(3,4),(5,6),(1,2))",
+			circle:  "<(1,2),3>",
 		},
 		{
 			point:   "POINT(10.000000 20.000000)",
-			line:    "{10 20 30 true}",
-			lseg:    "{[{10 20} {30 40}] true}",
-			box:     "{[{30 40} {10 20}] true}",
-			path:    "{[{10 20} {30 40} {50 60}] true true}",
-			polygon: "{[{10 20} {30 40} {50 60} {10 20}] true}",
-			circle:  "{{10 20} 30 true}",
+			line:    "{10,20,30}",
+			lseg:    "[(10,20),(30,40)]",
+			box:     "(30,40),(10,20)",
+			path:    "((10,20),(30,40),(50,60))",
+			polygon: "((10,20),(30,40),(50,60),(10,20))",
+			circle:  "<(10,20),30>",
 		},
 		{
 			point:   "POINT(100.000000 200.000000)",
-			line:    "{100 200 300 true}",
-			lseg:    "{[{100 200} {300 400}] true}",
-			box:     "{[{300 400} {100 200}] true}",
-			path:    "{[{100 200} {300 400} {500 600}] true true}",
-			polygon: "{[{100 200} {300 400} {500 600} {100 200}] true}",
-			circle:  "{{100 200} 300 true}",
+			line:    "{100,200,300}",
+			lseg:    "[(100,200),(300,400)]",
+			box:     "(300,400),(100,200)",
+			path:    "((100,200),(300,400),(500,600))",
+			polygon: "((100,200),(300,400),(500,600),(100,200))",
+			circle:  "<(100,200),300>",
 		},
 	}
 
