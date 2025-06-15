@@ -665,8 +665,28 @@ func CDCFlowWorkflow(
 				},
 			})
 			renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
-			if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
-				return state, fmt.Errorf("failed to execute rename tables activity: %w", err)
+			var renameTablesDone bool
+			var renameTablesError error
+			setupSnapshotSelector.AddFuture(renameTablesFuture, func(f workflow.Future) {
+				renameTablesDone = true
+				if err := f.Get(renameTablesCtx, nil); err != nil {
+					renameTablesError = fmt.Errorf("failed to execute rename tables activity: %w", err)
+					logger.Error("failed to execute rename tables activity", slog.Any("error", err))
+				} else {
+					logger.Info("rename tables activity completed successfully")
+				}
+			})
+			for !renameTablesDone {
+				setupSnapshotSelector.Select(ctx)
+				if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+					return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+				}
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				if renameTablesError != nil {
+					return state, renameTablesError
+				}
 			}
 		}
 
