@@ -27,7 +27,7 @@ import (
 var testData embed.FS
 
 func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite(t, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+	e2eshared.RunSuite(t, SetupSuite(t, false, func(t *testing.T) (*e2e.PostgresSource, string, error) {
 		t.Helper()
 		suffix := "pgch_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupPostgres(t, suffix)
@@ -36,7 +36,25 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 }
 
 func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite(t, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+	e2eshared.RunSuite(t, SetupSuite(t, false, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupMySQL(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+		t.Helper()
+		suffix := "pgch_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupPostgres(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
 		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupMySQL(t, suffix)
@@ -112,12 +130,11 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 
 	runID := e2e.EnvGetRunID(s.t, env)
 	e2e.SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
-		AdditionalTables: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      addedSrcTableName,
-				DestinationTableIdentifier: addedDstTableName,
-			},
-		},
+		AdditionalTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      addedSrcTableName,
+			DestinationTableIdentifier: addedDstTableName,
+			ShardingKey:                "id",
+		}},
 	})
 
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "adding table", func() bool {
@@ -151,12 +168,10 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	}
 
 	e2e.SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
-		RemovedTables: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
-			},
-		},
+		RemovedTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTableName,
+			DestinationTableIdentifier: dstTableName,
+		}},
 	})
 
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "removing table", func() bool {
@@ -448,13 +463,12 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(
 			strings.ToLower(tableName), "-", "_")),
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
-				DestinationTableIdentifier: dstTableName,
-				Exclude:                    []string{"excludedColumn"},
-			},
-		},
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
+			DestinationTableIdentifier: dstTableName,
+			Exclude:                    []string{"excludedColumn"},
+			ShardingKey:                "id",
+		}},
 		Destination: s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -942,13 +956,12 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName:     s.attachSuffix(tableName),
 		DestinationName: s.Peer().Name,
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      srcFullName,
-				DestinationTableIdentifier: dstTableName,
-				Exclude:                    []string{"c2"},
-			},
-		},
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			Exclude:                    []string{"c2"},
+			ShardingKey:                "id",
+		}},
 		SourceName:        s.Source().GeneratePeer(s.t).Name,
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
@@ -1154,6 +1167,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			Exclude:                    []string{"se'cret"},
+			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -1648,6 +1662,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			Engine:                     protos.TableEngine_CH_ENGINE_NULL,
+			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -1735,6 +1750,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "id",
+			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -1792,6 +1808,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "updated_at",
+			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
 	}
