@@ -166,7 +166,7 @@ func qValueFromBsonValue(doc bson.D) ([]types.QValue, int64, error) {
 			case bson.ObjectID:
 				qvalueId = types.QValueString{Val: oid.Hex()}
 			default:
-				return nil, 0, fmt.Errorf("invalid type for _id field")
+				return nil, 0, fmt.Errorf("unsupported type for _id field")
 			}
 			break
 		}
