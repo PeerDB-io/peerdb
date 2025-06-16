@@ -94,6 +94,8 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
 
+	stream.SetSchema(getDefaultSchema())
+
 	filter := bson.D{}
 	if !partition.FullTablePartition {
 		filter = toRangeFilter(partition.Range)
@@ -121,7 +123,6 @@ func (c *MongoConnector) PullQRepRecords(
 		totalBytes += bytes
 	}
 
-	stream.SetSchema(getDefaultSchema())
 	close(stream.Records)
 	return totalRecords, totalBytes, nil
 }
