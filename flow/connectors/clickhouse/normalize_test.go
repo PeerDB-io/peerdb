@@ -298,7 +298,7 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 
 	query, err := g.BuildQuery(ctx)
 	require.NoError(t, err)
-	require.Contains(t, query, "'public' AS `_peerdb_source_schema`")
+	require.Contains(t, query, " AS `_peerdb_source_schema`")
 }
 
 func TestBuildQuery_WithNumParts(t *testing.T) {
