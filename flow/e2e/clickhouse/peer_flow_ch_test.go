@@ -1626,7 +1626,11 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	fakeDestination2 := "test_normalize_metadata_with_retry_dst_2_fake"
-	renameErr := ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s`, dstTableName2, fakeDestination2))
+	onCluster := ""
+	if s.cluster {
+		onCluster = " ON CLUSTER cicluster"
+	}
+	renameErr := ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s%s`, dstTableName2, fakeDestination2, onCluster))
 	require.NoError(s.t, renameErr)
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update1'`, srcFullName2)))
 
@@ -1666,7 +1670,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	})
 
 	// Rename the table back to simulate a successful push to ClickHouse
-	renameErr = ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s`, fakeDestination2, dstTableName2))
+	renameErr = ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s%s`, fakeDestination2, dstTableName2, onCluster))
 	require.NoError(s.t, renameErr)
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, srcFullName2)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, srcFullName1)))
