@@ -14,7 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-func setupDB(t *testing.T) (*PostgresConnector, string) {
+func setupDB(t *testing.T, testName string) (*PostgresConnector, string) {
 	t.Helper()
 
 	connector, err := NewPostgresConnector(t.Context(),
@@ -22,7 +22,7 @@ func setupDB(t *testing.T) (*PostgresConnector, string) {
 	require.NoError(t, err, "error while creating connector")
 
 	// Create unique schema name using current time
-	schemaName := fmt.Sprintf("qrep_query_executor_%d", time.Now().Unix())
+	schemaName := fmt.Sprintf("qrep_query_executor_%s_%d", testName, time.Now().Unix())
 
 	// Create the schema
 	_, err = connector.conn.Exec(t.Context(),
@@ -41,8 +41,9 @@ func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
 }
 
 func TestExecuteAndProcessQuery(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	connector, schemaName := setupDB(t)
+	connector, schemaName := setupDB(t, "query")
 	conn := connector.conn
 	defer connector.Close()
 	defer teardownDB(t, conn, schemaName)
@@ -65,8 +66,9 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 }
 
 func TestSupportedDataTypes(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	connector, schemaName := setupDB(t)
+	connector, schemaName := setupDB(t, "datatypes")
 	conn := connector.conn
 	defer conn.Close(ctx)
 	defer teardownDB(t, conn, schemaName)
@@ -191,6 +193,9 @@ func TestSupportedDataTypes(t *testing.T) {
 }
 
 func TestStringDataTypes(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+
 	tests := []struct {
 		Type          string
 		Literal       string   // skipped if empty
@@ -553,8 +558,7 @@ func TestStringDataTypes(t *testing.T) {
 		},
 	}
 
-	ctx := t.Context()
-	connector, schemaName := setupDB(t)
+	connector, schemaName := setupDB(t, "string")
 	conn := connector.conn
 	defer conn.Close(ctx)
 	defer teardownDB(t, conn, schemaName)
