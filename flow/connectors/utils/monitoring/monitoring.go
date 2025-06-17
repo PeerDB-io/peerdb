@@ -321,6 +321,9 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
 			rangeEnd = rangeEndValue.(string)
+		case *protos.PartitionRange_ObjectIdRange:
+			rangeStart = x.ObjectIdRange.Start
+			rangeEnd = x.ObjectIdRange.End
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}
