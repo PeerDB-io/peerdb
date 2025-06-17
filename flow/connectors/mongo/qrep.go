@@ -3,7 +3,9 @@ package connmongo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -34,7 +36,7 @@ func (c *MongoConnector) GetQRepPartitions(
 		}, nil
 	}
 	if last != nil && last.Range != nil {
-		return nil, fmt.Errorf("not implemented")
+		return nil, errors.ErrUnsupported
 	}
 	parseWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -106,14 +108,13 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 
 	batchSize := config.NumRowsPerPartition
-	if config.NumRowsPerPartition == 0 || config.NumRowsPerPartition > math.MaxInt32 {
+	if config.NumRowsPerPartition <= 0 || config.NumRowsPerPartition > math.MaxInt32 {
 		batchSize = math.MaxInt32
 	}
+
 	// MongoDb will use the lesser of batchSize and 16MiB
 	// https://www.mongodb.com/docs/manual/reference/method/cursor.batchsize/
-	opts1 := options.Find().SetBatchSize(int32(batchSize))
-	opts := []options.Lister[options.FindOptions]{opts1}
-	cursor, err := collection.Find(ctx, filter, opts...)
+	cursor, err := collection.Find(ctx, filter, options.Find().SetBatchSize(int32(batchSize)))
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to query for records: %w", err)
 	}
@@ -133,8 +134,21 @@ func (c *MongoConnector) PullQRepRecords(
 		totalRecords += 1
 		totalBytes += bytes
 	}
-
 	close(stream.Records)
+	if err := cursor.Err(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			c.logger.Warn("context canceled while reading documents",
+				slog.Any("partition", partition.PartitionId),
+				slog.String("watermark_table", config.WatermarkTable))
+		} else {
+			c.logger.Error("error while reading documents",
+				slog.Any("partition", partition.PartitionId),
+				slog.String("watermark_table", config.WatermarkTable),
+				slog.String("error", err.Error()))
+		}
+		return 0, 0, fmt.Errorf("cursor error: %w", err)
+	}
+
 	return totalRecords, totalBytes, nil
 }
 
