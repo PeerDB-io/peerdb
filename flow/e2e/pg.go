@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func cleanPostgres(ctx context.Context, conn *pgx.Conn, suffix string) error {
@@ -123,7 +124,7 @@ func SetupPostgres(t *testing.T, suffix string) (*PostgresSource, error) {
 		return nil, err
 	}
 
-	return &PostgresSource{PostgresConnector: connector}, nil
+	return &PostgresSource{PostgresConnector: connector}, shared.RegisterExtensions(t.Context(), conn)
 }
 
 func (s *PostgresSource) Connector() connectors.Connector {
