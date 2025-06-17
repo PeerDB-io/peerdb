@@ -96,7 +96,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
+func (s PeerFlowE2ETestSuitePG) Test_Types() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_types_pg")
@@ -155,7 +155,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
 		err := s.comparePGTables(srcTableName, dstTableName, allCols)
 		if err != nil {
-			s.t.Log("QQQ", err)
+			s.t.Log("mismatch", err)
 		}
 		return err == nil
 	})
@@ -168,7 +168,38 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
+func (s PeerFlowE2ETestSuitePG) Test_PgVector() {
+	srcTableName := "test_pgvector"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_pgvector"
+
+	require.NoError(s.t, s.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 vector, hv halfvec, sv sparsevec)`, srcFullName)))
+	require.NoError(s.t, s.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTableName),
+		TableMappings: e2e.TableMappings(s, srcTableName, dstTableName),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName, "id,v1,hv,sv")
+
+	require.NoError(s.t, s.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName, "id,v1,hv,sv")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Enums() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_enum_flow")
@@ -209,7 +240,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	})
 
 	env.Cancel(s.t.Context())
-
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
