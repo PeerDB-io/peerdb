@@ -60,25 +60,31 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomD
 	return customTypeMap, nil
 }
 
-func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
-	var hstoreOID uint32
-	if err := conn.QueryRow(ctx, `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID); err != nil {
-		// hstore isn't present, just proceed
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
+func RegisterExtensions(ctx context.Context, conn *pgx.Conn) error {
+	var hstoreOID *uint32
+	var vectorOID *uint32
+	var halfvecOID *uint32
+	var sparsevecOID *uint32
+	if err := conn.QueryRow(
+		ctx, "select to_regtype('hstore')::oid,to_regtype('vector')::oid,to_regtype('halfvec')::oid,to_regtype('sparsevec')::oid",
+	).Scan(&hstoreOID, &vectorOID, &halfvecOID, &sparsevecOID); err != nil {
+		return err
+	}
+
+	typeMap := conn.TypeMap()
+	if hstoreOID != nil {
+		typeMap.RegisterType(&pgtype.Type{Name: "hstore", OID: *hstoreOID, Codec: pgtype.HstoreCodec{}})
+	}
+	if vectorOID != nil {
+		typeMap.RegisterType(&pgtype.Type{Name: "vector", OID: *vectorOID, Codec: pgvectorpgx.VectorCodec{}})
+		if halfvecOID != nil {
+			typeMap.RegisterType(&pgtype.Type{Name: "halfvec", OID: *halfvecOID, Codec: pgvectorpgx.HalfVectorCodec{}})
 		}
-		return err
+		if sparsevecOID != nil {
+			typeMap.RegisterType(&pgtype.Type{Name: "sparsevec", OID: *sparsevecOID, Codec: pgvectorpgx.SparseVectorCodec{}})
+		}
 	}
 
-	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
-
-	return nil
-}
-
-func RegisterPgVector(ctx context.Context, conn *pgx.Conn) error {
-	if err := pgvectorpgx.RegisterTypes(ctx, conn); err != nil && err.Error() != "vector type not found in the database" {
-		return err
-	}
 	return nil
 }
 
