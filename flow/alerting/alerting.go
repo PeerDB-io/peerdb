@@ -484,6 +484,11 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error
 	if !internal.PeerDBTelemetryErrorActionBasedAlertingEnabled() || errorClass.ErrorAction() == NotifyTelemetry {
 		a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
 	}
+	logger.Error(fmt.Sprintf("Emitting classified error '%s'", inErr.Error()),
+		slog.Any("error", inErr),
+		slog.Any("errorClass", errorClass),
+		slog.Any("errorInfo", errInfo),
+		slog.Any("stack", errorWithStack))
 	errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(
 		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
 		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
