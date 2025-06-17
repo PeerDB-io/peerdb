@@ -1686,7 +1686,6 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 		if len(rows.Records) == 0 {
 			return false
 		}
-
 		return rows.Records[0][0].Value().(int64) == 2
 	})
 
