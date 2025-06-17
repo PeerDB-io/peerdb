@@ -99,7 +99,10 @@ func (c *MongoConnector) PullQRepRecords(
 
 	filter := bson.D{}
 	if !partition.FullTablePartition {
-		filter = toRangeFilter(partition.Range)
+		filter, err = toRangeFilter(partition.Range)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
+		}
 	}
 
 	batchSize := config.NumRowsPerPartition
@@ -150,7 +153,7 @@ func getDefaultSchema() types.QRecordSchema {
 	return types.QRecordSchema{Fields: schema}
 }
 
-func toRangeFilter(partitionRange *protos.PartitionRange) bson.D {
+func toRangeFilter(partitionRange *protos.PartitionRange) (bson.D, error) {
 	switch r := partitionRange.Range.(type) {
 	case *protos.PartitionRange_ObjectIdRange:
 		return bson.D{
@@ -158,9 +161,9 @@ func toRangeFilter(partitionRange *protos.PartitionRange) bson.D {
 				bson.E{Key: "$gte", Value: r.ObjectIdRange.Start},
 				bson.E{Key: "$lte", Value: r.ObjectIdRange.End},
 			}},
-		}
+		}, nil
 	default:
-		return nil
+		return nil, fmt.Errorf("unsupported partition range type")
 	}
 }
 
