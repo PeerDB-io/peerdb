@@ -122,6 +122,20 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
+  const updateShardingKey = (source: string, shardingKey: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], shardingKey };
+    setRows(newRows);
+  };
+
+  const updatePolicyName = (source: string, policyName: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], policyName };
+    setRows(newRows);
+  };
+
   const addTableColumns = useCallback(
     (table: string) => {
       const [schemaName, tableName] = table.split('.');
@@ -245,11 +259,6 @@ export default function SchemaBox({
   const engineOptions = [
     { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
     { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
-    {
-      value: 'CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE',
-      label: 'ReplicatedReplacingMergeTree',
-    },
-    { value: 'CH_ENGINE_REPLICATED_MERGE_TREE', label: 'ReplicatedMergeTree' },
     { value: 'CH_ENGINE_NULL', label: 'Null' },
   ];
 
@@ -398,22 +407,60 @@ export default function SchemaBox({
 
                         {peerType?.toString() ===
                           DBType[DBType.CLICKHOUSE].toString() && (
-                          <div style={{ width: '30%', fontSize: 12 }}>
-                            Engine:
-                            <ReactSelect
-                              isDisabled={row.editingDisabled}
-                              styles={engineOptionStyles}
-                              options={engineOptions}
-                              placeholder='ReplacingMergeTree (default)'
-                              onChange={(selectedOption) =>
-                                selectedOption &&
-                                updateEngine(
-                                  row.source,
-                                  tableEngineFromJSON(selectedOption.value)
-                                )
-                              }
-                            />
-                          </div>
+                          <>
+                            <div style={{ width: '30%', fontSize: 12 }}>
+                              Engine:
+                              <ReactSelect
+                                isDisabled={row.editingDisabled}
+                                styles={engineOptionStyles}
+                                options={engineOptions}
+                                placeholder='ReplacingMergeTree (default)'
+                                onChange={(selectedOption) =>
+                                  selectedOption &&
+                                  updateEngine(
+                                    row.source,
+                                    tableEngineFromJSON(selectedOption.value)
+                                  )
+                                }
+                              />
+                            </div>
+                            <div style={{ width: '30%', fontSize: 12 }}>
+                              Sharding Key:
+                              <TextField
+                                disabled={row.editingDisabled}
+                                style={{
+                                  marginTop: '0.5rem',
+                                  cursor: 'pointer',
+                                }}
+                                variant='simple'
+                                placeholder='Sharding key expression (optional)'
+                                value={row.shardingKey}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>
+                                ) =>
+                                  updateShardingKey(row.source, e.target.value)
+                                }
+                              />
+                            </div>
+                            <div style={{ width: '30%', fontSize: 12 }}>
+                              Policy Name:
+                              <TextField
+                                disabled={row.editingDisabled}
+                                style={{
+                                  marginTop: '0.5rem',
+                                  cursor: 'pointer',
+                                }}
+                                variant='simple'
+                                placeholder='Policy name (optional)'
+                                value={row.policyName}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>
+                                ) =>
+                                  updatePolicyName(row.source, e.target.value)
+                                }
+                              />
+                            </div>
+                          </>
                         )}
                       </div>
                     </div>
