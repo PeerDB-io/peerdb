@@ -133,6 +133,8 @@ func CustomTypeToQKind(typeData shared.CustomDataType) types.QValueKind {
 		return types.QValueKindGeography
 	case "hstore":
 		return types.QValueKindHStore
+	case "vector", "halfvec", "sparsevec":
+		return types.QValueKindArrayFloat32
 	default:
 		return types.QValueKindString
 	}

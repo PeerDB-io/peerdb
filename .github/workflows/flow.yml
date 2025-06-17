@@ -28,6 +28,11 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       mysql:
         image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
         ports:
@@ -133,9 +138,12 @@ jobs:
           chown -R 1001 certs &&
           docker run -d --rm --name miniotls -p 9998:9998 -v "$PWD/certs:/certs" -e MINIO_SCHEME=https bitnami/minio:latest
 
-      - name: create hstore extension, increase logical replication limits, and setup catalog database
+      - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
-          docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;"
+          docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
+          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
+          docker exec "${{ job.services.catalog.id }}" sh -c 'cd /tmp/pgvector && make with_llvm=no && make with_llvm=no install' &&
+          docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;CREATE EXTENSION vector;"
           -c "ALTER SYSTEM SET wal_level=logical;"
           -c "ALTER SYSTEM SET max_replication_slots=192;"
           -c "ALTER SYSTEM SET max_wal_senders=256;"

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -59,17 +60,30 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomD
 	return customTypeMap, nil
 }
 
-func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
-	var hstoreOID uint32
-	if err := conn.QueryRow(ctx, `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID); err != nil {
-		// hstore isn't present, just proceed
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
+func RegisterExtensions(ctx context.Context, conn *pgx.Conn) error {
+	var hstoreOID *uint32
+	var vectorOID *uint32
+	var halfvecOID *uint32
+	var sparsevecOID *uint32
+	if err := conn.QueryRow(
+		ctx, "select to_regtype('hstore')::oid,to_regtype('vector')::oid,to_regtype('halfvec')::oid,to_regtype('sparsevec')::oid",
+	).Scan(&hstoreOID, &vectorOID, &halfvecOID, &sparsevecOID); err != nil {
 		return err
 	}
 
-	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
+	typeMap := conn.TypeMap()
+	if hstoreOID != nil {
+		typeMap.RegisterType(&pgtype.Type{Name: "hstore", OID: *hstoreOID, Codec: pgtype.HstoreCodec{}})
+	}
+	if vectorOID != nil {
+		typeMap.RegisterType(&pgtype.Type{Name: "vector", OID: *vectorOID, Codec: pgvectorpgx.VectorCodec{}})
+		if halfvecOID != nil {
+			typeMap.RegisterType(&pgtype.Type{Name: "halfvec", OID: *halfvecOID, Codec: pgvectorpgx.HalfVectorCodec{}})
+		}
+		if sparsevecOID != nil {
+			typeMap.RegisterType(&pgtype.Type{Name: "sparsevec", OID: *sparsevecOID, Codec: pgvectorpgx.SparseVectorCodec{}})
+		}
+	}
 
 	return nil
 }

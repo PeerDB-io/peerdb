@@ -431,8 +431,8 @@ func syncQRepRecords(
 	}
 	defer txConn.Close(ctx)
 
-	if err := shared.RegisterHStore(ctx, txConn); err != nil {
-		return 0, fmt.Errorf("failed to register hstore: %w", err)
+	if err := shared.RegisterExtensions(ctx, txConn); err != nil {
+		return 0, fmt.Errorf("failed to register extensions: %w", err)
 	}
 
 	tx, err := txConn.Begin(ctx)
