@@ -169,9 +169,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Types() {
 }
 
 func (s PeerFlowE2ETestSuitePG) Test_PgVector() {
-	srcTableName := "test_pgvector"
+	srcTableName := "pg_pgvector"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
-	dstTableName := "test_pgvector"
+	dstTableName := "pg_pgvector"
 
 	require.NoError(s.t, s.Exec(s.t.Context(),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 vector, hv halfvec, sv sparsevec)`, srcFullName)))
