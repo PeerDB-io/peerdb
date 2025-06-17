@@ -171,7 +171,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types() {
 func (s PeerFlowE2ETestSuitePG) Test_PgVector() {
 	srcTableName := "pg_pgvector"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
-	dstTableName := "pg_pgvector"
+	dstTableName := "pg_pgvector_dst"
 
 	require.NoError(s.t, s.Exec(s.t.Context(),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 vector, hv halfvec, sv sparsevec)`, srcFullName)))
@@ -193,7 +193,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PgVector() {
 
 	require.NoError(s.t, s.Exec(s.t.Context(),
 		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, srcFullName)))
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName, "id,v1,hv,sv")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName, "id,v1,hv,sv")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
