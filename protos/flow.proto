@@ -239,6 +239,11 @@ message UIntPartitionRange {
   uint64 end = 2;
 }
 
+message ObjectIdPartitionRange {
+  string start = 1;
+  string end = 2;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
@@ -246,6 +251,7 @@ message PartitionRange {
     TimestampPartitionRange timestamp_range = 2;
     TIDPartitionRange tid_range = 3;
     UIntPartitionRange uint_range = 4;
+    ObjectIdPartitionRange object_id_range = 5;
   }
 }
 
