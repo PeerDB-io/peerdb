@@ -253,10 +253,6 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer sink.Close(nil)
 
-	if err := shared.RegisterExtensions(ctx, qe.conn); err != nil {
-		return 0, 0, fmt.Errorf("failed to register extensions: %w", err)
-	}
-
 	tx, err := qe.conn.BeginTx(ctx, pgx.TxOptions{
 		AccessMode: pgx.ReadOnly,
 		IsoLevel:   pgx.RepeatableRead,

@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -566,9 +567,34 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return types.QValueNumeric{Val: num}, nil
 		}
 	case types.QValueKindArrayFloat32:
-		if vector, ok := value.(interface{ Slice() []float32 }); ok {
-			return types.QValueArrayFloat32{Val: vector.Slice()}, nil
-		} else {
+		switch value := value.(type) {
+		case string:
+			typeData := customTypeMapping[oid]
+			switch typeData.Name {
+			case "vector":
+				var vector pgvector.Vector
+				if err := vector.Parse(value); err != nil {
+					return nil, fmt.Errorf("[pg] failed to parse vector: %w", err)
+				}
+				return types.QValueArrayFloat32{Val: vector.Slice()}, nil
+			case "halfvec":
+				var halfvec pgvector.HalfVector
+				if err := halfvec.Parse(value); err != nil {
+					return nil, fmt.Errorf("[pg] failed to parse halfvec: %w", err)
+				}
+				return types.QValueArrayFloat32{Val: halfvec.Slice()}, nil
+			case "sparsevec":
+				var sparsevec pgvector.SparseVector
+				if err := sparsevec.Parse(value); err != nil {
+					return nil, fmt.Errorf("[pg] failed to parse sparsevec: %w", err)
+				}
+				return types.QValueArrayFloat32{Val: sparsevec.Slice()}, nil
+			default:
+				return nil, fmt.Errorf("unknown float array type %s", typeData.Name)
+			}
+		case interface{ Slice() []float32 }:
+			return types.QValueArrayFloat32{Val: value.Slice()}, nil
+		default:
 			a, err := convertToArray[float32](qvalueKind, value)
 			if err != nil {
 				return nil, err
