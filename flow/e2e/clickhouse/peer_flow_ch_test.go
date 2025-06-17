@@ -654,18 +654,18 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "c1,c2", 4)
 
-	rows, err := s.GetRows(dstTableName, "c1,c2")
+	rows, err := s.GetRows(dstTableName, "id,c1,c2")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 4, "expected 4 rows")
 	for i, row := range rows.Records {
-		require.Len(s.t, row, 2, "expected 2 columns")
-		require.Equal(s.t, types.QValueKindString, row[0].Kind(), "c1 type mismatch")
-		require.Equal(s.t, types.QValueKindString, row[1].Kind(), "c2 type mismatch")
-		require.Equal(s.t, strings.Repeat("9", 77), row[0].Value(), "c1 value mismatch")
+		require.Len(s.t, row, 3, "expected 3 columns")
+		require.Equal(s.t, types.QValueKindString, row[1].Kind(), "c1 type mismatch")
+		require.Equal(s.t, types.QValueKindString, row[2].Kind(), "c2 type mismatch")
+		require.Equal(s.t, strings.Repeat("9", 77), row[1].Value(), "c1 value mismatch")
 		if i%2 == 0 {
-			require.Equal(s.t, strings.Repeat("9", 78), row[1].Value(), "c2 value mismatch")
+			require.Equal(s.t, strings.Repeat("9", 78), row[2].Value(), "c2 value mismatch")
 		} else {
-			require.Empty(s.t, row[1].Value(), "c2 value mismatch")
+			require.Empty(s.t, row[2].Value(), "c2 value mismatch")
 		}
 	}
 
@@ -1337,7 +1337,6 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 		if len(rows.Records) == 0 {
 			return false
 		}
-
 		return rows.Records[0][0].Value().(int64) == 2
 	})
 
