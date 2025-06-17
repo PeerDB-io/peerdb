@@ -119,14 +119,16 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
 		conn := pgconn.Conn()
 		_, err := conn.Exec(s.t.Context(),
-			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-			 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+				WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+				s.attachSuffix("clickhousetableremoval")))
 		require.NoError(s.t, err)
 
 		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
 			rows, err := conn.Query(s.t.Context(),
-				`SELECT pid FROM pg_stat_activity
-				WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+				fmt.Sprintf(`SELECT pid FROM pg_stat_activity
+					WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+					s.attachSuffix("clickhousetableremoval")))
 			require.NoError(s.t, err)
 			defer rows.Close()
 			return !rows.Next()
@@ -158,14 +160,16 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
 		conn := pgconn.Conn()
 		_, err := conn.Exec(s.t.Context(),
-			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-			 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+				WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+				s.attachSuffix("clickhousetableremoval")))
 		require.NoError(s.t, err)
 
 		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
 			rows, err := conn.Query(s.t.Context(),
-				`SELECT pid FROM pg_stat_activity
-				WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+				fmt.Sprintf(`SELECT pid FROM pg_stat_activity
+					WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+					s.attachSuffix("clickhousetableremoval")))
 			require.NoError(s.t, err)
 			defer rows.Close()
 			return !rows.Next()
