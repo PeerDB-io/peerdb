@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -100,7 +101,14 @@ func (c *MongoConnector) PullQRepRecords(
 	if !partition.FullTablePartition {
 		filter = toRangeFilter(partition.Range)
 	}
-	opts1 := options.Find().SetBatchSize(1000)
+
+	batchSize := config.NumRowsPerPartition
+	if config.NumRowsPerPartition == 0 || config.NumRowsPerPartition > math.MaxInt32 {
+		batchSize = math.MaxInt32
+	}
+	// MongoDb will use the lesser of batchSize and 16MiB
+	// https://www.mongodb.com/docs/manual/reference/method/cursor.batchsize/
+	opts1 := options.Find().SetBatchSize(int32(batchSize))
 	opts := []options.Lister[options.FindOptions]{opts1}
 	cursor, err := collection.Find(ctx, filter, opts...)
 	if err != nil {
