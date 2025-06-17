@@ -40,6 +40,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/lestrrat-go/jwx/v2 v2.1.6
 	github.com/orcaman/concurrent-map/v2 v2.0.1
+	github.com/pgvector/pgvector-go v0.3.0
 	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
 	github.com/pingcap/tidb/pkg/parser v0.0.0-20250616100918-a60fcc20e056
 	github.com/shopspring/decimal v1.4.0

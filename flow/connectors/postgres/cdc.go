@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/pgvector/pgvector-go"
 	"go.temporal.io/sdk/log"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -338,10 +339,33 @@ func (p *PostgresCDCSource) decodeColumnData(
 			return types.QValueEnum{Val: string(data)}, nil
 		case types.QValueKindArrayString:
 			return types.QValueArrayString{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
+		case types.QValueKindArrayFloat32:
+			switch typeData.Name {
+			case "vector":
+				var vector pgvector.Vector
+				if err := vector.Parse(string(data)); err != nil {
+					return nil, fmt.Errorf("[pg] failed to parse vector: %w", err)
+				}
+				return types.QValueArrayFloat32{Val: vector.Slice()}, nil
+			case "halfvec":
+				var halfvec pgvector.HalfVector
+				if err := halfvec.Parse(string(data)); err != nil {
+					return nil, fmt.Errorf("[pg] failed to parse halfvec: %w", err)
+				}
+				return types.QValueArrayFloat32{Val: halfvec.Slice()}, nil
+			case "sparsevec":
+				var sparsevec pgvector.SparseVector
+				if err := sparsevec.Parse(string(data)); err != nil {
+					return nil, fmt.Errorf("[pg] failed to parse sparsevec: %w", err)
+				}
+				return types.QValueArrayFloat32{Val: sparsevec.Slice()}, nil
+			default:
+				return nil, fmt.Errorf("unknown float array type %s", typeData.Name)
+			}
 		case types.QValueKindArrayEnum:
 			return types.QValueArrayEnum{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
 		default:
-			return nil, fmt.Errorf("unknown custom qkind: %s", customQKind)
+			return nil, fmt.Errorf("unknown custom qkind for %s: %s", typeData.Name, customQKind)
 		}
 	}
 

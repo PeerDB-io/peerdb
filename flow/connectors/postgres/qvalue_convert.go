@@ -566,11 +566,15 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return types.QValueNumeric{Val: num}, nil
 		}
 	case types.QValueKindArrayFloat32:
-		a, err := convertToArray[float32](qvalueKind, value)
-		if err != nil {
-			return nil, err
+		if vector, ok := value.(interface{ Slice() []float32 }); ok {
+			return types.QValueArrayFloat32{Val: vector.Slice()}, nil
+		} else {
+			a, err := convertToArray[float32](qvalueKind, value)
+			if err != nil {
+				return nil, err
+			}
+			return types.QValueArrayFloat32{Val: a}, nil
 		}
-		return types.QValueArrayFloat32{Val: a}, nil
 	case types.QValueKindArrayFloat64:
 		a, err := convertToArray[float64](qvalueKind, value)
 		if err != nil {

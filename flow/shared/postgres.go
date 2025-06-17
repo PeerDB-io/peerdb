@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -71,6 +72,13 @@ func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
 
 	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
 
+	return nil
+}
+
+func RegisterPgVector(ctx context.Context, conn *pgx.Conn) error {
+	if err := pgvectorpgx.RegisterTypes(ctx, conn); err != nil && err.Error() != "vector type not found in the database" {
+		return err
+	}
 	return nil
 }
 

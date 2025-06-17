@@ -435,6 +435,10 @@ func syncQRepRecords(
 		return 0, fmt.Errorf("failed to register hstore: %w", err)
 	}
 
+	if err := shared.RegisterPgVector(ctx, txConn); err != nil {
+		return 0, fmt.Errorf("failed to register pgvector: %w", err)
+	}
+
 	tx, err := txConn.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to begin transaction: %w", err)
