@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func BenchmarkQRepQueryExecutor(b *testing.B) {
@@ -17,7 +18,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	defer connector.Close()
 
 	// Create a new QRepQueryExecutor instance
-	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, shared.PeerDbVersion_Latest, "test flow", "test part")
 	require.NoError(b, err, "error while creating QRepQueryExecutor")
 
 	// Run the benchmark

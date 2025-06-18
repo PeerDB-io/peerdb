@@ -99,6 +99,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 			FlowName:      config.FlowJobName,
 			System:        config.System,
 			Env:           config.Env,
+			Version:       config.Version,
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}
@@ -195,6 +196,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
+			PeerDbVersion:               config.Version,
 		})
 	})
 

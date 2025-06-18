@@ -17,6 +17,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func redactProto(message proto.Message) {
@@ -174,7 +175,7 @@ func (h *FlowRequestHandler) GetColumns(
 		return nil, err
 	}
 	defer connectors.CloseConnector(ctx, conn)
-	return conn.GetColumns(ctx, req.SchemaName, req.TableName)
+	return conn.GetColumns(ctx, shared.PeerDbVersion_Latest, req.SchemaName, req.TableName)
 }
 
 func (h *FlowRequestHandler) GetColumnsTypeConversion(

@@ -12,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func setupDB(t *testing.T, testName string) (*PostgresConnector, string) {
@@ -56,7 +57,7 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 		fmt.Sprintf("INSERT INTO %s.test(data) VALUES ('testdata')", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while inserting data")
 
-	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, shared.PeerDbVersion_Latest, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 
 	batch, err := qe.ExecuteAndProcessQuery(t.Context(), fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
@@ -143,7 +144,7 @@ func TestSupportedDataTypes(t *testing.T) {
 	)
 	require.NoError(t, err, "error while inserting into test table")
 
-	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, shared.PeerDbVersion_Latest, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 	// Select the row back out of the table
 	batch, err := qe.ExecuteAndProcessQuery(t.Context(),
@@ -595,7 +596,7 @@ func TestStringDataTypes(t *testing.T) {
 			_, err = conn.Exec(ctx, query)
 			require.NoError(t, err)
 
-			qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+			qe, err := connector.NewQRepQueryExecutor(ctx, shared.PeerDbVersion_Latest, "test flow", "test part")
 			require.NoError(t, err)
 			// Select the row back out of the table
 			batch, err := qe.ExecuteAndProcessQuery(t.Context(),

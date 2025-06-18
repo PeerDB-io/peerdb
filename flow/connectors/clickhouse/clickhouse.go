@@ -452,6 +452,7 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 func (c *ClickHouseConnector) GetTableSchema(
 	ctx context.Context,
 	_env map[string]string,
+	_version uint32,
 	_system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {

@@ -15,6 +15,14 @@ const (
 	TsqueryOID      uint32 = 3615
 )
 
+const (
+	PeerDbVersion_FirstVersion uint32 = iota
+	PeerDbVersion_PgVectorAsFloatArray
+
+	PeerDbTotalNumberOfVersions
+	PeerDbVersion_Latest = PeerDbTotalNumberOfVersions - 1
+)
+
 type (
 	ContextKey  string
 	TaskQueueID string

@@ -177,7 +177,7 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableMappings)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, config.TableMappings)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}

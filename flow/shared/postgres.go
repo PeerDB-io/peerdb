@@ -60,7 +60,7 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomD
 	return customTypeMap, nil
 }
 
-func RegisterExtensions(ctx context.Context, conn *pgx.Conn) error {
+func RegisterExtensions(ctx context.Context, conn *pgx.Conn, version uint32) error {
 	var hstoreOID *uint32
 	var vectorOID *uint32
 	var halfvecOID *uint32
@@ -75,13 +75,16 @@ func RegisterExtensions(ctx context.Context, conn *pgx.Conn) error {
 	if hstoreOID != nil {
 		typeMap.RegisterType(&pgtype.Type{Name: "hstore", OID: *hstoreOID, Codec: pgtype.HstoreCodec{}})
 	}
-	if vectorOID != nil {
-		typeMap.RegisterType(&pgtype.Type{Name: "vector", OID: *vectorOID, Codec: pgvectorpgx.VectorCodec{}})
-		if halfvecOID != nil {
-			typeMap.RegisterType(&pgtype.Type{Name: "halfvec", OID: *halfvecOID, Codec: pgvectorpgx.HalfVectorCodec{}})
-		}
-		if sparsevecOID != nil {
-			typeMap.RegisterType(&pgtype.Type{Name: "sparsevec", OID: *sparsevecOID, Codec: pgvectorpgx.SparseVectorCodec{}})
+
+	if version >= PeerDbVersion_PgVectorAsFloatArray {
+		if vectorOID != nil {
+			typeMap.RegisterType(&pgtype.Type{Name: "vector", OID: *vectorOID, Codec: pgvectorpgx.VectorCodec{}})
+			if halfvecOID != nil {
+				typeMap.RegisterType(&pgtype.Type{Name: "halfvec", OID: *halfvecOID, Codec: pgvectorpgx.HalfVectorCodec{}})
+			}
+			if sparsevecOID != nil {
+				typeMap.RegisterType(&pgtype.Type{Name: "sparsevec", OID: *sparsevecOID, Codec: pgvectorpgx.SparseVectorCodec{}})
+			}
 		}
 	}
 
