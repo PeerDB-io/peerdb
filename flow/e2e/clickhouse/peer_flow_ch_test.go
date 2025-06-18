@@ -988,6 +988,7 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
 		DoInitialSnapshot: true,
+		Version:           shared.PeerDbVersion_Latest,
 	}
 
 	// wait for PeerFlowStatusQuery to finish setup
