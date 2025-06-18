@@ -16,7 +16,7 @@ const (
 )
 
 const (
-	InternalVersion_FirstVersion uint32 = iota
+	InternalVersion_First uint32 = iota
 	InternalVersion_PgVectorAsFloatArray
 
 	TotalNumberOfInternalVersions
