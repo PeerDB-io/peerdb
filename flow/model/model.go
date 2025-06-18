@@ -148,6 +148,7 @@ type SyncRecordsRequest[T Items] struct {
 	// source:destination mappings
 	TableMappings []*protos.TableMapping
 	SyncBatchID   int64
+	Version       uint32
 }
 
 type NormalizeRecordsRequest struct {
@@ -158,6 +159,7 @@ type NormalizeRecordsRequest struct {
 	SyncedAtColName        string
 	TableMappings          []*protos.TableMapping
 	SyncBatchID            int64
+	Version                uint32
 }
 
 type SyncResponse struct {
