@@ -15,7 +15,15 @@ func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesRes
 	if err != nil {
 		return nil, fmt.Errorf("failed to get databases: %w", err)
 	}
-	tableNames = append(tableNames, dbNames...)
+	for _, dbName := range dbNames {
+		collNames, err := c.client.Database(dbName).ListCollectionNames(ctx, bson.D{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get collections: %w", err)
+		}
+		for _, collName := range collNames {
+			tableNames = append(tableNames, fmt.Sprintf("%.%", dbName, collName))
+		}
+	}
 	return &protos.AllTablesResponse{
 		Tables: tableNames,
 	}, nil
@@ -55,21 +63,10 @@ func (c *MongoConnector) GetTablesInSchema(ctx context.Context, schema string, c
 	return &response, nil
 }
 
-// TODO: replace placeholder values, how should we displace source columns in mongodb?
+// TODO: determine if/how we want to support this
 func (c *MongoConnector) GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error) {
 	return &protos.TableColumnsResponse{
-		Columns: []*protos.ColumnsItem{
-			{
-				Name:  "_id",
-				Type:  "ObjectId",
-				IsKey: true,
-			},
-			{
-				Name:  "_full_document",
-				Type:  "string",
-				IsKey: false,
-			},
-		},
+		Columns: []*protos.ColumnsItem{},
 	}, nil
 }
 
