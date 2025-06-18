@@ -4,10 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
-	"time"
 
 	"go.temporal.io/sdk/client"
 
@@ -37,44 +35,16 @@ func setupTemporalClient(ctx context.Context, clientOptions client.Options) (cli
 	if certPath := internal.PeerDBTemporalClientCertPath(); certPath != "" {
 		slog.Info("Using temporal certificate/key from paths for authentication")
 		keyPath := internal.PeerDBTemporalClientKeyPath()
-		var certMtime, keyMtime time.Time
-		var keyPair *tls.Certificate
 
 		clientOptions.ConnectionOptions = client.ConnectionOptions{
 			TLS: &tls.Config{
 				GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-					if keyPair != nil {
-						if certInfo, err := os.Stat(certPath); err == nil && certInfo.ModTime().Equal(certMtime) {
-							if keyInfo, err := os.Stat(keyPath); err == nil && keyInfo.ModTime().Equal(keyMtime) {
-								return keyPair, nil
-							}
-						}
-					}
-
-					certFile, err := os.Open(certPath)
-					defer func() {
-						if err := certFile.Close(); err != nil {
-							slog.Warn("could not close temporal client cert", slog.Any("error", err))
-						}
-					}()
-					if err != nil {
-						return nil, fmt.Errorf("could not open temporal client cert %s: %w", certPath, err)
-					}
-					certBytes, err := io.ReadAll(certFile)
+					certBytes, err := os.ReadFile(certPath)
 					if err != nil {
 						return nil, fmt.Errorf("could not read temporal client cert %s: %w", certPath, err)
 					}
 
-					keyFile, err := os.Open(keyPath)
-					defer func() {
-						if err := keyFile.Close(); err != nil {
-							slog.Warn("could not close temporal client key", slog.Any("error", err))
-						}
-					}()
-					if err != nil {
-						return nil, fmt.Errorf("could not open temporal client key %s: %w", keyPath, err)
-					}
-					keyBytes, err := io.ReadAll(keyFile)
+					keyBytes, err := os.ReadFile(keyPath)
 					if err != nil {
 						return nil, fmt.Errorf("could not read temporal client key %s: %w", keyPath, err)
 					}
@@ -83,20 +53,7 @@ func setupTemporalClient(ctx context.Context, clientOptions client.Options) (cli
 					if err != nil {
 						return nil, fmt.Errorf("unable to obtain temporal key pair: %w", err)
 					}
-					certStat, err := certFile.Stat()
-					if err != nil {
-						slog.Warn("unable to stat temporal cert, not caching", slog.Any("error", err))
-						return &keyPairValue, nil
-					}
-					keyStat, err := keyFile.Stat()
-					if err != nil {
-						slog.Warn("unable to stat temporal key, not caching", slog.Any("error", err))
-						return &keyPairValue, nil
-					}
-					keyPair = &keyPairValue
-					certMtime = certStat.ModTime()
-					keyMtime = keyStat.ModTime()
-					return keyPair, nil
+					return &keyPairValue, nil
 				},
 				MinVersion: tls.VersionTLS13,
 			},
