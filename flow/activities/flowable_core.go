@@ -196,7 +196,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
-			PeerDbVersion:               config.Version,
+			InternalVersion:             config.Version,
 		})
 	})
 

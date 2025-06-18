@@ -168,7 +168,7 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 	}
 
 	tableName := fmt.Sprintf("e2e_test_%s.%s", suffix, table)
-	tableSchemas, err := s.GetTableSchema(ctx, nil, shared.PeerDbVersion_Latest, protos.TypeSystem_Q,
+	tableSchemas, err := s.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	if err != nil {
 		return nil, err

@@ -175,7 +175,7 @@ func (h *FlowRequestHandler) GetColumns(
 		return nil, err
 	}
 	defer connectors.CloseConnector(ctx, conn)
-	return conn.GetColumns(ctx, shared.PeerDbVersion_Latest, req.SchemaName, req.TableName)
+	return conn.GetColumns(ctx, shared.InternalVersion_Latest, req.SchemaName, req.TableName)
 }
 
 func (h *FlowRequestHandler) GetColumnsTypeConversion(

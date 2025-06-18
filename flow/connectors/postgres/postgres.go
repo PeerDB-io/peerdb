@@ -455,7 +455,7 @@ func pullCore[Items model.Items](
 		Publication:                              publicationName,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
-		PeerDbVersion:                            req.PeerDbVersion,
+		InternalVersion:                          req.InternalVersion,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))

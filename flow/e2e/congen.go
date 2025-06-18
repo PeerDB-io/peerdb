@@ -75,7 +75,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(s Suite) 
 		DestinationName:    c.Destination,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
 		IdleTimeoutSeconds: 15,
-		Version:            shared.PeerDbVersion_Latest,
+		Version:            shared.InternalVersion_Latest,
 	}
 	if c.SoftDelete {
 		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"

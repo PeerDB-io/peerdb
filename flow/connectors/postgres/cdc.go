@@ -55,7 +55,7 @@ type PostgresCDCSource struct {
 	hushWarnUnknownTableDetected             map[uint32]struct{}
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
-	peerdbVersion                            uint32
+	internalVersion                          uint32
 }
 
 type PostgresCDCConfig struct {
@@ -70,7 +70,7 @@ type PostgresCDCConfig struct {
 	Publication                              string
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
-	PeerDbVersion                            uint32
+	InternalVersion                          uint32
 }
 
 // Create a new PostgresCDCSource
@@ -104,7 +104,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
-		peerdbVersion:                            cdcConfig.PeerDbVersion,
+		internalVersion:                          cdcConfig.InternalVersion,
 	}, nil
 }
 
@@ -224,7 +224,7 @@ func (qProcessor) Process(
 		items.AddColumn(col.Name, types.QValueNull(types.QValueKindInvalid))
 	case 't': // text
 		// bytea also appears here as a hex
-		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.TextFormatCode, customTypeMapping, p.peerdbVersion)
+		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.TextFormatCode, customTypeMapping, p.internalVersion)
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
 				slog.String("columnName", col.Name), slog.Int64("dataType", int64(col.DataType)))
@@ -232,7 +232,7 @@ func (qProcessor) Process(
 		}
 		items.AddColumn(col.Name, data)
 	case 'b': // binary
-		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.BinaryFormatCode, customTypeMapping, p.peerdbVersion)
+		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.BinaryFormatCode, customTypeMapping, p.internalVersion)
 		if err != nil {
 			return fmt.Errorf("error decoding binary column data: %w", err)
 		}
@@ -319,9 +319,9 @@ func (p *PostgresCDCSource) decodeColumnData(
 			}
 			return nil, err
 		}
-		return p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping, p.peerdbVersion)
+		return p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping, p.internalVersion)
 	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
-		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping, p.peerdbVersion)
+		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping, p.internalVersion)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
 		customQKind := postgres.CustomTypeToQKind(typeData, version)
 		switch customQKind {
@@ -983,11 +983,11 @@ func processRelationMessage[Items model.Items](
 	for _, column := range currRel.Columns {
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
-			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping, p.peerdbVersion)
+			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping, p.internalVersion)
 			if qKind == types.QValueKindInvalid {
 				typeName, ok := customTypeMapping[column.DataType]
 				if ok {
-					qKind = postgres.CustomTypeToQKind(typeName, p.peerdbVersion)
+					qKind = postgres.CustomTypeToQKind(typeName, p.internalVersion)
 				}
 			}
 			currRelMap[column.Name] = string(qKind)

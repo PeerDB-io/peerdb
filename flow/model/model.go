@@ -80,7 +80,7 @@ type PullRecordsRequest[T Items] struct {
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
 	// peerdb versioning to prevent breaking changes
-	PeerDbVersion uint32
+	InternalVersion uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
 }

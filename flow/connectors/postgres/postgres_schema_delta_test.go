@@ -71,7 +71,7 @@ func (s PostgresSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.PeerDbVersion_Latest, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
@@ -120,7 +120,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.PeerDbVersion_Latest, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
@@ -152,7 +152,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.PeerDbVersion_Latest, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
@@ -184,7 +184,7 @@ func (s PostgresSchemaDeltaTestSuite) TestAddDropWhitespaceColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.PeerDbVersion_Latest, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])

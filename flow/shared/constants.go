@@ -16,11 +16,11 @@ const (
 )
 
 const (
-	PeerDbVersion_FirstVersion uint32 = iota
-	PeerDbVersion_PgVectorAsFloatArray
+	InternalVersion_FirstVersion uint32 = iota
+	InternalVersion_PgVectorAsFloatArray
 
-	PeerDbTotalNumberOfVersions
-	PeerDbVersion_Latest = PeerDbTotalNumberOfVersions - 1
+	TotalNumberOfInternalVersions
+	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
 )
 
 type (

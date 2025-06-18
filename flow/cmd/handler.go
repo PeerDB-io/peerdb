@@ -128,7 +128,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
-	cfg.Version = shared.PeerDbVersion_Latest
+	cfg.Version = shared.InternalVersion_Latest
 
 	// For resync, we validate the mirror before dropping it and getting to this step.
 	// There is no point validating again here if it's a resync - the mirror is dropped already
@@ -177,7 +177,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, error) {
 	cfg := req.QrepConfig
-	cfg.Version = shared.PeerDbVersion_Latest
+	cfg.Version = shared.InternalVersion_Latest
 
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{

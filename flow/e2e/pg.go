@@ -195,7 +195,7 @@ func (s *PostgresSource) Exec(ctx context.Context, sql string) error {
 }
 
 func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.PeerDbVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
@@ -208,7 +208,7 @@ func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table strin
 
 // to avoid fetching rows from "child" tables ala Postgres table inheritance
 func (s *PostgresSource) GetRowsOnly(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.PeerDbVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
@@ -245,7 +245,7 @@ func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableI
 }
 
 func (s *PostgresSource) Query(ctx context.Context, query string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.PeerDbVersion_Latest, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}

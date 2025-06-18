@@ -76,7 +76,7 @@ func RegisterExtensions(ctx context.Context, conn *pgx.Conn, version uint32) err
 		typeMap.RegisterType(&pgtype.Type{Name: "hstore", OID: *hstoreOID, Codec: pgtype.HstoreCodec{}})
 	}
 
-	if version >= PeerDbVersion_PgVectorAsFloatArray {
+	if version >= InternalVersion_PgVectorAsFloatArray {
 		if vectorOID != nil {
 			typeMap.RegisterType(&pgtype.Type{Name: "vector", OID: *vectorOID, Codec: pgvectorpgx.VectorCodec{}})
 			if halfvecOID != nil {

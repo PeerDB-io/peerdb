@@ -135,7 +135,7 @@ func CustomTypeToQKind(typeData shared.CustomDataType, version uint32) types.QVa
 	case "hstore":
 		return types.QValueKindHStore
 	case "vector", "halfvec", "sparsevec":
-		if version >= shared.PeerDbVersion_PgVectorAsFloatArray {
+		if version >= shared.InternalVersion_PgVectorAsFloatArray {
 			return types.QValueKindArrayFloat32
 		} else {
 			return types.QValueKindString
