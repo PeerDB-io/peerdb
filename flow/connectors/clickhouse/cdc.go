@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = ? AND name = ?) AS table_exists;`
-	dropTableIfExistsSQL  = "DROP TABLE IF EXISTS %s;"
+	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = %s AND name = %s) AS table_exists`
+	dropTableIfExistsSQL  = "DROP TABLE IF EXISTS %s"
 )
 
 // GetRawTableName returns the raw table name for the given table identifier.
@@ -31,8 +31,9 @@ func (c *ClickHouseConnector) GetRawTableName(flowJobName string) string {
 
 func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
 	var result sql.NullInt32
-	err := c.queryRow(ctx, checkIfTableExistsSQL, databaseName, tableIdentifier).Scan(&result)
-	if err != nil {
+	if err := c.queryRow(ctx,
+		fmt.Sprintf(checkIfTableExistsSQL, peerdb_clickhouse.QuoteLiteral(databaseName), peerdb_clickhouse.QuoteLiteral(tableIdentifier)),
+	).Scan(&result); err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
 

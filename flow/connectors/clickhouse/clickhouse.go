@@ -285,20 +285,20 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	return conn, nil
 }
 
-func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
-	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
+func (c *ClickHouseConnector) exec(ctx context.Context, query string) error {
+	return chvalidate.Exec(ctx, c.logger, c.database, query)
 }
 
-func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string, args ...any) error {
-	return chvalidate.Exec(ctx, c.logger, conn, query, args...)
+func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string) error {
+	return chvalidate.Exec(ctx, c.logger, conn, query)
 }
 
-func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
-	return chvalidate.Query(ctx, c.logger, c.database, query, args...)
+func (c *ClickHouseConnector) query(ctx context.Context, query string) (driver.Rows, error) {
+	return chvalidate.Query(ctx, c.logger, c.database, query)
 }
 
-func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args ...any) driver.Row {
-	return chvalidate.QueryRow(ctx, c.logger, c.database, query, args...)
+func (c *ClickHouseConnector) queryRow(ctx context.Context, query string) driver.Row {
+	return chvalidate.QueryRow(ctx, c.logger, c.database, query)
 }
 
 func (c *ClickHouseConnector) Close() error {

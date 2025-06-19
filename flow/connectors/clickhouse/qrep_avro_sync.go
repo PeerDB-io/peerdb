@@ -35,11 +35,11 @@ func NewClickHouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, avroFilePath string) (string, []any, error) {
+func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, avroFilePath string) (string, error) {
 	stagingPath := s.credsProvider.BucketPath
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 
 	endpoint := s.credsProvider.Provider.GetEndpointURL()
@@ -47,20 +47,26 @@ func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, a
 	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFilePath)
 	creds, err := s.credsProvider.Provider.Retrieve(ctx)
 	if err != nil {
-		return "", nil, err
+		return "", err
 	}
 
-	params := make([]any, 0, 5)
-	params = append(params, avroFileUrl, creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey)
+	var expr strings.Builder
+	expr.WriteString("s3(")
+	expr.WriteString(peerdb_clickhouse.QuoteLiteral(avroFileUrl))
+	expr.WriteByte(',')
+	expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.AccessKeyID))
+	expr.WriteByte(',')
+	expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.SecretAccessKey))
 	if creds.AWS.SessionToken != "" {
-		params = append(params, creds.AWS.SessionToken)
+		expr.WriteByte(',')
+		expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.SessionToken))
 	}
-	params = append(params, "Avro")
-	return fmt.Sprintf("s3(%s?)", strings.Repeat("?,", len(params)-1)), params, nil
+	expr.WriteString(",'Avro')")
+	return expr.String(), nil
 }
 
 func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile *utils.AvroFile) error {
-	s3TableFunction, params, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
+	s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
 	if err != nil {
 		s.logger.Error("failed to build S3 table function",
 			slog.String("avroFilePath", avroFile.FilePath),
@@ -70,7 +76,7 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 
 	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM %s",
 		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), s3TableFunction)
-	return s.exec(ctx, query, params...)
+	return s.exec(ctx, query)
 }
 
 func (s *ClickHouseAvroSyncMethod) SyncRecords(
@@ -299,7 +305,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 
 		for i := range numParts {
 			// Get fresh credentials for each part
-			s3TableFunction, params, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
+			s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
 			if err != nil {
 				s.logger.Error("failed to build S3 table function",
 					slog.String("avroFilePath", avroFile.FilePath),
@@ -324,7 +330,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 				slog.Uint64("numParts", numParts),
 				slog.Int("chunkIdx", chunkIdx),
 				slog.Int("totalChunks", len(avroFiles)))
-			if err := s.exec(ctx, query, params...); err != nil {
+			if err := s.exec(ctx, query); err != nil {
 				s.logger.Error("failed to insert part",
 					slog.Uint64("part", i),
 					slog.Uint64("numParts", numParts),

@@ -33,13 +33,13 @@ func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger
 func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
 	tables []string, initialSnapshotEnabled bool, checkForCloudSMT bool,
 ) error {
-	queryInput := make([]any, 0, len(tables))
+	queryTables := make([]string, 0, len(tables))
 	for _, table := range tables {
-		queryInput = append(queryInput, table)
+		queryTables = append(queryTables, QuoteLiteral(table))
 	}
 	rows, err := Query(ctx, logger, conn,
 		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=currentDatabase() AND name IN (%s)",
-			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
+			strings.Join(queryTables, ",")))
 	if err != nil {
 		return fmt.Errorf("failed to get information for destination tables: %w", err)
 	}
@@ -78,13 +78,13 @@ func GetTableColumnsMapping(ctx context.Context, logger log.Logger, conn clickho
 	tables []string,
 ) (map[string][]ClickHouseColumn, error) {
 	tableColumnsMapping := make(map[string][]ClickHouseColumn, len(tables))
-	queryInput := make([]any, 0, len(tables))
+	queryTables := make([]string, 0, len(tables))
 	for _, table := range tables {
-		queryInput = append(queryInput, table)
+		queryTables = append(queryTables, QuoteLiteral(table))
 	}
 	rows, err := Query(ctx, logger, conn,
 		fmt.Sprintf("SELECT name,type,table FROM system.columns WHERE database=currentDatabase() AND table IN (%s)",
-			strings.Join(slices.Repeat([]string{"?"}, len(tables)), ",")), queryInput...)
+			strings.Join(slices.Repeat(queryTables, len(tables)), ",")))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get columns for destination tables: %w", err)
 	}
