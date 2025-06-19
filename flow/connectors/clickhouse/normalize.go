@@ -461,7 +461,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 
 	q := fmt.Sprintf(
 		"SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",
-		rawTbl, normalizeBatchID, syncBatchID)
+		peerdb_clickhouse.QuoteIdentifier(rawTbl), normalizeBatchID, syncBatchID)
 
 	rows, err := c.query(ctx, q)
 	if err != nil {
