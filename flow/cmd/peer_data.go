@@ -94,8 +94,8 @@ func (h *FlowRequestHandler) ListPeers(
 ) (*protos.ListPeersResponse, error) {
 	query := "SELECT name, type FROM peers"
 	if internal.PeerDBOnlyClickHouseAllowed() {
-		// only postgres, mysql, and clickhouse
-		query += " WHERE type IN (3, 7, 8)"
+		// only postgres, mysql, mongo,and clickhouse
+		query += " WHERE type IN (2, 3, 7, 8)"
 	}
 	rows, err := h.pool.Query(ctx, query)
 	if err != nil {
@@ -114,10 +114,10 @@ func (h *FlowRequestHandler) ListPeers(
 	sourceItems := make([]*protos.PeerListItem, 0, len(peers))
 	destinationItems := make([]*protos.PeerListItem, 0, len(peers))
 	for _, peer := range peers {
-		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL {
+		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL || peer.Type == protos.DBType_MONGO {
 			sourceItems = append(sourceItems, peer)
 		}
-		if peer.Type != protos.DBType_MYSQL && (!internal.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
+		if peer.Type != protos.DBType_MYSQL && peer.Type != protos.DBType_MONGO && (!internal.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
 			destinationItems = append(destinationItems, peer)
 		}
 	}
