@@ -68,7 +68,8 @@ func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, a
 		return fmt.Errorf("failed to build S3 table function: %w", err)
 	}
 
-	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM %s", s.config.DestinationTableIdentifier, s3TableFunction)
+	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM %s",
+		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), s3TableFunction)
 	return s.exec(ctx, query, params...)
 }
 
@@ -265,8 +266,8 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 				slog.String("avroFieldName", avroColName))
 			return fmt.Errorf("destination column %s not found in avro schema", colName)
 		}
-		selectedColumnNames = append(selectedColumnNames, "`"+avroColName+"`")
-		insertedColumnNames = append(insertedColumnNames, "`"+colName+"`")
+		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteIdentifier(avroColName))
+		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(colName))
 	}
 	if sourceSchemaAsDestinationColumn {
 		schemaTable, err := utils.ParseSchemaTable(config.WatermarkTable)
@@ -274,7 +275,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 			return err
 		}
 
-		selectedColumnNames = append(selectedColumnNames, fmt.Sprintf("'%s'", peerdb_clickhouse.EscapeStr(schemaTable.Schema)))
+		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(schemaTable.Schema))
 		insertedColumnNames = append(insertedColumnNames, sourceSchemaColName)
 	}
 
@@ -312,12 +313,12 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 
 			var whereClause string
 			if numParts > 1 {
-				whereClause = fmt.Sprintf(" WHERE cityHash64(`%s`) %% %d = %d", hashColName, numParts, i)
+				whereClause = fmt.Sprintf(" WHERE cityHash64(%s) %% %d = %d", peerdb_clickhouse.QuoteIdentifier(hashColName), numParts, i)
 			}
 
 			query := fmt.Sprintf(
-				"INSERT INTO `%s`(%s) SELECT %s FROM %s%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
-				config.DestinationTableIdentifier, insertedStr, selectorStr, s3TableFunction, whereClause)
+				"INSERT INTO %s(%s) SELECT %s FROM %s%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
+				peerdb_clickhouse.QuoteIdentifier(config.DestinationTableIdentifier), insertedStr, selectorStr, s3TableFunction, whereClause)
 			s.logger.Info("inserting part",
 				slog.Uint64("part", i),
 				slog.Uint64("numParts", numParts),
