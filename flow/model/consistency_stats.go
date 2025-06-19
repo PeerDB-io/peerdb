@@ -1,9 +1,10 @@
 package model
 
 import (
+	"go.temporal.io/sdk/log"
+
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
-	"go.temporal.io/sdk/log"
 )
 
 type StreamConsistencyStats struct {
@@ -56,8 +57,8 @@ func (ts *CdcTableConsistencyStats) Get(columnName string) *qvalue.ConsistencySt
 	return stat
 }
 
-func (ss *CdcTableConsistencyStats) Log(tableName string, logger log.Logger) {
-	for columnName, stat := range ss.StatsByColumn {
+func (ts *CdcTableConsistencyStats) Log(tableName string, logger log.Logger) {
+	for columnName, stat := range ts.StatsByColumn {
 		qvalue.LogConsistencyStat(stat, tableName, columnName, logger)
 	}
 }

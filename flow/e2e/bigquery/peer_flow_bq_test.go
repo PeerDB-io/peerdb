@@ -523,7 +523,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Numeric_Truncation_BQ() {
 		if i > 0 {
 			sb.WriteString(", ")
 		}
-		sb.WriteString(fmt.Sprintf("%s::numeric", tc.SrcValue))
+		sb.WriteString(tc.SrcValue + "::numeric")
 		sb.WriteString(", ")
 		sb.WriteString(fmt.Sprintf("-%s::numeric", tc.SrcValue))
 		sb.WriteString(", ")

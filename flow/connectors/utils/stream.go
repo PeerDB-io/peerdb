@@ -178,7 +178,8 @@ func truncateNumerics(
 	for col, val := range recordItems.ColToVal {
 		var newVal types.QValue
 		columnStat := consistencyStats.Get(col)
-		if numeric, ok := val.(types.QValueNumeric); ok {
+		switch numeric := val.(type) {
+		case types.QValueNumeric:
 			destType := qvalue.GetNumericDestinationType(
 				numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString,
 			)
@@ -197,15 +198,15 @@ func truncateNumerics(
 					Scale:     destType.Scale,
 				}
 			}
-		} else if numArr, ok := val.(types.QValueArrayNumeric); ok {
+		case types.QValueArrayNumeric:
 			destType := qvalue.GetNumericDestinationType(
-				numArr.Precision, numArr.Scale, targetDWH, unboundedNumericAsString,
+				numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString,
 			)
 			if destType.IsString {
 				newVal = val
 			} else {
-				truncatedArr := make([]decimal.Decimal, 0, len(numArr.Val))
-				for _, num := range numArr.Val {
+				truncatedArr := make([]decimal.Decimal, 0, len(numeric.Val))
+				for _, num := range numeric.Val {
 					truncated, ok := qvalue.TruncateNumeric(
 						num, destType.Precision, destType.Scale, targetDWH, columnStat,
 					)
@@ -220,7 +221,7 @@ func truncateNumerics(
 					Scale:     destType.Scale,
 				}
 			}
-		} else {
+		default:
 			newVal = val
 		}
 		newItems.ColToVal[col] = newVal

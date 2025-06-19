@@ -170,9 +170,9 @@ func getAvroNumericSchema(
 type QValueAvroConverter struct {
 	*types.QField
 	logger                   log.Logger
+	Stat                     *ConsistencyStat
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
-	Stat                     *ConsistencyStat
 }
 
 func QValueToAvro(
@@ -186,10 +186,10 @@ func QValueToAvro(
 
 	c := QValueAvroConverter{
 		QField:                   field,
-		TargetDWH:                targetDWH,
 		logger:                   logger,
-		UnboundedNumericAsString: unboundedNumericAsString,
 		Stat:                     stat,
+		TargetDWH:                targetDWH,
+		UnboundedNumericAsString: unboundedNumericAsString,
 	}
 
 	switch v := value.(type) {
@@ -585,6 +585,7 @@ func TruncateNumeric(
 	return num, true
 }
 
+//nolint:govet // logically grouped, fieldalignment confuses things
 type ConsistencyStat struct {
 	NumericsTruncated           uint64
 	MaxExponent                 int32
