@@ -3,7 +3,7 @@ package clickhouse
 import "strings"
 
 func mustEscape(char byte) bool {
-	return char == '\'' || char == '`' || char == '\\' || char == '?' || char == '\t' || char == '\n'
+	return char == '\'' || char == '`' || char == '\\' || char == '\t' || char == '\n'
 }
 
 // escaped size only needs to iterate on bytes, ASCII will never appear within multibyte utf8 characters
