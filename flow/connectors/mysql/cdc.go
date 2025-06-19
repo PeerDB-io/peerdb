@@ -358,8 +358,7 @@ func (c *MySqlConnector) PullRecords(
 		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
 	}()
 
-	timeoutCtx := ctx
-	var cancelTimeout context.CancelFunc
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 	defer func() {
 		if cancelTimeout != nil {
 			cancelTimeout()
@@ -383,44 +382,51 @@ func (c *MySqlConnector) PullRecords(
 
 	var mysqlParser *parser.Parser
 	for inTx || recordCount < req.MaxBatchSize {
-		getCtx := ctx
-		if overtime && !inTx {
-			return nil
+		if recordCount > 0 {
+			if overtime && !inTx {
+				//nolint:govet // cancelTimeout called by defer, spurious lint
+				return nil
+			}
+
+			// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
+			if err := timeoutCtx.Err(); err != nil {
+				if errors.Is(err, context.DeadlineExceeded) {
+					if inTx {
+						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
+							slog.Uint64("recordCount", uint64(recordCount)))
+						// reset timeoutCtx to a low value and wait for inTx to become false
+						if cancelTimeout != nil {
+							cancelTimeout()
+						}
+						timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Minute)
+						overtime = true
+					} else {
+						return nil
+					}
+				} else {
+					return err
+				}
+			}
 		}
 
-		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
-		if err := timeoutCtx.Err(); err != nil {
+		event, err := mystream.GetEvent(timeoutCtx)
+		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				if inTx {
-					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
-						slog.Uint64("recordCount", uint64(recordCount)))
-					// reset timeoutCtx to a low value and wait for inTx to become false
+				if recordCount == 0 {
+					if err := c.SetLastOffset(ctx, req.FlowJobName, req.RecordStream.PeekLastCheckpoint()); err != nil {
+						c.logger.Warn("failed to update mysql offset, ignoring", slog.Any("error", err))
+					}
+
+					// reset timer for next offset update
 					if cancelTimeout != nil {
 						cancelTimeout()
 					}
 					//nolint:govet // cancelTimeout called by defer, spurious lint
-					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, 10*time.Second)
-					overtime = true
-				} else {
+					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+				} else if !inTx {
 					return nil
 				}
-			} else {
-				return err
-			}
-		}
-		if recordCount > 0 && !inTx {
-			// if we have records and are safe, start respecting the timeout
-			getCtx = timeoutCtx
-		}
 
-		event, err := mystream.GetEvent(getCtx)
-		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				if !inTx {
-					//nolint:govet
-					return nil
-				}
-				// if in tx, don't let syncer exit due to deadline exceeded
 				continue
 			} else {
 				if errors.Is(err, context.Canceled) {

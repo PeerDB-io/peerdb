@@ -52,11 +52,15 @@ func (r *CDCStream[T]) UpdateLatestCheckpointText(val string) {
 	r.lastCheckpointText = val
 }
 
+func (r *CDCStream[T]) PeekLastCheckpoint() CdcCheckpoint {
+	return CdcCheckpoint{ID: r.lastCheckpointID, Text: r.lastCheckpointText}
+}
+
 func (r *CDCStream[T]) GetLastCheckpoint() CdcCheckpoint {
 	if !r.lastCheckpointSet {
 		panic("last checkpoint not set, stream is still active")
 	}
-	return CdcCheckpoint{ID: r.lastCheckpointID, Text: r.lastCheckpointText}
+	return r.PeekLastCheckpoint()
 }
 
 func (r *CDCStream[T]) AddRecord(ctx context.Context, record Record[T]) error {
