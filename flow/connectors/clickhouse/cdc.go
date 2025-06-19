@@ -21,7 +21,7 @@ import (
 
 const (
 	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = ? AND name = ?) AS table_exists;`
-	dropTableIfExistsSQL  = "DROP TABLE IF EXISTS `%s`;"
+	dropTableIfExistsSQL  = "DROP TABLE IF EXISTS %s;"
 )
 
 // GetRawTableName returns the raw table name for the given table identifier.
@@ -146,8 +146,9 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN IF NOT EXISTS `%s` %s",
-					schemaDelta.DstTableName, addedColumn.Name, clickHouseColType),
+				fmt.Sprintf("ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s",
+					peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName),
+					peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
 			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
 			}
@@ -194,9 +195,12 @@ func (c *ClickHouseConnector) RenameTables(
 			c.logger.Info("attempting atomic exchange",
 				slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
 			if err = c.execWithLogging(ctx,
-				fmt.Sprintf("EXCHANGE TABLES `%s` and `%s`", renameRequest.NewName, renameRequest.CurrentName),
+				fmt.Sprintf("EXCHANGE TABLES %s and %s",
+					peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName)),
 			); err == nil {
-				if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.CurrentName)); err != nil {
+				if err := c.execWithLogging(ctx,
+					fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName)),
+				); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
 				}
 			} else if ex, ok := err.(*clickhouse.Exception); !ok || ex.Code != 48 {
@@ -209,7 +213,9 @@ func (c *ClickHouseConnector) RenameTables(
 		// either original table doesn't exist, in which case it is safe to just run rename,
 		// or err is set (in which case err comes from EXCHANGE TABLES)
 		if !originalTableExists || err != nil {
-			if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, renameRequest.NewName)); err != nil {
+			if err := c.execWithLogging(ctx,
+				fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName)),
+			); err != nil {
 				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 			}
 
@@ -232,7 +238,7 @@ func (c *ClickHouseConnector) RenameTables(
 func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName string) error {
 	// delete raw table if exists
 	rawTableIdentifier := c.GetRawTableName(jobName)
-	if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, rawTableIdentifier)); err != nil {
+	if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier))); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
 	c.logger.Info("successfully dropped raw table " + rawTableIdentifier)
