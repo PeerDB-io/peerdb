@@ -12,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -83,8 +84,16 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
-	stream, err := utils.RecordsToRawTableStream(streamReq)
+	unboundedNumericAsString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, req.Env)
+	if err != nil {
+		return nil, err
+	}
+	streamReq := model.NewRecordsToStreamRequest(
+		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, unboundedNumericAsString,
+		protos.DBType_CLICKHOUSE,
+	)
+	consistencyStats := model.NewStreamConsistencyStats()
+	stream, err := utils.RecordsToRawTableStream(streamReq, consistencyStats)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -94,6 +103,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	if err != nil {
 		return nil, err
 	}
+	consistencyStats.Log(c.logger)
 
 	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)

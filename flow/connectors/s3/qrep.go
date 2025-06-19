@@ -82,7 +82,7 @@ func (c *S3Connector) writeToAvroFile(
 	}
 
 	writer := utils.NewPeerDBOCFWriter(stream, avroSchema, codec, protos.DBType_S3)
-	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil)
+	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}

@@ -38,8 +38,14 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
-	return avroSync.SyncQRepRecords(ctx, config.Env, config.FlowJobName, destTable, partition,
-		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName)
+	consistencyStats := model.NewSnapshotTableConsistencyStats(srcSchema.Fields)
+	result, err := avroSync.SyncQRepRecords(ctx, config.Env, config.FlowJobName, destTable, partition,
+		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName, consistencyStats)
+	if err != nil {
+		return result, err
+	}
+	consistencyStats.Log(destTable, c.logger)
+	return result, nil
 }
 
 func (c *BigQueryConnector) replayTableSchemaDeltasQRep(

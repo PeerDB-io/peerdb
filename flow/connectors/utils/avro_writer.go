@@ -76,6 +76,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	env map[string]string,
 	w io.Writer,
 	typeConversions map[string]types.TypeConversion,
+	consistencyStats *model.SnapshotTableConsistencyStats,
 ) (int64, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
@@ -83,7 +84,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	}
 	defer ocfWriter.Close()
 
-	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter, typeConversions)
+	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter, typeConversions, consistencyStats)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
 	}
@@ -98,6 +99,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	s3Creds AWSCredentialsProvider,
 	avroSize *atomic.Int64,
 	typeConversions map[string]types.TypeConversion,
+	consistencyStats *model.SnapshotTableConsistencyStats,
 ) (*AvroFile, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	s3svc, err := CreateS3Client(ctx, s3Creds)
@@ -128,7 +130,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		} else {
 			writer = shared.NewWatchWriter(w, avroSize)
 		}
-		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions)
+		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions, consistencyStats)
 	}()
 
 	partSize, err := internal.PeerDBS3PartSize(ctx, env)
@@ -165,7 +167,9 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[string]string, filePath string) (*AvroFile, error) {
+func (p *peerDBOCFWriter) WriteRecordsToAvroFile(
+	ctx context.Context, env map[string]string, filePath string, consistencyStats *model.SnapshotTableConsistencyStats,
+) (*AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temporary Avro file: %w", err)
@@ -186,7 +190,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 	bufferedWriter := bufio.NewWriterSize(file, buffSizeBytes)
 	defer bufferedWriter.Flush()
 
-	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter, nil)
+	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter, nil, consistencyStats)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}
@@ -224,6 +228,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	env map[string]string,
 	ocfWriter *ocf.Encoder,
 	typeConversions map[string]types.TypeConversion,
+	consistencyStats *model.SnapshotTableConsistencyStats,
 ) (int64, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
@@ -249,7 +254,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err
 		} else {
-			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions)
+			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, consistencyStats)
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)

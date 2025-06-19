@@ -264,6 +264,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			StagingPath:            config.CdcStagingPath,
 			Script:                 config.Script,
 			TableNameSchemaMapping: tableNameSchemaMapping,
+			Env:                    config.Env,
 		})
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))

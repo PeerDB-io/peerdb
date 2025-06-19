@@ -365,8 +365,11 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
-	stream, err := utils.RecordsToRawTableStream(streamReq)
+	streamReq := model.NewRecordsToStreamRequest(
+		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, false, protos.DBType_BIGQUERY,
+	)
+	consistencyStats := model.NewStreamConsistencyStats()
+	stream, err := utils.RecordsToRawTableStream(streamReq, consistencyStats)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -382,6 +385,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync records via avro: %w", err)
 	}
+	consistencyStats.Log(c.logger)
 
 	return res, nil
 }

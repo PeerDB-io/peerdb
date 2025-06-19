@@ -420,8 +420,11 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
-	stream, err := utils.RecordsToRawTableStream(streamReq)
+	streamReq := model.NewRecordsToStreamRequest(
+		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, false, protos.DBType_SNOWFLAKE,
+	)
+	consistencyStats := model.NewStreamConsistencyStats()
+	stream, err := utils.RecordsToRawTableStream(streamReq, consistencyStats)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -443,6 +446,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	if err != nil {
 		return nil, err
 	}
+	consistencyStats.Log(c.logger)
 
 	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)

@@ -94,7 +94,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	}
 
 	batchIdentifierForFile := fmt.Sprintf("%s_%d", shared.RandomString(16), syncBatchID)
-	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil)
+	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -129,10 +129,11 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	if len(destTypeConversions) > 0 {
 		schema = applyTypeConversions(schema, destTypeConversions)
 	}
+	consistencyStats := model.NewSnapshotTableConsistencyStats(schema.Fields)
 
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
 	avroFile, err := s.pushDataToS3(ctx, config, dstTableName, schema,
-		columnNameAvroFieldMap, partition, stream, destTypeConversions)
+		columnNameAvroFieldMap, partition, stream, destTypeConversions, consistencyStats)
 	if err != nil {
 		s.logger.Error("failed to push data to S3",
 			slog.String("dstTable", dstTableName),
@@ -147,6 +148,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 			slog.Any("error", err))
 		return 0, err
 	}
+	consistencyStats.Log(dstTableName, s.logger)
 
 	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
 		s.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
@@ -165,6 +167,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 	destTypeConversions map[string]types.TypeConversion,
+	consistencyStats *model.SnapshotTableConsistencyStats,
 ) (*utils.AvroFile, error) {
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
@@ -210,7 +213,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 
 			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, &avroSize, avroSchema,
 				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
-				config.FlowJobName, destTypeConversions)
+				config.FlowJobName, destTypeConversions, consistencyStats)
 			if err != nil {
 				return nil, err
 			}
@@ -229,7 +232,8 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 	if avroFile == nil || avroFile.FilePath == "" {
 		var err error
 		avroFile, err = s.writeToAvroFile(
-			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName, destTypeConversions,
+			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName,
+			destTypeConversions, consistencyStats,
 		)
 		if err != nil {
 			return nil, err
@@ -344,6 +348,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	identifierForFile string,
 	flowJobName string,
 	typeConversions map[string]types.TypeConversion,
+	consistencyStats *model.SnapshotTableConsistencyStats,
 ) (*utils.AvroFile, error) {
 	stagingPath := s.credsProvider.BucketPath
 	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE)
@@ -354,7 +359,9 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
 	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
-	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, avroSize, typeConversions)
+	avroFile, err := ocfWriter.WriteRecordsToS3(
+		ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, avroSize, typeConversions, consistencyStats,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to write records to S3: %w", err)
 	}

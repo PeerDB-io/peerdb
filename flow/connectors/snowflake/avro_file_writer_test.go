@@ -153,7 +153,7 @@ func TestWriteRecordsToAvroFileHappyPath(t *testing.T) {
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name(), nil)
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -180,7 +180,7 @@ func TestWriteRecordsToZstdAvroFileHappyPath(t *testing.T) {
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name(), nil)
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -207,7 +207,7 @@ func TestWriteRecordsToDeflateAvroFileHappyPath(t *testing.T) {
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Deflate, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name(), nil)
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -233,7 +233,7 @@ func TestWriteRecordsToAvroFileNonNull(t *testing.T) {
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name(), nil)
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty
@@ -260,7 +260,7 @@ func TestWriteRecordsToAvroFileAllNulls(t *testing.T) {
 
 	// Call function
 	writer := utils.NewPeerDBOCFWriter(records, avroSchema, ocf.Null, protos.DBType_SNOWFLAKE)
-	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name())
+	_, err = writer.WriteRecordsToAvroFile(t.Context(), nil, tmpfile.Name(), nil)
 	require.NoError(t, err, "expected WriteRecordsToAvroFile to complete without errors")
 
 	// Check file is not empty

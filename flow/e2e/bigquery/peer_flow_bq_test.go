@@ -4,11 +4,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
+	"regexp"
+	"strings"
 	"testing"
 	"time"
 
 	"cloud.google.com/go/bigquery"
 	"github.com/jackc/pgerrcode"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/e2e"
@@ -457,6 +461,140 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 
 		return noNulls
 	})
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuiteBQ) Test_Numeric_Truncation_BQ() {
+	tc := e2e.NewTemporalClient(s.t)
+
+	nines := func(integer, fraction int) string {
+		integerStr := strings.Repeat("9", integer)
+		if integer == 0 {
+			integerStr = "0"
+		}
+		if fraction > 0 {
+			return integerStr + "." + strings.Repeat("9", fraction)
+		}
+		return integerStr
+	}
+	tests := []struct {
+		SrcType  string
+		SrcValue string
+		Expected string
+	}{
+		{SrcType: "numeric", SrcValue: nines(38, 38), Expected: nines(38, 38)},
+		{SrcType: "numeric", SrcValue: nines(39, 0), Expected: "0"},
+		{SrcType: "numeric", SrcValue: nines(0, 39), Expected: nines(0, 38)},
+		{SrcType: "numeric(96, 48)", SrcValue: nines(48, 48), Expected: nines(48, 48)},
+		{SrcType: "numeric(38, 20)", SrcValue: nines(18, 20), Expected: nines(18, 20)},
+		{SrcType: "numeric(38, 0)", SrcValue: nines(38, 0), Expected: nines(38, 0)},
+		{SrcType: "numeric(20, 20)", SrcValue: nines(0, 20), Expected: nines(0, 20)},
+	}
+
+	dstTableName := "test_numeric_truncation_bq"
+	srcTableName := s.attachSchemaSuffix(dstTableName)
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s(\n", srcTableName))
+	sb.WriteString("id serial PRIMARY KEY")
+	for i, tc := range tests {
+		sb.WriteString(fmt.Sprintf(",\ncol%d %s", i, tc.SrcType))
+		sb.WriteString(fmt.Sprintf(",\ncol%d_neg %s", i, tc.SrcType))
+		sb.WriteString(fmt.Sprintf(",\ncol%d_arr %s[]", i, tc.SrcType))
+	}
+	sb.WriteString(")")
+
+	createQuery := sb.String()
+	_, err := s.Conn().Exec(s.t.Context(), createQuery)
+	require.NoError(s.t, err)
+
+	sb.Reset()
+	sb.WriteString(fmt.Sprintf("INSERT INTO %s(", srcTableName))
+	for i := range tests {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("col%d, col%d_neg, col%d_arr", i, i, i))
+	}
+	sb.WriteString(") VALUES(")
+	for i, tc := range tests {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("%s::numeric", tc.SrcValue))
+		sb.WriteString(", ")
+		sb.WriteString(fmt.Sprintf("-%s::numeric", tc.SrcValue))
+		sb.WriteString(", ")
+		sb.WriteString(fmt.Sprintf("array[%s, -%s]::numeric[]", tc.SrcValue, tc.SrcValue))
+	}
+	sb.WriteString(")")
+	insertQuery := sb.String()
+
+	_, err = s.Conn().Exec(s.t.Context(), insertQuery)
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_numeric_truncation_bq"),
+		TableNameMapping: map[string]string{srcTableName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 100
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 1)
+
+	_, err = s.Conn().Exec(s.t.Context(), insertQuery)
+	require.NoError(s.t, err)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
+
+	sb.Reset()
+	for i := range tests {
+		if i > 0 {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("col%d, col%d_neg, col%d_arr", i, i, i))
+	}
+	selectCols := sb.String()
+
+	ninesRegex := regexp.MustCompile(`^(0?)(9*)\.?(9*)`)
+	countNines := func(value string) string {
+		if len(value) < 10 {
+			return value
+		}
+		submatches := ninesRegex.FindStringSubmatch(value)
+		if submatches[1] == "0" {
+			return fmt.Sprintf("nines(0, %d)", len(submatches[3]))
+		}
+		return fmt.Sprintf("nines(%d, %d)", len(submatches[2]), len(submatches[3]))
+	}
+	rows, err := s.GetRows(dstTableName, selectCols)
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2)
+	for _, row := range rows.Records {
+		require.Len(s.t, row, 3*len(tests))
+		for i, tc := range tests {
+			testName := fmt.Sprintf("col%d: type=%s value=%s", i, tc.SrcType, countNines(tc.SrcValue))
+
+			assert.Equal(s.t, tc.Expected, fmt.Sprint(row[3*i].Value()), testName)
+
+			negExpected := "-" + tc.Expected
+			if negExpected == "-0" {
+				negExpected = "0"
+			}
+			assert.Equal(s.t, negExpected, fmt.Sprint(row[3*i+1].Value()), testName+" negative")
+
+			arr := row[3*i+2].Value()
+			rArr := reflect.ValueOf(arr)
+			if assert.Equal(s.t, 2, rArr.Len(), testName+" array length") {
+				assert.Equal(s.t, tc.Expected, fmt.Sprint(rArr.Index(0).Interface()), testName+" in array")
+				assert.Equal(s.t, negExpected, fmt.Sprint(rArr.Index(1).Interface()), testName+" negative in array")
+			}
+		}
+	}
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

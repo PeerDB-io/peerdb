@@ -35,20 +35,26 @@ type RecordTypeCounts struct {
 }
 
 type RecordsToStreamRequest[T Items] struct {
-	records      <-chan Record[T]
-	TableMapping map[string]*RecordTypeCounts
-	BatchID      int64
+	records                  <-chan Record[T]
+	TableMapping             map[string]*RecordTypeCounts
+	BatchID                  int64
+	UnboundedNumericAsString bool
+	TargetDWH                protos.DBType
 }
 
 func NewRecordsToStreamRequest[T Items](
 	records <-chan Record[T],
 	tableMapping map[string]*RecordTypeCounts,
 	batchID int64,
+	unboundedNumericAsString bool,
+	targetDWH protos.DBType,
 ) *RecordsToStreamRequest[T] {
 	return &RecordsToStreamRequest[T]{
-		records:      records,
-		TableMapping: tableMapping,
-		BatchID:      batchID,
+		records:                  records,
+		TableMapping:             tableMapping,
+		BatchID:                  batchID,
+		UnboundedNumericAsString: unboundedNumericAsString,
+		TargetDWH:                targetDWH,
 	}
 }
 
