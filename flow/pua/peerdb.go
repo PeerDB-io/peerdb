@@ -275,6 +275,8 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		newqv = types.QValueTime{Val: LVAsDuration(ls, val)}
 	case types.QValueKindTimeTZ:
 		newqv = types.QValueTimeTZ{Val: LVAsDuration(ls, val)}
+	case types.QValueKindInterval:
+		newqv = types.QValueInterval{Val: lua.LVAsString(val)}
 	case types.QValueKindNumeric:
 		newqv = types.QValueNumeric{Val: LVAsDecimal(ls, val)}
 	case types.QValueKindBytes:
@@ -355,6 +357,14 @@ func LuaRowNewIndex(ls *lua.LState) int {
 		if tbl, ok := val.(*lua.LTable); ok {
 			newqv = types.QValueArrayDate{
 				Val: shared.LTableToSlice(ls, tbl, LVAsTime),
+			}
+		}
+	case types.QValueKindArrayInterval:
+		if tbl, ok := val.(*lua.LTable); ok {
+			newqv = types.QValueArrayInterval{
+				Val: shared.LTableToSlice(ls, tbl, func(_ *lua.LState, v lua.LValue) string {
+					return lua.LVAsString(v)
+				}),
 			}
 		}
 	case types.QValueKindArrayTimestamp:

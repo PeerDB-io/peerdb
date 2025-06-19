@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq/oid"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -152,7 +151,7 @@ func (c *PostgresConnector) getUniqueColumns(
 	}
 
 	// Find the primary key index OID, for replica identity 'd'/default or 'f'/full
-	var pkIndexOID oid.Oid
+	var pkIndexOID uint32
 	err := c.conn.QueryRow(ctx,
 		`SELECT indexrelid FROM pg_index WHERE indrelid = $1 AND indisprimary`,
 		relID).Scan(&pkIndexOID)
@@ -173,7 +172,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(
 	relID uint32,
 	schemaTable *utils.SchemaTable,
 ) ([]string, error) {
-	var indexRelID oid.Oid
+	var indexRelID uint32
 	// Fetch the OID of the index used as the replica identity
 	err := c.conn.QueryRow(ctx,
 		`SELECT indexrelid FROM pg_index WHERE indrelid=$1 AND indisreplident=true`,
@@ -189,7 +188,7 @@ func (c *PostgresConnector) getReplicaIdentityIndexColumns(
 }
 
 // getColumnNamesForIndex returns the column names for a given index.
-func (c *PostgresConnector) getColumnNamesForIndex(ctx context.Context, indexOID oid.Oid) ([]string, error) {
+func (c *PostgresConnector) getColumnNamesForIndex(ctx context.Context, indexOID uint32) ([]string, error) {
 	rows, err := c.conn.Query(ctx,
 		`SELECT a.attname FROM pg_index i
 		 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)

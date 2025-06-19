@@ -78,6 +78,8 @@ func GetAvroSchemaFromQValueKind(
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case types.QValueKindInterval:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
+	case types.QValueKindArrayInterval:
+		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 	case types.QValueKindUUID:
 		return avro.NewPrimitiveSchema(avro.String, avro.NewPrimitiveLogicalSchema(avro.UUID)), nil
 	case types.QValueKindArrayUUID:
@@ -122,8 +124,6 @@ func GetAvroSchemaFromQValueKind(
 			return avro.NewPrimitiveSchema(avro.String, nil), nil
 		}
 		return avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros)), nil
-	case types.QValueKindTSTZRange:
-		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case types.QValueKindHStore, types.QValueKindJSON, types.QValueKindJSONB:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	case types.QValueKindArrayFloat32:
@@ -230,7 +230,7 @@ func QValueToAvro(
 		return c.processNullableUnion(string(v.Val))
 	case types.QValueString,
 		types.QValueCIDR, types.QValueINET, types.QValueMacaddr,
-		types.QValueInterval, types.QValueTSTZRange, types.QValueEnum,
+		types.QValueInterval, types.QValueEnum,
 		types.QValueGeography, types.QValueGeometry, types.QValuePoint:
 		if c.TargetDWH == protos.DBType_SNOWFLAKE && v.Value() != nil &&
 			(len(v.Value().(string)) > 15*1024*1024) {
@@ -289,6 +289,8 @@ func QValueToAvro(
 	case types.QValueArrayString:
 		return c.processArrayString(v.Val), nil
 	case types.QValueArrayEnum:
+		return c.processArrayString(v.Val), nil
+	case types.QValueArrayInterval:
 		return c.processArrayString(v.Val), nil
 	case types.QValueArrayBoolean:
 		return c.processArrayBoolean(v.Val), nil

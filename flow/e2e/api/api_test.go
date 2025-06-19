@@ -782,13 +782,14 @@ func (s Suite) TestCustomSync() {
 	require.ErrorContains(s.t, err, "mirror unknown-flow does not exist")
 
 	tblName := "apitable"
+	srcTableName := e2e.AttachSchema(s, tblName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, tblName))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", srcTableName)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, tblName))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", srcTableName)))
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      "mirrorapi" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, tblName): tblName},
+		TableNameMapping: map[string]string{srcTableName: tblName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -841,14 +842,17 @@ func (s Suite) TestCustomSync() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
+	// TODO fix race, signals can be dropped if received with unfortunate timing
+	time.Sleep(time.Second)
+
 	customResponse, err := s.CustomSyncFlow(s.t.Context(),
 		&protos.CreateCustomSyncRequest{FlowJobName: flowConnConfig.FlowJobName, NumberOfSyncs: 1})
 	require.NoError(s.t, err)
 	require.Equal(s.t, flowConnConfig.FlowJobName, customResponse.FlowJobName)
 	require.Equal(s.t, int32(1), customResponse.NumberOfSyncs)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'pause')", e2e.AttachSchema(s, tblName))))
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing for add table", func() bool {
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'pause')", srcTableName)))
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing for custom sync", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 	e2e.RequireEqualTables(s.ch, tblName, "id,val")

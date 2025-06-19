@@ -2,11 +2,9 @@ package connclickhouse
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -77,15 +75,9 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	var escapedSourceSchemaSelectorFragment string
 	if t.sourceSchemaAsDestinationColumn {
-		if tableMapping == nil {
-			return "", errors.New("could not look up source schema info")
-		}
-		schemaTable, err := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
-		if err != nil {
-			return "", err
-		}
-		escapedSourceSchemaSelectorFragment = fmt.Sprintf("%s AS %s,",
-			peerdb_clickhouse.QuoteLiteral(schemaTable.Schema), peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
+		escapedSourceSchemaSelectorFragment = fmt.Sprintf("JSONExtractString(_peerdb_data, %s) AS %s,",
+			peerdb_clickhouse.QuoteLiteral(sourceSchemaColName),
+			peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
 	}
 
 	projection := strings.Builder{}
@@ -168,6 +160,19 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
+			}
+		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
+			fmt.Fprintf(&projection,
+				`arrayMap(x -> parseDateTime64BestEffortOrNull(trimBoth(x, '"'), 6), JSONExtractArrayRaw(_peerdb_data, %s)) AS %s,`,
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					`arrayMap(x -> parseDateTime64BestEffortOrNull(trimBoth(x, '"'), 6), JSONExtractArrayRaw(_peerdb_match_data, %s)) AS %s,`,
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
 			}
 		default:
 			projLen := projection.Len()

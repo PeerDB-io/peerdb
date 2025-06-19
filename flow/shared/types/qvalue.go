@@ -368,20 +368,22 @@ func (v QValueInterval) LValue(ls *lua.LState) lua.LValue {
 	return lua.LString(v.Val)
 }
 
-type QValueTSTZRange struct {
-	Val string
+type QValueArrayInterval struct {
+	Val []string
 }
 
-func (QValueTSTZRange) Kind() QValueKind {
-	return QValueKindTSTZRange
+func (QValueArrayInterval) Kind() QValueKind {
+	return QValueKindArrayInterval
 }
 
-func (v QValueTSTZRange) Value() any {
+func (v QValueArrayInterval) Value() any {
 	return v.Val
 }
 
-func (v QValueTSTZRange) LValue(ls *lua.LState) lua.LValue {
-	return lua.LString(v.Val)
+func (v QValueArrayInterval) LValue(ls *lua.LState) lua.LValue {
+	return shared.SliceToLTable(ls, v.Val, func(x string) lua.LValue {
+		return lua.LString(x)
+	})
 }
 
 type QValueNumeric struct {

@@ -427,7 +427,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to update start time for partition: %w", err))
 	}
 
-	logger.Info("replicating partition " + partition.PartitionId)
+	logger.Info("replicating partition", slog.String("partitionId", partition.PartitionId))
 
 	var rowsSynced int64
 	errGroup, errCtx := errgroup.WithContext(ctx)

@@ -436,7 +436,11 @@ func pullCore[Items model.Items](
 	}
 	handleInheritanceForNonPartitionedTables, err := internal.PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx, req.Env)
 	if err != nil {
-		return fmt.Errorf("failed to get get setting for handleInheritanceForNonPartitionedTables: %v", err)
+		return fmt.Errorf("failed to get get setting for handleInheritanceForNonPartitionedTables: %w", err)
+	}
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get get setting for sourceSchemaAsDestinationColumn: %w", err)
 	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
@@ -450,6 +454,7 @@ func pullCore[Items model.Items](
 		Slot:                                     slotName,
 		Publication:                              publicationName,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
+		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))

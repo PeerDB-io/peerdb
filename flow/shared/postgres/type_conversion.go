@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq/oid"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -88,8 +87,8 @@ func PostgresOIDToQValueKind(
 		return types.QValueKindArrayNumeric, nil
 	case pgtype.IntervalOID:
 		return types.QValueKindInterval, nil
-	case pgtype.TstzrangeOID:
-		return types.QValueKindTSTZRange, nil
+	case pgtype.IntervalArrayOID:
+		return types.QValueKindArrayInterval, nil
 	default:
 		if typeName, ok := typeMap.TypeForOID(recvOID); ok {
 			colType := types.QValueKindString
@@ -99,10 +98,10 @@ func PostgresOIDToQValueKind(
 			return colType, errors.New(typeName.Name)
 		} else {
 			// workaround for some types not being defined by pgtype
-			switch oid.Oid(recvOID) {
-			case oid.T_timetz:
+			switch recvOID {
+			case pgtype.TimetzOID:
 				return types.QValueKindTimeTZ, nil
-			case oid.T_point:
+			case pgtype.PointOID:
 				return types.QValueKindPoint, nil
 			default:
 				if typeData, ok := customTypeMapping[recvOID]; ok {
@@ -134,6 +133,8 @@ func CustomTypeToQKind(typeData shared.CustomDataType) types.QValueKind {
 		return types.QValueKindGeography
 	case "hstore":
 		return types.QValueKindHStore
+	case "vector", "halfvec", "sparsevec":
+		return types.QValueKindArrayFloat32
 	default:
 		return types.QValueKindString
 	}

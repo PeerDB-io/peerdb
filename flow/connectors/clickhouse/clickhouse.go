@@ -287,7 +287,6 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	return conn, nil
 }
 
-//nolint:unparam
 func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
 	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
 }
@@ -421,6 +420,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindArrayString
 		case "Array(UUID)":
 			qkind = types.QValueKindArrayUUID
+		case "Array(DateTime64(6))":
+			qkind = types.QValueKindArrayTimestamp
 		default:
 			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
 				if strings.HasPrefix(column.DatabaseTypeName(), "Array(") {

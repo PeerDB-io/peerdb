@@ -22,6 +22,12 @@ import (
 	"google.golang.org/api/option"
 )
 
+func CheckedClose(closer io.Closer) {
+	if err := closer.Close(); err != nil {
+		panic(err)
+	}
+}
+
 // from flow/shared/crypto.go
 func DecodePKCS8PrivateKey(rawKey []byte, password *string) (*rsa.PrivateKey, error) {
 	PEMBlock, _ := pem.Decode(rawKey)
@@ -49,7 +55,7 @@ func ParseJsonKeyVal[T any](path string) (T, error) {
 	if err != nil {
 		return result, fmt.Errorf("failed to open file: %w", err)
 	}
-	defer f.Close()
+	defer CheckedClose(f)
 
 	jsonContent, err := io.ReadAll(f)
 	if err != nil {
@@ -91,7 +97,7 @@ func CleanupBQ(ctx context.Context) {
 	if err != nil {
 		panic(err)
 	}
-	defer client.Close()
+	defer CheckedClose(client)
 
 	datasets := client.Datasets(ctx)
 	datasetPrefix := config["dataset_id"]
@@ -120,7 +126,7 @@ func CleanupBQ(ctx context.Context) {
 	if err != nil {
 		panic(err)
 	}
-	defer psclient.Close()
+	defer CheckedClose(psclient)
 
 	topics := psclient.Topics(ctx)
 	for {
@@ -189,7 +195,7 @@ func CleanupSF(ctx context.Context) {
 	if err != nil {
 		panic(err)
 	}
-	defer database.Close()
+	defer CheckedClose(database)
 	_, err = database.ExecContext(ctx, `DECLARE c CURSOR FOR
 SELECT database_name FROM INFORMATION_SCHEMA.DATABASES
 WHERE database_name ILIKE 'E2E_TEST_%' AND created < timeadd('hour', -2, CURRENT_DATE);
