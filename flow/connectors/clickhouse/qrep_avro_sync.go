@@ -232,6 +232,11 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 		totalRecords = avroFile.NumRecords
 	}
 
+	s.logger.Info("finished writing avro chunks to S3",
+		slog.String("partitionId", partition.PartitionId),
+		slog.Int("totalChunks", len(avroFiles)),
+		slog.Int64("totalRecords", totalRecords))
+
 	return avroFiles, totalRecords, nil
 }
 
