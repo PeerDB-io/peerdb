@@ -7,12 +7,12 @@ import { TableRow } from '@tremor/react';
 import React, { useMemo, useState } from 'react';
 import ColumnDisplayModal from './columnDisplayModal';
 
-export default function TablePairs({ 
-  tables, 
-  sourcePeerName 
-}: { 
-  tables?: TableMapping[]; 
-  sourcePeerName: string; 
+export default function TablePairs({
+  tables,
+  sourcePeerName,
+}: {
+  tables?: TableMapping[];
+  sourcePeerName: string;
 }) {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -65,7 +65,7 @@ export default function TablePairs({
                 key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
                 onClick={() => handleTableClick(table)}
                 style={{ cursor: 'pointer' }}
-                className="hover:bg-gray-50"
+                className='hover:bg-gray-50'
               >
                 <TableCell>{table.sourceTableIdentifier}</TableCell>
                 <TableCell style={{ padding: '0.5rem' }}>
@@ -80,7 +80,9 @@ export default function TablePairs({
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
           sourceTableIdentifier={selectedTable?.sourceTableIdentifier ?? ''}
-          destinationTableIdentifier={selectedTable?.destinationTableIdentifier ?? ''}
+          destinationTableIdentifier={
+            selectedTable?.destinationTableIdentifier ?? ''
+          }
           tableMapping={selectedTable}
           sourcePeerName={sourcePeerName}
         />

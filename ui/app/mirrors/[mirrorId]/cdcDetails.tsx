@@ -136,7 +136,10 @@ export default function CdcDetails({
         </div>
       </div>
 
-      <TablePairs tables={tablesSynced} sourcePeerName={mirrorConfig.config?.sourceName ?? ''} />
+      <TablePairs
+        tables={tablesSynced}
+        sourcePeerName={mirrorConfig.config?.sourceName ?? ''}
+      />
     </>
   );
 }

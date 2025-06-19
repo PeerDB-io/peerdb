@@ -1,13 +1,13 @@
 'use client';
-import { useState, useEffect } from 'react';
 import { TableMapping } from '@/grpc_generated/flow';
 import { TableColumnsResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { Table, TableCell } from '@/lib/Table';
-import { TableRow } from '@tremor/react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { TableRow } from '@tremor/react';
+import { useEffect, useState } from 'react';
 
 interface ColumnDisplayModalProps {
   isOpen: boolean;
@@ -32,57 +32,59 @@ export default function ColumnDisplayModal({
 
   useEffect(() => {
     if (isOpen && sourceTableIdentifier && sourcePeerName) {
+      const fetchTableColumns = async () => {
+        try {
+          setLoading(true);
+          setError(null);
+
+          // Parse schema and table name from sourceTableIdentifier (e.g., "public.users")
+          const [schemaName, tableName] = sourceTableIdentifier.split('.');
+
+          if (!schemaName || !tableName) {
+            throw new Error('Invalid table identifier format');
+          }
+
+          const response: TableColumnsResponse = await fetch(
+            `/api/v1/peers/columns?peer_name=${encodeURIComponent(
+              sourcePeerName
+            )}&schema_name=${encodeURIComponent(schemaName)}&table_name=${encodeURIComponent(tableName)}`,
+            {
+              cache: 'no-store',
+            }
+          ).then((res) => {
+            if (!res.ok) {
+              throw new Error('Failed to fetch columns');
+            }
+            return res.json();
+          });
+
+          setColumns(response.columns || []);
+        } catch (err) {
+          console.error('Error fetching columns:', err);
+          setError(
+            err instanceof Error ? err.message : 'Failed to fetch columns'
+          );
+          setColumns([]);
+        } finally {
+          setLoading(false);
+        }
+      };
+
       fetchTableColumns();
     }
   }, [isOpen, sourceTableIdentifier, sourcePeerName]);
-
-  const fetchTableColumns = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Parse schema and table name from sourceTableIdentifier (e.g., "public.users")
-      const [schemaName, tableName] = sourceTableIdentifier.split('.');
-      
-      if (!schemaName || !tableName) {
-        throw new Error('Invalid table identifier format');
-      }
-
-      const response: TableColumnsResponse = await fetch(
-        `/api/v1/peers/columns?peer_name=${encodeURIComponent(
-          sourcePeerName
-        )}&schema_name=${encodeURIComponent(schemaName)}&table_name=${encodeURIComponent(tableName)}`,
-        {
-          cache: 'no-store',
-        }
-      ).then((res) => {
-        if (!res.ok) {
-          throw new Error('Failed to fetch columns');
-        }
-        return res.json();
-      });
-
-      setColumns(response.columns || []);
-    } catch (err) {
-      console.error('Error fetching columns:', err);
-      setError(err instanceof Error ? err.message : 'Failed to fetch columns');
-      setColumns([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const excludedColumns = new Set(tableMapping?.exclude || []);
 
   const sortedColumns = [...columns].sort((a, b) => {
     const aExcluded = excludedColumns.has(a.name);
     const bExcluded = excludedColumns.has(b.name);
-    
+
     // Non-excluded columns first, then excluded columns
     if (aExcluded !== bExcluded) {
       return aExcluded ? 1 : -1;
     }
-    
+
     // Within each group, sort alphabetically
     return a.name.localeCompare(b.name);
   });
@@ -90,53 +92,56 @@ export default function ColumnDisplayModal({
   return (
     <Dialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden z-50">
+        <Dialog.Overlay className='fixed inset-0 z-50' />
+        <Dialog.Content className='fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden z-50'>
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b">
+          <div className='flex items-center justify-between p-6 border-b'>
             <div>
               <Dialog.Title asChild>
-                <Label variant="headline" className="text-xl font-semibold">
+                <Label variant='headline' className='text-xl font-semibold'>
                   Column Details
                 </Label>
               </Dialog.Title>
-              <div className="mt-2 space-y-1">
-                <Label variant="subheadline" colorName="lowContrast">
+              <div className='mt-2 space-y-1'>
+                <Label variant='subheadline' colorName='lowContrast'>
                   Source: {sourceTableIdentifier}
                 </Label>
-                <Label variant="subheadline" colorName="lowContrast">
+                <Label variant='subheadline' colorName='lowContrast'>
                   Destination: {destinationTableIdentifier}
                 </Label>
               </div>
             </div>
             <Dialog.Close asChild>
-              <Button variant="normalBorderless" className="p-2">
-                <Icon name="close" />
+              <Button variant='normalBorderless' className='p-2'>
+                <Icon name='close' />
               </Button>
             </Dialog.Close>
           </div>
 
           {/* Content */}
-          <div className="p-6 overflow-auto max-h-[60vh]" style={{ height: '30em' }}>
+          <div
+            className='p-6 overflow-auto max-h-[60vh]'
+            style={{ height: '30em' }}
+          >
             {loading && (
-              <div className="text-center py-8">
-                <Label variant="body" colorName="lowContrast">
+              <div className='text-center py-8'>
+                <Label variant='body' colorName='lowContrast'>
                   Loading column information...
                 </Label>
               </div>
             )}
 
             {error && (
-              <div className="text-center py-8">
-                <Label variant="body" className="text-red-500">
+              <div className='text-center py-8'>
+                <Label variant='body' className='text-red-500'>
                   Error: {error}
                 </Label>
               </div>
             )}
 
             {!loading && !error && columns.length === 0 && (
-              <div className="text-center py-8">
-                <Label variant="body" colorName="lowContrast">
+              <div className='text-center py-8'>
+                <Label variant='body' colorName='lowContrast'>
                   No columns found for this table.
                 </Label>
               </div>
@@ -157,7 +162,7 @@ export default function ColumnDisplayModal({
                 {sortedColumns.map((column) => {
                   const isExcluded = excludedColumns.has(column.name);
                   return (
-                    <TableRow 
+                    <TableRow
                       key={column.name}
                       className={isExcluded ? 'opacity-60 bg-gray-50' : ''}
                     >
@@ -175,9 +180,13 @@ export default function ColumnDisplayModal({
                       </TableCell>
                       <TableCell>
                         {isExcluded ? (
-                          <Label className="text-red-600 font-medium">Excluded</Label>
+                          <Label className='text-red-600 font-medium'>
+                            Excluded
+                          </Label>
                         ) : (
-                          <Label className="text-green-600 font-medium">Included</Label>
+                          <Label className='text-green-600 font-medium'>
+                            Included
+                          </Label>
                         )}
                       </TableCell>
                     </TableRow>
@@ -187,19 +196,20 @@ export default function ColumnDisplayModal({
             )}
 
             {!loading && !error && excludedColumns.size > 0 && (
-              <div className="text-xs text-gray-500 pt-4 border-t mt-4">
-                <Label variant="body" colorName="lowContrast">
-                  <strong>Note:</strong> Excluded columns are shown with strikethrough text and grayed out. 
-                  They appear at the bottom of the list.
+              <div className='text-xs text-gray-500 pt-4 border-t mt-4'>
+                <Label variant='body' colorName='lowContrast'>
+                  <strong>Note:</strong> Excluded columns are shown with
+                  strikethrough text and grayed out. They appear at the bottom
+                  of the list.
                 </Label>
               </div>
             )}
           </div>
 
           {/* Footer */}
-          <div className="flex justify-end p-6 border-t">
+          <div className='flex justify-end p-6 border-t'>
             <Dialog.Close asChild>
-              <Button variant="normalBorderless">Close</Button>
+              <Button variant='normalBorderless'>Close</Button>
             </Dialog.Close>
           </div>
         </Dialog.Content>
