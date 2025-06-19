@@ -219,9 +219,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 		if err := ctx.Err(); err != nil {
 			return nil, 0, err
 		}
-	}
-
-	if len(avroFiles) == 0 {
+	} else {
 		avroFile, err := s.writeToAvroFile(
 			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName, destTypeConversions,
 		)
