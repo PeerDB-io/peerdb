@@ -296,6 +296,7 @@ func (c *MongoConnector) PullRecords(
 
 		if documentKey, found := changeDoc["documentKey"]; found {
 			if len(documentKey.(bson.D)) == 0 || documentKey.(bson.D)[0].Key != DefaultDocumentKeyColumnName {
+				// should never happen
 				return fmt.Errorf("invalid document key, expect _id")
 			}
 			id := documentKey.(bson.D)[0].Value
@@ -306,7 +307,7 @@ func (c *MongoConnector) PullRecords(
 			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
 		} else {
 			// should never happen
-			return fmt.Errorf("documentKey field not found")
+			return errors.New("documentKey field not found")
 		}
 
 		if fullDocument, found := changeDoc["fullDocument"]; found {

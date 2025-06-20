@@ -35,50 +35,6 @@ func (c *MongoConnector) GetQRepPartitions(
 	}
 
 	partitionHelper := utils.NewPartitionHelper(c.logger)
-	// TODO: test against large collection to evaluate performance of bucketing logic; exclude partition logic for now.
-	//if last != nil && last.Range != nil {
-	//	return nil, errors.ErrUnsupported
-	//}
-	//parseWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
-	//if err != nil {
-	//	return nil, fmt.Errorf("unable to parse watermark table: %w", err)
-	//}
-	//collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
-	//collectionCount, err := collection.CountDocuments(ctx, bson.D{})
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to get collection count: %w", err)
-	//}
-	//numBuckets := math.Ceil(float64(collectionCount) / float64(config.NumRowsPerPartition))
-	//pipeline := mongo.Pipeline{
-	//	bson.D{
-	//		bson.E{Key: "$bucketAuto", Value: bson.D{
-	//			bson.E{Key: "groupBy", Value: "$_id"},
-	//			bson.E{Key: "buckets", Value: numBuckets},
-	//		}},
-	//	},
-	//}
-	//cursor, err := collection.Aggregate(ctx, pipeline)
-	//if err != nil {
-	//	return nil, fmt.Errorf("failed to get partitions: %w", err)
-	//}
-	//defer cursor.Close(ctx)
-	//
-	//var results []struct {
-	//	ID struct {
-	//		Min bson.ObjectID `bson:"min"`
-	//		Max bson.ObjectID `bson:"max"`
-	//	} `bson:"_id"`
-	//	Count int `bson:"count"`
-	//}
-	//if err = cursor.All(ctx, &results); err != nil {
-	//	return nil, fmt.Errorf("failed to decode partitions: %w", err)
-	//}
-	//
-	//for _, result := range results {
-	//	if err := partitionHelper.AddPartition(result.ID.Min, result.ID.Max); err != nil {
-	//		return nil, fmt.Errorf("failed to add partition: %w", err)
-	//	}
-	//}
 	return partitionHelper.GetPartitions(), nil
 }
 
@@ -210,7 +166,6 @@ func qValuesFromDocument(doc bson.D) ([]types.QValue, int64, error) {
 	}
 	qValues = append(qValues, qvalueDoc)
 
-	// TODO: more accurate size calculation
 	size += int64(len(qvalueDoc.Val))
 
 	return qValues, size, nil
