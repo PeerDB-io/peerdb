@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -21,7 +22,7 @@ func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesRes
 			return nil, fmt.Errorf("failed to get collections: %w", err)
 		}
 		for _, collName := range collNames {
-			tableNames = append(tableNames, fmt.Sprintf("%.%", dbName, collName))
+			tableNames = append(tableNames, fmt.Sprintf("%s.%s", dbName, collName))
 		}
 	}
 	return &protos.AllTablesResponse{
