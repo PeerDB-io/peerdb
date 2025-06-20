@@ -24,7 +24,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		}
 	}
 
-	peerDBColumns := []string{signColName, versionColName}
+	peerDBColumns := []string{isDeletedColName, versionColName}
 	if cfg.SyncedAtColName != "" {
 		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
 	}
