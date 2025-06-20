@@ -250,7 +250,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 					strings.HasSuffix(pgErr.Message, "Stale file handle")) ||
 				// Below error is transient and Aurora Specific
 				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) ||
-				// Handle missing record during logical decoding, https://github.com/postgres/postgres/blob/a0c7b765372d949cec54960dafcaadbc04b3204e/src/backend/access/transam/xlogreader.c#L921
+				//nolint:lll
+				// Handle missing record during logical decoding
+				// https://github.com/postgres/postgres/blob/a0c7b765372d949cec54960dafcaadbc04b3204e/src/backend/access/transam/xlogreader.c#L921
 				strings.HasPrefix(pgErr.Message, "could not find record while sending logically-decoded data") {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
