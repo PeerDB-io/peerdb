@@ -113,16 +113,17 @@ func (c *MongoConnector) PullQRepRecords(
 
 func getDefaultSchema() types.QRecordSchema {
 	schema := make([]types.QField, 0, 2)
-	schema = append(schema, types.QField{
-		Name:     DefaultDocumentKeyColumnName,
-		Type:     types.QValueKindString,
-		Nullable: false,
-	})
-	schema = append(schema, types.QField{
-		Name:     DefaultFullDocumentColumnName,
-		Type:     types.QValueKindJSON,
-		Nullable: false,
-	})
+	schema = append(
+		schema, types.QField{
+			Name:     DefaultDocumentKeyColumnName,
+			Type:     types.QValueKindString,
+			Nullable: false,
+		},
+		types.QField{
+			Name:     DefaultFullDocumentColumnName,
+			Type:     types.QValueKindJSON,
+			Nullable: false,
+		})
 	return types.QRecordSchema{Fields: schema}
 }
 
@@ -136,7 +137,7 @@ func toRangeFilter(partitionRange *protos.PartitionRange) (bson.D, error) {
 			}},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported partition range type")
+		return nil, errors.New("unsupported partition range type")
 	}
 }
 

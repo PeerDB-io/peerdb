@@ -24,8 +24,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-const DefaultDocumentKeyColumnName = "_id"
-const DefaultFullDocumentColumnName = "_full_document"
+const (
+	DefaultDocumentKeyColumnName  = "_id"
+	DefaultFullDocumentColumnName = "_full_document"
+)
 
 type MongoConnector struct {
 	*metadataStore.PostgresMetadata
@@ -297,7 +299,7 @@ func (c *MongoConnector) PullRecords(
 		if documentKey, found := changeDoc["documentKey"]; found {
 			if len(documentKey.(bson.D)) == 0 || documentKey.(bson.D)[0].Key != DefaultDocumentKeyColumnName {
 				// should never happen
-				return fmt.Errorf("invalid document key, expect _id")
+				return errors.New("invalid document key, expect _id")
 			}
 			id := documentKey.(bson.D)[0].Value
 			qValue, err := qValueStringFromKey(id)
@@ -319,7 +321,7 @@ func (c *MongoConnector) PullRecords(
 		} else {
 			// should never happen with fullDocument='UpdateLookup',
 			// fail loudly for now so we can investigate if it does
-			return fmt.Errorf("fullDocument field not found")
+			return errors.New("fullDocument field not found")
 		}
 
 		if operationType, ok := changeDoc["operationType"]; ok {
