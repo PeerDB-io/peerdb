@@ -2,14 +2,12 @@ package connmongo
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
-	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -18,7 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-const MONGO_FULL_TABLE_PARTITION_ID = "mongo-full-table-partition-id"
+const MongoFullTablePartitionId = "mongo-full-table-partition-id"
 
 func (c *MongoConnector) GetQRepPartitions(
 	ctx context.Context,
@@ -29,56 +27,14 @@ func (c *MongoConnector) GetQRepPartitions(
 	if config.WatermarkColumn == "" {
 		return []*protos.QRepPartition{
 			{
-				PartitionId:        MONGO_FULL_TABLE_PARTITION_ID,
+				PartitionId:        MongoFullTablePartitionId,
 				Range:              nil,
 				FullTablePartition: true,
 			},
 		}, nil
 	}
-	if last != nil && last.Range != nil {
-		return nil, errors.ErrUnsupported
-	}
-	parseWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
-	}
-	collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
-
-	// TODO: support partitioning with bucket > 1
-	// TODO: support partitioning by columns other than _id
-	numBuckets := 1
-	pipeline := mongo.Pipeline{
-		bson.D{
-			bson.E{Key: "$bucketAuto", Value: bson.D{
-				bson.E{Key: "groupBy", Value: "$_id"},
-				bson.E{Key: "buckets", Value: numBuckets},
-			}},
-		},
-	}
-	cursor, err := collection.Aggregate(ctx, pipeline)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get partitions: %w", err)
-	}
-	defer cursor.Close(ctx)
-
-	var results []struct {
-		ID struct {
-			Min bson.ObjectID `bson:"min"`
-			Max bson.ObjectID `bson:"max"`
-		} `bson:"_id"`
-		Count int `bson:"count"`
-	}
-	if err = cursor.All(ctx, &results); err != nil {
-		return nil, fmt.Errorf("failed to decode partitions: %w", err)
-	}
 
 	partitionHelper := utils.NewPartitionHelper(c.logger)
-	for _, result := range results {
-		if err := partitionHelper.AddPartition(result.ID.Min, result.ID.Max); err != nil {
-			return nil, fmt.Errorf("failed to add partition: %w", err)
-		}
-	}
-
 	return partitionHelper.GetPartitions(), nil
 }
 
@@ -101,9 +57,12 @@ func (c *MongoConnector) PullQRepRecords(
 
 	filter := bson.D{}
 	if !partition.FullTablePartition {
-		filter, err = toRangeFilter(partition.Range)
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
+		// For now partition range is always nil, see `GetQRepPartitions`
+		if partition.Range != nil {
+			filter, err = toRangeFilter(partition.Range)
+			if err != nil {
+				return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
+			}
 		}
 	}
 
@@ -126,7 +85,7 @@ func (c *MongoConnector) PullQRepRecords(
 			return 0, 0, fmt.Errorf("failed to decode record: %w", err)
 		}
 
-		record, bytes, err := qValueFromBsonValue(doc)
+		record, bytes, err := qValuesFromDocument(doc)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
 		}
@@ -154,16 +113,17 @@ func (c *MongoConnector) PullQRepRecords(
 
 func getDefaultSchema() types.QRecordSchema {
 	schema := make([]types.QField, 0, 2)
-	schema = append(schema, types.QField{
-		Name:     "_id",
-		Type:     types.QValueKindString,
-		Nullable: false,
-	})
-	schema = append(schema, types.QField{
-		Name:     "_full_document",
-		Type:     types.QValueKindJSON,
-		Nullable: false,
-	})
+	schema = append(schema,
+		types.QField{
+			Name:     DefaultDocumentKeyColumnName,
+			Type:     types.QValueKindString,
+			Nullable: false,
+		},
+		types.QField{
+			Name:     DefaultFullDocumentColumnName,
+			Type:     types.QValueKindJSON,
+			Nullable: false,
+		})
 	return types.QRecordSchema{Fields: schema}
 }
 
@@ -171,41 +131,43 @@ func toRangeFilter(partitionRange *protos.PartitionRange) (bson.D, error) {
 	switch r := partitionRange.Range.(type) {
 	case *protos.PartitionRange_ObjectIdRange:
 		return bson.D{
-			bson.E{Key: "_id", Value: bson.D{
+			bson.E{Key: DefaultDocumentKeyColumnName, Value: bson.D{
 				bson.E{Key: "$gte", Value: r.ObjectIdRange.Start},
 				bson.E{Key: "$lte", Value: r.ObjectIdRange.End},
 			}},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unsupported partition range type")
+		return nil, errors.New("unsupported partition range type")
 	}
 }
 
-func qValueFromBsonValue(doc bson.D) ([]types.QValue, int64, error) {
+func qValuesFromDocument(doc bson.D) ([]types.QValue, int64, error) {
 	var qValues []types.QValue
 	var size int64
 
 	var qvalueId types.QValueString
+	var err error
 	for _, v := range doc {
-		if v.Key == "_id" {
-			switch oid := v.Value.(type) {
-			case bson.ObjectID:
-				qvalueId = types.QValueString{Val: oid.Hex()}
-			default:
-				return nil, 0, fmt.Errorf("unsupported type for _id field")
+		if v.Key == DefaultDocumentKeyColumnName {
+			qvalueId, err = qValueStringFromKey(v.Value)
+			if err != nil {
+				return nil, 0, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 			}
 			break
 		}
 	}
+	if qvalueId.Val == "" {
+		return nil, 0, fmt.Errorf("key %s not found", DefaultDocumentKeyColumnName)
+	}
 	qValues = append(qValues, qvalueId)
 
-	jsonb, err := json.Marshal(doc)
+	qvalueDoc, err := qValueJSONFromDocument(doc)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to convert doc to json: %w", err)
+		return nil, 0, err
 	}
-	qvalueDoc := types.QValueJSON{Val: string(jsonb), IsArray: false}
-	size += int64(len(qvalueDoc.Val))
 	qValues = append(qValues, qvalueDoc)
+
+	size += int64(len(qvalueDoc.Val))
 
 	return qValues, size, nil
 }

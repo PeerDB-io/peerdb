@@ -24,6 +24,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+const (
+	DefaultDocumentKeyColumnName  = "_id"
+	DefaultFullDocumentColumnName = "_full_document"
+)
+
 type MongoConnector struct {
 	*metadataStore.PostgresMetadata
 	config *protos.MongoConfig
@@ -122,13 +127,13 @@ func (c *MongoConnector) GetTableSchema(
 ) (map[string]*protos.TableSchema, error) {
 	result := make(map[string]*protos.TableSchema, len(tableMappings))
 	idFieldDescription := &protos.FieldDescription{
-		Name:         "_id",
+		Name:         DefaultDocumentKeyColumnName,
 		Type:         string(types.QValueKindString),
 		TypeModifier: -1,
 		Nullable:     false,
 	}
 	dataFieldDescription := &protos.FieldDescription{
-		Name:         "_full_document",
+		Name:         DefaultFullDocumentColumnName,
 		Type:         string(types.QValueKindJSON),
 		TypeModifier: -1,
 		Nullable:     false,
@@ -137,7 +142,7 @@ func (c *MongoConnector) GetTableSchema(
 	for _, tm := range tableMappings {
 		result[tm.SourceTableIdentifier] = &protos.TableSchema{
 			TableIdentifier:       tm.SourceTableIdentifier,
-			PrimaryKeyColumns:     []string{"_id"},
+			PrimaryKeyColumns:     []string{DefaultDocumentKeyColumnName},
 			IsReplicaIdentityFull: true,
 			System:                protos.TypeSystem_Q,
 			NullableEnabled:       false,
@@ -289,18 +294,34 @@ func (c *MongoConnector) PullRecords(
 		sourceTableName := changeDoc["ns"].(bson.D)[0].Value.(string) + "." + changeDoc["ns"].(bson.D)[1].Value.(string)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name
 
-		documentKey := changeDoc["documentKey"].(bson.D)
 		items := model.NewRecordItems(2)
-		items.AddColumn("_id",
-			types.QValueString{Val: documentKey[0].Value.(bson.ObjectID).Hex()})
-		if fullDocument, ok := changeDoc["fullDocument"]; ok {
-			fullDocJSON, err := bson.MarshalExtJSON(fullDocument, true, true)
-			if err != nil {
-				return fmt.Errorf("failed to marshal fullDocument to JSON: %w", err)
+
+		if documentKey, found := changeDoc["documentKey"]; found {
+			if len(documentKey.(bson.D)) == 0 || documentKey.(bson.D)[0].Key != DefaultDocumentKeyColumnName {
+				// should never happen
+				return errors.New("invalid document key, expect _id")
 			}
-			items.AddColumn("_full_document", types.QValueJSON{Val: string(fullDocJSON)})
+			id := documentKey.(bson.D)[0].Value
+			qValue, err := qValueStringFromKey(id)
+			if err != nil {
+				return fmt.Errorf("failed to convert _id to string: %w", err)
+			}
+			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
 		} else {
-			items.AddColumn("_full_document", types.QValueJSON{Val: "{}"})
+			// should never happen
+			return errors.New("documentKey field not found")
+		}
+
+		if fullDocument, found := changeDoc["fullDocument"]; found {
+			qValue, err := qValueJSONFromDocument(fullDocument.(bson.D))
+			if err != nil {
+				return fmt.Errorf("failed to convert fullDocument to JSON: %w", err)
+			}
+			items.AddColumn(DefaultFullDocumentColumnName, qValue)
+		} else {
+			// should never happen with fullDocument='UpdateLookup',
+			// fail loudly for now so we can investigate if it does
+			return errors.New("fullDocument field not found")
 		}
 
 		if operationType, ok := changeDoc["operationType"]; ok {
