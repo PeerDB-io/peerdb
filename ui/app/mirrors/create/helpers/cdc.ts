@@ -167,6 +167,22 @@ export const cdcSettings: MirrorSetting[] = [
     required: true,
   },
   {
+    label: 'Hard delete',
+    stateHandler: (value, setter) =>
+      setter(
+        (curr: CDCConfig): CDCConfig => ({
+          ...curr,
+          softDeleteColName: (value as boolean)
+            ? curr.softDeleteColName || blankCDCSetting.softDeleteColName
+            : '',
+        })
+      ),
+    tips: 'Places the is_deleted column inside the ReplacingMergeTree syntax - allowing FINAL and merges to remove records marked as deleted',
+    default: false,
+    type: 'switch',
+    required: false,
+  },
+  {
     label: 'Initial Copy Only',
     stateHandler: (value, setter) =>
       setter(
