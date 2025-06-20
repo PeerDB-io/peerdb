@@ -381,35 +381,13 @@ func (c *MySqlConnector) PullRecords(
 	}
 
 	var mysqlParser *parser.Parser
-	for inTx || recordCount < req.MaxBatchSize {
-		if recordCount > 0 {
-			if overtime && !inTx {
-				//nolint:govet // cancelTimeout called by defer, spurious lint
-				return nil
-			}
-
-			// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
-			if err := timeoutCtx.Err(); err != nil {
-				if errors.Is(err, context.DeadlineExceeded) {
-					if inTx {
-						c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
-							slog.Uint64("recordCount", uint64(recordCount)))
-						// reset timeoutCtx to a low value and wait for inTx to become false
-						if cancelTimeout != nil {
-							cancelTimeout()
-						}
-						timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Minute)
-						overtime = true
-					} else {
-						return nil
-					}
-				} else {
-					return err
-				}
-			}
+	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
+		var event *replication.BinlogEvent
+		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
+		err := timeoutCtx.Err()
+		if err == nil {
+			event, err = mystream.GetEvent(timeoutCtx)
 		}
-
-		event, err := mystream.GetEvent(timeoutCtx)
 		if err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount == 0 {
@@ -421,9 +399,19 @@ func (c *MySqlConnector) PullRecords(
 					if cancelTimeout != nil {
 						cancelTimeout()
 					}
-					//nolint:govet // cancelTimeout called by defer, spurious lint
 					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
-				} else if !inTx {
+				} else if inTx {
+					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
+						slog.Uint64("recordCount", uint64(recordCount)))
+					// reset timeoutCtx to a low value and wait for inTx to become false
+					if cancelTimeout != nil {
+						cancelTimeout()
+					}
+					//nolint:govet // cancelTimeout called by defer, spurious lint
+					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Minute)
+					overtime = true
+				} else {
+					//nolint:govet // cancelTimeout called by defer, spurious lint
 					return nil
 				}
 
