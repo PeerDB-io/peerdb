@@ -56,7 +56,7 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	avroSync := NewClickHouseAvroSyncMethod(&protos.QRepConfig{
 		DestinationTableIdentifier: table.TableIdentifier,
 	}, conn)
-	require.NoError(t, avroSync.CopyStageToDestination(ctx, &utils.AvroFile{
+	require.NoError(t, avroSync.CopyStageToDestination(ctx, utils.AvroFile{
 		FilePath:        "test-iam-role-can-issue-select-from-s3/datafile.avro.zst",
 		StorageLocation: utils.AvroS3Storage,
 		NumRecords:      3,
