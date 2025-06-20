@@ -360,9 +360,7 @@ func (c *MySqlConnector) PullRecords(
 
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 	defer func() {
-		if cancelTimeout != nil {
-			cancelTimeout()
-		}
+		cancelTimeout()
 	}()
 
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
@@ -372,9 +370,7 @@ func (c *MySqlConnector) PullRecords(
 		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
-			if cancelTimeout != nil {
-				cancelTimeout()
-			}
+			cancelTimeout()
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
 		}
 		return nil
@@ -396,17 +392,13 @@ func (c *MySqlConnector) PullRecords(
 					}
 
 					// reset timer for next offset update
-					if cancelTimeout != nil {
-						cancelTimeout()
-					}
+					cancelTimeout()
 					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
 				} else if inTx {
 					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 						slog.Uint64("recordCount", uint64(recordCount)))
 					// reset timeoutCtx to a low value and wait for inTx to become false
-					if cancelTimeout != nil {
-						cancelTimeout()
-					}
+					cancelTimeout()
 					//nolint:govet // cancelTimeout called by defer, spurious lint
 					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Minute)
 					overtime = true
@@ -416,14 +408,12 @@ func (c *MySqlConnector) PullRecords(
 				}
 
 				continue
+			} else if errors.Is(err, context.Canceled) {
+				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
 			} else {
-				if errors.Is(err, context.Canceled) {
-					c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
-				} else {
-					c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
-				}
-				return err
+				c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
 			}
+			return err
 		}
 
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
