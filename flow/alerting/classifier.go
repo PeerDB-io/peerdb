@@ -229,7 +229,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			pgerrcode.InsufficientPrivilege,
 			pgerrcode.UndefinedTable,
 			pgerrcode.CannotConnectNow,
-			pgerrcode.ConfigurationLimitExceeded:
+			pgerrcode.ConfigurationLimitExceeded,
+			pgerrcode.DiskFull:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
 		case pgerrcode.UndefinedObject:
@@ -248,7 +249,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				(strings.HasPrefix(pgErr.Message, "could not stat file ") &&
 					strings.HasSuffix(pgErr.Message, "Stale file handle")) ||
 				// Below error is transient and Aurora Specific
-				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) {
+				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) ||
+				// Handle missing record during logical decoding, https://github.com/postgres/postgres/blob/a0c7b765372d949cec54960dafcaadbc04b3204e/src/backend/access/transam/xlogreader.c#L921
+				strings.HasPrefix(pgErr.Message, "could not find record while sending logically-decoded data") {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
@@ -417,7 +420,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			} else if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-		case chproto.ErrQueryWasCancelled:
+		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException:
 			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
