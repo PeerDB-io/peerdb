@@ -113,8 +113,8 @@ func (c *MongoConnector) PullQRepRecords(
 
 func getDefaultSchema() types.QRecordSchema {
 	schema := make([]types.QField, 0, 2)
-	schema = append(
-		schema, types.QField{
+	schema = append(schema,
+		types.QField{
 			Name:     DefaultDocumentKeyColumnName,
 			Type:     types.QValueKindString,
 			Nullable: false,
