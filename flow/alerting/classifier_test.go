@@ -313,3 +313,20 @@ func TestPeerCreateTimeoutErrorShouldBeConnectivity(t *testing.T) {
 		Code:   "CONTEXT_DEADLINE_EXCEEDED",
 	}, errInfo, "Unexpected error info")
 }
+
+func TestPostgresCouldNotFindRecordWalErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a "could not find record while sending logically-decoded data" error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "could not find record while sending logically-decoded data: missing contrecord at 6410/14023FF0",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
