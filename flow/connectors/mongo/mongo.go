@@ -288,6 +288,13 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 
+		if operationType, ok := changeDoc["operationType"]; !ok {
+			c.logger.Warn("operationType field not found")
+			continue
+		} else if operationType != "insert" && operationType != "update" && operationType != "replace" && operationType != "delete" {
+			continue
+		}
+
 		clusterTime := changeDoc["clusterTime"].(bson.Timestamp)
 		clusterTimeNanos := time.Unix(int64(clusterTime.T), 0).UnixNano()
 
@@ -319,9 +326,12 @@ func (c *MongoConnector) PullRecords(
 			}
 			items.AddColumn(DefaultFullDocumentColumnName, qValue)
 		} else {
-			// should never happen with fullDocument='UpdateLookup',
-			// fail loudly for now so we can investigate if it does
-			return errors.New("fullDocument field not found")
+			if changeDoc["operationType"] == "delete" {
+				items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
+			} else {
+				// should never happen with fullDocument='UpdateLookup'
+				return errors.New("fullDocument field not found")
+			}
 		}
 
 		if operationType, ok := changeDoc["operationType"]; ok {
