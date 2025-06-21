@@ -242,7 +242,7 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	if err := c.execWithLogging(ctx, fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier))); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
-	c.logger.Info("successfully dropped raw table " + rawTableIdentifier)
+	c.logger.Info("successfully dropped raw table", slog.String("table", rawTableIdentifier))
 
 	return nil
 }
