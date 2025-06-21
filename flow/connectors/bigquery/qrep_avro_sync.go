@@ -62,7 +62,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 			project: s.connector.projectID,
 			dataset: s.connector.datasetID,
 			table:   stagingTable,
-		}, stream, req.FlowJobName, nil)
+		}, stream, req.FlowJobName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to push to avro stage: %w", err)
 	}
@@ -147,7 +147,6 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 	stream *model.QRecordStream,
 	syncedAtCol string,
 	softDeleteCol string,
-	numericTruncator *model.SnapshotTableNumericTruncator,
 ) (int64, error) {
 	startTime := time.Now()
 	flowLog := slog.Group("sync_metadata",
@@ -170,7 +169,7 @@ func (s *QRepAvroSyncMethod) SyncQRepRecords(
 			strings.ReplaceAll(partition.PartitionId, "-", "_")),
 	}
 	numRecords, err := s.writeToStage(ctx, env, partition.PartitionId, flowJobName, avroSchema,
-		stagingDatasetTable, stream, flowJobName, numericTruncator)
+		stagingDatasetTable, stream, flowJobName)
 	if err != nil {
 		return -1, fmt.Errorf("failed to push to avro stage: %w", err)
 	}
@@ -358,7 +357,6 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	stagingTable *datasetTable,
 	stream *model.QRecordStream,
 	flowName string,
-	numericTruncator *model.SnapshotTableNumericTruncator,
 ) (int64, error) {
 	var avroFile utils.AvroFile
 	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY)
@@ -372,7 +370,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		obj := bucket.Object(avroFilePath)
 		w := obj.NewWriter(ctx)
 
-		numRecords, err := ocfWriter.WriteOCF(ctx, env, w, nil, numericTruncator)
+		numRecords, err := ocfWriter.WriteOCF(ctx, env, w, nil, nil)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to Avro file on GCS: %w", err)
 		}
@@ -394,7 +392,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 
 		avroFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, syncID)
 		s.connector.logger.Info("writing records to local file", idLog)
-		avroFile, err = ocfWriter.WriteRecordsToAvroFile(ctx, env, avroFilePath, numericTruncator)
+		avroFile, err = ocfWriter.WriteRecordsToAvroFile(ctx, env, avroFilePath)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to local Avro file: %w", err)
 		}

@@ -423,8 +423,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	streamReq := model.NewRecordsToStreamRequest(
 		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, false, protos.DBType_SNOWFLAKE,
 	)
-	numericTruncator := model.NewStreamNumericTruncator(nil, nil)
-	stream, err := utils.RecordsToRawTableStream(streamReq, numericTruncator)
+	stream, err := utils.RecordsToRawTableStream(streamReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -446,7 +445,6 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	if err != nil {
 		return nil, err
 	}
-	numericTruncationMessages := numericTruncator.Messages()
 
 	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
@@ -458,7 +456,6 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		CurrentSyncBatchID:   syncBatchID,
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
-		Messages:             numericTruncationMessages,
 	}, nil
 }
 

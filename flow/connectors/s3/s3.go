@@ -81,8 +81,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	streamReq := model.NewRecordsToStreamRequest(
 		req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID, false, protos.DBType_S3,
 	)
-	numericTruncator := model.NewStreamNumericTruncator(nil, nil)
-	recordStream, err := utils.RecordsToRawTableStream(streamReq, numericTruncator)
+	recordStream, err := utils.RecordsToRawTableStream(streamReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -98,7 +97,6 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	if err != nil {
 		return nil, err
 	}
-	numericTruncationMessages := numericTruncator.Messages()
 	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
@@ -113,7 +111,6 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 		CurrentSyncBatchID:   req.SyncBatchID,
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
-		Messages:             numericTruncationMessages,
 	}, nil
 }
 

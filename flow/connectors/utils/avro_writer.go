@@ -166,9 +166,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToAvroFile(
-	ctx context.Context, env map[string]string, filePath string, numericTruncator *model.SnapshotTableNumericTruncator,
-) (AvroFile, error) {
+func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[string]string, filePath string) (AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
 		return AvroFile{}, fmt.Errorf("failed to create temporary Avro file: %w", err)
@@ -189,7 +187,7 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(
 	bufferedWriter := bufio.NewWriterSize(file, buffSizeBytes)
 	defer bufferedWriter.Flush()
 
-	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter, nil, numericTruncator)
+	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter, nil, nil)
 	if err != nil {
 		return AvroFile{}, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}

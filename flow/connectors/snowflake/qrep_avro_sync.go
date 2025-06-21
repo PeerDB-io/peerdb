@@ -57,7 +57,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	}
 
 	partitionID := shared.RandomString(16)
-	avroFile, err := s.writeToAvroFile(ctx, env, stream, avroSchema, partitionID, flowJobName, nil)
+	avroFile, err := s.writeToAvroFile(ctx, env, stream, avroSchema, partitionID, flowJobName)
 	if err != nil {
 		return 0, err
 	}
@@ -107,10 +107,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 		return 0, nil, err
 	}
 
-	numericTruncator := model.NewSnapshotTableNumericTruncator(schema.Fields)
-	avroFile, err := s.writeToAvroFile(
-		ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName, numericTruncator,
-	)
+	avroFile, err := s.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -126,9 +123,8 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
 		return 0, nil, err
 	}
-	numericTruncationMessages := numericTruncator.Messages(dstTableName)
 
-	return avroFile.NumRecords, numericTruncationMessages, nil
+	return avroFile.NumRecords, nil, nil
 }
 
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
@@ -154,7 +150,6 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	partitionID string,
 	flowJobName string,
-	numericTruncator *model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
 	if s.config.StagingPath == "" {
 		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
@@ -166,7 +161,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
 		s.logger.Info("writing records to local file " + localFilePath)
-		avroFile, err := ocfWriter.WriteRecordsToAvroFile(ctx, env, localFilePath, numericTruncator)
+		avroFile, err := ocfWriter.WriteRecordsToAvroFile(ctx, env, localFilePath)
 		if err != nil {
 			return utils.AvroFile{}, fmt.Errorf("failed to write records to Avro file: %w", err)
 		}

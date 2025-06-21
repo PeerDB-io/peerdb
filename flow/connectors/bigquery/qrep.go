@@ -38,14 +38,12 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
-	numericTruncator := model.NewSnapshotTableNumericTruncator(srcSchema.Fields)
 	result, err := avroSync.SyncQRepRecords(ctx, config.Env, config.FlowJobName, destTable, partition,
-		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName, numericTruncator)
+		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName)
 	if err != nil {
 		return result, nil, err
 	}
-	numericTruncationMessages := numericTruncator.Messages(destTable)
-	return result, numericTruncationMessages, nil
+	return result, nil, nil
 }
 
 func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
