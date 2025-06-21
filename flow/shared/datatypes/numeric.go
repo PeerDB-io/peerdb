@@ -23,7 +23,7 @@ func (ClickHouseNumericCompatibility) MaxPrecision() int16 {
 }
 
 func (ClickHouseNumericCompatibility) MaxScale() int16 {
-	return 38
+	return 76
 }
 
 func (c ClickHouseNumericCompatibility) DefaultPrecisionAndScale() (int16, int16) {

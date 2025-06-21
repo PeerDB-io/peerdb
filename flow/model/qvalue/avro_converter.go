@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -24,21 +23,6 @@ import (
 )
 
 var re = regexp.MustCompile(`[^A-Za-z0-9_]`)
-
-func TruncateOrLogNumeric(num decimal.Decimal, precision int16, scale int16, targetDB protos.DBType) (decimal.Decimal, error) {
-	if targetDB == protos.DBType_SNOWFLAKE || targetDB == protos.DBType_BIGQUERY {
-		bidigi := datatypes.CountDigits(num.BigInt())
-		avroPrecision, avroScale := DetermineNumericSettingForDWH(precision, scale, targetDB)
-		if bidigi+int(avroScale) > int(avroPrecision) {
-			slog.Warn("Clearing NUMERIC value with too many digits", slog.Any("number", num))
-			return num, errors.New("invalid numeric")
-		} else if num.Exponent() < -int32(avroScale) {
-			num = num.Truncate(int32(avroScale))
-			slog.Warn("Truncated NUMERIC value", slog.Any("number", num))
-		}
-	}
-	return num, nil
-}
 
 // ConvertToAvroCompatibleName converts a column name to a field name that is compatible with Avro.
 func ConvertToAvroCompatibleName(columnName string) string {
@@ -171,27 +155,22 @@ func getAvroNumericSchema(
 	precision int16,
 	scale int16,
 ) (avro.Schema, error) {
-	if targetDWH == protos.DBType_CLICKHOUSE {
-		if precision == 0 && scale == 0 {
-			asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
-			if err != nil {
-				return nil, err
-			}
-			if asString {
-				return avro.NewPrimitiveSchema(avro.String, nil), nil
-			}
-		}
-		if precision > datatypes.PeerDBClickHouseMaxPrecision {
-			return avro.NewPrimitiveSchema(avro.String, nil), nil
-		}
+	asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
+	if err != nil {
+		return nil, err
 	}
-	avroNumericPrecision, avroNumericScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
-	return avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale))), nil
+	destinationType := GetNumericDestinationType(precision, scale, targetDWH, asString)
+	if destinationType.IsString {
+		return avro.NewPrimitiveSchema(avro.String, nil), nil
+	}
+	return avro.NewPrimitiveSchema(avro.Bytes,
+		avro.NewDecimalLogicalSchema(int(destinationType.Precision), int(destinationType.Scale))), nil
 }
 
 type QValueAvroConverter struct {
 	*types.QField
 	logger                   log.Logger
+	Stat                     *NumericStat
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
 }
@@ -199,7 +178,7 @@ type QValueAvroConverter struct {
 func QValueToAvro(
 	ctx context.Context, env map[string]string,
 	value types.QValue, field *types.QField, targetDWH protos.DBType, logger log.Logger,
-	unboundedNumericAsString bool,
+	unboundedNumericAsString bool, stat *NumericStat,
 ) (any, error) {
 	if value.Value() == nil {
 		return nil, nil
@@ -207,8 +186,9 @@ func QValueToAvro(
 
 	c := QValueAvroConverter{
 		QField:                   field,
-		TargetDWH:                targetDWH,
 		logger:                   logger,
+		Stat:                     stat,
+		TargetDWH:                targetDWH,
 		UnboundedNumericAsString: unboundedNumericAsString,
 	}
 
@@ -381,15 +361,18 @@ func (c *QValueAvroConverter) processNullableUnion(
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
-	if (c.UnboundedNumericAsString && c.Precision == 0 && c.Scale == 0) ||
-		(c.TargetDWH == protos.DBType_CLICKHOUSE && c.Precision > datatypes.PeerDBClickHouseMaxPrecision) {
+	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
+	if destType.IsString {
 		numStr, _ := c.processNullableUnion(num.String())
 		return numStr
 	}
 
-	num, err := TruncateOrLogNumeric(num, c.Precision, c.Scale, c.TargetDWH)
-	if err != nil {
-		return nil
+	num, ok := TruncateNumeric(num, destType.Precision, destType.Scale, c.TargetDWH, c.Stat)
+	if !ok {
+		if c.Nullable {
+			return nil
+		}
+		return big.Rat{}
 	}
 
 	rat := num.Rat()
@@ -400,8 +383,8 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 }
 
 func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) any {
-	if (c.UnboundedNumericAsString && c.Precision == 0 && c.Scale == 0) ||
-		(c.TargetDWH == protos.DBType_CLICKHOUSE && c.Precision > datatypes.PeerDBClickHouseMaxPrecision) {
+	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
+	if destType.IsString {
 		transformedNumArr := make([]string, 0, len(arrayNum))
 		for _, num := range arrayNum {
 			transformedNumArr = append(transformedNumArr, num.String())
@@ -411,9 +394,9 @@ func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) an
 
 	transformedNumArr := make([]*big.Rat, 0, len(arrayNum))
 	for _, num := range arrayNum {
-		num, err := TruncateOrLogNumeric(num, c.Precision, c.Scale, c.TargetDWH)
-		if err != nil {
-			transformedNumArr = append(transformedNumArr, nil)
+		num, ok := TruncateNumeric(num, destType.Precision, destType.Scale, c.TargetDWH, c.Stat)
+		if !ok {
+			transformedNumArr = append(transformedNumArr, &big.Rat{})
 			continue
 		}
 		transformedNumArr = append(transformedNumArr, num.Rat())
@@ -573,4 +556,52 @@ func (c *QValueAvroConverter) processArrayFloat64(arrayData []float64) any {
 
 func (c *QValueAvroConverter) processArrayString(arrayData []string) any {
 	return arrayData
+}
+
+func TruncateNumeric(
+	num decimal.Decimal, targetPrecision, targetScale int16, targetDWH protos.DBType, stat *NumericStat,
+) (decimal.Decimal, bool) {
+	switch targetDWH {
+	case protos.DBType_CLICKHOUSE, protos.DBType_SNOWFLAKE, protos.DBType_BIGQUERY:
+		bi := num.BigInt()
+		bidigi := datatypes.CountDigits(bi)
+		if bi.Sign() == 0 {
+			bidigi = 0
+		}
+		if bidigi+int(targetScale) > int(targetPrecision) {
+			if stat != nil {
+				stat.LongIntegersClearedCount++
+				stat.MaxIntegerDigits = max(int32(bidigi), stat.MaxIntegerDigits)
+			}
+			return decimal.Zero, false
+		} else if num.Exponent() < -int32(targetScale) {
+			if stat != nil {
+				stat.TruncatedCount++
+				stat.MaxExponent = max(-num.Exponent(), stat.MaxExponent)
+			}
+			return num.Truncate(int32(targetScale)), true
+		}
+	}
+	return num, true
+}
+
+//nolint:govet // logically grouped, fieldalignment confuses things
+type NumericStat struct {
+	TruncatedCount           uint64
+	MaxExponent              int32
+	LongIntegersClearedCount uint64
+	MaxIntegerDigits         int32
+}
+
+func NumericStatCollectMessages(stat *NumericStat, table, column string, messages *[]string) {
+	if stat.LongIntegersClearedCount > 0 {
+		*messages = append(*messages,
+			fmt.Sprintf("Field %s.%s: cleared %d NUMERIC values too big to fit into the destination column (got %d integer digits)",
+				table, column, stat.LongIntegersClearedCount, stat.MaxIntegerDigits))
+	}
+	if stat.TruncatedCount > 0 {
+		*messages = append(*messages,
+			fmt.Sprintf("Field %s.%s: truncated %d NUMERIC values too precise to fit into the destination column (got %d digits of exponent)",
+				table, column, stat.TruncatedCount, stat.MaxExponent))
+	}
 }

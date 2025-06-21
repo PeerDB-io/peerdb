@@ -17,24 +17,24 @@ func (c *S3Connector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, []string, error) {
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	dstTableName := config.DestinationTableIdentifier
 	avroSchema, err := getAvroSchema(ctx, config.Env, dstTableName, schema)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	numRecords, err := c.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
-	return numRecords, nil
+	return numRecords, nil, nil
 }
 
 func getAvroSchema(
@@ -82,7 +82,7 @@ func (c *S3Connector) writeToAvroFile(
 	}
 
 	writer := utils.NewPeerDBOCFWriter(stream, avroSchema, codec, protos.DBType_S3)
-	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil)
+	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}

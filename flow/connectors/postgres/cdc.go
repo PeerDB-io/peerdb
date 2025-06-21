@@ -221,7 +221,7 @@ func (qProcessor) Process(
 		items.AddColumn(col.Name, types.QValueNull(types.QValueKindInvalid))
 	case 't': // text
 		// bytea also appears here as a hex
-		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.TextFormatCode, customTypeMapping)
+		data, err := p.decodeColumnData(tuple.Data, col.DataType, col.TypeModifier, pgtype.TextFormatCode, customTypeMapping)
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
 				slog.String("columnName", col.Name), slog.Int64("dataType", int64(col.DataType)))
@@ -229,7 +229,7 @@ func (qProcessor) Process(
 		}
 		items.AddColumn(col.Name, data)
 	case 'b': // binary
-		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.BinaryFormatCode, customTypeMapping)
+		data, err := p.decodeColumnData(tuple.Data, col.DataType, col.TypeModifier, pgtype.BinaryFormatCode, customTypeMapping)
 		if err != nil {
 			return fmt.Errorf("error decoding binary column data: %w", err)
 		}
@@ -285,7 +285,7 @@ func processTuple[Items model.Items](
 }
 
 func (p *PostgresCDCSource) decodeColumnData(
-	data []byte, dataType uint32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType,
+	data []byte, dataType uint32, typmod int32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType,
 ) (types.QValue, error) {
 	var parsedData any
 	var err error
@@ -316,9 +316,9 @@ func (p *PostgresCDCSource) decodeColumnData(
 			}
 			return nil, err
 		}
-		return p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping)
+		return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping)
 	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
-		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
+		return p.parseFieldFromPostgresOID(dataType, typmod, string(data), customTypeMapping)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
 		customQKind := postgres.CustomTypeToQKind(typeData)
 		switch customQKind {

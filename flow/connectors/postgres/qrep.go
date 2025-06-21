@@ -374,7 +374,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, []string, error) {
 	return syncQRepRecords(c, ctx, config, partition, RecordStreamSink{
 		QRecordStream: stream,
 	})
@@ -385,7 +385,7 @@ func (c *PostgresConnector) SyncPgQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	pipe PgCopyReader,
-) (int64, error) {
+) (int64, []string, error) {
 	return syncQRepRecords(c, ctx, config, partition, pipe)
 }
 
@@ -395,19 +395,19 @@ func syncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepSyncSink,
-) (int64, error) {
+) (int64, []string, error) {
 	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse destination table identifier: %w", err)
+		return 0, nil, fmt.Errorf("failed to parse destination table identifier: %w", err)
 	}
 
 	exists, err := c.tableExists(ctx, dstTable)
 	if err != nil {
-		return 0, fmt.Errorf("failed to check if table exists: %w", err)
+		return 0, nil, fmt.Errorf("failed to check if table exists: %w", err)
 	}
 
 	if !exists {
-		return 0, fmt.Errorf("table %s does not exist, used schema: %s", dstTable.Table, dstTable.Schema)
+		return 0, nil, fmt.Errorf("table %s does not exist, used schema: %s", dstTable.Table, dstTable.Schema)
 	}
 
 	c.logger.Info("SyncRecords called and initial checks complete.")
@@ -427,17 +427,17 @@ func syncQRepRecords(
 	txConfig := c.conn.Config()
 	txConn, err := pgx.ConnectConfig(ctx, txConfig)
 	if err != nil {
-		return 0, fmt.Errorf("failed to create tx pool: %w", err)
+		return 0, nil, fmt.Errorf("failed to create tx pool: %w", err)
 	}
 	defer txConn.Close(ctx)
 
 	if err := shared.RegisterExtensions(ctx, txConn); err != nil {
-		return 0, fmt.Errorf("failed to register extensions: %w", err)
+		return 0, nil, fmt.Errorf("failed to register extensions: %w", err)
 	}
 
 	tx, err := txConn.Begin(ctx)
 	if err != nil {
-		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+		return 0, nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer shared.RollbackTx(tx, c.logger)
 
@@ -453,13 +453,13 @@ func syncQRepRecords(
 			_, err = c.execWithLoggingTx(ctx,
 				"TRUNCATE TABLE "+dstTable.String(), tx)
 			if err != nil {
-				return -1, fmt.Errorf("failed to TRUNCATE table before copy: %w", err)
+				return -1, nil, fmt.Errorf("failed to TRUNCATE table before copy: %w", err)
 			}
 		}
 
 		numRowsSynced, err = sink.CopyInto(ctx, c, tx, pgx.Identifier{dstTable.Schema, dstTable.Table})
 		if err != nil {
-			return -1, fmt.Errorf("failed to copy records into destination table: %w", err)
+			return -1, nil, fmt.Errorf("failed to copy records into destination table: %w", err)
 		}
 
 		if syncedAtCol != "" {
@@ -470,7 +470,7 @@ func syncQRepRecords(
 				utils.QuoteIdentifier(syncedAtCol),
 			)
 			if _, err := tx.Exec(ctx, updateSyncedAtStmt); err != nil {
-				return -1, fmt.Errorf("failed to update synced_at column: %w", err)
+				return -1, nil, fmt.Errorf("failed to update synced_at column: %w", err)
 			}
 		}
 	} else {
@@ -482,7 +482,7 @@ func syncQRepRecords(
 		// From PG docs: The cost of setting a large value in sessions that do not actually need many
 		// temporary buffers is only a buffer descriptor, or about 64 bytes, per increment in temp_buffers.
 		if _, err := tx.Exec(ctx, "SET temp_buffers = '4GB';"); err != nil {
-			return -1, fmt.Errorf("failed to set temp_buffers: %w", err)
+			return -1, nil, fmt.Errorf("failed to set temp_buffers: %w", err)
 		}
 
 		createStagingTableStmt := fmt.Sprintf(
@@ -494,13 +494,13 @@ func syncQRepRecords(
 		c.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
 			stagingTableName, createStagingTableStmt), syncLog)
 		if _, err := c.execWithLoggingTx(ctx, createStagingTableStmt, tx); err != nil {
-			return -1, fmt.Errorf("failed to create staging table: %w", err)
+			return -1, nil, fmt.Errorf("failed to create staging table: %w", err)
 		}
 
 		// Step 2.2: Insert records into the staging table
 		numRowsSynced, err = sink.CopyInto(ctx, c, tx, stagingTableIdentifier)
 		if err != nil {
-			return -1, fmt.Errorf("failed to copy records into staging table: %w", err)
+			return -1, nil, fmt.Errorf("failed to copy records into staging table: %w", err)
 		}
 
 		// construct the SET clause for the upsert operation
@@ -512,7 +512,7 @@ func syncQRepRecords(
 
 		columnNames, err := sink.GetColumnNames()
 		if err != nil {
-			return -1, fmt.Errorf("faild to get column names: %w", err)
+			return -1, nil, fmt.Errorf("faild to get column names: %w", err)
 		}
 		setClauseArray := make([]string, 0, len(upsertMatchColsList)+1)
 		selectStrArray := make([]string, 0, len(columnNames))
@@ -542,7 +542,7 @@ func syncQRepRecords(
 		)
 		c.logger.Info("Performing upsert operation", slog.String("upsertStmt", upsertStmt), syncLog)
 		if _, err := tx.Exec(ctx, upsertStmt); err != nil {
-			return -1, fmt.Errorf("failed to perform upsert operation: %w", err)
+			return -1, nil, fmt.Errorf("failed to perform upsert operation: %w", err)
 		}
 	}
 
@@ -551,7 +551,7 @@ func syncQRepRecords(
 	// marshal the partition to json using protojson
 	pbytes, err := protojson.Marshal(partition)
 	if err != nil {
-		return -1, fmt.Errorf("failed to marshal partition to json: %w", err)
+		return -1, nil, fmt.Errorf("failed to marshal partition to json: %w", err)
 	}
 
 	metadataTableIdentifier := pgx.Identifier{c.metadataSchema, qRepMetadataTableName}
@@ -569,15 +569,15 @@ func syncQRepRecords(
 		startTime,
 		time.Now(),
 	); err != nil {
-		return -1, fmt.Errorf("failed to execute statements in a transaction: %w", err)
+		return -1, nil, fmt.Errorf("failed to execute statements in a transaction: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return -1, fmt.Errorf("failed to commit transaction: %w", err)
+		return -1, nil, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	c.logger.Info(fmt.Sprintf("pushed %d records to %s", numRowsSynced, dstTable), syncLog)
-	return numRowsSynced, nil
+	return numRowsSynced, nil, nil
 }
 
 // SetupQRepMetadataTables function for postgres connector
