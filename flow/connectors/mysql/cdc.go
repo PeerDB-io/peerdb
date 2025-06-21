@@ -395,8 +395,9 @@ func (c *MySqlConnector) PullRecords(
 				if recordCount == 0 {
 					// progress offset while no records read to avoid falling behind when all tables inactive
 					if updatedOffset != "" {
+						c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
 						if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
-							c.logger.Warn("failed to update mysql offset, ignoring", slog.Any("error", err))
+							c.logger.Warn("[mysql] failed to update offset, ignoring", slog.Any("error", err))
 						} else {
 							updatedOffset = ""
 						}
@@ -418,8 +419,6 @@ func (c *MySqlConnector) PullRecords(
 				}
 
 				continue
-			} else if errors.Is(err, context.Canceled) {
-				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
 			} else {
 				c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
 			}
