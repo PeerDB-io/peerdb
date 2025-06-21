@@ -20,17 +20,17 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, []string, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	srcSchema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, config, partition, srcSchema)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	c.logger.Info(fmt.Sprintf("QRep sync function called and partition existence checked for"+
@@ -42,10 +42,10 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	result, err := avroSync.SyncQRepRecords(ctx, config.Env, config.FlowJobName, destTable, partition,
 		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName, numericTruncator)
 	if err != nil {
-		return result, err
+		return result, nil, err
 	}
-	numericTruncator.Log(destTable, c.logger)
-	return result, nil
+	numericTruncationMessages := numericTruncator.Messages(destTable)
+	return result, numericTruncationMessages, nil
 }
 
 func (c *BigQueryConnector) replayTableSchemaDeltasQRep(

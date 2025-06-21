@@ -269,6 +269,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))
 		}
+		for _, message := range res.Messages {
+			a.Alerter.LogFlowInfo(ctx, flowName, message)
+		}
 
 		logger.Info("finished pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
 		return nil
@@ -400,7 +403,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, error),
-	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, error),
+	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, []string, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
@@ -456,10 +459,14 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	})
 
 	errGroup.Go(func() error {
+		var messages []string
 		var err error
-		rowsSynced, err = syncRecords(dstConn, errCtx, config, partition, outstream)
+		rowsSynced, messages, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+		}
+		for _, message := range messages {
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, message)
 		}
 		return context.Canceled
 	})
@@ -493,7 +500,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, int64, error),
-	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, error),
+	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, []string, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
@@ -562,9 +569,13 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
 
-		rowsSynced, err = syncRecords(dstConn, ctx, config, partition, outstream)
+		var messages []string
+		rowsSynced, messages, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+		}
+		for _, message := range messages {
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, message)
 		}
 		return context.Canceled
 	})

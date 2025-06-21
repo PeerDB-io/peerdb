@@ -385,7 +385,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	if err != nil {
 		return nil, fmt.Errorf("failed to sync records via avro: %w", err)
 	}
-	numericTruncator.Log(c.logger)
+	res.Messages = numericTruncator.Messages()
 
 	return res, nil
 }

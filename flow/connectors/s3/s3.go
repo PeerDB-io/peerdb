@@ -94,11 +94,11 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	partition := &protos.QRepPartition{
 		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),
 	}
-	numRecords, err := c.SyncQRepRecords(ctx, qrepConfig, partition, recordStream)
+	numRecords, _, err := c.SyncQRepRecords(ctx, qrepConfig, partition, recordStream)
 	if err != nil {
 		return nil, err
 	}
-	numericTruncator.Log(c.logger)
+	numericTruncationMessages := numericTruncator.Messages()
 	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
@@ -113,6 +113,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 		CurrentSyncBatchID:   req.SyncBatchID,
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
+		Messages:             numericTruncationMessages,
 	}, nil
 }
 

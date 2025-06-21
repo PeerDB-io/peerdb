@@ -124,12 +124,12 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, []string, error) {
 	dstTableName := config.DestinationTableIdentifier
 	startTime := time.Now()
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	destTypeConversions := findTypeConversions(schema, config.Columns)
@@ -145,7 +145,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		s.logger.Error("failed to push data to S3",
 			slog.String("dstTable", dstTableName),
 			slog.Any("error", err))
-		return 0, err
+		return 0, nil, err
 	}
 
 	if err := s.pushS3DataToClickHouse(
@@ -153,16 +153,16 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 		s.logger.Error("failed to push data to ClickHouse",
 			slog.String("dstTable", dstTableName),
 			slog.Any("error", err))
-		return 0, err
+		return 0, nil, err
 	}
-	numericTruncator.Log(dstTableName, s.logger)
+	numericTruncationMessages := numericTruncator.Messages(dstTableName)
 
 	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
 		s.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
-		return 0, err
+		return 0, nil, err
 	}
 
-	return totalRecords, nil
+	return totalRecords, numericTruncationMessages, nil
 }
 
 func (s *ClickHouseAvroSyncMethod) pushDataToS3(

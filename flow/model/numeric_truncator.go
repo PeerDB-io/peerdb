@@ -1,8 +1,6 @@
 package model
 
 import (
-	"go.temporal.io/sdk/log"
-
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -35,10 +33,12 @@ func (ss *StreamNumericTruncator) Get(tableName string) *CdcTableNumericTruncato
 	return truncator
 }
 
-func (ss *StreamNumericTruncator) Log(logger log.Logger) {
+func (ss *StreamNumericTruncator) Messages() []string {
+	var messages []string
 	for tableName, tableStats := range ss.TruncatorsByTable {
-		tableStats.Log(tableName, logger)
+		tableStats.CollectMessages(tableName, &messages)
 	}
+	return messages
 }
 
 type CdcTableNumericTruncator struct {
@@ -77,10 +77,10 @@ func (ts *CdcTableNumericTruncator) Get(columnName string) *CdcColumnNumericTrun
 	return stat
 }
 
-func (ts *CdcTableNumericTruncator) Log(tableName string, logger log.Logger) {
+func (ts *CdcTableNumericTruncator) CollectMessages(tableName string, messages *[]string) {
 	for columnName, truncator := range ts.TruncatorsByColumn {
 		if !truncator.Skip {
-			qvalue.LogNumericStat(truncator.Stat, tableName, columnName, logger)
+			qvalue.NumericStatCollectMessages(truncator.Stat, tableName, columnName, messages)
 		}
 	}
 }
@@ -109,11 +109,13 @@ func (ts *SnapshotTableNumericTruncator) Get(idx int) *qvalue.NumericStat {
 	return &ts.stats[idx]
 }
 
-func (ts *SnapshotTableNumericTruncator) Log(tableName string, logger log.Logger) {
+func (ts *SnapshotTableNumericTruncator) Messages(tableName string) []string {
 	if ts == nil {
-		return
+		return nil
 	}
+	var messages []string
 	for i, field := range ts.fields {
-		qvalue.LogNumericStat(&ts.stats[i], tableName, field.Name, logger)
+		qvalue.NumericStatCollectMessages(&ts.stats[i], tableName, field.Name, &messages)
 	}
+	return messages
 }

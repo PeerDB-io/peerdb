@@ -104,7 +104,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	if err != nil {
 		return nil, err
 	}
-	numericTruncator.Log(c.logger)
+	numericTruncationMessages := numericTruncator.Messages()
 
 	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
@@ -116,6 +116,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		CurrentSyncBatchID:   syncBatchID,
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
+		Messages:             numericTruncationMessages,
 	}, nil
 }
 

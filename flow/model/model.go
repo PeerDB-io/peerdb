@@ -174,6 +174,7 @@ type SyncResponse struct {
 	// NumRecordsSynced is the number of records that were synced.
 	NumRecordsSynced   int64
 	CurrentSyncBatchID int64
+	Messages           []string
 }
 
 type NormalizeResponse struct {

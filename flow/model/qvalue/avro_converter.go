@@ -593,13 +593,15 @@ type NumericStat struct {
 	MaxIntegerDigits         int32
 }
 
-func LogNumericStat(stat *NumericStat, table, column string, logger log.Logger) {
+func NumericStatCollectMessages(stat *NumericStat, table, column string, messages *[]string) {
 	if stat.LongIntegersClearedCount > 0 {
-		logger.Warn(fmt.Sprintf("Field %s.%s: cleared %d NUMERIC values too big to fit into the destination column (got %d integer digits)",
-			table, column, stat.LongIntegersClearedCount, stat.MaxIntegerDigits))
+		*messages = append(*messages,
+			fmt.Sprintf("Field %s.%s: cleared %d NUMERIC values too big to fit into the destination column (got %d integer digits)",
+				table, column, stat.LongIntegersClearedCount, stat.MaxIntegerDigits))
 	}
 	if stat.TruncatedCount > 0 {
-		logger.Warn(fmt.Sprintf("Field %s.%s: truncated %d NUMERIC values too precise to fit into the destination column (got %d digits of exponent)",
-			table, column, stat.TruncatedCount, stat.MaxExponent))
+		*messages = append(*messages,
+			fmt.Sprintf("Field %s.%s: truncated %d NUMERIC values too precise to fit into the destination column (got %d digits of exponent)",
+				table, column, stat.TruncatedCount, stat.MaxExponent))
 	}
 }

@@ -735,6 +735,12 @@ func (s ClickHouseSuite) Test_Unbounded_Numeric_Without_FF() {
 }
 
 func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
+	var pgSource *e2e.PostgresSource
+	var ok bool
+	if pgSource, ok = s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("todo: only applies to postgres for now")
+	}
+
 	nines := func(integer, fraction int) string {
 		integerStr := strings.Repeat("9", integer)
 		if integer == 0 {
@@ -746,18 +752,29 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 		return integerStr
 	}
 	tests := []struct {
-		SrcType        string
-		SrcValue       string
-		Expected       string
-		ExpectedWithFF string // if empty, same as above
+		SrcType          string
+		SrcValue         string
+		Expected         string
+		ExpectedCleared  int
+		ExpectedTrunated int
+		ExpectedWithFF   string // if empty, same as above
 	}{
 		{SrcType: "numeric", SrcValue: nines(38, 38), Expected: nines(38, 38)},
-		{SrcType: "numeric", SrcValue: nines(39, 0), Expected: "0", ExpectedWithFF: nines(39, 0)},
-		{SrcType: "numeric", SrcValue: nines(0, 39), Expected: nines(0, 38), ExpectedWithFF: nines(0, 39)},
+		{SrcType: "numeric", SrcValue: nines(39, 0), Expected: "0", ExpectedCleared: 1, ExpectedWithFF: nines(39, 0)},
+		{SrcType: "numeric", SrcValue: nines(0, 39), Expected: nines(0, 38), ExpectedTrunated: 1, ExpectedWithFF: nines(0, 39)},
 		{SrcType: "numeric(96, 48)", SrcValue: nines(48, 48), Expected: nines(48, 48)},
 		{SrcType: "numeric(76, 38)", SrcValue: nines(38, 38), Expected: nines(38, 38)},
 		{SrcType: "numeric(76, 0)", SrcValue: nines(76, 0), Expected: nines(76, 0)},
 		{SrcType: "numeric(76, 76)", SrcValue: nines(0, 76), Expected: nines(0, 76)},
+	}
+
+	totalCleared := 0
+	totalTruncated := 0
+	if !unbNumAsStringFf {
+		for _, tc := range tests {
+			totalCleared += tc.ExpectedCleared
+			totalTruncated += tc.ExpectedTrunated
+		}
 	}
 
 	dstTableName := fmt.Sprintf("numeric_truncation_unas_ff_%v", unbNumAsStringFf)
@@ -802,8 +819,9 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	_, err = s.Conn().Exec(s.t.Context(), insertQuery)
 	require.NoError(s.t, err)
 
+	flowJobName := s.attachSuffix(fmt.Sprintf("clickhouse_test_num_trunc_ff_%v", unbNumAsStringFf))
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix(fmt.Sprintf("clickhouse_test_num_trunc_ff_%v", unbNumAsStringFf)),
+		FlowJobName:      flowJobName,
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
@@ -815,10 +833,67 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 1)
+	if totalCleared > 0 {
+		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared messages", func() bool {
+			count, err := pgSource.GetLogCount(
+				s.t.Context(), flowJobName, "info", "cleared 1 NUMERIC values too big to fit into the destination column",
+			)
+			return err == nil && count == totalCleared*2 // positive and negative
+		})
+		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared array messages", func() bool {
+			count, err := pgSource.GetLogCount(
+				s.t.Context(), flowJobName, "info", "cleared 2 NUMERIC values too big to fit into the destination column",
+			)
+			return err == nil && count == totalCleared
+		})
+	}
+	if totalTruncated > 0 {
+		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
+			count, err := pgSource.GetLogCount(
+				s.t.Context(), flowJobName, "info", "truncated 1 NUMERIC values too precise to fit into the destination column",
+			)
+			return err == nil && count == totalTruncated*2 // positive and negative
+		})
+		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated array messages", func() bool {
+			count, err := pgSource.GetLogCount(
+				s.t.Context(), flowJobName, "info", "truncated 2 NUMERIC values too precise to fit into the destination column",
+			)
+			return err == nil && count == totalTruncated
+		})
+	}
 
 	_, err = s.Conn().Exec(s.t.Context(), insertQuery)
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
+
+	if totalCleared > 0 {
+		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared messages", func() bool {
+			count, err := pgSource.GetLogCount(
+				s.t.Context(), flowJobName, "info", "cleared 1 NUMERIC values too big to fit into the destination column",
+			)
+			return err == nil && count == totalCleared*2*2 // positive and negative, snapshot and cdc
+		})
+		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared array messages", func() bool {
+			count, err := pgSource.GetLogCount(
+				s.t.Context(), flowJobName, "info", "cleared 2 NUMERIC values too big to fit into the destination column",
+			)
+			return err == nil && count == totalCleared*2 // snapshot and cdc
+		})
+	}
+	if totalTruncated > 0 {
+		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
+			count, err := pgSource.GetLogCount(
+				s.t.Context(), flowJobName, "info", "truncated 1 NUMERIC values too precise to fit into the destination column",
+			)
+			return err == nil && count == totalTruncated*2*2 // positive and negative, snapshot and cdc
+		})
+		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated array messages", func() bool {
+			count, err := pgSource.GetLogCount(
+				s.t.Context(), flowJobName, "info", "truncated 2 NUMERIC values too precise to fit into the destination column",
+			)
+			return err == nil && count == totalTruncated*2 // snapshot and cdc
+		})
+	}
 
 	sb.Reset()
 	for i := range tests {
@@ -1485,15 +1560,10 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	})
 
 	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for normalize error", func() bool {
-		rows, err := pgSource.Query(s.t.Context(), fmt.Sprintf(`
-		SELECT COUNT(*) FROM peerdb_stats.flow_errors
-		WHERE error_type='error' AND position('%s' in flow_name) > 0
-		AND error_message ILIKE '%%error while inserting into target clickhouse table%%'`, flowConnConfig.FlowJobName))
-		if err != nil {
-			return false
-		}
-
-		return rows.Records[0][0].Value().(int64) > 0
+		errorCount, err := pgSource.GetLogCount(
+			s.t.Context(), flowConnConfig.FlowJobName, "error", "error while inserting into target clickhouse table",
+		)
+		return err == nil && errorCount > 0
 	})
 
 	// Rename the table back to simulate a successful push to ClickHouse

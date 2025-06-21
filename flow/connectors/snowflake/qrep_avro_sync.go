@@ -91,20 +91,20 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, []string, error) {
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	s.logger.Info("sync function called and schema acquired", partitionLog)
 
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	numericTruncator := model.NewSnapshotTableNumericTruncator(schema.Fields)
@@ -112,23 +112,23 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 		ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName, numericTruncator,
 	)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer avroFile.Cleanup()
 
 	stage := s.getStageNameForJob(config.FlowJobName)
 
 	if err := s.putFileToStage(ctx, avroFile, stage); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	s.logger.Info("Put file to stage in Avro sync for snowflake", partitionLog)
 
 	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	numericTruncator.Log(dstTableName, s.logger)
+	numericTruncationMessages := numericTruncator.Messages(dstTableName)
 
-	return avroFile.NumRecords, nil
+	return avroFile.NumRecords, numericTruncationMessages, nil
 }
 
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
