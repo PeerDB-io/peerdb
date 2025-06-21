@@ -356,7 +356,7 @@ func (c *MySqlConnector) PullRecords(
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
 		}
-		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
+		c.logger.Info("[mysql] PullRecords finished streaming", slog.Uint64("records", uint64(recordCount)))
 	}()
 
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
@@ -394,6 +394,7 @@ func (c *MySqlConnector) PullRecords(
 			} else if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount == 0 {
 					// progress offset while no records read to avoid falling behind when all tables inactive
+					updatedOffset = ""
 					if updatedOffset != "" {
 						c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
 						if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
