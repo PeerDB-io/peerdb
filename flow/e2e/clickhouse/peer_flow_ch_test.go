@@ -751,6 +751,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 		}
 		return integerStr
 	}
+	//nolint:govet // it's a test, no need for fieldalignment
 	tests := []struct {
 		SrcType          string
 		SrcValue         string

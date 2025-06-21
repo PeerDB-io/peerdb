@@ -164,6 +164,7 @@ type NormalizeRecordsRequest struct {
 	SyncBatchID            int64
 }
 
+//nolint:govet // no need to save on fieldalignment
 type SyncResponse struct {
 	// TableNameRowsMapping tells how many records need to be synced to each destination table.
 	TableNameRowsMapping map[string]*RecordTypeCounts

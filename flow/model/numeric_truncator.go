@@ -13,8 +13,7 @@ type StreamNumericTruncator struct {
 func NewStreamNumericTruncator(tableMappings []*protos.TableMapping, typesToSkip map[string]struct{}) *StreamNumericTruncator {
 	statsByTable := make(map[string]*CdcTableNumericTruncator, len(tableMappings))
 	for _, tableMapping := range tableMappings {
-		statsByTable[tableMapping.DestinationTableIdentifier] =
-			NewCdcTableNumericTruncator(tableMapping.Columns, typesToSkip)
+		statsByTable[tableMapping.DestinationTableIdentifier] = NewCdcTableNumericTruncator(tableMapping.Columns, typesToSkip)
 	}
 	return &StreamNumericTruncator{
 		TruncatorsByTable: statsByTable,
@@ -85,6 +84,7 @@ func (ts *CdcTableNumericTruncator) CollectMessages(tableName string, messages *
 	}
 }
 
+//nolint:govet // semantically ordered
 type CdcColumnNumericTruncator struct {
 	Skip bool
 	Stat *qvalue.NumericStat
