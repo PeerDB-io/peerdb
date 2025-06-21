@@ -387,12 +387,14 @@ func (c *MySqlConnector) PullRecords(
 			event, err = mystream.GetEvent(timeoutCtx)
 		}
 		if err != nil {
+			c.logger.Info("[mysql] QQQ", slog.Any("error", err), slog.Any("ctx", ctx.Err()))
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
 				//nolint:govet // cancelTimeout called by defer, spurious lint
 				return ctxErr
 			} else if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount == 0 {
+					updatedOffset = ""
 					// progress offset while no records read to avoid falling behind when all tables inactive
 					if updatedOffset != "" {
 						c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
