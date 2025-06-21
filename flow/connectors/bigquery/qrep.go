@@ -38,13 +38,13 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
-	consistencyStats := model.NewSnapshotTableConsistencyStats(srcSchema.Fields)
+	numericTruncator := model.NewSnapshotTableNumericTruncator(srcSchema.Fields)
 	result, err := avroSync.SyncQRepRecords(ctx, config.Env, config.FlowJobName, destTable, partition,
-		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName, consistencyStats)
+		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName, numericTruncator)
 	if err != nil {
 		return result, err
 	}
-	consistencyStats.Log(destTable, c.logger)
+	numericTruncator.Log(destTable, c.logger)
 	return result, nil
 }
 

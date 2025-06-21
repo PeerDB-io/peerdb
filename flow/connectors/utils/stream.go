@@ -14,7 +14,7 @@ import (
 )
 
 func RecordsToRawTableStream[Items model.Items](
-	req *model.RecordsToStreamRequest[Items], consistencyStats *model.StreamConsistencyStats,
+	req *model.RecordsToStreamRequest[Items], numericTruncator *model.StreamNumericTruncator,
 ) (*model.QRecordStream, error) {
 	recordStream := model.NewQRecordStream(1 << 17)
 	recordStream.SetSchema(types.QRecordSchema{
@@ -66,7 +66,7 @@ func RecordsToRawTableStream[Items model.Items](
 		for record := range req.GetRecords() {
 			record.PopulateCountMap(req.TableMapping)
 			qRecord, err := recordToQRecordOrError(
-				req.BatchID, record, req.TargetDWH, req.UnboundedNumericAsString, consistencyStats,
+				req.BatchID, record, req.TargetDWH, req.UnboundedNumericAsString, numericTruncator,
 			)
 			if err != nil {
 				recordStream.Close(err)
@@ -83,14 +83,14 @@ func RecordsToRawTableStream[Items model.Items](
 
 func recordToQRecordOrError[Items model.Items](
 	batchID int64, record model.Record[Items], targetDWH protos.DBType, unboundedNumericAsString bool,
-	consistencyStats *model.StreamConsistencyStats,
+	numericTruncator *model.StreamNumericTruncator,
 ) ([]types.QValue, error) {
 	var entries [8]types.QValue
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[Items]:
-		tableStats := consistencyStats.Get(typedRecord.DestinationTableName)
+		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
 		preprocessedItems := truncateNumerics(
-			typedRecord.Items, targetDWH, unboundedNumericAsString, tableStats,
+			typedRecord.Items, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
 		itemsJSON, err := model.ItemsToJSON(preprocessedItems)
 		if err != nil {
@@ -102,9 +102,9 @@ func recordToQRecordOrError[Items model.Items](
 		entries[5] = types.QValueString{Val: ""}
 		entries[7] = types.QValueString{Val: ""}
 	case *model.UpdateRecord[Items]:
-		tableStats := consistencyStats.Get(typedRecord.DestinationTableName)
+		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
 		preprocessedItems := truncateNumerics(
-			typedRecord.NewItems, targetDWH, unboundedNumericAsString, tableStats,
+			typedRecord.NewItems, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
 		newItemsJSON, err := model.ItemsToJSON(preprocessedItems)
 		if err != nil {
@@ -157,17 +157,19 @@ func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.
 
 func truncateNumerics(
 	items model.Items, targetDWH protos.DBType, unboundedNumericAsString bool,
-	consistencyStats *model.CdcTableConsistencyStats,
+	numericTruncator *model.CdcTableNumericTruncator,
 ) model.Items {
 	recordItems, ok := items.(model.RecordItems)
 	if !ok {
 		return items
 	}
 	hasNumerics := false
-	for _, val := range recordItems.ColToVal {
-		if val.Kind() == types.QValueKindNumeric || val.Kind() == types.QValueKindArrayNumeric {
-			hasNumerics = true
-			break
+	for col, val := range recordItems.ColToVal {
+		if !numericTruncator.Get(col).Skip {
+			if val.Kind() == types.QValueKindNumeric || val.Kind() == types.QValueKindArrayNumeric {
+				hasNumerics = true
+				break
+			}
 		}
 	}
 	if !hasNumerics {
@@ -176,53 +178,54 @@ func truncateNumerics(
 
 	newItems := model.NewRecordItems(recordItems.Len())
 	for col, val := range recordItems.ColToVal {
-		var newVal types.QValue
-		columnStat := consistencyStats.Get(col)
-		switch numeric := val.(type) {
-		case types.QValueNumeric:
-			destType := qvalue.GetNumericDestinationType(
-				numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString,
-			)
-			if destType.IsString {
-				newVal = val
-			} else {
-				truncated, ok := qvalue.TruncateNumeric(
-					numeric.Val, destType.Precision, destType.Scale, targetDWH, columnStat,
+		newVal := val
+
+		columnTruncator := numericTruncator.Get(col)
+		if !columnTruncator.Skip {
+			switch numeric := val.(type) {
+			case types.QValueNumeric:
+				destType := qvalue.GetNumericDestinationType(
+					numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString,
 				)
-				if !ok {
-					truncated = decimal.Zero
-				}
-				newVal = types.QValueNumeric{
-					Val:       truncated,
-					Precision: destType.Precision,
-					Scale:     destType.Scale,
-				}
-			}
-		case types.QValueArrayNumeric:
-			destType := qvalue.GetNumericDestinationType(
-				numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString,
-			)
-			if destType.IsString {
-				newVal = val
-			} else {
-				truncatedArr := make([]decimal.Decimal, 0, len(numeric.Val))
-				for _, num := range numeric.Val {
+				if destType.IsString {
+					newVal = val
+				} else {
 					truncated, ok := qvalue.TruncateNumeric(
-						num, destType.Precision, destType.Scale, targetDWH, columnStat,
+						numeric.Val, destType.Precision, destType.Scale, targetDWH, columnTruncator.Stat,
 					)
 					if !ok {
 						truncated = decimal.Zero
 					}
-					truncatedArr = append(truncatedArr, truncated)
+					newVal = types.QValueNumeric{
+						Val:       truncated,
+						Precision: destType.Precision,
+						Scale:     destType.Scale,
+					}
 				}
-				newVal = types.QValueArrayNumeric{
-					Val:       truncatedArr,
-					Precision: destType.Precision,
-					Scale:     destType.Scale,
+			case types.QValueArrayNumeric:
+				destType := qvalue.GetNumericDestinationType(
+					numeric.Precision, numeric.Scale, targetDWH, unboundedNumericAsString,
+				)
+				if destType.IsString {
+					newVal = val
+				} else {
+					truncatedArr := make([]decimal.Decimal, 0, len(numeric.Val))
+					for _, num := range numeric.Val {
+						truncated, ok := qvalue.TruncateNumeric(
+							num, destType.Precision, destType.Scale, targetDWH, columnTruncator.Stat,
+						)
+						if !ok {
+							truncated = decimal.Zero
+						}
+						truncatedArr = append(truncatedArr, truncated)
+					}
+					newVal = types.QValueArrayNumeric{
+						Val:       truncatedArr,
+						Precision: destType.Precision,
+						Scale:     destType.Scale,
+					}
 				}
 			}
-		default:
-			newVal = val
 		}
 		newItems.ColToVal[col] = newVal
 	}

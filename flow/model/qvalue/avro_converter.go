@@ -170,7 +170,7 @@ func getAvroNumericSchema(
 type QValueAvroConverter struct {
 	*types.QField
 	logger                   log.Logger
-	Stat                     *ConsistencyStat
+	Stat                     *NumericStat
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
 }
@@ -178,7 +178,7 @@ type QValueAvroConverter struct {
 func QValueToAvro(
 	ctx context.Context, env map[string]string,
 	value types.QValue, field *types.QField, targetDWH protos.DBType, logger log.Logger,
-	unboundedNumericAsString bool, stat *ConsistencyStat,
+	unboundedNumericAsString bool, stat *NumericStat,
 ) (any, error) {
 	if value.Value() == nil {
 		return nil, nil
@@ -559,7 +559,7 @@ func (c *QValueAvroConverter) processArrayString(arrayData []string) any {
 }
 
 func TruncateNumeric(
-	num decimal.Decimal, targetPrecision, targetScale int16, targetDWH protos.DBType, stat *ConsistencyStat,
+	num decimal.Decimal, targetPrecision, targetScale int16, targetDWH protos.DBType, stat *NumericStat,
 ) (decimal.Decimal, bool) {
 	switch targetDWH {
 	case protos.DBType_CLICKHOUSE, protos.DBType_SNOWFLAKE, protos.DBType_BIGQUERY:
@@ -570,13 +570,13 @@ func TruncateNumeric(
 		}
 		if bidigi+int(targetScale) > int(targetPrecision) {
 			if stat != nil {
-				stat.NumericsLongIntegersCleared++
-				stat.MaxDigits = max(int32(bidigi), stat.MaxDigits)
+				stat.LongIntegersClearedCount++
+				stat.MaxIntegerDigits = max(int32(bidigi), stat.MaxIntegerDigits)
 			}
 			return decimal.Zero, false
 		} else if num.Exponent() < -int32(targetScale) {
 			if stat != nil {
-				stat.NumericsTruncated++
+				stat.TruncatedCount++
 				stat.MaxExponent = max(-num.Exponent(), stat.MaxExponent)
 			}
 			return num.Truncate(int32(targetScale)), true
@@ -586,20 +586,20 @@ func TruncateNumeric(
 }
 
 //nolint:govet // logically grouped, fieldalignment confuses things
-type ConsistencyStat struct {
-	NumericsTruncated           uint64
-	MaxExponent                 int32
-	NumericsLongIntegersCleared uint64
-	MaxDigits                   int32
+type NumericStat struct {
+	TruncatedCount           uint64
+	MaxExponent              int32
+	LongIntegersClearedCount uint64
+	MaxIntegerDigits         int32
 }
 
-func LogConsistencyStat(stat *ConsistencyStat, table, column string, logger log.Logger) {
-	if stat.NumericsLongIntegersCleared > 0 {
-		logger.Warn(fmt.Sprintf("Field %s.%s: cleared %d NUMERIC values with too many digits (max %d)",
-			table, column, stat.NumericsLongIntegersCleared, stat.MaxDigits))
+func LogNumericStat(stat *NumericStat, table, column string, logger log.Logger) {
+	if stat.LongIntegersClearedCount > 0 {
+		logger.Warn(fmt.Sprintf("Field %s.%s: cleared %d NUMERIC values too big to fit into the destination column (got %d integer digits)",
+			table, column, stat.LongIntegersClearedCount, stat.MaxIntegerDigits))
 	}
-	if stat.NumericsTruncated > 0 {
-		logger.Warn(fmt.Sprintf("Field %s.%s: truncated %d NUMERIC values (max exponent %d)",
-			table, column, stat.NumericsTruncated, stat.MaxExponent))
+	if stat.TruncatedCount > 0 {
+		logger.Warn(fmt.Sprintf("Field %s.%s: truncated %d NUMERIC values too precise to fit into the destination column (got %d digits of exponent)",
+			table, column, stat.TruncatedCount, stat.MaxExponent))
 	}
 }

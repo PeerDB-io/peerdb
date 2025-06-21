@@ -612,7 +612,7 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("clickhouse_test_destination_type_conversion"),
+		FlowJobName:      s.attachSuffix("clickhouse_test_dest_type_conv"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}

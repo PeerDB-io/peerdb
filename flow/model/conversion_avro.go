@@ -53,7 +53,7 @@ func (qac *QRecordAvroConverter) Convert(
 	env map[string]string,
 	qrecord []types.QValue,
 	typeConversions map[string]types.TypeConversion,
-	consistencyStats *SnapshotTableConsistencyStats,
+	numericTruncator *SnapshotTableNumericTruncator,
 ) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
@@ -63,7 +63,7 @@ func (qac *QRecordAvroConverter) Convert(
 		avroVal, err := qvalue.QValueToAvro(
 			ctx, env, val,
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
-			consistencyStats.Get(idx),
+			numericTruncator.Get(idx),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)

@@ -92,8 +92,8 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, unboundedNumericAsString,
 		protos.DBType_CLICKHOUSE,
 	)
-	consistencyStats := model.NewStreamConsistencyStats()
-	stream, err := utils.RecordsToRawTableStream(streamReq, consistencyStats)
+	numericTruncator := model.NewStreamNumericTruncator(req.TableMappings, peerdb_clickhouse.NumericDestinationTypes)
+	stream, err := utils.RecordsToRawTableStream(streamReq, numericTruncator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -103,7 +103,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	if err != nil {
 		return nil, err
 	}
-	consistencyStats.Log(c.logger)
+	numericTruncator.Log(c.logger)
 
 	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
