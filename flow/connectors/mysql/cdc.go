@@ -340,7 +340,6 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 
-	var updatedOffset bool
 	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
 		return err
@@ -348,6 +347,7 @@ func (c *MySqlConnector) PullRecords(
 	defer syncer.Close()
 
 	var skewLossReported bool
+	var updatedOffset string
 	var inTx bool
 	var recordCount uint32
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
@@ -387,13 +387,18 @@ func (c *MySqlConnector) PullRecords(
 			event, err = mystream.GetEvent(timeoutCtx)
 		}
 		if err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
+			if err := ctx.Err(); err != nil {
+				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
+				//nolint:govet // cancelTimeout called by defer, spurious lint
+				return err
+			} else if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount == 0 {
-					if updatedOffset {
-						if err := c.SetLastOffset(ctx, req.FlowJobName, req.RecordStream.PeekLastCheckpoint()); err != nil {
+					// progress offset while no records read to avoid falling behind when all tables inactive
+					if updatedOffset != "" {
+						if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
 							c.logger.Warn("failed to update mysql offset, ignoring", slog.Any("error", err))
 						} else {
-							updatedOffset = false
+							updatedOffset = ""
 						}
 					}
 
@@ -409,7 +414,6 @@ func (c *MySqlConnector) PullRecords(
 					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Minute)
 					overtime = true
 				} else {
-					//nolint:govet // cancelTimeout called by defer, spurious lint
 					return nil
 				}
 
@@ -433,27 +437,27 @@ func (c *MySqlConnector) PullRecords(
 		case *replication.XIDEvent:
 			if gset != nil {
 				gset = ev.GSet
-				req.RecordStream.UpdateLatestCheckpointText(gset.String())
-				updatedOffset = true
+				updatedOffset = gset.String()
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			} else if event.Header.LogPos > pos.Pos {
 				pos.Pos = event.Header.LogPos
-				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-				updatedOffset = true
+				updatedOffset = fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
 			inTx = false
 		case *replication.RotateEvent:
 			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
 				pos.Name = string(ev.NextLogName)
 				pos.Pos = uint32(ev.Position)
-				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-				updatedOffset = true
+				updatedOffset = fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.QueryEvent:
 			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
 				pos.Pos = event.Header.LogPos
-				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-				updatedOffset = true
+				updatedOffset = fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
