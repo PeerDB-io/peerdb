@@ -155,20 +155,20 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 	partitionID string,
 	flowJobName string,
 	numericTruncator *model.SnapshotTableNumericTruncator,
-) (*utils.AvroFile, error) {
+) (utils.AvroFile, error) {
 	if s.config.StagingPath == "" {
 		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
 		tmpDir := fmt.Sprintf("%s/peerdb-avro-%s", os.TempDir(), flowJobName)
 		err := os.MkdirAll(tmpDir, os.ModePerm)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create temp dir: %w", err)
+			return utils.AvroFile{}, fmt.Errorf("failed to create temp dir: %w", err)
 		}
 
 		localFilePath := fmt.Sprintf("%s/%s.avro", tmpDir, partitionID)
 		s.logger.Info("writing records to local file " + localFilePath)
 		avroFile, err := ocfWriter.WriteRecordsToAvroFile(ctx, env, localFilePath, numericTruncator)
 		if err != nil {
-			return nil, fmt.Errorf("failed to write records to Avro file: %w", err)
+			return utils.AvroFile{}, fmt.Errorf("failed to write records to Avro file: %w", err)
 		}
 
 		return avroFile, nil
@@ -176,7 +176,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 		ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_SNOWFLAKE)
 		s3o, err := utils.NewS3BucketAndPrefix(s.config.StagingPath)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse staging path: %w", err)
+			return utils.AvroFile{}, fmt.Errorf("failed to parse staging path: %w", err)
 		}
 
 		s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, s.config.FlowJobName, partitionID)
@@ -185,20 +185,20 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 
 		provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
 		if err != nil {
-			return nil, err
+			return utils.AvroFile{}, err
 		}
 		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, provider, nil, nil, nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to write records to S3: %w", err)
+			return utils.AvroFile{}, fmt.Errorf("failed to write records to S3: %w", err)
 		}
 
 		return avroFile, nil
 	}
 
-	return nil, fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
+	return utils.AvroFile{}, fmt.Errorf("unsupported staging path: %s", s.config.StagingPath)
 }
 
-func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile *utils.AvroFile, stage string) error {
+func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile utils.AvroFile, stage string) error {
 	if avroFile.StorageLocation != utils.AvroLocalStorage {
 		s.logger.Info("no file to put to stage")
 		return nil

@@ -50,8 +50,7 @@ type AvroFile struct {
 
 func (l *AvroFile) Cleanup() {
 	if l.StorageLocation == AvroLocalStorage {
-		err := os.Remove(l.FilePath)
-		if err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(l.FilePath); err != nil && !os.IsNotExist(err) {
 			slog.Warn("unable to delete temporary Avro file", slog.Any("error", err))
 		}
 	}
@@ -100,12 +99,12 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	avroSize *atomic.Int64,
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator *model.SnapshotTableNumericTruncator,
-) (*AvroFile, error) {
+) (AvroFile, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	s3svc, err := CreateS3Client(ctx, s3Creds)
 	if err != nil {
 		logger.Error("failed to create S3 client", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to create S3 client: %w", err)
+		return AvroFile{}, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
 	buf := buffer.New(32 * 1024 * 1024) // 32MB in memory Buffer
@@ -135,7 +134,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 
 	partSize, err := internal.PeerDBS3PartSize(ctx, env)
 	if err != nil {
-		return nil, fmt.Errorf("could not get s3 part size config: %w", err)
+		return AvroFile{}, fmt.Errorf("could not get s3 part size config: %w", err)
 	}
 
 	// Create the uploader using the AWS SDK v2 manager
@@ -152,15 +151,15 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}); err != nil {
 		s3Path := "s3://" + bucketName + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
-		return nil, fmt.Errorf("failed to upload file: %w", err)
+		return AvroFile{}, fmt.Errorf("failed to upload file: %w", err)
 	}
 
 	if writeOcfError != nil {
 		logger.Error("failed to write records to OCF", slog.Any("error", writeOcfError))
-		return nil, writeOcfError
+		return AvroFile{}, writeOcfError
 	}
 
-	return &AvroFile{
+	return AvroFile{
 		StorageLocation: AvroS3Storage,
 		FilePath:        key,
 		NumRecords:      numRows,
@@ -169,10 +168,10 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 
 func (p *peerDBOCFWriter) WriteRecordsToAvroFile(
 	ctx context.Context, env map[string]string, filePath string, numericTruncator *model.SnapshotTableNumericTruncator,
-) (*AvroFile, error) {
+) (AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary Avro file: %w", err)
+		return AvroFile{}, fmt.Errorf("failed to create temporary Avro file: %w", err)
 	}
 	defer file.Close()
 	printFileStats := func(message string) {
@@ -192,11 +191,11 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(
 
 	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter, nil, numericTruncator)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
+		return AvroFile{}, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}
 
 	printFileStats("finished writing to temporary Avro file")
-	return &AvroFile{
+	return AvroFile{
 		NumRecords:      numRecords,
 		StorageLocation: AvroLocalStorage,
 		FilePath:        filePath,

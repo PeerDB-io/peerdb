@@ -360,7 +360,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	flowName string,
 	numericTruncator *model.SnapshotTableNumericTruncator,
 ) (int64, error) {
-	var avroFile *utils.AvroFile
+	var avroFile utils.AvroFile
 	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",
 		slog.String(string(shared.FlowNameKey), flowName),
@@ -380,7 +380,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 			return 0, fmt.Errorf("failed to close Avro file on GCS after writing: %w", err)
 		}
 
-		avroFile = &utils.AvroFile{
+		avroFile = utils.AvroFile{
 			NumRecords:      numRecords,
 			StorageLocation: utils.AvroGCSStorage,
 			FilePath:        avroFilePath,
