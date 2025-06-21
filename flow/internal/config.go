@@ -163,6 +163,14 @@ func PeerDBTemporalClientKey(ctx context.Context) ([]byte, error) {
 	return GetKmsDecryptedEnvBase64EncodedBytes(ctx, "TEMPORAL_CLIENT_KEY", nil)
 }
 
+func PeerDBTemporalClientCertPath() string {
+	return GetEnvString("TEMPORAL_CLIENT_CERT_PATH", "")
+}
+
+func PeerDBTemporalClientKeyPath() string {
+	return GetEnvString("TEMPORAL_CLIENT_KEY_PATH", "")
+}
+
 func PeerDBGetIncidentIoUrl() string {
 	return GetEnvString("PEERDB_INCIDENTIO_URL", "")
 }
