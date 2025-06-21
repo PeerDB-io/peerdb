@@ -45,6 +45,7 @@ func (c *SnowflakeConnector) getTableSchemaForTable(ctx context.Context, tm *pro
 func (c *SnowflakeConnector) GetTableSchema(
 	ctx context.Context,
 	_env map[string]string,
+	_version uint32,
 	_system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {

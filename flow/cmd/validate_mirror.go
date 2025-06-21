@@ -102,7 +102,8 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	res, err := srcConn.GetTableSchema(ctx, nil, req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
+	res, err := srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
+		req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source table schema: %w", err)
 	}

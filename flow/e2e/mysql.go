@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -167,7 +168,8 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 	}
 
 	tableName := fmt.Sprintf("e2e_test_%s.%s", suffix, table)
-	tableSchemas, err := s.GetTableSchema(ctx, nil, protos.TypeSystem_Q, []*protos.TableMapping{{SourceTableIdentifier: tableName}})
+	tableSchemas, err := s.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	if err != nil {
 		return nil, err
 	}

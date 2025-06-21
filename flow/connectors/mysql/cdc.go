@@ -35,6 +35,7 @@ import (
 func (c *MySqlConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
+	version uint32,
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {

@@ -479,6 +479,7 @@ func CreateQRepWorkflowConfig(
 		SyncedAtColName:                  syncedAtCol,
 		SetupWatermarkTableOnDestination: setupDst,
 		SoftDeleteColName:                isDeletedCol,
+		Version:                          shared.InternalVersion_Latest,
 	}
 }
 
