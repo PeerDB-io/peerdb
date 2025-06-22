@@ -330,3 +330,21 @@ func TestPostgresCouldNotFindRecordWalErrorShouldBeRecoverable(t *testing.T) {
 		Code:   pgerrcode.InternalError,
 	}, errInfo, "Unexpected error info")
 }
+
+func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
+	config, err := pgx.ParseConfig("postgres://localhost:1001/db")
+	require.NoError(t, err)
+	_, err = pgx.ConnectConfig(t.Context(), config)
+	require.Error(t, err, "Expected connection refused error")
+	t.Logf("Error: %v", err)
+	for _, e := range []error{err, exceptions.NewPeerCreateError(err)} {
+		t.Run(fmt.Sprintf("Testing error: %T", e), func(t *testing.T) {
+			errorClass, errInfo := GetErrorClass(t.Context(), err)
+			assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "UNKNOWN",
+			}, errInfo, "Unexpected error info")
+		})
+	}
+}
