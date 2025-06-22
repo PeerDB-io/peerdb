@@ -174,7 +174,7 @@ func (c *MySqlConnector) SetupReplication(
 		if err != nil {
 			return model.SetupReplicationResult{}, fmt.Errorf("[mysql] SetupReplication failed to GetMasterPos: %w", err)
 		}
-		lastOffsetText = fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+		lastOffsetText = posToOffsetText(pos)
 	}
 	if err := c.SetLastOffset(
 		ctx, req.FlowJobName, model.CdcCheckpoint{Text: lastOffsetText},
@@ -440,7 +440,7 @@ func (c *MySqlConnector) PullRecords(
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			} else if event.Header.LogPos > pos.Pos {
 				pos.Pos = event.Header.LogPos
-				updatedOffset = fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+				updatedOffset = posToOffsetText(pos)
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
 			inTx = false
@@ -448,14 +448,14 @@ func (c *MySqlConnector) PullRecords(
 			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
 				pos.Name = string(ev.NextLogName)
 				pos.Pos = uint32(ev.Position)
-				updatedOffset = fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+				updatedOffset = posToOffsetText(pos)
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.QueryEvent:
 			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
 				pos.Pos = event.Header.LogPos
-				updatedOffset = fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+				updatedOffset = posToOffsetText(pos)
 				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
 			if mysqlParser == nil {
@@ -725,4 +725,8 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
 	}
 	return nil
+}
+
+func posToOffsetText(pos mysql.Position) string {
+	return fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
 }
