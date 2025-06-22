@@ -387,7 +387,6 @@ func (c *MySqlConnector) PullRecords(
 			event, err = mystream.GetEvent(timeoutCtx)
 		}
 		if err != nil {
-			c.logger.Info("[mysql] QQQ", slog.String("offset", updatedOffset), slog.Uint64("records", uint64(recordCount)), slog.Any("error", err), slog.Any("ctx", ctx.Err()))
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
 				//nolint:govet // cancelTimeout called by defer, spurious lint
