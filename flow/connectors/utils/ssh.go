@@ -11,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -71,7 +72,7 @@ func NewSSHTunnel(
 ) (SSHTunnel, error) {
 	if sshConfig != nil {
 		logger := internal.LoggerFromCtx(ctx)
-		sshServer := fmt.Sprintf("%s:%d", sshConfig.Host, sshConfig.Port)
+		sshServer := shared.JoinHostPort(sshConfig.Host, sshConfig.Port)
 		clientConfig, err := GetSSHClientConfig(sshConfig)
 		if err != nil {
 			logger.Error("Failed to get SSH client config", "error", err)
