@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"strconv"
 	"text/template"
 
@@ -267,38 +266,6 @@ func (c *MySqlConnector) PullQRepRecords(
 	var rs mysql.Result
 	onRow := func(row []mysql.FieldValue) error {
 		totalRecords += 1
-		totalBytes += int64(len(row) / 8) // null bitmap
-		for idx, val := range row {
-			// unfortunately we're using text protocol, so this is a weak estimate
-			switch rs.Fields[idx].Type {
-			case mysql.MYSQL_TYPE_NULL:
-				// 0
-			case mysql.MYSQL_TYPE_TINY, mysql.MYSQL_TYPE_SHORT, mysql.MYSQL_TYPE_INT24, mysql.MYSQL_TYPE_LONG, mysql.MYSQL_TYPE_LONGLONG:
-				var v uint64
-				if val.Type == mysql.FieldValueTypeUnsigned {
-					v = val.AsUint64()
-				} else {
-					signed := val.AsInt64()
-					if signed < 0 {
-						v = uint64(-signed)
-					} else {
-						v = uint64(signed)
-					}
-				}
-				if v < 10 {
-					totalBytes += 1
-				} else if v > 99999999999999 {
-					// math.log10(10**15-1) == 15.0, so pick boundary where we're accurate, cap at 15 for simplicity
-					totalBytes += 15
-				} else {
-					totalBytes += 1 + int64(math.Log10(float64(val.AsUint64())))
-				}
-			case mysql.MYSQL_TYPE_YEAR, mysql.MYSQL_TYPE_FLOAT, mysql.MYSQL_TYPE_DOUBLE:
-				totalBytes += 4
-			default:
-				totalBytes += int64(len(val.AsString()))
-			}
-		}
 		schema, err := stream.Schema()
 		if err != nil {
 			return err
@@ -317,9 +284,11 @@ func (c *MySqlConnector) PullQRepRecords(
 
 	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query
-		if err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult); err != nil {
+		readBytes, err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult)
+		if err != nil {
 			return 0, 0, err
 		}
+		totalBytes += readBytes
 	} else {
 		var rangeStart string
 		var rangeEnd string
@@ -346,9 +315,11 @@ func (c *MySqlConnector) PullQRepRecords(
 			return 0, 0, err
 		}
 
-		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
+		readBytes, err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult)
+		if err != nil {
 			return 0, 0, err
 		}
+		totalBytes += readBytes
 	}
 
 	close(stream.Records)

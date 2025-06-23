@@ -425,8 +425,6 @@ func (c *MySqlConnector) PullRecords(
 			return err
 		}
 
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
-
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
 			if ev.ImmediateCommitTimestamp > 0 {
@@ -482,6 +480,7 @@ func (c *MySqlConnector) PullRecords(
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()
