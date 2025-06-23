@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log/slog"
 	"os"
@@ -37,6 +36,11 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 		},
 	}
 
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
+	}
+
 	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(
 		ctx, otel_metrics.FlowSnapshotWorkerServiceName, opts.EnableOtelMetrics)
 	if metricsErr != nil {
@@ -46,28 +50,7 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 		Meter: metricsProvider.Meter("temporal-sdk-go"),
 	})
 
-	if internal.PeerDBTemporalEnableCertAuth() {
-		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := parseTemporalCertAndKey(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
-		}
-
-		connOptions := client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: certs,
-				MinVersion:   tls.VersionTLS13,
-			},
-		}
-		clientOptions.ConnectionOptions = connOptions
-	}
-
-	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
-	}
-
-	c, err := client.Dial(clientOptions)
+	c, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
