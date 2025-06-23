@@ -1,5 +1,8 @@
 package connmysql
 
+/* go-mysql does not expose raw bytes for streaming selects,
+ * thus this allows accurately measuring fetched bytes */
+
 import (
 	"context"
 	"net"
