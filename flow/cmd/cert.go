@@ -39,17 +39,7 @@ func setupTemporalClient(ctx context.Context, clientOptions client.Options) (cli
 		clientOptions.ConnectionOptions = client.ConnectionOptions{
 			TLS: &tls.Config{
 				GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
-					certBytes, err := os.ReadFile(certPath)
-					if err != nil {
-						return nil, fmt.Errorf("could not read temporal client cert %s: %w", certPath, err)
-					}
-
-					keyBytes, err := os.ReadFile(keyPath)
-					if err != nil {
-						return nil, fmt.Errorf("could not read temporal client key %s: %w", keyPath, err)
-					}
-
-					keyPairValue, err := tls.X509KeyPair(certBytes, keyBytes)
+					keyPairValue, err := tls.LoadX509KeyPair(certPath, keyPath)
 					if err != nil {
 						return nil, fmt.Errorf("unable to obtain temporal key pair: %w", err)
 					}
