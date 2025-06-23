@@ -316,6 +316,13 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
 	req *protos.RemoveTablesFromRawTableInput,
 ) error {
+	if c.config.Cluster != "" {
+		// this operation isn't crucial, okay to skip
+		c.logger.Info("skipping raw table cleanup of tables, DELETE not supported on Distributed table engine",
+			slog.Any("tables", req.DestinationTableNames))
+		return nil
+	}
+
 	for _, tableName := range req.DestinationTableNames {
 		// Better to use lightweight deletes here as the main goal is to
 		// not have the rows in the table be visible by the NormalizeRecords'
