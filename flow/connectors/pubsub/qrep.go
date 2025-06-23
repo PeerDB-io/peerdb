@@ -23,11 +23,11 @@ func (c *PubSubConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, []string, error) {
 	startTime := time.Now()
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
 	publish := make(chan publishResult, 32)
@@ -37,7 +37,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer pool.Close()
 
@@ -116,18 +116,18 @@ Loop:
 	}
 
 	if err := pool.Wait(queueCtx); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	close(publish)
 	topiccache.Stop(queueCtx)
 	select {
 	case <-queueCtx.Done():
-		return 0, queueCtx.Err()
+		return 0, nil, queueCtx.Err()
 	case <-waitChan:
 	}
 
 	if err := c.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	return numRecords.Load(), nil
+	return numRecords.Load(), nil, nil
 }
