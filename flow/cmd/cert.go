@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"go.temporal.io/sdk/client"
 
