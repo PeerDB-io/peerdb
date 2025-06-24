@@ -2,8 +2,6 @@ package connclickhouse
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -30,18 +28,14 @@ func (c *ClickHouseConnector) GetRawTableName(flowJobName string) string {
 }
 
 func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
-	var result sql.NullInt32
+	var result uint8
 	if err := c.queryRow(ctx,
 		fmt.Sprintf(checkIfTableExistsSQL, peerdb_clickhouse.QuoteLiteral(databaseName), peerdb_clickhouse.QuoteLiteral(tableIdentifier)),
 	).Scan(&result); err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
 
-	if !result.Valid {
-		return false, errors.New("[clickhouse] checkIfTableExists: result is not valid")
-	}
-
-	return result.Int32 == 1, nil
+	return result == 1, nil
 }
 
 func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
@@ -220,9 +214,10 @@ func (c *ClickHouseConnector) RenameTables(
 				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 			}
 
-			if err := c.execWithLogging(ctx,
-				fmt.Sprintf("RENAME TABLE `%s` TO `%s`", renameRequest.CurrentName, renameRequest.NewName),
-			); err != nil {
+			if err := c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
+				peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName),
+				peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName),
+			)); err != nil {
 				return nil, fmt.Errorf("unable to rename table %s to %s: %w", renameRequest.CurrentName, renameRequest.NewName, err)
 			}
 		}
