@@ -104,21 +104,16 @@ func (c *SnowflakeConnector) createStage(ctx context.Context, stageName string, 
 		}
 		createStageStmt = stmt
 	} else {
-		stageStatement := `
-			CREATE OR REPLACE STAGE %s
-			FILE_FORMAT = (TYPE = AVRO);
-			`
-		createStageStmt = fmt.Sprintf(stageStatement, stageName)
+		createStageStmt = fmt.Sprintf(`CREATE OR REPLACE STAGE %s FILE_FORMAT = (TYPE = AVRO)`, stageName)
 	}
 
 	// Execute the query
-	_, err := c.execWithLogging(ctx, createStageStmt)
-	if err != nil {
-		c.logger.Error("failed to create stage "+stageName, slog.Any("error", err))
+	if _, err := c.execWithLogging(ctx, createStageStmt); err != nil {
+		c.logger.Error("failed to create stage", slog.String("stage", stageName), slog.Any("error", err))
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
 	}
 
-	c.logger.Info("Created stage " + stageName)
+	c.logger.Info("Created stage", slog.String("stage", stageName))
 	return nil
 }
 

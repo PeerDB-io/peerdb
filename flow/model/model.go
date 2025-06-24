@@ -85,6 +85,8 @@ type PullRecordsRequest[T Items] struct {
 	LastOffset CdcCheckpoint
 	// MaxBatchSize is the max number of records to fetch.
 	MaxBatchSize uint32
+	// peerdb versioning to prevent breaking changes
+	InternalVersion uint32
 	// IdleTimeout is the timeout to wait for new records.
 	IdleTimeout time.Duration
 }
@@ -152,6 +154,7 @@ type SyncRecordsRequest[T Items] struct {
 	// source:destination mappings
 	TableMappings []*protos.TableMapping
 	SyncBatchID   int64
+	Version       uint32
 }
 
 type NormalizeRecordsRequest struct {
@@ -162,6 +165,7 @@ type NormalizeRecordsRequest struct {
 	SyncedAtColName        string
 	TableMappings          []*protos.TableMapping
 	SyncBatchID            int64
+	Version                uint32
 }
 
 //nolint:govet // no need to save on fieldalignment

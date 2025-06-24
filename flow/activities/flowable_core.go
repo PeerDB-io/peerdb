@@ -99,6 +99,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 			FlowName:      config.FlowJobName,
 			System:        config.System,
 			Env:           config.Env,
+			Version:       config.Version,
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}
@@ -195,6 +196,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
+			InternalVersion:             config.Version,
 		})
 	})
 
@@ -265,6 +267,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			Script:                 config.Script,
 			TableNameSchemaMapping: tableNameSchemaMapping,
 			Env:                    config.Env,
+			Version:                config.Version,
 		})
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))
@@ -663,6 +666,7 @@ func (a *FlowableActivity) startNormalize(
 		SoftDeleteColName:      config.SoftDeleteColName,
 		SyncedAtColName:        config.SyncedAtColName,
 		SyncBatchID:            batchID,
+		Version:                config.Version,
 	})
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName,

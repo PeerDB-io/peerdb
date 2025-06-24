@@ -76,6 +76,7 @@ message FlowConnectionConfigs {
   string destination_name = 23;
 
   map<string, string> env = 24;
+  uint32 version = 25;
 }
 
 message RenameTableOption {
@@ -188,6 +189,7 @@ message SetupTableSchemaBatchInput {
   TypeSystem system = 4;
   string peer_name = 5;
   repeated TableMapping table_mappings = 6;
+  uint32 version = 7;
 }
 
 message SetupNormalizedTableBatchInput {
@@ -274,6 +276,7 @@ enum TypeSystem {
 }
 
 message QRepConfig {
+  reserved 2, 3;
   string flow_job_name = 1;
 
   string destination_table_identifier = 4;
@@ -328,6 +331,7 @@ message QRepConfig {
   repeated string exclude = 26;
 
   repeated ColumnSetting columns = 27;
+  uint32 version = 28;
 }
 
 message QRepPartition {
@@ -364,6 +368,7 @@ message TableSchemaDelta {
 }
 
 message QRepFlowState {
+  reserved 4;
   QRepPartition last_partition = 1;
   uint64 num_partitions_processed = 2;
   bool needs_resync = 3;

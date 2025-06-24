@@ -116,6 +116,7 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		FlowName: q.config.FlowJobName,
 		System:   q.config.System,
 		Env:      q.config.Env,
+		Version:  q.config.Version,
 	}
 
 	return workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil)

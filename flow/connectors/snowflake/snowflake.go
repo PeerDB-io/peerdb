@@ -433,7 +433,8 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		FlowJobName: req.FlowJobName,
 		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.rawSchema,
 			rawTableIdentifier)),
-		Env: req.Env,
+		Env:     req.Env,
+		Version: req.Version,
 	}
 	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
 	destinationTableSchema, err := c.getTableSchema(ctx, qrepConfig.DestinationTableIdentifier)

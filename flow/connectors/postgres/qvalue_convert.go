@@ -51,8 +51,9 @@ func (c *PostgresConnector) postgresOIDToName(recvOID uint32, customTypeMapping 
 func (c *PostgresConnector) postgresOIDToQValueKind(
 	recvOID uint32,
 	customTypeMapping map[uint32]shared.CustomDataType,
+	version uint32,
 ) types.QValueKind {
-	colType, err := postgres.PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap)
+	colType, err := postgres.PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, version)
 	if err != nil {
 		if _, warned := c.hushWarnOID[recvOID]; !warned {
 			c.logger.Warn(
@@ -391,9 +392,9 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 }
 
 func (c *PostgresConnector) parseFieldFromPostgresOID(
-	oid uint32, typmod int32, value any, customTypeMapping map[uint32]shared.CustomDataType,
+	oid uint32, typmod int32, value any, customTypeMapping map[uint32]shared.CustomDataType, version uint32,
 ) (types.QValue, error) {
-	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping)
+	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping, version)
 	if value == nil {
 		return types.QValueNull(qvalueKind), nil
 	}

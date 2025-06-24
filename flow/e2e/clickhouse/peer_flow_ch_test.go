@@ -1181,6 +1181,50 @@ func (s ClickHouseSuite) Test_PgVector() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_PgVector_Version0() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_pgvector"
+	srcTextTableName := "test_pgvector_text"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	srcTextFullName := s.attachSchemaSuffix(srcTextTableName)
+	dstTableName := "test_pgvector"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 vector, hv halfvec, sv sparsevec)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 text, hv text, sv text)`, srcTextFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, srcTextFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTableName),
+		TableMappings: e2e.TableMappings(s, srcTableName, dstTableName),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Version = shared.InternalVersion_First
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTextTableName, dstTableName, "id,v1,hv,sv")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, srcTextFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTextTableName, dstTableName, "id,v1,hv,sv")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_Column_Exclusion() {
 	if mySource, ok := s.source.(*e2e.MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("skip maria, testing minimal row metadata on maria")
@@ -1223,6 +1267,7 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
 		DoInitialSnapshot: true,
+		Version:           shared.InternalVersion_Latest,
 	}
 
 	// wait for PeerFlowStatusQuery to finish setup
