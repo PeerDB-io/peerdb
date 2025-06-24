@@ -55,7 +55,7 @@ func TestGenericCH_MySQL(t *testing.T) {
 func TestGenericChCluster_PG(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, true, func(t *testing.T) (*e2e.PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgchg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgchclg_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupPostgres(t, suffix)
 		return source, suffix, err
 	})))
@@ -64,7 +64,7 @@ func TestGenericChCluster_PG(t *testing.T) {
 func TestGenericChCluster_MySQL(t *testing.T) {
 	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, true, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mychg_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychclg_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupMySQL(t, suffix)
 		return source, suffix, err
 	})))
