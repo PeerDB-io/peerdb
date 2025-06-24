@@ -18,20 +18,20 @@ func (e *NumericTruncatedError) Unwrap() error {
 	return e.error
 }
 
-type NumericClearedError struct {
+type NumericOutOfRangeError struct {
 	error
 	DestinationTable  string
 	DestinationColumn string
 }
 
-func NewNumericClearedError(err error, destinationTable, destinationColumn string) *NumericClearedError {
-	return &NumericClearedError{err, destinationTable, destinationColumn}
+func NewNumericOutOfRangeError(err error, destinationTable, destinationColumn string) *NumericOutOfRangeError {
+	return &NumericOutOfRangeError{err, destinationTable, destinationColumn}
 }
 
-func (e *NumericClearedError) Error() string {
+func (e *NumericOutOfRangeError) Error() string {
 	return e.error.Error()
 }
 
-func (e *NumericClearedError) Unwrap() error {
+func (e *NumericOutOfRangeError) Unwrap() error {
 	return e.error
 }

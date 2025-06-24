@@ -502,11 +502,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var numericClearedError *exceptions.NumericClearedError
-	if errors.As(err, &numericClearedError) {
+	var numericOutOfRangeError *exceptions.NumericOutOfRangeError
+	if errors.As(err, &numericOutOfRangeError) {
 		return ErrorLossyConversion, ErrorInfo{
-			Source: TableColumnErrorSource(numericClearedError.DestinationTable, numericClearedError.DestinationColumn),
-			Code:   "NUMERIC_CLEARED",
+			Source: TableColumnErrorSource(numericOutOfRangeError.DestinationTable, numericOutOfRangeError.DestinationColumn),
+			Code:   "NUMERIC_OUT_OF_RANGE",
 		}
 	}
 

@@ -612,7 +612,7 @@ func (ns *NumericStat) CollectWarnings(warnings *[]error) {
 		err := fmt.Errorf(
 			"column %s.%s: cleared %d NUMERIC value%s too big to fit into the destination column (got %d integer digits)",
 			ns.DestinationTable, ns.DestinationColumn, ns.LongIntegersClearedCount, plural, ns.MaxIntegerDigits)
-		warning := exceptions.NewNumericClearedError(err, ns.DestinationTable, ns.DestinationColumn)
+		warning := exceptions.NewNumericOutOfRangeError(err, ns.DestinationTable, ns.DestinationColumn)
 		*warnings = append(*warnings, warning)
 	}
 	if ns.TruncatedCount > 0 {
