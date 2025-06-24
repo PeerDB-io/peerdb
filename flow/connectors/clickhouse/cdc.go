@@ -62,7 +62,8 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		_peerdb_data String,
 		_peerdb_record_type Int,
 		_peerdb_match_data String,
-		_peerdb_batch_id Int64
+		_peerdb_batch_id Int64,
+		_peerdb_unchanged_toast_columns String
 	) ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)`
 	if err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, engine),
@@ -78,7 +79,8 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 			_peerdb_data String,
 			_peerdb_record_type Int,
 			_peerdb_match_data String,
-			_peerdb_batch_id Int64
+			_peerdb_batch_id Int64,
+			_peerdb_unchanged_toast_columns String
 		) ENGINE = Distributed(%s,%s,%s,cityHash64(_peerdb_uid))`
 		if err := c.execWithLogging(ctx,
 			fmt.Sprintf(createRawDistributedSQL, peerdb_clickhouse.QuoteIdentifier(rawDistributedName), onCluster,
