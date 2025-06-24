@@ -253,7 +253,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
+		Addr: []string{shared.JoinHostPort(config.Host, config.Port)},
 		Auth: clickhouse.Auth{
 			Database: config.Database,
 			Username: config.User,

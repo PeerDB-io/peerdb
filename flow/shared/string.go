@@ -1,8 +1,12 @@
 package shared
 
 import (
+	"net"
 	"regexp"
+	"strconv"
 	"unsafe"
+
+	"golang.org/x/exp/constraints"
 )
 
 func UnsafeFastStringToReadOnlyBytes(s string) []byte {
@@ -24,4 +28,8 @@ func ReplaceIllegalCharactersWithUnderscores(s string) string {
 
 func IsValidReplicationName(s string) bool {
 	return reLegalIdentifierLower.MatchString(s)
+}
+
+func JoinHostPort[I constraints.Integer](host string, port I) string {
+	return net.JoinHostPort(host, strconv.FormatUint(uint64(port), 10))
 }
