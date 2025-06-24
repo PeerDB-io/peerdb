@@ -38,8 +38,8 @@ func (ss StreamNumericTruncator) Warnings() []error {
 }
 
 type CdcTableNumericTruncator struct {
-	DestinationTable   string
 	TruncatorsByColumn map[string]*CdcColumnNumericTruncator
+	DestinationTable   string
 }
 
 func NewCdcTableNumericTruncator(
@@ -56,8 +56,8 @@ func NewCdcTableNumericTruncator(
 		}
 	}
 	return &CdcTableNumericTruncator{
-		DestinationTable:   destinationTable,
 		TruncatorsByColumn: truncatorsByColumn,
+		DestinationTable:   destinationTable,
 	}
 }
 

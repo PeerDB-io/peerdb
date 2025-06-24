@@ -502,18 +502,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var numericClearedWarning *exceptions.NumericClearedWarning
-	if errors.As(err, &numericClearedWarning) {
+	var numericClearedError *exceptions.NumericClearedError
+	if errors.As(err, &numericClearedError) {
 		return ErrorLossyConversion, ErrorInfo{
-			Source: TableColumnErrorSource(numericClearedWarning.DestinationTable, numericClearedWarning.DestinationColumn),
+			Source: TableColumnErrorSource(numericClearedError.DestinationTable, numericClearedError.DestinationColumn),
 			Code:   "NUMERIC_CLEARED",
 		}
 	}
 
-	var numericTruncatedWarning *exceptions.NumericTruncatedWarning
-	if errors.As(err, &numericTruncatedWarning) {
+	var numericTruncatedError *exceptions.NumericTruncatedError
+	if errors.As(err, &numericTruncatedError) {
 		return ErrorLossyConversion, ErrorInfo{
-			Source: TableColumnErrorSource(numericTruncatedWarning.DestinationTable, numericTruncatedWarning.DestinationColumn),
+			Source: TableColumnErrorSource(numericTruncatedError.DestinationTable, numericTruncatedError.DestinationColumn),
 			Code:   "NUMERIC_TRUNCATED",
 		}
 	}

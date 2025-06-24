@@ -270,7 +270,10 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))
 		}
 		for _, warning := range res.Warnings {
-			a.Alerter.LogFlowWarning(ctx, flowName, warning)
+			err := a.Alerter.LogFlowWarning(ctx, flowName, warning)
+			if err != nil {
+				return err
+			}
 		}
 
 		logger.Info("finished pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
@@ -466,7 +469,10 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
 		}
 		for _, warning := range warnings {
-			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
+			err := a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
+			if err != nil {
+				return err
+			}
 		}
 		return context.Canceled
 	})
@@ -575,7 +581,10 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
 		}
 		for _, warning := range warnings {
-			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
+			err := a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
+			if err != nil {
+				return err
+			}
 		}
 		return context.Canceled
 	})

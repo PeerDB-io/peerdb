@@ -1,37 +1,37 @@
 package exceptions
 
-type NumericTruncatedWarning struct {
+type NumericTruncatedError struct {
 	error
 	DestinationTable  string
 	DestinationColumn string
 }
 
-func NewNumericTruncatedWarning(err error, destinationTable, destinationColumn string) *NumericTruncatedWarning {
-	return &NumericTruncatedWarning{err, destinationTable, destinationColumn}
+func NewNumericTruncatedError(err error, destinationTable, destinationColumn string) *NumericTruncatedError {
+	return &NumericTruncatedError{err, destinationTable, destinationColumn}
 }
 
-func (e *NumericTruncatedWarning) Error() string {
+func (e *NumericTruncatedError) Error() string {
 	return e.error.Error()
 }
 
-func (e *NumericTruncatedWarning) Unwrap() error {
+func (e *NumericTruncatedError) Unwrap() error {
 	return e.error
 }
 
-type NumericClearedWarning struct {
+type NumericClearedError struct {
 	error
 	DestinationTable  string
 	DestinationColumn string
 }
 
-func NewNumericClearedWarning(err error, destinationTable, destinationColumn string) *NumericClearedWarning {
-	return &NumericClearedWarning{err, destinationTable, destinationColumn}
+func NewNumericClearedError(err error, destinationTable, destinationColumn string) *NumericClearedError {
+	return &NumericClearedError{err, destinationTable, destinationColumn}
 }
 
-func (e *NumericClearedWarning) Error() string {
+func (e *NumericClearedError) Error() string {
 	return e.error.Error()
 }
 
-func (e *NumericClearedWarning) Unwrap() error {
+func (e *NumericClearedError) Unwrap() error {
 	return e.error
 }
