@@ -14,7 +14,7 @@ import (
 )
 
 func RecordsToRawTableStream[Items model.Items](
-	req *model.RecordsToStreamRequest[Items], numericTruncator *model.StreamNumericTruncator,
+	req *model.RecordsToStreamRequest[Items], numericTruncator model.StreamNumericTruncator,
 ) (*model.QRecordStream, error) {
 	recordStream := model.NewQRecordStream(1 << 17)
 	recordStream.SetSchema(types.QRecordSchema{
@@ -83,7 +83,7 @@ func RecordsToRawTableStream[Items model.Items](
 
 func recordToQRecordOrError[Items model.Items](
 	batchID int64, record model.Record[Items], targetDWH protos.DBType, unboundedNumericAsString bool,
-	numericTruncator *model.StreamNumericTruncator,
+	numericTruncator model.StreamNumericTruncator,
 ) ([]types.QValue, error) {
 	var entries [8]types.QValue
 	switch typedRecord := record.(type) {

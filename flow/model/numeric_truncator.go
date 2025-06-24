@@ -6,36 +6,32 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-type StreamNumericTruncator struct {
-	TruncatorsByTable map[string]*CdcTableNumericTruncator
-}
+type StreamNumericTruncator map[string]*CdcTableNumericTruncator
 
-func NewStreamNumericTruncator(tableMappings []*protos.TableMapping, typesToSkip map[string]struct{}) *StreamNumericTruncator {
+func NewStreamNumericTruncator(tableMappings []*protos.TableMapping, typesToSkip map[string]struct{}) StreamNumericTruncator {
 	statsByTable := make(map[string]*CdcTableNumericTruncator, len(tableMappings))
 	for _, tableMapping := range tableMappings {
 		statsByTable[tableMapping.DestinationTableIdentifier] = NewCdcTableNumericTruncator(
 			tableMapping.DestinationTableIdentifier, tableMapping.Columns, typesToSkip)
 	}
-	return &StreamNumericTruncator{
-		TruncatorsByTable: statsByTable,
-	}
+	return statsByTable
 }
 
-func (ss *StreamNumericTruncator) Get(destinationTable string) *CdcTableNumericTruncator {
+func (ss StreamNumericTruncator) Get(destinationTable string) *CdcTableNumericTruncator {
 	if ss == nil {
 		return nil
 	}
-	truncator, ok := ss.TruncatorsByTable[destinationTable]
+	truncator, ok := ss[destinationTable]
 	if !ok {
 		truncator = NewCdcTableNumericTruncator(destinationTable, nil, nil)
-		ss.TruncatorsByTable[destinationTable] = truncator
+		ss[destinationTable] = truncator
 	}
 	return truncator
 }
 
-func (ss *StreamNumericTruncator) Warnings() []error {
+func (ss StreamNumericTruncator) Warnings() []error {
 	var warnings []error
-	for _, tableStats := range ss.TruncatorsByTable {
+	for _, tableStats := range ss {
 		tableStats.CollectWarnings(&warnings)
 	}
 	return warnings
