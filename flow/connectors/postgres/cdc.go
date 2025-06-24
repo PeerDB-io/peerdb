@@ -224,7 +224,9 @@ func (qProcessor) Process(
 		items.AddColumn(col.Name, types.QValueNull(types.QValueKindInvalid))
 	case 't': // text
 		// bytea also appears here as a hex
-		data, err := p.decodeColumnData(tuple.Data, col.DataType, col.TypeModifier, pgtype.TextFormatCode, customTypeMapping, p.internalVersion)
+		data, err := p.decodeColumnData(
+			tuple.Data, col.DataType, col.TypeModifier, pgtype.TextFormatCode, customTypeMapping, p.internalVersion,
+		)
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
 				slog.String("columnName", col.Name), slog.Int64("dataType", int64(col.DataType)))
@@ -232,7 +234,9 @@ func (qProcessor) Process(
 		}
 		items.AddColumn(col.Name, data)
 	case 'b': // binary
-		data, err := p.decodeColumnData(tuple.Data, col.DataType, col.TypeModifier, pgtype.BinaryFormatCode, customTypeMapping, p.internalVersion)
+		data, err := p.decodeColumnData(
+			tuple.Data, col.DataType, col.TypeModifier, pgtype.BinaryFormatCode, customTypeMapping, p.internalVersion,
+		)
 		if err != nil {
 			return fmt.Errorf("error decoding binary column data: %w", err)
 		}
