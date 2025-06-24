@@ -167,7 +167,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			config.Password = token
 		}
 		var err error
-		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", config.Host, config.Port),
+		conn, err = client.ConnectWithDialer(ctx, "", shared.JoinHostPort(config.Host, config.Port),
 			config.User, config.Password, config.Database, c.Dialer(), argF...)
 		if err != nil {
 			return nil, err
