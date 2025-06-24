@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -587,21 +588,35 @@ func TruncateNumeric(
 
 //nolint:govet // logically grouped, fieldalignment confuses things
 type NumericStat struct {
+	DestinationTable         string
+	DestinationColumn        string
 	TruncatedCount           uint64
 	MaxExponent              int32
 	LongIntegersClearedCount uint64
 	MaxIntegerDigits         int32
 }
 
-func NumericStatCollectMessages(stat *NumericStat, table, column string, messages *[]string) {
-	if stat.LongIntegersClearedCount > 0 {
-		*messages = append(*messages,
-			fmt.Sprintf("Field %s.%s: cleared %d NUMERIC values too big to fit into the destination column (got %d integer digits)",
-				table, column, stat.LongIntegersClearedCount, stat.MaxIntegerDigits))
+func NewNumericStat(destinationTable, destinationColumn string) *NumericStat {
+	return &NumericStat{
+		DestinationTable:  destinationTable,
+		DestinationColumn: destinationColumn,
 	}
-	if stat.TruncatedCount > 0 {
-		*messages = append(*messages,
-			fmt.Sprintf("Field %s.%s: truncated %d NUMERIC values too precise to fit into the destination column (got %d digits of exponent)",
-				table, column, stat.TruncatedCount, stat.MaxExponent))
+}
+
+func (ns *NumericStat) CollectWarnings(warnings *[]error) {
+	if ns.LongIntegersClearedCount > 0 {
+		err := fmt.Errorf(
+			"column %s.%s: cleared %d NUMERIC values too big to fit into the destination column (got %d integer digits)",
+			ns.DestinationTable, ns.DestinationColumn, ns.LongIntegersClearedCount, ns.MaxIntegerDigits)
+		warning := exceptions.NewNumericClearedWarning(err, ns.DestinationTable, ns.DestinationColumn)
+		*warnings = append(*warnings, warning)
+	}
+	if ns.TruncatedCount > 0 {
+		err := fmt.Errorf(
+			"column %s.%s: truncated %d NUMERIC values too precise to fit into the destination column (got %d digits of exponent)",
+			ns.DestinationTable, ns.DestinationColumn, ns.TruncatedCount, ns.MaxExponent)
+		warning := exceptions.NewNumericTruncatedWarning(err, ns.DestinationTable, ns.DestinationColumn)
+		*warnings = append(*warnings, warning)
+
 	}
 }

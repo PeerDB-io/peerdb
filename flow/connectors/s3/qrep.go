@@ -17,7 +17,7 @@ func (c *S3Connector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, []string, error) {
+) (int64, []error, error) {
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, nil, err

@@ -39,7 +39,7 @@ func upsertKeyColsHash(qRecord []types.QValue, upsertColIndices []int) string {
 
 func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *protos.QRepConfig,
 	partition *protos.QRepPartition, stream *model.QRecordStream,
-) (int64, []string, error) {
+) (int64, []error, error) {
 	startTime := time.Now()
 
 	schema, err := stream.Schema()

@@ -23,7 +23,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, []string, error) {
+) (int64, []error, error) {
 	startTime := time.Now()
 	schema, err := stream.Schema()
 	if err != nil {

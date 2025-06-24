@@ -61,6 +61,10 @@ func (e ErrorSource) String() string {
 	return string(e)
 }
 
+func TableColumnErrorSource(destinationTable, destinationColumn string) ErrorSource {
+	return ErrorSource(fmt.Sprintf("column:%s.%s", destinationTable, destinationColumn))
+}
+
 type ErrorInfo struct {
 	Source ErrorSource
 	Code   string
@@ -129,6 +133,9 @@ var (
 	}
 	ErrorInternalClickHouse = ErrorClass{
 		Class: "INTERNAL_CLICKHOUSE", action: NotifyTelemetry,
+	}
+	ErrorLossyConversion = ErrorClass{
+		Class: "WARNING_LOSSY_CONVERSION", action: NotifyTelemetry,
 	}
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
@@ -492,6 +499,22 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: ErrorSourceOther,
 				Code:   "CONTEXT_DEADLINE_EXCEEDED",
 			}
+		}
+	}
+
+	var numericClearedWarning *exceptions.NumericClearedWarning
+	if errors.As(err, &numericClearedWarning) {
+		return ErrorLossyConversion, ErrorInfo{
+			Source: TableColumnErrorSource(numericClearedWarning.DestinationTable, numericClearedWarning.DestinationColumn),
+			Code:   "NUMERIC_CLEARED",
+		}
+	}
+
+	var numericTruncatedWarning *exceptions.NumericTruncatedWarning
+	if errors.As(err, &numericTruncatedWarning) {
+		return ErrorLossyConversion, ErrorInfo{
+			Source: TableColumnErrorSource(numericTruncatedWarning.DestinationTable, numericTruncatedWarning.DestinationColumn),
+			Code:   "NUMERIC_TRUNCATED",
 		}
 	}
 

@@ -124,7 +124,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, []string, error) {
+) (int64, []error, error) {
 	dstTableName := config.DestinationTableIdentifier
 	startTime := time.Now()
 	schema, err := stream.Schema()
@@ -136,7 +136,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	if len(destTypeConversions) > 0 {
 		schema = applyTypeConversions(schema, destTypeConversions)
 	}
-	numericTruncator := model.NewSnapshotTableNumericTruncator(schema.Fields)
+	numericTruncator := model.NewSnapshotTableNumericTruncator(dstTableName, schema.Fields)
 
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
 	avroFiles, totalRecords, err := s.pushDataToS3(ctx, config, dstTableName, schema,
@@ -155,14 +155,14 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 			slog.Any("error", err))
 		return 0, nil, err
 	}
-	numericTruncationMessages := numericTruncator.Messages(dstTableName)
+	warnings := numericTruncator.Warnings()
 
 	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
 		s.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
 		return 0, nil, err
 	}
 
-	return totalRecords, numericTruncationMessages, nil
+	return totalRecords, warnings, nil
 }
 
 func (s *ClickHouseAvroSyncMethod) pushDataToS3(

@@ -374,7 +374,7 @@ func (c *PostgresConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, []string, error) {
+) (int64, []error, error) {
 	return syncQRepRecords(c, ctx, config, partition, RecordStreamSink{
 		QRecordStream: stream,
 	})
@@ -385,7 +385,7 @@ func (c *PostgresConnector) SyncPgQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	pipe PgCopyReader,
-) (int64, []string, error) {
+) (int64, []error, error) {
 	return syncQRepRecords(c, ctx, config, partition, pipe)
 }
 
@@ -395,7 +395,7 @@ func syncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepSyncSink,
-) (int64, []string, error) {
+) (int64, []error, error) {
 	dstTable, err := utils.ParseSchemaTable(config.DestinationTableIdentifier)
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to parse destination table identifier: %w", err)

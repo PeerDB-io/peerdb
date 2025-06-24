@@ -13,39 +13,41 @@ type StreamNumericTruncator struct {
 func NewStreamNumericTruncator(tableMappings []*protos.TableMapping, typesToSkip map[string]struct{}) *StreamNumericTruncator {
 	statsByTable := make(map[string]*CdcTableNumericTruncator, len(tableMappings))
 	for _, tableMapping := range tableMappings {
-		statsByTable[tableMapping.DestinationTableIdentifier] = NewCdcTableNumericTruncator(tableMapping.Columns, typesToSkip)
+		statsByTable[tableMapping.DestinationTableIdentifier] = NewCdcTableNumericTruncator(
+			tableMapping.DestinationTableIdentifier, tableMapping.Columns, typesToSkip)
 	}
 	return &StreamNumericTruncator{
 		TruncatorsByTable: statsByTable,
 	}
 }
 
-func (ss *StreamNumericTruncator) Get(tableName string) *CdcTableNumericTruncator {
+func (ss *StreamNumericTruncator) Get(destinationTable string) *CdcTableNumericTruncator {
 	if ss == nil {
 		return nil
 	}
-	truncator, ok := ss.TruncatorsByTable[tableName]
+	truncator, ok := ss.TruncatorsByTable[destinationTable]
 	if !ok {
-		truncator = NewCdcTableNumericTruncator(nil, nil)
-		ss.TruncatorsByTable[tableName] = truncator
+		truncator = NewCdcTableNumericTruncator(destinationTable, nil, nil)
+		ss.TruncatorsByTable[destinationTable] = truncator
 	}
 	return truncator
 }
 
-func (ss *StreamNumericTruncator) Messages() []string {
-	var messages []string
-	for tableName, tableStats := range ss.TruncatorsByTable {
-		tableStats.CollectMessages(tableName, &messages)
+func (ss *StreamNumericTruncator) Warnings() []error {
+	var warnings []error
+	for _, tableStats := range ss.TruncatorsByTable {
+		tableStats.CollectWarnings(&warnings)
 	}
-	return messages
+	return warnings
 }
 
 type CdcTableNumericTruncator struct {
+	DestinationTable   string
 	TruncatorsByColumn map[string]*CdcColumnNumericTruncator
 }
 
 func NewCdcTableNumericTruncator(
-	columnSettings []*protos.ColumnSetting, typesToSkip map[string]struct{},
+	destinationTable string, columnSettings []*protos.ColumnSetting, typesToSkip map[string]struct{},
 ) *CdcTableNumericTruncator {
 	truncatorsByColumn := map[string]*CdcColumnNumericTruncator{}
 	for _, columnSetting := range columnSettings {
@@ -58,28 +60,29 @@ func NewCdcTableNumericTruncator(
 		}
 	}
 	return &CdcTableNumericTruncator{
+		DestinationTable:   destinationTable,
 		TruncatorsByColumn: truncatorsByColumn,
 	}
 }
 
-func (ts *CdcTableNumericTruncator) Get(columnName string) *CdcColumnNumericTruncator {
+func (ts *CdcTableNumericTruncator) Get(destinationColumn string) *CdcColumnNumericTruncator {
 	if ts == nil {
 		return &CdcColumnNumericTruncator{Skip: true}
 	}
-	stat, ok := ts.TruncatorsByColumn[columnName]
+	stat, ok := ts.TruncatorsByColumn[destinationColumn]
 	if !ok {
 		stat = &CdcColumnNumericTruncator{
-			Stat: &qvalue.NumericStat{},
+			Stat: qvalue.NewNumericStat(ts.DestinationTable, destinationColumn),
 		}
-		ts.TruncatorsByColumn[columnName] = stat
+		ts.TruncatorsByColumn[destinationColumn] = stat
 	}
 	return stat
 }
 
-func (ts *CdcTableNumericTruncator) CollectMessages(tableName string, messages *[]string) {
-	for columnName, truncator := range ts.TruncatorsByColumn {
+func (ts *CdcTableNumericTruncator) CollectWarnings(warnings *[]error) {
+	for _, truncator := range ts.TruncatorsByColumn {
 		if !truncator.Skip {
-			qvalue.NumericStatCollectMessages(truncator.Stat, tableName, columnName, messages)
+			truncator.Stat.CollectWarnings(warnings)
 		}
 	}
 }
@@ -91,14 +94,16 @@ type CdcColumnNumericTruncator struct {
 }
 
 type SnapshotTableNumericTruncator struct {
-	stats  []qvalue.NumericStat
-	fields []types.QField
+	stats []*qvalue.NumericStat
 }
 
-func NewSnapshotTableNumericTruncator(fields []types.QField) *SnapshotTableNumericTruncator {
+func NewSnapshotTableNumericTruncator(destinationTable string, fields []types.QField) *SnapshotTableNumericTruncator {
+	stats := make([]*qvalue.NumericStat, 0, len(fields))
+	for _, field := range fields {
+		stats = append(stats, qvalue.NewNumericStat(destinationTable, field.Name))
+	}
 	return &SnapshotTableNumericTruncator{
-		stats:  make([]qvalue.NumericStat, len(fields)),
-		fields: fields,
+		stats: stats,
 	}
 }
 
@@ -106,16 +111,13 @@ func (ts *SnapshotTableNumericTruncator) Get(idx int) *qvalue.NumericStat {
 	if ts == nil {
 		return nil
 	}
-	return &ts.stats[idx]
+	return ts.stats[idx]
 }
 
-func (ts *SnapshotTableNumericTruncator) Messages(tableName string) []string {
-	if ts == nil {
-		return nil
+func (ts *SnapshotTableNumericTruncator) Warnings() []error {
+	var warnings []error
+	for _, stat := range ts.stats {
+		stat.CollectWarnings(&warnings)
 	}
-	var messages []string
-	for i, field := range ts.fields {
-		qvalue.NumericStatCollectMessages(&ts.stats[i], tableName, field.Name, &messages)
-	}
-	return messages
+	return warnings
 }

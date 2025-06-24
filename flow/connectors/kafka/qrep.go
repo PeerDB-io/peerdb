@@ -24,7 +24,7 @@ func (c *KafkaConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, []string, error) {
+) (int64, []error, error) {
 	startTime := time.Now()
 	numRecords := atomic.Int64{}
 	schema, err := stream.Schema()

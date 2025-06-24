@@ -29,7 +29,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, []string, error) {
+) (int64, []error, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, config.FlowJobName)
 
 	// Ensure the destination table is available.
