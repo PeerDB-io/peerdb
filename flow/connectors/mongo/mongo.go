@@ -195,8 +195,9 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 		} else if errors.Is(err, context.Canceled) {
 			c.logger.Info("SetupReplication context canceled, stopping change stream")
 		} else {
-			return model.SetupReplicationResult{}, fmt.Errorf("change stream error: %w", err)
+			c.logger.Error("PullRecords change stream error", "error", err)
 		}
+		return model.SetupReplicationResult{}, fmt.Errorf("change stream error: %w", err)
 	} else if resumeToken != nil {
 		if err := c.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
 			Text: base64.StdEncoding.EncodeToString(resumeToken),
@@ -407,8 +408,8 @@ func (c *MongoConnector) PullRecords(
 			c.logger.Info("PullRecords context canceled, stopping change stream")
 		} else {
 			c.logger.Error("PullRecords change stream error", "error", err)
-			return fmt.Errorf("change stream error: %w", err)
 		}
+		return fmt.Errorf("change stream error: %w", err)
 	}
 
 	return nil
