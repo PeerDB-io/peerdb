@@ -166,6 +166,9 @@ func EnvWaitForEqualTablesWithNames(
 			return false
 		}
 
+		t.Log("QQsrc", sourceRows)
+		t.Log("QQdst", rows)
+
 		return e2eshared.CheckEqualRecordBatches(t, sourceRows, rows)
 	})
 }
