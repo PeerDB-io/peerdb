@@ -171,7 +171,42 @@ func (c *MongoConnector) FinishExport(any) error {
 	return nil
 }
 
-func (c *MongoConnector) SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+	// TODO: need to think of the situation where the database is idle and we don't "get" a resume token.
+	changeStreamOpts := options.ChangeStream().
+		SetComment("PeerDB changeStream").
+		SetFullDocument(options.UpdateLookup).
+		SetFullDocumentBeforeChange(options.WhenAvailable)
+	changeStream, err := c.client.Watch(ctx, mongo.Pipeline{}, changeStreamOpts)
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
+	}
+	defer changeStream.Close(ctx)
+
+	var resumeToken bson.Raw
+	c.logger.Info("SetupReplication started, waiting for initial resume token",
+		slog.String("flowJobName", input.FlowJobName))
+	for resumeToken = changeStream.ResumeToken(); resumeToken == nil && changeStream.Next(ctx); {
+	}
+	if err := changeStream.Err(); err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			c.logger.Info("SetupReplication context deadline exceeded, stopping change stream")
+		} else if errors.Is(err, context.Canceled) {
+			c.logger.Info("SetupReplication context canceled, stopping change stream")
+		} else {
+			c.logger.Error("PullRecords change stream error", "error", err)
+		}
+		return model.SetupReplicationResult{}, fmt.Errorf("change stream error: %w", err)
+	} else if resumeToken != nil {
+		if err := c.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
+			Text: base64.StdEncoding.EncodeToString(resumeToken),
+		}); err != nil {
+			return model.SetupReplicationResult{}, fmt.Errorf("failed to store initial resume token: %w", err)
+		}
+	}
+
+	c.logger.Info("SetupReplication completed, stored initial resume token",
+		slog.String("flowJobName", input.FlowJobName))
 	return model.SetupReplicationResult{}, nil
 }
 
@@ -372,8 +407,8 @@ func (c *MongoConnector) PullRecords(
 			c.logger.Info("PullRecords context canceled, stopping change stream")
 		} else {
 			c.logger.Error("PullRecords change stream error", "error", err)
-			return fmt.Errorf("change stream error: %w", err)
 		}
+		return fmt.Errorf("change stream error: %w", err)
 	}
 
 	return nil
