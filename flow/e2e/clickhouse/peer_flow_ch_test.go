@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -437,12 +438,14 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
-			"excludedColumn" TEXT
+			"includedColumn?" TEXT,
+			"excludedColumn?" TEXT
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('init','excluded')", srcFullName))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (key, \"includedColumn?\", \"excludedColumn?\") VALUES ('init','include','exclude')", srcFullName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -465,7 +468,8 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('cdc','excluded')", srcFullName))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s (key, \"includedColumn?\", \"excludedColumn?\") VALUES ('cdc','still','ex')", srcFullName))
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
@@ -482,7 +486,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	// now test weird names with rename based resync
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
-	require.NoError(s.t, ch.Exec(s.t.Context(), fmt.Sprintf("DROP TABLE `%s`", dstTableName)))
+	require.NoError(s.t, ch.Exec(s.t.Context(), "DROP TABLE "+clickhouse.QuoteIdentifier(dstTableName)))
 	require.NoError(s.t, ch.Close())
 	flowConnConfig.Resync = true
 	env = e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -500,7 +504,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	// now test weird names with exchange based resync
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
-	require.NoError(s.t, ch.Exec(s.t.Context(), fmt.Sprintf("TRUNCATE TABLE `%s`", dstTableName)))
+	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE "+clickhouse.QuoteIdentifier(dstTableName)))
 	require.NoError(s.t, ch.Close())
 	env = e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
@@ -515,6 +519,11 @@ func (s ClickHouseSuite) Test_WeirdTable_Keyword() {
 
 func (s ClickHouseSuite) Test_WeirdTable_MixedCase() {
 	s.WeirdTable("myMixedCaseTable")
+}
+
+func (s ClickHouseSuite) Test_WeirdTable_Question() {
+	s.t.SkipNow() // TODO fix avro errors by sanitizing names
+	s.WeirdTable("whatIsTable?")
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {

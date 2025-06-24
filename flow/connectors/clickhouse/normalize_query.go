@@ -97,7 +97,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 						dstColName = col.DestinationName
 					}
 					if col.DestinationType != "" {
-						// TODO can we restrict this to avoid injection?
+						// TODO basic validation to avoid injection
 						clickHouseType = col.DestinationType
 					}
 					columnNullableEnabled = col.NullableEnabled

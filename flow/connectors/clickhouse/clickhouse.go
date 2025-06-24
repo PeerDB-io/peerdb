@@ -166,11 +166,9 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
-	err := c.exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-		id UInt64
-	) ENGINE = ReplacingMergeTree ORDER BY id;`,
-		validateDummyTableName))
-	if err != nil {
+	if err := c.exec(ctx,
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
+	); err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 	defer func() {
@@ -183,21 +181,21 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 
 	// add a column
 	if err := c.exec(ctx,
-		fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
 	); err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// rename the table
 	if err := c.exec(ctx,
-		fmt.Sprintf("RENAME TABLE `%s` TO `%s`", validateDummyTableName, validateDummyTableName+"_renamed"),
+		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableName+"_renamed"),
 	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
 	validateDummyTableName += "_renamed"
 
 	// insert a row
-	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO `%s` VALUES (1, now64())", validateDummyTableName)); err != nil {
+	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
@@ -255,7 +253,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
+		Addr: []string{shared.JoinHostPort(config.Host, config.Port)},
 		Auth: clickhouse.Auth{
 			Database: config.Database,
 			Username: config.User,
@@ -287,20 +285,20 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	return conn, nil
 }
 
-func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
-	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
+func (c *ClickHouseConnector) exec(ctx context.Context, query string) error {
+	return chvalidate.Exec(ctx, c.logger, c.database, query)
 }
 
-func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string, args ...any) error {
-	return chvalidate.Exec(ctx, c.logger, conn, query, args...)
+func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string) error {
+	return chvalidate.Exec(ctx, c.logger, conn, query)
 }
 
-func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
-	return chvalidate.Query(ctx, c.logger, c.database, query, args...)
+func (c *ClickHouseConnector) query(ctx context.Context, query string) (driver.Rows, error) {
+	return chvalidate.Query(ctx, c.logger, c.database, query)
 }
 
-func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args ...any) driver.Row {
-	return chvalidate.QueryRow(ctx, c.logger, c.database, query, args...)
+func (c *ClickHouseConnector) queryRow(ctx context.Context, query string) driver.Row {
+	return chvalidate.QueryRow(ctx, c.logger, c.database, query)
 }
 
 func (c *ClickHouseConnector) Close() error {

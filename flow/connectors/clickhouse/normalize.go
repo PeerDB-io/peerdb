@@ -3,8 +3,6 @@ package connclickhouse
 import (
 	"cmp"
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -461,7 +459,7 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 
 	q := fmt.Sprintf(
 		"SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",
-		rawTbl, normalizeBatchID, syncBatchID)
+		peerdb_clickhouse.QuoteIdentifier(rawTbl), normalizeBatchID, syncBatchID)
 
 	rows, err := c.query(ctx, q)
 	if err != nil {
@@ -470,19 +468,15 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	defer rows.Close()
 	var tableNames []string
 	for rows.Next() {
-		var tableName sql.NullString
+		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
 			return nil, fmt.Errorf("error while scanning table name: %w", err)
 		}
 
-		if !tableName.Valid {
-			return nil, errors.New("table name is not valid")
-		}
-
-		if _, ok := tableToSchema[tableName.String]; ok {
-			tableNames = append(tableNames, tableName.String)
+		if _, ok := tableToSchema[tableName]; ok {
+			tableNames = append(tableNames, tableName)
 		} else {
-			c.logger.Warn("table not found in table to schema mapping", "table", tableName.String)
+			c.logger.Warn("table not found in table to schema mapping", "table", tableName)
 		}
 	}
 
