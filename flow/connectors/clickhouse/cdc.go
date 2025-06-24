@@ -62,8 +62,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		_peerdb_data String,
 		_peerdb_record_type Int,
 		_peerdb_match_data String,
-		_peerdb_batch_id Int64,
-		_peerdb_unchanged_toast_columns String
+		_peerdb_batch_id Int64
 	) ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)`
 	if err := c.execWithLogging(ctx,
 		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, engine),
@@ -79,8 +78,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 			_peerdb_data String,
 			_peerdb_record_type Int,
 			_peerdb_match_data String,
-			_peerdb_batch_id Int64,
-			_peerdb_unchanged_toast_columns String
+			_peerdb_batch_id Int64
 		) ENGINE = Distributed(%s,%s,%s,cityHash64(_peerdb_uid))`
 		if err := c.execWithLogging(ctx,
 			fmt.Sprintf(createRawDistributedSQL, peerdb_clickhouse.QuoteIdentifier(rawDistributedName), onCluster,
@@ -327,7 +325,7 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 		// Better to use lightweight deletes here as the main goal is to
 		// not have the rows in the table be visible by the NormalizeRecords'
 		// INSERT INTO SELECT queries
-		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM `%s` WHERE _peerdb_destination_table_name = %s"+
+		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
 			c.GetRawTableName(req.FlowJobName), peerdb_clickhouse.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId),
 		); err != nil {
