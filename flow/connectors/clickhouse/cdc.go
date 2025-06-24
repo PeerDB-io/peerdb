@@ -324,9 +324,8 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 	}
 
 	for _, tableName := range req.DestinationTableNames {
-		// Better to use lightweight deletes here as the main goal is to
-		// not have the rows in the table be visible by the NormalizeRecords'
-		// INSERT INTO SELECT queries
+		// Better to use lightweight deletes here as the main goal is to not have
+		// rows in the table be visible by the NormalizeRecords' INSERT INTO SELECT queries
 		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
 			c.GetRawTableName(req.FlowJobName), peerdb_clickhouse.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId),

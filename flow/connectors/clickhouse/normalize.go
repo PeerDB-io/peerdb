@@ -451,6 +451,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				req.Env,
 				rawTbl,
 				c.chVersion,
+				c.config.Cluster != "",
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
