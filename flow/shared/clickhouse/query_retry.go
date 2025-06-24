@@ -53,7 +53,7 @@ func Exec(ctx context.Context, logger log.Logger,
 		if !isRetryableException(err) {
 			break
 		}
-		logger.Info("[exec] retryable error", slog.Any("error", err), slog.String("query", query), slog.Int64("retry", int64(i)))
+		logger.Info("[exec] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
 		if i < 4 {
 			time.Sleep(time.Second * time.Duration(i*5+1))
 		}
@@ -71,7 +71,7 @@ func Query(ctx context.Context, logger log.Logger,
 		if !isRetryableException(err) {
 			break
 		}
-		logger.Info("[query] retryable error", slog.Any("error", err), slog.String("query", query), slog.Int64("retry", int64(i)))
+		logger.Info("[query] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
 		if i < 4 {
 			time.Sleep(time.Second * time.Duration(i*5+1))
 		}
@@ -89,7 +89,7 @@ func QueryRow(ctx context.Context, logger log.Logger,
 		if !isRetryableException(err) {
 			break
 		}
-		logger.Info("[queryRow] retryable error", slog.Any("error", err), slog.String("query", query), slog.Int64("retry", int64(i)))
+		logger.Info("[queryRow] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
 		if i < 4 {
 			time.Sleep(time.Second * time.Duration(i*5+1))
 		}
