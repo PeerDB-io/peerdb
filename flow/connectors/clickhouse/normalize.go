@@ -445,6 +445,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				sourceSchemaAsDestinationColumn,
 				req.Env,
 				rawTbl,
+				c.config.Cluster != "",
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
