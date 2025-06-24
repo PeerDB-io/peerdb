@@ -307,7 +307,7 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 			return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 		}
 	}
-	c.logger.Info("successfully dropped raw table " + rawTableIdentifier)
+	c.logger.Info("successfully dropped raw table", slog.String("table", rawTableIdentifier))
 
 	return nil
 }
