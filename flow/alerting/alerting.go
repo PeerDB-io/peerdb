@@ -437,7 +437,7 @@ func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.Event
 func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType string, inErr error, loggerFunc func(string, ...any)) error {
 	logger := internal.LoggerFromCtx(ctx)
 	inErrWithStack := fmt.Sprintf("%+v", inErr)
-	loggerFunc(inErr.Error(), slog.Any("stack", inErrWithStack))
+	loggerFunc(inErr.Error(), slog.String("stack", inErrWithStack))
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, inErrWithStack, errorType,
