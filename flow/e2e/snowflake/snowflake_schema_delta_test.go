@@ -66,7 +66,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
@@ -175,7 +175,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
@@ -255,7 +255,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
@@ -311,7 +311,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 	}})
 	require.NoError(s.t, err)
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])

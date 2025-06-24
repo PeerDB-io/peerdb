@@ -272,7 +272,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID, req.Env); err != nil {
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID, req.Env, req.Version); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
@@ -492,8 +492,9 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 	flowJobName string,
 	syncBatchID int64,
 	env map[string]string,
+	version uint32,
 ) error {
-	avroSyncMethod := c.avroSyncMethod(flowJobName, env)
+	avroSyncMethod := c.avroSyncMethod(flowJobName, env, version)
 	avroFile, err := GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
@@ -507,7 +508,7 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, normBatchID int64, syncBatchID int64, env map[string]string,
+	ctx context.Context, flowJobName string, normBatchID int64, syncBatchID int64, env map[string]string, version uint32,
 ) error {
 	lastSyncedBatchIdInRawTable, err := c.GetLastBatchIDInRawTable(ctx, flowJobName)
 	if err != nil {
@@ -521,7 +522,7 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 		slog.Int64("syncBatchID", syncBatchID))
 
 	for s := batchIdToLoad + 1; s <= syncBatchID; s++ {
-		if err := c.copyAvroStageToDestination(ctx, flowJobName, s, env); err != nil {
+		if err := c.copyAvroStageToDestination(ctx, flowJobName, s, env, version); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}
 		c.logger.Info("[clickhouse] setting last batch id in raw table",

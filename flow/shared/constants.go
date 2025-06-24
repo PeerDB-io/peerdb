@@ -15,6 +15,14 @@ const (
 	TsqueryOID      uint32 = 3615
 )
 
+const (
+	InternalVersion_First uint32 = iota
+	InternalVersion_PgVectorAsFloatArray
+
+	TotalNumberOfInternalVersions
+	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
+)
+
 type (
 	ContextKey  string
 	TaskQueueID string

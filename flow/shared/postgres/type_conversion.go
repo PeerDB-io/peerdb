@@ -13,6 +13,7 @@ func PostgresOIDToQValueKind(
 	recvOID uint32,
 	customTypeMapping map[uint32]shared.CustomDataType,
 	typeMap *pgtype.Map,
+	version uint32,
 ) (types.QValueKind, error) {
 	switch recvOID {
 	case pgtype.BoolOID:
@@ -93,7 +94,7 @@ func PostgresOIDToQValueKind(
 		if typeName, ok := typeMap.TypeForOID(recvOID); ok {
 			colType := types.QValueKindString
 			if typeData, ok := customTypeMapping[recvOID]; ok {
-				colType = CustomTypeToQKind(typeData)
+				colType = CustomTypeToQKind(typeData, version)
 			}
 			return colType, errors.New(typeName.Name)
 		} else {
@@ -105,7 +106,7 @@ func PostgresOIDToQValueKind(
 				return types.QValueKindPoint, nil
 			default:
 				if typeData, ok := customTypeMapping[recvOID]; ok {
-					return CustomTypeToQKind(typeData), nil
+					return CustomTypeToQKind(typeData, version), nil
 				}
 				return types.QValueKindString, nil
 			}
@@ -113,7 +114,7 @@ func PostgresOIDToQValueKind(
 	}
 }
 
-func CustomTypeToQKind(typeData shared.CustomDataType) types.QValueKind {
+func CustomTypeToQKind(typeData shared.CustomDataType, version uint32) types.QValueKind {
 	if typeData.Type == 'e' {
 		if typeData.Delim != 0 {
 			return types.QValueKindArrayEnum
@@ -134,7 +135,11 @@ func CustomTypeToQKind(typeData shared.CustomDataType) types.QValueKind {
 	case "hstore":
 		return types.QValueKindHStore
 	case "vector", "halfvec", "sparsevec":
-		return types.QValueKindArrayFloat32
+		if version >= shared.InternalVersion_PgVectorAsFloatArray {
+			return types.QValueKindArrayFloat32
+		} else {
+			return types.QValueKindString
+		}
 	default:
 		return types.QValueKindString
 	}

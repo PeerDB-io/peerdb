@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type SuiteSource interface {
@@ -74,6 +75,7 @@ func (c *FlowConnectionGenerationConfig) GenerateFlowConnectionConfigs(s Suite) 
 		DestinationName:    c.Destination,
 		SyncedAtColName:    "_PEERDB_SYNCED_AT",
 		IdleTimeoutSeconds: 15,
+		Version:            shared.InternalVersion_Latest,
 	}
 	if c.SoftDelete {
 		ret.SoftDeleteColName = "_PEERDB_IS_DELETED"

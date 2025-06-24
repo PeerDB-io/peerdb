@@ -64,7 +64,7 @@ func (s PeerFlowE2ETestSuitePG) Exec(ctx context.Context, sql string) error {
 
 func (s PeerFlowE2ETestSuitePG) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	s.t.Helper()
-	pgQueryExecutor, err := s.conn.NewQRepQueryExecutor(s.t.Context(), "testflow", "testpart")
+	pgQueryExecutor, err := s.conn.NewQRepQueryExecutor(s.t.Context(), shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}

@@ -59,6 +59,7 @@ type GetTableSchemaConnector interface {
 	GetTableSchema(
 		ctx context.Context,
 		env map[string]string,
+		version uint32,
 		system protos.TypeSystem,
 		tableIdentifiers []*protos.TableMapping,
 	) (map[string]*protos.TableSchema, error)
@@ -68,7 +69,7 @@ type GetSchemaConnector interface {
 	Connector
 
 	GetAllTables(context.Context) (*protos.AllTablesResponse, error)
-	GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error)
+	GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error)
 	GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error)
 	GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error)
 }
