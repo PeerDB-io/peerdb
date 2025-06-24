@@ -62,7 +62,6 @@ export default function CreateConfig({
   const getDBType = () => {
     if (
       peerType.includes('POSTGRES') ||
-      peerType.includes('TEMBO') ||
       peerType.includes('NEON') ||
       peerType.includes('SUPABASE')
     ) {
