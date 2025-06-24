@@ -47,7 +47,6 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		SetAppName("PeerDB Mongo Connector").
 		SetReadPreference(readpref.Primary()).
 		SetCompressors([]string{"zstd", "snappy"}).
-		SetDirect(true).
 		ApplyURI(config.Uri))
 	if err != nil {
 		return nil, err
