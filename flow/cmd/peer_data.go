@@ -116,7 +116,8 @@ func (h *FlowRequestHandler) ListPeers(
 		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL || peer.Type == protos.DBType_MONGO {
 			sourceItems = append(sourceItems, peer)
 		}
-		if peer.Type != protos.DBType_MYSQL && peer.Type != protos.DBType_MONGO && (!internal.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
+		if peer.Type != protos.DBType_MYSQL &&
+			peer.Type != protos.DBType_MONGO && (!internal.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
 			destinationItems = append(destinationItems, peer)
 		}
 	}
