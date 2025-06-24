@@ -605,16 +605,24 @@ func NewNumericStat(destinationTable, destinationColumn string) *NumericStat {
 
 func (ns *NumericStat) CollectWarnings(warnings *[]error) {
 	if ns.LongIntegersClearedCount > 0 {
+		plural := ""
+		if ns.LongIntegersClearedCount > 1 {
+			plural = "s"
+		}
 		err := fmt.Errorf(
-			"column %s.%s: cleared %d NUMERIC values too big to fit into the destination column (got %d integer digits)",
-			ns.DestinationTable, ns.DestinationColumn, ns.LongIntegersClearedCount, ns.MaxIntegerDigits)
+			"column %s.%s: cleared %d NUMERIC value%s too big to fit into the destination column (got %d integer digits)",
+			ns.DestinationTable, ns.DestinationColumn, ns.LongIntegersClearedCount, plural, ns.MaxIntegerDigits)
 		warning := exceptions.NewNumericClearedWarning(err, ns.DestinationTable, ns.DestinationColumn)
 		*warnings = append(*warnings, warning)
 	}
 	if ns.TruncatedCount > 0 {
+		plural := ""
+		if ns.TruncatedCount > 1 {
+			plural = "s"
+		}
 		err := fmt.Errorf(
-			"column %s.%s: truncated %d NUMERIC values too precise to fit into the destination column (got %d digits of exponent)",
-			ns.DestinationTable, ns.DestinationColumn, ns.TruncatedCount, ns.MaxExponent)
+			"column %s.%s: truncated %d NUMERIC value%s too precise to fit into the destination column (got %d digits of exponent)",
+			ns.DestinationTable, ns.DestinationColumn, ns.TruncatedCount, plural, ns.MaxExponent)
 		warning := exceptions.NewNumericTruncatedWarning(err, ns.DestinationTable, ns.DestinationColumn)
 		*warnings = append(*warnings, warning)
 

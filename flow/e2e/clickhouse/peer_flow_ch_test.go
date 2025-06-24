@@ -837,7 +837,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	if totalCleared > 0 {
 		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared messages", func() bool {
 			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "cleared 1 NUMERIC values too big to fit into the destination column",
+				s.t.Context(), flowJobName, "warn", "cleared 1 NUMERIC value too big to fit into the destination column",
 			)
 			return err == nil && count == totalCleared*2 // positive and negative
 		})
@@ -851,7 +851,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	if totalTruncated > 0 {
 		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
 			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "truncated 1 NUMERIC values too precise to fit into the destination column",
+				s.t.Context(), flowJobName, "warn", "truncated 1 NUMERIC value too precise to fit into the destination column",
 			)
 			return err == nil && count == totalTruncated*2 // positive and negative
 		})
@@ -870,7 +870,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	if totalCleared > 0 {
 		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for cleared messages", func() bool {
 			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "cleared 1 NUMERIC values too big to fit into the destination column",
+				s.t.Context(), flowJobName, "warn", "cleared 1 NUMERIC value too big to fit into the destination column",
 			)
 			return err == nil && count == totalCleared*2*2 // positive and negative, snapshot and cdc
 		})
@@ -884,7 +884,7 @@ func (s ClickHouseSuite) testNumericTruncation(unbNumAsStringFf bool) {
 	if totalTruncated > 0 {
 		e2e.EnvWaitFor(s.t, env, 5*time.Minute, "waiting for truncated messages", func() bool {
 			count, err := pgSource.GetLogCount(
-				s.t.Context(), flowJobName, "warn", "truncated 1 NUMERIC values too precise to fit into the destination column",
+				s.t.Context(), flowJobName, "warn", "truncated 1 NUMERIC value too precise to fit into the destination column",
 			)
 			return err == nil && count == totalTruncated*2*2 // positive and negative, snapshot and cdc
 		})
