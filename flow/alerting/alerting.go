@@ -434,8 +434,10 @@ func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.Event
 }
 
 // logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
-func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType string, inErr error, inErrWithStack string) error {
+func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType string, inErr error, loggerFunc func(string, ...any)) error {
 	logger := internal.LoggerFromCtx(ctx)
+	inErrWithStack := fmt.Sprintf("%+v", inErr)
+	loggerFunc(inErr.Error(), slog.Any("stack", inErrWithStack))
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, inErrWithStack, errorType,
@@ -483,7 +485,7 @@ func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType 
 		// Warnings alert us just like errors until there's a customer warning system
 		a.sendTelemetryMessage(ctx, logger, flowName, inErrWithStack, telemetry.ERROR, tags...)
 	}
-	logger.Error(fmt.Sprintf("Emitting classified error '%s'", inErr.Error()),
+	loggerFunc(fmt.Sprintf("Emitting classified error '%s'", inErr.Error()),
 		slog.Any("error", inErr),
 		slog.Any("errorClass", errorClass),
 		slog.Any("errorInfo", errInfo),
@@ -497,21 +499,21 @@ func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType 
 	a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, errorAttributeSet)
 	a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, errorAttributeSet)
 
-	return inErr
+	return nil
 }
 
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
-	inErrWithStack := fmt.Sprintf("%+v", inErr)
-	logger.Error(inErr.Error(), slog.Any("stack", inErrWithStack))
-	return a.logFlowErrorInternal(ctx, flowName, "error", inErr, inErrWithStack)
+	err := a.logFlowErrorInternal(ctx, flowName, "error", inErr, logger.Error)
+	if err != nil {
+		return err
+	}
+	return inErr
 }
 
 func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
-	inErrWithStack := fmt.Sprintf("%+v", inErr)
-	logger.Warn(inErr.Error(), slog.Any("stack", inErrWithStack))
-	return a.logFlowErrorInternal(ctx, flowName, "warn", inErr, inErrWithStack)
+	return a.logFlowErrorInternal(ctx, flowName, "warn", inErr, logger.Warn)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
