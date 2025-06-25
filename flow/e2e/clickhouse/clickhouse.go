@@ -199,6 +199,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 						s.t.Log(colTypes[idx].Name(), *v)
 					case *int64:
 						s.t.Log(colTypes[idx].Name(), *v)
+					case *uint64:
+						s.t.Log(colTypes[idx].Name(), *v)
 					default:
 						s.t.Logf("%s %T %v", colTypes[idx].Name(), v, v)
 					}
@@ -243,6 +245,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 					case *int32:
 						s.t.Log(colTypes[idx].Name(), *v)
 					case *int64:
+						s.t.Log(colTypes[idx].Name(), *v)
+					case *uint64:
 						s.t.Log(colTypes[idx].Name(), *v)
 					default:
 						s.t.Logf("%s %T %v", colTypes[idx].Name(), v, v)
@@ -292,6 +296,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 						s.t.Log(colTypes[idx].Name(), *v)
 					case *int64:
 						s.t.Log(colTypes[idx].Name(), *v)
+					case *uint64:
+						s.t.Log(colTypes[idx].Name(), *v)
 					default:
 						s.t.Logf("%s %T %v", colTypes[idx].Name(), v, v)
 					}
@@ -338,6 +344,8 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 					case *int32:
 						s.t.Log(colTypes[idx].Name(), *v)
 					case *int64:
+						s.t.Log(colTypes[idx].Name(), *v)
+					case *uint64:
 						s.t.Log(colTypes[idx].Name(), *v)
 					default:
 						s.t.Logf("%s %T %v", colTypes[idx].Name(), v, v)
