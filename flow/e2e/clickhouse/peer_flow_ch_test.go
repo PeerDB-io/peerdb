@@ -51,7 +51,7 @@ func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.PostgresSource, string, error) {
 		t.Helper()
-		suffix := "pgch_" + strings.ToLower(shared.RandomString(8))
+		suffix := "pgchcl_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupPostgres(t, suffix)
 		return source, suffix, err
 	}))
@@ -60,7 +60,7 @@ func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
 	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
-		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
+		suffix := "mychcl_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupMySQL(t, suffix)
 		return source, suffix, err
 	}))
@@ -636,8 +636,8 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	);`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s(c1, c2) VALUES($1, $2)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(c1, c2) VALUES($1, $2)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
 	require.NoError(s.t, err)
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES($1)`, srcFullName), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
@@ -664,7 +664,7 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "c1,c2", 2)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2", 2)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	INSERT INTO %s(c1, c2) VALUES($1, $2)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
@@ -672,7 +672,7 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES($1)`, srcFullName), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "c1,c2", 4)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2", 4)
 
 	rows, err := s.GetRows(dstTableName, "id,c1,c2")
 	require.NoError(s.t, err)
