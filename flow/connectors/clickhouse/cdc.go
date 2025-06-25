@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 
@@ -258,9 +259,9 @@ func (c *ClickHouseConnector) RenameTables(
 				); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
 				}
-			} else if ex, ok := err.(*clickhouse.Exception); !ok || ex.Code != 48 {
-				// code 48 == not implemented -> move on to the fallback code, in all other error codes / types
-				// return, since we know/assume that the exchange would be the sensible action
+			} else if ex, ok := err.(*clickhouse.Exception); !ok || chproto.Error(ex.Code) != chproto.ErrNotImplemented {
+				// move on to the fallback code if unimplemented, in all other error codes / types return,
+				// since we know/assume exchange would be the sensible action
 				return nil, fmt.Errorf("unable to exchange tables %s and %s: %w", renameRequest.NewName, renameRequest.CurrentName, err)
 			}
 		}
@@ -274,9 +275,9 @@ func (c *ClickHouseConnector) RenameTables(
 				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 			}
 
-			if err := c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s",
+			if err := c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s%s",
 				peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName),
-				peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName),
+				peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster,
 			)); err != nil {
 				return nil, fmt.Errorf("unable to rename table %s to %s: %w", renameRequest.CurrentName, renameRequest.NewName, err)
 			}
