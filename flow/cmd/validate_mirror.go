@@ -18,7 +18,6 @@ import (
 
 var (
 	CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
-	CustomColumnNameRegex = regexp.MustCompile(`^$|^[a-zA-Z_][a-zA-Z0-9_]*$`)
 )
 
 func (h *FlowRequestHandler) ValidateCDCMirror(
@@ -58,9 +57,6 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
 				return nil, fmt.Errorf("invalid custom column type %s", col.DestinationType)
-			}
-			if !CustomColumnNameRegex.MatchString(col.DestinationName) {
-				return nil, fmt.Errorf("invalid custom column name %s", col.DestinationName)
 			}
 		}
 	}
