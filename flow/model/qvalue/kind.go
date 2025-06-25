@@ -10,32 +10,41 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, typeModifier int32, isArray bool) (string, error) {
-	if typeModifier == -1 {
-		numericAsStringEnabled, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
-		if err != nil {
-			return "", err
+type NumericDestinationType struct {
+	IsString         bool
+	Precision, Scale int16
+}
+
+func GetNumericDestinationType(
+	precision, scale int16, targetDWH protos.DBType, unboundedNumericAsString bool,
+) NumericDestinationType {
+	if targetDWH == protos.DBType_CLICKHOUSE {
+		if precision == 0 && scale == 0 && unboundedNumericAsString {
+			return NumericDestinationType{IsString: true}
 		}
-		if numericAsStringEnabled {
-			if isArray {
-				return "Array(String)", nil
-			} else {
-				return "String", nil
-			}
-		}
-	} else if rawPrecision, _ := datatypes.ParseNumericTypmod(typeModifier); rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
-		if isArray {
-			return "Array(String)", nil
-		} else {
-			return "String", nil
+		if precision > datatypes.PeerDBClickHouseMaxPrecision {
+			return NumericDestinationType{IsString: true}
 		}
 	}
-	precision, scale := datatypes.GetNumericTypeForWarehouse(typeModifier, datatypes.ClickHouseNumericCompatibility{})
-	prefix, suffix := "", ""
-	if isArray {
-		prefix, suffix = "Array(", ")"
+	destPrecision, destScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
+	return NumericDestinationType{
+		IsString:  false,
+		Precision: destPrecision,
+		Scale:     destScale,
 	}
-	return fmt.Sprintf("%sDecimal(%d, %d)%s", prefix, precision, scale, suffix), nil
+}
+
+func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, typeModifier int32) (string, error) {
+	precision, scale := datatypes.ParseNumericTypmod(typeModifier)
+	asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
+	if err != nil {
+		return "", err
+	}
+	destinationType := GetNumericDestinationType(precision, scale, protos.DBType_CLICKHOUSE, asString)
+	if destinationType.IsString {
+		return "String", nil
+	}
+	return fmt.Sprintf("Decimal(%d, %d)", destinationType.Precision, destinationType.Scale), nil
 }
 
 func ToDWHColumnType(
@@ -63,16 +72,17 @@ func ToDWHColumnType(
 	case protos.DBType_CLICKHOUSE:
 		if kind == types.QValueKindNumeric {
 			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier, false)
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
 			if err != nil {
 				return "", err
 			}
 		} else if kind == types.QValueKindArrayNumeric {
 			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier, true)
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
 			if err != nil {
 				return "", err
 			}
+			colType = fmt.Sprintf("Array(%s)", colType)
 		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
 		} else {

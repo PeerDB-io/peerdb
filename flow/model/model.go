@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type NameAndExclude struct {
@@ -35,20 +36,26 @@ type RecordTypeCounts struct {
 }
 
 type RecordsToStreamRequest[T Items] struct {
-	records      <-chan Record[T]
-	TableMapping map[string]*RecordTypeCounts
-	BatchID      int64
+	records                  <-chan Record[T]
+	TableMapping             map[string]*RecordTypeCounts
+	BatchID                  int64
+	UnboundedNumericAsString bool
+	TargetDWH                protos.DBType
 }
 
 func NewRecordsToStreamRequest[T Items](
 	records <-chan Record[T],
 	tableMapping map[string]*RecordTypeCounts,
 	batchID int64,
+	unboundedNumericAsString bool,
+	targetDWH protos.DBType,
 ) *RecordsToStreamRequest[T] {
 	return &RecordsToStreamRequest[T]{
-		records:      records,
-		TableMapping: tableMapping,
-		BatchID:      batchID,
+		records:                  records,
+		TableMapping:             tableMapping,
+		BatchID:                  batchID,
+		UnboundedNumericAsString: unboundedNumericAsString,
+		TargetDWH:                targetDWH,
 	}
 }
 
@@ -162,6 +169,7 @@ type NormalizeRecordsRequest struct {
 	Version                uint32
 }
 
+//nolint:govet // no need to save on fieldalignment
 type SyncResponse struct {
 	// TableNameRowsMapping tells how many records need to be synced to each destination table.
 	TableNameRowsMapping map[string]*RecordTypeCounts
@@ -172,6 +180,7 @@ type SyncResponse struct {
 	// NumRecordsSynced is the number of records that were synced.
 	NumRecordsSynced   int64
 	CurrentSyncBatchID int64
+	Warnings           shared.QRepWarnings
 }
 
 type NormalizeResponse struct {

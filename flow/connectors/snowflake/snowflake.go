@@ -420,8 +420,10 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
-	stream, err := utils.RecordsToRawTableStream(streamReq)
+	streamReq := model.NewRecordsToStreamRequest(
+		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, false, protos.DBType_SNOWFLAKE,
+	)
+	stream, err := utils.RecordsToRawTableStream(streamReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
