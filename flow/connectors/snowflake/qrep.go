@@ -29,7 +29,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, config.FlowJobName)
 
 	// Ensure the destination table is available.
@@ -40,7 +40,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	)
 	tblSchema, err := c.getTableSchema(ctx, destTable)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
+		return 0, nil, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 

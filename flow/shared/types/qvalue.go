@@ -387,7 +387,9 @@ func (v QValueArrayInterval) LValue(ls *lua.LState) lua.LValue {
 }
 
 type QValueNumeric struct {
-	Val decimal.Decimal
+	Val       decimal.Decimal
+	Precision int16
+	Scale     int16
 }
 
 func (QValueNumeric) Kind() QValueKind {
@@ -780,7 +782,9 @@ func (v QValueArrayEnum) LValue(ls *lua.LState) lua.LValue {
 }
 
 type QValueArrayNumeric struct {
-	Val []decimal.Decimal
+	Val       []decimal.Decimal
+	Precision int16
+	Scale     int16
 }
 
 func (QValueArrayNumeric) Kind() QValueKind {

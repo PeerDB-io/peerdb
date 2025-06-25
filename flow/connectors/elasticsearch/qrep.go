@@ -39,12 +39,12 @@ func upsertKeyColsHash(qRecord []types.QValue, upsertColIndices []int) string {
 
 func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *protos.QRepConfig,
 	partition *protos.QRepPartition, stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	startTime := time.Now()
 
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	var bulkIndexFatalError error
@@ -78,7 +78,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	})
 	if err != nil {
 		esc.logger.Error("[es] failed to initialize bulk indexer", slog.Any("error", err))
-		return 0, fmt.Errorf("[es] failed to initialize bulk indexer: %w", err)
+		return 0, nil, fmt.Errorf("[es] failed to initialize bulk indexer: %w", err)
 	}
 	defer func() {
 		if !bulkIndexerHasShutdown {
@@ -110,7 +110,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		qRecordJsonBytes, err := json.Marshal(qRecordJsonMap)
 		if err != nil {
 			esc.logger.Error("[es] failed to json.Marshal record", slog.Any("error", err))
-			return 0, fmt.Errorf("[es] failed to json.Marshal record: %w", err)
+			return 0, nil, fmt.Errorf("[es] failed to json.Marshal record: %w", err)
 		}
 
 		if err := esBulkIndexer.Add(ctx, esutil.BulkIndexerItem{
@@ -141,11 +141,11 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			},
 		}); err != nil {
 			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
-			return 0, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
+			return 0, nil, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
 		}
 		if bulkIndexFatalError != nil {
 			esc.logger.Error("[es] fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
-			return 0, fmt.Errorf("[es] fatal error while indexing record: %w", bulkIndexFatalError)
+			return 0, nil, fmt.Errorf("[es] fatal error while indexing record: %w", bulkIndexFatalError)
 		}
 
 		// update here instead of OnSuccess, if we close successfully it should match
@@ -154,11 +154,11 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 
 	if err := stream.Err(); err != nil {
 		esc.logger.Error("[es] failed to get record from stream", slog.Any("error", err))
-		return 0, fmt.Errorf("[es] failed to get record from stream: %w", err)
+		return 0, nil, fmt.Errorf("[es] failed to get record from stream: %w", err)
 	}
 	if err := esBulkIndexer.Close(ctx); err != nil {
 		esc.logger.Error("[es] failed to close bulk indexer", slog.Any("error", err))
-		return 0, fmt.Errorf("[es] failed to close bulk indexer: %w", err)
+		return 0, nil, fmt.Errorf("[es] failed to close bulk indexer: %w", err)
 	}
 	bulkIndexerHasShutdown = true
 	if len(bulkIndexErrors) > 0 {
@@ -169,7 +169,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 
 	if err := esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
 		esc.logger.Error("[es] failed to log partition info", slog.Any("error", err))
-		return 0, fmt.Errorf("[es] failed to log partition info: %w", err)
+		return 0, nil, fmt.Errorf("[es] failed to log partition info: %w", err)
 	}
-	return numRecords, nil
+	return numRecords, nil, nil
 }

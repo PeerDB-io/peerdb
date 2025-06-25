@@ -28,6 +28,10 @@ var SupportedDestinationTypes = map[string][]types.TypeConversion{
 	)},
 }
 
+var NumericDestinationTypes = map[string]struct{}{
+	"String": {},
+}
+
 // returns the full list of supported type conversions. The keys are
 // QValueKind to allows the implementation to be source-connector agnostic.
 func ListSupportedTypeConversions() map[types.QValueKind][]string {

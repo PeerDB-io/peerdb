@@ -321,7 +321,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	}
 
 	for i, fd := range fds {
-		tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i], qe.customTypeMapping, qe.version)
+		tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, fd.TypeModifier, values[i], qe.customTypeMapping, qe.version)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to parse field: %w", err)

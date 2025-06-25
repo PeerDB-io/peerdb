@@ -91,40 +91,40 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier
 
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	s.logger.Info("sync function called and schema acquired", partitionLog)
 
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	avroFile, err := s.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer avroFile.Cleanup()
 
 	stage := s.getStageNameForJob(config.FlowJobName)
 
 	if err := s.putFileToStage(ctx, avroFile, stage); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	s.logger.Info("Put file to stage in Avro sync for snowflake", partitionLog)
 
 	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
-	return avroFile.NumRecords, nil
+	return avroFile.NumRecords, nil, nil
 }
 
 func (s *SnowflakeAvroSyncHandler) getAvroSchema(
@@ -182,7 +182,7 @@ func (s *SnowflakeAvroSyncHandler) writeToAvroFile(
 		if err != nil {
 			return utils.AvroFile{}, err
 		}
-		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, provider, nil, nil)
+		avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, provider, nil, nil, nil)
 		if err != nil {
 			return utils.AvroFile{}, fmt.Errorf("failed to write records to S3: %w", err)
 		}

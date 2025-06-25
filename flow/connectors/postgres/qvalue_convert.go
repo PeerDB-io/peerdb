@@ -392,7 +392,7 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 }
 
 func (c *PostgresConnector) parseFieldFromPostgresOID(
-	oid uint32, value any, customTypeMapping map[uint32]shared.CustomDataType, version uint32,
+	oid uint32, typmod int32, value any, customTypeMapping map[uint32]shared.CustomDataType, version uint32,
 ) (types.QValue, error) {
 	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping, version)
 	if value == nil {
@@ -565,7 +565,12 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			if !ok {
 				return types.QValueNull(types.QValueKindNumeric), nil
 			}
-			return types.QValueNumeric{Val: num}, nil
+			precision, scale := datatypes.ParseNumericTypmod(typmod)
+			return types.QValueNumeric{
+				Val:       num,
+				Precision: precision,
+				Scale:     scale,
+			}, nil
 		}
 	case types.QValueKindArrayFloat32:
 		switch value := value.(type) {
@@ -700,7 +705,12 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 				}
 			}
 			if allValid {
-				return types.QValueArrayNumeric{Val: numArr}, nil
+				precision, scale := datatypes.ParseNumericTypmod(typmod)
+				return types.QValueArrayNumeric{
+					Val:       numArr,
+					Precision: precision,
+					Scale:     scale,
+				}, nil
 			}
 		}
 	case types.QValueKindPoint:

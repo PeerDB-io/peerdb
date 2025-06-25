@@ -78,8 +78,10 @@ func (c *S3Connector) ConnectionActive(ctx context.Context) error {
 
 func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
-	recordStream, err := utils.RecordsToRawTableStream(streamReq)
+	streamReq := model.NewRecordsToStreamRequest(
+		req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID, false, protos.DBType_S3,
+	)
+	recordStream, err := utils.RecordsToRawTableStream(streamReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -92,7 +94,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	partition := &protos.QRepPartition{
 		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),
 	}
-	numRecords, err := c.SyncQRepRecords(ctx, qrepConfig, partition, recordStream)
+	numRecords, _, err := c.SyncQRepRecords(ctx, qrepConfig, partition, recordStream)
 	if err != nil {
 		return nil, err
 	}
