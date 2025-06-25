@@ -129,6 +129,20 @@ jobs:
         if: matrix.db-version.mysql == 'maria'
         run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
 
+      - name: Mongo
+        run: |
+          docker run -d --rm --name mongo -p 27017:27017 mongo:8.0.10 --replSet rs0 --bind_ip_all
+          until docker exec mongo mongosh --eval 'db.runCommand({ ping: 1 })' &> /dev/null; do
+            echo "Waiting for MongoDB to be ready..."
+            sleep 2
+          done
+          docker exec mongo mongosh --eval 'rs.initiate({
+            _id: "rs0",
+            members: [
+              { _id: 0, host: "localhost:27017" }
+            ]
+          })'
+
       - name: MinIO TLS
         run: >
           mkdir -p certs &&
@@ -228,6 +242,8 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          CI_MONGO_VERSION: 8.0.10
+          CI_MONGO_URI: mongodb://localhost:27017/?replicaSet=rs0
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
