@@ -253,6 +253,9 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	} else if maxInsertThreads != 0 {
 		settings["max_insert_threads"] = maxInsertThreads
 	}
+	if config.Cluster != "" {
+		settings["insert_distributed_sync"] = uint64(1)
+	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{shared.JoinHostPort(config.Host, config.Port)},
