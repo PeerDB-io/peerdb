@@ -1223,18 +1223,21 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 			"#sync_me!" BOOLEAN,
 			"2birds1stone" INT,
 			"quo'te" TEXT,
+			"Анна Каренина" DOUBLE PRECISION,
+			"人間失格" CHAR(10),
 			PRIMARY KEY (id, "id number")
 		);
 	`, srcFullName))
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone", "quo'te")
-	VALUES ('init_initial_load', 'secret', 'neptune', 'true', 509, 'abcd')`, srcFullName))
+	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone", "quo'te", "Анна Каренина", "人間失格")
+	VALUES ('init_initial_load', 'secret', 'neptune', 'true', 509, 'abcd', 3.14, '人間失格');
+	`, srcFullName))
 	require.NoError(s.t, err)
 
 	err = e2e.RevokePermissionForTableColumns(s.t.Context(), s.Conn(), srcFullName,
-		[]string{"id", "id number", "key", "spacey column", "#sync_me!", "2birds1stone", "quo'te"})
+		[]string{"id", "id number", "key", "spacey column", "#sync_me!", "2birds1stone", "quo'te", "Анна Каренина", "人間失格"})
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1254,14 +1257,15 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName,
-		"id,\"id number\",key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
+		"id,\"id number\",key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\",\"Анна Каренина\",\"人間失格\"")
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone","quo'te")
-	VALUES ('cdc1', 'secret', 'pluto', 'false', 123324, 'lwkfj')`, srcFullName))
+	INSERT INTO %s (key, "se'cret", "spacey column", "#sync_me!", "2birds1stone","quo'te", "Анна Каренина", "人間失格")
+	VALUES ('cdc1', 'secret', 'pluto', 'false', 123324, 'lwkfj', 2.718, '人間失格');
+	`, srcFullName))
 
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName,
-		"id,\"id number\",key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\"")
+		"id,\"id number\",key,\"spacey column\",\"#sync_me!\",\"2birds1stone\",\"quo'te\",\"Анна Каренина\",\"人間失格\"")
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
