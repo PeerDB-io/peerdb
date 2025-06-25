@@ -82,7 +82,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 			_peerdb_match_data String,
 			_peerdb_batch_id Int64,
 			_peerdb_unchanged_toast_columns String
-		) ENGINE = Distributed(%s,%s,%s,cityHash64(_peerdb_uid))`
+		) ENGINE = Distributed(%s,%s,%s,JSONExtractInt(_peerdb_data, 'id'))`
 		if err := c.execWithLogging(ctx,
 			fmt.Sprintf(createRawDistributedSQL, peerdb_clickhouse.QuoteIdentifier(rawDistributedName), onCluster,
 				peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
