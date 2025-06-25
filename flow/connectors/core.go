@@ -270,7 +270,7 @@ type QRepSyncConnector interface {
 	// SyncQRepRecords syncs the records for a given partition.
 	// returns the number of records synced and a slice of warnings to report to the user.
 	SyncQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-		stream *model.QRecordStream) (int64, []error, error)
+		stream *model.QRecordStream) (int64, shared.QRepWarnings, error)
 }
 
 type QRepSyncPgConnector interface {
@@ -279,7 +279,7 @@ type QRepSyncPgConnector interface {
 	// SyncPgQRepRecords syncs the records for a given partition.
 	// returns the number of records synced and a slice of warnings to report to the user.
 	SyncPgQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-		stream connpostgres.PgCopyReader) (int64, []error, error)
+		stream connpostgres.PgCopyReader) (int64, shared.QRepWarnings, error)
 }
 
 type QRepConsolidateConnector interface {

@@ -12,6 +12,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pua"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (*PubSubConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {
@@ -23,7 +24,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, []error, error) {
+) (int64, shared.QRepWarnings, error) {
 	startTime := time.Now()
 	schema, err := stream.Schema()
 	if err != nil {

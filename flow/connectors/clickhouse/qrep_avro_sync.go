@@ -124,7 +124,7 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, []error, error) {
+) (int64, shared.QRepWarnings, error) {
 	dstTableName := config.DestinationTableIdentifier
 	startTime := time.Now()
 	schema, err := stream.Schema()

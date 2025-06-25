@@ -3,6 +3,7 @@ package model
 import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -29,8 +30,8 @@ func (ss StreamNumericTruncator) Get(destinationTable string) *CdcTableNumericTr
 	return truncator
 }
 
-func (ss StreamNumericTruncator) Warnings() []error {
-	var warnings []error
+func (ss StreamNumericTruncator) Warnings() shared.QRepWarnings {
+	var warnings shared.QRepWarnings
 	for _, tableStats := range ss {
 		tableStats.CollectWarnings(&warnings)
 	}
@@ -75,7 +76,7 @@ func (ts *CdcTableNumericTruncator) Get(destinationColumn string) *CdcColumnNume
 	return stat
 }
 
-func (ts *CdcTableNumericTruncator) CollectWarnings(warnings *[]error) {
+func (ts *CdcTableNumericTruncator) CollectWarnings(warnings *shared.QRepWarnings) {
 	for _, truncator := range ts.TruncatorsByColumn {
 		if !truncator.Skip {
 			truncator.Stat.CollectWarnings(warnings)
@@ -110,8 +111,8 @@ func (ts *SnapshotTableNumericTruncator) Get(idx int) *qvalue.NumericStat {
 	return ts.stats[idx]
 }
 
-func (ts *SnapshotTableNumericTruncator) Warnings() []error {
-	var warnings []error
+func (ts *SnapshotTableNumericTruncator) Warnings() shared.QRepWarnings {
+	var warnings shared.QRepWarnings
 	for _, stat := range ts.stats {
 		stat.CollectWarnings(&warnings)
 	}

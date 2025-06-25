@@ -20,7 +20,7 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, []error, error) {
+) (int64, shared.QRepWarnings, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	srcSchema, err := stream.Schema()

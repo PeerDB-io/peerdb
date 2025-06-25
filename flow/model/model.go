@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pglogrepl"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type NameAndExclude struct {
@@ -179,7 +180,7 @@ type SyncResponse struct {
 	// NumRecordsSynced is the number of records that were synced.
 	NumRecordsSynced   int64
 	CurrentSyncBatchID int64
-	Warnings           []error
+	Warnings           shared.QRepWarnings
 }
 
 type NormalizeResponse struct {

@@ -91,7 +91,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	partition *protos.QRepPartition,
 	dstTableSchema []*sql.ColumnType,
 	stream *model.QRecordStream,
-) (int64, []error, error) {
+) (int64, shared.QRepWarnings, error) {
 	partitionLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 	startTime := time.Now()
 	dstTableName := config.DestinationTableIdentifier

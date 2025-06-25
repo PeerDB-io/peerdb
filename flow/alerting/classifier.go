@@ -61,8 +61,8 @@ func (e ErrorSource) String() string {
 	return string(e)
 }
 
-func TableColumnErrorSource(destinationTable, destinationColumn string) ErrorSource {
-	return ErrorSource(fmt.Sprintf("column:%s.%s", destinationTable, destinationColumn))
+func AvroConverterTableColumnErrorSource(destinationTable, destinationColumn string) ErrorSource {
+	return ErrorSource(fmt.Sprintf("avroConverter:column:%s.%s", destinationTable, destinationColumn))
 }
 
 type ErrorInfo struct {
@@ -505,7 +505,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var numericOutOfRangeError *exceptions.NumericOutOfRangeError
 	if errors.As(err, &numericOutOfRangeError) {
 		return ErrorLossyConversion, ErrorInfo{
-			Source: TableColumnErrorSource(numericOutOfRangeError.DestinationTable, numericOutOfRangeError.DestinationColumn),
+			Source: AvroConverterTableColumnErrorSource(numericOutOfRangeError.DestinationTable, numericOutOfRangeError.DestinationColumn),
 			Code:   "NUMERIC_OUT_OF_RANGE",
 		}
 	}
@@ -513,7 +513,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var numericTruncatedError *exceptions.NumericTruncatedError
 	if errors.As(err, &numericTruncatedError) {
 		return ErrorLossyConversion, ErrorInfo{
-			Source: TableColumnErrorSource(numericTruncatedError.DestinationTable, numericTruncatedError.DestinationColumn),
+			Source: AvroConverterTableColumnErrorSource(numericTruncatedError.DestinationTable, numericTruncatedError.DestinationColumn),
 			Code:   "NUMERIC_TRUNCATED",
 		}
 	}

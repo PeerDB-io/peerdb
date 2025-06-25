@@ -434,7 +434,7 @@ func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.Event
 }
 
 // logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
-func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType string, inErr error, loggerFunc func(string, ...any)) error {
+func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType string, inErr error, loggerFunc func(string, ...any)) {
 	logger := internal.LoggerFromCtx(ctx)
 	inErrWithStack := fmt.Sprintf("%+v", inErr)
 	loggerFunc(inErr.Error(), slog.String("stack", inErrWithStack))
@@ -443,7 +443,7 @@ func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType 
 		flowName, inErrWithStack, errorType,
 	); err != nil {
 		logger.Error("failed to insert flow error", slog.Any("error", err))
-		return inErr
+		return
 	}
 
 	var tags []string
@@ -498,22 +498,17 @@ func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType 
 	))
 	a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, errorAttributeSet)
 	a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, errorAttributeSet)
-
-	return nil
 }
 
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
-	err := a.logFlowErrorInternal(ctx, flowName, "error", inErr, logger.Error)
-	if err != nil {
-		return err
-	}
+	a.logFlowErrorInternal(ctx, flowName, "error", inErr, logger.Error)
 	return inErr
 }
 
-func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, inErr error) error {
+func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, inErr error) {
 	logger := internal.LoggerFromCtx(ctx)
-	return a.logFlowErrorInternal(ctx, flowName, "warn", inErr, logger.Warn)
+	a.logFlowErrorInternal(ctx, flowName, "warn", inErr, logger.Warn)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {

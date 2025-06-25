@@ -18,6 +18,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -603,7 +604,7 @@ func NewNumericStat(destinationTable, destinationColumn string) *NumericStat {
 	}
 }
 
-func (ns *NumericStat) CollectWarnings(warnings *[]error) {
+func (ns *NumericStat) CollectWarnings(warnings *shared.QRepWarnings) {
 	if ns.LongIntegersClearedCount > 0 {
 		plural := ""
 		if ns.LongIntegersClearedCount > 1 {
