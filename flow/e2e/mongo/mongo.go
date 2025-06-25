@@ -64,12 +64,10 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 		if err != nil {
 			return nil, err
 		}
-
 		record, _, err := connmongo.QValuesFromDocument(doc)
 		if err != nil {
 			return nil, err
 		}
-
 		recordBatch.Records = append(recordBatch.Records, record)
 	}
 

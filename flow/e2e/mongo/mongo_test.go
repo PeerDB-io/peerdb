@@ -10,13 +10,13 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
+	"github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
-	e2e_clickhouse "github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
+	"github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 type MongoClickhouseSuite struct {
@@ -49,7 +49,7 @@ func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 	mongoConfig := &protos.MongoConfig{Uri: mongoUri}
 
 	mongoConn, err := connmongo.NewMongoConnector(t.Context(), mongoConfig)
-	require.NoError(t, err, "failed to setup mongo mongoConn")
+	require.NoError(t, err, "failed to setup mongo connector")
 
 	testDb := GetTestDatabase(suffix)
 	db := mongoConn.Client().Database(testDb)
