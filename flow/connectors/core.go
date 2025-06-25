@@ -502,6 +502,7 @@ func CloseConnector(ctx context.Context, conn Connector) {
 var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
 	_ CDCPullConnector = &connmysql.MySqlConnector{}
+	_ CDCPullConnector = &connmongo.MongoConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -529,6 +530,7 @@ var (
 
 	_ GetSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetSchemaConnector = &connmysql.MySqlConnector{}
+	_ GetSchemaConnector = &connmongo.MongoConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
@@ -540,6 +542,7 @@ var (
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connmysql.MySqlConnector{}
+	_ QRepPullConnector = &connmongo.MongoConnector{}
 
 	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}
 

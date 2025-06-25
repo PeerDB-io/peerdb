@@ -64,8 +64,7 @@ func (c *MongoConnector) GetTablesInSchema(ctx context.Context, schema string, c
 	return &response, nil
 }
 
-// TODO: determine if/how we want to support this
-func (c *MongoConnector) GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error) {
+func (c *MongoConnector) GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error) {
 	return &protos.TableColumnsResponse{
 		Columns: []*protos.ColumnsItem{},
 	}, nil
