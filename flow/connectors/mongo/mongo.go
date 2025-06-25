@@ -119,9 +119,14 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	return nil
 }
 
+func (c *MongoConnector) Client() *mongo.Client {
+	return c.client
+}
+
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
 	_ map[string]string,
+	_ uint32,
 	_ protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
@@ -402,13 +407,14 @@ func (c *MongoConnector) PullRecords(
 	}
 	if err := changeStream.Err(); err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			c.logger.Info("PullRecords context deadline exceeded, stopping change stream")
+			return nil
 		} else if errors.Is(err, context.Canceled) {
 			c.logger.Info("PullRecords context canceled, stopping change stream")
+			return nil
 		} else {
 			c.logger.Error("PullRecords change stream error", "error", err)
+			return fmt.Errorf("change stream error: %w", err)
 		}
-		return fmt.Errorf("change stream error: %w", err)
 	}
 
 	return nil

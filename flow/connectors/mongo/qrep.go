@@ -53,7 +53,7 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
 
-	stream.SetSchema(getDefaultSchema())
+	stream.SetSchema(c.GetDefaultSchema())
 
 	filter := bson.D{}
 	if !partition.FullTablePartition {
@@ -85,7 +85,7 @@ func (c *MongoConnector) PullQRepRecords(
 			return 0, 0, fmt.Errorf("failed to decode record: %w", err)
 		}
 
-		record, bytes, err := qValuesFromDocument(doc)
+		record, bytes, err := c.QValuesFromDocument(doc)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
 		}
@@ -111,7 +111,7 @@ func (c *MongoConnector) PullQRepRecords(
 	return totalRecords, totalBytes, nil
 }
 
-func getDefaultSchema() types.QRecordSchema {
+func (c *MongoConnector) GetDefaultSchema() types.QRecordSchema {
 	schema := make([]types.QField, 0, 2)
 	schema = append(schema,
 		types.QField{
@@ -141,7 +141,7 @@ func toRangeFilter(partitionRange *protos.PartitionRange) (bson.D, error) {
 	}
 }
 
-func qValuesFromDocument(doc bson.D) ([]types.QValue, int64, error) {
+func (c *MongoConnector) QValuesFromDocument(doc bson.D) ([]types.QValue, int64, error) {
 	var qValues []types.QValue
 	var size int64
 
