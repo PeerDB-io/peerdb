@@ -8,7 +8,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
+	"github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -54,7 +54,7 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 	}
 
 	recordBatch := &model.QRecordBatch{
-		Schema:  s.conn.GetDefaultSchema(),
+		Schema:  connmongo.GetDefaultSchema(),
 		Records: nil,
 	}
 
@@ -65,7 +65,7 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 			return nil, err
 		}
 
-		record, _, err := s.conn.QValuesFromDocument(doc)
+		record, _, err := connmongo.QValuesFromDocument(doc)
 		if err != nil {
 			return nil, err
 		}
