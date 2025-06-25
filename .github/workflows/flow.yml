@@ -353,7 +353,7 @@ jobs:
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
           ./peer-flow api --port 8112 --gateway-port 8113 &
-          go test -run TestPeerFlowE2ETestSuitePG_CH_Cluster/Test_WeirdTable_MixedCase/ -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          go test -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
