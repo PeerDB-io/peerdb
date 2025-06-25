@@ -70,7 +70,6 @@ func (c *MongoConnector) Close() error {
 }
 
 func (c *MongoConnector) ConnectionActive(ctx context.Context) error {
-	// Use a ping command to check if the connection is active
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -112,7 +111,10 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	if _, ok := result["set"]; !ok {
 		return errors.New("MongoDB is not configured as a replica set, which is required for CDC")
 	}
-	if myState, ok := result["myState"].(int32); !ok || myState != 1 {
+
+	if myState, ok := result["myState"]; !ok {
+		return errors.New("myState not found in response")
+	} else if myStateInt, ok := myState.(int32); !ok || myStateInt != 1 {
 		return fmt.Errorf("MongoDB is not the primary node in the replica set, current state: %d", myState)
 	}
 
@@ -161,7 +163,41 @@ func (c *MongoConnector) GetTableSchema(
 	return result, nil
 }
 
+func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+	changeStreamOpts := options.ChangeStream().
+		SetComment("PeerDB changeStream").
+		SetFullDocument(options.UpdateLookup).
+		SetFullDocumentBeforeChange(options.WhenAvailable)
+	changeStream, err := c.client.Watch(ctx, mongo.Pipeline{}, changeStreamOpts)
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
+	}
+	defer changeStream.Close(ctx)
+
+	c.logger.Info("SetupReplication started, waiting for initial resume token",
+		slog.String("flowJobName", input.FlowJobName))
+	var resumeToken bson.Raw
+	for {
+		resumeToken = changeStream.ResumeToken()
+		if resumeToken != nil {
+			break
+		} else if !changeStream.Next(ctx) {
+			return model.SetupReplicationResult{}, fmt.Errorf("change stream error: %w", changeStream.Err())
+		}
+	}
+	err = c.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
+		Text: base64.StdEncoding.EncodeToString(resumeToken),
+	})
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to store initial resume token: %w", err)
+	}
+	c.logger.Info("SetupReplication completed, stored initial resume token",
+		slog.String("flowJobName", input.FlowJobName))
+	return model.SetupReplicationResult{}, nil
+}
+
 // stubs for CDCPullConnectorCore
+
 func (c *MongoConnector) EnsurePullability(ctx context.Context, req *protos.EnsurePullabilityBatchInput) (
 	*protos.EnsurePullabilityBatchOutput, error,
 ) {
@@ -174,45 +210,6 @@ func (c *MongoConnector) ExportTxSnapshot(context.Context, map[string]string) (*
 
 func (c *MongoConnector) FinishExport(any) error {
 	return nil
-}
-
-func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
-	// TODO: need to think of the situation where the database is idle and we don't "get" a resume token.
-	changeStreamOpts := options.ChangeStream().
-		SetComment("PeerDB changeStream").
-		SetFullDocument(options.UpdateLookup).
-		SetFullDocumentBeforeChange(options.WhenAvailable)
-	changeStream, err := c.client.Watch(ctx, mongo.Pipeline{}, changeStreamOpts)
-	if err != nil {
-		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
-	}
-	defer changeStream.Close(ctx)
-
-	var resumeToken bson.Raw
-	c.logger.Info("SetupReplication started, waiting for initial resume token",
-		slog.String("flowJobName", input.FlowJobName))
-	for resumeToken = changeStream.ResumeToken(); resumeToken == nil && changeStream.Next(ctx); {
-	}
-	if err := changeStream.Err(); err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			c.logger.Info("SetupReplication context deadline exceeded, stopping change stream")
-		} else if errors.Is(err, context.Canceled) {
-			c.logger.Info("SetupReplication context canceled, stopping change stream")
-		} else {
-			c.logger.Error("PullRecords change stream error", "error", err)
-		}
-		return model.SetupReplicationResult{}, fmt.Errorf("change stream error: %w", err)
-	} else if resumeToken != nil {
-		if err := c.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
-			Text: base64.StdEncoding.EncodeToString(resumeToken),
-		}); err != nil {
-			return model.SetupReplicationResult{}, fmt.Errorf("failed to store initial resume token: %w", err)
-		}
-	}
-
-	c.logger.Info("SetupReplication completed, stored initial resume token",
-		slog.String("flowJobName", input.FlowJobName))
-	return model.SetupReplicationResult{}, nil
 }
 
 func (c *MongoConnector) SetupReplConn(context.Context) error {
@@ -264,7 +261,7 @@ func (c *MongoConnector) PullRecords(
 	defer req.RecordStream.Close()
 	c.logger.Info("[started] PullRecords for mirror "+req.FlowJobName,
 		slog.Any("table_mapping", req.TableNameMapping),
-		slog.Int("max_batch_size", int(req.MaxBatchSize)),
+		slog.Uint64("max_batch_size", uint64(req.MaxBatchSize)),
 		slog.Duration("idle_timeout", req.IdleTimeout))
 
 	changeStreamOpts := options.ChangeStream().
@@ -273,7 +270,7 @@ func (c *MongoConnector) PullRecords(
 		SetFullDocumentBeforeChange(options.WhenAvailable)
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
-		c.logger.Info("Resuming change stream from offset: " + req.LastOffset.Text)
+		c.logger.Info("[mongo] resuming change stream", slog.String("resumeToken", req.LastOffset.Text))
 		resumeTokenBytes, err := base64.StdEncoding.DecodeString(req.LastOffset.Text)
 		if err != nil {
 			return fmt.Errorf("failed to parse last offset: %w", err)
@@ -338,7 +335,7 @@ func (c *MongoConnector) PullRecords(
 		clusterTime := changeDoc["clusterTime"].(bson.Timestamp)
 		clusterTimeNanos := time.Unix(int64(clusterTime.T), 0).UnixNano()
 
-		sourceTableName := changeDoc["ns"].(bson.D)[0].Value.(string) + "." + changeDoc["ns"].(bson.D)[1].Value.(string)
+		sourceTableName := fmt.Sprintf("%s.%s", changeDoc["ns"].(bson.D)[0].Value, changeDoc["ns"].(bson.D)[1].Value)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name
 
 		items := model.NewRecordItems(2)
@@ -411,7 +408,7 @@ func (c *MongoConnector) PullRecords(
 	if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
 		// Update the last offset with the resume token
 		req.RecordStream.UpdateLatestCheckpointText(base64.StdEncoding.EncodeToString(resumeToken))
-		c.logger.Info("Updated last offset to: " + req.LastOffset.Text)
+		c.logger.Info("[mongo] latest resume token", slog.String("resumeToken", req.LastOffset.Text))
 	} else {
 		c.logger.Warn("Change stream document does not contain a resume token")
 	}

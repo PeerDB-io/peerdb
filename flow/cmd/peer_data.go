@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -95,7 +96,8 @@ func (h *FlowRequestHandler) ListPeers(
 	query := "SELECT name, type FROM peers"
 	if internal.PeerDBOnlyClickHouseAllowed() {
 		// only postgres, mysql, mongo,and clickhouse
-		query += " WHERE type IN (2, 3, 7, 8)"
+		query += fmt.Sprintf(" WHERE type IN (%d,%d,%d,%d)",
+			protos.DBType_POSTGRES, protos.DBType_MYSQL, protos.DBType_MONGO, protos.DBType_CLICKHOUSE)
 	}
 	rows, err := h.pool.Query(ctx, query)
 	if err != nil {

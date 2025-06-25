@@ -72,23 +72,17 @@ func (c *MongoConnector) GetColumns(ctx context.Context, version uint32, schema 
 
 // Get all database names, but excluding MongoDB's default databases
 func (c *MongoConnector) getAllDatabaseNames(ctx context.Context) ([]string, error) {
-	// TODO: investigate why query fails when this logic is added to the filter
-	excludedDatabaseSet := map[string]bool{
-		"config": true,
-		"admin":  true,
-		"local":  true,
+	filter := bson.M{
+		"name": bson.M{
+			"$nin": []string{"admin", "local", "config"},
+		},
 	}
-	filter := bson.D{}
 	dbs, err := c.client.ListDatabaseNames(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	var filteredDbNames []string
-	for _, db := range dbs {
-		if _, ok := excludedDatabaseSet[db]; !ok {
-			filteredDbNames = append(filteredDbNames, db)
-		}
-	}
+	filteredDbNames := make([]string, 0, len(dbs))
+	filteredDbNames = append(filteredDbNames, dbs...)
 
 	return filteredDbNames, nil
 }
