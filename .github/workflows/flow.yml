@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         runner: [ubuntu-latest-16-cores]
-        db-version: [{pg: 15, mysql: 'mysql-gtid'}, {pg: 16, mysql: 'mysql-pos'}, {pg: 17, mysql: 'maria'}]
+        db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -131,17 +131,38 @@ jobs:
 
       - name: Mongo
         run: |
-          docker run -d --rm --name mongo -p 27017:27017 mongo:8.0.10 --replSet rs0 --bind_ip_all
+          echo "starting mongoDB..."
+          docker run -d --rm --name mongo -p 27017:27017 mongo:${{ matrix.db-version.mongo }} \
+            bash -c 'openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && mongod --replSet rs0 --bind_ip_all --keyFile /data/mongo.key'
+
           until docker exec mongo mongosh --eval 'db.runCommand({ ping: 1 })' &> /dev/null; do
-            echo "Waiting for MongoDB to be ready..."
+            echo "waiting for MongoDB to be ready..."
             sleep 2
           done
+
+          echo "initialize replica set"
           docker exec mongo mongosh --eval 'rs.initiate({
             _id: "rs0",
-            members: [
-              { _id: 0, host: "localhost:27017" }
-            ]
+            members: [{ _id: 0, host: "localhost:27017" }]
           })'
+
+          echo "create admin user"
+          docker exec mongo mongosh --eval '
+            db = db.getSiblingDB("admin");
+            db.createUser({
+              user: "admin",
+              pwd: "admin",
+              roles: ["root"]
+            })'
+
+          echo "create non-admin user for tests"
+          docker exec mongo mongosh -u admin -p admin --eval '
+            db = db.getSiblingDB("admin");
+            db.createUser({
+              user: "ciuser",
+              pwd: "cipass",
+              roles: ["readWriteAnyDatabase"]
+            })'
 
       - name: MinIO TLS
         run: >
@@ -242,8 +263,8 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
-          CI_MONGO_VERSION: 8.0.10
-          CI_MONGO_URI: mongodb://localhost:27017/?replicaSet=rs0
+          CI_MONGO_VERSION: ${{ matrix.db-version.mongo }}
+          CI_MONGO_URI: mongodb://ciuser:cipass@localhost:27017/?replicaSet=rs0&authSource=admin
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
