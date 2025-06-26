@@ -1,4 +1,3 @@
-
 import { MongoConfig } from '@/grpc_generated/peers';
 import { PeerSetting } from './common';
 

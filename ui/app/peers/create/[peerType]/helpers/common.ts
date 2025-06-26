@@ -4,12 +4,12 @@ import { blankClickHouseSetting } from './ch';
 import { blankEventHubGroupSetting } from './eh';
 import { blankElasticsearchSetting } from './es';
 import { blankKafkaSetting } from './ka';
+import { blankMongoSetting } from './mo';
 import { blankMySqlSetting } from './my';
 import { blankPostgresSetting } from './pg';
 import { blankPubSubSetting } from './ps';
 import { blankS3Setting } from './s3';
 import { blankSnowflakeSetting } from './sf';
-import { blankMongoSetting } from './mo';
 
 export interface PeerSetting {
   label: string;

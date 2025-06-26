@@ -120,7 +120,7 @@ export default function CreateConfig({
             setter={setConfig}
           />
         );
-      case "MONGO":
+      case 'MONGO':
         return <MongoForm setter={setConfig} />;
       default:
         return <></>;

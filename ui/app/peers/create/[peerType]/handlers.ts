@@ -193,7 +193,8 @@ async function validateFields(
       break;
     case 'MONGO':
       const mongoConfig = mongoSchema.safeParse(config);
-      if (!mongoConfig.success) validationErr = mongoConfig.error.issues[0].message;
+      if (!mongoConfig.success)
+        validationErr = mongoConfig.error.issues[0].message;
       break;
     default:
       validationErr = 'Unsupported peer type ' + type;
