@@ -1287,6 +1287,10 @@ func (s ClickHouseSuite) Test_PgVector_Version0() {
 }
 
 func (s ClickHouseSuite) Test_Column_Exclusion() {
+	if s.cluster {
+		s.t.Skip("cluster ingestion does not support update/delete")
+	}
+
 	if mySource, ok := s.source.(*e2e.MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("skip maria, testing minimal row metadata on maria")
 	}
@@ -1587,6 +1591,10 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 // Test_Normalize_Metadata_With_Retry tests the chunking normalization
 // with a push to ClickHouse thrown in via renaming a target table.
 func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
+	if s.cluster {
+		s.t.Skip("test not written to support cluster as destination")
+	}
+
 	var pgSource *e2e.PostgresSource
 	var ok bool
 	if pgSource, ok = s.source.(*e2e.PostgresSource); !ok {
@@ -1727,7 +1735,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 			s.t.Log("no records found in metadata_last_sync_state")
 			return false
 		}
-		s.t.Log("metadata_last_sync_state:", rows.Records[0][0].Value(), rows.Records[0][1].Value())
+		s.t.Log("metadata_last_sync_state", rows.Records[0][0].Value(), rows.Records[0][1].Value())
 		return rows.Records[0][0].Value().(int64) == 2 && rows.Records[0][1].Value().(int64) == 2
 	})
 
