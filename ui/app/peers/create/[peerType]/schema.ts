@@ -678,3 +678,7 @@ export const esSchema = z
       message: 'Authentication info not valid',
     }
   );
+
+export const mongoSchema = z.object({
+  uri: z.string({ error: () => 'URI must be a string' }),
+});

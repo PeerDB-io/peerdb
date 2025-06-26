@@ -55,6 +55,9 @@ export function DBTypeToImageMapping(peerType: DBType | string) {
     case DBType.ELASTICSEARCH:
     case 'ELASTICSEARCH':
       return '/svgs/elasticsearch.svg';
+    case DBType.MONGO:
+    case 'MONGO':
+      return '/svgs/mongo.svg';
     default:
       return '/svgs/pg.svg';
   }

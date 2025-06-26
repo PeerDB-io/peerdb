@@ -9,6 +9,7 @@ import { blankPostgresSetting } from './pg';
 import { blankPubSubSetting } from './ps';
 import { blankS3Setting } from './s3';
 import { blankSnowflakeSetting } from './sf';
+import { blankMongoSetting } from './mo';
 
 export interface PeerSetting {
   label: string;
@@ -46,6 +47,8 @@ export function getBlankSetting(dbType: string): PeerConfig {
       return blankEventHubGroupSetting;
     case 'ELASTICSEARCH':
       return blankElasticsearchSetting;
+    case 'MONGO':
+      return blankMongoSetting;
     default:
       return blankPostgresSetting;
   }
