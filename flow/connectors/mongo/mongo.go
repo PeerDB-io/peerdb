@@ -114,7 +114,9 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 
 	if myState, ok := result["myState"]; !ok {
 		return errors.New("myState not found in response")
-	} else if myStateInt, ok := myState.(int32); !ok || myStateInt != 1 {
+	} else if myStateInt, ok := myState.(int32); !ok {
+		return fmt.Errorf("failed to convert myState %v to int32", myState)
+	} else if myStateInt != 1 {
 		return fmt.Errorf("MongoDB is not the primary node in the replica set, current state: %d", myState)
 	}
 
@@ -181,8 +183,11 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 		resumeToken = changeStream.ResumeToken()
 		if resumeToken != nil {
 			break
-		} else if !changeStream.Next(ctx) {
-			return model.SetupReplicationResult{}, fmt.Errorf("change stream error: %w", changeStream.Err())
+		} else {
+			c.logger.Info("Resume token not available, waiting for next change event...")
+			if !changeStream.Next(ctx) {
+				return model.SetupReplicationResult{}, fmt.Errorf("change stream error: %w", changeStream.Err())
+			}
 		}
 	}
 	err = c.SetLastOffset(ctx, input.FlowJobName, model.CdcCheckpoint{
