@@ -476,7 +476,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
 			DestinationTableIdentifier: dstTableName,
-			Exclude:                    []string{"excludedColumn"},
+			Exclude:                    []string{"excludedColumn?"},
 			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
