@@ -299,7 +299,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	}
 
 	if t.cluster {
-		colSelector.WriteString(" SETTINGS parallel_distributed_insert_select=2")
+		colSelector.WriteString(" SETTINGS parallel_distributed_insert_select=0")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",

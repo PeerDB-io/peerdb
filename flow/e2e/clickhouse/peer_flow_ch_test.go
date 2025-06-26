@@ -410,10 +410,6 @@ func (s ClickHouseSuite) Test_Chunking_Normalize() {
 }
 
 func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
-	if s.cluster {
-		s.t.Skip("updates not supported on clusters")
-	}
-
 	srcTableName := "test_replident_full_toast"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_replident_full_toast_dst"
@@ -1083,10 +1079,6 @@ func (s ClickHouseSuite) Test_Binary_Format_Base64() {
 }
 
 func (s ClickHouseSuite) Test_Types_CH() {
-	if s.cluster {
-		s.t.Skip("updates not supported on clusters")
-	}
-
 	if _, ok := s.source.(*e2e.PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
 	}
@@ -1295,10 +1287,6 @@ func (s ClickHouseSuite) Test_PgVector_Version0() {
 }
 
 func (s ClickHouseSuite) Test_Column_Exclusion() {
-	if s.cluster {
-		s.t.Skip("cluster ingestion does not support update/delete")
-	}
-
 	if mySource, ok := s.source.(*e2e.MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("skip maria, testing minimal row metadata on maria")
 	}
@@ -1599,10 +1587,6 @@ func (s ClickHouseSuite) Test_InitialLoadOnly_No_Primary_Key() {
 // Test_Normalize_Metadata_With_Retry tests the chunking normalization
 // with a push to ClickHouse thrown in via renaming a target table.
 func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
-	if s.cluster {
-		s.t.Skip("test not written to support cluster as destination")
-	}
-
 	var pgSource *e2e.PostgresSource
 	var ok bool
 	if pgSource, ok = s.source.(*e2e.PostgresSource); !ok {
