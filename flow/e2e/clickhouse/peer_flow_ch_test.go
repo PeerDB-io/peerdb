@@ -2045,8 +2045,24 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	require.NoError(s.t, ch.Close())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s values (1, 'cdc', 'val')`, srcFullName)))
+		fmt.Sprintf(`insert into %s values (1,'cdc','val')`, srcFullName)))
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "null insert", srcTableName, "nulltarget", "id,\"key\"")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN added INT`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s values (2,'no','add',0)`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "null insert after column added", srcTableName, "nulltarget", "id,\"key\"")
+
+	var count uint64
+	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	require.NoError(s.t, err)
+	row := ch.QueryRow(s.t.Context(),
+		fmt.Sprintf("select count(*) from system.columns where database = '%s' and table = 'test_nullengine'", chPeer.Database))
+	require.NoError(s.t, row.Err())
+	require.NoError(s.t, row.Scan(&count))
+	require.NoError(s.t, ch.Close())
+	require.Equal(s.t, uint64(7), count)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
@@ -2069,15 +2085,14 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, "nulltarget", "id,\"key\"")
 
-	var count uint64
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
 	require.NoError(s.t, err)
-	row := ch.QueryRow(s.t.Context(),
+	row = ch.QueryRow(s.t.Context(),
 		fmt.Sprintf("select count(*) from system.columns where database = '%s' and table = 'test_nullengine'", chPeer.Database))
 	require.NoError(s.t, row.Err())
 	require.NoError(s.t, row.Scan(&count))
 	require.NoError(s.t, ch.Close())
-	require.Equal(s.t, uint64(5), count)
+	require.Equal(s.t, uint64(6), count)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

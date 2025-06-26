@@ -100,7 +100,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
 		if c.config.Replicated {
 			engine = fmt.Sprintf(
-				"ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}',%s)",
+				"ReplicatedReplacingMergeTree('/clickhouse/tables/{uuid}/{shard}/{database}/%s','{replica}',%s)",
 				peerdb_clickhouse.EscapeStr(tableIdentifier),
 				peerdb_clickhouse.QuoteIdentifier(versionColName),
 			)
@@ -110,7 +110,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	case protos.TableEngine_CH_ENGINE_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
 		if c.config.Replicated {
 			engine = fmt.Sprintf(
-				"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}')",
+				"ReplicatedMergeTree('/clickhouse/tables/{uuid}/{shard}/{database}/%s','{replica}')",
 				peerdb_clickhouse.EscapeStr(tableIdentifier),
 			)
 		} else {

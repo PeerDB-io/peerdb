@@ -46,7 +46,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	engine := "MergeTree()"
 	if c.config.Replicated {
 		engine = fmt.Sprintf(
-			"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}')",
+			"ReplicatedMergeTree('/clickhouse/tables/{uuid}/{shard}/{database}/%s','{replica}')",
 			peerdb_clickhouse.EscapeStr(rawTableName),
 		)
 	}
@@ -136,7 +136,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}
 	warnings := numericTruncator.Warnings()
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -168,6 +168,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	env map[string]string,
 	flowJobName string,
+	tableMappings []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	if len(schemaDeltas) == 0 {
@@ -180,6 +181,15 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			continue
 		}
 
+		var tm *protos.TableMapping
+		for _, tableMapping := range tableMappings {
+			if tableMapping.SourceTableIdentifier == schemaDelta.SrcTableName &&
+				tableMapping.DestinationTableIdentifier == schemaDelta.DstTableName {
+				tm = tableMapping
+				break
+			}
+		}
+
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			clickHouseColType, err := qvalue.ToDWHColumnType(
@@ -189,7 +199,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
 
-			if c.config.Cluster != "" {
+			if c.config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
 				if err := c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
 						peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName+"_shard"), onCluster,
