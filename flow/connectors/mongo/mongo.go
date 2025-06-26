@@ -371,7 +371,8 @@ func (c *MongoConnector) PullRecords(
 			// `fullDocument` field will not exist in the following scenarios:
 			// 1) operationType is 'delete'
 			// 2) document is deleted / collection is dropped in between update and lookup
-			// 3) update changes the values for at least one of the fields in that collection's shard key (although sharding is not supported today)
+			// 3) update changes the values for at least one of the fields in that collection's
+			//    shard key (although sharding is not supported today)
 			items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
 		}
 
