@@ -368,12 +368,11 @@ func (c *MongoConnector) PullRecords(
 			}
 			items.AddColumn(DefaultFullDocumentColumnName, qValue)
 		} else {
-			if changeDoc["operationType"] == "delete" {
-				items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
-			} else {
-				// should never happen with fullDocument='UpdateLookup'
-				return errors.New("fullDocument field not found")
-			}
+			// `fullDocument` field will not exist in the following scenarios:
+			// 1) operationType is 'delete'
+			// 2) document is deleted / collection is dropped in between update and lookup
+			// 3) update changes the values for at least one of the fields in that collection's shard key (although sharding is not supported today)
+			items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
 		}
 
 		if operationType, ok := changeDoc["operationType"]; ok {
@@ -410,23 +409,16 @@ func (c *MongoConnector) PullRecords(
 			}
 		}
 	}
+	if err := changeStream.Err(); err != nil && !errors.Is(err, context.DeadlineExceeded) {
+		c.logger.Error("PullRecords change stream error", "error", err)
+		return fmt.Errorf("change stream error: %w", err)
+	}
 	if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
 		// Update the last offset with the resume token
 		req.RecordStream.UpdateLatestCheckpointText(base64.StdEncoding.EncodeToString(resumeToken))
 		c.logger.Info("[mongo] latest resume token", slog.String("resumeToken", req.LastOffset.Text))
 	} else {
 		c.logger.Warn("Change stream document does not contain a resume token")
-	}
-	if err := changeStream.Err(); err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			return nil
-		} else if errors.Is(err, context.Canceled) {
-			c.logger.Info("PullRecords context canceled, stopping change stream")
-			return nil
-		} else {
-			c.logger.Error("PullRecords change stream error", "error", err)
-			return fmt.Errorf("change stream error: %w", err)
-		}
 	}
 
 	return nil
