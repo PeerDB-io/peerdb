@@ -63,11 +63,9 @@ message PubSubConfig {
 }
 
 message MongoConfig {
-  string username = 1;
-  string password = 2 [(peerdb_redacted) = true];
-  string clusterurl = 3;
-  int32 clusterport = 4;
-  string database = 5;
+  // can be a mongodb:// URI mapping to discrete hosts or a mongodb+srv:// URI
+  // mapping to a DNS SRV record.
+  string uri = 1 [(peerdb_redacted) = true];
 }
 
 message AwsAuthStaticCredentialsConfig {
