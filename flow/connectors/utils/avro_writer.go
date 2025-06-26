@@ -14,8 +14,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/djherbis/buffer"
-	"github.com/djherbis/nio/v3"
 	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -107,10 +105,9 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		return AvroFile{}, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
-	buf := buffer.New(32 * 1024 * 1024) // 32MB in memory Buffer
-	r, w := nio.Pipe(buf)
-
+	r, w := io.Pipe()
 	defer r.Close()
+
 	var writeOcfError error
 	var numRows int64
 
