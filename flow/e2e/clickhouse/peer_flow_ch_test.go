@@ -410,6 +410,10 @@ func (s ClickHouseSuite) Test_Chunking_Normalize() {
 }
 
 func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
+	if s.cluster {
+		s.t.Skip("updates not supported on clusters")
+	}
+
 	srcTableName := "test_replident_full_toast"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_replident_full_toast_dst"
@@ -438,13 +442,13 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 	require.NoError(s.t, err)
 	contentStr := string(content)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (c1,c2,t) VALUES ($1,$2,$3)`, srcFullName), 1, 2, contentStr)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (c1,c2,t) VALUES ($1,$2,$3)`, srcFullName), 1, 2, contentStr)
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial insert", srcTableName, dstTableName, "id,c1,c2,t")
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	UPDATE %s SET c1=$1 WHERE id=$2`, srcFullName), 3, 1)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`UPDATE %s SET c1=$1 WHERE id=$2`, srcFullName), 3, 1)
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on update", srcTableName, dstTableName, "id,c1,c2,t")
 
@@ -1079,6 +1083,10 @@ func (s ClickHouseSuite) Test_Binary_Format_Base64() {
 }
 
 func (s ClickHouseSuite) Test_Types_CH() {
+	if s.cluster {
+		s.t.Skip("updates not supported on clusters")
+	}
+
 	if _, ok := s.source.(*e2e.PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
 	}
