@@ -4,6 +4,7 @@ import { blankClickHouseSetting } from './ch';
 import { blankEventHubGroupSetting } from './eh';
 import { blankElasticsearchSetting } from './es';
 import { blankKafkaSetting } from './ka';
+import { blankMongoSetting } from './mo';
 import { blankMySqlSetting } from './my';
 import { blankPostgresSetting } from './pg';
 import { blankPubSubSetting } from './ps';
@@ -46,6 +47,8 @@ export function getBlankSetting(dbType: string): PeerConfig {
       return blankEventHubGroupSetting;
     case 'ELASTICSEARCH':
       return blankElasticsearchSetting;
+    case 'MONGO':
+      return blankMongoSetting;
     default:
       return blankPostgresSetting;
   }

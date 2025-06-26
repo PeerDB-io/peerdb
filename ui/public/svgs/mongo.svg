@@ -1,0 +1,57 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="primaryGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+    
+    <linearGradient id="accentGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#34D399;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#10B981;stop-opacity:1" />
+    </linearGradient>
+    
+    <filter id="shadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.1"/>
+    </filter>
+  </defs>
+  
+  <!-- Main database cylinder -->
+  <ellipse cx="100" cy="70" rx="35" ry="12" fill="url(#accentGradient)" opacity="0.9"/>
+  <rect x="65" y="70" width="70" height="60" fill="url(#accentGradient)" opacity="0.8"/>
+  <ellipse cx="100" cy="130" rx="35" ry="12" fill="url(#accentGradient)"/>
+  
+  <!-- Data layers -->
+  <ellipse cx="100" cy="85" rx="35" ry="8" fill="white" opacity="0.3"/>
+  <ellipse cx="100" cy="100" rx="35" ry="8" fill="white" opacity="0.3"/>
+  <ellipse cx="100" cy="115" rx="35" ry="8" fill="white" opacity="0.3"/>
+  
+  <!-- Document/data icons -->
+  <g transform="translate(80, 75)">
+    <rect x="0" y="0" width="12" height="15" rx="2" fill="white" opacity="0.6"/>
+    <rect x="2" y="3" width="8" height="1" fill="url(#primaryGradient)" opacity="0.8"/>
+    <rect x="2" y="6" width="6" height="1" fill="url(#primaryGradient)" opacity="0.8"/>
+    <rect x="2" y="9" width="8" height="1" fill="url(#primaryGradient)" opacity="0.8"/>
+  </g>
+  
+  <g transform="translate(108, 90)">
+    <rect x="0" y="0" width="12" height="15" rx="2" fill="white" opacity="0.6"/>
+    <rect x="2" y="3" width="8" height="1" fill="url(#primaryGradient)" opacity="0.8"/>
+    <rect x="2" y="6" width="6" height="1" fill="url(#primaryGradient)" opacity="0.8"/>
+    <rect x="2" y="9" width="8" height="1" fill="url(#primaryGradient)" opacity="0.8"/>
+  </g>
+  
+  <g transform="translate(80, 105)">
+    <rect x="0" y="0" width="12" height="15" rx="2" fill="white" opacity="0.6"/>
+    <rect x="2" y="3" width="8" height="1" fill="url(#primaryGradient)" opacity="0.8"/>
+    <rect x="2" y="6" width="6" height="1" fill="url(#primaryGradient)" opacity="0.8"/>
+    <rect x="2" y="9" width="8" height="1" fill="url(#primaryGradient)" opacity="0.8"/>
+  </g>
+  
+  <!-- Connection lines suggesting data flow -->
+  <path d="M 100 45 Q 85 55 100 65" stroke="white" stroke-width="2" fill="none" opacity="0.4"/>
+  <path d="M 100 45 Q 115 55 100 65" stroke="white" stroke-width="2" fill="none" opacity="0.4"/>
+  
+  <!-- Top accent -->
+  <circle cx="100" cy="45" r="8" fill="white" opacity="0.8"/>
+  <circle cx="100" cy="45" r="4" fill="url(#accentGradient)"/>
+</svg>

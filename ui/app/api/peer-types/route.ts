@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
     'AZURE FLEXIBLE POSTGRESQL',
     'CRUNCHY POSTGRES',
     'NEON',
+    'MONGO',
   ];
   if (process.env.SUPABASE_ID) {
     postgresTypes.push({
