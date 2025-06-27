@@ -84,7 +84,7 @@ func GetTableColumnsMapping(ctx context.Context, logger log.Logger, conn clickho
 	}
 	rows, err := Query(ctx, logger, conn,
 		fmt.Sprintf("SELECT name,type,table FROM system.columns WHERE database=currentDatabase() AND table IN (%s)",
-			strings.Join(slices.Repeat(queryTables, len(tables)), ",")))
+			strings.Join(queryTables, ",")))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get columns for destination tables: %w", err)
 	}
