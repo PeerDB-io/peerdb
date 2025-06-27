@@ -176,7 +176,7 @@ func truncateNumerics(
 		return items
 	}
 
-	newItems := model.NewRecordItems(recordItems.Len())
+	newItems := model.NewRecordItems(recordItems.Len(), false)
 	for col, val := range recordItems.ColToVal {
 		newVal := val
 
