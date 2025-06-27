@@ -146,7 +146,7 @@ jobs:
             members: [{ _id: 0, host: "localhost:27017" }]
           })'
 
-          echo "create admin user"
+          echo "create admin user for writing data to mongo"
           docker exec mongo mongosh --eval '
             db = db.getSiblingDB("admin");
             db.createUser({
@@ -155,13 +155,13 @@ jobs:
               roles: ["root"]
             })'
 
-          echo "create non-admin user for tests"
+          echo "create non-admin user for reading data from changestream"
           docker exec mongo mongosh -u admin -p admin --eval '
             db = db.getSiblingDB("admin");
             db.createUser({
-              user: "ciuser",
-              pwd: "cipass",
-              roles: ["readWriteAnyDatabase"]
+              user: "csuser",
+              pwd: "cspass",
+              roles: ["readAnyDatabase"]
             })'
 
       - name: MinIO TLS
@@ -263,7 +263,8 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
-          CI_MONGO_URI: mongodb://ciuser:cipass@localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_ADMIN_URI: mongodb://admin:admin@localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_URI: mongodb://csuser:cspass@localhost:27017/?replicaSet=rs0&authSource=admin
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
