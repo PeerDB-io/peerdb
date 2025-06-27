@@ -263,7 +263,6 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
-          CI_MONGO_VERSION: ${{ matrix.db-version.mongo }}
           CI_MONGO_URI: mongodb://ciuser:cipass@localhost:27017/?replicaSet=rs0&authSource=admin
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317

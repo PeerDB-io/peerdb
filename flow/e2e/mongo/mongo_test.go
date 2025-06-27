@@ -40,9 +40,6 @@ func SetupMongoClickhouseSuite(t *testing.T) MongoClickhouseSuite {
 func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 	t.Helper()
 
-	mongoVersion := os.Getenv("CI_MONGO_VERSION")
-	require.NotEmpty(t, mongoVersion, "missing CI_MONGO_VERSION env var")
-
 	mongoUri := os.Getenv("CI_MONGO_URI")
 	require.NotEmpty(t, mongoUri, "missing CI_MONGO_URI env var")
 
