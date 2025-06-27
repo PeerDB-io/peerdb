@@ -222,12 +222,12 @@ func (s MongoClickhouseSuite) Test_Update_Replace_Delete_Events() {
 func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	t := s.T()
 
-	largeDoc := func() bson.D {
+	largeDoc := func(ch string) bson.D {
 		// maximum byte size that can be inserted for this doc
 		// one more byte we get 'object to insert too large' error
 		sizeBytes := 16*1024*1024 - 41
-		largeString := strings.Repeat("X", sizeBytes)
-		return bson.D{{Key: "large_string", Value: largeString}}
+		largeString := strings.Repeat(ch, sizeBytes)
+		return bson.D{bson.E{Key: "large_string", Value: largeString}}
 	}
 
 	srcDatabase := GetTestDatabase(s.Suffix())
@@ -246,7 +246,7 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	collection := client.Database(srcDatabase).Collection("test_large_event")
 
 	// insert large doc for initial load
-	res, err := collection.InsertOne(t.Context(), largeDoc(), options.InsertOne())
+	res, err := collection.InsertOne(t.Context(), largeDoc("X"), options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, res.Acknowledged)
 
@@ -256,12 +256,31 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
-	// insert large doc for cdc
-	res, err = collection.InsertOne(t.Context(), largeDoc(), options.InsertOne())
+	// insert large doc for cdc (to test change event with "fullDocument")
+	res, err = collection.InsertOne(t.Context(), largeDoc("X"), options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, res.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events to match", srcTable, dstTable, "_id,_full_document")
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,_full_document")
+	oid := bson.D{bson.E{Key: "_id", Value: res.InsertedID}}
+
+	// update large doc for cdc
+	updateRes, err := collection.UpdateOne(t.Context(), oid, bson.D{bson.E{Key: "$set", Value: largeDoc("Y")}}, options.UpdateOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), updateRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "update events to match", srcTable, dstTable, "_id,_full_document")
+
+	// replace large doc for cdc
+	replaceRes, err := collection.ReplaceOne(t.Context(), oid, largeDoc("Z"), options.Replace())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), replaceRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "replace events to match", srcTable, dstTable, "_id,_full_document")
+
+	// delete large doc for cdc
+	deleteRes, err := collection.DeleteOne(t.Context(), oid, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete events to match", srcTable, dstTable, "_id,_full_document")
 
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)

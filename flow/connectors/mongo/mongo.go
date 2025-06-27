@@ -165,8 +165,8 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream").
 		SetFullDocument(options.UpdateLookup).
-		SetFullDocumentBeforeChange(options.WhenAvailable)
-	changeStream, err := c.client.Watch(ctx, mongo.Pipeline{}, changeStreamOpts)
+		SetFullDocumentBeforeChange(options.Off)
+	changeStream, err := c.client.Watch(ctx, defaultPipeline(), changeStreamOpts)
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
 	}
@@ -268,7 +268,7 @@ func (c *MongoConnector) PullRecords(
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
 		SetFullDocument(options.UpdateLookup).
-		SetFullDocumentBeforeChange(options.WhenAvailable)
+		SetFullDocumentBeforeChange(options.Off)
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
 		c.logger.Info("[mongo] resuming change stream", slog.String("resumeToken", req.LastOffset.Text))
@@ -279,7 +279,7 @@ func (c *MongoConnector) PullRecords(
 		changeStreamOpts.SetResumeAfter(bson.Raw(resumeTokenBytes))
 	}
 
-	changeStream, err := c.client.Watch(ctx, mongo.Pipeline{}, changeStreamOpts)
+	changeStream, err := c.client.Watch(ctx, defaultPipeline(), changeStreamOpts)
 	if err != nil {
 		var cmdErr mongo.CommandError
 		// ChangeStreamHistoryLost is basically slot invalidation
@@ -326,10 +326,8 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 
-		if operationType, ok := changeDoc["operationType"]; !ok {
+		if _, ok := changeDoc["operationType"]; !ok {
 			c.logger.Warn("operationType field not found")
-			continue
-		} else if operationType != "insert" && operationType != "update" && operationType != "replace" && operationType != "delete" {
 			continue
 		}
 
@@ -419,4 +417,26 @@ func (c *MongoConnector) PullRecords(
 	}
 
 	return nil
+}
+
+func defaultPipeline() mongo.Pipeline {
+	return mongo.Pipeline{
+		{{Key: "$match", Value: bson.D{
+			{Key: "operationType", Value: bson.D{
+				{Key: "$in", Value: bson.A{"insert", "update", "replace", "delete"}},
+			}},
+		}}},
+
+		// Mongo recommend using '$project' first to reduce change event size, and only use
+		// '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the document
+		// themselves have a 16MB limit, project required fields for now for code simplicity.
+		// ref: https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStreamSplitLargeEvent/
+		{{Key: "$project", Value: bson.D{
+			{Key: "operationType", Value: 1},
+			{Key: "clusterTime", Value: 1},
+			{Key: "documentKey", Value: 1},
+			{Key: "fullDocument", Value: 1},
+			{Key: "ns", Value: 1},
+		}}},
+	}
 }
