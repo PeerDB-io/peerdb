@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -40,16 +41,16 @@ func (c *MongoConnector) GetQRepPartitions(
 
 func (c *MongoConnector) PullQRepRecords(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, int64, error) {
+) (int64, error) {
 	var totalRecords int64
-	var totalBytes int64
 
 	parseWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
-		return 0, 0, fmt.Errorf("unable to parse watermark table: %w", err)
+		return 0, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
 	collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
 
@@ -61,7 +62,7 @@ func (c *MongoConnector) PullQRepRecords(
 		if partition.Range != nil {
 			filter, err = toRangeFilter(partition.Range)
 			if err != nil {
-				return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
+				return 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
 			}
 		}
 	}
@@ -75,23 +76,24 @@ func (c *MongoConnector) PullQRepRecords(
 	// https://www.mongodb.com/docs/manual/reference/method/cursor.batchsize/
 	cursor, err := collection.Find(ctx, filter, options.Find().SetBatchSize(int32(batchSize)))
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to query for records: %w", err)
+		return 0, fmt.Errorf("failed to query for records: %w", err)
 	}
 	defer cursor.Close(ctx)
 
 	for cursor.Next(ctx) {
 		var doc bson.D
 		if err := cursor.Decode(&doc); err != nil {
-			return 0, 0, fmt.Errorf("failed to decode record: %w", err)
+			return 0, fmt.Errorf("failed to decode record: %w", err)
 		}
 
 		record, bytes, err := QValuesFromDocument(doc)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
+			return 0, fmt.Errorf("failed to convert record: %w", err)
 		}
-		stream.Records <- record
 		totalRecords += 1
-		totalBytes += bytes
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, bytes)
+
+		stream.Records <- record
 	}
 	close(stream.Records)
 	if err := cursor.Err(); err != nil {
@@ -105,26 +107,24 @@ func (c *MongoConnector) PullQRepRecords(
 				slog.String("watermark_table", config.WatermarkTable),
 				slog.String("error", err.Error()))
 		}
-		return 0, 0, fmt.Errorf("cursor error: %w", err)
+		return 0, fmt.Errorf("cursor error: %w", err)
 	}
 
-	return totalRecords, totalBytes, nil
+	return totalRecords, nil
 }
 
 func GetDefaultSchema() types.QRecordSchema {
-	schema := make([]types.QField, 0, 2)
-	schema = append(schema,
-		types.QField{
+	return types.QRecordSchema{Fields: []types.QField{
+		{
 			Name:     DefaultDocumentKeyColumnName,
 			Type:     types.QValueKindString,
 			Nullable: false,
-		},
-		types.QField{
+		}, {
 			Name:     DefaultFullDocumentColumnName,
 			Type:     types.QValueKindJSON,
 			Nullable: false,
-		})
-	return types.QRecordSchema{Fields: schema}
+		},
+	}}
 }
 
 func toRangeFilter(partitionRange *protos.PartitionRange) (bson.D, error) {

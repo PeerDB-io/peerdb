@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -27,7 +28,7 @@ const qRepMetadataTableName = "_peerdb_query_replication_metadata"
 
 type QRepPullSink interface {
 	Close(error)
-	ExecuteQueryWithTx(context.Context, *QRepQueryExecutor, pgx.Tx, string, ...any) (int64, int64, error)
+	ExecuteQueryWithTx(context.Context, *otel_metrics.OtelManager, *QRepQueryExecutor, pgx.Tx, string, ...any) (int64, error)
 }
 
 type QRepSyncSink interface {
@@ -284,31 +285,34 @@ func (c *PostgresConnector) GetMaxValue(
 
 func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
+) (int64, error) {
+	return corePullQRepRecords(c, ctx, otelManager, config, partition, &RecordStreamSink{
 		QRecordStream: stream,
 	})
 }
 
 func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
-) (int64, int64, error) {
-	return corePullQRepRecords(c, ctx, config, partition, stream)
+) (int64, error) {
+	return corePullQRepRecords(c, ctx, otelManager, config, partition, stream)
 }
 
 func corePullQRepRecords(
 	c *PostgresConnector,
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
-) (int64, int64, error) {
+) (int64, error) {
 	partitionIdLog := slog.String(string(shared.PartitionIDKey), partition.PartitionId)
 
 	if partition.FullTablePartition {
@@ -316,9 +320,9 @@ func corePullQRepRecords(
 		executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Version, config.SnapshotName,
 			config.FlowJobName, partition.PartitionId)
 		if err != nil {
-			return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
+			return 0, fmt.Errorf("failed to create query executor: %w", err)
 		}
-		return executor.ExecuteQueryIntoSink(ctx, sink, config.Query)
+		return executor.ExecuteQueryIntoSink(ctx, otelManager, sink, config.Query)
 	}
 	c.logger.Info("Obtained ranges for partition for PullQRepStream", partitionIdLog)
 
@@ -345,28 +349,28 @@ func corePullQRepRecords(
 			Valid:        true,
 		}
 	default:
-		return 0, 0, fmt.Errorf("unknown range type: %v", x)
+		return 0, fmt.Errorf("unknown range type: %v", x)
 	}
 
 	// Build the query to pull records within the range from the source table
 	// Be sure to order the results by the watermark column to ensure consistency across pulls
 	query, err := BuildQuery(c.logger, config.Query, config.FlowJobName)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Version, config.SnapshotName, config.FlowJobName, partition.PartitionId)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
+		return 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
 
-	numRecords, numBytes, err := executor.ExecuteQueryIntoSink(ctx, sink, query, rangeStart, rangeEnd)
+	numRecords, err := executor.ExecuteQueryIntoSink(ctx, otelManager, sink, query, rangeStart, rangeEnd)
 	if err != nil {
-		return numRecords, numBytes, err
+		return numRecords, err
 	}
 
-	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords), partitionIdLog)
-	return numRecords, numBytes, nil
+	c.logger.Info("pulled records", slog.Int64("records", numRecords), partitionIdLog)
+	return numRecords, nil
 }
 
 func (c *PostgresConnector) SyncQRepRecords(
@@ -491,8 +495,7 @@ func syncQRepRecords(
 			dstTableIdentifier.Sanitize(),
 		)
 
-		c.logger.Info(fmt.Sprintf("Creating staging table %s - '%s'",
-			stagingTableName, createStagingTableStmt), syncLog)
+		c.logger.Info("creating staging table", slog.String("table", stagingTableName), slog.String("query", createStagingTableStmt), syncLog)
 		if _, err := c.execWithLoggingTx(ctx, createStagingTableStmt, tx); err != nil {
 			return -1, nil, fmt.Errorf("failed to create staging table: %w", err)
 		}
@@ -598,38 +601,41 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 	if _, err := c.execWithLogging(ctx, createQRepMetadataTableSQL); err != nil && !shared.IsSQLStateError(err, pgerrcode.UniqueViolation) {
 		return fmt.Errorf("failed to create table %s: %w", qRepMetadataTableName, err)
 	}
-	c.logger.Info("Setup metadata table.")
+	c.logger.Info("setup metadata table", slog.Any("table", metadataTableIdentifier))
 
 	return nil
 }
 
 func (c *PostgresConnector) PullXminRecordStream(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, int64, int64, error) {
-	return pullXminRecordStream(c, ctx, config, partition, RecordStreamSink{
+) (int64, int64, error) {
+	return pullXminRecordStream(c, ctx, otelManager, config, partition, RecordStreamSink{
 		QRecordStream: stream,
 	})
 }
 
 func (c *PostgresConnector) PullXminPgRecordStream(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	pipe PgCopyWriter,
-) (int64, int64, int64, error) {
-	return pullXminRecordStream(c, ctx, config, partition, pipe)
+) (int64, int64, error) {
+	return pullXminRecordStream(c, ctx, otelManager, config, partition, pipe)
 }
 
 func pullXminRecordStream(
 	c *PostgresConnector,
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	sink QRepPullSink,
-) (int64, int64, int64, error) {
+) (int64, int64, error) {
 	query := config.Query
 	var queryArgs []any
 	if partition.Range != nil {
@@ -640,21 +646,22 @@ func pullXminRecordStream(
 	executor, err := c.NewQRepQueryExecutorSnapshot(ctx, config.Version, config.SnapshotName,
 		config.FlowJobName, partition.PartitionId)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to create query executor: %w", err)
+		return 0, 0, fmt.Errorf("failed to create query executor: %w", err)
 	}
 
-	numRecords, numBytes, currentSnapshotXmin, err := executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
+	numRecords, currentSnapshotXmin, err := executor.ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 		ctx,
+		otelManager,
 		sink,
 		query,
 		queryArgs...,
 	)
 	if err != nil {
-		return numRecords, numBytes, currentSnapshotXmin, err
+		return numRecords, currentSnapshotXmin, err
 	}
 
-	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords))
-	return numRecords, numBytes, currentSnapshotXmin, nil
+	c.logger.Info("pulled records", slog.Int64("records", numRecords))
+	return numRecords, currentSnapshotXmin, nil
 }
 
 func BuildQuery(logger log.Logger, query string, flowJobName string) (string, error) {

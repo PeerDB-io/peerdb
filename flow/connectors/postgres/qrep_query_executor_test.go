@@ -60,7 +60,8 @@ func TestExecuteAndProcessQuery(t *testing.T) {
 	qe, err := connector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 
-	batch, err := qe.ExecuteAndProcessQuery(t.Context(), fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
+	batch, err := qe.ExecuteAndProcessQuery(t.Context(), nil,
+		fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while executing query")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 	require.Equal(t, "testdata", batch.Records[0][1].Value(), "expected 'testdata'")
@@ -147,7 +148,7 @@ func TestSupportedDataTypes(t *testing.T) {
 	qe, err := connector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 	// Select the row back out of the table
-	batch, err := qe.ExecuteAndProcessQuery(t.Context(),
+	batch, err := qe.ExecuteAndProcessQuery(t.Context(), nil,
 		fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while processing rows")
 	require.Len(t, batch.Records, 1, "expected 1 record")
@@ -599,7 +600,7 @@ func TestStringDataTypes(t *testing.T) {
 			qe, err := connector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "test flow", "test part")
 			require.NoError(t, err)
 			// Select the row back out of the table
-			batch, err := qe.ExecuteAndProcessQuery(t.Context(),
+			batch, err := qe.ExecuteAndProcessQuery(t.Context(), nil,
 				fmt.Sprintf("SELECT * FROM %s.test_strings", utils.QuoteIdentifier(schemaName)))
 			require.NoError(t, err)
 			require.Len(t, batch.Records, 1)

@@ -200,8 +200,7 @@ func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table strin
 		return nil, err
 	}
 
-	return pgQueryExecutor.ExecuteAndProcessQuery(
-		ctx,
+	return pgQueryExecutor.ExecuteAndProcessQuery(ctx, nil,
 		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
 	)
 }
@@ -213,8 +212,7 @@ func (s *PostgresSource) GetRowsOnly(ctx context.Context, suffix string, table s
 		return nil, err
 	}
 
-	return pgQueryExecutor.ExecuteAndProcessQuery(
-		ctx,
+	return pgQueryExecutor.ExecuteAndProcessQuery(ctx, nil,
 		fmt.Sprintf(`SELECT %s FROM ONLY e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
 	)
 }
@@ -250,7 +248,7 @@ func (s *PostgresSource) Query(ctx context.Context, query string) (*model.QRecor
 		return nil, err
 	}
 
-	return pgQueryExecutor.ExecuteAndProcessQuery(ctx, query)
+	return pgQueryExecutor.ExecuteAndProcessQuery(ctx, nil, query)
 }
 
 func (s *PostgresSource) GetLogCount(ctx context.Context, flowJobName, errorType, pattern string) (int, error) {
