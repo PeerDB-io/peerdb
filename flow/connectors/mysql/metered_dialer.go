@@ -5,6 +5,7 @@ package connmysql
 
 import (
 	"context"
+	"crypto/tls"
 	"net"
 	"sync/atomic"
 
@@ -30,4 +31,16 @@ func NewMeteredDialer(innerDialer client.Dialer) client.Dialer {
 		}
 		return &MeteredConn{Conn: conn}, nil
 	}
+}
+
+func BytesReadFromMySqlConn(conn *client.Conn) *atomic.Int64 {
+	// during tls auth go-mysql wraps our MeteredConn in a tls.Conn
+	if mc, ok := conn.Conn.Conn.(*MeteredConn); ok {
+		return &mc.BytesRead
+	} else if tlsConn, ok := conn.Conn.Conn.(*tls.Conn); ok {
+		if mc, ok := tlsConn.NetConn().(*MeteredConn); ok {
+			return &mc.BytesRead
+		}
+	}
+	return nil
 }

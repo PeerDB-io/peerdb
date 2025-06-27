@@ -250,13 +250,14 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 	args ...any,
 ) (int64, error) {
 	var connectionErr error
-	var bytesRead int64
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return bytesRead, err
+			return 0, err
 		}
-		mc := conn.Conn.Conn.(*MeteredConn)
-		bytesReadAtStart := mc.BytesRead.Load()
+		bytesRead := BytesReadFromMySqlConn(conn)
+		if bytesRead != nil {
+			bytesRead.Store(0)
+		}
 
 		if len(args) == 0 {
 			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
@@ -264,7 +265,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return bytesRead, err
+				return 0, err
 			}
 		} else {
 			stmt, err := conn.Prepare(cmd)
@@ -273,7 +274,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return bytesRead, err
+				return 0, err
 			}
 			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
 			_ = stmt.Close()
@@ -282,13 +283,16 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return bytesRead, err
+				return 0, err
 			}
 		}
-		bytesRead += mc.BytesRead.Load() - bytesReadAtStart
-		return bytesRead, nil
+		if bytesRead != nil {
+			return bytesRead.Load(), nil
+		} else {
+			return 0, nil
+		}
 	}
-	return bytesRead, connectionErr
+	return 0, connectionErr
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
