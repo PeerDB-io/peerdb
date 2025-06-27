@@ -246,7 +246,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		// avoid "there is no metadata of table ..."
 		"alter_sync": uint64(1),
 		// if there are a very large number of tables/columns, our queries can be very long
-		"max_query_size": uint64(786432), // triple of the default, 262144
+		"max_query_size": uint64(10000000),
 	}
 	if maxInsertThreads, err := internal.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
 		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
