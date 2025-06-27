@@ -32,7 +32,7 @@ func TestMongoClickhouseSuite(t *testing.T) {
 
 func SetupMongoClickhouseSuite(t *testing.T) MongoClickhouseSuite {
 	t.Helper()
-	return MongoClickhouseSuite{e2e_clickhouse.SetupSuite(t, func(t *testing.T) (*MongoSource, string, error) {
+	return MongoClickhouseSuite{e2e_clickhouse.SetupSuite(t, false, func(t *testing.T) (*MongoSource, string, error) {
 		t.Helper()
 		suffix := "mongoch_" + strings.ToLower(shared.RandomString(8))
 		source, err := SetupMongo(t, suffix)
