@@ -96,18 +96,18 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	res, err := srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
-		req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source table schema: %w", err)
-	}
+	// res, err := srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
+	// 	req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
+	// if err != nil {
+	// 	return nil, fmt.Errorf("failed to get source table schema: %w", err)
+	// }
 
-	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, res); err != nil {
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
-		return nil, err
-	}
+	// if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, res); err != nil {
+	// 	h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
+	// 		err.Error(),
+	// 	)
+	// 	return nil, err
+	// }
 
 	return &protos.ValidateCDCMirrorResponse{}, nil
 }
