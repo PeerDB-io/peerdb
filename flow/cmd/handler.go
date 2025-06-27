@@ -10,8 +10,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
+	workflowservice "go.temporal.io/api/workflowservice/v1"
+	tEnums "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
@@ -601,4 +604,168 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 		}, nil
 	}
 	return nil, errors.New("invalid maintenance status")
+}
+
+func (h *FlowRequestHandler) GetMaintenanceStatus(ctx context.Context, in *protos.MaintenanceStatusRequest) (*protos.MaintenanceStatusResponse, error) {
+	// Check if maintenance mode is enabled via dynamic setting
+	maintenanceModeEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check maintenance mode: %w", err)
+	}
+
+	// Check for running maintenance workflows
+	// Check if StartMaintenanceWorkflow is running and collect activity details
+	var pendingActivities []*protos.MaintenanceActivityDetails
+	startDesc, startWorkflowRunning, err := h.isStartMaintenanceWorkflowRunning(ctx)
+	if err == nil && startWorkflowRunning {
+		pendingActivities = append(pendingActivities, extractPendingActivities(startDesc)...)
+	}
+
+	// Check if EndMaintenanceWorkflow is running and collect activity details
+	endDesc, endWorkflowRunning, err := h.isEndMaintenanceWorkflowRunning(ctx)
+	if err == nil && endWorkflowRunning {
+		pendingActivities = append(pendingActivities, extractPendingActivities(endDesc)...)
+	}
+
+	// Determine overall maintenance status and phase
+	maintenanceRunning := startWorkflowRunning || endWorkflowRunning || maintenanceModeEnabled
+	var phase protos.MaintenancePhase
+
+	if startWorkflowRunning {
+		phase = protos.MaintenancePhase_MAINTENANCE_PHASE_START_MAINTENANCE
+	} else if endWorkflowRunning {
+		phase = protos.MaintenancePhase_MAINTENANCE_PHASE_END_MAINTENANCE
+	} else if maintenanceModeEnabled {
+		phase = protos.MaintenancePhase_MAINTENANCE_PHASE_MAINTENANCE_MODE_ENABLED
+	} else {
+		phase = protos.MaintenancePhase_MAINTENANCE_PHASE_UNKNOWN
+	}
+
+	return &protos.MaintenanceStatusResponse{
+		MaintenanceRunning: maintenanceRunning,
+		Phase:              phase,
+		PendingActivities:  pendingActivities,
+	}, nil
+}
+
+// isStartMaintenanceWorkflowRunning checks if the StartMaintenanceWorkflow is currently running
+func (h *FlowRequestHandler) isStartMaintenanceWorkflowRunning(ctx context.Context) (*workflowservice.DescribeWorkflowExecutionResponse, bool, error) {
+	startWorkflowID := "start-maintenance"
+	if deploymentUID := internal.PeerDBDeploymentUID(); deploymentUID != "" {
+		startWorkflowID += "-" + deploymentUID
+	}
+
+	desc, err := h.temporalClient.DescribeWorkflowExecution(ctx, startWorkflowID, "")
+	if err != nil {
+		return nil, false, err
+	}
+
+	isRunning := desc.WorkflowExecutionInfo != nil && desc.WorkflowExecutionInfo.Status == tEnums.WORKFLOW_EXECUTION_STATUS_RUNNING
+	return desc, isRunning, nil
+}
+
+// isEndMaintenanceWorkflowRunning checks if the EndMaintenanceWorkflow is currently running
+func (h *FlowRequestHandler) isEndMaintenanceWorkflowRunning(ctx context.Context) (*workflowservice.DescribeWorkflowExecutionResponse, bool, error) {
+	endWorkflowID := "end-maintenance"
+	if deploymentUID := internal.PeerDBDeploymentUID(); deploymentUID != "" {
+		endWorkflowID += "-" + deploymentUID
+	}
+
+	desc, err := h.temporalClient.DescribeWorkflowExecution(ctx, endWorkflowID, "")
+	if err != nil {
+		return nil, false, err
+	}
+
+	isRunning := desc.WorkflowExecutionInfo != nil && desc.WorkflowExecutionInfo.Status == tEnums.WORKFLOW_EXECUTION_STATUS_RUNNING
+	return desc, isRunning, nil
+}
+
+// extractPendingActivities extracts pending activity details from a workflow execution description
+func extractPendingActivities(desc *workflowservice.DescribeWorkflowExecutionResponse) []*protos.MaintenanceActivityDetails {
+	var activities []*protos.MaintenanceActivityDetails
+	
+	if desc.WorkflowExecutionInfo == nil {
+		return activities
+	}
+
+	// Extract pending activities from the execution info
+	for _, task := range desc.PendingActivities {
+		if task.ActivityType == nil {
+			continue
+		}
+
+		activityDetail := &protos.MaintenanceActivityDetails{
+			ActivityName: task.ActivityType.Name,
+			ActivityId:   task.ActivityId,
+		}
+
+		// Calculate duration if start time is available
+		if task.ScheduledTime != nil {
+			startTime := task.ScheduledTime.AsTime()
+			duration := time.Since(startTime)
+			activityDetail.ActivityDuration = durationpb.New(duration)
+		}
+
+		// Set last heartbeat time if available
+		if task.LastHeartbeatTime != nil {
+			activityDetail.LastHeartbeat = task.LastHeartbeatTime
+		}
+
+		// Set all heartbeat payloads if available
+		if task.HeartbeatDetails != nil && len(task.HeartbeatDetails.Payloads) > 0 {
+			// Convert all payloads to strings
+			for _, payload := range task.HeartbeatDetails.Payloads {
+				if payload != nil {
+					activityDetail.HeartbeatPayloads = append(activityDetail.HeartbeatPayloads, string(payload.Data))
+				}
+			}
+		}
+
+		activities = append(activities, activityDetail)
+	}
+
+	return activities
+}
+
+// SkipSnapshotWaitFlows sends a signal to skip snapshot wait for the specified flows if StartMaintenanceWorkflow is running
+func (h *FlowRequestHandler) SkipSnapshotWaitFlows(ctx context.Context, in *protos.SkipSnapshotWaitFlowsRequest) (*protos.SkipSnapshotWaitFlowsResponse, error) {
+	// Check if StartMaintenanceWorkflow is running
+	_, isRunning, err := h.isStartMaintenanceWorkflowRunning(ctx)
+	if err != nil {
+		return &protos.SkipSnapshotWaitFlowsResponse{
+			SignalSent: false,
+			Message:    "Failed to check StartMaintenanceWorkflow status: " + err.Error(),
+		}, nil
+	}
+
+	if !isRunning {
+		return &protos.SkipSnapshotWaitFlowsResponse{
+			SignalSent: false,
+			Message:    "StartMaintenanceWorkflow is not currently running",
+		}, nil
+	}
+
+	// Send the signal with the list of flow names using StartMaintenanceSignal
+	startWorkflowID := "start-maintenance"
+	if deploymentUID := internal.PeerDBDeploymentUID(); deploymentUID != "" {
+		startWorkflowID += "-" + deploymentUID
+	}
+	
+	// Create the signal payload
+	signalPayload := &protos.StartMaintenanceSignal{
+		SkippedSnapshotWaitFlows: in.FlowNames,
+	}
+	
+	err = model.StartMaintenanceSignal.SignalClientWorkflow(ctx, h.temporalClient, startWorkflowID, "", signalPayload)
+	if err != nil {
+		return &protos.SkipSnapshotWaitFlowsResponse{
+			SignalSent: false,
+			Message:    "Failed to send signal: " + err.Error(),
+		}, nil
+	}
+
+	return &protos.SkipSnapshotWaitFlowsResponse{
+		SignalSent: true,
+		Message:    fmt.Sprintf("Successfully sent skipped_snapshot_wait_flows signal for %d flows", len(in.FlowNames)),
+	}, nil
 }
