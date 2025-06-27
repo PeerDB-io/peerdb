@@ -273,10 +273,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, pgErrorInfo
 
 		case pgerrcode.ObjectNotInPrerequisiteState:
-			// same underlying error but 2 different messages
+			// same underlying error but 3 different messages
 			// based on PG version, newer ones have second error
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") ||
-				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") {
+				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") ||
+				strings.Contains(pgErr.Message, "could not import the requested snapshot") {
 				return ErrorNotifySlotInvalid, pgErrorInfo
 			}
 
