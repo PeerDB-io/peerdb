@@ -61,7 +61,7 @@ jobs:
           MINIO_ROOT_PASSWORD: miniosecret
           MINIO_API_PORT_NUMBER: 9999
           AWS_EC2_METADATA_DISABLED: true
-          MINIO_DEFAULT_BUCKETS: peerdb
+          MINIO_DEFAULT_BUCKETS: peerdbbucket
       otelcol:
         image: otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7
         ports:
@@ -218,12 +218,12 @@ jobs:
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://localhost:9999
-          PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdb
+          PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
           PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
           PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
           PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_REGION: us-east-1
           PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://localhost:9999
-          PEERDB_SNOWFLAKE_AWS_S3_BUCKET_NAME: peerdb
+          PEERDB_SNOWFLAKE_AWS_S3_BUCKET_NAME: peerdbbucket
           TEST_BQ_CREDS: ${{ github.workspace }}/bq_service_account.json
           TEST_SF_CREDS: ${{ github.workspace }}/snowflake_creds.json
           TEST_S3_CREDS: ${{ github.workspace }}/s3_creds.json
