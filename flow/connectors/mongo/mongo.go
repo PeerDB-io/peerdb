@@ -339,7 +339,7 @@ func (c *MongoConnector) PullRecords(
 		sourceTableName := fmt.Sprintf("%s.%s", changeDoc["ns"].(bson.D)[0].Value, changeDoc["ns"].(bson.D)[1].Value)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name
 
-		items := model.NewRecordItems(2)
+		items := model.NewRecordItems(2, true)
 
 		if documentKey, found := changeDoc["documentKey"]; found {
 			if len(documentKey.(bson.D)) == 0 || documentKey.(bson.D)[0].Key != DefaultDocumentKeyColumnName {

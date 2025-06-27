@@ -516,7 +516,7 @@ func (c *MySqlConnector) PullRecords(
 				switch event.Header.EventType {
 				case replication.WRITE_ROWS_EVENTv1, replication.WRITE_ROWS_EVENTv2, replication.MARIADB_WRITE_ROWS_COMPRESSED_EVENT_V1:
 					for _, row := range ev.Rows {
-						items := model.NewRecordItems(len(row))
+						items := model.NewRecordItems(len(row), false)
 						for idx, val := range row {
 							fd := getFd(idx)
 							if fd == nil {
@@ -553,7 +553,7 @@ func (c *MySqlConnector) PullRecords(
 						}
 
 						oldRow := ev.Rows[idx]
-						oldItems := model.NewRecordItems(len(oldRow))
+						oldItems := model.NewRecordItems(len(oldRow), false)
 						for idx, val := range oldRow {
 							fd := getFd(idx)
 							if fd == nil {
@@ -567,7 +567,7 @@ func (c *MySqlConnector) PullRecords(
 							oldItems.AddColumn(fd.Name, val)
 						}
 						newRow := ev.Rows[idx+1]
-						newItems := model.NewRecordItems(len(newRow))
+						newItems := model.NewRecordItems(len(newRow), false)
 						for idx, val := range ev.Rows[idx+1] {
 							fd := getFd(idx)
 							if fd == nil {
@@ -605,7 +605,7 @@ func (c *MySqlConnector) PullRecords(
 							}
 						}
 
-						items := model.NewRecordItems(len(row))
+						items := model.NewRecordItems(len(row), false)
 						for idx, val := range row {
 							fd := getFd(idx)
 							if fd == nil {

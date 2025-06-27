@@ -25,12 +25,14 @@ func ItemsToJSON(items Items) (string, error) {
 
 // encoding/gob cannot encode unexported fields
 type RecordItems struct {
-	ColToVal map[string]types.QValue
+	ColToVal   map[string]types.QValue
+	NoTruncate bool
 }
 
-func NewRecordItems(capacity int) RecordItems {
+func NewRecordItems(capacity int, noTruncate bool) RecordItems {
 	return RecordItems{
-		ColToVal: make(map[string]types.QValue, capacity),
+		ColToVal:   make(map[string]types.QValue, capacity),
+		NoTruncate: noTruncate,
 	}
 }
 
@@ -93,14 +95,13 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 			jsonStruct[col] = string(v.Val)
 		case types.QValueString:
 			strVal := v.Val
-
-			if len(strVal) > 15*1024*1024 {
+			if len(strVal) > 15*1024*1024 && !r.NoTruncate {
 				jsonStruct[col] = ""
 			} else {
 				jsonStruct[col] = strVal
 			}
 		case types.QValueJSON:
-			if len(v.Val) > 15*1024*1024 {
+			if len(v.Val) > 15*1024*1024 && !r.NoTruncate {
 				jsonStruct[col] = "{}"
 			} else if _, ok := opts.UnnestColumns[col]; ok {
 				var unnestStruct map[string]any
@@ -124,8 +125,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 				if err != nil {
 					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T: %w", col, v, err)
 				}
-
-				if len(jsonVal) > 15*1024*1024 {
+				if len(jsonVal) > 15*1024*1024 && !r.NoTruncate {
 					jsonStruct[col] = ""
 				} else {
 					jsonStruct[col] = jsonVal

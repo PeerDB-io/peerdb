@@ -18,7 +18,7 @@ func AttachToStream(ls *lua.LState, lfn *lua.LFunction, stream *model.QRecordStr
 		}
 		output.SetSchema(schema)
 		for record := range stream.Records {
-			row := model.NewRecordItems(len(record))
+			row := model.NewRecordItems(len(record), false)
 			for i, qv := range record {
 				row.AddColumn(schema.Fields[i].Name, qv)
 			}

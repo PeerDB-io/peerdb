@@ -54,7 +54,7 @@ Loop:
 			}
 
 			pool.Run(func(ls *lua.LState) poolResult {
-				items := model.NewRecordItems(len(qrecord))
+				items := model.NewRecordItems(len(qrecord), false)
 				for i, val := range qrecord {
 					items.AddColumn(schema.Fields[i].Name, val)
 				}
