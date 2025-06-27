@@ -11,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/postgres/sanitize"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -48,24 +49,25 @@ func (p PgCopyWriter) SetSchema(schema []string) {
 
 func (p PgCopyWriter) ExecuteQueryWithTx(
 	ctx context.Context,
+	_ *otel_metrics.OtelManager,
 	qe *QRepQueryExecutor,
 	tx pgx.Tx,
 	query string,
 	args ...any,
-) (int64, int64, error) {
+) (int64, error) {
 	defer shared.RollbackTx(tx, qe.logger)
 
 	if qe.snapshot != "" {
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
-			return 0, 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
+			return 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
 
 	norows, err := tx.Query(ctx, query+" limit 0", args...)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 
 	fieldDescriptions := norows.FieldDescriptions()
@@ -78,7 +80,7 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 
 	query, err = sanitize.SanitizeSQL(query, args...)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to apply parameters to copy subquery: %w", err)
+		return 0, fmt.Errorf("failed to apply parameters to copy subquery: %w", err)
 	}
 
 	copyQuery := fmt.Sprintf("COPY (%s) TO STDOUT", query)
@@ -87,19 +89,19 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 	if err != nil {
 		qe.logger.Info("[pg_query_executor] failed to copy",
 			slog.String("copyQuery", copyQuery), slog.Any("error", err))
-		return 0, 0, fmt.Errorf("[pg_query_executor] failed to copy: %w", err)
+		return 0, fmt.Errorf("[pg_query_executor] failed to copy: %w", err)
 	}
 
 	qe.logger.Info("Committing transaction")
 	if err := tx.Commit(ctx); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to commit transaction", slog.Any("error", err))
-		return 0, 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
+		return 0, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
 	totalRecordsFetched := ct.RowsAffected()
 	qe.logger.Info(fmt.Sprintf("[pg_query_executor] committed transaction for query '%s', rows = %d",
 		query, totalRecordsFetched))
-	return totalRecordsFetched, 0, nil
+	return totalRecordsFetched, nil
 }
 
 func (p PgCopyWriter) Close(err error) {

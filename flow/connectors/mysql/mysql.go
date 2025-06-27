@@ -245,26 +245,32 @@ func (c *MySqlConnector) Execute(ctx context.Context, cmd string, args ...any) (
 }
 
 func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string, result *mysql.Result,
-	rowCb client.SelectPerRowCallback,
-	resultCb client.SelectPerResultCallback,
+	rowCb func([]mysql.FieldValue, int64) error,
+	resultCb func(*mysql.Result, int64) error,
 	args ...any,
-) (int64, error) {
+) error {
 	var connectionErr error
-	var bytesRead int64
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return bytesRead, err
+			return err
 		}
 		mc := conn.Conn.Conn.(*MeteredConn)
-		bytesReadAtStart := mc.BytesRead.Load()
+		mc.BytesRead.Store(0)
+
+		onRow := func(row []mysql.FieldValue) error {
+			return rowCb(row, mc.BytesRead.Load())
+		}
+		onResult := func(rs *mysql.Result) error {
+			return resultCb(rs, mc.BytesRead.Load())
+		}
 
 		if len(args) == 0 {
-			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
+			if err := conn.ExecuteSelectStreaming(cmd, result, onRow, onResult); err != nil {
 				if mysql.ErrorEqual(err, mysql.ErrBadConn) {
 					connectionErr = err
 					continue
 				}
-				return bytesRead, err
+				return nil
 			}
 		} else {
 			stmt, err := conn.Prepare(cmd)
@@ -273,22 +279,21 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return bytesRead, err
+				return err
 			}
-			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
+			err = stmt.ExecuteSelectStreaming(result, onRow, onResult, args...)
 			_ = stmt.Close()
 			if err != nil {
 				if mysql.ErrorEqual(err, mysql.ErrBadConn) {
 					connectionErr = err
 					continue
 				}
-				return bytesRead, err
+				return err
 			}
 		}
-		bytesRead += mc.BytesRead.Load() - bytesReadAtStart
-		return bytesRead, nil
+		return nil
 	}
-	return bytesRead, connectionErr
+	return connectionErr
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {

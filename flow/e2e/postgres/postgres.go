@@ -69,8 +69,7 @@ func (s PeerFlowE2ETestSuitePG) GetRows(table string, cols string) (*model.QReco
 		return nil, err
 	}
 
-	return pgQueryExecutor.ExecuteAndProcessQuery(
-		s.t.Context(),
+	return pgQueryExecutor.ExecuteAndProcessQuery(s.t.Context(), nil,
 		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, s.suffix, utils.QuoteIdentifier(table)),
 	)
 }

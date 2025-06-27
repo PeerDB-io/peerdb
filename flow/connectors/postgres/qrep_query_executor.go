@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -59,8 +60,8 @@ func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, arg
 }
 
 func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cursorName string, fetchSize int) (pgx.Rows, error) {
-	qe.logger.Info("Executing query in transaction")
 	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
+	qe.logger.Info("[pg_query_executor] fetching from cursor", slog.String("query", q))
 
 	rows, err := tx.Query(ctx, q)
 	if err != nil {
@@ -174,6 +175,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	query string,
 	args ...any,
 ) (*model.QRecordBatch, error) {
@@ -185,7 +187,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
 		defer close(errors)
-		if _, _, err := qe.ExecuteAndProcessQueryStream(ctx, stream, query, args...); err != nil {
+		if _, err := qe.ExecuteAndProcessQueryStream(ctx, otelManager, stream, query, args...); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
 			errorsError = err
 		}
@@ -234,12 +236,14 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 
 func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	stream *model.QRecordStream,
 	query string,
 	args ...any,
-) (int64, int64, error) {
+) (int64, error) {
 	return qe.ExecuteQueryIntoSink(
 		ctx,
+		otelManager,
 		RecordStreamSink{QRecordStream: stream},
 		query,
 		args...,
@@ -248,10 +252,11 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	sink QRepPullSink,
 	query string,
 	args ...any,
-) (int64, int64, error) {
+) (int64, error) {
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer sink.Close(nil)
 
@@ -263,22 +268,23 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSink(
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
 		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 		sink.Close(err)
-		return 0, 0, err
+		return 0, err
 	}
 
-	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
+	totalRecords, err := sink.ExecuteQueryWithTx(ctx, otelManager, qe, tx, query, args...)
 	if err != nil {
 		sink.Close(err)
 	}
-	return totalRecords, totalBytes, err
+	return totalRecords, err
 }
 
 func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	sink QRepPullSink,
 	query string,
 	args ...any,
-) (int64, int64, int64, error) {
+) (int64, int64, error) {
 	var currentSnapshotXmin pgtype.Int8
 	qe.logger.Info("Executing and processing query stream", slog.String("query", query))
 	defer sink.Close(nil)
@@ -291,20 +297,20 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 		qe.logger.Error("[pg_query_executor] failed to begin transaction", slog.Any("error", err))
 		err := fmt.Errorf("[pg_query_executor] failed to begin transaction: %w", err)
 		sink.Close(err)
-		return 0, 0, currentSnapshotXmin.Int64, err
+		return 0, currentSnapshotXmin.Int64, err
 	}
 
 	if err := tx.QueryRow(ctx, "select txid_snapshot_xmin(txid_current_snapshot())").Scan(&currentSnapshotXmin); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to get current snapshot xmin", slog.Any("error", err))
 		sink.Close(err)
-		return 0, 0, currentSnapshotXmin.Int64, err
+		return 0, currentSnapshotXmin.Int64, err
 	}
 
-	totalRecords, totalBytes, err := sink.ExecuteQueryWithTx(ctx, qe, tx, query, args...)
+	totalRecords, err := sink.ExecuteQueryWithTx(ctx, otelManager, qe, tx, query, args...)
 	if err != nil {
 		sink.Close(err)
 	}
-	return totalRecords, totalBytes, currentSnapshotXmin.Int64, err
+	return totalRecords, currentSnapshotXmin.Int64, err
 }
 
 func (qe *QRepQueryExecutor) mapRowToQRecord(

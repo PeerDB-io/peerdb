@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -88,7 +89,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime().String()
 		}
-		c.logger.Info(fmt.Sprintf("count query: %s - minVal: %v", countQuery, minVal))
+		c.logger.Info("count query", slog.String("query", countQuery), slog.Any("minVal", minVal))
 
 		rs, err := c.Execute(ctx, countQuery, minVal)
 		if err != nil {
@@ -243,19 +244,21 @@ func (c *MySqlConnector) GetQRepPartitions(
 
 func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, int64, error) {
+) (int64, error) {
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
 		&protos.TableMapping{SourceTableIdentifier: config.WatermarkTable}, protos.TypeSystem_Q)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
+		return 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
 	var totalRecords int64
-	var totalBytes int64
-	onResult := func(rs *mysql.Result) error {
+	var lastRead int64
+	onResult := func(rs *mysql.Result, bytesRead int64) error {
+		lastRead = bytesRead
 		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields)
 		if err != nil {
 			return err
@@ -264,7 +267,10 @@ func (c *MySqlConnector) PullQRepRecords(
 		return nil
 	}
 	var rs mysql.Result
-	onRow := func(row []mysql.FieldValue) error {
+	onRow := func(row []mysql.FieldValue, bytesRead int64) error {
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, bytesRead-lastRead)
+		lastRead = bytesRead
+
 		totalRecords += 1
 		schema, err := stream.Schema()
 		if err != nil {
@@ -283,12 +289,11 @@ func (c *MySqlConnector) PullQRepRecords(
 	}
 
 	if partition.FullTablePartition {
+		c.logger.Info("[mysql] begin full table partition", slog.String("query", config.Query))
 		// this is a full table partition, so just run the query
-		readBytes, err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult)
-		if err != nil {
-			return 0, 0, err
+		if err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult); err != nil {
+			return 0, err
 		}
-		totalBytes += readBytes
 	} else {
 		var rangeStart string
 		var rangeEnd string
@@ -305,25 +310,23 @@ func (c *MySqlConnector) PullQRepRecords(
 			rangeStart = "'" + x.TimestampRange.Start.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 			rangeEnd = "'" + x.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 		default:
-			return 0, 0, fmt.Errorf("unknown range type: %v", x)
+			return 0, fmt.Errorf("unknown range type %T: %v", x, x)
 		}
 
 		// Build the query to pull records within the range from the source table
 		// Be sure to order the results by the watermark column to ensure consistency across pulls
 		query, err := BuildQuery(c.logger, config.Query, rangeStart, rangeEnd)
 		if err != nil {
-			return 0, 0, err
+			return 0, err
 		}
 
-		readBytes, err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult)
-		if err != nil {
-			return 0, 0, err
+		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
+			return 0, err
 		}
-		totalBytes += readBytes
 	}
 
 	close(stream.Records)
-	return totalRecords, totalBytes, nil
+	return totalRecords, nil
 }
 
 func BuildQuery(logger log.Logger, query string, start string, end string) (string, error) {

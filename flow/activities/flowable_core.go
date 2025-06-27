@@ -391,7 +391,7 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 	})
 }
 
-// replicateQRepPartition replicates a QRepPartition from the source to the destination.
+// replicateQRepPartition replicates a QRepPartition from source to destination
 func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
@@ -402,10 +402,12 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	outstream TRead,
 	pullRecords func(
 		TPull,
-		context.Context, *protos.QRepConfig,
+		context.Context,
+		*otel_metrics.OtelManager,
+		*protos.QRepConfig,
 		*protos.QRepPartition,
 		TWrite,
-	) (int64, int64, error),
+	) (int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -446,12 +448,10 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		}
 		defer connectors.CloseConnector(ctx, srcConn)
 
-		numRecords, numBytes, err := pullRecords(srcConn, errCtx, config, partition, stream)
+		numRecords, err := pullRecords(srcConn, errCtx, a.OtelManager, config, partition, stream)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("[qrep] failed to pull records: %w", err))
 		}
-
-		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, numRecords,
@@ -499,10 +499,12 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	outstream TRead,
 	pullRecords func(
 		*connpostgres.PostgresConnector,
-		context.Context, *protos.QRepConfig,
+		context.Context,
+		*otel_metrics.OtelManager,
+		*protos.QRepConfig,
 		*protos.QRepPartition,
 		TWrite,
-	) (int64, int64, int64, error),
+	) (int64, int64, error),
 	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
@@ -522,8 +524,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 
 		var pullErr error
 		var numRecords int64
-		var numBytes int64
-		numRecords, numBytes, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
+		numRecords, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, a.OtelManager, config, partition, stream)
 		if pullErr != nil {
 			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", pullErr))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
@@ -552,8 +553,6 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		if err := monitoring.UpdateStartTimeForPartition(ctx, a.CatalogPool, runUUID, partition, startTime); err != nil {
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
-
-		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, numRecords,

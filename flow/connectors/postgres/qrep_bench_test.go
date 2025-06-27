@@ -13,6 +13,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	query := "SELECT * FROM bench.large_table"
 
 	ctx := b.Context()
+
 	connector, err := NewPostgresConnector(ctx, nil, internal.GetCatalogPostgresConfigFromEnv(ctx))
 	require.NoError(b, err, "error while creating connector")
 	defer connector.Close()
@@ -24,7 +25,7 @@ func BenchmarkQRepQueryExecutor(b *testing.B) {
 	// Run the benchmark
 	for b.Loop() {
 		// Execute the query and process the rows
-		_, err := qe.ExecuteAndProcessQuery(ctx, query)
+		_, err := qe.ExecuteAndProcessQuery(ctx, nil, query)
 		require.NoError(b, err, "error while executing query")
 	}
 }
