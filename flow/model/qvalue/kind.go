@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -52,6 +54,7 @@ func ToDWHColumnType(
 	kind types.QValueKind,
 	env map[string]string,
 	dwhType protos.DBType,
+	dwhVersion string,
 	column *protos.FieldDescription,
 	nullableEnabled bool,
 ) (string, error) {
@@ -85,6 +88,15 @@ func ToDWHColumnType(
 			colType = fmt.Sprintf("Array(%s)", colType)
 		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
+			if kind == types.QValueKindJSON {
+				// JSON data type is marked as production ready in version ClickHouse 25.3
+				isJsonSupported := chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 3, Patch: 0}, chproto.ParseVersion(dwhVersion))
+				// Treat error the same as not enabled
+				isJsonEnabled, _ := internal.PeerDBEnableClickHouseJSON(ctx, env)
+				if isJsonSupported && isJsonEnabled {
+					colType = "JSON"
+				}
+			}
 		} else {
 			colType = "String"
 		}

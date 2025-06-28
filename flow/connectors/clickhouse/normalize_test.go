@@ -191,7 +191,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 		rawTableName,
 	)
 
-	query, err := g.BuildQuery(ctx)
+	query, err := g.BuildQuery(ctx, "")
 	require.NoError(t, err)
 	require.Contains(t, query, "INSERT INTO")
 	require.Contains(t, query, "SELECT")
@@ -245,7 +245,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		rawTableName,
 	)
 
-	query, err := g.BuildQuery(ctx)
+	query, err := g.BuildQuery(ctx, "")
 	require.NoError(t, err)
 	require.Contains(t, query, "UNION ALL SELECT")
 	require.Contains(t, query, "JSONExtract(_peerdb_match_data, 'id', 'Int64') AS `id`")
@@ -296,7 +296,7 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		rawTableName,
 	)
 
-	query, err := g.BuildQuery(ctx)
+	query, err := g.BuildQuery(ctx, "")
 	require.NoError(t, err)
 	require.Contains(t, query, " AS `_peerdb_source_schema`")
 }
@@ -344,7 +344,7 @@ func TestBuildQuery_WithNumParts(t *testing.T) {
 		rawTableName,
 	)
 
-	query, err := g.BuildQuery(ctx)
+	query, err := g.BuildQuery(ctx, "")
 	require.NoError(t, err)
 	require.Contains(t, query, "cityHash64(_peerdb_uid) % 4 = 2")
 }
