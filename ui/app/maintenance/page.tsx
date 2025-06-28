@@ -1,19 +1,24 @@
 'use client';
 
+import { useState } from 'react';
 import { fetcher } from '@/app/utils/swr';
-import SidebarComponent from '@/components/SidebarComponent';
-import { Header } from '@/lib/Header';
-import { Layout, LayoutMain } from '@/lib/Layout';
-import { Label } from '@/lib/Label';
-import { Icon } from '@/lib/Icon';
-import { Button } from '@/lib/Button';
 import useSWR from 'swr';
+import { Header } from '@/lib/Header';
+import { Button } from '@/lib/Button';
+import { Icon } from '@/lib/Icon';
+import { Label } from '@/lib/Label';
+import { Layout, LayoutMain } from '@/lib/Layout';
+import SidebarComponent from '@/components/SidebarComponent';
 import { Configuration } from '@/app/config/config';
 import {
   MaintenanceStatusResponse,
   MaintenanceActivityDetails,
   MaintenancePhase,
   maintenancePhaseFromJSON,
+  SkipSnapshotWaitFlowsRequest,
+  SkipSnapshotWaitFlowsResponse,
+  ListMirrorsResponse,
+  ListMirrorsItem,
 } from '@/grpc_generated/route';
 import { Duration } from '@/grpc_generated/google/protobuf/duration';
 
@@ -130,11 +135,9 @@ function PendingActivitiesTable({ activities }: { activities: MaintenanceActivit
       <table className="w-full border-collapse border border-gray-300">
         <thead className="bg-gray-50">
           <tr>
-            <th className="border border-gray-300 px-4 py-2 text-left">Activity Name</th>
-            <th className="border border-gray-300 px-4 py-2 text-left">Duration</th>
-            <th className="border border-gray-300 px-4 py-2 text-left">Last Heartbeat</th>
-            <th className="border border-gray-300 px-4 py-2 text-left">Heartbeat Count</th>
-            <th className="border border-gray-300 px-4 py-2 text-left">Last Heartbeat Payload</th>
+            <th className="border border-gray-300 px-4 py-2 text-left" style={{ width: '30%' }}>Activity Name</th>
+            <th className="border border-gray-300 px-4 py-2 text-left" style={{ width: '10%' }}>Duration</th>
+            <th className="border border-gray-300 px-4 py-2 text-left" style={{ width: '60%' }}>Last Heartbeat Payload</th>
           </tr>
         </thead>
         <tbody>
@@ -145,22 +148,13 @@ function PendingActivitiesTable({ activities }: { activities: MaintenanceActivit
               
             return (
               <tr key={index} className="hover:bg-gray-50">
-                <td className="border border-gray-300 px-4 py-2 font-mono text-sm">
+                <td className="border border-gray-300 px-4 py-2 font-mono text-sm" style={{ width: '30%' }}>
                   {activity.activityName}
                 </td>
-                <td className="border border-gray-300 px-4 py-2">
+                <td className="border border-gray-300 px-4 py-2" style={{ width: '10%' }}>
                   {formatDuration(activity.activityDuration)}
                 </td>
-                <td className="border border-gray-300 px-4 py-2">
-                  {activity.lastHeartbeat ? 
-                    new Date(activity.lastHeartbeat).toLocaleString() : 
-                    'N/A'
-                  }
-                </td>
-                <td className="border border-gray-300 px-4 py-2">
-                  {activity.heartbeatPayloads?.length || 0}
-                </td>
-                <td className="border border-gray-300 px-4 py-2 max-w-xs">
+                <td className="border border-gray-300 px-4 py-2" style={{ width: '60%' }}>
                   {lastPayload ? (
                     <div className="text-sm font-mono bg-gray-100 p-2 rounded truncate" title={lastPayload}>
                       {lastPayload.length > 100 ? `${lastPayload.substring(0, 100)}...` : lastPayload}
@@ -177,6 +171,117 @@ function PendingActivitiesTable({ activities }: { activities: MaintenanceActivit
     </div>
   );
 }
+
+function SkipSnapshotWaitSection() {
+  const [flowName, setFlowName] = useState('');
+  const [isSkipping, setIsSkipping] = useState(false);
+  const [skipResult, setSkipResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  const handleSkipSnapshotWait = async () => {
+    if (!flowName.trim()) {
+      setSkipResult({ success: false, message: 'Please enter a flow name' });
+      return;
+    }
+
+    setIsSkipping(true);
+    setSkipResult(null);
+
+    try {
+      const request: SkipSnapshotWaitFlowsRequest = {
+        flowNames: [flowName.trim()],
+      };
+
+      const response = await fetch('/api/v1/instance/maintenance/skip-snapshot-wait', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result: SkipSnapshotWaitFlowsResponse = await response.json();
+      setSkipResult({
+        success: result.signalSent,
+        message: result.message || (result.signalSent ? 'Signal sent successfully' : 'Failed to send signal'),
+      });
+
+      if (result.signalSent) {
+        setFlowName(''); // Clear input on success
+      }
+    } catch (error) {
+      setSkipResult({
+        success: false,
+        message: `Error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      });
+    } finally {
+      setIsSkipping(false);
+    }
+  };
+
+  return (
+    <div className="mt-6">
+      <Label variant="headline" className="mb-4 block">
+        Skip Snapshot Wait for Flow
+      </Label>
+      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Icon name="warning" className="text-yellow-600" />
+          <Label className="text-yellow-800 font-medium">
+            Send signal to skip snapshot wait for a specific flow during maintenance startup
+          </Label>
+        </div>
+        
+        <div className="flex gap-3 items-start">
+          <div className="flex-1">
+            <input
+              type="text"
+              value={flowName}
+              onChange={(e) => setFlowName(e.target.value)}
+              placeholder="Enter flow name (e.g., mirror_name)"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={isSkipping}
+            />
+          </div>
+          <Button
+            variant="normal"
+            onClick={handleSkipSnapshotWait}
+            disabled={isSkipping || !flowName.trim()}
+          >
+            {isSkipping ? (
+              <>
+                <Icon name="sync" className="animate-spin" />
+                Sending...
+              </>
+            ) : (
+              <>
+                <Icon name="skip_next" />
+                Skip Wait
+              </>
+            )}
+          </Button>
+        </div>
+        
+        {skipResult && (
+          <div className={`mt-3 p-3 rounded-md ${
+            skipResult.success 
+              ? 'bg-green-100 border border-green-200 text-green-800'
+              : 'bg-red-100 border border-red-200 text-red-800'
+          }`}>
+            <div className="flex items-center gap-2">
+              <Icon name={skipResult.success ? 'check_circle' : 'error'} />
+              <span className="text-sm font-medium">{skipResult.message}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 export default function MaintenancePage() {
   const {
@@ -246,6 +351,12 @@ export default function MaintenancePage() {
                 </Label>
                 <PendingActivitiesTable activities={maintenanceStatus.pendingActivities || []} />
               </div>
+
+              {/* Skip Snapshot Wait - Only show during StartMaintenance phase */}
+              {maintenancePhaseFromJSON(maintenanceStatus.phase) === MaintenancePhase.MAINTENANCE_PHASE_START_MAINTENANCE && (
+                <SkipSnapshotWaitSection />
+              )}
+
             </div>
           )}
         </div>
