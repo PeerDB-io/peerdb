@@ -32,6 +32,7 @@ type MySqlConnector struct {
 	logger        log.Logger
 	rdsAuth       *utils.RDSAuth
 	serverVersion string
+	bytesRead     atomic.Int64
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -125,9 +126,9 @@ func (c *MySqlConnector) ConnectionActive(context.Context) error {
 
 func (c *MySqlConnector) Dialer() client.Dialer {
 	if c.ssh.Client == nil {
-		return NewMeteredDialer((&net.Dialer{Timeout: time.Minute}).DialContext)
+		return NewMeteredDialer(&c.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
 	}
-	return NewMeteredDialer(c.ssh.Client.DialContext)
+	return NewMeteredDialer(&c.bytesRead, c.ssh.Client.DialContext)
 }
 
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
@@ -250,13 +251,11 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 	args ...any,
 ) (int64, error) {
 	var connectionErr error
-	var bytesRead int64
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return bytesRead, err
+			return 0, err
 		}
-		mc := conn.Conn.Conn.(*MeteredConn)
-		bytesReadAtStart := mc.BytesRead.Load()
+		c.bytesRead.Store(0)
 
 		if len(args) == 0 {
 			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
@@ -264,7 +263,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return bytesRead, err
+				return 0, err
 			}
 		} else {
 			stmt, err := conn.Prepare(cmd)
@@ -273,7 +272,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return bytesRead, err
+				return 0, err
 			}
 			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
 			_ = stmt.Close()
@@ -282,13 +281,12 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return bytesRead, err
+				return 0, err
 			}
 		}
-		bytesRead += mc.BytesRead.Load() - bytesReadAtStart
-		return bytesRead, nil
+		return c.bytesRead.Load(), nil
 	}
-	return bytesRead, connectionErr
+	return 0, connectionErr
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
