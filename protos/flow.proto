@@ -30,6 +30,8 @@ message TableMapping {
   repeated string exclude = 4;
   repeated ColumnSetting columns = 5;
   TableEngine engine = 6;
+  string sharding_key = 7;
+  string policy_name = 8;
 }
 
 message SetupInput {

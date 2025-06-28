@@ -204,6 +204,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	env map[string]string,
 	flowJobName string,
+	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	for _, schemaDelta := range schemaDeltas {
