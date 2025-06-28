@@ -4,10 +4,10 @@ import { fetcher } from '@/app/utils/swr';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import Logout from '@/components/Logout';
 import {
+  GetDynamicSettingsResponse,
   InstanceInfoResponse,
   InstanceStatus,
   PeerDBVersionResponse,
-  GetDynamicSettingsResponse,
 } from '@/grpc_generated/route';
 
 import { BrandLogo } from '@/lib/BrandLogo';
