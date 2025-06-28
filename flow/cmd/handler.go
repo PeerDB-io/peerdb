@@ -692,10 +692,6 @@ func extractPendingActivities(desc *workflowservice.DescribeWorkflowExecutionRes
 
 	// Extract pending activities from the execution info
 	for i, task := range desc.PendingActivities {
-		if task.ActivityType == nil {
-			continue
-		}
-
 		activityDetail := &protos.MaintenanceActivityDetails{
 			ActivityName: task.ActivityType.Name,
 			ActivityId:   task.ActivityId,
@@ -708,10 +704,7 @@ func extractPendingActivities(desc *workflowservice.DescribeWorkflowExecutionRes
 			activityDetail.ActivityDuration = durationpb.New(duration)
 		}
 
-		// Set last heartbeat time if available
-		if task.LastHeartbeatTime != nil {
-			activityDetail.LastHeartbeat = task.LastHeartbeatTime
-		}
+		activityDetail.LastHeartbeat = task.LastHeartbeatTime
 
 		// Set all heartbeat payloads if available
 		if task.HeartbeatDetails != nil && len(task.HeartbeatDetails.Payloads) > 0 {
