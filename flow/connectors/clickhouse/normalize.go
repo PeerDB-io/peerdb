@@ -62,6 +62,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		config,
 		destinationTableIdentifier,
 		sourceTableSchema,
+		c.version,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
@@ -85,6 +86,7 @@ func generateCreateTableSQLForNormalizedTable(
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
+	chVersion string,
 ) (string, error) {
 	var tableMapping *protos.TableMapping
 	for _, tm := range config.TableMappings {
@@ -131,7 +133,7 @@ func generateCreateTableSQLForNormalizedTable(
 		if clickHouseType == "" {
 			var err error
 			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, config.Env, protos.DBType_CLICKHOUSE, column, tableSchema.NullableEnabled || columnNullableEnabled,
+				ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column, tableSchema.NullableEnabled || columnNullableEnabled,
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
@@ -406,7 +408,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				req.Env,
 				rawTbl,
 			)
-			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
+			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx, c.version)
 			if err != nil {
 				close(queries)
 				c.logger.Error("[clickhouse] error while building insert into select query",

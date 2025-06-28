@@ -263,7 +263,8 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 
 	selectedColumnNames := make([]string, 0, len(schema.Fields))
 	insertedColumnNames := make([]string, 0, len(schema.Fields))
-	for _, colName := range schema.GetColumnNames() {
+	for _, field := range schema.Fields {
+		colName := field.Name
 		for _, excludedColumn := range config.Exclude {
 			if colName == excludedColumn {
 				continue
@@ -276,7 +277,13 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 				slog.String("avroFieldName", avroColName))
 			return fmt.Errorf("destination column %s not found in avro schema", colName)
 		}
-		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteIdentifier(avroColName))
+
+		if field.Type == types.QValueKindJSON {
+			avroColName = fmt.Sprintf("JSONExtractString(%s)", peerdb_clickhouse.QuoteIdentifier(avroColName))
+		} else {
+			avroColName = peerdb_clickhouse.QuoteIdentifier(avroColName)
+		}
+		selectedColumnNames = append(selectedColumnNames, avroColName)
 		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(colName))
 	}
 	if sourceSchemaAsDestinationColumn {

@@ -56,7 +56,7 @@ func NewNormalizeQueryGenerator(
 	}
 }
 
-func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error) {
+func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context, chVersion string) (string, error) {
 	selectQuery := strings.Builder{}
 	selectQuery.WriteString("SELECT ")
 
@@ -110,7 +110,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		if clickHouseType == "" {
 			var err error
 			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, t.env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
+				ctx, colType, t.env, protos.DBType_CLICKHOUSE, chVersion, column, schema.NullableEnabled || columnNullableEnabled,
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
