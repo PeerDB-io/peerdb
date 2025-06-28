@@ -24,11 +24,11 @@ func Test(t *testing.T) {
 	ls := lua.NewState(lua.Options{})
 	RegisterTypes(ls)
 
-	row := model.NewRecordItems(1)
+	row := model.NewRecordItems(1, false)
 	row.AddColumn("a", types.QValueInt64{Val: 5040})
 	ls.Env.RawSetString("row", LuaRow.New(ls, row))
 
-	row_empty_array := model.NewRecordItems(1)
+	row_empty_array := model.NewRecordItems(1, false)
 	row_empty_array.AddColumn("a", types.QValueArrayInt32{Val: nil})
 	ls.Env.RawSetString("row_empty_array", LuaRow.New(ls, row_empty_array))
 
