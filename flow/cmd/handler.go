@@ -723,7 +723,10 @@ func extractPendingActivities(desc *workflowservice.DescribeWorkflowExecutionRes
 }
 
 // SkipSnapshotWaitFlows sends a signal to skip snapshot wait for the specified flows if StartMaintenanceWorkflow is running
-func (h *FlowRequestHandler) SkipSnapshotWaitFlows(ctx context.Context, in *protos.SkipSnapshotWaitFlowsRequest) (*protos.SkipSnapshotWaitFlowsResponse, error) {
+func (h *FlowRequestHandler) SkipSnapshotWaitFlows(
+	ctx context.Context,
+	in *protos.SkipSnapshotWaitFlowsRequest,
+) (*protos.SkipSnapshotWaitFlowsResponse, error) {
 	// Check if StartMaintenanceWorkflow is running
 	_, isRunning, err := h.isMaintenanceWorkflowRunning(ctx, startMaintenanceWorkflowType)
 	if err != nil {
