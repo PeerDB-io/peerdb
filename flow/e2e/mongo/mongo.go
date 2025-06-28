@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
@@ -17,6 +18,9 @@ import (
 type MongoSource struct {
 	conn   *connmongo.MongoConnector
 	config *protos.MongoConfig
+
+	// more privileged admin client for writing to mongo for tests
+	adminClient *mongo.Client
 }
 
 func (s *MongoSource) GeneratePeer(t *testing.T) *protos.Peer {
@@ -34,7 +38,7 @@ func (s *MongoSource) GeneratePeer(t *testing.T) *protos.Peer {
 
 func (s *MongoSource) Teardown(t *testing.T, ctx context.Context, suffix string) {
 	t.Helper()
-	db := s.conn.Client().Database(GetTestDatabase(suffix))
+	db := s.adminClient.Database(GetTestDatabase(suffix))
 	_ = db.Drop(t.Context())
 }
 
@@ -42,12 +46,16 @@ func (s *MongoSource) Connector() connectors.Connector {
 	return s.conn
 }
 
+func (s *MongoSource) AdminClient() *mongo.Client {
+	return s.adminClient
+}
+
 func (s *MongoSource) Exec(ctx context.Context, sql string) error {
 	return errors.ErrUnsupported
 }
 
 func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (*model.QRecordBatch, error) {
-	collection := s.conn.Client().Database(GetTestDatabase(suffix)).Collection(table)
+	collection := s.adminClient.Database(GetTestDatabase(suffix)).Collection(table)
 	cursor, err := collection.Find(ctx, bson.D{})
 	if err != nil {
 		return nil, err
