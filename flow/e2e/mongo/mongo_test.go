@@ -8,7 +8,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
@@ -40,8 +42,8 @@ func SetupMongoClickhouseSuite(t *testing.T) MongoClickhouseSuite {
 func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 	t.Helper()
 
-	mongoVersion := os.Getenv("CI_MONGO_VERSION")
-	require.NotEmpty(t, mongoVersion, "missing CI_MONGO_VERSION env var")
+	mongoAdminUri := os.Getenv("CI_MONGO_ADMIN_URI")
+	require.NotEmpty(t, mongoAdminUri, "missing CI_MONGO_ADMIN_URI env var")
 
 	mongoUri := os.Getenv("CI_MONGO_URI")
 	require.NotEmpty(t, mongoUri, "missing CI_MONGO_URI env var")
@@ -51,11 +53,18 @@ func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 	mongoConn, err := connmongo.NewMongoConnector(t.Context(), mongoConfig)
 	require.NoError(t, err, "failed to setup mongo connector")
 
+	adminClient, err := mongo.Connect(options.Client().
+		SetAppName("Mongo admin client").
+		SetCompressors([]string{"zstd", "snappy"}).
+		SetReadPreference(readpref.Primary()).
+		ApplyURI(mongoAdminUri))
+	require.NoError(t, err, "failed to setup mongo admin client")
+
 	testDb := GetTestDatabase(suffix)
-	db := mongoConn.Client().Database(testDb)
+	db := adminClient.Database(testDb)
 	_ = db.Drop(t.Context())
 
-	return &MongoSource{conn: mongoConn, config: mongoConfig}, err
+	return &MongoSource{conn: mongoConn, config: mongoConfig, adminClient: adminClient}, err
 }
 
 func (s MongoClickhouseSuite) Test_Simple_Flow() {
@@ -72,8 +81,8 @@ func (s MongoClickhouseSuite) Test_Simple_Flow() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	client := s.Source().Connector().(*connmongo.MongoConnector).Client()
-	collection := client.Database(srcDatabase).Collection(srcTable)
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 	// insert 10 rows into the source table for initial load
 	for i := range 10 {
 		testKey := fmt.Sprintf("init_key_%d", i)
@@ -118,8 +127,8 @@ func (s MongoClickhouseSuite) Test_Inconsistent_Schema() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	client := s.Source().Connector().(*connmongo.MongoConnector).Client()
-	collection := client.Database(srcDatabase).Collection(srcTable)
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
 	// adding/removing fields should work
 	docs := []bson.D{
@@ -170,8 +179,8 @@ func (s MongoClickhouseSuite) Test_Update_Replace_Delete_Events() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	client := s.Source().Connector().(*connmongo.MongoConnector).Client()
-	collection := client.Database(srcDatabase).Collection(srcTable)
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
 	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: 1}}, options.InsertOne())
 	require.NoError(t, err)

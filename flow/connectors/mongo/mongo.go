@@ -123,10 +123,6 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	return nil
 }
 
-func (c *MongoConnector) Client() *mongo.Client {
-	return c.client
-}
-
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
 	_ map[string]string,
