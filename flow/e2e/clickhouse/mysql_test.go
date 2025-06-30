@@ -578,7 +578,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	`, srcTableName)))
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
+			id SERIAL PRIMARY KEY
 		);
 	`, secondSrcTableName)))
 
