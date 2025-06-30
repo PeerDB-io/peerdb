@@ -242,8 +242,8 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	client := s.Source().Connector().(*connmongo.MongoConnector).Client()
-	collection := client.Database(srcDatabase).Collection("test_large_event")
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection("test_large_event")
 
 	// insert large doc for initial load
 	res, err := collection.InsertOne(t.Context(), largeDoc("X"), options.InsertOne())
