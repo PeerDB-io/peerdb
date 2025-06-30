@@ -209,7 +209,7 @@ func (pgProcessor) AddStringColumn(items model.PgItems, name string, value strin
 type qProcessor struct{}
 
 func (qProcessor) NewItems(size int) model.RecordItems {
-	return model.NewRecordItems(size, false)
+	return model.NewRecordItems(size)
 }
 
 func (qProcessor) Process(

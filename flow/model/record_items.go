@@ -25,14 +25,21 @@ func ItemsToJSON(items Items) (string, error) {
 
 // encoding/gob cannot encode unexported fields
 type RecordItems struct {
-	ColToVal   map[string]types.QValue
-	NoTruncate bool
+	ColToVal               map[string]types.QValue
+	TruncateThresholdBytes int
 }
 
-func NewRecordItems(capacity int, noTruncate bool) RecordItems {
+func NewRecordItems(capacity int) RecordItems {
 	return RecordItems{
-		ColToVal:   make(map[string]types.QValue, capacity),
-		NoTruncate: noTruncate,
+		ColToVal:               make(map[string]types.QValue, capacity),
+		TruncateThresholdBytes: 15 * 1024 * 1024,
+	}
+}
+
+func NewMongoRecordItems(capacity int) RecordItems {
+	return RecordItems{
+		ColToVal:               make(map[string]types.QValue, capacity),
+		TruncateThresholdBytes: 16 * 1024 * 1024,
 	}
 }
 
@@ -95,13 +102,13 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 			jsonStruct[col] = string(v.Val)
 		case types.QValueString:
 			strVal := v.Val
-			if len(strVal) > 15*1024*1024 && !r.NoTruncate {
+			if len(strVal) > r.TruncateThresholdBytes {
 				jsonStruct[col] = ""
 			} else {
 				jsonStruct[col] = strVal
 			}
 		case types.QValueJSON:
-			if len(v.Val) > 15*1024*1024 && !r.NoTruncate {
+			if len(v.Val) > r.TruncateThresholdBytes {
 				jsonStruct[col] = "{}"
 			} else if _, ok := opts.UnnestColumns[col]; ok {
 				var unnestStruct map[string]any
@@ -125,7 +132,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 				if err != nil {
 					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T: %w", col, v, err)
 				}
-				if len(jsonVal) > 15*1024*1024 && !r.NoTruncate {
+				if len(jsonVal) > r.TruncateThresholdBytes {
 					jsonStruct[col] = ""
 				} else {
 					jsonStruct[col] = jsonVal
