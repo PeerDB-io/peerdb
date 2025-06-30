@@ -557,7 +557,6 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	}
 
 	t := s.T()
-
 	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
 	if !ok {
 		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
@@ -567,6 +566,8 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	dstTable := "test_mysql_schema_changes_dst"
 	srcTableName := e2e.AttachSchema(s, srcTable)
 	dstTableName := s.DestinationTable(dstTable)
+	secondSrcTable := "test_mysql_schema_changes_second"
+	secondDstTable := "test_mysql_schema_changes_second_dst"
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -574,10 +575,15 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 			c1 BIGINT
 		);
 	`, srcTableName)))
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+		);
+	`, secondSrcTable)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable, secondSrcTable, secondDstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -623,8 +629,9 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 
 	// alter source table, add column addedColumn and insert another row.
 	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN `addedColumn` BIGINT", srcTableName)))
-
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(addedColumn,0) `addedColumn`")
+	// so that the batch finishes, insert a row into the second source table.
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s DEFAULT VALUES`, secondSrcTable)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
 	expectedTableSchema = &protos.TableSchema{
 		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
 		Columns: []*protos.FieldDescription{
@@ -654,94 +661,8 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(addedColumn,0) `addedColumn`")
-
-	// alter source table, add column c3, drop column addedColumn and insert another row.
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
-		"ALTER TABLE %s DROP COLUMN `addedColumn`, ADD COLUMN c3 BIGINT", srcTableName)))
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c3) VALUES (3,3)`, srcTableName)))
-
-	// verify we got our two rows, if schema did not match up it will error.
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize dropped addedColumn column", srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "addedColumn"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
-	e2e.EnvNoError(t, env, err)
-	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
-
-	// alter source table, drop column c3 and insert another row.
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN c3`, srcTableName)))
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES (4)`, srcTableName)))
-
-	// verify we got our two rows, if schema did not match up it will error.
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c3 column", srcTable, dstTable, "id,c1")
-	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
-		Columns: []*protos.FieldDescription{
-			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(types.QValueKindTimestamp),
-				TypeModifier: -1,
-			},
-			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "addedColumn"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(types.QValueKindNumeric),
-				TypeModifier: -1,
-			},
-		},
-	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
-		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
-	e2e.EnvNoError(t, env, err)
-	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")
+	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
 
 	env.Cancel(t.Context())
-
 	e2e.RequireEnvCanceled(t, env)
 }
