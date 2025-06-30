@@ -631,7 +631,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	// alter source table, add column addedColumn and insert another row.
 	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN `addedColumn` BIGINT", srcTableName)))
 	// so that the batch finishes, insert a row into the second source table.
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s DEFAULT VALUES`, secondSrcTable)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s DEFAULT VALUES`, secondSrcTableName)))
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
 	expectedTableSchema = &protos.TableSchema{
 		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
