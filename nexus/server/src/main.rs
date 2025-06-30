@@ -241,16 +241,6 @@ impl NexusBackend {
                             )
                         })?;
 
-                    let res = self.catalog.delete_flow_job_entry(flow_job_name).await;
-                    if let Err(err) = res {
-                        if *if_exists {
-                            let no_mirror_success = "NO SUCH MIRROR";
-                            return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
-                        }
-                        return Err(PgWireError::ApiError(
-                            format!("unable to delete job metadata: {:?}", err).into(),
-                        ));
-                    }
                     let drop_mirror_success = format!("DROP MIRROR {}", flow_job_name);
                     Ok(vec![Response::Execution(Tag::new(&drop_mirror_success))])
                 }
