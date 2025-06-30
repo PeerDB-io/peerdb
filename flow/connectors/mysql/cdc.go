@@ -698,8 +698,10 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 					typmod = datatypes.MakeNumericTypmod(int32(precision), int32(scale))
 				}
 
+				slog.Info("[processAlterTableQuery] adding column",
+					slog.String("columnName", col.Name.String()))
 				fd := &protos.FieldDescription{
-					Name:         col.Name.String(),
+					Name:         col.Name.OrigColName(),
 					Type:         string(qkind),
 					TypeModifier: typmod,
 					Nullable:     nullable,
