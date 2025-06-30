@@ -38,8 +38,9 @@ func NewRecordItems(capacity int) RecordItems {
 
 func NewMongoRecordItems(capacity int) RecordItems {
 	return RecordItems{
-		ColToVal:               make(map[string]types.QValue, capacity),
-		TruncateThresholdBytes: 16 * 1024 * 1024,
+		ColToVal: make(map[string]types.QValue, capacity),
+		// https://github.com/catfi/supercell/blob/fbea41792b1b6018886771289f1f1534376303ec/dep/linux/mongodb/mongo/bson/util/builder.h#L44
+		TruncateThresholdBytes: 16*1024*1024 + 16*1024,
 	}
 }
 
