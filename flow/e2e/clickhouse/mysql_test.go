@@ -7,8 +7,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -546,4 +549,198 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	// Clean up
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
+	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+		s.t.Skip("only applies to mysql")
+	}
+
+	t := s.T()
+
+	destinationSchemaConnector, ok := s.DestinationConnector().(connectors.GetTableSchemaConnector)
+	if !ok {
+		t.Skip("skipping test because destination connector does not implement GetTableSchemaConnector")
+	}
+
+	srcTable := "test_mysql_schema_changes"
+	dstTable := "test_mysql_schema_changes_dst"
+	srcTableName := e2e.AttachSchema(s, srcTable)
+	dstTableName := s.DestinationTable(dstTable)
+
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			c1 BIGINT
+		);
+	`, srcTableName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+
+	// wait for PeerFlowStatusQuery to finish setup
+	// and then insert and mutate schema repeatedly.
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(1)`, srcTableName)))
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", srcTable, dstTable, "id,c1")
+
+	expectedTableSchema := &protos.TableSchema{
+		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_IS_DELETED",
+				Type:         string(types.QValueKindBoolean),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_SYNCED_AT",
+				Type:         string(types.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+		},
+	}
+	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+	e2e.EnvNoError(t, env, err)
+	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+
+	// alter source table, add column addedColumn and insert another row.
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN `addedColumn` BIGINT", srcTableName)))
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(addedColumn,0) `addedColumn`")
+	expectedTableSchema = &protos.TableSchema{
+		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_SYNCED_AT",
+				Type:         string(types.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "addedColumn"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+		},
+	}
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+	e2e.EnvNoError(t, env, err)
+	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(addedColumn,0) `addedColumn`")
+
+	// alter source table, add column c3, drop column addedColumn and insert another row.
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s DROP COLUMN `addedColumn`, ADD COLUMN c3 BIGINT", srcTableName)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c3) VALUES (3,3)`, srcTableName)))
+
+	// verify we got our two rows, if schema did not match up it will error.
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize dropped addedColumn column", srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
+	expectedTableSchema = &protos.TableSchema{
+		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_SYNCED_AT",
+				Type:         string(types.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "addedColumn"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "c3"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+		},
+	}
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+	e2e.EnvNoError(t, env, err)
+	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(c3,0) c3")
+
+	// alter source table, drop column c3 and insert another row.
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s DROP COLUMN c3`, srcTableName)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES (4)`, srcTableName)))
+
+	// verify we got our two rows, if schema did not match up it will error.
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize dropped c3 column", srcTable, dstTable, "id,c1")
+	expectedTableSchema = &protos.TableSchema{
+		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
+		Columns: []*protos.FieldDescription{
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         "_PEERDB_SYNCED_AT",
+				Type:         string(types.QValueKindTimestamp),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "addedColumn"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+			{
+				Name:         e2e.ExpectedDestinationIdentifier(s, "c3"),
+				Type:         string(types.QValueKindNumeric),
+				TypeModifier: -1,
+			},
+		},
+	}
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
+	e2e.EnvNoError(t, env, err)
+	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1")
+
+	env.Cancel(t.Context())
+
+	e2e.RequireEnvCanceled(t, env)
 }
