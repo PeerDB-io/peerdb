@@ -657,7 +657,8 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(addedColumn,0) `addedColumn`")
 
 	// alter source table, add column c3, drop column addedColumn and insert another row.
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s DROP COLUMN `addedColumn`, ADD COLUMN c3 BIGINT", srcTableName)))
+	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(
+		"ALTER TABLE %s DROP COLUMN `addedColumn`, ADD COLUMN c3 BIGINT", srcTableName)))
 	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,c3) VALUES (3,3)`, srcTableName)))
 
 	// verify we got our two rows, if schema did not match up it will error.
