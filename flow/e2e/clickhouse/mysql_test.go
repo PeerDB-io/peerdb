@@ -568,6 +568,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	dstTableName := s.DestinationTable(dstTable)
 	secondSrcTable := "test_mysql_schema_changes_second"
 	secondDstTable := "test_mysql_schema_changes_second_dst"
+	secondSrcTableName := e2e.AttachSchema(s, secondSrcTable)
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -579,7 +580,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 		);
-	`, secondSrcTable)))
+	`, secondSrcTableName)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:   e2e.AddSuffix(s, srcTable),
