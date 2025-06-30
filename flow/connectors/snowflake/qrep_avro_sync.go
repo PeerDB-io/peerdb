@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -199,7 +200,12 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile 
 		return nil
 	}
 
-	putCmd := fmt.Sprintf("PUT file://%s @%s", avroFile.FilePath, stage)
+	autoCompressionStr := ""
+	if autoCompression := internal.GetEnvString("PEERDB_SNOWFLAKE_AUTO_COMPRESSION", ""); autoCompression != "" {
+		autoCompressionStr = "AUTO_COMPRESS=" + autoCompression
+	}
+
+	putCmd := fmt.Sprintf("PUT file://%s @%s %s", avroFile.FilePath, stage, autoCompressionStr)
 
 	if _, err := s.ExecContext(ctx, putCmd); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
