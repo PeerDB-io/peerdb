@@ -88,10 +88,19 @@ func CheckQRecordEquality(t *testing.T, q []types.QValue, other []types.QValue) 
 		return false
 	}
 
+	maybeTruncate := func(v types.QValue) string {
+		s := fmt.Sprintf("%+v", v)
+		// truncate log for extremely large documents
+		if len(s) > 1_000_000 {
+			return s[:100] + "...[truncated]"
+		}
+		return s
+	}
+
 	for i, entry := range q {
 		otherEntry := other[i]
 		if !qvalue.Equals(entry, otherEntry) {
-			t.Logf("entry %d: %T %+v != %T %+v", i, entry, entry, otherEntry, otherEntry)
+			t.Logf("entry %d: %T %+v != %T %+v", i, entry, maybeTruncate(entry), otherEntry, maybeTruncate(otherEntry))
 			return false
 		}
 	}
