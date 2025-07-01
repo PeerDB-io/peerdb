@@ -406,7 +406,7 @@ var (
 func bigIntTo32Bytes(n *big.Int) [32]uint8 {
 	var out [32]uint8
 	b := n.Bytes()
-	for i := 0; i < len(b); i++ {
+	for i := range b {
 		out[i] = b[len(b)-1-i]
 	}
 	return out
