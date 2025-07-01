@@ -144,6 +144,22 @@ func (v QValueInt64) LValue(ls *lua.LState) lua.LValue {
 	return glua64.I64.New(ls, v.Val)
 }
 
+type QValueInt256 struct {
+	Val decimal.Decimal
+}
+
+func (QValueInt256) Kind() QValueKind {
+	return QValueKindInt256
+}
+
+func (v QValueInt256) Value() any {
+	return v.Val
+}
+
+func (v QValueInt256) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaDecimal.New(ls, v.Val)
+}
+
 type QValueUInt8 struct {
 	Val uint8
 }
@@ -206,6 +222,22 @@ func (v QValueUInt64) Value() any {
 
 func (v QValueUInt64) LValue(ls *lua.LState) lua.LValue {
 	return glua64.U64.New(ls, v.Val)
+}
+
+type QValueUInt256 struct {
+	Val decimal.Decimal
+}
+
+func (QValueUInt256) Kind() QValueKind {
+	return QValueKindUInt256
+}
+
+func (v QValueUInt256) Value() any {
+	return v.Val
+}
+
+func (v QValueUInt256) LValue(ls *lua.LState) lua.LValue {
+	return shared.LuaDecimal.New(ls, v.Val)
 }
 
 type QValueBoolean struct {
