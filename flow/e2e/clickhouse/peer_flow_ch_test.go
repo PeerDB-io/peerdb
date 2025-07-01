@@ -610,12 +610,13 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	CREATE TABLE IF NOT EXISTS %[1]s(
 		id SERIAL PRIMARY KEY,
 		c1 NUMERIC NOT NULL,
-		c2 NUMERIC
+		c2 NUMERIC,
+		c3 NUMERIC
 	);`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s(c1, c2) VALUES($1, $2)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(c1,c2,c3) VALUES($1,$2,9)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
 	require.NoError(s.t, err)
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES($1)`, srcFullName), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
@@ -631,10 +632,17 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 		{
 			SourceName:      "c1",
 			DestinationType: "String",
+			NullableEnabled: true,
 		},
 		{
 			SourceName:      "c2",
 			DestinationType: "String",
+			NullableEnabled: true,
+		},
+		{
+			SourceName:      "c3",
+			DestinationType: "String",
+			NullableEnabled: false,
 		},
 	}
 
@@ -642,28 +650,34 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "c1,c2", 2)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2,c3", 2)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s(c1, c2) VALUES($1, $2)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s(c1,c2,c3) VALUES($1,$2,9)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
 	require.NoError(s.t, err)
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES($1)`, srcFullName), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "c1,c2", 4)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2", 4)
 
-	rows, err := s.GetRows(dstTableName, "c1,c2")
+	rows, err := s.GetRows(dstTableName, "id,c1,c2,c3")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 4, "expected 4 rows")
+	require.False(s.t, rows.Schema.Fields[1].Nullable)
+	require.True(s.t, rows.Schema.Fields[2].Nullable)
+	require.False(s.t, rows.Schema.Fields[3].Nullable)
 	for i, row := range rows.Records {
-		require.Len(s.t, row, 2, "expected 2 columns")
-		require.Equal(s.t, types.QValueKindString, row[0].Kind(), "c1 type mismatch")
-		require.Equal(s.t, types.QValueKindString, row[1].Kind(), "c2 type mismatch")
-		require.Equal(s.t, strings.Repeat("9", 77), row[0].Value(), "c1 value mismatch")
+		require.Len(s.t, row, 4, "expected 4 columns")
+		require.Equal(s.t, types.QValueKindString, row[1].Kind(), "c1 type mismatch")
+		require.Equal(s.t, types.QValueKindString, row[2].Kind(), "c2 type mismatch")
+		require.Equal(s.t, types.QValueKindString, row[3].Kind(), "c3 type mismatch")
+		require.Equal(s.t, strings.Repeat("9", 77), row[1].Value(), "c1 value mismatch")
 		if i%2 == 0 {
-			require.Equal(s.t, strings.Repeat("9", 78), row[1].Value(), "c2 value mismatch")
+			require.Equal(s.t, strings.Repeat("9", 78), row[2].Value(), "c2 value mismatch")
+			require.Equal(s.t, "9", row[3].Value(), "c3 value mismatch")
 		} else {
-			require.Empty(s.t, row[1].Value(), "c2 value mismatch")
+			require.Empty(s.t, row[2].Value(), "c2 value mismatch")
+			require.Empty(s.t, row[3].Value(), "c3 value mismatch")
 		}
 	}
 

@@ -136,6 +136,8 @@ func generateCreateTableSQLForNormalizedTable(
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
 			}
+		} else if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
+			clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 		}
 
 		fmt.Fprintf(&stmtBuilder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
