@@ -122,7 +122,11 @@ func generateCreateTableSQLForNormalizedTable(
 					if col.DestinationType != "" {
 						clickHouseType = col.DestinationType
 					}
+					if col.AutoDetectNullable {
+						columnNullableEnabled = tableSchema.NullableEnabled && column.Nullable
+					} else {
 					columnNullableEnabled = col.NullableEnabled
+					}
 					break
 				}
 			}
@@ -135,6 +139,10 @@ func generateCreateTableSQLForNormalizedTable(
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
+			}
+		} else {
+			if columnNullableEnabled {
+				clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
 			}
 		}
 

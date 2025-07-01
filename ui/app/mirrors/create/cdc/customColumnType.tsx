@@ -159,6 +159,7 @@ export default function CustomColumnType({
                     destinationType: value,
                     ordering: 0,
                     nullableEnabled: false,
+                    autoDetectNullable: true,
                   },
                 ],
               };

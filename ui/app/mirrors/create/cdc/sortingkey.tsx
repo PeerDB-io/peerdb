@@ -75,6 +75,7 @@ export default function SelectSortingKeys({
               destinationType: '',
               ordering: orderingIndex + 1,
               nullableEnabled: false,
+              autoDetectNullable: true,
             });
           }
         });
