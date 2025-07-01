@@ -58,7 +58,7 @@ func NumericToInt256ValueConversion(val QValueNumeric) QValueInt256 {
 }
 
 func NumericToUInt256SchemaConversion(val QField) QField {
-	val.Type = QValueKindInt256
+	val.Type = QValueKindUInt256
 	return val
 }
 
