@@ -14,10 +14,12 @@ const (
 	QValueKindInt16       QValueKind = "int16"
 	QValueKindInt32       QValueKind = "int32"
 	QValueKindInt64       QValueKind = "int64"
+	QValueKindInt256      QValueKind = "int256"
 	QValueKindUInt8       QValueKind = "uint8"
 	QValueKindUInt16      QValueKind = "uint16"
 	QValueKindUInt32      QValueKind = "uint32"
 	QValueKindUInt64      QValueKind = "uint64"
+	QValueKindUInt256     QValueKind = "uint256"
 	QValueKindBoolean     QValueKind = "bool"
 	QValueKindQChar       QValueKind = "qchar"
 	QValueKindString      QValueKind = "string"
@@ -122,10 +124,12 @@ var QValueKindToClickHouseTypeMap = map[QValueKind]string{
 	QValueKindInt16:       "Int16",
 	QValueKindInt32:       "Int32",
 	QValueKindInt64:       "Int64",
+	QValueKindInt256:      "Int256",
 	QValueKindUInt8:       "UInt8",
 	QValueKindUInt16:      "UInt16",
 	QValueKindUInt32:      "UInt32",
 	QValueKindUInt64:      "UInt64",
+	QValueKindUInt256:     "UInt256",
 	QValueKindFloat32:     "Float32",
 	QValueKindFloat64:     "Float64",
 	QValueKindQChar:       "FixedString(1)",
