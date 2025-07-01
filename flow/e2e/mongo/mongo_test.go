@@ -1,6 +1,7 @@
 package e2e_mongo
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -281,6 +282,75 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleteRes.DeletedCount)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete events to match", srcTable, dstTable, "_id,_full_document")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
+	t := s.T()
+
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable1 := "test_transaction_t1"
+	dstTable1 := "test_transaction_t1_dst"
+	srcTable2 := "test_transaction_t2"
+	dstTable2 := "test_transaction_t2_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, "test_transaction"),
+		TableMappings: e2e.TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	session, err := adminClient.StartSession()
+	require.NoError(t, err)
+	defer session.EndSession(t.Context())
+
+	coll1 := adminClient.Database(srcDatabase).Collection(srcTable1)
+	coll2 := adminClient.Database(srcDatabase).Collection(srcTable2)
+	res, err := session.WithTransaction(t.Context(), func(ctx context.Context) (interface{}, error) {
+		res1, err1 := coll1.InsertOne(t.Context(), bson.D{bson.E{Key: "foo", Value: 1}}, options.InsertOne())
+		res2, err2 := coll2.InsertOne(t.Context(), bson.D{bson.E{Key: "bar", Value: 2}}, options.InsertOne())
+		err := err1
+		if err2 != nil {
+			err = err2
+		}
+		return []*mongo.InsertOneResult{res1, res2}, err
+	}, options.Transaction())
+	require.NoError(t, err)
+	require.True(t, res.([]*mongo.InsertOneResult)[0].Acknowledged)
+	require.True(t, res.([]*mongo.InsertOneResult)[1].Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable1, dstTable1, "_id,_full_document")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable2, dstTable2, "_id,_full_document")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	res, err = session.WithTransaction(t.Context(), func(ctx context.Context) (interface{}, error) {
+		res1, err1 := coll1.UpdateOne(t.Context(),
+			bson.D{bson.E{Key: "foo", Value: 1}},
+			bson.D{bson.E{Key: "$set", Value: bson.D{bson.E{Key: "foo", Value: 11}}}},
+			options.UpdateOne())
+		res2, err2 := coll2.UpdateOne(t.Context(),
+			bson.D{bson.E{Key: "bar", Value: 2}},
+			bson.D{bson.E{Key: "$set", Value: bson.D{bson.E{Key: "bar", Value: 22}}}},
+			options.UpdateOne())
+		err := err1
+		if err2 != nil {
+			err = err2
+		}
+		return []*mongo.UpdateResult{res1, res2}, err
+	}, options.Transaction())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), res.([]*mongo.UpdateResult)[0].ModifiedCount)
+	require.Equal(t, int64(1), res.([]*mongo.UpdateResult)[1].ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "t1 to match", srcTable1, dstTable1, "_id,_full_document")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "t2 to match", srcTable2, dstTable2, "_id,_full_document")
 
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
