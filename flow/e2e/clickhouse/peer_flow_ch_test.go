@@ -682,6 +682,7 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	big977, ok := new(big.Int).SetString(strings.Repeat("9", 77), 10)
 	require.True(s.t, ok)
 	for i, row := range rows.Records {
+		s.t.Log("QQQ", fmt.Sprintf("%s, %s", row[4].Value(), row[5].Value()))
 		require.Len(s.t, row, 6, "expected 4 columns")
 		require.Equal(s.t, types.QValueKindString, row[1].Kind(), "c1 type mismatch")
 		require.Equal(s.t, types.QValueKindString, row[2].Kind(), "c2 type mismatch")
