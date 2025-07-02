@@ -395,10 +395,8 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 var (
 	//  2^256
 	twoPow256 = new(big.Int).Lsh(big.NewInt(1), 256)
-
 	//  maxInt256 =  2^255 − 1
 	maxInt256 = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 255), big.NewInt(1))
-
 	//  minInt256 = −2^255
 	minInt256 = new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), 255))
 )
@@ -421,7 +419,7 @@ func (c *QValueAvroConverter) processInt256(num decimal.Decimal) any {
 		return bigIntTo32Bytes(big.NewInt(0))
 	}
 
-	n := new(big.Int).Set(num.BigInt())
+	n := num.BigInt()
 	if n.Cmp(minInt256) < 0 || n.Cmp(maxInt256) > 0 {
 		c.Stat.BigInt256ClearedCount++
 		if c.Nullable {
@@ -450,17 +448,13 @@ func (c *QValueAvroConverter) processUInt256(num decimal.Decimal) any {
 		return bigIntTo32Bytes(big.NewInt(0))
 	}
 
-	n := new(big.Int).Set(num.BigInt())
+	n := num.BigInt()
 	if n.Cmp(twoPow256) >= 0 {
 		c.Stat.BigInt256ClearedCount++
 		if c.Nullable {
 			return nil
 		}
 		return bigIntTo32Bytes(big.NewInt(0))
-	}
-
-	if n.Sign() < 0 {
-		n = new(big.Int).Add(n, new(big.Int).Lsh(big.NewInt(1), 256))
 	}
 
 	res := bigIntTo32Bytes(n)
