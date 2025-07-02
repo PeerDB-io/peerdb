@@ -19,7 +19,6 @@ import (
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -303,28 +302,6 @@ func (c *MySqlConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffs
 }
 
 func (c *MySqlConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
-	return nil
-}
-
-func (c *MySqlConnector) HandleSlotInfo(
-	ctx context.Context,
-	alerter *alerting.Alerter,
-	catalogPool shared.CatalogPool,
-	alertKeys *alerting.AlertKeys,
-	slotMetricGauges otel_metrics.SlotMetricGauges,
-) error {
-	return nil
-}
-
-func (c *MySqlConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	return nil, nil
-}
-
-func (c *MySqlConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
-	return nil
-}
-
-func (c *MySqlConnector) RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error {
 	return nil
 }
 
