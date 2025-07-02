@@ -165,7 +165,7 @@ func truncateNumerics(
 	}
 	hasNumerics := false
 	for col, val := range recordItems.ColToVal {
-		if !numericTruncator.Get(col).Skip {
+		if numericTruncator.Get(col).Stat != nil {
 			if val.Kind() == types.QValueKindNumeric || val.Kind() == types.QValueKindArrayNumeric {
 				hasNumerics = true
 				break
@@ -181,7 +181,7 @@ func truncateNumerics(
 		newVal := val
 
 		columnTruncator := numericTruncator.Get(col)
-		if !columnTruncator.Skip {
+		if columnTruncator.Stat != nil {
 			switch numeric := val.(type) {
 			case types.QValueNumeric:
 				destType := qvalue.GetNumericDestinationType(

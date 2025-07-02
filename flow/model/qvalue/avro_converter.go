@@ -660,8 +660,8 @@ type NumericStat struct {
 	BigInt256ClearedCount    uint64
 }
 
-func NewNumericStat(destinationTable, destinationColumn string) *NumericStat {
-	return &NumericStat{
+func NewNumericStat(destinationTable, destinationColumn string) NumericStat {
+	return NumericStat{
 		DestinationTable:  destinationTable,
 		DestinationColumn: destinationColumn,
 	}
