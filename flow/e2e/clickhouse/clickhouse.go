@@ -3,6 +3,7 @@ package e2e_clickhouse
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"reflect"
 	"strings"
 	"testing"
@@ -166,7 +167,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 			return nil, err
 		}
 		qrow := make([]types.QValue, 0, len(row))
-		for _, val := range row {
+		for idx, val := range row {
 			switch v := val.(type) {
 			case **string:
 				if *v == nil {
@@ -250,6 +251,12 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				}
 			case *uint64:
 				qrow = append(qrow, types.QValueUInt64{Val: *v})
+			case **big.Int:
+				if batch.Schema.Fields[idx].Type == types.QValueKindInt256 {
+					qrow = append(qrow, types.QValueInt256{Val: decimal.NewFromBigInt(*v, 0)})
+				} else {
+					qrow = append(qrow, types.QValueUInt256{Val: decimal.NewFromBigInt(*v, 0)})
+				}
 			case *time.Time:
 				qrow = append(qrow, types.QValueTimestamp{Val: *v})
 			case *[]time.Time:
