@@ -1,6 +1,7 @@
 package types
 
 import (
+	"math/big"
 	"time"
 
 	"github.com/google/uuid"
@@ -145,7 +146,7 @@ func (v QValueInt64) LValue(ls *lua.LState) lua.LValue {
 }
 
 type QValueInt256 struct {
-	Val decimal.Decimal
+	Val *big.Int
 }
 
 func (QValueInt256) Kind() QValueKind {
@@ -157,7 +158,7 @@ func (v QValueInt256) Value() any {
 }
 
 func (v QValueInt256) LValue(ls *lua.LState) lua.LValue {
-	return shared.LuaDecimal.New(ls, v.Val)
+	return shared.LuaBigInt.New(ls, v.Val)
 }
 
 type QValueUInt8 struct {
@@ -225,7 +226,7 @@ func (v QValueUInt64) LValue(ls *lua.LState) lua.LValue {
 }
 
 type QValueUInt256 struct {
-	Val decimal.Decimal
+	Val *big.Int
 }
 
 func (QValueUInt256) Kind() QValueKind {
@@ -237,7 +238,7 @@ func (v QValueUInt256) Value() any {
 }
 
 func (v QValueUInt256) LValue(ls *lua.LState) lua.LValue {
-	return shared.LuaDecimal.New(ls, v.Val)
+	return shared.LuaBigInt.New(ls, v.Val)
 }
 
 type QValueBoolean struct {

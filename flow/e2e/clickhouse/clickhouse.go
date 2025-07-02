@@ -253,9 +253,9 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				qrow = append(qrow, types.QValueUInt64{Val: *v})
 			case **big.Int:
 				if batch.Schema.Fields[idx].Type == types.QValueKindInt256 {
-					qrow = append(qrow, types.QValueInt256{Val: decimal.NewFromBigInt(*v, 0)})
+					qrow = append(qrow, types.QValueInt256{Val: *v})
 				} else {
-					qrow = append(qrow, types.QValueUInt256{Val: decimal.NewFromBigInt(*v, 0)})
+					qrow = append(qrow, types.QValueUInt256{Val: *v})
 				}
 			case *time.Time:
 				qrow = append(qrow, types.QValueTimestamp{Val: *v})

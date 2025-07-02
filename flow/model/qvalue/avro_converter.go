@@ -410,8 +410,8 @@ func bigIntTo32Bytes(n *big.Int) [32]uint8 {
 	return out
 }
 
-func (c *QValueAvroConverter) processInt256(num decimal.Decimal) any {
-	if !num.IsInteger() {
+func (c *QValueAvroConverter) processInt256(num *big.Int) any {
+	if num.Cmp(minInt256) < 0 || num.Cmp(maxInt256) > 0 {
 		c.Stat.BigInt256ClearedCount++
 		if c.Nullable {
 			return nil
@@ -419,28 +419,19 @@ func (c *QValueAvroConverter) processInt256(num decimal.Decimal) any {
 		return bigIntTo32Bytes(big.NewInt(0))
 	}
 
-	n := num.BigInt()
-	if n.Cmp(minInt256) < 0 || n.Cmp(maxInt256) > 0 {
-		c.Stat.BigInt256ClearedCount++
-		if c.Nullable {
-			return nil
-		}
-		return bigIntTo32Bytes(big.NewInt(0))
+	if num.Sign() < 0 {
+		num = new(big.Int).Add(num, twoPow256)
 	}
 
-	if n.Sign() < 0 {
-		n.Add(n, twoPow256)
-	}
-
-	res := bigIntTo32Bytes(n)
+	res := bigIntTo32Bytes(num)
 	if c.Nullable {
 		return &res
 	}
 	return res
 }
 
-func (c *QValueAvroConverter) processUInt256(num decimal.Decimal) any {
-	if !num.IsInteger() || num.Sign() < 0 {
+func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
+	if num.Sign() < 0 || num.Cmp(twoPow256) >= 0 {
 		c.Stat.BigInt256ClearedCount++
 		if c.Nullable {
 			return nil
@@ -448,16 +439,7 @@ func (c *QValueAvroConverter) processUInt256(num decimal.Decimal) any {
 		return bigIntTo32Bytes(big.NewInt(0))
 	}
 
-	n := num.BigInt()
-	if n.Cmp(twoPow256) >= 0 {
-		c.Stat.BigInt256ClearedCount++
-		if c.Nullable {
-			return nil
-		}
-		return bigIntTo32Bytes(big.NewInt(0))
-	}
-
-	res := bigIntTo32Bytes(n)
+	res := bigIntTo32Bytes(num)
 	if c.Nullable {
 		return &res
 	}

@@ -54,7 +54,7 @@ func NumericToInt256SchemaConversion(val QField) QField {
 }
 
 func NumericToInt256ValueConversion(val QValueNumeric) QValueInt256 {
-	return QValueInt256{Val: val.Val}
+	return QValueInt256{Val: val.Val.BigInt()}
 }
 
 func NumericToUInt256SchemaConversion(val QField) QField {
@@ -63,5 +63,5 @@ func NumericToUInt256SchemaConversion(val QField) QField {
 }
 
 func NumericToUInt256ValueConversion(val QValueNumeric) QValueUInt256 {
-	return QValueUInt256{Val: val.Val}
+	return QValueUInt256{Val: val.Val.BigInt()}
 }

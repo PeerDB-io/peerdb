@@ -619,7 +619,7 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	require.NoError(s.t, err)
 
 	_, err = s.Conn().Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,$1,$1)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,9,$1)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
 	require.NoError(s.t, err)
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES($1)`, srcFullName), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
@@ -666,7 +666,7 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2,c3,s256,u256", 2)
 
 	_, err = s.Conn().Exec(s.t.Context(),
-		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,$1,$1)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,9,$1)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
 	require.NoError(s.t, err)
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES($1)`, srcFullName), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
@@ -693,13 +693,13 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 		if i%2 == 0 {
 			require.Equal(s.t, strings.Repeat("9", 78), row[2].Value(), "c2 value mismatch")
 			require.Equal(s.t, "9", row[3].Value(), "c3 value mismatch")
-			require.Zero(s.t, big977.Cmp(row[4].Value().(decimal.Decimal).BigInt()), "s256 value mismatch")
-			require.Zero(s.t, big977.Cmp(row[5].Value().(decimal.Decimal).BigInt()), "u256 value mismatch")
+			require.Zero(s.t, big.NewInt(9).Cmp(row[4].Value().(*big.Int)), "s256 value mismatch")
+			require.Zero(s.t, big977.Cmp(row[5].Value().(*big.Int)), "u256 value mismatch")
 		} else {
 			require.Empty(s.t, row[2].Value(), "c2 value mismatch")
 			require.Empty(s.t, row[3].Value(), "c3 value mismatch")
-			require.Zero(s.t, new(big.Int).Cmp(row[4].Value().(decimal.Decimal).BigInt()), "s256 value mismatch")
-			require.Zero(s.t, new(big.Int).Cmp(row[5].Value().(decimal.Decimal).BigInt()), "u256 value mismatch")
+			require.Zero(s.t, new(big.Int).Cmp(row[4].Value().(*big.Int)), "s256 value mismatch")
+			require.Zero(s.t, new(big.Int).Cmp(row[5].Value().(*big.Int)), "u256 value mismatch")
 		}
 	}
 
