@@ -34,8 +34,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name: "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
-		Description: "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalizing, " +
-			"use with PEERDB_PARALLEL_SYNC_NORMALIZE",
+		Description: "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalization, " +
+			"use with PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE",
 		DefaultValue:     "128",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
@@ -121,20 +121,28 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
-		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
-		DefaultValue:     "raw",
-		ValueType:        protos.DynconfValueType_STRING,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
-		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
-	},
-	{
 		Name:             "PEERDB_SNOWFLAKE_MERGE_PARALLELISM",
 		Description:      "Parallel MERGE statements to run for CDC mirrors with Snowflake targets. -1 for no limit",
 		DefaultValue:     "8",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
+	},
+	{
+		Name:             "PEERDB_SNOWFLAKE_AUTO_COMPRESS",
+		Description:      "AUTO_COMPRESS option when uploading to Snowflake",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
+		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
+		DefaultValue:     "raw",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME",
@@ -552,6 +560,10 @@ func PeerDBEnableClickHouseNumericAsString(ctx context.Context, env map[string]s
 
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
+}
+
+func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_AUTO_COMPRESS")
 }
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {

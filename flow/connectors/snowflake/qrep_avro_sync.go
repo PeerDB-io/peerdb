@@ -201,15 +201,17 @@ func (s *SnowflakeAvroSyncHandler) putFileToStage(ctx context.Context, avroFile 
 	}
 
 	autoCompressionStr := ""
-	if autoCompression := internal.GetEnvString("PEERDB_SNOWFLAKE_AUTO_COMPRESSION", ""); autoCompression != "" {
-		autoCompressionStr = " AUTO_COMPRESS=" + autoCompression
+	autoCompression, err := internal.PeerDBSnowflakeAutoCompress(ctx, s.config.Env)
+	if err != nil {
+		s.logger.Warn("Failed to load PEERDB_SNOWFLAKE_AUTO_COMPRESS, proceeding without", slog.Any("error", err))
+	} else if !autoCompression {
+		autoCompressionStr = " AUTO_COMPRESS=FALSE"
 	}
-	putCmd := fmt.Sprintf("PUT file://%s @%s%s", avroFile.FilePath, stage, autoCompressionStr)
 
-	if _, err := s.ExecContext(ctx, putCmd); err != nil {
+	if _, err := s.ExecContext(ctx, fmt.Sprintf("PUT file://%s @%s%s", avroFile.FilePath, stage, autoCompressionStr)); err != nil {
 		return fmt.Errorf("failed to put file to stage: %w", err)
 	}
 
-	s.logger.Info(fmt.Sprintf("put file %s to stage %s", avroFile.FilePath, stage))
+	s.logger.Info("put file to stage", slog.String("file", avroFile.FilePath), slog.String("stage", stage))
 	return nil
 }
