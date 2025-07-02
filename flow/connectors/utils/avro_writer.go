@@ -73,7 +73,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	env map[string]string,
 	w io.Writer,
 	typeConversions map[string]types.TypeConversion,
-	numericTruncator *model.SnapshotTableNumericTruncator,
+	numericTruncator model.SnapshotTableNumericTruncator,
 ) (int64, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
@@ -96,7 +96,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	s3Creds AWSCredentialsProvider,
 	avroSize *atomic.Int64,
 	typeConversions map[string]types.TypeConversion,
-	numericTruncator *model.SnapshotTableNumericTruncator,
+	numericTruncator model.SnapshotTableNumericTruncator,
 ) (AvroFile, error) {
 	logger := internal.LoggerFromCtx(ctx)
 	s3svc, err := CreateS3Client(ctx, s3Creds)
@@ -222,7 +222,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	env map[string]string,
 	ocfWriter *ocf.Encoder,
 	typeConversions map[string]types.TypeConversion,
-	numericTruncator *model.SnapshotTableNumericTruncator,
+	numericTruncator model.SnapshotTableNumericTruncator,
 ) (int64, error) {
 	logger := internal.LoggerFromCtx(ctx)
 

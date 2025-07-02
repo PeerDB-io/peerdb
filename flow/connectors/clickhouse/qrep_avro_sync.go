@@ -175,7 +175,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 	destTypeConversions map[string]types.TypeConversion,
-	numericTruncator *model.SnapshotTableNumericTruncator,
+	numericTruncator model.SnapshotTableNumericTruncator,
 ) ([]utils.AvroFile, int64, error) {
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
@@ -381,7 +381,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	identifierForFile string,
 	flowJobName string,
 	typeConversions map[string]types.TypeConversion,
-	numericTruncator *model.SnapshotTableNumericTruncator,
+	numericTruncator model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
 	stagingPath := s.credsProvider.BucketPath
 	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE)

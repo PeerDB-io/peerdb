@@ -53,7 +53,7 @@ func (qac *QRecordAvroConverter) Convert(
 	env map[string]string,
 	qrecord []types.QValue,
 	typeConversions map[string]types.TypeConversion,
-	numericTruncator *SnapshotTableNumericTruncator,
+	numericTruncator SnapshotTableNumericTruncator,
 ) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
