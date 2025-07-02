@@ -3,6 +3,7 @@ package e2e_clickhouse
 import (
 	"embed"
 	"fmt"
+	"math/big"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -678,21 +679,27 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 	require.False(s.t, rows.Schema.Fields[1].Nullable)
 	require.True(s.t, rows.Schema.Fields[2].Nullable)
 	require.False(s.t, rows.Schema.Fields[3].Nullable)
+	big977, ok := new(big.Int).SetString(strings.Repeat("9", 77), 10)
+	require.True(s.t, ok)
 	for i, row := range rows.Records {
 		require.Len(s.t, row, 6, "expected 4 columns")
 		require.Equal(s.t, types.QValueKindString, row[1].Kind(), "c1 type mismatch")
 		require.Equal(s.t, types.QValueKindString, row[2].Kind(), "c2 type mismatch")
 		require.Equal(s.t, types.QValueKindString, row[3].Kind(), "c3 type mismatch")
+		require.Equal(s.t, types.QValueKindInt256, row[4].Kind(), "s256 type mismatch")
+		require.Equal(s.t, types.QValueKindUInt256, row[5].Kind(), "u256 type mismatch")
 		require.Equal(s.t, strings.Repeat("9", 77), row[1].Value(), "c1 value mismatch")
 		if i%2 == 0 {
 			require.Equal(s.t, strings.Repeat("9", 78), row[2].Value(), "c2 value mismatch")
 			require.Equal(s.t, "9", row[3].Value(), "c3 value mismatch")
+			require.Zero(s.t, big977.Cmp(row[4].Value().(decimal.Decimal).BigInt()), "s256 value mismatch")
+			require.Zero(s.t, big977.Cmp(row[5].Value().(decimal.Decimal).BigInt()), "u256 value mismatch")
 		} else {
 			require.Empty(s.t, row[2].Value(), "c2 value mismatch")
 			require.Empty(s.t, row[3].Value(), "c3 value mismatch")
+			require.Zero(s.t, new(big.Int).Cmp(row[4].Value().(decimal.Decimal).BigInt()), "s256 value mismatch")
+			require.Zero(s.t, new(big.Int).Cmp(row[5].Value().(decimal.Decimal).BigInt()), "u256 value mismatch")
 		}
-		require.Equal(s.t, strings.Repeat("9", 77), row[4].Value(), "s256 value mismatch")
-		require.Equal(s.t, strings.Repeat("9", 77), row[5].Value(), "u256 value mismatch")
 	}
 
 	env.Cancel(s.t.Context())
