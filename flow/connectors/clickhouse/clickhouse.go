@@ -33,6 +33,7 @@ type ClickHouseConnector struct {
 	logger        log.Logger
 	config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
+	chVersion     *chproto.Version
 }
 
 func NewClickHouseConnector(
@@ -95,6 +96,10 @@ func NewClickHouseConnector(
 		return nil, err
 	}
 
+	clickHouseVersion, err := database.ServerVersion()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
+	}
 	connector := &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
@@ -104,15 +109,12 @@ func NewClickHouseConnector(
 			Provider:   credentialsProvider,
 			BucketPath: awsBucketPath,
 		},
+		chVersion: &clickHouseVersion.Version,
 	}
 
 	if credentials.AWS.SessionToken != "" {
 		// 24.3.1 is minimum version of ClickHouse that actually supports session token
 		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		clickHouseVersion, err := database.ServerVersion()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
-		}
 		if !chproto.CheckMinVersion(
 			chproto.Version{Major: 24, Minor: 3, Patch: 1},
 			clickHouseVersion.Version,
@@ -361,11 +363,15 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 }
 
 func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
+	if c.chVersion != nil {
+		return c.chVersion.String(), nil
+	}
+
 	clickhouseVersion, err := c.database.ServerVersion()
 	if err != nil {
 		return "", fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
-	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
+	c.logger.Info("[clickhouse] version", slog.String("version", clickhouseVersion.DisplayName))
 	return clickhouseVersion.Version.String(), nil
 }
 
@@ -424,6 +430,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindArrayUUID
 		case "Array(DateTime64(6))":
 			qkind = types.QValueKindArrayTimestamp
+		case "JSON":
+			qkind = types.QValueKindJSON
 		default:
 			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
 				if strings.HasPrefix(column.DatabaseTypeName(), "Array(") {

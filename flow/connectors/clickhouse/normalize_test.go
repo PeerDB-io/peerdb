@@ -189,6 +189,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -243,6 +244,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -294,6 +296,7 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -342,6 +345,7 @@ func TestBuildQuery_WithNumParts(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
