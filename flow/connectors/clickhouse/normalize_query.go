@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
@@ -15,7 +17,7 @@ import (
 type NormalizeQueryGenerator struct {
 	env                             map[string]string
 	tableNameSchemaMapping          map[string]*protos.TableSchema
-	chVersion                       string
+	chVersion                       *chproto.Version
 	Query                           string
 	TableName                       string
 	rawTableName                    string
@@ -41,7 +43,7 @@ func NewNormalizeQueryGenerator(
 	sourceSchemaAsDestinationColumn bool,
 	env map[string]string,
 	rawTableName string,
-	chVersion string,
+	chVersion *chproto.Version,
 ) *NormalizeQueryGenerator {
 	return &NormalizeQueryGenerator{
 		TableName:                       tableName,

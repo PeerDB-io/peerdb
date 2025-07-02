@@ -33,7 +33,7 @@ type ClickHouseConnector struct {
 	logger        log.Logger
 	config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
-	chVersion     string
+	chVersion     *chproto.Version
 }
 
 func NewClickHouseConnector(
@@ -109,7 +109,7 @@ func NewClickHouseConnector(
 			Provider:   credentialsProvider,
 			BucketPath: awsBucketPath,
 		},
-		chVersion: clickHouseVersion.Version.String(),
+		chVersion: &clickHouseVersion.Version,
 	}
 
 	if credentials.AWS.SessionToken != "" {
@@ -363,15 +363,15 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 }
 
 func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
-	if c.chVersion != "" {
-		return c.chVersion, nil
+	if c.chVersion != nil {
+		return c.chVersion.String(), nil
 	}
 
 	clickhouseVersion, err := c.database.ServerVersion()
 	if err != nil {
 		return "", fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
-	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
+	c.logger.Info("[clickhouse] version", slog.String("version", clickhouseVersion.DisplayName))
 	return clickhouseVersion.Version.String(), nil
 }
 

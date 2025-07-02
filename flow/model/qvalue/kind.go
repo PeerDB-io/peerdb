@@ -54,7 +54,7 @@ func ToDWHColumnType(
 	kind types.QValueKind,
 	env map[string]string,
 	dwhType protos.DBType,
-	dwhVersion string,
+	dwhVersion *chproto.Version,
 	column *protos.FieldDescription,
 	nullableEnabled bool,
 ) (string, error) {
@@ -86,7 +86,7 @@ func ToDWHColumnType(
 				return "", err
 			}
 			colType = fmt.Sprintf("Array(%s)", colType)
-		} else if kind == types.QValueKindJSON && ShouldUseNativeJSONType(ctx, env, dwhType, dwhVersion) {
+		} else if kind == types.QValueKindJSON && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
 			colType = "JSON"
 		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
@@ -106,15 +106,13 @@ func ToDWHColumnType(
 	return colType, nil
 }
 
-func ShouldUseNativeJSONType(ctx context.Context, env map[string]string, dwhType protos.DBType, dwhVersion string) bool {
-	switch dwhType {
-	case protos.DBType_CLICKHOUSE:
-		// JSON data type is marked as production ready in version ClickHouse 25.3
-		isJsonSupported := chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 3, Patch: 0}, chproto.ParseVersion(dwhVersion))
-		// Treat error the same as not enabled
-		isJsonEnabled, _ := internal.PeerDBEnableClickHouseJSON(ctx, env)
-		return isJsonSupported && isJsonEnabled
-	default:
+func ShouldUseNativeJSONType(ctx context.Context, env map[string]string, chVersion *chproto.Version) bool {
+	if chVersion == nil {
 		return false
 	}
+	// JSON data type is marked as production ready in version ClickHouse 25.3
+	isJsonSupported := chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 3, Patch: 0}, *chVersion)
+	// Treat error the same as not enabled
+	isJsonEnabled, _ := internal.PeerDBEnableClickHouseJSON(ctx, env)
+	return isJsonSupported && isJsonEnabled
 }

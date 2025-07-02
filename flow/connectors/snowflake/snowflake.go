@@ -362,7 +362,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		for _, addedColumn := range schemaDelta.AddedColumns {
 			qvKind := types.QValueKind(addedColumn.Type)
 			sfColtype, err := qvalue.ToDWHColumnType(
-				ctx, qvKind, env, protos.DBType_SNOWFLAKE, "", addedColumn, schemaDelta.NullableEnabled,
+				ctx, qvKind, env, protos.DBType_SNOWFLAKE, nil, addedColumn, schemaDelta.NullableEnabled,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
@@ -661,7 +661,7 @@ func generateCreateTableSQLForNormalizedTable(
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
 		qvKind := types.QValueKind(genericColumnType)
 		sfColType, err := qvalue.ToDWHColumnType(
-			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, "", column, tableSchema.NullableEnabled,
+			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, nil, column, tableSchema.NullableEnabled,
 		)
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),

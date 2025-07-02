@@ -9,8 +9,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-const chVersion = "25.3.0"
-
 func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
 	tableMappingForTest := &protos.TableMapping{
 		SourceTableIdentifier:      "test_table",
@@ -191,7 +189,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
-		chVersion,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -246,7 +244,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
-		chVersion,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -298,7 +296,7 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
-		chVersion,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -347,7 +345,7 @@ func TestBuildQuery_WithNumParts(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
-		chVersion,
+		nil,
 	)
 
 	query, err := g.BuildQuery(ctx)
