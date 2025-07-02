@@ -13,16 +13,17 @@ import (
 )
 
 type NormalizeQueryGenerator struct {
-	tableNameSchemaMapping          map[string]*protos.TableSchema
 	env                             map[string]string
+	tableNameSchemaMapping          map[string]*protos.TableSchema
+	chVersion                       string
 	Query                           string
 	TableName                       string
 	rawTableName                    string
 	tableMappings                   []*protos.TableMapping
 	Part                            uint64
-	syncBatchID                     int64
 	batchIDToLoadForTable           int64
 	numParts                        uint64
+	syncBatchID                     int64
 	enablePrimaryUpdate             bool
 	sourceSchemaAsDestinationColumn bool
 }
@@ -40,6 +41,7 @@ func NewNormalizeQueryGenerator(
 	sourceSchemaAsDestinationColumn bool,
 	env map[string]string,
 	rawTableName string,
+	chVersion string,
 ) *NormalizeQueryGenerator {
 	return &NormalizeQueryGenerator{
 		TableName:                       tableName,
@@ -53,6 +55,7 @@ func NewNormalizeQueryGenerator(
 		sourceSchemaAsDestinationColumn: sourceSchemaAsDestinationColumn,
 		env:                             env,
 		rawTableName:                    rawTableName,
+		chVersion:                       chVersion,
 	}
 }
 
@@ -110,7 +113,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		if clickHouseType == "" {
 			var err error
 			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, t.env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
+				ctx, colType, t.env, protos.DBType_CLICKHOUSE, t.chVersion, column, schema.NullableEnabled || columnNullableEnabled,
 			)
 			if err != nil {
 				return "", fmt.Errorf("error while converting column type to clickhouse type: %w", err)
@@ -174,6 +177,20 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
+		case "JSON", "Nullable(JSON)":
+			fmt.Fprintf(&projection,
+				"JSONExtractString(_peerdb_data, %s) AS %s,",
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					"JSONExtractString(_peerdb_match_data, %s) AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
+
 		default:
 			projLen := projection.Len()
 			if colType == types.QValueKindBytes {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2/lib/chcol"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -303,6 +304,22 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				qrow = append(qrow, types.QValueUUID{Val: *v})
 			case *[]uuid.UUID:
 				qrow = append(qrow, types.QValueArrayUUID{Val: *v})
+			case **chcol.JSON:
+				if *v == nil {
+					qrow = append(qrow, types.QValueNull(types.QValueKindJSON))
+				} else {
+					jsonb, err := (**v).MarshalJSON()
+					if err != nil {
+						return nil, err
+					}
+					qrow = append(qrow, types.QValueJSON{Val: string(jsonb)})
+				}
+			case *chcol.JSON:
+				jsonb, err := (*v).MarshalJSON()
+				if err != nil {
+					return nil, err
+				}
+				qrow = append(qrow, types.QValueJSON{Val: string(jsonb)})
 			default:
 				return nil, fmt.Errorf("cannot convert %T to types", v)
 			}
