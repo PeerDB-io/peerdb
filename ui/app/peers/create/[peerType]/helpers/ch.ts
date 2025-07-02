@@ -41,7 +41,7 @@ export const clickhouseSetting: PeerSetting[] = [
     label: 'Cluster',
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, cluster: value as string })),
-    tips: 'Specify which cluster to associate with this peer.',
+    tips: 'Specify which cluster to associate with this peer. Not relevant on ClickHouse Cloud.',
     optional: true,
   },
   {
@@ -49,7 +49,7 @@ export const clickhouseSetting: PeerSetting[] = [
     stateHandler: (value, setter) =>
       setter((curr) => ({ ...curr, replicated: value as boolean })),
     type: 'switch',
-    tips: 'Enable to use ReplicatedMergeTree & ReplicatedReplacingMergeTree.',
+    tips: 'Enable to use ReplicatedMergeTree & ReplicatedReplacingMergeTree. Not relevant on ClickHouse Cloud.',
     optional: true,
   },
   {

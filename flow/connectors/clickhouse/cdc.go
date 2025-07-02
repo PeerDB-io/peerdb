@@ -22,6 +22,17 @@ import (
 const (
 	checkIfTableExistsSQL = `SELECT exists(SELECT 1 FROM system.tables WHERE database = %s AND name = %s) AS table_exists`
 	dropTableIfExistsSQL  = "DROP TABLE IF EXISTS %s%s"
+	rawColumns            = `(
+		_peerdb_uid UUID,
+		_peerdb_timestamp Int64,
+		_peerdb_destination_table_name String,
+		_peerdb_data String,
+		_peerdb_record_type Int,
+		_peerdb_match_data String,
+		_peerdb_batch_id Int64,
+		_peerdb_unchanged_toast_columns String
+	)`
+	zooPathPrefix = "/clickhouse/tables/{uuid}/{shard}/{database}/%s"
 )
 
 // GetRawTableName returns the raw table name for the given table identifier.
@@ -46,7 +57,8 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	engine := "MergeTree()"
 	if c.config.Replicated {
 		engine = fmt.Sprintf(
-			"ReplicatedMergeTree('/clickhouse/tables/{uuid}/{shard}/{database}/%s','{replica}')",
+			"ReplicatedMergeTree('%s%s','{replica}')",
+			zooPathPrefix,
 			peerdb_clickhouse.EscapeStr(rawTableName),
 		)
 	}
@@ -56,35 +68,18 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		rawTableName += "_shard"
 	}
 
-	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s (
-		_peerdb_uid UUID,
-		_peerdb_timestamp Int64,
-		_peerdb_destination_table_name String,
-		_peerdb_data String,
-		_peerdb_record_type Int,
-		_peerdb_match_data String,
-		_peerdb_batch_id Int64,
-		_peerdb_unchanged_toast_columns String
-	) ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)`
+	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)`
 	if err := c.execWithLogging(ctx,
-		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, engine),
+		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, rawColumns, engine),
 	); err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
 
 	if onCluster != "" {
-		createRawDistributedSQL := `CREATE TABLE IF NOT EXISTS %s%s (
-			_peerdb_uid UUID,
-			_peerdb_timestamp Int64,
-			_peerdb_destination_table_name String,
-			_peerdb_data String,
-			_peerdb_record_type Int,
-			_peerdb_match_data String,
-			_peerdb_batch_id Int64,
-			_peerdb_unchanged_toast_columns String
-		) ENGINE = Distributed(%s,%s,%s,cityHash64(_peerdb_uid))`
+		createRawDistributedSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = Distributed(%s,%s,%s,cityHash64(_peerdb_uid))`
 		if err := c.execWithLogging(ctx,
 			fmt.Sprintf(createRawDistributedSQL, peerdb_clickhouse.QuoteIdentifier(rawDistributedName), onCluster,
+				rawColumns,
 				peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
 				peerdb_clickhouse.QuoteIdentifier(c.config.Database),
 				peerdb_clickhouse.QuoteIdentifier(rawTableName)),
@@ -199,6 +194,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 				return fmt.Errorf("failed to convert column type %s to ClickHouse type: %w", addedColumn.Type, err)
 			}
 
+			// Distributed table isn't created for null tables, no need to alter shard tables that don't exist
 			if c.config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
 				if err := c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
