@@ -3,6 +3,7 @@ package e2e_clickhouse
 import (
 	"embed"
 	"fmt"
+	"math/big"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -611,14 +612,16 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 		id SERIAL PRIMARY KEY,
 		c1 NUMERIC NOT NULL,
 		c2 NUMERIC,
-		c3 NUMERIC
+		c3 NUMERIC,
+		s256 NUMERIC,
+		u256 NUMERIC
 	);`, srcFullName))
 	require.NoError(s.t, err)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s(c1,c2,c3) VALUES($1,$2,9)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,9,$1)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES($1)`, srcFullName), strings.Repeat("9", 77))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,s256) VALUES($1,-9)`, srcFullName), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -644,40 +647,58 @@ func (s ClickHouseSuite) Test_Destination_Type_Conversion() {
 			DestinationType: "String",
 			NullableEnabled: false,
 		},
+		{
+			SourceName:      "s256",
+			DestinationType: "Int256",
+			NullableEnabled: false,
+		},
+		{
+			SourceName:      "u256",
+			DestinationType: "UInt256",
+			NullableEnabled: false,
+		},
 	}
 
 	tc := e2e.NewTemporalClient(s.t)
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2,c3", 2)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2,c3,s256,u256", 2)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
-		`INSERT INTO %s(c1,c2,c3) VALUES($1,$2,9)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(c1,c2,c3,s256,u256) VALUES($1,$2,9,9,$1)`, srcFullName), strings.Repeat("9", 77), strings.Repeat("9", 78))
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES($1)`, srcFullName), strings.Repeat("9", 77))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s(c1,s256) VALUES($1,-9)`, srcFullName), strings.Repeat("9", 77))
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2", 4)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id,c1,c2,c3,s256,u256", 4)
 
-	rows, err := s.GetRows(dstTableName, "id,c1,c2,c3")
+	rows, err := s.GetRows(dstTableName, "id,c1,c2,c3,s256,u256")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 4, "expected 4 rows")
 	require.False(s.t, rows.Schema.Fields[1].Nullable)
 	require.True(s.t, rows.Schema.Fields[2].Nullable)
 	require.False(s.t, rows.Schema.Fields[3].Nullable)
+	big977, ok := new(big.Int).SetString(strings.Repeat("9", 77), 10)
+	require.True(s.t, ok)
 	for i, row := range rows.Records {
-		require.Len(s.t, row, 4, "expected 4 columns")
+		require.Len(s.t, row, 6, "expected 4 columns")
 		require.Equal(s.t, types.QValueKindString, row[1].Kind(), "c1 type mismatch")
 		require.Equal(s.t, types.QValueKindString, row[2].Kind(), "c2 type mismatch")
 		require.Equal(s.t, types.QValueKindString, row[3].Kind(), "c3 type mismatch")
+		require.Equal(s.t, types.QValueKindInt256, row[4].Kind(), "s256 type mismatch")
+		require.Equal(s.t, types.QValueKindUInt256, row[5].Kind(), "u256 type mismatch")
 		require.Equal(s.t, strings.Repeat("9", 77), row[1].Value(), "c1 value mismatch")
 		if i%2 == 0 {
 			require.Equal(s.t, strings.Repeat("9", 78), row[2].Value(), "c2 value mismatch")
 			require.Equal(s.t, "9", row[3].Value(), "c3 value mismatch")
+			require.Zero(s.t, big.NewInt(9).Cmp(row[4].Value().(*big.Int)), "s256 value mismatch")
+			require.Zero(s.t, big977.Cmp(row[5].Value().(*big.Int)), "u256 value mismatch")
 		} else {
 			require.Empty(s.t, row[2].Value(), "c2 value mismatch")
 			require.Empty(s.t, row[3].Value(), "c3 value mismatch")
+			require.Zero(s.t, big.NewInt(-9).Cmp(row[4].Value().(*big.Int)), "s256 value mismatch")
+			require.Zero(s.t, new(big.Int).Cmp(row[5].Value().(*big.Int)), "u256 value mismatch")
 		}
 	}
 
