@@ -157,7 +157,7 @@ func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.
 
 func truncateNumerics(
 	items model.Items, targetDWH protos.DBType, unboundedNumericAsString bool,
-	numericTruncator *model.CdcTableNumericTruncator,
+	numericTruncator model.CdcTableNumericTruncator,
 ) model.Items {
 	recordItems, ok := items.(model.RecordItems)
 	if !ok {

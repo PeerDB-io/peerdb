@@ -7,10 +7,15 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-type StreamNumericTruncator map[string]*CdcTableNumericTruncator
+type CdcTableNumericTruncator struct {
+	TruncatorsByColumn map[string]*CdcColumnNumericTruncator
+	DestinationTable   string
+}
+
+type StreamNumericTruncator map[string]CdcTableNumericTruncator
 
 func NewStreamNumericTruncator(tableMappings []*protos.TableMapping, typesToSkip map[string]struct{}) StreamNumericTruncator {
-	statsByTable := make(map[string]*CdcTableNumericTruncator, len(tableMappings))
+	statsByTable := make(map[string]CdcTableNumericTruncator, len(tableMappings))
 	for _, tableMapping := range tableMappings {
 		statsByTable[tableMapping.DestinationTableIdentifier] = NewCdcTableNumericTruncator(
 			tableMapping.DestinationTableIdentifier, tableMapping.Columns, typesToSkip)
@@ -18,9 +23,9 @@ func NewStreamNumericTruncator(tableMappings []*protos.TableMapping, typesToSkip
 	return statsByTable
 }
 
-func (ss StreamNumericTruncator) Get(destinationTable string) *CdcTableNumericTruncator {
+func (ss StreamNumericTruncator) Get(destinationTable string) CdcTableNumericTruncator {
 	if ss == nil {
-		return nil
+		return CdcTableNumericTruncator{}
 	}
 	truncator, ok := ss[destinationTable]
 	if !ok {
@@ -38,14 +43,9 @@ func (ss StreamNumericTruncator) Warnings() shared.QRepWarnings {
 	return warnings
 }
 
-type CdcTableNumericTruncator struct {
-	TruncatorsByColumn map[string]*CdcColumnNumericTruncator
-	DestinationTable   string
-}
-
 func NewCdcTableNumericTruncator(
 	destinationTable string, columnSettings []*protos.ColumnSetting, typesToSkip map[string]struct{},
-) *CdcTableNumericTruncator {
+) CdcTableNumericTruncator {
 	truncatorsByColumn := map[string]*CdcColumnNumericTruncator{}
 	for _, columnSetting := range columnSettings {
 		if _, ok := typesToSkip[columnSetting.DestinationType]; ok {
@@ -56,7 +56,7 @@ func NewCdcTableNumericTruncator(
 			truncatorsByColumn[destinationName] = &CdcColumnNumericTruncator{Skip: true}
 		}
 	}
-	return &CdcTableNumericTruncator{
+	return CdcTableNumericTruncator{
 		TruncatorsByColumn: truncatorsByColumn,
 		DestinationTable:   destinationTable,
 	}
