@@ -86,7 +86,7 @@ func ToDWHColumnType(
 				return "", err
 			}
 			colType = fmt.Sprintf("Array(%s)", colType)
-		} else if kind == types.QValueKindJSON && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
+		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
 			colType = "JSON"
 		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val

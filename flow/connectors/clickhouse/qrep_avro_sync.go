@@ -281,7 +281,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 
 		avroColName = peerdb_clickhouse.QuoteIdentifier(avroColName)
 
-		if field.Type == types.QValueKindJSON &&
+		if (field.Type == types.QValueKindJSON || field.Type == types.QValueKindJSONB) &&
 			qvalue.ShouldUseNativeJSONType(ctx, config.Env, s.ClickHouseConnector.chVersion) {
 			avroColName = fmt.Sprintf("JSONExtractString(%s)", avroColName)
 		}
