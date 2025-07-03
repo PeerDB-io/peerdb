@@ -699,7 +699,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 				}
 
 				fd := &protos.FieldDescription{
-					Name:         col.Name.String(),
+					Name:         col.Name.OrigColName(),
 					Type:         string(qkind),
 					TypeModifier: typmod,
 					Nullable:     nullable,
