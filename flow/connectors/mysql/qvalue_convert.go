@@ -316,7 +316,7 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 			if strings.HasPrefix(unsafeString, "0000-00-00") {
 				return types.QValueTimestamp{Val: time.Unix(0, 0)}, nil
 			}
-			val, err := time.Parse("2006-01-02 15:04:05.999999", unsafeString)
+			val, err := time.Parse("2006-01-02 15:04:05.999999", strings.ReplaceAll(unsafeString, "-00", "-01"))
 			if err != nil {
 				return nil, err
 			}
@@ -334,7 +334,7 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 			if unsafeString == "0000-00-00" {
 				return types.QValueDate{Val: time.Unix(0, 0)}, nil
 			}
-			val, err := time.Parse(time.DateOnly, unsafeString)
+			val, err := time.Parse(time.DateOnly, strings.ReplaceAll(unsafeString, "-00", "-01"))
 			if err != nil {
 				return nil, err
 			}
@@ -471,7 +471,7 @@ func QValueFromMysqlRowEvent(
 			if val == "0000-00-00" {
 				return types.QValueDate{Val: time.Unix(0, 0)}, nil
 			}
-			val, err := time.Parse(time.DateOnly, val)
+			val, err := time.Parse(time.DateOnly, strings.ReplaceAll(val, "-00", "-01"))
 			if err != nil {
 				return nil, err
 			}
@@ -487,7 +487,7 @@ func QValueFromMysqlRowEvent(
 			if strings.HasPrefix(val, "0000-00-00") {
 				return types.QValueTimestamp{Val: time.Unix(0, 0)}, nil
 			}
-			tm, err := time.Parse("2006-01-02 15:04:05.999999", val)
+			tm, err := time.Parse("2006-01-02 15:04:05.999999", strings.ReplaceAll(val, "-00", "-01"))
 			if err != nil {
 				return nil, err
 			}
