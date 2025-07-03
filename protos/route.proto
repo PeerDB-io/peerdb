@@ -2,6 +2,7 @@ syntax = "proto3";
 
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
 
 import "peers.proto";
 import "flow.proto";
@@ -418,6 +419,40 @@ message MaintenanceResponse {
   string run_id = 2;
 }
 
+enum MaintenancePhase {
+  MAINTENANCE_PHASE_UNKNOWN = 0;
+  MAINTENANCE_PHASE_START_MAINTENANCE = 1;
+  MAINTENANCE_PHASE_MAINTENANCE_MODE_ENABLED = 2;
+  MAINTENANCE_PHASE_END_MAINTENANCE = 3;
+}
+
+message MaintenanceStatusRequest {
+  // Empty request message
+}
+
+message MaintenanceActivityDetails {
+  string activity_name = 1;
+  google.protobuf.Duration activity_duration = 2;
+  google.protobuf.Timestamp last_heartbeat = 3;
+  string activity_id = 4;
+  repeated string heartbeat_payloads = 5;
+}
+
+message MaintenanceStatusResponse {
+  bool maintenance_running = 1;
+  MaintenancePhase phase = 2;
+  repeated MaintenanceActivityDetails pending_activities = 3;
+}
+
+message SkipSnapshotWaitFlowsRequest {
+  repeated string flow_names = 1;
+}
+
+message SkipSnapshotWaitFlowsResponse {
+  bool signal_sent = 1;
+  string message = 2;
+}
+
 message FlowTag {
   string key = 1;
   string value = 2;
@@ -691,6 +726,19 @@ service FlowService {
   rpc Maintenance(MaintenanceRequest) returns (MaintenanceResponse) {
     option (google.api.http) = {
       post : "/v1/instance/maintenance",
+      body : "*"
+    };
+  }
+
+  rpc GetMaintenanceStatus(MaintenanceStatusRequest) returns (MaintenanceStatusResponse) {
+    option (google.api.http) = {
+      get : "/v1/instance/maintenance/status"
+    };
+  }
+
+  rpc SkipSnapshotWaitFlows(SkipSnapshotWaitFlowsRequest) returns (SkipSnapshotWaitFlowsResponse) {
+    option (google.api.http) = {
+      post : "/v1/instance/maintenance/skip-snapshot-wait",
       body : "*"
     };
   }
