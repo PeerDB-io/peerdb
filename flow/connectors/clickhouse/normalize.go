@@ -23,10 +23,10 @@ import (
 )
 
 const (
-	signColName         = "_peerdb_is_deleted"
-	signColType         = "Int8"
+	isDeletedColName    = "_peerdb_is_deleted"
+	isDeletedColType    = "UInt8"
 	versionColName      = "_peerdb_version"
-	versionColType      = "Int64"
+	versionColType      = "UInt64"
 	sourceSchemaColName = "_peerdb_source_schema"
 	sourceSchemaColType = "LowCardinality(String)"
 )
@@ -145,7 +145,7 @@ func generateCreateTableSQLForNormalizedTable(
 
 		fmt.Fprintf(&stmtBuilder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
 	}
-	// TODO support soft delete
+
 	// synced at column will be added to all normalized tables
 	if config.SyncedAtColName != "" {
 		colName := strings.ToLower(config.SyncedAtColName)
@@ -168,7 +168,11 @@ func generateCreateTableSQLForNormalizedTable(
 	}
 	switch tmEngine {
 	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE:
-		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
+		isDeletedColumnPart := ""
+		if config.SoftDeleteColName != "" {
+			isDeletedColumnPart = ", " + peerdb_clickhouse.QuoteIdentifier(config.SoftDeleteColName) + " " + isDeletedColType
+		}
+		engine = fmt.Sprintf("ReplacingMergeTree(%s%s)", peerdb_clickhouse.QuoteIdentifier(versionColName), isDeletedColumnPart)
 	case protos.TableEngine_CH_ENGINE_MERGE_TREE:
 		engine = "MergeTree()"
 	case protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
@@ -186,9 +190,13 @@ func generateCreateTableSQLForNormalizedTable(
 		engine = "Null"
 	}
 
-	// add sign and version columns
+	// add is_deleted and version columns
+	isDeletedColumn := isDeletedColName
+	if config.SoftDeleteColName != "" {
+		isDeletedColumn = config.SoftDeleteColName
+	}
 	fmt.Fprintf(&stmtBuilder, "%s %s, %s %s) ENGINE = %s",
-		peerdb_clickhouse.QuoteIdentifier(signColName), signColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType, engine)
+		peerdb_clickhouse.QuoteIdentifier(isDeletedColumn), isDeletedColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType, engine)
 
 	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
 
