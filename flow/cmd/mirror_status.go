@@ -595,7 +595,7 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 	}, nil
 }
 
-func (h *FlowRequestHandler) TotalRowsSyncedByCDCMirror(
+func (h *FlowRequestHandler) TotalRowsSyncedByMirror(
 	ctx context.Context,
 	req *protos.TotalRowsSyncedByMirrorRequest,
 ) (*protos.TotalRowsSyncedByMirrorResponse, error) {
