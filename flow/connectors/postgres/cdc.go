@@ -962,7 +962,7 @@ func processRelationMessage[Items model.Items](
 
 	p.logger.Info("processing RelationMessage",
 		slog.Any("LSN", lsn),
-		slog.Any("RelationName", currRelName))
+		slog.String("RelationName", currRelName))
 	// retrieve current TableSchema for table changed, mapping uses dst table name as key, need to translate source name
 	currRelDstInfo, ok := p.tableNameMapping[currRelName]
 	if !ok {
