@@ -743,6 +743,67 @@ func (s Suite) TestAlertConfig() {
 	}))
 }
 
+func (s Suite) TestTotalRowsSyncedByMirror() {
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "table1"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "table2"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "table1"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "table2"))))
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      "test_total_rows_synced_mirror" + s.suffix,
+		TableNameMapping: map[string]string{e2e.AttachSchema(s, "table1"): "table1", e2e.AttachSchema(s, "table2"): "table2"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := e2e.NewTemporalClient(s.t)
+	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// test initial load
+	e2e.RequireEqualTables(s.ch, "table1", "id,val")
+	e2e.RequireEqualTables(s.ch, "table2", "id,val")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "table1"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "table2"))))
+	// test cdc
+	e2e.RequireEqualTables(s.ch, "table1", "id,val")
+	e2e.RequireEqualTables(s.ch, "table2", "id,val")
+
+	// check total rows synced
+	mirrorTotalRowsSynced, err := s.TotalRowsSyncedByCDCMirror(s.t.Context(), &protos.TotalRowsSyncedByMirrorRequest{
+		FlowJobName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, mirrorTotalRowsSynced)
+	require.Equal(s.t, int64(2), mirrorTotalRowsSynced.TotalCountCDC)
+	require.Equal(s.t, int64(2), mirrorTotalRowsSynced.TotalCountInitialLoad)
+	require.Equal(s.t, int64(4), mirrorTotalRowsSynced.TotalCount)
+
+	// check table stats cdc
+	tableStats, err := s.CDCTableTotalCounts(s.t.Context(), &protos.CDCTableTotalCountsRequest{
+		FlowJobName: flowConnConfig.FlowJobName,
+	})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, tableStats)
+	require.Len(s.t, tableStats.TablesData, 2)
+	require.Equal(s.t, int64(1), tableStats.TablesData[0].Counts.InsertsCount)
+	require.Equal(s.t, int64(1), tableStats.TablesData[1].Counts.InsertsCount)
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s Suite) TestSettings() {
 	newValue := "90"
 	firstResponse, err := s.GetDynamicSettings(s.t.Context(), &protos.GetDynamicSettingsRequest{})
