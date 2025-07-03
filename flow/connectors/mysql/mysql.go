@@ -397,9 +397,19 @@ func (c *MySqlConnector) StatActivity(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerStatResponse, error) {
-	rs, err := c.Execute(ctx, "select ID, COMMAND, STATE, TIME, INFO from performance_schema.processlist WHERE USER=?", c.config.User)
+	rs, err := c.Execute(ctx, "select ID,COMMAND,STATE,TIME,INFO from performance_schema.processlist WHERE USER=?", c.config.User)
 	if err != nil {
-		return nil, err
+		var myErr *mysql.MyError
+		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" { // ER_NO_SUCH_TABLE
+			// mariadb
+			rs, err = c.Execute(ctx,
+				"select PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
+					" from performance_schema.threads WHERE USER=?", c.config.User)
+		}
+
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	statInfoRows := make([]*protos.StatInfo, len(rs.Values))
