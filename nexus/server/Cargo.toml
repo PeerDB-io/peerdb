@@ -59,9 +59,9 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["loggin
 tracing.workspace = true
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-uuid = "1.0"
-cargo-deb = "2.0"
-aws-config = "1.5.5"
+uuid = "1"
+cargo-deb = "3"
+aws-config = "1.5"
 
 [dev-dependencies]
 postgres = "=0.19.10"
