@@ -46,7 +46,7 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 			types.QValueKindArrayInt32, types.QValueKindArrayInt64, types.QValueKindArrayString,
 			types.QValueKindArrayBoolean, types.QValueKindArrayTimestamp, types.QValueKindArrayTimestampTZ,
 			types.QValueKindArrayDate, types.QValueKindArrayInterval, types.QValueKindArrayUUID,
-			types.QValueKindArrayNumeric:
+			types.QValueKindArrayNumeric, types.QValueKindArrayEnum:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
 				bqTypeString, column.Name, shortCol)
@@ -87,7 +87,7 @@ func (m *mergeStmtGenerator) transformedPkeyStrings(normalizedTableSchema *proto
 			continue
 		}
 		switch pkeyColType {
-		case types.QValueKindJSON:
+		case types.QValueKindJSON, types.QValueKindJSONB:
 			if forPartition {
 				pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(%s)", m.shortColumn[pkeyCol]))
 			} else {
