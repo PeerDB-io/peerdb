@@ -1,8 +1,4 @@
-import {
-  ColumnSetting,
-  FlowConnectionConfigs,
-  TableEngine,
-} from '@/grpc_generated/flow';
+import { FlowConnectionConfigs, TableMapping } from '@/grpc_generated/flow';
 
 export enum MirrorType {
   CDC = 'CDC',
@@ -15,16 +11,16 @@ export type CDCConfig = FlowConnectionConfigs & {
   envString: string;
 };
 
-export type TableMapRow = {
+export type TableMapRow = Omit<
+  TableMapping,
+  'exclude' | 'sourceTableIdentifier' | 'destinationTableIdentifier'
+> & {
   schema: string;
   source: string;
   destination: string;
-  partitionKey: string;
   exclude: Set<string>;
   selected: boolean;
   canMirror: boolean;
   tableSize: string;
   editingDisabled: boolean;
-  engine: TableEngine;
-  columns: ColumnSetting[];
 };

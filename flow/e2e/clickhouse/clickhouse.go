@@ -33,6 +33,7 @@ type ClickHouseSuite struct {
 	s3Helper  *e2e_s3.S3TestHelper
 	connector *connclickhouse.ClickHouseConnector
 	suffix    string
+	cluster   bool
 }
 
 func (s ClickHouseSuite) T() *testing.T {
@@ -64,7 +65,28 @@ func (s ClickHouseSuite) Suffix() string {
 }
 
 func (s ClickHouseSuite) Peer() *protos.Peer {
-	return s.PeerForDatabase("e2e_test_" + s.suffix)
+	dbname := "e2e_test_" + s.suffix
+	if s.cluster {
+		ret := &protos.Peer{
+			Name: e2e.AddSuffix(s, dbname),
+			Type: protos.DBType_CLICKHOUSE,
+			Config: &protos.Peer_ClickhouseConfig{
+				ClickhouseConfig: &protos.ClickhouseConfig{
+					Host:       "localhost",
+					Port:       9001,
+					Database:   dbname,
+					DisableTls: true,
+					S3:         s.s3Helper.S3Config,
+					Cluster:    "cicluster",
+					Replicated: false,
+				},
+			},
+		}
+		e2e.CreatePeer(s.t, ret)
+		return ret
+	} else {
+		return s.PeerForDatabase(dbname)
+	}
 }
 
 func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
@@ -117,12 +139,18 @@ func (s ClickHouseSuite) CreateRMTTable(tableName string, columns []TestClickHou
 	columnStr := strings.Join(columnStrings, ", ")
 
 	// Create the table with ReplacingMergeTree engine
-	createTableQuery := fmt.Sprintf("CREATE TABLE `%s` (%s) ENGINE = ReplacingMergeTree() ORDER BY `%s`", tableName, columnStr, orderingKey)
+	onCluster := ""
+	if s.cluster {
+		onCluster = " ON CLUSTER cicluster"
+	}
+	createTableQuery := fmt.Sprintf("CREATE TABLE `%s`%s (%s) ENGINE = ReplacingMergeTree() ORDER BY `%s`",
+		tableName, onCluster, columnStr, orderingKey)
 	return ch.Exec(s.t.Context(), createTableQuery)
 }
 
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
-	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, peer.GetClickhouseConfig())
 	if err != nil {
 		return nil, err
 	}
@@ -339,6 +367,7 @@ func (s ClickHouseSuite) queryRawTable(conn clickhouse.Conn, table string, cols 
 
 func SetupSuite[TSource e2e.SuiteSource](
 	t *testing.T,
+	cluster bool,
 	setupSource func(*testing.T) (TSource, string, error),
 ) func(*testing.T) ClickHouseSuite {
 	t.Helper()
@@ -356,11 +385,16 @@ func SetupSuite[TSource e2e.SuiteSource](
 			source:   e2e.SuiteSource(source),
 			suffix:   suffix,
 			s3Helper: s3Helper,
+			cluster:  cluster,
 		}
 
 		ch, err := connclickhouse.Connect(t.Context(), nil, s.PeerForDatabase("default").GetClickhouseConfig())
 		require.NoError(t, err, "failed to connect to clickhouse")
-		err = ch.Exec(t.Context(), "CREATE DATABASE e2e_test_"+suffix)
+		if cluster {
+			err = ch.Exec(t.Context(), "CREATE DATABASE e2e_test_"+suffix+" ON CLUSTER cicluster")
+		} else {
+			err = ch.Exec(t.Context(), "CREATE DATABASE e2e_test_"+suffix)
+		}
 		require.NoError(t, err, "failed to create clickhouse database")
 
 		connector, err := connclickhouse.NewClickHouseConnector(t.Context(), nil, s.Peer().GetClickhouseConfig())

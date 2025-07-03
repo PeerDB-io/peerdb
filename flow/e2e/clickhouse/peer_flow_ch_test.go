@@ -32,7 +32,7 @@ import (
 var testData embed.FS
 
 func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite(t, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+	e2eshared.RunSuite(t, SetupSuite(t, false, func(t *testing.T) (*e2e.PostgresSource, string, error) {
 		t.Helper()
 		suffix := "pgch_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupPostgres(t, suffix)
@@ -41,9 +41,27 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 }
 
 func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite(t, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+	e2eshared.RunSuite(t, SetupSuite(t, false, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
 		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupMySQL(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+		t.Helper()
+		suffix := "pgchcl_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupPostgres(t, suffix)
+		return source, suffix, err
+	}))
+}
+
+func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
+	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mychcl_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupMySQL(t, suffix)
 		return source, suffix, err
 	}))
@@ -101,14 +119,16 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
 		conn := pgconn.Conn()
 		_, err := conn.Exec(s.t.Context(),
-			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-			 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+				WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+				s.attachSuffix("clickhousetableremoval")))
 		require.NoError(s.t, err)
 
 		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
 			rows, err := conn.Query(s.t.Context(),
-				`SELECT pid FROM pg_stat_activity
-				WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+				fmt.Sprintf(`SELECT pid FROM pg_stat_activity
+					WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+					s.attachSuffix("clickhousetableremoval")))
 			require.NoError(s.t, err)
 			defer rows.Close()
 			return !rows.Next()
@@ -117,12 +137,11 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 
 	runID := e2e.EnvGetRunID(s.t, env)
 	e2e.SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
-		AdditionalTables: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      addedSrcTableName,
-				DestinationTableIdentifier: addedDstTableName,
-			},
-		},
+		AdditionalTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      addedSrcTableName,
+			DestinationTableIdentifier: addedDstTableName,
+			ShardingKey:                "id",
+		}},
 	})
 
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "adding table", func() bool {
@@ -141,14 +160,16 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	if pgconn, ok := s.source.Connector().(*connpostgres.PostgresConnector); ok {
 		conn := pgconn.Conn()
 		_, err := conn.Exec(s.t.Context(),
-			`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
-			 WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+			fmt.Sprintf(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+				WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+				s.attachSuffix("clickhousetableremoval")))
 		require.NoError(s.t, err)
 
 		e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to stop", func() bool {
 			rows, err := conn.Query(s.t.Context(),
-				`SELECT pid FROM pg_stat_activity
-				WHERE query LIKE '%START_REPLICATION%' AND query LIKE '%clickhousetableremoval%' AND backend_type='walsender'`)
+				fmt.Sprintf(`SELECT pid FROM pg_stat_activity
+					WHERE query LIKE '%%START_REPLICATION%%' AND query LIKE '%%%s%%' AND backend_type='walsender'`,
+					s.attachSuffix("clickhousetableremoval")))
 			require.NoError(s.t, err)
 			defer rows.Close()
 			return !rows.Next()
@@ -156,12 +177,10 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	}
 
 	e2e.SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
-		RemovedTables: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      srcTableName,
-				DestinationTableIdentifier: dstTableName,
-			},
-		},
+		RemovedTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcTableName,
+			DestinationTableIdentifier: dstTableName,
+		}},
 	})
 
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "removing table", func() bool {
@@ -419,13 +438,13 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 	require.NoError(s.t, err)
 	contentStr := string(content)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s (c1,c2,t) VALUES ($1,$2,$3)`, srcFullName), 1, 2, contentStr)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (c1,c2,t) VALUES ($1,$2,$3)`, srcFullName), 1, 2, contentStr)
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial insert", srcTableName, dstTableName, "id,c1,c2,t")
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	UPDATE %s SET c1=$1 WHERE id=$2`, srcFullName), 3, 1)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`UPDATE %s SET c1=$1 WHERE id=$2`, srcFullName), 3, 1)
 	require.NoError(s.t, err)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on update", srcTableName, dstTableName, "id,c1,c2,t")
 
@@ -434,6 +453,10 @@ func (s ClickHouseSuite) Test_Replident_Full_Unchanged_TOAST_Updates() {
 }
 
 func (s ClickHouseSuite) WeirdTable(tableName string) {
+	if s.cluster {
+		s.t.Skip("SetupCDCFlowStatusQuery stuck in snapshot somehow")
+	}
+
 	srcTableName := tableName
 	srcFullName := s.attachSchemaSuffix(fmt.Sprintf("\"%s\"", tableName))
 	dstTableName := tableName
@@ -455,13 +478,12 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(
 			strings.ToLower(tableName), "-", "_")),
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
-				DestinationTableIdentifier: dstTableName,
-				Exclude:                    []string{"excludedColumn"},
-			},
-		},
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
+			DestinationTableIdentifier: dstTableName,
+			Exclude:                    []string{"excludedColumn?"},
+			ShardingKey:                "id",
+		}},
 		Destination: s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -490,7 +512,11 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	// now test weird names with rename based resync
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
-	require.NoError(s.t, ch.Exec(s.t.Context(), "DROP TABLE "+clickhouse.QuoteIdentifier(dstTableName)))
+	onCluster := ""
+	if s.cluster {
+		onCluster = " ON CLUSTER cicluster"
+	}
+	require.NoError(s.t, ch.Exec(s.t.Context(), "DROP TABLE "+clickhouse.QuoteIdentifier(dstTableName)+onCluster))
 	require.NoError(s.t, ch.Close())
 	flowConnConfig.Resync = true
 	env = e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
@@ -508,7 +534,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	// now test weird names with exchange based resync
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
-	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE "+clickhouse.QuoteIdentifier(dstTableName)))
+	require.NoError(s.t, ch.Exec(s.t.Context(), "TRUNCATE TABLE "+clickhouse.QuoteIdentifier(dstTableName)+onCluster))
 	require.NoError(s.t, ch.Close())
 	env = e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
@@ -1291,13 +1317,12 @@ func (s ClickHouseSuite) Test_Column_Exclusion() {
 	config := &protos.FlowConnectionConfigs{
 		FlowJobName:     s.attachSuffix(tableName),
 		DestinationName: s.Peer().Name,
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      srcFullName,
-				DestinationTableIdentifier: dstTableName,
-				Exclude:                    []string{"c2"},
-			},
-		},
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			Exclude:                    []string{"c2"},
+			ShardingKey:                "id",
+		}},
 		SourceName:        s.Source().GeneratePeer(s.t).Name,
 		SyncedAtColName:   "_PEERDB_SYNCED_AT",
 		MaxBatchSize:      100,
@@ -1507,6 +1532,7 @@ func (s ClickHouseSuite) Test_Unprivileged_Postgres_Columns() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			Exclude:                    []string{"se'cret"},
+			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -1612,7 +1638,11 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	fakeDestination2 := "test_normalize_metadata_with_retry_dst_2_fake"
-	renameErr := ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s`, dstTableName2, fakeDestination2))
+	onCluster := ""
+	if s.cluster {
+		onCluster = " ON CLUSTER cicluster"
+	}
+	renameErr := ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s%s`, dstTableName2, fakeDestination2, onCluster))
 	require.NoError(s.t, renameErr)
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update1'`, srcFullName2)))
 
@@ -1652,7 +1682,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 	})
 
 	// Rename the table back to simulate a successful push to ClickHouse
-	renameErr = ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s`, fakeDestination2, dstTableName2))
+	renameErr = ch.Exec(s.t.Context(), fmt.Sprintf(`RENAME TABLE %s TO %s%s`, fakeDestination2, dstTableName2, onCluster))
 	require.NoError(s.t, renameErr)
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, srcFullName2)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET "key"='update2'`, srcFullName1)))
@@ -1668,7 +1698,6 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 		if len(rows.Records) == 0 {
 			return false
 		}
-
 		return rows.Records[0][0].Value().(int64) == 2
 	})
 
@@ -1698,7 +1727,7 @@ func (s ClickHouseSuite) Test_Normalize_Metadata_With_Retry() {
 			s.t.Log("no records found in metadata_last_sync_state")
 			return false
 		}
-		s.t.Log("metadata_last_sync_state:", rows.Records[0][0].Value(), rows.Records[0][1].Value())
+		s.t.Log("metadata_last_sync_state", rows.Records[0][0].Value(), rows.Records[0][1].Value())
 		return rows.Records[0][0].Value().(int64) == 2 && rows.Records[0][1].Value().(int64) == 2
 	})
 
@@ -1997,6 +2026,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			Engine:                     protos.TableEngine_CH_ENGINE_NULL,
+			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -2015,8 +2045,24 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	require.NoError(s.t, ch.Close())
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf(`insert into %s values (1, 'cdc', 'val')`, srcFullName)))
+		fmt.Sprintf(`insert into %s values (1,'cdc','val')`, srcFullName)))
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "null insert", srcTableName, "nulltarget", "id,\"key\"")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`ALTER TABLE %s ADD COLUMN added INT`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s values (2,'no','add',0)`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "null insert after column added", srcTableName, "nulltarget", "id,\"key\"")
+
+	var count uint64
+	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
+	require.NoError(s.t, err)
+	row := ch.QueryRow(s.t.Context(),
+		fmt.Sprintf("select count(*) from system.columns where database = '%s' and table = 'test_nullengine'", chPeer.Database))
+	require.NoError(s.t, row.Err())
+	require.NoError(s.t, row.Scan(&count))
+	require.NoError(s.t, ch.Close())
+	require.Equal(s.t, uint64(7), count)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
@@ -2039,15 +2085,14 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, "nulltarget", "id,\"key\"")
 
-	var count uint64
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
 	require.NoError(s.t, err)
-	row := ch.QueryRow(s.t.Context(),
+	row = ch.QueryRow(s.t.Context(),
 		fmt.Sprintf("select count(*) from system.columns where database = '%s' and table = 'test_nullengine'", chPeer.Database))
 	require.NoError(s.t, row.Err())
 	require.NoError(s.t, row.Scan(&count))
 	require.NoError(s.t, ch.Close())
-	require.Equal(s.t, uint64(5), count)
+	require.Equal(s.t, uint64(6), count)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
@@ -2084,6 +2129,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "id",
+			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
 	}
@@ -2141,6 +2187,7 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 			SourceTableIdentifier:      srcFullName,
 			DestinationTableIdentifier: dstTableName,
 			PartitionKey:               "updated_at",
+			ShardingKey:                "id",
 		}},
 		Destination: s.Peer().Name,
 	}

@@ -138,6 +138,9 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
 		if partSize > 0 {
 			u.PartSize = partSize
+			if partSize > 268435455 { // 256MiB
+				u.Concurrency = 1
+			}
 		}
 	})
 

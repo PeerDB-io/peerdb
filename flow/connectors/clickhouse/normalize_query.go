@@ -28,6 +28,7 @@ type NormalizeQueryGenerator struct {
 	syncBatchID                     int64
 	enablePrimaryUpdate             bool
 	sourceSchemaAsDestinationColumn bool
+	cluster                         bool
 }
 
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
@@ -44,6 +45,7 @@ func NewNormalizeQueryGenerator(
 	env map[string]string,
 	rawTableName string,
 	chVersion *chproto.Version,
+	cluster bool,
 ) *NormalizeQueryGenerator {
 	return &NormalizeQueryGenerator{
 		TableName:                       tableName,
@@ -58,6 +60,7 @@ func NewNormalizeQueryGenerator(
 		env:                             env,
 		rawTableName:                    rawTableName,
 		chVersion:                       chVersion,
+		cluster:                         cluster,
 	}
 }
 
@@ -293,6 +296,10 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		if t.numParts > 1 {
 			fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", t.numParts, t.Part)
 		}
+	}
+
+	if t.cluster {
+		colSelector.WriteString(" SETTINGS parallel_distributed_insert_select=0")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",

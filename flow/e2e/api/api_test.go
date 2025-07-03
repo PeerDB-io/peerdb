@@ -39,9 +39,9 @@ type Suite struct {
 	protos.FlowServiceClient
 	t      *testing.T
 	pg     *e2e.PostgresSource
-	ch     e2e_clickhouse.ClickHouseSuite
 	source e2e.SuiteSource
 	suffix string
+	ch     e2e_clickhouse.ClickHouseSuite
 }
 
 func (s Suite) Teardown(ctx context.Context) {
@@ -175,7 +175,7 @@ func testApi[TSource e2e.SuiteSource](
 			t:                 t,
 			pg:                pg,
 			source:            source,
-			ch: e2e_clickhouse.SetupSuite(t, func(*testing.T) (TSource, string, error) {
+			ch: e2e_clickhouse.SetupSuite(t, false, func(*testing.T) (TSource, string, error) {
 				return source, suffix, nil
 			})(t),
 			suffix: suffix,
