@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -253,81 +252,13 @@ func (h *FlowRequestHandler) GetStatInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerStatResponse, error) {
-	peerConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
+	peerConn, err := connectors.GetByNameAs[connectors.StatActivityConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
 	}
 	defer connectors.CloseConnector(ctx, peerConn)
 
-	peerUser := peerConn.Config.User
-
-	rows, err := peerConn.Conn().Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
-		"EXTRACT(epoch FROM(now()-query_start)) AS dur, state"+
-		" FROM pg_stat_activity WHERE "+
-		"usename=$1 AND application_name LIKE 'peerdb%';", peerUser)
-	if err != nil {
-		slog.Error("Failed to get stat info", slog.Any("error", err))
-		return nil, err
-	}
-
-	statInfoRows, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.StatInfo, error) {
-		var pid int64
-		var waitEvent sql.NullString
-		var waitEventType sql.NullString
-		var queryStart sql.NullString
-		var query sql.NullString
-		var duration sql.NullFloat64
-		// shouldn't be null
-		var state string
-
-		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration, &state)
-		if err != nil {
-			slog.Error("Failed to scan row", slog.Any("error", err))
-			return nil, err
-		}
-
-		we := waitEvent.String
-		if !waitEvent.Valid {
-			we = ""
-		}
-
-		wet := waitEventType.String
-		if !waitEventType.Valid {
-			wet = ""
-		}
-
-		q := query.String
-		if !query.Valid {
-			q = ""
-		}
-
-		qs := queryStart.String
-		if !queryStart.Valid {
-			qs = ""
-		}
-
-		d := duration.Float64
-		if !duration.Valid {
-			d = -1
-		}
-
-		return &protos.StatInfo{
-			Pid:           pid,
-			WaitEvent:     we,
-			WaitEventType: wet,
-			QueryStart:    qs,
-			Query:         q,
-			Duration:      float32(d),
-			State:         state,
-		}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &protos.PeerStatResponse{
-		StatData: statInfoRows,
-	}, nil
+	return peerConn.StatActivity(ctx, req)
 }
 
 func (h *FlowRequestHandler) GetPublications(
