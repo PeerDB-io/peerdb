@@ -781,7 +781,7 @@ func (s Suite) TestTotalRowsSyncedByMirror() {
 	e2e.RequireEqualTables(s.ch, "table2", "id,val")
 
 	// check total rows synced
-	mirrorTotalRowsSynced, err := s.TotalRowsSyncedByCDCMirror(s.t.Context(), &protos.TotalRowsSyncedByMirrorRequest{
+	mirrorTotalRowsSynced, err := s.TotalRowsSyncedByMirror(s.t.Context(), &protos.TotalRowsSyncedByMirrorRequest{
 		FlowJobName: flowConnConfig.FlowJobName,
 	})
 	require.NoError(s.t, err)

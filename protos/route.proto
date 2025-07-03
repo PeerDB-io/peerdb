@@ -721,7 +721,7 @@ service FlowService {
     };
   }
 
-  rpc TotalRowsSyncedByCDCMirror(TotalRowsSyncedByMirrorRequest)
+  rpc TotalRowsSyncedByMirror(TotalRowsSyncedByMirrorRequest)
       returns (TotalRowsSyncedByMirrorResponse) {
     option (google.api.http) = {
       get : "/v1/mirrors/total_rows_synced/{flow_job_name}"
