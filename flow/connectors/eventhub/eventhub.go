@@ -371,8 +371,7 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 }
 
 func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
 ) error {
-	c.logger.Info("ReplayTableSchemaDeltas for event hub is a no-op")
 	return nil
 }

@@ -22,14 +22,30 @@ To add a type conversion:
 		(if destination type doesn't exist, create a new map entry for it).
 */
 var SupportedDestinationTypes = map[string][]types.TypeConversion{
-	"String": {types.NewTypeConversion(
-		types.NumericToStringSchemaConversion,
-		types.NumericToStringValueConversion,
-	)},
+	"String": {
+		types.NewTypeConversion(
+			types.NumericToStringSchemaConversion,
+			types.NumericToStringValueConversion,
+		),
+	},
+	"Int256": {
+		types.NewTypeConversion(
+			types.NumericToInt256SchemaConversion,
+			types.NumericToInt256ValueConversion,
+		),
+	},
+	"UInt256": {
+		types.NewTypeConversion(
+			types.NumericToUInt256SchemaConversion,
+			types.NumericToUInt256ValueConversion,
+		),
+	},
 }
 
 var NumericDestinationTypes = map[string]struct{}{
-	"String": {},
+	"String":  {},
+	"Int256":  {},
+	"UInt256": {},
 }
 
 // returns the full list of supported type conversions. The keys are

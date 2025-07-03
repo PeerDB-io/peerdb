@@ -254,7 +254,7 @@ func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowC
 		if err == nil {
 			var status protos.FlowStatus
 			if err := response.Get(&status); err != nil {
-				t.Fatal(err)
+				t.Fatal(err.Error())
 			} else if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
 			} else if counter > 30 {

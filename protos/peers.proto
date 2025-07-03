@@ -157,7 +157,7 @@ message ClickhouseConfig{
   string user = 3;
   string password = 4 [(peerdb_redacted) = true];
   string database = 5;
-  string s3_path = 6; // path to S3 bucket which will store avro files
+  string s3_path = 6;
   string access_key_id = 7 [(peerdb_redacted) = true];
   string secret_access_key = 8 [(peerdb_redacted) = true];
   string region = 9;
@@ -168,6 +168,8 @@ message ClickhouseConfig{
   optional string root_ca = 14 [(peerdb_redacted) = true];
   string tls_host = 15;
   optional S3Config s3 = 16;
+  string cluster = 17;
+  bool replicated = 18;
 }
 
 message SqlServerConfig {

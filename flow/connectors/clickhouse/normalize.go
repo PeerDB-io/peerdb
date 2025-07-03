@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -57,136 +58,161 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		return true, nil
 	}
 
-	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
+	normalizedTableCreateSQL, err := c.generateCreateTableSQLForNormalizedTable(
 		ctx,
 		config,
 		destinationTableIdentifier,
 		sourceTableSchema,
+		c.chVersion,
 	)
 	if err != nil {
 		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
 	}
 
-	if err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
-		return false, fmt.Errorf("[ch] error while creating destination ClickHouse table: %w", err)
+	for _, sql := range normalizedTableCreateSQL {
+		if err := c.execWithLogging(ctx, sql); err != nil {
+			return false, fmt.Errorf("[ch] error while creating destination ClickHouse table: %w", err)
+		}
 	}
 	return false, nil
 }
 
-func getColName(overrides map[string]string, name string) string {
-	if newName, ok := overrides[name]; ok {
-		return newName
-	}
-	return name
-}
-
-func generateCreateTableSQLForNormalizedTable(
+func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
-) (string, error) {
+	chVersion *chproto.Version,
+) ([]string, error) {
+	var engine string
+	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
+
 	var tableMapping *protos.TableMapping
 	for _, tm := range config.TableMappings {
 		if tm.DestinationTableIdentifier == tableIdentifier {
+			tmEngine = tm.Engine
 			tableMapping = tm
 			break
 		}
 	}
 
-	var stmtBuilder strings.Builder
-	stmtBuilder.WriteString("CREATE ")
-	if config.IsResync {
-		stmtBuilder.WriteString("OR REPLACE ")
-	}
-	stmtBuilder.WriteString("TABLE ")
-	if !config.IsResync {
-		stmtBuilder.WriteString("IF NOT EXISTS ")
-	}
-	fmt.Fprintf(&stmtBuilder, "%s (", peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
-
-	colNameMap := make(map[string]string)
-	for _, column := range tableSchema.Columns {
-		colName := column.Name
-		dstColName := colName
-		colType := types.QValueKind(column.Type)
-		var columnNullableEnabled bool
-		var clickHouseType string
-		if tableMapping != nil {
-			for _, col := range tableMapping.Columns {
-				if col.SourceName == colName {
-					if col.DestinationName != "" {
-						dstColName = col.DestinationName
-						colNameMap[colName] = dstColName
-					}
-					if col.DestinationType != "" {
-						clickHouseType = col.DestinationType
-					}
-					columnNullableEnabled = col.NullableEnabled
-					break
-				}
-			}
-		}
-
-		if clickHouseType == "" {
-			var err error
-			clickHouseType, err = qvalue.ToDWHColumnType(
-				ctx, colType, config.Env, protos.DBType_CLICKHOUSE, column, tableSchema.NullableEnabled || columnNullableEnabled,
-			)
-			if err != nil {
-				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
-			}
-		}
-
-		fmt.Fprintf(&stmtBuilder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
-	}
-	// TODO support soft delete
-	// synced at column will be added to all normalized tables
-	if config.SyncedAtColName != "" {
-		colName := strings.ToLower(config.SyncedAtColName)
-		fmt.Fprintf(&stmtBuilder, "%s DateTime64(9) DEFAULT now64(), ", peerdb_clickhouse.QuoteIdentifier(colName))
-	}
-
-	// add _peerdb_source_schema_name column
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
-	if err != nil {
-		return "", err
-	}
-	if sourceSchemaAsDestinationColumn {
-		fmt.Fprintf(&stmtBuilder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName), sourceSchemaColType)
-	}
-
-	var engine string
-	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
-	if tableMapping != nil {
-		tmEngine = tableMapping.Engine
-	}
 	switch tmEngine {
-	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE:
-		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
-	case protos.TableEngine_CH_ENGINE_MERGE_TREE:
-		engine = "MergeTree()"
-	case protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
-		engine = fmt.Sprintf(
-			"ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}',%s)",
-			peerdb_clickhouse.EscapeStr(tableIdentifier),
-			peerdb_clickhouse.QuoteIdentifier(versionColName),
-		)
-	case protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
-		engine = fmt.Sprintf(
-			"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}')",
-			peerdb_clickhouse.EscapeStr(tableIdentifier),
-		)
+	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
+		if c.config.Replicated {
+			engine = fmt.Sprintf(
+				"ReplicatedReplacingMergeTree(%s%s','{replica}',%s)",
+				zooPathPrefix,
+				peerdb_clickhouse.EscapeStr(tableIdentifier),
+				peerdb_clickhouse.QuoteIdentifier(versionColName),
+			)
+		} else {
+			engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
+		}
+	case protos.TableEngine_CH_ENGINE_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
+		if c.config.Replicated {
+			engine = fmt.Sprintf(
+				"ReplicatedMergeTree('%s%s','{replica}')",
+				zooPathPrefix,
+				peerdb_clickhouse.EscapeStr(tableIdentifier),
+			)
+		} else {
+			engine = "MergeTree()"
+		}
 	case protos.TableEngine_CH_ENGINE_NULL:
 		engine = "Null"
 	}
 
-	// add sign and version columns
-	fmt.Fprintf(&stmtBuilder, "%s %s, %s %s) ENGINE = %s",
-		peerdb_clickhouse.QuoteIdentifier(signColName), signColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType, engine)
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
+	if err != nil {
+		return nil, err
+	}
+
+	var stmtBuilder strings.Builder
+	var stmtBuilderDistributed strings.Builder
+	var builders []*strings.Builder
+	if c.config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL {
+		builders = []*strings.Builder{&stmtBuilder, &stmtBuilderDistributed}
+	} else {
+		builders = []*strings.Builder{&stmtBuilder}
+	}
+
+	colNameMap := make(map[string]string)
+	for idx, builder := range builders {
+		builder.WriteString("CREATE ")
+		if config.IsResync {
+			builder.WriteString("OR REPLACE ")
+		}
+		builder.WriteString("TABLE ")
+		if !config.IsResync {
+			builder.WriteString("IF NOT EXISTS ")
+		}
+		if c.config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
+			// distributed table gets destination name, avoid naming conflict
+			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier + "_shard"))
+		} else {
+			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
+		}
+		if c.config.Cluster != "" {
+			fmt.Fprintf(builder, " ON CLUSTER %s", peerdb_clickhouse.QuoteIdentifier(c.config.Cluster))
+		}
+		builder.WriteString(" (")
+
+		for _, column := range tableSchema.Columns {
+			colName := column.Name
+			dstColName := colName
+			colType := types.QValueKind(column.Type)
+			var columnNullableEnabled bool
+			var clickHouseType string
+			if tableMapping != nil {
+				for _, col := range tableMapping.Columns {
+					if col.SourceName == colName {
+						if col.DestinationName != "" {
+							dstColName = col.DestinationName
+							colNameMap[colName] = dstColName
+						}
+						if col.DestinationType != "" {
+							clickHouseType = col.DestinationType
+						}
+						columnNullableEnabled = col.NullableEnabled
+						break
+					}
+				}
+			}
+
+			if clickHouseType == "" {
+				var err error
+				clickHouseType, err = qvalue.ToDWHColumnType(
+					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column, tableSchema.NullableEnabled || columnNullableEnabled,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
+				}
+			} else if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
+				clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+			}
+
+			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
+		}
+		// TODO support hard delete
+		// synced at column will be added to all normalized tables
+		if config.SyncedAtColName != "" {
+			colName := strings.ToLower(config.SyncedAtColName)
+			fmt.Fprintf(builder, "%s DateTime64(9) DEFAULT now64(), ", peerdb_clickhouse.QuoteIdentifier(colName))
+		}
+
+		// add _peerdb_source_schema_name column
+		if sourceSchemaAsDestinationColumn {
+			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName), sourceSchemaColType)
+		}
+
+		// add sign and version columns
+		fmt.Fprintf(builder, "%s %s, %s %s)",
+			peerdb_clickhouse.QuoteIdentifier(signColName), signColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
+	}
+
+	fmt.Fprintf(&stmtBuilder, " ENGINE = %s", engine)
 
 	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
-
 	if sourceSchemaAsDestinationColumn {
 		orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
 	}
@@ -201,13 +227,34 @@ func generateCreateTableSQLForNormalizedTable(
 		}
 
 		if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
-			return "", err
+			return nil, err
 		} else if nullable {
 			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 		}
+
+		if c.config.Cluster != "" {
+			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
+				peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
+				peerdb_clickhouse.QuoteIdentifier(c.config.Database),
+				peerdb_clickhouse.QuoteIdentifier(tableIdentifier+"_shard"),
+			)
+			if tableMapping.ShardingKey != "" {
+				stmtBuilderDistributed.WriteByte(',')
+				stmtBuilderDistributed.WriteString(tableMapping.ShardingKey)
+				if tableMapping.PolicyName != "" {
+					stmtBuilderDistributed.WriteByte(',')
+					stmtBuilderDistributed.WriteString(peerdb_clickhouse.QuoteLiteral(tableMapping.PolicyName))
+				}
+			}
+			stmtBuilderDistributed.WriteByte(')')
+		}
 	}
 
-	return stmtBuilder.String(), nil
+	result := make([]string, len(builders))
+	for idx, builder := range builders {
+		result[idx] = builder.String()
+	}
+	return result, nil
 }
 
 // Returns a list of order by columns ordered by their ordering, and puts the pkeys at the end.
@@ -405,6 +452,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				sourceSchemaAsDestinationColumn,
 				req.Env,
 				rawTbl,
+				c.chVersion,
+				c.config.Cluster != "",
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
@@ -535,4 +584,11 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 		}
 	}
 	return nil
+}
+
+func getColName(overrides map[string]string, name string) string {
+	if newName, ok := overrides[name]; ok {
+		return newName
+	}
+	return name
 }

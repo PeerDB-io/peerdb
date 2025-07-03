@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         runner: [ubuntu-latest-16-cores]
-        db-version: [{pg: 15, mysql: 'mysql-gtid'}, {pg: 16, mysql: 'mysql-pos'}, {pg: 17, mysql: 'maria'}]
+        db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -45,7 +45,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.0.2@sha256:9681044f2e264ee9abde6594b7503537cfc98e44dd89d26b9533bfaab9c8c42b
+        image: elasticsearch:9.0.2@sha256:bfa9d2126a5c3381ac272ee67264083ca04318def1d7b4ea9194ad0b0a8959bf
         ports:
           - 9200:9200
         env:
@@ -131,17 +131,38 @@ jobs:
 
       - name: Mongo
         run: |
-          docker run -d --rm --name mongo -p 27017:27017 mongo:8.0.10 --replSet rs0 --bind_ip_all
+          echo "starting mongoDB..."
+          docker run -d --rm --name mongo -p 27017:27017 mongo:${{ matrix.db-version.mongo }} \
+            bash -c 'openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && mongod --replSet rs0 --bind_ip_all --keyFile /data/mongo.key'
+
           until docker exec mongo mongosh --eval 'db.runCommand({ ping: 1 })' &> /dev/null; do
-            echo "Waiting for MongoDB to be ready..."
+            echo "waiting for MongoDB to be ready..."
             sleep 2
           done
+
+          echo "initialize replica set"
           docker exec mongo mongosh --eval 'rs.initiate({
             _id: "rs0",
-            members: [
-              { _id: 0, host: "localhost:27017" }
-            ]
+            members: [{ _id: 0, host: "localhost:27017" }]
           })'
+
+          echo "create admin user for writing data to mongo"
+          docker exec mongo mongosh --eval '
+            db = db.getSiblingDB("admin");
+            db.createUser({
+              user: "admin",
+              pwd: "admin",
+              roles: ["root"]
+            })'
+
+          echo "create non-admin user for reading data from changestream"
+          docker exec mongo mongosh -u admin -p admin --eval '
+            db = db.getSiblingDB("admin");
+            db.createUser({
+              user: "csuser",
+              pwd: "cspass",
+              roles: ["readAnyDatabase"]
+            })'
 
       - name: MinIO TLS
         run: >
@@ -180,7 +201,137 @@ jobs:
 
       - name: Run ClickHouse
         run: |
-          ./clickhouse server &
+          cat > config1.xml <<EOF
+          <clickhouse>
+            <profiles><default></default></profiles>
+            <users>
+              <default>
+                <password></password>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+                <named_collection_control>1</named_collection_control>
+              </default>
+            </users>
+            <logger><level>none</level></logger>
+            <path>var/lib/clickhouse</path>
+            <tmp_path>var/lib/clickhouse/tmp</tmp_path>
+            <user_files_path>var/lib/clickhouse/user_files</user_files_path>
+            <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
+            <tcp_port>9000</tcp_port>
+            <http_port remove="1"/>
+            <postgresql_port remove="1"/>
+            <mysql_port remove="1"/>
+            <macros>
+              <shard>1</shard>
+              <replica>1</replica>
+            </macros>
+            <zookeeper>
+              <node>
+                <host>localhost</host>
+                <port>2181</port>
+              </node>
+            </zookeeper>
+            <distributed_ddl>
+              <path>/clickhouse/task_queue/ddl</path>
+            </distributed_ddl>
+            <remote_servers>
+              <cicluster>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                  </replica>
+                </shard>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9001</port>
+                  </replica>
+                </shard>
+              </cicluster>
+            </remote_servers>
+          </clickhouse>
+          EOF
+          cat > config2.xml <<EOF
+          <clickhouse>
+            <profiles><default></default></profiles>
+            <users>
+              <default>
+                <password></password>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+                <named_collection_control>1</named_collection_control>
+              </default>
+            </users>
+            <logger><level>none</level></logger>
+            <path>var/lib/clickhouse</path>
+            <tmp_path>var/lib/clickhouse/tmp</tmp_path>
+            <user_files_path>var/lib/clickhouse/user_files</user_files_path>
+            <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
+            <tcp_port>9001</tcp_port>
+            <http_port remove="1"/>
+            <postgresql_port remove="1"/>
+            <mysql_port remove="1"/>
+            <macros>
+              <shard>2</shard>
+              <replica>1</replica>
+            </macros>
+            <zookeeper>
+              <node>
+                <host>localhost</host>
+                <port>2181</port>
+              </node>
+            </zookeeper>
+            <distributed_ddl>
+              <path>/clickhouse/task_queue/ddl</path>
+            </distributed_ddl>
+            <remote_servers>
+              <cicluster>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                  </replica>
+                </shard>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9001</port>
+                  </replica>
+                </shard>
+              </cicluster>
+            </remote_servers>
+          </clickhouse>
+          EOF
+          cat > config-keeper.xml <<EOF
+          <clickhouse>
+            <keeper_server>
+                <tcp_port>2181</tcp_port>
+                <server_id>1</server_id>
+                <log_storage_path>var/lib/clickhouse/coordination/log</log_storage_path>
+                <snapshot_storage_path>var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+                <raft_configuration>
+                  <server>
+                    <id>1</id>
+                    <hostname>localhost</hostname>
+                    <port>9234</port>
+                  </server>
+                </raft_configuration>
+            </keeper_server>
+          </clickhouse>
+          EOF
+          mkdir ch1 ch2 chkeep
+          (cd ch1 && ../clickhouse server -C ../config1.xml) &
+          (cd ch2 && ../clickhouse server -C ../config2.xml) &
+          (cd chkeep && ../clickhouse keeper -C ../config-keeper.xml) &
 
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
@@ -242,8 +393,8 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
-          CI_MONGO_VERSION: 8.0.10
-          CI_MONGO_URI: mongodb://localhost:27017/?replicaSet=rs0
+          CI_MONGO_ADMIN_URI: mongodb://admin:admin@localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_URI: mongodb://csuser:cspass@localhost:27017/?replicaSet=rs0&authSource=admin
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc

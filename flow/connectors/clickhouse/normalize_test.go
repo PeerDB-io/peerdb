@@ -189,6 +189,8 @@ func TestBuildQuery_Basic(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
+		nil,
+		false,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -243,6 +245,8 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
+		nil,
+		false,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -294,11 +298,14 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
+		nil,
+		true,
 	)
 
 	query, err := g.BuildQuery(ctx)
 	require.NoError(t, err)
 	require.Contains(t, query, " AS `_peerdb_source_schema`")
+	require.Contains(t, query, "parallel_distributed_insert_select=0")
 }
 
 func TestBuildQuery_WithNumParts(t *testing.T) {
@@ -342,6 +349,8 @@ func TestBuildQuery_WithNumParts(t *testing.T) {
 		sourceSchemaAsDestinationColumn,
 		env,
 		rawTableName,
+		nil,
+		false,
 	)
 
 	query, err := g.BuildQuery(ctx)

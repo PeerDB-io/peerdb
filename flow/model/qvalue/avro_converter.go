@@ -95,6 +95,10 @@ func GetAvroSchemaFromQValueKind(
 		return avro.NewPrimitiveSchema(avro.Bytes, nil), nil
 	case types.QValueKindNumeric:
 		return getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
+	case types.QValueKindInt256:
+		return avro.NewFixedSchema("int256", "", 32, nil)
+	case types.QValueKindUInt256:
+		return avro.NewFixedSchema("uint256", "", 32, nil)
 	case types.QValueKindDate:
 		if targetDWH == protos.DBType_SNOWFLAKE {
 			return avro.NewPrimitiveSchema(avro.String, nil), nil
@@ -236,6 +240,8 @@ func QValueToAvro(
 		return c.processNullableUnion(int64(v.Val))
 	case types.QValueInt64:
 		return c.processNullableUnion(v.Val)
+	case types.QValueInt256:
+		return c.processInt256(v.Val), nil
 	case types.QValueUInt8:
 		return c.processNullableUnion(int64(v.Val))
 	case types.QValueUInt16:
@@ -244,6 +250,8 @@ func QValueToAvro(
 		return c.processNullableUnion(int64(v.Val))
 	case types.QValueUInt64:
 		return c.processNullableUnion(int64(v.Val))
+	case types.QValueUInt256:
+		return c.processUInt256(v.Val), nil
 	case types.QValueBoolean:
 		return c.processNullableUnion(v.Val)
 	case types.QValueNumeric:
@@ -382,6 +390,60 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 		return &rat
 	}
 	return rat
+}
+
+var (
+	//  2^256
+	twoPow256 = new(big.Int).Lsh(big.NewInt(1), 256)
+	//  maxInt256 =  2^255 − 1
+	maxInt256 = new(big.Int).Sub(new(big.Int).Lsh(big.NewInt(1), 255), big.NewInt(1))
+	//  minInt256 = −2^255
+	minInt256 = new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), 255))
+)
+
+func bigIntTo32Bytes(n *big.Int) [32]uint8 {
+	var out [32]uint8
+	b := n.Bytes()
+	for i := range b {
+		out[i] = b[len(b)-1-i]
+	}
+	return out
+}
+
+func (c *QValueAvroConverter) processInt256(num *big.Int) any {
+	if num.Cmp(minInt256) < 0 || num.Cmp(maxInt256) > 0 {
+		c.Stat.BigInt256ClearedCount++
+		if c.Nullable {
+			return nil
+		}
+		return bigIntTo32Bytes(big.NewInt(0))
+	}
+
+	if num.Sign() < 0 {
+		num = new(big.Int).Add(num, twoPow256)
+	}
+
+	res := bigIntTo32Bytes(num)
+	if c.Nullable {
+		return &res
+	}
+	return res
+}
+
+func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
+	if num.Sign() < 0 || num.Cmp(twoPow256) >= 0 {
+		c.Stat.BigInt256ClearedCount++
+		if c.Nullable {
+			return nil
+		}
+		return bigIntTo32Bytes(big.NewInt(0))
+	}
+
+	res := bigIntTo32Bytes(num)
+	if c.Nullable {
+		return &res
+	}
+	return res
 }
 
 func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) any {
@@ -595,10 +657,11 @@ type NumericStat struct {
 	MaxExponent              int32
 	LongIntegersClearedCount uint64
 	MaxIntegerDigits         int32
+	BigInt256ClearedCount    uint64
 }
 
-func NewNumericStat(destinationTable, destinationColumn string) *NumericStat {
-	return &NumericStat{
+func NewNumericStat(destinationTable, destinationColumn string) NumericStat {
+	return NumericStat{
 		DestinationTable:  destinationTable,
 		DestinationColumn: destinationColumn,
 	}
@@ -625,6 +688,17 @@ func (ns *NumericStat) CollectWarnings(warnings *shared.QRepWarnings) {
 			"column %s.%s: truncated %d NUMERIC value%s too precise to fit into the destination column (got %d digits of exponent)",
 			ns.DestinationTable, ns.DestinationColumn, ns.TruncatedCount, plural, ns.MaxExponent)
 		warning := exceptions.NewNumericTruncatedError(err, ns.DestinationTable, ns.DestinationColumn)
+		*warnings = append(*warnings, warning)
+	}
+	if ns.BigInt256ClearedCount > 0 {
+		plural := ""
+		if ns.BigInt256ClearedCount > 1 {
+			plural = "s"
+		}
+		err := fmt.Errorf(
+			"column %s.%s: cleared %d NUMERIC value%s that do not fit into (U)Int256 type in the destination column",
+			ns.DestinationTable, ns.DestinationColumn, ns.BigInt256ClearedCount, plural)
+		warning := exceptions.NewNumericOutOfRangeError(err, ns.DestinationTable, ns.DestinationColumn)
 		*warnings = append(*warnings, warning)
 	}
 }

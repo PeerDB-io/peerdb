@@ -23,7 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -33,6 +33,7 @@ type ClickHouseConnector struct {
 	logger        log.Logger
 	config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
+	chVersion     *chproto.Version
 }
 
 func NewClickHouseConnector(
@@ -95,6 +96,10 @@ func NewClickHouseConnector(
 		return nil, err
 	}
 
+	clickHouseVersion, err := database.ServerVersion()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
+	}
 	connector := &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
@@ -104,15 +109,12 @@ func NewClickHouseConnector(
 			Provider:   credentialsProvider,
 			BucketPath: awsBucketPath,
 		},
+		chVersion: &clickHouseVersion.Version,
 	}
 
 	if credentials.AWS.SessionToken != "" {
 		// 24.3.1 is minimum version of ClickHouse that actually supports session token
 		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		clickHouseVersion, err := database.ServerVersion()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
-		}
 		if !chproto.CheckMinVersion(
 			chproto.Version{Major: 24, Minor: 3, Patch: 1},
 			clickHouseVersion.Version,
@@ -251,6 +253,9 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	} else if maxInsertThreads != 0 {
 		settings["max_insert_threads"] = maxInsertThreads
 	}
+	if config.Cluster != "" {
+		settings["insert_distributed_sync"] = uint64(1)
+	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{shared.JoinHostPort(config.Host, config.Port)},
@@ -286,19 +291,19 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 }
 
 func (c *ClickHouseConnector) exec(ctx context.Context, query string) error {
-	return chvalidate.Exec(ctx, c.logger, c.database, query)
+	return peerdb_clickhouse.Exec(ctx, c.logger, c.database, query)
 }
 
 func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string) error {
-	return chvalidate.Exec(ctx, c.logger, conn, query)
+	return peerdb_clickhouse.Exec(ctx, c.logger, conn, query)
 }
 
 func (c *ClickHouseConnector) query(ctx context.Context, query string) (driver.Rows, error) {
-	return chvalidate.Query(ctx, c.logger, c.database, query)
+	return peerdb_clickhouse.Query(ctx, c.logger, c.database, query)
 }
 
 func (c *ClickHouseConnector) queryRow(ctx context.Context, query string) driver.Row {
-	return chvalidate.QueryRow(ctx, c.logger, c.database, query)
+	return peerdb_clickhouse.QueryRow(ctx, c.logger, c.database, query)
 }
 
 func (c *ClickHouseConnector) Close() error {
@@ -321,7 +326,7 @@ func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string)
 }
 
 func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
-	dstSchema []chvalidate.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
+	dstSchema []peerdb_clickhouse.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
 		colName := srcField.Name
@@ -361,11 +366,15 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 }
 
 func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
+	if c.chVersion != nil {
+		return c.chVersion.String(), nil
+	}
+
 	clickhouseVersion, err := c.database.ServerVersion()
 	if err != nil {
 		return "", fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
-	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
+	c.logger.Info("[clickhouse] version", slog.String("version", clickhouseVersion.DisplayName))
 	return clickhouseVersion.Version.String(), nil
 }
 
@@ -390,6 +399,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindInt32
 		case "Int64", "Nullable(Int64)":
 			qkind = types.QValueKindInt64
+		case "Int256", "Nullable(Int256)":
+			qkind = types.QValueKindInt256
 		case "UInt8", "Nullable(UInt8)":
 			qkind = types.QValueKindUInt8
 		case "UInt16", "Nullable(UInt16)":
@@ -398,6 +409,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindUInt32
 		case "UInt64", "Nullable(UInt64)":
 			qkind = types.QValueKindUInt64
+		case "UInt256", "Nullable(UInt256)":
+			qkind = types.QValueKindUInt256
 		case "UUID", "Nullable(UUID)":
 			qkind = types.QValueKindUUID
 		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
@@ -420,6 +433,8 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindArrayUUID
 		case "Array(DateTime64(6))":
 			qkind = types.QValueKindArrayTimestamp
+		case "JSON":
+			qkind = types.QValueKindJSON
 		default:
 			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
 				if strings.HasPrefix(column.DatabaseTypeName(), "Array(") {
@@ -470,4 +485,11 @@ func (c *ClickHouseConnector) GetTableSchema(
 	}
 
 	return res, nil
+}
+
+func (c *ClickHouseConnector) onCluster() string {
+	if c.config.Cluster != "" {
+		return " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(c.config.Cluster)
+	}
+	return ""
 }

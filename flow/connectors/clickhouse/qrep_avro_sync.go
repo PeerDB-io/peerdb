@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -174,7 +175,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 	destTypeConversions map[string]types.TypeConversion,
-	numericTruncator *model.SnapshotTableNumericTruncator,
+	numericTruncator model.SnapshotTableNumericTruncator,
 ) ([]utils.AvroFile, int64, error) {
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
@@ -263,7 +264,8 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 
 	selectedColumnNames := make([]string, 0, len(schema.Fields))
 	insertedColumnNames := make([]string, 0, len(schema.Fields))
-	for _, colName := range schema.GetColumnNames() {
+	for _, field := range schema.Fields {
+		colName := field.Name
 		for _, excludedColumn := range config.Exclude {
 			if colName == excludedColumn {
 				continue
@@ -276,7 +278,15 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 				slog.String("avroFieldName", avroColName))
 			return fmt.Errorf("destination column %s not found in avro schema", colName)
 		}
-		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteIdentifier(avroColName))
+
+		avroColName = peerdb_clickhouse.QuoteIdentifier(avroColName)
+
+		if (field.Type == types.QValueKindJSON || field.Type == types.QValueKindJSONB) &&
+			qvalue.ShouldUseNativeJSONType(ctx, config.Env, s.ClickHouseConnector.chVersion) {
+			avroColName = fmt.Sprintf("JSONExtractString(%s)", avroColName)
+		}
+
+		selectedColumnNames = append(selectedColumnNames, avroColName)
 		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(colName))
 	}
 	if sourceSchemaAsDestinationColumn {
@@ -371,7 +381,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	identifierForFile string,
 	flowJobName string,
 	typeConversions map[string]types.TypeConversion,
-	numericTruncator *model.SnapshotTableNumericTruncator,
+	numericTruncator model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
 	stagingPath := s.credsProvider.BucketPath
 	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE)
