@@ -611,9 +611,10 @@ func (h *FlowRequestHandler) TotalRowsSyncedByMirror(
 	}
 
 	if !req.ExcludeInitialLoad {
-		err := h.pool.QueryRow(ctx, `SELECT SUM(rows_in_partition) FILTER (WHERE end_time IS NOT NULL) AS NumRowsSynced
-		FROM peerdb_stats.qrep_partitions
-		WHERE parent_mirror_name = $1`, req.FlowJobName).Scan(&totalRowsInitialLoad)
+		err := h.pool.QueryRow(ctx, `
+		SELECT SUM(rows_in_partition) AS NumRowsSynced
+        FROM peerdb_stats.qrep_partitions
+        WHERE parent_mirror_name = $1 AND end_time IS NOT NULL`, req.FlowJobName).Scan(&totalRowsInitialLoad)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get total rows synced via CDC for mirror %s: %w", req.FlowJobName, err)
 		}

@@ -767,7 +767,9 @@ func (s Suite) TestTotalRowsSyncedByMirror() {
 	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
 	// test initial load
 	e2e.RequireEqualTables(s.ch, "table1", "id,val")
 	e2e.RequireEqualTables(s.ch, "table2", "id,val")
@@ -776,9 +778,10 @@ func (s Suite) TestTotalRowsSyncedByMirror() {
 		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "table1"))))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "table2"))))
+
 	// test cdc
-	e2e.RequireEqualTables(s.ch, "table1", "id,val")
-	e2e.RequireEqualTables(s.ch, "table2", "id,val")
+	e2e.EnvWaitForEqualTables(env, s.ch, "cdc equal", "table1", "id,val")
+	e2e.EnvWaitForEqualTables(env, s.ch, "cdc equal", "table2", "id,val")
 
 	// check total rows synced
 	mirrorTotalRowsSynced, err := s.TotalRowsSyncedByMirror(s.t.Context(), &protos.TotalRowsSyncedByMirrorRequest{
