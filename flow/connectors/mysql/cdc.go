@@ -235,7 +235,6 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		Logger:     logger,
 		Dialer:     c.Dialer(),
 		UseDecimal: true,
-		ParseTime:  false,
 		TLSConfig:  tlsConfig,
 	}), nil
 }
