@@ -88,7 +88,7 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t) VALUES
 		('init','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321'),
 		('init','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00'),
-		('init','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','-800:0:1')`,
+		('init','2000-01-00','2000-00-01 00:00:00','2000-01-01 00:00:00.000','-800:0:1')`,
 		quotedSrcFullName)))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -108,7 +108,7 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t) VALUES
 		('cdc','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321'),
 		('cdc','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','00:00'),
-		('cdc','0000-00-00','0000-00-00 00:00:00','0000-00-00 00:00:00.000','-800:0:1')`,
+		('cdc','2000-01-00','2000-00-01 00:00:00','2000-01-01 00:00:00.000','-800:0:1')`,
 		quotedSrcFullName)))
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
