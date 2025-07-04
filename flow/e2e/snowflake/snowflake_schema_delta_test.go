@@ -10,7 +10,7 @@ import (
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -53,20 +53,19 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 	err := s.sfTestHelper.RunCommand(s.t.Context(), fmt.Sprintf("CREATE TABLE %s(ID TEXT PRIMARY KEY)", tableName))
 	require.NoError(s.t, err)
 
-	err = s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: []*protos.FieldDescription{
 			{
 				Name:         "HI",
-				Type:         string(qvalue.QValueKindJSON),
+				Type:         string(types.QValueKindJSON),
 				TypeModifier: -1,
 			},
 		},
-	}})
-	require.NoError(s.t, err)
+	}}))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, &protos.TableSchema{
@@ -74,12 +73,12 @@ func (s SnowflakeSchemaDeltaTestSuite) TestSimpleAddColumn() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         "ID",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "HI",
-				Type:         string(qvalue.QValueKindJSON),
+				Type:         string(types.QValueKindJSON),
 				TypeModifier: -1,
 			},
 		},
@@ -96,57 +95,57 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         "ID",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C1",
-				Type:         string(qvalue.QValueKindBoolean),
+				Type:         string(types.QValueKindBoolean),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C2",
-				Type:         string(qvalue.QValueKindBytes),
+				Type:         string(types.QValueKindBytes),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C3",
-				Type:         string(qvalue.QValueKindDate),
+				Type:         string(types.QValueKindDate),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C4",
-				Type:         string(qvalue.QValueKindFloat64),
+				Type:         string(types.QValueKindFloat64),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C5",
-				Type:         string(qvalue.QValueKindJSON),
+				Type:         string(types.QValueKindJSON),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C6",
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: numericAddedColumnTypeModifier, // Numeric(16,7)
 			},
 			{
 				Name:         "C7",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C8",
-				Type:         string(qvalue.QValueKindTime),
+				Type:         string(types.QValueKindTime),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C9",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C10",
-				Type:         string(qvalue.QValueKindTimestampTZ),
+				Type:         string(types.QValueKindTimestampTZ),
 				TypeModifier: -1,
 			},
 		},
@@ -156,7 +155,7 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		if column.Name != "ID" {
 			var typeModifierOfAddedCol int32
 			typeModifierOfAddedCol = -1
-			if column.Type == string(qvalue.QValueKindNumeric) {
+			if column.Type == string(types.QValueKindNumeric) {
 				typeModifierOfAddedCol = numericAddedColumnTypeModifier
 			}
 			addedColumns = append(addedColumns, &protos.FieldDescription{
@@ -168,14 +167,13 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddAllColumnTypes() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	}})
-	require.NoError(s.t, err)
+	}}))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
@@ -191,47 +189,47 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         "ID",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C1",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "C 1",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "RIGHT",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "SELECT",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "XMIN",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "CARIÑO",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "±ªÞ³§",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "カラム",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 		},
@@ -248,14 +246,13 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddTrickyColumnNames() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	}})
-	require.NoError(s.t, err)
+	}}))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])
@@ -271,22 +268,22 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         " ",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "  ",
-				Type:         string(qvalue.QValueKindString),
+				Type:         string(types.QValueKindString),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "   ",
-				Type:         string(qvalue.QValueKindTime),
+				Type:         string(types.QValueKindTime),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "\t",
-				Type:         string(qvalue.QValueKindDate),
+				Type:         string(types.QValueKindDate),
 				TypeModifier: -1,
 			},
 		},
@@ -304,14 +301,13 @@ func (s SnowflakeSchemaDeltaTestSuite) TestAddWhitespaceColumnNames() {
 		}
 	}
 
-	err = s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", []*protos.TableSchemaDelta{{
+	require.NoError(s.t, s.connector.ReplayTableSchemaDeltas(s.t.Context(), nil, "schema_delta_flow", nil, []*protos.TableSchemaDelta{{
 		SrcTableName: tableName,
 		DstTableName: tableName,
 		AddedColumns: addedColumns,
-	}})
-	require.NoError(s.t, err)
+	}}))
 
-	output, err := s.connector.GetTableSchema(s.t.Context(), nil, protos.TypeSystem_Q,
+	output, err := s.connector.GetTableSchema(s.t.Context(), nil, 0, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	require.NoError(s.t, err)
 	require.Equal(s.t, expectedTableSchema, output[tableName])

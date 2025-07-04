@@ -24,6 +24,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -335,6 +336,7 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	env map[string]string,
 	flowJobName string,
+	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	if len(schemaDeltas) == 0 {
@@ -359,8 +361,9 @@ func (c *SnowflakeConnector) ReplayTableSchemaDeltas(
 		}
 
 		for _, addedColumn := range schemaDelta.AddedColumns {
-			sfColtype, err := qvalue.QValueKind(addedColumn.Type).ToDWHColumnType(
-				ctx, env, protos.DBType_SNOWFLAKE, addedColumn, schemaDelta.NullableEnabled,
+			qvKind := types.QValueKind(addedColumn.Type)
+			sfColtype, err := qvalue.ToDWHColumnType(
+				ctx, qvKind, env, protos.DBType_SNOWFLAKE, nil, addedColumn, schemaDelta.NullableEnabled,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to convert column type %s to snowflake type: %w",
@@ -418,8 +421,10 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
-	stream, err := utils.RecordsToRawTableStream(streamReq)
+	streamReq := model.NewRecordsToStreamRequest(
+		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, false, protos.DBType_SNOWFLAKE,
+	)
+	stream, err := utils.RecordsToRawTableStream(streamReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -429,7 +434,8 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		FlowJobName: req.FlowJobName,
 		DestinationTableIdentifier: strings.ToLower(fmt.Sprintf("%s.%s", c.rawSchema,
 			rawTableIdentifier)),
-		Env: req.Env,
+		Env:     req.Env,
+		Version: req.Version,
 	}
 	avroSyncer := NewSnowflakeAvroSyncHandler(qrepConfig, c)
 	destinationTableSchema, err := c.getTableSchema(ctx, qrepConfig.DestinationTableIdentifier)
@@ -442,7 +448,7 @@ func (c *SnowflakeConnector) syncRecordsViaAvro(
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -654,8 +660,9 @@ func generateCreateTableSQLForNormalizedTable(
 	for _, column := range tableSchema.Columns {
 		genericColumnType := column.Type
 		normalizedColName := SnowflakeIdentifierNormalize(column.Name)
-		sfColType, err := qvalue.QValueKind(genericColumnType).ToDWHColumnType(
-			ctx, config.Env, protos.DBType_SNOWFLAKE, column, tableSchema.NullableEnabled,
+		qvKind := types.QValueKind(genericColumnType)
+		sfColType, err := qvalue.ToDWHColumnType(
+			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, nil, column, tableSchema.NullableEnabled,
 		)
 		if err != nil {
 			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),

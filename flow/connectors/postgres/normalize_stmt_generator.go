@@ -10,8 +10,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type normalizeStmtGenerator struct {
@@ -49,10 +49,10 @@ func (n *normalizeStmtGenerator) generateExpr(
 	pgType string,
 ) string {
 	if normalizedTableSchema.System == protos.TypeSystem_Q {
-		qkind := qvalue.QValueKind(genericColumnType)
+		qkind := types.QValueKind(genericColumnType)
 		if qkind.IsArray() {
 			return fmt.Sprintf("ARRAY(SELECT JSON_ARRAY_ELEMENTS_TEXT((_peerdb_data->>%s)::JSON))::%s", stringCol, pgType)
-		} else if qkind == qvalue.QValueKindBytes {
+		} else if qkind == types.QValueKindBytes {
 			return fmt.Sprintf("decode(_peerdb_data->>%s, 'base64')::%s", stringCol, pgType)
 		}
 	}

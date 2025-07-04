@@ -10,27 +10,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func getTimeForTesting(t *testing.T) time.Time {
-	t.Helper()
-	tv, err := time.Parse(time.RFC3339, "2021-08-01T08:02:00Z")
-	require.NoError(t, err)
-
-	millisToAdd := 716
-	tv = tv.Add(time.Millisecond * time.Duration(millisToAdd))
-
-	microSecondsToAdd := 506
-	tv = tv.Add(time.Microsecond * time.Duration(microSecondsToAdd))
-
-	return tv
-}
-
-func getDecimalForTesting(t *testing.T) decimal.Decimal {
-	t.Helper()
-	return decimal.New(9876543210, 123)
-}
+var (
+	timeForTesting    = time.Duration(18342121716506000)
+	decimalForTesting = decimal.New(9876543210, 123)
+)
 
 func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordItems]) {
 	t.Helper()
@@ -39,8 +25,8 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordI
 	_, err := rand.Read(pkeyColVal)
 	require.NoError(t, err)
 
-	tv := getTimeForTesting(t)
-	rv := getDecimalForTesting(t)
+	tv := timeForTesting
+	rv := decimalForTesting
 
 	key := model.TableWithPkey{
 		TableName:  "test_src_tbl",
@@ -55,10 +41,10 @@ func genKeyAndRec(t *testing.T) (model.TableWithPkey, model.Record[model.RecordI
 		DestinationTableName: "test_dst_tbl",
 		CommitID:             2,
 		Items: model.RecordItems{
-			ColToVal: map[string]qvalue.QValue{
-				"id": qvalue.QValueInt64{Val: 1},
-				"ts": qvalue.QValueTime{Val: tv},
-				"rv": qvalue.QValueNumeric{Val: rv},
+			ColToVal: map[string]types.QValue{
+				"id": types.QValueInt64{Val: 1},
+				"ts": types.QValueTime{Val: tv},
+				"rv": types.QValueNumeric{Val: rv},
 			},
 		},
 	}

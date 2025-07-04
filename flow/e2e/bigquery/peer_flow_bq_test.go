@@ -14,8 +14,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -73,7 +73,7 @@ func (s PeerFlowE2ETestSuiteBQ) checkPeerdbColumns(dstQualified string, softDele
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
 			switch entry.(type) {
-			case qvalue.QValueBoolean, qvalue.QValueTimestamp:
+			case types.QValueBoolean, types.QValueTimestamp:
 				recordCount += 1
 			}
 		}
@@ -108,8 +108,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_Flow_No_Data() {
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
 			value VARCHAR(255) NOT NULL
-		);
-	`, srcTableName))
+		)`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -139,8 +138,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 			id SERIAL PRIMARY KEY,
 			key TEXT NOT NULL,
 			value CHAR(255) NOT NULL
-		);
-	`, srcTableName))
+		)`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -159,7 +157,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Char_ColType_Error() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Toast() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_1")
@@ -171,8 +169,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 			t1 text,
 			t2 text,
 			k int
-		);
-	`, srcTableName))
+		)`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -196,12 +193,11 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	*/
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 			BEGIN;
-			INSERT INTO %s(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			INSERT INTO %[1]s(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
-			UPDATE %s SET k=102 WHERE id=1;
-			UPDATE %s SET t1='dummy' WHERE id=2;
-			END;
-		`, srcTableName, srcTableName, srcTableName))
+			UPDATE %[1]s SET k=102 WHERE id=1;
+			UPDATE %[1]s SET t1='dummy' WHERE id=2;
+			END`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Executed a transaction touching toast columns")
 
@@ -210,7 +206,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_3")
@@ -222,8 +218,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 			t1 text,
 			t2 text,
 			k int
-		);
-	`, srcTableName))
+		)`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -242,23 +237,21 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	// complex transaction with random DMLs on a table with toast columns
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 			BEGIN;
-			INSERT INTO %s(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			INSERT INTO %[1]s(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
-			UPDATE %s SET k=102 WHERE id=1;
-			UPDATE %s SET t1='dummy' WHERE id=2;
-			UPDATE %s SET t2='dummy' WHERE id=2;
-			DELETE FROM %s WHERE id=1;
-			INSERT INTO %s(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			UPDATE %[1]s SET k=102 WHERE id=1;
+			UPDATE %[1]s SET t1='dummy' WHERE id=2;
+			UPDATE %[1]s SET t2='dummy' WHERE id=2;
+			DELETE FROM %[1]s WHERE id=1;
+			INSERT INTO %[1]s(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,2);
-			UPDATE %s SET k=1 WHERE id=1;
-			UPDATE %s SET t1='dummy1',t2='dummy2' WHERE id=1;
-			UPDATE %s SET t1='dummy3' WHERE id=3;
-			DELETE FROM %s WHERE id=2;
-			DELETE FROM %s WHERE id=3;
-			DELETE FROM %s WHERE id=2;
-			END;
-		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName,
-		srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
+			UPDATE %[1]s SET k=1 WHERE id=1;
+			UPDATE %[1]s SET t1='dummy1',t2='dummy2' WHERE id=1;
+			UPDATE %[1]s SET t1='dummy3' WHERE id=3;
+			DELETE FROM %[1]s WHERE id=2;
+			DELETE FROM %[1]s WHERE id=3;
+			DELETE FROM %[1]s WHERE id=2;
+			END`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Executed a transaction touching toast columns")
 
@@ -267,7 +260,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_1_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_4")
@@ -298,17 +291,17 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	// complex transaction with random DMLs on a table with toast columns
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 			BEGIN;
-			INSERT INTO %s(t1,k) SELECT random_string(9000),
+			INSERT INTO %[1]s(t1,k) SELECT random_string(9000),
 			1 FROM generate_series(1,1);
-			UPDATE %s SET t1=sub.t1 FROM (SELECT random_string(9000) t1
+			UPDATE %[1]s SET t1=sub.t1 FROM (SELECT random_string(9000) t1
 			FROM generate_series(1,1) ) sub WHERE id=1;
-			UPDATE %s SET k=2 WHERE id=1;
-			UPDATE %s SET k=3 WHERE id=1;
-			UPDATE %s SET t1=sub.t1 FROM (SELECT random_string(9000) t1
+			UPDATE %[1]s SET k=2 WHERE id=1;
+			UPDATE %[1]s SET k=3 WHERE id=1;
+			UPDATE %[1]s SET t1=sub.t1 FROM (SELECT random_string(9000) t1
 			FROM generate_series(1,1)) sub WHERE id=1;
-			UPDATE %s SET k=4 WHERE id=1;
+			UPDATE %[1]s SET k=4 WHERE id=1;
 			END;
-		`, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName, srcTableName))
+		`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Executed a transaction touching toast columns")
 	e2e.EnvWaitForEqualTables(env, s, "normalizing tx", dstTableName, "id,t1,k")
@@ -316,7 +309,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_2_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_toast_bq_5")
@@ -345,19 +338,16 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	/*
-		transaction updating a single row
-		multiple times with changed/unchanged toast columns
-	*/
+	// transaction updating a single row multiple times with changed/unchanged toast columns
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 			BEGIN;
-			INSERT INTO %s(t1,t2,k) SELECT random_string(9000),random_string(9000),
+			INSERT INTO %[1]s(t1,t2,k) SELECT random_string(9000),random_string(9000),
 			1 FROM generate_series(1,1);
-			UPDATE %s SET k=102 WHERE id=1;
-			UPDATE %s SET t1='dummy' WHERE id=1;
-			UPDATE %s SET t2='dummy' WHERE id=1;
+			UPDATE %[1]s SET k=102 WHERE id=1;
+			UPDATE %[1]s SET t1='dummy' WHERE id=1;
+			UPDATE %[1]s SET t2='dummy' WHERE id=1;
 			END;
-		`, srcTableName, srcTableName, srcTableName, srcTableName))
+		`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Executed a transaction touching toast columns")
 	e2e.EnvWaitForEqualTables(env, s, "normalizing tx", dstTableName, "id,t1,t2,k")
@@ -365,7 +355,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Toast_Advance_3_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Types() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_types_bq")
@@ -384,7 +374,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME, c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
 		c39 TXID_SNAPSHOT,c40 UUID,c41 XML, c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
-		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[], c52 NUMERIC);
+		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[], c52 NUMERIC,
+		c53 NUMERIC(16,2)[], c54 NUMERIC[], c55 mood[]);
 	`, srcTableName))
 	require.NoError(s.t, err)
 
@@ -401,9 +392,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	// and execute a transaction touching toast columns
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	/* test inserting various types*/
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-		INSERT INTO %s SELECT 2,2,b'1',b'101',
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s VALUES (2,2,b'1',b'101',
 		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
@@ -420,7 +410,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 		'{"2020-01-01 01:01:01+00", "2020-01-02 01:01:01+00"}'::timestamptz[],
 		'{"2020-01-01 01:01:01", "2020-01-02 01:01:01"}'::timestamp[],
 		'{true, false}'::boolean[],
-		'{1, 2}'::smallint[];
+		'{1, 2}'::smallint[], null,
+		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], ARRAY['happy','sad']::mood[])
 		`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
@@ -430,7 +421,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 			"c6", "c39", "c40", "id", "c9", "c11", "c12", "c13", "c14", "c15", "c16", "c17", "c18",
 			"c21", "c22", "c23", "c24", "c28", "c29", "c30", "c31", "c33", "c34", "c35", "c36",
 			"c37", "c38", "c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48",
-			"c49", "c50", "c51",
+			"c49", "c50", "c51", "c53", "c54", "c55",
 		})
 		if err != nil {
 			s.t.Log(err)
@@ -460,14 +451,13 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Types_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_nans_bq")
 	dstTableName := "test_nans_bq"
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 double precision,c2 double precision[],c3 numeric);
-	`, srcTableName))
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s (id serial PRIMARY KEY,c1 double precision,c2 double precision[],c3 numeric)`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -485,9 +475,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// test inserting various types
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-	INSERT INTO %s SELECT 2, 'NaN'::double precision, '{NaN, Infinity, -Infinity}', 'NaN'::numeric;
-	`, srcTableName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s SELECT 2, 'NaN'::double precision, '{NaN, Infinity, -Infinity}', 'NaN'::numeric`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 
 	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize weird floats", func() bool {
@@ -507,7 +496,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_NaN_Doubles_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_Avro_CDC() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_invalid_geo_bq_avro_cdc")
@@ -584,7 +573,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Geo_BQ_Avro_CDC() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTable1Name := s.attachSchemaSuffix("test1_bq")
@@ -638,7 +627,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_BQ() {
 
 // TODO: not checking schema exactly
 // write a GetTableSchemaConnector for BQ to enable generic_test
-func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	tableName := "test_simple_schema_changes"
@@ -716,7 +705,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Simple_Schema_Changes_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	tableName := "test_all_types_schema_changes"
@@ -781,7 +770,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_All_Types_Schema_Changes_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	tableName := "test_simple_cpkey"
@@ -836,7 +825,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
@@ -896,7 +885,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_1_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	tableName := "test_cpkey_toast2"
@@ -950,7 +939,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Composite_PKey_Toast_2_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Columns() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_peerdb_cols")
@@ -997,7 +986,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Columns_BQ() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_Multi_Table_Multi_Dataset() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTable1Name := s.attachSchemaSuffix("test1_bq")
@@ -1337,7 +1326,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Soft_Delete_Insert_After_Delete() {
 	require.Equal(s.t, int64(0), numNewRows)
 }
 
-func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey_BQ() {
+func (s PeerFlowE2ETestSuiteBQ) Test_JSON_PKey() {
 	srcTableName := s.attachSchemaSuffix("test_json_pkey_bq")
 	dstTableName := "test_json_pkey_bq"
 

@@ -436,7 +436,11 @@ func pullCore[Items model.Items](
 	}
 	handleInheritanceForNonPartitionedTables, err := internal.PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx, req.Env)
 	if err != nil {
-		return fmt.Errorf("failed to get get setting for handleInheritanceForNonPartitionedTables: %v", err)
+		return fmt.Errorf("failed to get get setting for handleInheritanceForNonPartitionedTables: %w", err)
+	}
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get get setting for sourceSchemaAsDestinationColumn: %w", err)
 	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
@@ -450,6 +454,8 @@ func pullCore[Items model.Items](
 		Slot:                                     slotName,
 		Publication:                              publicationName,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
+		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
+		InternalVersion:                          req.InternalVersion,
 	})
 	if err != nil {
 		c.logger.Error("error creating cdc source", slog.Any("error", err))
@@ -618,7 +624,7 @@ func syncRecordsCore[Items model.Items](
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -775,13 +781,14 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
+	version uint32,
 	system protos.TypeSystem,
 	tableMapping []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMapping))
 
 	for _, tm := range tableMapping {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system)
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -843,6 +850,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
+	version uint32,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
 	if err != nil {
@@ -915,7 +923,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 		case protos.TypeSystem_PG:
 			colType, err = c.postgresOIDToName(fieldDescription.DataTypeOID, customTypeMapping)
 		case protos.TypeSystem_Q:
-			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID, customTypeMapping)
+			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID, customTypeMapping, version)
 			colType = string(qColType)
 		}
 		if err != nil {
@@ -1012,6 +1020,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	_ map[string]string,
 	flowJobName string,
+	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	if len(schemaDeltas) == 0 {

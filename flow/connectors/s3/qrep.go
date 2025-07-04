@@ -7,10 +7,10 @@ import (
 	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *S3Connector) SyncQRepRecords(
@@ -18,31 +18,31 @@ func (c *S3Connector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	dstTableName := config.DestinationTableIdentifier
 	avroSchema, err := getAvroSchema(ctx, config.Env, dstTableName, schema)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	numRecords, err := c.writeToAvroFile(ctx, config.Env, stream, avroSchema, partition.PartitionId, config.FlowJobName)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
-	return numRecords, nil
+	return numRecords, nil, nil
 }
 
 func getAvroSchema(
 	ctx context.Context,
 	env map[string]string,
 	dstTableName string,
-	schema qvalue.QRecordSchema,
+	schema types.QRecordSchema,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	// TODO: Support avro-incompatible column names
 	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_S3, nil)
@@ -68,8 +68,22 @@ func (c *S3Connector) writeToAvroFile(
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
 
-	writer := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.Null, protos.DBType_S3)
-	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil)
+	var codec ocf.CodecName
+	switch c.codec {
+	case protos.AvroCodec_Null:
+		codec = ocf.Null
+	case protos.AvroCodec_Deflate:
+		codec = ocf.Deflate
+	case protos.AvroCodec_Snappy:
+		codec = ocf.Snappy
+	case protos.AvroCodec_ZStandard:
+		codec = ocf.ZStandard
+	default:
+		return 0, fmt.Errorf("unsupported codec %s", c.codec)
+	}
+
+	writer := utils.NewPeerDBOCFWriter(stream, avroSchema, codec, protos.DBType_S3)
+	avroFile, err := writer.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, c.credentialsProvider, nil, nil, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}

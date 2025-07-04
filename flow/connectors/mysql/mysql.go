@@ -32,6 +32,7 @@ type MySqlConnector struct {
 	logger        log.Logger
 	rdsAuth       *utils.RDSAuth
 	serverVersion string
+	bytesRead     atomic.Int64
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -61,7 +62,7 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		ssh:              ssh,
 		conn:             atomic.Pointer[client.Conn]{},
 		contexts:         contexts,
-		logger:           internal.LoggerFromCtx(ctx),
+		logger:           logger,
 		rdsAuth:          rdsAuth,
 	}
 	go func() {
@@ -125,11 +126,9 @@ func (c *MySqlConnector) ConnectionActive(context.Context) error {
 
 func (c *MySqlConnector) Dialer() client.Dialer {
 	if c.ssh.Client == nil {
-		return (&net.Dialer{Timeout: time.Minute}).DialContext
+		return NewMeteredDialer(&c.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
 	}
-	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		return c.ssh.Client.DialContext(ctx, network, addr)
-	}
+	return NewMeteredDialer(&c.bytesRead, c.ssh.Client.DialContext)
 }
 
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
@@ -169,7 +168,7 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			config.Password = token
 		}
 		var err error
-		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", config.Host, config.Port),
+		conn, err = client.ConnectWithDialer(ctx, "", shared.JoinHostPort(config.Host, config.Port),
 			config.User, config.Password, config.Database, c.Dialer(), argF...)
 		if err != nil {
 			return nil, err
@@ -250,12 +249,13 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 	rowCb client.SelectPerRowCallback,
 	resultCb client.SelectPerResultCallback,
 	args ...any,
-) error {
+) (int64, error) {
 	var connectionErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return err
+			return 0, err
 		}
+		c.bytesRead.Store(0)
 
 		if len(args) == 0 {
 			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
@@ -263,7 +263,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return err
+				return 0, err
 			}
 		} else {
 			stmt, err := conn.Prepare(cmd)
@@ -272,7 +272,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return err
+				return 0, err
 			}
 			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
 			_ = stmt.Close()
@@ -281,12 +281,12 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return err
+				return 0, err
 			}
 		}
-		return nil
+		return c.bytesRead.Load(), nil
 	}
-	return connectionErr
+	return 0, connectionErr
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {

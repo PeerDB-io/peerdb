@@ -6,7 +6,7 @@ import (
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func assert(t *testing.T, ls *lua.LState, source string) {
@@ -25,11 +25,11 @@ func Test(t *testing.T) {
 	RegisterTypes(ls)
 
 	row := model.NewRecordItems(1)
-	row.AddColumn("a", qvalue.QValueInt64{Val: 5040})
+	row.AddColumn("a", types.QValueInt64{Val: 5040})
 	ls.Env.RawSetString("row", LuaRow.New(ls, row))
 
 	row_empty_array := model.NewRecordItems(1)
-	row_empty_array.AddColumn("a", qvalue.QValueArrayInt32{Val: nil})
+	row_empty_array.AddColumn("a", types.QValueArrayInt32{Val: nil})
 	ls.Env.RawSetString("row_empty_array", LuaRow.New(ls, row_empty_array))
 
 	assert(t, ls, `

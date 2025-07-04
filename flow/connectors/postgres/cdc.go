@@ -17,25 +17,27 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/lib/pq/oid"
+	"github.com/pgvector/pgvector-go"
 	"go.temporal.io/sdk/log"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
-	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/postgres"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type PostgresCDCSource struct {
 	*PostgresConnector
 	srcTableIDNameMapping  map[uint32]string
+	schemaNameForRelID     map[uint32]string
 	tableNameMapping       map[string]model.NameAndExclude
 	tableNameSchemaMapping map[string]*protos.TableSchema
 	relationMessageMapping model.RelationMessageMapping
@@ -53,6 +55,7 @@ type PostgresCDCSource struct {
 	hushWarnUnknownTableDetected             map[uint32]struct{}
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
+	internalVersion                          uint32
 }
 
 type PostgresCDCConfig struct {
@@ -66,6 +69,8 @@ type PostgresCDCConfig struct {
 	Slot                                     string
 	Publication                              string
 	HandleInheritanceForNonPartitionedTables bool
+	SourceSchemaAsDestinationColumn          bool
+	InternalVersion                          uint32
 }
 
 // Create a new PostgresCDCSource
@@ -77,9 +82,15 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		return nil, fmt.Errorf("error getting child to parent relid map: %w", err)
 	}
 
+	var schemaNameForRelID map[uint32]string
+	if cdcConfig.SourceSchemaAsDestinationColumn {
+		schemaNameForRelID = make(map[uint32]string, len(cdcConfig.TableNameSchemaMapping))
+	}
+
 	return &PostgresCDCSource{
 		PostgresConnector:                        c,
 		srcTableIDNameMapping:                    cdcConfig.SrcTableIDNameMapping,
+		schemaNameForRelID:                       schemaNameForRelID,
 		tableNameMapping:                         cdcConfig.TableNameMapping,
 		tableNameSchemaMapping:                   cdcConfig.TableNameSchemaMapping,
 		relationMessageMapping:                   cdcConfig.RelationMessageMapping,
@@ -93,7 +104,23 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
+		internalVersion:                          cdcConfig.InternalVersion,
 	}, nil
+}
+
+func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, tableName string) (string, error) {
+	if p.schemaNameForRelID == nil {
+		return "", nil
+	} else if schema, ok := p.schemaNameForRelID[relID]; ok {
+		return schema, nil
+	}
+
+	schemaTable, err := utils.ParseSchemaTable(tableName)
+	if err != nil {
+		return "", err
+	}
+	p.schemaNameForRelID[relID] = schemaTable.Schema
+	return schemaTable.Schema, nil
 }
 
 func getChildToParentRelIDMap(ctx context.Context,
@@ -140,6 +167,8 @@ type replProcessor[Items model.Items] interface {
 		col *pglogrepl.RelationMessageColumn,
 		customTypeMapping map[uint32]shared.CustomDataType,
 	) error
+
+	AddStringColumn(items Items, name string, value string)
 }
 
 type pgProcessor struct{}
@@ -173,6 +202,10 @@ func (pgProcessor) Process(
 	return nil
 }
 
+func (pgProcessor) AddStringColumn(items model.PgItems, name string, value string) {
+	items.AddColumn(name, shared.UnsafeFastStringToReadOnlyBytes(value))
+}
+
 type qProcessor struct{}
 
 func (qProcessor) NewItems(size int) model.RecordItems {
@@ -188,10 +221,12 @@ func (qProcessor) Process(
 ) error {
 	switch tuple.DataType {
 	case 'n': // null
-		items.AddColumn(col.Name, qvalue.QValueNull(qvalue.QValueKindInvalid))
+		items.AddColumn(col.Name, types.QValueNull(types.QValueKindInvalid))
 	case 't': // text
 		// bytea also appears here as a hex
-		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.TextFormatCode, customTypeMapping)
+		data, err := p.decodeColumnData(
+			tuple.Data, col.DataType, col.TypeModifier, pgtype.TextFormatCode, customTypeMapping, p.internalVersion,
+		)
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
 				slog.String("columnName", col.Name), slog.Int64("dataType", int64(col.DataType)))
@@ -199,7 +234,9 @@ func (qProcessor) Process(
 		}
 		items.AddColumn(col.Name, data)
 	case 'b': // binary
-		data, err := p.decodeColumnData(tuple.Data, col.DataType, pgtype.BinaryFormatCode, customTypeMapping)
+		data, err := p.decodeColumnData(
+			tuple.Data, col.DataType, col.TypeModifier, pgtype.BinaryFormatCode, customTypeMapping, p.internalVersion,
+		)
 		if err != nil {
 			return fmt.Errorf("error decoding binary column data: %w", err)
 		}
@@ -210,13 +247,18 @@ func (qProcessor) Process(
 	return nil
 }
 
+func (qProcessor) AddStringColumn(items model.RecordItems, name string, value string) {
+	items.AddColumn(name, types.QValueString{Val: value})
+}
+
 func processTuple[Items model.Items](
 	processor replProcessor[Items],
 	p *PostgresCDCSource,
 	tuple *pglogrepl.TupleData,
 	rel *pglogrepl.RelationMessage,
-	exclude map[string]struct{},
+	nameAndExclude model.NameAndExclude,
 	customTypeMapping map[uint32]shared.CustomDataType,
+	schemaName string,
 ) (Items, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
@@ -228,7 +270,7 @@ func processTuple[Items model.Items](
 
 	for idx, tcol := range tuple.Columns {
 		rcol := rel.Columns[idx]
-		if _, ok := exclude[rcol.Name]; ok {
+		if _, ok := nameAndExclude.Exclude[rcol.Name]; ok {
 			continue
 		}
 		if tcol.DataType == 'u' {
@@ -241,74 +283,100 @@ func processTuple[Items model.Items](
 			return none, nil, err
 		}
 	}
+
+	if schemaName != "" {
+		processor.AddStringColumn(items, "_peerdb_source_schema", schemaName)
+	}
+
 	return items, unchangedToastColumns, nil
 }
 
 func (p *PostgresCDCSource) decodeColumnData(
-	data []byte, dataType uint32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType,
-) (qvalue.QValue, error) {
+	data []byte, dataType uint32, typmod int32, formatCode int16, customTypeMapping map[uint32]shared.CustomDataType, version uint32,
+) (types.QValue, error) {
 	var parsedData any
 	var err error
 	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
-		dtOid := oid.Oid(dt.OID)
-		if dtOid == oid.T_cidr || dtOid == oid.T_inet || dtOid == oid.T_macaddr || dtOid == oid.T_xml {
+		dtOid := dt.OID
+		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
 			// below is required to decode above types to string
 			parsedData, err = dt.Codec.DecodeDatabaseSQLValue(p.typeMap, dataType, formatCode, data)
 		} else {
 			parsedData, err = dt.Codec.DecodeValue(p.typeMap, dataType, formatCode, data)
 		}
 		if err != nil {
-			if dtOid == oid.T_time || dtOid == oid.T_timetz ||
-				dtOid == oid.T_timestamp || dtOid == oid.T_timestamptz {
+			if dtOid == pgtype.TimeOID || dtOid == pgtype.TimetzOID ||
+				dtOid == pgtype.TimestampOID || dtOid == pgtype.TimestamptzOID {
 				// indicates year is more than 4 digits or something similar,
-				// which you can insert into postgres,
-				// but not representable by time.Time
-				p.logger.Warn(fmt.Sprintf("Invalidated and hence nulled %s data: %s",
-					dt.Name, string(data)))
+				// which you can insert into postgres, but not representable by time.Time
+				p.logger.Warn("Invalidate time for destination, nulled", slog.String("typeName", dt.Name), slog.String("value", string(data)))
 				switch dtOid {
-				case oid.T_time:
-					return qvalue.QValueNull(qvalue.QValueKindTime), nil
-				case oid.T_timetz:
-					return qvalue.QValueNull(qvalue.QValueKindTimeTZ), nil
-				case oid.T_timestamp:
-					return qvalue.QValueNull(qvalue.QValueKindTimestamp), nil
-				case oid.T_timestamptz:
-					return qvalue.QValueNull(qvalue.QValueKindTimestampTZ), nil
+				case pgtype.TimeOID:
+					return types.QValueNull(types.QValueKindTime), nil
+				case pgtype.TimetzOID:
+					return types.QValueNull(types.QValueKindTimeTZ), nil
+				case pgtype.TimestampOID:
+					return types.QValueNull(types.QValueKindTimestamp), nil
+				case pgtype.TimestamptzOID:
+					return types.QValueNull(types.QValueKindTimestampTZ), nil
 				}
 			}
 			return nil, err
 		}
-		return p.parseFieldFromPostgresOID(dataType, parsedData, customTypeMapping)
-	} else if dataType == uint32(oid.T_timetz) { // ugly TIMETZ workaround for CDC decoding.
-		return p.parseFieldFromPostgresOID(dataType, string(data), customTypeMapping)
+		return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
+		return p.parseFieldFromPostgresOID(dataType, typmod, string(data), customTypeMapping, p.internalVersion)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
-		customQKind := customTypeToQKind(typeData)
+		customQKind := postgres.CustomTypeToQKind(typeData, version)
 		switch customQKind {
-		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry:
+		case types.QValueKindGeography, types.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
 			if err != nil {
-				return qvalue.QValueNull(customQKind), nil
-			} else if customQKind == qvalue.QValueKindGeography {
-				return qvalue.QValueGeography{Val: wkt}, nil
+				return types.QValueNull(customQKind), nil
+			} else if customQKind == types.QValueKindGeography {
+				return types.QValueGeography{Val: wkt}, nil
 			} else {
-				return qvalue.QValueGeometry{Val: wkt}, nil
+				return types.QValueGeometry{Val: wkt}, nil
 			}
-		case qvalue.QValueKindHStore:
-			return qvalue.QValueHStore{Val: string(data)}, nil
-		case qvalue.QValueKindString:
-			return qvalue.QValueString{Val: string(data)}, nil
-		case qvalue.QValueKindEnum:
-			return qvalue.QValueEnum{Val: string(data)}, nil
-		case qvalue.QValueKindArrayString:
-			return qvalue.QValueArrayString{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
-		case qvalue.QValueKindArrayEnum:
-			return qvalue.QValueArrayEnum{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
+		case types.QValueKindHStore:
+			return types.QValueHStore{Val: string(data)}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: string(data)}, nil
+		case types.QValueKindEnum:
+			return types.QValueEnum{Val: string(data)}, nil
+		case types.QValueKindArrayString:
+			return types.QValueArrayString{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
+		case types.QValueKindArrayFloat32:
+			switch typeData.Name {
+			case "vector":
+				var vector pgvector.Vector
+				if err := vector.Parse(string(data)); err != nil {
+					return nil, fmt.Errorf("[pg] failed to parse vector: %w", err)
+				}
+				return types.QValueArrayFloat32{Val: vector.Slice()}, nil
+			case "halfvec":
+				var halfvec pgvector.HalfVector
+				if err := halfvec.Parse(string(data)); err != nil {
+					return nil, fmt.Errorf("[pg] failed to parse halfvec: %w", err)
+				}
+				return types.QValueArrayFloat32{Val: halfvec.Slice()}, nil
+			case "sparsevec":
+				var sparsevec pgvector.SparseVector
+				if err := sparsevec.Parse(string(data)); err != nil {
+					return nil, fmt.Errorf("[pg] failed to parse sparsevec: %w", err)
+				}
+				return types.QValueArrayFloat32{Val: sparsevec.Slice()}, nil
+			default:
+				return nil, fmt.Errorf("unknown float array type %s", typeData.Name)
+			}
+		case types.QValueKindArrayEnum:
+			return types.QValueArrayEnum{Val: shared.ParsePgArrayToStringSlice(data, typeData.Delim)}, nil
 		default:
-			return nil, fmt.Errorf("unknown custom qkind: %s", customQKind)
+			return nil, fmt.Errorf("unknown custom qkind for %s: %s", typeData.Name, customQKind)
 		}
 	}
 
-	return qvalue.QValueString{Val: string(data)}, nil
+	return types.QValueString{Val: string(data)}, nil
 }
 
 // PullCdcRecords pulls records from req's cdc stream
@@ -612,8 +680,7 @@ func PullCdcRecords[Items model.Items](
 						// otherwise push to records so destination can ack once all previous messages processed
 						if cdcRecordsStorage.IsEmpty() {
 							if int64(clientXLogPos) > req.ConsumedOffset.Load() {
-								err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos)
-								if err != nil {
+								if err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos); err != nil {
 									return err
 								}
 							}
@@ -753,7 +820,12 @@ func processInsertMessage[Items model.Items](
 		return nil, fmt.Errorf("unknown relation id: %d", relID)
 	}
 
-	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName].Exclude, customTypeMapping)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
@@ -789,14 +861,18 @@ func processUpdateMessage[Items model.Items](
 		return nil, fmt.Errorf("unknown relation id: %d", relID)
 	}
 
-	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel,
-		p.tableNameMapping[tableName].Exclude, customTypeMapping)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, "")
 	if err != nil {
 		return nil, fmt.Errorf("error converting old tuple to map: %w", err)
 	}
 
 	newItems, unchangedToastColumns, err := processTuple(
-		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName].Exclude, customTypeMapping)
+		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
 	if err != nil {
 		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
 	}
@@ -847,8 +923,12 @@ func processDeleteMessage[Items model.Items](
 		return nil, fmt.Errorf("unknown relation id: %d", relID)
 	}
 
-	items, _, err := processTuple(processor, p, msg.OldTuple, rel,
-		p.tableNameMapping[tableName].Exclude, customTypeMapping)
+	schemaName, err := p.getSourceSchemaForDestinationColumn(relID, tableName)
+	if err != nil {
+		return nil, err
+	}
+
+	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
@@ -907,11 +987,11 @@ func processRelationMessage[Items model.Items](
 	for _, column := range currRel.Columns {
 		switch prevSchema.System {
 		case protos.TypeSystem_Q:
-			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping)
-			if qKind == qvalue.QValueKindInvalid {
+			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping, p.internalVersion)
+			if qKind == types.QValueKindInvalid {
 				typeName, ok := customTypeMapping[column.DataType]
 				if ok {
-					qKind = customTypeToQKind(typeName)
+					qKind = postgres.CustomTypeToQKind(typeName, p.internalVersion)
 				}
 			}
 			currRelMap[column.Name] = string(qKind)

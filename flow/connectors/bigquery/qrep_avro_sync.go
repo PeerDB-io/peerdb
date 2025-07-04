@@ -13,11 +13,12 @@ import (
 	"github.com/hamba/avro/v2"
 	"github.com/hamba/avro/v2/ocf"
 
-	avroutils "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRepAvroSyncMethod struct {
@@ -97,7 +98,7 @@ func (s *QRepAvroSyncMethod) SyncRecords(
 		slog.String(string(shared.FlowNameKey), req.FlowJobName),
 		slog.String("dstTableName", rawTableName))
 
-	if err := s.connector.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
+	if err := s.connector.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -225,7 +226,7 @@ func DefineAvroSchema(dstTableName string,
 	softDeleteCol string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroFields := make([]*avro.Field, 0, len(dstTableMetadata.Schema))
-	qFields := make([]qvalue.QField, 0, len(avroFields))
+	qFields := make([]types.QField, 0, len(avroFields))
 	for _, bqField := range dstTableMetadata.Schema {
 		if bqField.Name == syncedAtCol || bqField.Name == softDeleteCol {
 			continue
@@ -303,7 +304,11 @@ func GetAvroType(bqField *bigquery.FieldSchema) (avro.Schema, error) {
 		}
 		return avro.NewRecordSchema("datetime", "", []*avro.Field{dateField, timeField})
 	case bigquery.BigNumericFieldType:
-		return avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale))), nil
+		bigNumericSchema := avro.NewPrimitiveSchema(avro.Bytes, avro.NewDecimalLogicalSchema(int(avroNumericPrecision), int(avroNumericScale)))
+		if bqField.Repeated {
+			return avro.NewArraySchema(bigNumericSchema), nil
+		}
+		return bigNumericSchema, nil
 	case bigquery.RecordFieldType:
 		avroFields := []*avro.Field{}
 		for _, bqSubField := range bqField.Schema {
@@ -353,8 +358,8 @@ func (s *QRepAvroSyncMethod) writeToStage(
 	stream *model.QRecordStream,
 	flowName string,
 ) (int64, error) {
-	var avroFile *avroutils.AvroFile
-	ocfWriter := avroutils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY)
+	var avroFile utils.AvroFile
+	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.Snappy, protos.DBType_BIGQUERY)
 	idLog := slog.Group("write-metadata",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("batchOrPartitionID", syncID),
@@ -365,7 +370,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 		obj := bucket.Object(avroFilePath)
 		w := obj.NewWriter(ctx)
 
-		numRecords, err := ocfWriter.WriteOCF(ctx, env, w, nil)
+		numRecords, err := ocfWriter.WriteOCF(ctx, env, w, nil, nil)
 		if err != nil {
 			return 0, fmt.Errorf("failed to write records to Avro file on GCS: %w", err)
 		}
@@ -373,9 +378,9 @@ func (s *QRepAvroSyncMethod) writeToStage(
 			return 0, fmt.Errorf("failed to close Avro file on GCS after writing: %w", err)
 		}
 
-		avroFile = &avroutils.AvroFile{
+		avroFile = utils.AvroFile{
 			NumRecords:      numRecords,
-			StorageLocation: avroutils.AvroGCSStorage,
+			StorageLocation: utils.AvroGCSStorage,
 			FilePath:        avroFilePath,
 		}
 	} else {

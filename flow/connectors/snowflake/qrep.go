@@ -29,7 +29,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, config.FlowJobName)
 
 	// Ensure the destination table is available.
@@ -40,7 +40,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	)
 	tblSchema, err := c.getTableSchema(ctx, destTable)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
+		return 0, nil, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
@@ -104,21 +104,16 @@ func (c *SnowflakeConnector) createStage(ctx context.Context, stageName string, 
 		}
 		createStageStmt = stmt
 	} else {
-		stageStatement := `
-			CREATE OR REPLACE STAGE %s
-			FILE_FORMAT = (TYPE = AVRO);
-			`
-		createStageStmt = fmt.Sprintf(stageStatement, stageName)
+		createStageStmt = fmt.Sprintf(`CREATE OR REPLACE STAGE %s FILE_FORMAT = (TYPE = AVRO)`, stageName)
 	}
 
 	// Execute the query
-	_, err := c.execWithLogging(ctx, createStageStmt)
-	if err != nil {
-		c.logger.Error("failed to create stage "+stageName, slog.Any("error", err))
+	if _, err := c.execWithLogging(ctx, createStageStmt); err != nil {
+		c.logger.Error("failed to create stage", slog.String("stage", stageName), slog.Any("error", err))
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
 	}
 
-	c.logger.Info("Created stage " + stageName)
+	c.logger.Info("Created stage", slog.String("stage", stageName))
 	return nil
 }
 
@@ -131,7 +126,6 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
-	s3Int := c.config.S3Integration
 	provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
 	if err != nil {
 		return "", err
@@ -141,7 +135,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 	if err != nil {
 		return "", err
 	}
-	if s3Int == "" {
+	if c.config.S3Integration == "" {
 		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s' AWS_TOKEN='%s')",
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, creds.AWS.SessionToken)
 		stageStatement := `
@@ -156,7 +150,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 		URL = '%s'
 		STORAGE_INTEGRATION = %s
 		FILE_FORMAT = (TYPE = AVRO);`
-		return fmt.Sprintf(stageStatement, stageName, cleanURL, s3Int), nil
+		return fmt.Sprintf(stageStatement, stageName, cleanURL, c.config.S3Integration), nil
 	}
 }
 

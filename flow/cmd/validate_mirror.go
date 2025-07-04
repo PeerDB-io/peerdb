@@ -16,10 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
-var (
-	CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
-	CustomColumnNameRegex = regexp.MustCompile(`^$|^[a-zA-Z_][a-zA-Z0-9_]*$`)
-)
+var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
@@ -58,9 +55,6 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
 				return nil, fmt.Errorf("invalid custom column type %s", col.DestinationType)
-			}
-			if !CustomColumnNameRegex.MatchString(col.DestinationName) {
-				return nil, fmt.Errorf("invalid custom column name %s", col.DestinationName)
 			}
 		}
 	}
@@ -102,7 +96,8 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	res, err := srcConn.GetTableSchema(ctx, nil, req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
+	res, err := srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
+		req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source table schema: %w", err)
 	}

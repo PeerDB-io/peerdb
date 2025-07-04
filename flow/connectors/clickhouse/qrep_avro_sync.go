@@ -11,7 +11,6 @@ import (
 	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -19,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type ClickHouseAvroSyncMethod struct {
@@ -36,29 +36,47 @@ func NewClickHouseAvroSyncMethod(
 	}
 }
 
-func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile *avro.AvroFile) error {
+func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, avroFilePath string) (string, error) {
 	stagingPath := s.credsProvider.BucketPath
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	endpoint := s.credsProvider.Provider.GetEndpointURL()
 	region := s.credsProvider.Provider.GetRegion()
-	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFile.FilePath)
+	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFilePath)
 	creds, err := s.credsProvider.Provider.Retrieve(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	sessionTokenPart := ""
+	var expr strings.Builder
+	expr.WriteString("s3(")
+	expr.WriteString(peerdb_clickhouse.QuoteLiteral(avroFileUrl))
+	expr.WriteByte(',')
+	expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.AccessKeyID))
+	expr.WriteByte(',')
+	expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.SecretAccessKey))
 	if creds.AWS.SessionToken != "" {
-		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
+		expr.WriteByte(',')
+		expr.WriteString(peerdb_clickhouse.QuoteLiteral(creds.AWS.SessionToken))
+	}
+	expr.WriteString(",'Avro')")
+	return expr.String(), nil
+}
+
+func (s *ClickHouseAvroSyncMethod) CopyStageToDestination(ctx context.Context, avroFile utils.AvroFile) error {
+	s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
+	if err != nil {
+		s.logger.Error("failed to build S3 table function",
+			slog.String("avroFilePath", avroFile.FilePath),
+			slog.Any("error", err))
+		return fmt.Errorf("failed to build S3 table function: %w", err)
 	}
 
-	query := fmt.Sprintf("INSERT INTO `%s` SELECT * FROM s3('%s','%s','%s'%s, 'Avro')",
-		s.config.DestinationTableIdentifier, avroFileUrl,
-		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
+	query := fmt.Sprintf("INSERT INTO %s SELECT * FROM %s",
+		peerdb_clickhouse.QuoteIdentifier(s.config.DestinationTableIdentifier), s3TableFunction)
 	return s.exec(ctx, query)
 }
 
@@ -84,7 +102,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	}
 
 	batchIdentifierForFile := fmt.Sprintf("%s_%d", shared.RandomString(16), syncBatchID)
-	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil)
+	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -107,77 +125,77 @@ func (s *ClickHouseAvroSyncMethod) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	dstTableName := config.DestinationTableIdentifier
 	startTime := time.Now()
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	destTypeConversions := findTypeConversions(schema, config.Columns)
 	if len(destTypeConversions) > 0 {
 		schema = applyTypeConversions(schema, destTypeConversions)
 	}
+	numericTruncator := model.NewSnapshotTableNumericTruncator(dstTableName, schema.Fields)
 
 	columnNameAvroFieldMap := model.ConstructColumnNameAvroFieldMap(schema.Fields)
-	avroFile, err := s.pushDataToS3(ctx, config, dstTableName, schema,
-		columnNameAvroFieldMap, partition, stream, destTypeConversions)
+	avroFiles, totalRecords, err := s.pushDataToS3(ctx, config, dstTableName, schema,
+		columnNameAvroFieldMap, partition, stream, destTypeConversions, numericTruncator)
 	if err != nil {
 		s.logger.Error("failed to push data to S3",
 			slog.String("dstTable", dstTableName),
 			slog.Any("error", err))
-		return 0, err
+		return 0, nil, err
 	}
 
 	if err := s.pushS3DataToClickHouse(
-		ctx, avroFile.FilePath, schema, columnNameAvroFieldMap, config); err != nil {
+		ctx, avroFiles, schema, columnNameAvroFieldMap, config); err != nil {
 		s.logger.Error("failed to push data to ClickHouse",
 			slog.String("dstTable", dstTableName),
 			slog.Any("error", err))
-		return 0, err
+		return 0, nil, err
 	}
+	warnings := numericTruncator.Warnings()
 
 	if err := s.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
 		s.logger.Error("Failed to finish QRep partition", slog.Any("error", err))
-		return 0, err
+		return 0, nil, err
 	}
 
-	return avroFile.NumRecords, nil
+	return totalRecords, warnings, nil
 }
 
 func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	dstTableName string,
-	schema qvalue.QRecordSchema,
+	schema types.QRecordSchema,
 	columnNameAvroFieldMap map[string]string,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-	destTypeConversions map[string]qvalue.TypeConversion,
-) (*avro.AvroFile, error) {
+	destTypeConversions map[string]types.TypeConversion,
+	numericTruncator model.SnapshotTableNumericTruncator,
+) ([]utils.AvroFile, int64, error) {
 	avroSchema, err := s.getAvroSchema(ctx, config.Env, dstTableName, schema, columnNameAvroFieldMap)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
 	avroChunking, err := internal.PeerDBS3BytesPerAvroFile(ctx, config.Env)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	var avroFile *avro.AvroFile
-	if avroChunking != 0 {
-		avroFile = &avro.AvroFile{
-			FilePath:   "",
-			NumRecords: 0,
-		}
+	var avroFiles []utils.AvroFile
+	var totalRecords int64
 
+	if avroChunking != 0 {
 		chunkNum := 0
 		var done atomic.Bool
 		for !done.Load() {
 			if err := ctx.Err(); err != nil {
-				return nil, err
+				return nil, 0, err
 			}
 
 			substream := model.NewQRecordStream(0)
@@ -200,64 +218,54 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 
 			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, &avroSize, avroSchema,
 				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
-				config.FlowJobName, destTypeConversions)
+				config.FlowJobName, destTypeConversions, numericTruncator)
 			if err != nil {
-				return nil, err
+				return nil, 0, err
 			}
-			if chunkNum == 0 {
-				avroFile.FilePath = strings.TrimSuffix(subFile.FilePath, "000000.avro") + "*.avro"
-			}
+			avroFiles = append(avroFiles, subFile)
 			chunkNum += 1
-			avroFile.NumRecords += subFile.NumRecords
+			totalRecords += subFile.NumRecords
 		}
 
 		if err := ctx.Err(); err != nil {
-			return nil, err
+			return nil, 0, err
 		}
-	}
-
-	if avroFile == nil || avroFile.FilePath == "" {
-		var err error
-		avroFile, err = s.writeToAvroFile(
-			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName, destTypeConversions,
+	} else {
+		avroFile, err := s.writeToAvroFile(
+			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName,
+			destTypeConversions, numericTruncator,
 		)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
+		avroFiles = append(avroFiles, avroFile)
+		totalRecords = avroFile.NumRecords
 	}
 
-	return avroFile, nil
+	s.logger.Info("finished writing avro chunks to S3",
+		slog.String("partitionId", partition.PartitionId),
+		slog.Int("totalChunks", len(avroFiles)),
+		slog.Int64("totalRecords", totalRecords))
+
+	return avroFiles, totalRecords, nil
 }
 
 func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	ctx context.Context,
-	avroFilePath string,
-	schema qvalue.QRecordSchema,
+	avroFiles []utils.AvroFile,
+	schema types.QRecordSchema,
 	columnNameAvroFieldMap map[string]string,
 	config *protos.QRepConfig,
 ) error {
-	stagingPath := s.credsProvider.BucketPath
-	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
-	if err != nil {
-		return err
-	}
-
-	creds, err := s.credsProvider.Provider.Retrieve(ctx)
-	if err != nil {
-		return err
-	}
-
 	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
 	if err != nil {
 		return err
 	}
 
-	endpoint := s.credsProvider.Provider.GetEndpointURL()
-	region := s.credsProvider.Provider.GetRegion()
-	avroFileUrl := utils.FileURLForS3Service(endpoint, region, s3o.Bucket, avroFilePath)
 	selectedColumnNames := make([]string, 0, len(schema.Fields))
 	insertedColumnNames := make([]string, 0, len(schema.Fields))
-	for _, colName := range schema.GetColumnNames() {
+	for _, field := range schema.Fields {
+		colName := field.Name
 		for _, excludedColumn := range config.Exclude {
 			if colName == excludedColumn {
 				continue
@@ -270,8 +278,16 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 				slog.String("avroFieldName", avroColName))
 			return fmt.Errorf("destination column %s not found in avro schema", colName)
 		}
-		selectedColumnNames = append(selectedColumnNames, "`"+avroColName+"`")
-		insertedColumnNames = append(insertedColumnNames, "`"+colName+"`")
+
+		avroColName = peerdb_clickhouse.QuoteIdentifier(avroColName)
+
+		if (field.Type == types.QValueKindJSON || field.Type == types.QValueKindJSONB) &&
+			qvalue.ShouldUseNativeJSONType(ctx, config.Env, s.ClickHouseConnector.chVersion) {
+			avroColName = fmt.Sprintf("JSONExtractString(%s)", avroColName)
+		}
+
+		selectedColumnNames = append(selectedColumnNames, avroColName)
+		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(colName))
 	}
 	if sourceSchemaAsDestinationColumn {
 		schemaTable, err := utils.ParseSchemaTable(config.WatermarkTable)
@@ -279,16 +295,12 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 			return err
 		}
 
-		selectedColumnNames = append(selectedColumnNames, fmt.Sprintf("'%s'", peerdb_clickhouse.EscapeStr(schemaTable.Schema)))
+		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(schemaTable.Schema))
 		insertedColumnNames = append(insertedColumnNames, sourceSchemaColName)
 	}
 
 	selectorStr := strings.Join(selectedColumnNames, ",")
 	insertedStr := strings.Join(insertedColumnNames, ",")
-	sessionTokenPart := ""
-	if creds.AWS.SessionToken != "" {
-		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
-	}
 
 	hashColName := columnNameAvroFieldMap[schema.Fields[0].Name]
 	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
@@ -298,26 +310,48 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	}
 	numParts = max(numParts, 1)
 
-	for i := range numParts {
-		var whereClause string
-		if numParts > 1 {
-			whereClause = fmt.Sprintf(" WHERE cityHash64(`%s`) %% %d = %d", hashColName, numParts, i)
-		}
-		query := fmt.Sprintf(
-			"INSERT INTO `%s`(%s) SELECT %s FROM s3('%s','%s','%s'%s,'Avro')%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
-			config.DestinationTableIdentifier, insertedStr, selectorStr, avroFileUrl,
-			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart, whereClause)
-		s.logger.Info("inserting part",
-			slog.String("query", query),
-			slog.Uint64("part", i),
-			slog.Uint64("numParts", numParts))
-		if err := s.exec(ctx, query); err != nil {
-			s.logger.Error("failed to insert part",
-				slog.String("query", query),
+	// Process each chunk file individually
+	for chunkIdx, avroFile := range avroFiles {
+		s.logger.Info("processing chunk",
+			slog.Int("chunkIdx", chunkIdx),
+			slog.Int("totalChunks", len(avroFiles)),
+			slog.String("avroFilePath", avroFile.FilePath))
+
+		for i := range numParts {
+			// Get fresh credentials for each part
+			s3TableFunction, err := s.s3TableFunctionBuilder(ctx, avroFile.FilePath)
+			if err != nil {
+				s.logger.Error("failed to build S3 table function",
+					slog.String("avroFilePath", avroFile.FilePath),
+					slog.Any("error", err),
+					slog.Uint64("part", i),
+					slog.Uint64("numParts", numParts),
+					slog.Int("chunkIdx", chunkIdx),
+				)
+				return fmt.Errorf("failed to build S3 table function: %w", err)
+			}
+
+			var whereClause string
+			if numParts > 1 {
+				whereClause = fmt.Sprintf(" WHERE cityHash64(%s) %% %d = %d", peerdb_clickhouse.QuoteIdentifier(hashColName), numParts, i)
+			}
+
+			query := fmt.Sprintf(
+				"INSERT INTO %s(%s) SELECT %s FROM %s%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
+				peerdb_clickhouse.QuoteIdentifier(config.DestinationTableIdentifier), insertedStr, selectorStr, s3TableFunction, whereClause)
+			s.logger.Info("inserting part",
 				slog.Uint64("part", i),
 				slog.Uint64("numParts", numParts),
-				slog.Any("error", err))
-			return exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database)
+				slog.Int("chunkIdx", chunkIdx),
+				slog.Int("totalChunks", len(avroFiles)))
+			if err := s.exec(ctx, query); err != nil {
+				s.logger.Error("failed to insert part",
+					slog.Uint64("part", i),
+					slog.Uint64("numParts", numParts),
+					slog.Int("chunkIdx", chunkIdx),
+					slog.Any("error", err))
+				return exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database)
+			}
 		}
 	}
 
@@ -328,7 +362,7 @@ func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 	ctx context.Context,
 	env map[string]string,
 	dstTableName string,
-	schema qvalue.QRecordSchema,
+	schema types.QRecordSchema,
 	avroNameMap map[string]string,
 ) (*model.QRecordAvroSchemaDefinition, error) {
 	avroSchema, err := model.GetAvroSchemaDefinition(ctx, env, dstTableName, schema, protos.DBType_CLICKHOUSE, avroNameMap)
@@ -346,20 +380,23 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	identifierForFile string,
 	flowJobName string,
-	typeConversions map[string]qvalue.TypeConversion,
-) (*avro.AvroFile, error) {
+	typeConversions map[string]types.TypeConversion,
+	numericTruncator model.SnapshotTableNumericTruncator,
+) (utils.AvroFile, error) {
 	stagingPath := s.credsProvider.BucketPath
-	ocfWriter := avro.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE)
+	ocfWriter := utils.NewPeerDBOCFWriter(stream, avroSchema, ocf.ZStandard, protos.DBType_CLICKHOUSE)
 	s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse staging path: %w", err)
+		return utils.AvroFile{}, fmt.Errorf("failed to parse staging path: %w", err)
 	}
 
 	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
 	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
-	avroFile, err := ocfWriter.WriteRecordsToS3(ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, avroSize, typeConversions)
+	avroFile, err := ocfWriter.WriteRecordsToS3(
+		ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, avroSize, typeConversions, numericTruncator,
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write records to S3: %w", err)
+		return utils.AvroFile{}, fmt.Errorf("failed to write records to S3: %w", err)
 	}
 
 	return avroFile, nil

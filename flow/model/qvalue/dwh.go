@@ -5,8 +5,8 @@ import (
 
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 )
 
 func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBType) (int16, int16) {

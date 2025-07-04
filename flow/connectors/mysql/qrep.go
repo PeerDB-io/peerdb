@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"strconv"
 	"text/template"
 
@@ -16,9 +15,32 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
+
+func (c *MySqlConnector) GetDataTypeOfWatermarkColumn(
+	ctx context.Context,
+	watermarkTableName string,
+	watermarkColumn string,
+) (types.QValueKind, byte, error) {
+	if watermarkColumn == "" {
+		return "", 0, errors.New("watermark column is not specified in the config")
+	}
+
+	query := fmt.Sprintf("SELECT `%s` FROM %s LIMIT 0", watermarkColumn, watermarkTableName)
+	rs, err := c.Execute(ctx, query)
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to execute query for watermark column type: %w", err)
+	}
+
+	if len(rs.Fields) == 0 {
+		return "", 0, fmt.Errorf("no fields returned from select query: %s", query)
+	}
+
+	qk, err := qkindFromMysql(rs.Fields[0])
+	return qk, rs.Fields[0].Type, err
+}
 
 func (c *MySqlConnector) GetQRepPartitions(
 	ctx context.Context,
@@ -46,7 +68,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 
 	whereClause := ""
 	if last != nil && last.Range != nil {
-		whereClause = fmt.Sprintf("WHERE %s > $1", quotedWatermarkColumn)
+		whereClause = fmt.Sprintf("WHERE %s > ?", quotedWatermarkColumn)
 	}
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -64,7 +86,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		case *protos.PartitionRange_UintRange:
 			minVal = lastRange.UintRange.End
 		case *protos.PartitionRange_TimestampRange:
-			minVal = lastRange.TimestampRange.End.AsTime()
+			minVal = lastRange.TimestampRange.End.AsTime().String()
 		}
 		c.logger.Info(fmt.Sprintf("count query: %s - minVal: %v", countQuery, minVal))
 
@@ -99,62 +121,115 @@ func (c *MySqlConnector) GetQRepPartitions(
 	if totalRows%numRowsPerPartition != 0 {
 		numPartitions++
 	}
+
+	watermarkQKind, watermarkMyType, err := c.GetDataTypeOfWatermarkColumn(ctx, parsedWatermarkTable.MySQL(), config.WatermarkColumn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get data type of watermark column %s: %w", config.WatermarkColumn, err)
+	}
+
 	c.logger.Info(fmt.Sprintf("total rows: %d, num partitions: %d, num rows per partition: %d",
 		totalRows, numPartitions, numRowsPerPartition))
 	var rs *mysql.Result
-	if minVal != nil {
-		// Query to get partitions using window functions
-		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
-				FROM %[3]s WHERE %[2]s > $1
-			) AS subquery
+
+	switch watermarkQKind {
+	case types.QValueKindInt8, types.QValueKindInt16, types.QValueKindInt32, types.QValueKindInt64,
+		types.QValueKindUInt8, types.QValueKindUInt16, types.QValueKindUInt32, types.QValueKindUInt64:
+		if minVal != nil {
+			partitionsQuery := fmt.Sprintf(
+				`WITH stats AS (
+				SELECT MIN(%[2]s) AS min_watermark,
+				1.0 * (MAX(%[2]s) - MIN(%[2]s)) / (%[1]d) AS range_size
+				FROM %[3]s WHERE %[2]s > ?
+			)
+			SELECT FLOOR((w.%[2]s - s.min_watermark) / s.range_size) AS bucket,
+			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
+			FROM %[3]s AS w
+			CROSS JOIN stats AS s
+			WHERE w.%[2]s > ?
 			GROUP BY bucket
-			ORDER BY start`,
-			numPartitions,
-			quotedWatermarkColumn,
-			parsedWatermarkTable.MySQL(),
-		)
-		c.logger.Info("partitions query", slog.String("query", partitionsQuery), slog.Any("minVal", minVal))
-		rs, err = c.Execute(ctx, partitionsQuery, minVal)
-	} else {
-		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
-			FROM (
-				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
-			) AS subquery
+			ORDER BY start;`,
+				numPartitions,
+				quotedWatermarkColumn,
+				parsedWatermarkTable.MySQL(),
+			)
+			c.logger.Info("partitions query", slog.String("query", partitionsQuery), slog.Any("minVal", minVal))
+			rs, err = c.Execute(ctx, partitionsQuery, minVal, minVal)
+		} else {
+			partitionsQuery := fmt.Sprintf(
+				`WITH stats AS (
+				SELECT MIN(%[2]s) AS min_watermark,
+				1.0 * (MAX(%[2]s) - MIN(%[2]s)) / (%[1]d) AS range_size
+				FROM %[3]s
+			)
+			SELECT FLOOR((w.%[2]s - s.min_watermark) / s.range_size) AS bucket,
+			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
+			FROM %[3]s AS w
+			CROSS JOIN stats AS s
 			GROUP BY bucket
-			ORDER BY start`,
-			numPartitions,
-			quotedWatermarkColumn,
-			parsedWatermarkTable.MySQL(),
-		)
-		c.logger.Info("partitions query", slog.String("query", partitionsQuery))
-		rs, err = c.Execute(ctx, partitionsQuery)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to query for partitions: %w", err)
+			ORDER BY start;`,
+				numPartitions,
+				quotedWatermarkColumn,
+				parsedWatermarkTable.MySQL(),
+			)
+			c.logger.Info("partitions query", slog.String("query", partitionsQuery))
+			rs, err = c.Execute(ctx, partitionsQuery)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to query for partitions: %w", err)
+		}
+	case types.QValueKindTimestamp, types.QValueKindTimestampTZ:
+		if minVal != nil {
+			partitionsQuery := fmt.Sprintf(
+				`WITH stats AS (
+				SELECT MIN(%[2]s) AS min_watermark,
+				1.0 * (TIMESTAMPDIFF(MICROSECOND, MAX(%[2]s), MIN(%[2]s)) / (%[1]d)) AS range_size
+				FROM %[3]s WHERE %[2]s > ?
+			)
+			SELECT FLOOR(TIMESTAMPDIFF(MICROSECOND, w.%[2]s, s.min_watermark) / s.range_size) AS bucket,
+			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
+			FROM %[3]s AS w
+			CROSS JOIN stats AS s
+			WHERE w.%[2]s > ?
+			GROUP BY bucket
+			ORDER BY start;`,
+				numPartitions,
+				quotedWatermarkColumn,
+				parsedWatermarkTable.MySQL(),
+			)
+			c.logger.Info("partitions query", slog.String("query", partitionsQuery), slog.Any("minVal", minVal))
+			rs, err = c.Execute(ctx, partitionsQuery, minVal)
+		} else {
+			partitionsQuery := fmt.Sprintf(
+				`WITH stats AS (
+				SELECT MIN(%[2]s) AS min_watermark,
+				1.0 * (TIMESTAMPDIFF(MICROSECOND, MAX(%[2]s), MIN(%[2]s)) / (%[1]d)) AS range_size
+				FROM %[3]s
+			)
+			SELECT FLOOR(TIMESTAMPDIFF(MICROSECOND, w.%[2]s, s.min_watermark) / s.range_size) AS bucket,
+			MIN(w.%[2]s) AS start, MAX(w.%[2]s) AS end
+			FROM %[3]s AS w
+			CROSS JOIN stats AS s
+			GROUP BY bucket
+			ORDER BY start;`,
+				numPartitions,
+				quotedWatermarkColumn,
+				parsedWatermarkTable.MySQL(),
+			)
+			c.logger.Info("partitions query", slog.String("query", partitionsQuery))
+			rs, err = c.Execute(ctx, partitionsQuery)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to query for partitions: %w", err)
+		}
 	}
 
-	qk1, err := qkindFromMysql(rs.Fields[1])
-	if err != nil {
-		return nil, err
-	}
-	qk2, err := qkindFromMysql(rs.Fields[2])
-	if err != nil {
-		return nil, err
-	}
-	if qk1 != qk2 {
-		return nil, fmt.Errorf("low/high of partition range should be same type, got low:%s, high:%s", qk1, qk2)
-	}
 	partitionHelper := utils.NewPartitionHelper(c.logger)
 	for _, row := range rs.Values {
-		val1, err := QValueFromMysqlFieldValue(qk1, row[1])
+		val1, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, row[1])
 		if err != nil {
 			return nil, err
 		}
-		val2, err := QValueFromMysqlFieldValue(qk2, row[2])
+		val2, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, row[2])
 		if err != nil {
 			return nil, err
 		}
@@ -169,7 +244,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
 	config *protos.QRepConfig,
-	last *protos.QRepPartition,
+	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	tableSchema, err := c.getTableSchemaForTable(ctx, config.Env,
@@ -191,47 +266,13 @@ func (c *MySqlConnector) PullQRepRecords(
 	var rs mysql.Result
 	onRow := func(row []mysql.FieldValue) error {
 		totalRecords += 1
-		totalBytes += int64(len(row) / 8) // null bitmap
-		for idx, val := range row {
-			// TODO ideally go-mysql would give us row buffer, need upstream PR
-			// see mysql/rowdata.go in go-mysql for field sizes
-			// unfortunately we're using text protocol, so this is a weak estimate
-			switch rs.Fields[idx].Type {
-			case mysql.MYSQL_TYPE_NULL:
-				// 0
-			case mysql.MYSQL_TYPE_TINY, mysql.MYSQL_TYPE_SHORT, mysql.MYSQL_TYPE_INT24, mysql.MYSQL_TYPE_LONG, mysql.MYSQL_TYPE_LONGLONG:
-				var v uint64
-				if val.Type == mysql.FieldValueTypeUnsigned {
-					v = val.AsUint64()
-				} else {
-					signed := val.AsInt64()
-					if signed < 0 {
-						v = uint64(-signed)
-					} else {
-						v = uint64(signed)
-					}
-				}
-				if v < 10 {
-					totalBytes += 1
-				} else if v > 99999999999999 {
-					// math.log10(10**15-1) == 15.0, so pick boundary where we're accurate, cap at 15 for simplicity
-					totalBytes += 15
-				} else {
-					totalBytes += 1 + int64(math.Log10(float64(val.AsUint64())))
-				}
-			case mysql.MYSQL_TYPE_YEAR, mysql.MYSQL_TYPE_FLOAT, mysql.MYSQL_TYPE_DOUBLE:
-				totalBytes += 4
-			default:
-				totalBytes += int64(len(val.AsString()))
-			}
-		}
 		schema, err := stream.Schema()
 		if err != nil {
 			return err
 		}
-		record := make([]qvalue.QValue, 0, len(row))
+		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, val)
+			qv, err := QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val)
 			if err != nil {
 				return fmt.Errorf("could not convert mysql value for %s: %w", schema.Fields[idx].Name, err)
 			}
@@ -241,17 +282,19 @@ func (c *MySqlConnector) PullQRepRecords(
 		return nil
 	}
 
-	if last.FullTablePartition {
+	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query
-		if err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult); err != nil {
+		readBytes, err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult)
+		if err != nil {
 			return 0, 0, err
 		}
+		totalBytes += readBytes
 	} else {
 		var rangeStart string
 		var rangeEnd string
 
 		// Depending on the type of the range, convert the range into the correct type
-		switch x := last.Range.Range.(type) {
+		switch x := partition.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
 			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
 			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
@@ -272,9 +315,11 @@ func (c *MySqlConnector) PullQRepRecords(
 			return 0, 0, err
 		}
 
-		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
+		readBytes, err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult)
+		if err != nil {
 			return 0, 0, err
 		}
+		totalBytes += readBytes
 	}
 
 	close(stream.Records)

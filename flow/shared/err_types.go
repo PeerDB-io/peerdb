@@ -29,3 +29,5 @@ func SkipSendingToIncidentIo(errTags []string) bool {
 	}
 	return false
 }
+
+type QRepWarnings []error

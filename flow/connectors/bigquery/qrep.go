@@ -8,11 +8,11 @@ import (
 
 	"cloud.google.com/go/bigquery"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *BigQueryConnector) SyncQRepRecords(
@@ -20,17 +20,17 @@ func (c *BigQueryConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	srcSchema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	tblMetadata, err := c.replayTableSchemaDeltasQRep(ctx, config, partition, srcSchema)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	c.logger.Info(fmt.Sprintf("QRep sync function called and partition existence checked for"+
@@ -38,15 +38,19 @@ func (c *BigQueryConnector) SyncQRepRecords(
 		partition.PartitionId, destTable))
 
 	avroSync := NewQRepAvroSyncMethod(c, config.StagingPath, config.FlowJobName)
-	return avroSync.SyncQRepRecords(ctx, config.Env, config.FlowJobName, destTable, partition,
+	result, err := avroSync.SyncQRepRecords(ctx, config.Env, config.FlowJobName, destTable, partition,
 		tblMetadata, stream, config.SyncedAtColName, config.SoftDeleteColName)
+	if err != nil {
+		return result, nil, err
+	}
+	return result, nil, nil
 }
 
 func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
-	srcSchema qvalue.QRecordSchema,
+	srcSchema types.QRecordSchema,
 ) (*bigquery.TableMetadata, error) {
 	destDatasetTable, _ := c.convertToDatasetTable(config.DestinationTableIdentifier)
 	bqTable := c.client.DatasetInProject(c.projectID, destDatasetTable.dataset).Table(destDatasetTable.table)
@@ -83,7 +87,7 @@ func (c *BigQueryConnector) replayTableSchemaDeltasQRep(
 	}
 
 	if err := c.ReplayTableSchemaDeltas(
-		ctx, config.Env, config.FlowJobName, []*protos.TableSchemaDelta{tableSchemaDelta},
+		ctx, config.Env, config.FlowJobName, nil, []*protos.TableSchemaDelta{tableSchemaDelta},
 	); err != nil {
 		return nil, fmt.Errorf("failed to add columns to destination table: %w", err)
 	}

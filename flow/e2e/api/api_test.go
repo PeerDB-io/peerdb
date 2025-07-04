@@ -39,9 +39,9 @@ type Suite struct {
 	protos.FlowServiceClient
 	t      *testing.T
 	pg     *e2e.PostgresSource
-	ch     e2e_clickhouse.ClickHouseSuite
 	source e2e.SuiteSource
 	suffix string
+	ch     e2e_clickhouse.ClickHouseSuite
 }
 
 func (s Suite) Teardown(ctx context.Context) {
@@ -175,7 +175,7 @@ func testApi[TSource e2e.SuiteSource](
 			t:                 t,
 			pg:                pg,
 			source:            source,
-			ch: e2e_clickhouse.SetupSuite(t, func(*testing.T) (TSource, string, error) {
+			ch: e2e_clickhouse.SetupSuite(t, false, func(*testing.T) (TSource, string, error) {
 				return source, suffix, nil
 			})(t),
 			suffix: suffix,
@@ -782,13 +782,14 @@ func (s Suite) TestCustomSync() {
 	require.ErrorContains(s.t, err, "mirror unknown-flow does not exist")
 
 	tblName := "apitable"
+	srcTableName := e2e.AttachSchema(s, tblName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, tblName))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", srcTableName)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, tblName))))
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", srcTableName)))
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      "mirrorapi" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, tblName): tblName},
+		TableNameMapping: map[string]string{srcTableName: tblName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -841,14 +842,17 @@ func (s Suite) TestCustomSync() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
+	// TODO fix race, signals can be dropped if received with unfortunate timing
+	time.Sleep(time.Second)
+
 	customResponse, err := s.CustomSyncFlow(s.t.Context(),
 		&protos.CreateCustomSyncRequest{FlowJobName: flowConnConfig.FlowJobName, NumberOfSyncs: 1})
 	require.NoError(s.t, err)
 	require.Equal(s.t, flowConnConfig.FlowJobName, customResponse.FlowJobName)
 	require.Equal(s.t, int32(1), customResponse.NumberOfSyncs)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'pause')", e2e.AttachSchema(s, tblName))))
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing for add table", func() bool {
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'pause')", srcTableName)))
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing for custom sync", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 	e2e.RequireEqualTables(s.ch, tblName, "id,val")
@@ -882,10 +886,10 @@ func (s Suite) TestCustomSync() {
 }
 
 func (s Suite) TestQRep() {
-	if _, ok := s.source.(*e2e.PostgresSource); !ok {
-		s.t.Skip("only run with pg as mysql qrep isn't really supported")
-	}
-
+	peerType, err := s.GetPeerType(s.t.Context(), &protos.PeerInfoRequest{
+		PeerName: s.source.GeneratePeer(s.t).Name,
+	})
+	require.NoError(s.t, err)
 	tblName := "qrepapi"
 	schemaQualified := e2e.AttachSchema(s, tblName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -893,22 +897,24 @@ func (s Suite) TestQRep() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
 
-	sourcePeer := s.Source().GeneratePeer(s.t)
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
-		"qrepapiflow",
+		"qrepapiflow"+"_"+peerType.PeerType,
 		schemaQualified,
-		schemaQualified+"dst",
+		tblName,
 		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
-		sourcePeer.Name,
+		s.ch.Peer().Name,
 		"",
 		true,
 		"",
 		"",
 	)
+	qrepConfig.SourceName = s.source.GeneratePeer(s.t).Name
 	qrepConfig.WatermarkColumn = "id"
-
-	_, err := s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
+	qrepConfig.InitialCopyOnly = false
+	qrepConfig.WaitBetweenBatchesSeconds = 5
+	qrepConfig.NumRowsPerPartition = 1
+	_, err = s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
 		QrepConfig:         qrepConfig,
 		CreateCatalogEntry: true,
 	})
@@ -917,19 +923,23 @@ func (s Suite) TestQRep() {
 	tc := e2e.NewTemporalClient(s.t)
 	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	require.NoError(s.t, env.Error(s.t.Context()))
 
+	e2e.EnvWaitForEqualTables(env, s.ch, "qrep initial load", tblName, "id,val")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualified)))
+
+	e2e.EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tblName, "id,val")
 	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
 		FlowJobName:     qrepConfig.FlowJobName,
 		IncludeFlowInfo: true,
 		ExcludeBatches:  false,
 	})
 	require.NoError(s.t, err)
-	require.Equal(s.t, protos.FlowStatus_STATUS_COMPLETED, statusResponse.CurrentFlowState)
 	qStatus := statusResponse.GetQrepStatus()
 	require.NotNil(s.t, qStatus)
-	require.Len(s.t, qStatus.Partitions, 1)
-	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsInPartition)
-	require.Equal(s.t, int64(1), qStatus.Partitions[0].RowsSynced)
+	require.Len(s.t, qStatus.Partitions, 2)
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
 }

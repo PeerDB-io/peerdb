@@ -61,6 +61,10 @@ func (e ErrorSource) String() string {
 	return string(e)
 }
 
+func AvroConverterTableColumnErrorSource(destinationTable, destinationColumn string) ErrorSource {
+	return ErrorSource(fmt.Sprintf("avroConverter:column:%s.%s", destinationTable, destinationColumn))
+}
+
 type ErrorInfo struct {
 	Source ErrorSource
 	Code   string
@@ -108,10 +112,6 @@ var (
 	ErrorNotifyTerminate = ErrorClass{
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
-	ErrorNotifyConnectTimeout = ErrorClass{
-		// TODO(this is mostly done via NOTIFY_CONNECTIVITY, will remove later if not needed)
-		Class: "NOTIFY_CONNECT_TIMEOUT", action: NotifyUser,
-	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
@@ -133,6 +133,9 @@ var (
 	}
 	ErrorInternalClickHouse = ErrorClass{
 		Class: "INTERNAL_CLICKHOUSE", action: NotifyTelemetry,
+	}
+	ErrorLossyConversion = ErrorClass{
+		Class: "WARNING_LOSSY_CONVERSION", action: NotifyTelemetry,
 	}
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
@@ -232,7 +235,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			pgerrcode.InvalidPassword,
 			pgerrcode.InsufficientPrivilege,
 			pgerrcode.UndefinedTable,
-			pgerrcode.CannotConnectNow:
+			pgerrcode.CannotConnectNow,
+			pgerrcode.ConfigurationLimitExceeded,
+			pgerrcode.DiskFull:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
 		case pgerrcode.UndefinedObject:
@@ -251,7 +256,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				(strings.HasPrefix(pgErr.Message, "could not stat file ") &&
 					strings.HasSuffix(pgErr.Message, "Stale file handle")) ||
 				// Below error is transient and Aurora Specific
-				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) {
+				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) ||
+				//nolint:lll
+				// Handle missing record during logical decoding
+				// https://github.com/postgres/postgres/blob/a0c7b765372d949cec54960dafcaadbc04b3204e/src/backend/access/transam/xlogreader.c#L921
+				strings.HasPrefix(pgErr.Message, "could not find record while sending logically-decoded data") {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
@@ -264,16 +273,21 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, pgErrorInfo
 
 		case pgerrcode.ObjectNotInPrerequisiteState:
-			// same underlying error but 2 different messages
+			// same underlying error but 3 different messages
 			// based on PG version, newer ones have second error
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") ||
-				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") {
+				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") ||
+				strings.Contains(pgErr.Message, "could not import the requested snapshot") {
 				return ErrorNotifySlotInvalid, pgErrorInfo
 			}
 
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
+			}
+		case pgerrcode.SerializationFailure, pgerrcode.DeadlockDetected:
+			if strings.Contains(pgErr.Message, "canceling statement due to conflict with recovery") {
+				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?
@@ -416,7 +430,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			} else if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-		case chproto.ErrQueryWasCancelled:
+		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException:
 			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
@@ -486,6 +500,22 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: ErrorSourceOther,
 				Code:   "CONTEXT_DEADLINE_EXCEEDED",
 			}
+		}
+	}
+
+	var numericOutOfRangeError *exceptions.NumericOutOfRangeError
+	if errors.As(err, &numericOutOfRangeError) {
+		return ErrorLossyConversion, ErrorInfo{
+			Source: AvroConverterTableColumnErrorSource(numericOutOfRangeError.DestinationTable, numericOutOfRangeError.DestinationColumn),
+			Code:   "NUMERIC_OUT_OF_RANGE",
+		}
+	}
+
+	var numericTruncatedError *exceptions.NumericTruncatedError
+	if errors.As(err, &numericTruncatedError) {
+		return ErrorLossyConversion, ErrorInfo{
+			Source: AvroConverterTableColumnErrorSource(numericTruncatedError.DestinationTable, numericTruncatedError.DestinationColumn),
+			Code:   "NUMERIC_TRUNCATED",
 		}
 	}
 

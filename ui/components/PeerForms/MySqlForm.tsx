@@ -4,8 +4,6 @@ import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import {
   blankSSHConfig,
-  sshSetter,
-  SSHSetting,
   sshSetting,
 } from '@/app/peers/create/[peerType]/helpers/ssh';
 import SelectTheme from '@/app/styles/select';
@@ -23,6 +21,7 @@ import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
+import { handleFieldChange, handleSSHParam } from './common';
 
 interface MySqlProps {
   settings: PeerSetting[];
@@ -33,65 +32,6 @@ interface MySqlProps {
 export default function MySqlForm({ settings, setter, config }: MySqlProps) {
   const [showSSH, setShowSSH] = useState(false);
   const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
-
-  const handleCa = (
-    file: File,
-    setFile: (value: string, setter: PeerSetter) => void
-  ) => {
-    if (file) {
-      const reader = new FileReader();
-      reader.readAsText(file);
-      reader.onload = () => {
-        setFile(reader.result as string, setter);
-      };
-      reader.onerror = (error) => {
-        console.log(error);
-      };
-    }
-  };
-
-  const handleFile = (
-    file: File,
-    setFile: (value: string, configSetter: sshSetter) => void
-  ) => {
-    if (file) {
-      const reader = new FileReader();
-      reader.readAsText(file);
-      reader.onload = () => {
-        const fileContents = reader.result as string;
-        const base64EncodedContents = Buffer.from(
-          fileContents,
-          'utf-8'
-        ).toString('base64');
-        setFile(base64EncodedContents, setSSHConfig);
-      };
-      reader.onerror = (error) => {
-        console.log(error);
-      };
-    }
-  };
-
-  const handleTextFieldChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    setting: PeerSetting
-  ) => {
-    if (setting.type === 'file') {
-      if (e.target.files) handleCa(e.target.files[0], setting.stateHandler);
-    } else {
-      setting.stateHandler(e.target.value, setter);
-    }
-  };
-
-  const handleSSHParam = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    setting: SSHSetting
-  ) => {
-    if (setting.type === 'file') {
-      if (e.target.files) handleFile(e.target.files[0], setting.stateHandler);
-    } else {
-      setting.stateHandler(e.target.value, setSSHConfig);
-    }
-  };
 
   useEffect(() => {
     setter((prev) => ({
@@ -112,7 +52,7 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
                 {!setting.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -221,7 +161,7 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
                       type={setting.type}
                       defaultValue={setting.default}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        handleTextFieldChange(e, setting)
+                        handleFieldChange(e, setting, setter)
                       }
                     />
                     {setting.tips && (
@@ -233,7 +173,7 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
                   </div>
                 }
               />
-            )) || <div key={id}></div>
+            )) || <div key={id} />
         );
       })}
       <Label
@@ -262,7 +202,7 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
                 {!sshParam.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -280,9 +220,9 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
                 }}
               >
                 <TextField
-                  variant={'simple'}
+                  variant='simple'
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleSSHParam(e, sshParam)
+                    handleSSHParam(e, sshParam, setSSHConfig)
                   }
                   style={{
                     border: sshParam.type === 'file' ? 'none' : 'auto',

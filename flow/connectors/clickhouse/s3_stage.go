@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	utils "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
@@ -16,7 +16,7 @@ func SetAvroStage(
 	ctx context.Context,
 	flowJobName string,
 	syncBatchID int64,
-	avroFile *utils.AvroFile,
+	avroFile utils.AvroFile,
 ) error {
 	avroFileJSON, err := json.Marshal(avroFile)
 	if err != nil {
@@ -41,10 +41,10 @@ func SetAvroStage(
 	return nil
 }
 
-func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (*utils.AvroFile, error) {
+func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (utils.AvroFile, error) {
 	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get connection: %w", err)
+		return utils.AvroFile{}, fmt.Errorf("failed to get connection: %w", err)
 	}
 
 	var avroFileJSON []byte
@@ -54,15 +54,15 @@ func GetAvroStage(ctx context.Context, flowJobName string, syncBatchID int64) (*
 		flowJobName, syncBatchID,
 	).Scan(&avroFileJSON); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, fmt.Errorf("no avro stage found for flow job %s and sync batch %d", flowJobName, syncBatchID)
+			return utils.AvroFile{}, fmt.Errorf("no avro stage found for flow job %s and sync batch %d", flowJobName, syncBatchID)
 		}
-		return nil, fmt.Errorf("failed to get avro stage: %w", err)
+		return utils.AvroFile{}, fmt.Errorf("failed to get avro stage: %w", err)
 	}
 
 	var avroFile utils.AvroFile
 	if err := json.Unmarshal(avroFileJSON, &avroFile); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal avro file: %w", err)
+		return utils.AvroFile{}, fmt.Errorf("failed to unmarshal avro file: %w", err)
 	}
 
-	return &avroFile, nil
+	return avroFile, nil
 }

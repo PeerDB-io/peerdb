@@ -10,10 +10,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRepQueryExecutor struct {
@@ -22,15 +22,16 @@ type QRepQueryExecutor struct {
 	snapshot    string
 	flowJobName string
 	partitionID string
+	version     uint32
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context,
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, version uint32,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, version, "", flowJobName, partitionID)
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context,
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, version uint32,
 	snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	_, err := c.fetchCustomTypeMapping(ctx)
@@ -44,6 +45,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context,
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
+		version:           version,
 	}, nil
 }
 
@@ -70,14 +72,14 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) qvalue.QRecordSchema {
-	qfields := make([]qvalue.QField, len(fds))
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) types.QRecordSchema {
+	qfields := make([]types.QField, len(fds))
 	for i, fd := range fds {
-		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping)
+		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping, qe.version)
 		// there isn't a way to know if a column is nullable or not
-		if ctype == qvalue.QValueKindNumeric {
+		if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
 			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
-			qfields[i] = qvalue.QField{
+			qfields[i] = types.QField{
 				Name:      fd.Name,
 				Type:      ctype,
 				Nullable:  true,
@@ -85,14 +87,14 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 				Scale:     scale,
 			}
 		} else {
-			qfields[i] = qvalue.QField{
+			qfields[i] = types.QField{
 				Name:     fd.Name,
 				Type:     ctype,
 				Nullable: true,
 			}
 		}
 	}
-	return qvalue.NewQRecordSchema(qfields)
+	return types.NewQRecordSchema(qfields)
 }
 
 func (qe *QRepQueryExecutor) processRowsStream(
@@ -308,9 +310,9 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 func (qe *QRepQueryExecutor) mapRowToQRecord(
 	row pgx.Rows,
 	fds []pgconn.FieldDescription,
-) ([]qvalue.QValue, error) {
+) ([]types.QValue, error) {
 	// make vals an empty array of QValue of size len(fds)
-	record := make([]qvalue.QValue, len(fds))
+	record := make([]types.QValue, len(fds))
 
 	values, err := row.Values()
 	if err != nil {
@@ -319,7 +321,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 	}
 
 	for i, fd := range fds {
-		tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, values[i], qe.customTypeMapping)
+		tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, fd.TypeModifier, values[i], qe.customTypeMapping, qe.version)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to parse field: %w", err)

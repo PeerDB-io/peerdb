@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -114,15 +115,11 @@ func buildRdsToken(
 	if err != nil {
 		return "", fmt.Errorf("failed to get AWS credentials provider: %w", err)
 	}
-	endpoint := fmt.Sprintf("%s:%d", connConfig.Host, connConfig.Port)
 	matches := regionRegex.FindStringSubmatch(connConfig.Host)
 	if len(matches) < 2 {
-		return "", fmt.Errorf("failed to extract region from endpoint %s", connConfig.Host)
+		return "", fmt.Errorf("failed to extract region from host %s", connConfig.Host)
 	}
 	region := matches[1]
-	token, err := auth.BuildAuthToken(ctx, endpoint, region, connConfig.User, awsCredentialsProvider.GetUnderlyingProvider())
-	if err != nil {
-		return "", err
-	}
-	return token, nil
+	endpoint := shared.JoinHostPort(connConfig.Host, connConfig.Port)
+	return auth.BuildAuthToken(ctx, endpoint, region, connConfig.User, awsCredentialsProvider.GetUnderlyingProvider())
 }

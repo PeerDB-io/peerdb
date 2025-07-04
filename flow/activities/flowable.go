@@ -69,7 +69,7 @@ func (a *FlowableActivity) CheckConnection(
 	config *protos.SetupInput,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	conn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.Connector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			return nil
@@ -177,7 +177,7 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableMappings)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, config.TableMappings)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}
@@ -248,7 +248,9 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
-	for tableIdentifier, tableSchema := range tableNameSchemaMapping {
+	for _, tableMapping := range config.TableMappings {
+		tableIdentifier := tableMapping.DestinationTableIdentifier
+		tableSchema := tableNameSchemaMapping[tableIdentifier]
 		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,

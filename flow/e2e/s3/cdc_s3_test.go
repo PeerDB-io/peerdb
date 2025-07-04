@@ -60,20 +60,22 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_Simple_Flow_S3() {
 		ctx, cancel := context.WithTimeout(s.t.Context(), 25*time.Second)
 		defer cancel()
 		files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-		s.t.Logf("Files in Test_Complete_Simple_Flow_S3 %s: %d", flowJobName, len(files))
 		e2e.EnvNoError(s.t, env, err)
+		s.t.Logf("Files in Test_Complete_Simple_Flow_S3 %s: %d", flowJobName, len(files))
 		return len(files) == 4
 	})
 
-	// s3 normalize is nop, so check peerdb_stats directly that batch finalized
 	pool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
 	require.NoError(s.t, err)
-	var count int64
-	require.NoError(s.t, pool.QueryRow(s.t.Context(),
-		"select count(*) from peerdb_stats.cdc_batches where flow_name = $1 and end_time is not null",
-		flowJobName,
-	).Scan(&count))
-	require.Equal(s.t, int64(4), count)
+	e2e.EnvWaitFor(s.t, env, time.Minute, "waiting for cdc batch completion", func() bool {
+		// s3 normalize is nop, so check peerdb_stats directly that batch finalized
+		var count int64
+		require.NoError(s.t, pool.QueryRow(s.t.Context(),
+			"select count(*) from peerdb_stats.cdc_batches where flow_name = $1 and end_time is not null",
+			flowJobName,
+		).Scan(&count))
+		return count == 4
+	})
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

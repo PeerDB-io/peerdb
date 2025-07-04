@@ -14,16 +14,13 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/djherbis/buffer"
-	"github.com/djherbis/nio/v3"
 	"github.com/hamba/avro/v2/ocf"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type (
@@ -51,8 +48,7 @@ type AvroFile struct {
 
 func (l *AvroFile) Cleanup() {
 	if l.StorageLocation == AvroLocalStorage {
-		err := os.Remove(l.FilePath)
-		if err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(l.FilePath); err != nil && !os.IsNotExist(err) {
 			slog.Warn("unable to delete temporary Avro file", slog.Any("error", err))
 		}
 	}
@@ -76,7 +72,8 @@ func (p *peerDBOCFWriter) WriteOCF(
 	ctx context.Context,
 	env map[string]string,
 	w io.Writer,
-	typeConversions map[string]qvalue.TypeConversion,
+	typeConversions map[string]types.TypeConversion,
+	numericTruncator model.SnapshotTableNumericTruncator,
 ) (int64, error) {
 	ocfWriter, err := p.createOCFWriter(w)
 	if err != nil {
@@ -84,7 +81,7 @@ func (p *peerDBOCFWriter) WriteOCF(
 	}
 	defer ocfWriter.Close()
 
-	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter, typeConversions)
+	numRows, err := p.writeRecordsToOCFWriter(ctx, env, ocfWriter, typeConversions, numericTruncator)
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to OCF writer: %w", err)
 	}
@@ -96,21 +93,21 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	env map[string]string,
 	bucketName string,
 	key string,
-	s3Creds utils.AWSCredentialsProvider,
+	s3Creds AWSCredentialsProvider,
 	avroSize *atomic.Int64,
-	typeConversions map[string]qvalue.TypeConversion,
-) (*AvroFile, error) {
+	typeConversions map[string]types.TypeConversion,
+	numericTruncator model.SnapshotTableNumericTruncator,
+) (AvroFile, error) {
 	logger := internal.LoggerFromCtx(ctx)
-	s3svc, err := utils.CreateS3Client(ctx, s3Creds)
+	s3svc, err := CreateS3Client(ctx, s3Creds)
 	if err != nil {
 		logger.Error("failed to create S3 client", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to create S3 client: %w", err)
+		return AvroFile{}, fmt.Errorf("failed to create S3 client: %w", err)
 	}
 
-	buf := buffer.New(32 * 1024 * 1024) // 32MB in memory Buffer
-	r, w := nio.Pipe(buf)
-
+	r, w := io.Pipe()
 	defer r.Close()
+
 	var writeOcfError error
 	var numRows int64
 
@@ -129,18 +126,21 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		} else {
 			writer = shared.NewWatchWriter(w, avroSize)
 		}
-		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions)
+		numRows, writeOcfError = p.WriteOCF(ctx, env, writer, typeConversions, numericTruncator)
 	}()
 
 	partSize, err := internal.PeerDBS3PartSize(ctx, env)
 	if err != nil {
-		return nil, fmt.Errorf("could not get s3 part size config: %w", err)
+		return AvroFile{}, fmt.Errorf("could not get s3 part size config: %w", err)
 	}
 
 	// Create the uploader using the AWS SDK v2 manager
 	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
 		if partSize > 0 {
 			u.PartSize = partSize
+			if partSize > 268435455 { // 256MiB
+				u.Concurrency = 1
+			}
 		}
 	})
 
@@ -151,25 +151,25 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	}); err != nil {
 		s3Path := "s3://" + bucketName + "/" + key
 		logger.Error("failed to upload file", slog.Any("error", err), slog.String("s3_path", s3Path))
-		return nil, fmt.Errorf("failed to upload file: %w", err)
+		return AvroFile{}, fmt.Errorf("failed to upload file: %w", err)
 	}
 
 	if writeOcfError != nil {
 		logger.Error("failed to write records to OCF", slog.Any("error", writeOcfError))
-		return nil, writeOcfError
+		return AvroFile{}, writeOcfError
 	}
 
-	return &AvroFile{
+	return AvroFile{
 		StorageLocation: AvroS3Storage,
 		FilePath:        key,
 		NumRecords:      numRows,
 	}, nil
 }
 
-func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[string]string, filePath string) (*AvroFile, error) {
+func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[string]string, filePath string) (AvroFile, error) {
 	file, err := os.Create(filePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create temporary Avro file: %w", err)
+		return AvroFile{}, fmt.Errorf("failed to create temporary Avro file: %w", err)
 	}
 	defer file.Close()
 	printFileStats := func(message string) {
@@ -187,13 +187,13 @@ func (p *peerDBOCFWriter) WriteRecordsToAvroFile(ctx context.Context, env map[st
 	bufferedWriter := bufio.NewWriterSize(file, buffSizeBytes)
 	defer bufferedWriter.Flush()
 
-	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter, nil)
+	numRecords, err := p.WriteOCF(ctx, env, bufferedWriter, nil, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
+		return AvroFile{}, fmt.Errorf("failed to write records to temporary Avro file: %w", err)
 	}
 
 	printFileStats("finished writing to temporary Avro file")
-	return &AvroFile{
+	return AvroFile{
 		NumRecords:      numRecords,
 		StorageLocation: AvroLocalStorage,
 		FilePath:        filePath,
@@ -224,7 +224,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	ctx context.Context,
 	env map[string]string,
 	ocfWriter *ocf.Encoder,
-	typeConversions map[string]qvalue.TypeConversion,
+	typeConversions map[string]types.TypeConversion,
+	numericTruncator model.SnapshotTableNumericTruncator,
 ) (int64, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
@@ -250,7 +251,7 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err
 		} else {
-			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions)
+			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, numericTruncator)
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)

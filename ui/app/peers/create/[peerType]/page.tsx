@@ -4,6 +4,7 @@ import GuideForDestinationSetup from '@/app/mirrors/create/cdc/guide';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
 import ClickHouseForm from '@/components/PeerForms/ClickhouseConfig';
 import KafkaForm from '@/components/PeerForms/KafkaConfig';
+import MongoForm from '@/components/PeerForms/MongoForm';
 import MySqlForm from '@/components/PeerForms/MySqlForm';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
 import PubSubForm from '@/components/PeerForms/PubSubConfig';
@@ -62,7 +63,6 @@ export default function CreateConfig({
   const getDBType = () => {
     if (
       peerType.includes('POSTGRES') ||
-      peerType.includes('TEMBO') ||
       peerType.includes('NEON') ||
       peerType.includes('SUPABASE')
     ) {
@@ -74,7 +74,7 @@ export default function CreateConfig({
     return peerType;
   };
 
-  const configComponentMap = (peerType: string) => {
+  const configComponentMap = () => {
     switch (getDBType()) {
       case 'POSTGRES':
         return (
@@ -82,7 +82,6 @@ export default function CreateConfig({
             settings={postgresSetting}
             setter={setConfig}
             config={config as PostgresConfig}
-            type={peerType}
           />
         );
       case 'MYSQL':
@@ -121,6 +120,8 @@ export default function CreateConfig({
             setter={setConfig}
           />
         );
+      case 'MONGO':
+        return <MongoForm setter={setConfig} />;
       default:
         return <></>;
     }
@@ -206,7 +207,7 @@ export default function CreateConfig({
           Configuration
         </Label>
 
-        <div style={{ minWidth: '40vw' }}>{configComponentMap(peerType)}</div>
+        <div style={{ minWidth: '40vw' }}>{configComponentMap()}</div>
 
         <ButtonGroup>
           <Button as={Link} href='/peers/create'>

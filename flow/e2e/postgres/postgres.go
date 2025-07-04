@@ -57,9 +57,14 @@ func (s PeerFlowE2ETestSuitePG) DestinationTable(table string) string {
 	return e2e.AttachSchema(s, table)
 }
 
+func (s PeerFlowE2ETestSuitePG) Exec(ctx context.Context, sql string) error {
+	_, err := s.conn.Conn().Exec(ctx, sql)
+	return err
+}
+
 func (s PeerFlowE2ETestSuitePG) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	s.t.Helper()
-	pgQueryExecutor, err := s.conn.NewQRepQueryExecutor(s.t.Context(), "testflow", "testpart")
+	pgQueryExecutor, err := s.conn.NewQRepQueryExecutor(s.t.Context(), shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}

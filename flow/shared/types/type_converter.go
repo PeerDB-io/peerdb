@@ -1,4 +1,4 @@
-package qvalue
+package types
 
 //nolint:iface
 type TypeConversion interface {
@@ -46,4 +46,22 @@ func NumericToStringSchemaConversion(val QField) QField {
 
 func NumericToStringValueConversion(val QValueNumeric) QValueString {
 	return QValueString{Val: val.Val.String()}
+}
+
+func NumericToInt256SchemaConversion(val QField) QField {
+	val.Type = QValueKindInt256
+	return val
+}
+
+func NumericToInt256ValueConversion(val QValueNumeric) QValueInt256 {
+	return QValueInt256{Val: val.Val.BigInt()}
+}
+
+func NumericToUInt256SchemaConversion(val QField) QField {
+	val.Type = QValueKindUInt256
+	return val
+}
+
+func NumericToUInt256ValueConversion(val QValueNumeric) QValueUInt256 {
+	return QValueUInt256{Val: val.Val.BigInt()}
 }

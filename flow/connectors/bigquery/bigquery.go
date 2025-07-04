@@ -204,6 +204,7 @@ func (c *BigQueryConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	env map[string]string,
 	flowJobName string,
+	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	for _, schemaDelta := range schemaDeltas {
@@ -365,8 +366,10 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	syncBatchID int64,
 ) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, syncBatchID)
-	stream, err := utils.RecordsToRawTableStream(streamReq)
+	streamReq := model.NewRecordsToStreamRequest(
+		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, false, protos.DBType_BIGQUERY,
+	)
+	stream, err := utils.RecordsToRawTableStream(streamReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}

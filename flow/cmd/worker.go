@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
 	"log/slog"
@@ -81,6 +80,11 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		setupPprof(opts)
 	}
 
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
+	}
+
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
@@ -100,26 +104,7 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		Meter: metricsProvider.Meter("temporal-sdk-go"),
 	})
 
-	if internal.PeerDBTemporalEnableCertAuth() {
-		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := parseTemporalCertAndKey(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
-		}
-		clientOptions.ConnectionOptions = client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: certs,
-				MinVersion:   tls.VersionTLS13,
-			},
-		}
-	}
-
-	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
-	}
-
-	c, err := client.Dial(clientOptions)
+	c, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}

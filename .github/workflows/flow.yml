@@ -15,7 +15,7 @@ jobs:
     strategy:
       matrix:
         runner: [ubuntu-latest-16-cores]
-        db-version: [{pg: 15, mysql: 'mysql-gtid'}, {pg: 16, mysql: 'mysql-pos'}, {pg: 17, mysql: 'maria'}]
+        db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -28,6 +28,11 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: postgres
           POSTGRES_INITDB_ARGS: --locale=C.UTF-8
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
       mysql:
         image: ${{ startsWith(matrix.db-version.mysql, 'mysql') && 'mysql:oracle@sha256:0596fa224cdf3b3355ce3ddbfd7ce77be27ec9e51841dfc5d2e1c8b81eea69d2' || '' }}
         ports:
@@ -35,12 +40,12 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:a138e257877c494fa6854502273ee8db07637395c0a6da076da5babb0735b181
+        image: redpandadata/redpanda@sha256:95182a95a80f187a99cfe9fa03aaf18da0a3809a6741a229572f7ec33e795c13
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.0.1@sha256:26abc2782ee790b76df4e0806ea492967d14bcddb8c58e0eb3cc8593b363ad6c
+        image: elasticsearch:9.0.2@sha256:bfa9d2126a5c3381ac272ee67264083ca04318def1d7b4ea9194ad0b0a8959bf
         ports:
           - 9200:9200
         env:
@@ -48,7 +53,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.5.24@sha256:69703ab18751142bf5487dae90fc5654cc426263e258610b0512cee00030369e
+        image: bitnami/minio:2025.5.24@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
         ports:
           - 9999:9999
         env:
@@ -58,7 +63,7 @@ jobs:
           AWS_EC2_METADATA_DISABLED: true
           MINIO_DEFAULT_BUCKETS: peerdb
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.127.0@sha256:e94cfd92357aa21f4101dda3c0c01f90e6f24115ba91b263c4d09fed7911ae68
+        image: otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7
         ports:
           - 4317:4317
 
@@ -70,15 +75,13 @@ jobs:
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: '1.24.3'
+          go-version: '1.24.4'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
         run: |
           # No need to update man pages on package install
           sudo apt-get remove --purge man-db
-
-          sudo apt-get update
           sudo apt-get install libgeos-dev
 
       - run: go mod download
@@ -126,9 +129,56 @@ jobs:
         if: matrix.db-version.mysql == 'maria'
         run: docker run -d --rm --name mariadb -p 3306:3306 -e MARIADB_ROOT_PASSWORD=cipass mariadb:lts --log-bin=maria
 
-      - name: create hstore extension, increase logical replication limits, and setup catalog database
+      - name: Mongo
+        run: |
+          echo "starting mongoDB..."
+          docker run -d --rm --name mongo -p 27017:27017 mongo:${{ matrix.db-version.mongo }} \
+            bash -c 'openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && mongod --replSet rs0 --bind_ip_all --keyFile /data/mongo.key'
+
+          until docker exec mongo mongosh --eval 'db.runCommand({ ping: 1 })' &> /dev/null; do
+            echo "waiting for MongoDB to be ready..."
+            sleep 2
+          done
+
+          echo "initialize replica set"
+          docker exec mongo mongosh --eval 'rs.initiate({
+            _id: "rs0",
+            members: [{ _id: 0, host: "localhost:27017" }]
+          })'
+
+          echo "create admin user for writing data to mongo"
+          docker exec mongo mongosh --eval '
+            db = db.getSiblingDB("admin");
+            db.createUser({
+              user: "admin",
+              pwd: "admin",
+              roles: ["root"]
+            })'
+
+          echo "create non-admin user for reading data from changestream"
+          docker exec mongo mongosh -u admin -p admin --eval '
+            db = db.getSiblingDB("admin");
+            db.createUser({
+              user: "csuser",
+              pwd: "cspass",
+              roles: ["readAnyDatabase"]
+            })'
+
+      - name: MinIO TLS
         run: >
-          docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;"
+          mkdir -p certs &&
+          openssl genrsa -out certs/cert.key 2048 &&
+          openssl req -new -key certs/cert.key -out certs/cert.csr -subj /CN=minio.local &&
+          openssl x509 -req -days 3650 -in certs/cert.csr -signkey certs/cert.key -out certs/cert.crt &&
+          chown -R 1001 certs &&
+          docker run -d --rm --name miniotls -p 9998:9998 -v "$PWD/certs:/certs" -e MINIO_SCHEME=https bitnami/minio:latest
+
+      - name: create postgres extensions, increase logical replication limits, and setup catalog database
+        run: >
+          docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
+          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
+          docker exec "${{ job.services.catalog.id }}" sh -c 'cd /tmp/pgvector && make with_llvm=no && make with_llvm=no install' &&
+          docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;CREATE EXTENSION vector;"
           -c "ALTER SYSTEM SET wal_level=logical;"
           -c "ALTER SYSTEM SET max_replication_slots=192;"
           -c "ALTER SYSTEM SET max_wal_senders=256;"
@@ -151,7 +201,137 @@ jobs:
 
       - name: Run ClickHouse
         run: |
-          ./clickhouse server &
+          cat > config1.xml <<EOF
+          <clickhouse>
+            <profiles><default></default></profiles>
+            <users>
+              <default>
+                <password></password>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+                <named_collection_control>1</named_collection_control>
+              </default>
+            </users>
+            <logger><level>none</level></logger>
+            <path>var/lib/clickhouse</path>
+            <tmp_path>var/lib/clickhouse/tmp</tmp_path>
+            <user_files_path>var/lib/clickhouse/user_files</user_files_path>
+            <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
+            <tcp_port>9000</tcp_port>
+            <http_port remove="1"/>
+            <postgresql_port remove="1"/>
+            <mysql_port remove="1"/>
+            <macros>
+              <shard>1</shard>
+              <replica>1</replica>
+            </macros>
+            <zookeeper>
+              <node>
+                <host>localhost</host>
+                <port>2181</port>
+              </node>
+            </zookeeper>
+            <distributed_ddl>
+              <path>/clickhouse/task_queue/ddl</path>
+            </distributed_ddl>
+            <remote_servers>
+              <cicluster>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                  </replica>
+                </shard>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9001</port>
+                  </replica>
+                </shard>
+              </cicluster>
+            </remote_servers>
+          </clickhouse>
+          EOF
+          cat > config2.xml <<EOF
+          <clickhouse>
+            <profiles><default></default></profiles>
+            <users>
+              <default>
+                <password></password>
+                <networks>
+                  <ip>::/0</ip>
+                </networks>
+                <profile>default</profile>
+                <quota>default</quota>
+                <access_management>1</access_management>
+                <named_collection_control>1</named_collection_control>
+              </default>
+            </users>
+            <logger><level>none</level></logger>
+            <path>var/lib/clickhouse</path>
+            <tmp_path>var/lib/clickhouse/tmp</tmp_path>
+            <user_files_path>var/lib/clickhouse/user_files</user_files_path>
+            <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
+            <tcp_port>9001</tcp_port>
+            <http_port remove="1"/>
+            <postgresql_port remove="1"/>
+            <mysql_port remove="1"/>
+            <macros>
+              <shard>2</shard>
+              <replica>1</replica>
+            </macros>
+            <zookeeper>
+              <node>
+                <host>localhost</host>
+                <port>2181</port>
+              </node>
+            </zookeeper>
+            <distributed_ddl>
+              <path>/clickhouse/task_queue/ddl</path>
+            </distributed_ddl>
+            <remote_servers>
+              <cicluster>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9000</port>
+                  </replica>
+                </shard>
+                <shard>
+                  <replica>
+                    <host>localhost</host>
+                    <port>9001</port>
+                  </replica>
+                </shard>
+              </cicluster>
+            </remote_servers>
+          </clickhouse>
+          EOF
+          cat > config-keeper.xml <<EOF
+          <clickhouse>
+            <keeper_server>
+                <tcp_port>2181</tcp_port>
+                <server_id>1</server_id>
+                <log_storage_path>var/lib/clickhouse/coordination/log</log_storage_path>
+                <snapshot_storage_path>var/lib/clickhouse/coordination/snapshots</snapshot_storage_path>
+                <raft_configuration>
+                  <server>
+                    <id>1</id>
+                    <hostname>localhost</hostname>
+                    <port>9234</port>
+                  </server>
+                </raft_configuration>
+            </keeper_server>
+          </clickhouse>
+          EOF
+          mkdir ch1 ch2 chkeep
+          (cd ch1 && ../clickhouse server -C ../config1.xml) &
+          (cd ch2 && ../clickhouse server -C ../config2.xml) &
+          (cd chkeep && ../clickhouse keeper -C ../config-keeper.xml) &
 
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
@@ -184,6 +364,7 @@ jobs:
           AWS_ACCESS_KEY_ID: minio
           AWS_SECRET_ACCESS_KEY: miniosecret
           AWS_REGION: us-east-1
+          AWS_ENDPOINT_URL_S3_TLS: https://localhost:9998
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
@@ -212,6 +393,8 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
+          CI_MONGO_ADMIN_URI: mongodb://admin:admin@localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_URI: mongodb://csuser:cspass@localhost:27017/?replicaSet=rs0&authSource=admin
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc

@@ -44,6 +44,7 @@ export const blankCDCSetting: CDCConfig = {
   disablePeerDBColumns: false,
   env: {},
   envString: '',
+  version: 0,
 };
 
 export const blankQRepSetting: QRepConfig = {
@@ -68,6 +69,7 @@ export const blankQRepSetting: QRepConfig = {
   script: '',
   system: TypeSystem.Q,
   env: {},
+  version: 0,
   parentMirrorName: '',
   exclude: [],
   columns: [],

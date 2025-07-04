@@ -17,8 +17,8 @@ import (
 	e2e_snowflake "github.com/PeerDB-io/peerdb/flow/e2e/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -35,7 +35,7 @@ func TestGenericBQ(t *testing.T) {
 }
 
 func TestGenericCH_PG(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, false, func(t *testing.T) (*e2e.PostgresSource, string, error) {
 		t.Helper()
 		suffix := "pgchg_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupPostgres(t, suffix)
@@ -44,9 +44,27 @@ func TestGenericCH_PG(t *testing.T) {
 }
 
 func TestGenericCH_MySQL(t *testing.T) {
-	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, false, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
 		suffix := "mychg_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupMySQL(t, suffix)
+		return source, suffix, err
+	})))
+}
+
+func TestGenericChCluster_PG(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, true, func(t *testing.T) (*e2e.PostgresSource, string, error) {
+		t.Helper()
+		suffix := "pgchclg_" + strings.ToLower(shared.RandomString(8))
+		source, err := e2e.SetupPostgres(t, suffix)
+		return source, suffix, err
+	})))
+}
+
+func TestGenericChCluster_MySQL(t *testing.T) {
+	e2eshared.RunSuite(t, SetupGenericSuite(e2e_clickhouse.SetupSuite(t, true, func(t *testing.T) (*e2e.MySqlSource, string, error) {
+		t.Helper()
+		suffix := "mychclg_" + strings.ToLower(shared.RandomString(8))
 		source, err := e2e.SetupMySQL(t, suffix)
 		return source, suffix, err
 	})))
@@ -219,27 +237,27 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(qvalue.QValueKindBoolean),
+				Type:         string(types.QValueKindBoolean),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 		},
 	}
-	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -255,27 +273,27 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -292,32 +310,32 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -334,32 +352,32 @@ func (s Generic) Test_Simple_Schema_Changes() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c3"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 		},
 	}
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
@@ -475,27 +493,27 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c2"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(qvalue.QValueKindBoolean),
+				Type:         string(types.QValueKindBoolean),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 		},
@@ -505,27 +523,27 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 		Columns: []*protos.FieldDescription{
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
-				Type:         string(qvalue.QValueKindNumeric),
+				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_IS_DELETED",
-				Type:         string(qvalue.QValueKindBoolean),
+				Type:         string(types.QValueKindBoolean),
 				TypeModifier: -1,
 			},
 			{
 				Name:         "_PEERDB_SYNCED_AT",
-				Type:         string(qvalue.QValueKindTimestamp),
+				Type:         string(types.QValueKindTimestamp),
 				TypeModifier: -1,
 			},
 		},
 	}
-	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))
@@ -537,7 +555,7 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 	// verify we got our two rows, if schema did not match up it will error.
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "table1 added column", srcTable1, dstTable1, "id,c1,coalesce(c2,0) c2")
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "table2 added column", srcTable2, dstTable2, "id,c1,coalesce(c2,0) c2")
-	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, protos.TypeSystem_Q,
+	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName1}, {SourceTableIdentifier: dstTableName2}})
 	e2e.EnvNoError(t, env, err)
 	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema1, output[dstTableName1]))

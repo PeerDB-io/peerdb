@@ -1,11 +1,9 @@
-package qvalue_test
+package qvalue
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 )
 
 func TestColumnNameAvroFieldConvert(t *testing.T) {
@@ -61,7 +59,7 @@ func TestColumnNameAvroFieldConvert(t *testing.T) {
 
 	for i, columnName := range testColumnNames {
 		t.Run(columnName, func(t *testing.T) {
-			assert.Equal(t, expectedColumnNames[i], qvalue.ConvertToAvroCompatibleName(columnName))
+			assert.Equal(t, expectedColumnNames[i], ConvertToAvroCompatibleName(columnName))
 		})
 	}
 }
