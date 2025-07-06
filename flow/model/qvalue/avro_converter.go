@@ -198,6 +198,7 @@ func QValueToAvro(
 		Stat:                     stat,
 		TargetDWH:                targetDWH,
 		UnboundedNumericAsString: unboundedNumericAsString,
+		binaryFormat:             binaryFormat,
 	}
 
 	switch v := value.(type) {
