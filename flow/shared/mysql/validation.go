@@ -214,7 +214,7 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 	// check RDS/Aurora binlog retention setting
 	if rs, err := conn.Execute("SELECT value FROM mysql.rds_configuration WHERE name='binlog retention hours'"); err != nil {
 		var mErr *mysql.MyError
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR {
+		if errors.As(err, &mErr) && (mErr.Code == mysql.ER_NO_SUCH_TABLE || mErr.Code == mysql.ER_TABLEACCESS_DENIED_ERROR) {
 			// Table doesn't exist, which means this is not RDS/Aurora
 			logger.Warn("mysql.rds_configuration table does not exist, skipping Aurora/RDS binlog retention check",
 				slog.Any("error", err))
