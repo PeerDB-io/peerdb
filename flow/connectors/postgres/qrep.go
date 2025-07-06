@@ -689,8 +689,7 @@ func (c *PostgresConnector) IsQRepPartitionSynced(ctx context.Context,
 
 	// prepare and execute the query
 	var result bool
-	err := c.conn.QueryRow(ctx, queryString, req.PartitionId).Scan(&result)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx, queryString, req.PartitionId).Scan(&result); err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 

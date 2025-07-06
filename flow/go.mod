@@ -30,7 +30,7 @@ require (
 	github.com/aws/smithy-go v1.22.4
 	github.com/cockroachdb/pebble v1.1.5
 	github.com/elastic/go-elasticsearch/v8 v8.18.1
-	github.com/go-mysql-org/go-mysql v1.12.0
+	github.com/go-mysql-org/go-mysql v1.12.1-0.20250706035254-4a082cf9bd9a
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.0
 	github.com/hamba/avro/v2 v2.29.0
@@ -89,7 +89,6 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.29.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.53.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.53.0 // indirect
-	github.com/Masterminds/semver v1.5.0 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/apache/arrow-go/v18 v18.3.1 // indirect
 	github.com/apache/arrow/go/v15 v15.0.2 // indirect
