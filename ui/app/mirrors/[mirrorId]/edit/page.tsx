@@ -77,18 +77,22 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
       updatedEnv: {},
       snapshotNumRowsPerPartition:
         (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotNumRowsPerPartition ||
-        defaultSnapshotNumRowsPerPartition,
+          ?.snapshotNumRowsPerPartition || defaultSnapshotNumRowsPerPartition,
       snapshotMaxParallelWorkers:
         (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotMaxParallelWorkers ||
-        defaultSnapshotMaxParallelWorkers,
+          ?.snapshotMaxParallelWorkers || defaultSnapshotMaxParallelWorkers,
       snapshotNumTablesInParallel:
         (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotNumTablesInParallel ||
-        defaultSnapshotNumTablesInParallel,
+          ?.snapshotNumTablesInParallel || defaultSnapshotNumTablesInParallel,
     });
-  }, [mirrorId, defaultBatchSize, defaultIdleTimeout]);
+  }, [
+    mirrorId,
+    defaultBatchSize,
+    defaultIdleTimeout,
+    defaultSnapshotNumRowsPerPartition,
+    defaultSnapshotMaxParallelWorkers,
+    defaultSnapshotNumTablesInParallel,
+  ]);
 
   useEffect(() => {
     fetchStateAndUpdateDeps();
