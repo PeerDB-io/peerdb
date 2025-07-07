@@ -100,7 +100,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
 		if c.config.Replicated {
 			engine = fmt.Sprintf(
-				"ReplicatedReplacingMergeTree(%s%s','{replica}',%s)",
+				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s)",
 				zooPathPrefix,
 				peerdb_clickhouse.EscapeStr(tableIdentifier),
 				peerdb_clickhouse.QuoteIdentifier(versionColName),
