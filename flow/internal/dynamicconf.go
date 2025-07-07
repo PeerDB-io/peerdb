@@ -307,6 +307,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_INITIAL_LOAD_ALLOW_NON_EMPTY_TABLES",
+		Description:      "Disables validation raising error if destination table of initial load is not empty",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_SKIP_SNAPSHOT_EXPORT",
 		Description:      "This avoids initial load failing due to connectivity drops, but risks data consistency unless precautions are taken",
 		DefaultValue:     "false",
@@ -623,6 +631,10 @@ func PeerDBClickHouseNormalizationParts(ctx context.Context, env map[string]stri
 
 func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[string]string) (uint64, error) {
 	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION")
+}
+
+func PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_ALLOW_NON_EMPTY_TABLES")
 }
 
 func PeerDBSkipSnapshotExport(ctx context.Context, env map[string]string) (bool, error) {
