@@ -24,12 +24,12 @@ use peer_cursor::{
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
-        ClientInfo, ClientPortalStore, NoopErrorHandler, PgWireServerHandlers, Type,
+        ClientInfo, ClientPortalStore, PgWireServerHandlers, Type,
         auth::{
+            StartupHandler,
             AuthSource, LoginInfo, Password, ServerParameterProvider,
             scram::{SASLScramAuthStartupHandler, gen_salted_password},
         },
-        copy::NoopCopyHandler,
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler},
         results::{
@@ -1072,34 +1072,19 @@ pub struct Handlers {
 }
 
 impl PgWireServerHandlers for Handlers {
-    type StartupHandler =
-        SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>;
-    type SimpleQueryHandler = NexusBackend;
-    type ExtendedQueryHandler = NexusBackend;
-    type CopyHandler = NoopCopyHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.nexus.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
         self.nexus.clone()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
         Arc::new(SASLScramAuthStartupHandler::new(
             self.authenticator.0.clone(),
             self.authenticator.1.clone(),
         ))
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 
