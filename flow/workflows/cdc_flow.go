@@ -637,10 +637,10 @@ func CDCFlowWorkflow(
 		}
 
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
-		// now snapshot parameters are also part of the state, but until we finish snapshot they wouldn't be modifiable
-		// so we can use the same cfg for snapshot flow, and then rely on being state saved to catalog
-		// during any operation that triggers another snapshot (INCLUDING add tables)
-		// could fail for very weird Temporal resets
+		// now snapshot parameters are also part of the state, but until we finish snapshot they wouldn't be modifiable.
+		// so we can use the same cfg for snapshot flow, and then rely on being state being saved to catalog
+		// during any operation that triggers another snapshot (INCLUDING add tables).
+		// this could fail for very weird Temporal resets
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
 		var snapshotDone bool
 		var snapshotError error

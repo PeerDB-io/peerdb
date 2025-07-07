@@ -181,7 +181,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   batchSize: e.target.valueAsNumber,
                 })
               }
-              defaultValue={config.batchSize}
+              value={config.batchSize}
             />
           </div>
         }
@@ -207,7 +207,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   idleTimeout: e.target.valueAsNumber,
                 })
               }
-              defaultValue={config.idleTimeout}
+              value={config.idleTimeout}
             />
           </div>
         }
@@ -233,7 +233,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   snapshotNumRowsPerPartition: e.target.valueAsNumber,
                 })
               }
-              defaultValue={config.snapshotNumRowsPerPartition}
+              value={config.snapshotNumRowsPerPartition}
             />
           </div>
         }
@@ -259,7 +259,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   snapshotMaxParallelWorkers: e.target.valueAsNumber,
                 })
               }
-              defaultValue={config.snapshotMaxParallelWorkers}
+              value={config.snapshotMaxParallelWorkers}
             />
           </div>
         }
@@ -285,7 +285,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   snapshotNumTablesInParallel: e.target.valueAsNumber,
                 })
               }
-              defaultValue={config.snapshotNumTablesInParallel}
+              value={config.snapshotNumTablesInParallel}
             />
           </div>
         }
