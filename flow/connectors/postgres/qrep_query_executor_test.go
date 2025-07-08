@@ -559,23 +559,25 @@ func TestStringDataTypes(t *testing.T) {
 		},
 	}
 
-	connector, schemaName := setupDB(t, "string")
-	conn := connector.conn
-	defer conn.Close(ctx)
-	defer teardownDB(t, conn, schemaName)
-
 	for _, tc := range tests {
 		t.Run(tc.Type, func(t *testing.T) {
+			t.Parallel()
+
+			connector, schemaName := setupDB(t, tc.Type)
+			conn := connector.conn
+			defer conn.Close(ctx)
+			defer teardownDB(t, conn, schemaName)
+
 			query := fmt.Sprintf(
-				"CREATE TABLE %s.test_strings(col %s, col_arr %s[])",
-				utils.QuoteIdentifier(schemaName), tc.Type, tc.Type,
+				"CREATE TABLE %s.test(col %[2]s, col_arr %[2]s[])",
+				utils.QuoteIdentifier(schemaName), tc.Type,
 			)
 			_, err := conn.Exec(ctx, query)
 			require.NoError(t, err)
 
 			defer func() {
 				query := fmt.Sprintf(
-					"DROP TABLE %s.test_strings", utils.QuoteIdentifier(schemaName),
+					"DROP TABLE %s.test", utils.QuoteIdentifier(schemaName),
 				)
 				_, err := conn.Exec(ctx, query)
 				require.NoError(t, err)
@@ -590,7 +592,7 @@ func TestStringDataTypes(t *testing.T) {
 				arrayLiteral = "null"
 			}
 			query = fmt.Sprintf(
-				"INSERT INTO %s.test_strings(col, col_arr) VALUES (%s, %s)",
+				"INSERT INTO %s.test(col, col_arr) VALUES (%s, %s)",
 				utils.QuoteIdentifier(schemaName), literal, arrayLiteral,
 			)
 			_, err = conn.Exec(ctx, query)
@@ -600,7 +602,7 @@ func TestStringDataTypes(t *testing.T) {
 			require.NoError(t, err)
 			// Select the row back out of the table
 			batch, err := qe.ExecuteAndProcessQuery(t.Context(),
-				fmt.Sprintf("SELECT * FROM %s.test_strings", utils.QuoteIdentifier(schemaName)))
+				fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
 			require.NoError(t, err)
 			require.Len(t, batch.Records, 1)
 
@@ -608,17 +610,10 @@ func TestStringDataTypes(t *testing.T) {
 			record := batch.Records[0]
 
 			if tc.Expected != "" {
-				str, ok := record[0].Value().(string)
-				require.True(t, ok)
-				require.Equal(t, tc.Expected, str)
+				require.Exactly(t, tc.Expected, record[0].Value())
 			}
 			if tc.ArrayExpected != nil {
-				strs, ok := record[1].Value().([]string)
-				require.True(t, ok)
-				require.Len(t, strs, len(tc.ArrayExpected))
-				for i, expected := range tc.ArrayExpected {
-					require.Equal(t, expected, strs[i])
-				}
+				require.Exactly(t, tc.ArrayExpected, record[1].Value())
 			}
 		})
 	}
