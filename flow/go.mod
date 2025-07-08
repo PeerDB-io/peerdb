@@ -28,8 +28,8 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sns v1.34.7
 	github.com/aws/aws-sdk-go-v2/service/sts v1.34.0
 	github.com/aws/smithy-go v1.22.4
-	github.com/cockroachdb/pebble v1.1.5
-	github.com/elastic/go-elasticsearch/v8 v8.18.1
+	github.com/cockroachdb/pebble/v2 v2.0.6
+	github.com/elastic/go-elasticsearch/v9 v9.0.0
 	github.com/go-mysql-org/go-mysql v1.12.1-0.20250706035254-4a082cf9bd9a
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.1
@@ -38,11 +38,11 @@ require (
 	github.com/jackc/pglogrepl v0.0.0-20250509230407-a9884f6bd75a
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/joho/godotenv v1.5.1
-	github.com/lestrrat-go/jwx/v2 v2.1.6
+	github.com/lestrrat-go/jwx/v3 v3.0.8
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/pgvector/pgvector-go v0.3.0
-	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
-	github.com/pingcap/tidb/pkg/parser v0.0.0-20250707191748-0cd280bbd28b
+	github.com/pingcap/tidb v1.0.9
+	github.com/pingcap/tidb/pkg/parser 81370d4c725e
 	github.com/shopspring/decimal v1.4.0
 	github.com/slack-go/slack v0.17.3
 	github.com/snowflakedb/gosnowflake v1.15.0
@@ -69,7 +69,7 @@ require (
 	golang.org/x/crypto v0.39.0
 	golang.org/x/sync v0.15.0
 	google.golang.org/api v0.240.0
-	google.golang.org/genproto/googleapis/api v0.0.0-20250603155806-513f23925822
+	google.golang.org/genproto/googleapis/api 8d1bb00bc6a7
 	google.golang.org/grpc v1.73.0
 	google.golang.org/protobuf v1.36.6
 	k8s.io/apimachinery v0.33.2
