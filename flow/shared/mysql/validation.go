@@ -237,3 +237,15 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 
 	return nil
 }
+
+// check if the server is a Vitess server, currently only works for initial load only
+func IsVitess(conn *client.Conn) (bool, error) {
+	if _, err := conn.Execute("SHOW VITESS_TABLETS"); err != nil {
+		var mErr *mysql.MyError
+		if errors.As(err, &mErr) && mErr.Code == mysql.ER_PARSE_ERROR {
+			return false, nil // not a Vitess server
+		}
+		return false, fmt.Errorf("failed to check if Vitess: %w", err)
+	}
+	return true, nil // is a Vitess server
+}
