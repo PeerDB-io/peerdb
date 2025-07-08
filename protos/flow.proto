@@ -185,6 +185,7 @@ message FieldDescription {
   string type = 2;
   int32 type_modifier = 3;
   bool nullable = 4;
+  repeated FieldDescription composite = 5;
 }
 
 message SetupTableSchemaBatchInput {

@@ -45,6 +45,8 @@ const (
 	QValueKindINET    QValueKind = "inet"
 	QValueKindMacaddr QValueKind = "macaddr"
 
+	QValueKindComposite QValueKind = "composite"
+
 	// array types
 	QValueKindArrayFloat32     QValueKind = "array_float32"
 	QValueKindArrayFloat64     QValueKind = "array_float64"
@@ -62,6 +64,7 @@ const (
 	QValueKindArrayJSONB       QValueKind = "array_jsonb"
 	QValueKindArrayUUID        QValueKind = "array_uuid"
 	QValueKindArrayNumeric     QValueKind = "array_numeric"
+	QValueKindArrayComposite   QValueKind = "array_composite"
 )
 
 func (kind QValueKind) IsArray() bool {

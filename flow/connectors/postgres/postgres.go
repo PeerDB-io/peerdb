@@ -923,6 +923,45 @@ func (c *PostgresConnector) GetSelectedColumns(
 	return columns, nil
 }
 
+func (c *PostgresConnector) getCompositeTypeDetails(ctx context.Context, system protos.TypeSystem, version uint32,
+	customTypeMapping map[uint32]shared.CustomDataType, OID uint32) ([]*protos.FieldDescription, error) {
+	result := make([]*protos.FieldDescription, 0)
+	subfields, err := shared.GetCompositeDataTypeDetails(ctx, c.conn, OID)
+	if err != nil {
+		return nil, fmt.Errorf("error getting composite data type details for %d: %w", OID, err)
+	}
+	for _, subfield := range subfields {
+		var subColType string
+		var err error
+		switch system {
+		case protos.TypeSystem_PG:
+			subColType, err = c.postgresOIDToName(subfield.Type.OID, customTypeMapping)
+		case protos.TypeSystem_Q:
+			qColType := c.postgresOIDToQValueKind(subfield.Type.OID, customTypeMapping, version)
+			subColType = string(qColType)
+		}
+
+		if err != nil {
+			return nil, fmt.Errorf("error getting type name for subfield %d: %w", subfield.Type.OID, err)
+		}
+		subCompositeFields := make([]*protos.FieldDescription, 0)
+		if subColType == "composite" {
+			subCompositeFields, err = c.getCompositeTypeDetails(ctx, system, version, customTypeMapping, subfield.Type.OID)
+			if err != nil {
+				return nil, fmt.Errorf("error getting composite type details for subfield %d: %w", subfield.Type.OID, err)
+			}
+		}
+		result = append(result, &protos.FieldDescription{
+			Name:         subfield.Name,
+			Type:         subColType,
+			TypeModifier: subfield.TypeModifier,
+			Nullable:     !subfield.NotNull,
+			Composite:    subCompositeFields,
+		})
+	}
+	return result, nil
+}
+
 func (c *PostgresConnector) getTableSchemaForTable(
 	ctx context.Context,
 	env map[string]string,
@@ -989,9 +1028,11 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
-	defer rows.Close()
-
 	fields := rows.FieldDescriptions()
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over table schema: %w", err)
+	}
 	columnNames := make([]string, 0, len(fields))
 	columns := make([]*protos.FieldDescription, 0, len(fields))
 	for _, fieldDescription := range fields {
@@ -1008,6 +1049,15 @@ func (c *PostgresConnector) getTableSchemaForTable(
 			return nil, fmt.Errorf("error getting type name for %d: %w", fieldDescription.DataTypeOID, err)
 		}
 
+		composite := make([]*protos.FieldDescription, 0)
+		if colType == "composite" {
+			subtypes, err := c.getCompositeTypeDetails(ctx, system, version, customTypeMapping, fieldDescription.DataTypeOID)
+			if err != nil {
+				return nil, fmt.Errorf("error getting composite type details for %d: %w", fieldDescription.DataTypeOID, err)
+			}
+			composite = subtypes
+		}
+
 		columnNames = append(columnNames, fieldDescription.Name)
 		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
@@ -1015,11 +1065,8 @@ func (c *PostgresConnector) getTableSchemaForTable(
 			Type:         colType,
 			TypeModifier: fieldDescription.TypeModifier,
 			Nullable:     nullable,
+			Composite:    composite,
 		})
-	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
 	// if we have no pkey, we will use all columns as the pkey for the MERGE statement
 	if replicaIdentityType == ReplicaIdentityFull && len(pKeyCols) == 0 {
