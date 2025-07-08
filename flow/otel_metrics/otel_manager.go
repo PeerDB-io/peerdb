@@ -14,7 +14,6 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
@@ -310,16 +309,13 @@ func (om *OtelManager) setupMetrics() error {
 // newOtelResource returns a resource describing this application.
 func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*resource.Resource, error) {
 	allAttrs := append([]attribute.KeyValue{
-		semconv.ServiceNameKey.String(otelServiceName),
+		attribute.Key("service.name").String(otelServiceName),
 		attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
-		semconv.ServiceVersion(internal.PeerDBVersionShaShort()),
+		attribute.Key("service.version").String(internal.PeerDBVersionShaShort()),
 	}, attrs...)
 	return resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			allAttrs...,
-		),
+		resource.NewWithAttributes("", allAttrs...),
 	)
 }
 
