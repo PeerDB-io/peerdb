@@ -422,6 +422,10 @@ message CDCFlowConfigUpdate {
   repeated TableMapping removed_tables = 5;
   // updates keys in the env map, existing keys left unchanged
   map<string, string> updated_env = 6;
+  // updating snapshot settings
+  uint32 snapshot_num_rows_per_partition = 7;
+  uint32 snapshot_max_parallel_workers = 8;
+  uint32 snapshot_num_tables_in_parallel = 9;
 }
 
 message QRepFlowConfigUpdate {

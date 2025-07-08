@@ -98,6 +98,11 @@ func updateFlowConfigWithLatestSettings(
 	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
+
+	// Update `snapshot` settings
+	cloneCfg.SnapshotMaxParallelWorkers = cfg.SnapshotMaxParallelWorkers
+	cloneCfg.SnapshotNumTablesInParallel = cfg.SnapshotNumTablesInParallel
+	cloneCfg.SnapshotNumRowsPerPartition = cfg.SnapshotNumRowsPerPartition
 	return cloneCfg
 }
 

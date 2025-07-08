@@ -153,6 +153,10 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 		config.MaxBatchSize = state.SyncFlowOptions.BatchSize
 		config.TableMappings = state.SyncFlowOptions.TableMappings
+
+		config.SnapshotMaxParallelWorkers = state.FlowConfigUpdate.SnapshotMaxParallelWorkers
+		config.SnapshotNumTablesInParallel = state.FlowConfigUpdate.SnapshotNumTablesInParallel
+		config.SnapshotNumRowsPerPartition = state.FlowConfigUpdate.SnapshotNumRowsPerPartition
 	}
 
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
