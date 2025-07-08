@@ -392,3 +392,45 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 	}
 	return "", errors.New("failed to connect")
 }
+
+func (c *MySqlConnector) StatActivity(
+	ctx context.Context,
+	req *protos.PostgresPeerActivityInfoRequest,
+) (*protos.PeerStatResponse, error) {
+	rs, err := c.Execute(ctx, "SELECT ID,COMMAND,STATE,TIME,INFO FROM performance_schema.processlist WHERE USER=?", c.config.User)
+	if err != nil {
+		// 42S02 is ER_NO_SUCH_TABLE
+		var myErr *mysql.MyError
+		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+			// mariadb
+			rs, err = c.Execute(ctx,
+				"SELECT PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
+					" FROM performance_schema.threads WHERE USER=?", c.config.User)
+			if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+				rs, err = c.Execute(ctx,
+					"SELECT ID,COMMAND,STATE,TIME,INFO FROM information_schema.processlist WHERE USER=?", c.config.User)
+			}
+		}
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	statInfoRows := make([]*protos.StatInfo, len(rs.Values))
+	for idx, row := range rs.Values {
+		statInfoRows[idx] = &protos.StatInfo{
+			Pid:           row[0].AsInt64(),
+			WaitEvent:     string(row[1].AsString()),
+			WaitEventType: "",
+			QueryStart:    "",
+			Query:         string(row[4].AsString()),
+			Duration:      float32(row[3].AsUint64()),
+			State:         string(row[2].AsString()),
+		}
+	}
+
+	return &protos.PeerStatResponse{
+		StatData: statInfoRows,
+	}, nil
+}

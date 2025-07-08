@@ -14,7 +14,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peerdb/flow/alerting"
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -191,28 +190,6 @@ func (c *MongoConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffs
 }
 
 func (c *MongoConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
-	return nil
-}
-
-func (c *MongoConnector) HandleSlotInfo(
-	ctx context.Context,
-	alerter *alerting.Alerter,
-	catalogPool shared.CatalogPool,
-	alertKeys *alerting.AlertKeys,
-	slotMetricGauges otel_metrics.SlotMetricGauges,
-) error {
-	return nil
-}
-
-func (c *MongoConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	return nil, nil
-}
-
-func (c *MongoConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
-	return nil
-}
-
-func (c *MongoConnector) RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error {
 	return nil
 }
 
