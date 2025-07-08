@@ -41,6 +41,7 @@ dotenvy = "0.15.7"
 flow-rs = { path = "../flow-rs" }
 futures = { version = "0.3.28", features = ["executor"] }
 peer-bigquery = { path = "../peer-bigquery" }
+peer-clickhouse = { path = "../peer-clickhouse" }
 peer-connections = { path = "../peer-connections" }
 peer-cursor = { path = "../peer-cursor" }
 peer-mysql = { path = "../peer-mysql" }

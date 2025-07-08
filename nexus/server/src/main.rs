@@ -675,6 +675,10 @@ impl NexusBackend {
                         let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
                         Arc::new(executor)
                     }
+                    Some(Config::ClickhouseConfig(ref c)) => {
+                        let executor = peer_clickhouse::ClickHouseQueryExecutor::new(c).await?;
+                        Arc::new(executor)
+                    }
                     _ => {
                         panic!("peer type not supported: {:?}", peer)
                     }
