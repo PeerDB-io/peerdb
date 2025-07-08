@@ -587,14 +587,6 @@ func TestStringDataTypes(t *testing.T) {
 			_, err := conn.Exec(ctx, query)
 			require.NoError(t, err)
 
-			defer func() {
-				query := fmt.Sprintf(
-					"DROP TABLE %s.test", utils.QuoteIdentifier(schemaName),
-				)
-				_, err := conn.Exec(ctx, query)
-				require.NoError(t, err)
-			}()
-
 			literal := tc.Literal
 			if literal == "" {
 				literal = "null"
