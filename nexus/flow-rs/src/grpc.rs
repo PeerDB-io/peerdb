@@ -23,7 +23,7 @@ impl FlowGrpcClient {
         let flow_server_addr = flow_server_addr.replace("http", "grpc");
 
         // we want addr/grpc as the grpc endpoint
-        let grpc_endpoint = format!("{}/grpc", flow_server_addr);
+        let grpc_endpoint = format!("{flow_server_addr}/grpc");
         tracing::info!("connecting to flow server at {}", grpc_endpoint);
 
         // Create a gRPC channel
