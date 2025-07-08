@@ -12,7 +12,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
-	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
 
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
@@ -46,28 +45,37 @@ func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 
 	mongoAdminUri := os.Getenv("CI_MONGO_ADMIN_URI")
 	require.NotEmpty(t, mongoAdminUri, "missing CI_MONGO_ADMIN_URI env var")
+	mongoAdminUsername := os.Getenv("CI_MONGO_ADMIN_USERNAME")
+	require.NotEmpty(t, mongoAdminUsername, "missing CI_MONGO_ADMIN_USERNAME env var")
+	mongoAdminPassword := os.Getenv("CI_MONGO_ADMIN_PASSWORD")
+	require.NotEmpty(t, mongoAdminPassword, "missing CI_MONGO_ADMIN_PASSWORD env var")
+	adminClient, err := mongo.Connect(options.Client().
+		ApplyURI(mongoAdminUri).
+		SetAppName("Mongo admin client").
+		SetCompressors([]string{"zstd", "snappy"}).
+		SetReadPreference(readpref.Primary()).
+		SetAuth(options.Credential{
+			Username: mongoAdminUsername,
+			Password: mongoAdminPassword,
+		}))
+	require.NoError(t, err, "failed to setup mongo admin client")
 
 	mongoUri := os.Getenv("CI_MONGO_URI")
 	require.NotEmpty(t, mongoUri, "missing CI_MONGO_URI env var")
+	mongoUsername := os.Getenv("CI_MONGO_USERNAME")
+	require.NotEmpty(t, mongoUsername, "missing CI_MONGO_USERNAME env var")
+	mongoPassword := os.Getenv("CI_MONGO_PASSWORD")
+	require.NotEmpty(t, mongoPassword, "missing CI_MONGO_PASSWORD env var")
 
-	connStr, err := connstring.Parse(mongoUri)
-	require.NoError(t, err)
 	mongoConfig := &protos.MongoConfig{
 		Uri:        mongoUri,
-		Username:   connStr.Username,
-		Password:   connStr.Password,
+		Username:   mongoUsername,
+		Password:   mongoPassword,
 		DisableTls: true,
 	}
 
 	mongoConn, err := connmongo.NewMongoConnector(t.Context(), mongoConfig)
 	require.NoError(t, err, "failed to setup mongo connector")
-
-	adminClient, err := mongo.Connect(options.Client().
-		SetAppName("Mongo admin client").
-		SetCompressors([]string{"zstd", "snappy"}).
-		SetReadPreference(readpref.Primary()).
-		ApplyURI(mongoAdminUri))
-	require.NoError(t, err, "failed to setup mongo admin client")
 
 	testDb := GetTestDatabase(suffix)
 	db := adminClient.Database(testDb)
