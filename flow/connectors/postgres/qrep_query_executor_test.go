@@ -436,6 +436,7 @@ func TestStringDataTypes(t *testing.T) {
 			ArrayExpected: []string{"{[1,11),[20,31)}", "{[100,111),[120,131)}", ""},
 		},
 		{
+			Prefix:        "open_",
 			Type:          "int4multirange",
 			Literal:       "'{(,10],[20,)}'::int4multirange",
 			Expected:      "{(,11),[20,)}",
@@ -571,7 +572,7 @@ func TestStringDataTypes(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.Type, func(t *testing.T) {
+		t.Run(tc.Prefix+tc.Type, func(t *testing.T) {
 			t.Parallel()
 
 			ctx := t.Context()
