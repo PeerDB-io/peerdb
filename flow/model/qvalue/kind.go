@@ -3,6 +3,7 @@ package qvalue
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 
@@ -88,6 +89,22 @@ func ToDWHColumnType(
 			colType = fmt.Sprintf("Array(%s)", colType)
 		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
 			colType = "JSON"
+		} else if kind == types.QValueKindComposite {
+			colType = "Tuple("
+			if column.Composite == nil {
+				return "", fmt.Errorf("composite type is nil for column %s", column.Name)
+			}
+			for _, subfield := range column.Composite {
+				if subfield == nil {
+					return "", fmt.Errorf("composite field is nil for column %s", column.Name)
+				}
+				subfieldType, err := ToDWHColumnType(ctx, types.QValueKind(subfield.Type), env, dwhType, dwhVersion, subfield, nullableEnabled)
+				if err != nil {
+					return "", fmt.Errorf("failed to get DWH column type for composite field %s: %w", subfield.Name, err)
+				}
+				colType += fmt.Sprintf("%s %s, ", subfield.Name, subfieldType)
+			}
+			colType = strings.TrimSuffix(colType, ", ") + ")"
 		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
 		} else {
