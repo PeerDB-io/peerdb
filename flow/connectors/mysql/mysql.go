@@ -399,12 +399,17 @@ func (c *MySqlConnector) StatActivity(
 ) (*protos.PeerStatResponse, error) {
 	rs, err := c.Execute(ctx, "select ID,COMMAND,STATE,TIME,INFO from performance_schema.processlist WHERE USER=?", c.config.User)
 	if err != nil {
+		// 42S02 is ER_NO_SUCH_TABLE
 		var myErr *mysql.MyError
-		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" { // ER_NO_SUCH_TABLE
+		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
 			// mariadb
 			rs, err = c.Execute(ctx,
 				"select PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
 					" from performance_schema.threads WHERE USER=?", c.config.User)
+			if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+				rs, err = c.Execute(ctx,
+					"select ID,COMMAND,STATE,TIME,INFO from information_schema.processlist WHERE USER=?", c.config.User)
+			}
 		}
 
 		if err != nil {
