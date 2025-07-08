@@ -22,6 +22,8 @@ import (
 )
 
 func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
 	config, err := pgx.ParseConfig("postgres://non-existent.domain.name.here:123/db")
 	require.NoError(t, err)
 	_, err = pgx.ConnectConfig(t.Context(), config)
@@ -34,6 +36,8 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 }
 
 func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
 	hostName := "non-existent.domain.name.here"
 	_, err := net.Dial("tcp", hostName+":123")
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
@@ -160,6 +164,8 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 }
 
 func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
 	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
 	config, err := pgx.ParseConfig(connectionString)
 	require.NoError(t, err)
@@ -332,6 +338,8 @@ func TestPostgresCouldNotFindRecordWalErrorShouldBeRecoverable(t *testing.T) {
 }
 
 func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
 	config, err := pgx.ParseConfig("postgres://localhost:1001/db")
 	require.NoError(t, err)
 	_, err = pgx.ConnectConfig(t.Context(), config)
@@ -339,6 +347,8 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 	t.Logf("Error: %v", err)
 	for _, e := range []error{err, exceptions.NewPeerCreateError(err)} {
 		t.Run(fmt.Sprintf("Testing error: %T", e), func(t *testing.T) {
+			t.Parallel()
+
 			errorClass, errInfo := GetErrorClass(t.Context(), err)
 			assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{

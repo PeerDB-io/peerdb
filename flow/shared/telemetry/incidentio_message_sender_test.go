@@ -16,6 +16,8 @@ import (
 )
 
 func TestIncidentIoMessageSender_SendMessage(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		serverResponse     IncidentIoResponse
 		name               string
