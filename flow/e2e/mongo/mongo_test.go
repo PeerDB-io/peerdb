@@ -45,21 +45,37 @@ func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 
 	mongoAdminUri := os.Getenv("CI_MONGO_ADMIN_URI")
 	require.NotEmpty(t, mongoAdminUri, "missing CI_MONGO_ADMIN_URI env var")
-
-	mongoUri := os.Getenv("CI_MONGO_URI")
-	require.NotEmpty(t, mongoUri, "missing CI_MONGO_URI env var")
-
-	mongoConfig := &protos.MongoConfig{Uri: mongoUri}
-
-	mongoConn, err := connmongo.NewMongoConnector(t.Context(), mongoConfig)
-	require.NoError(t, err, "failed to setup mongo connector")
-
+	mongoAdminUsername := os.Getenv("CI_MONGO_ADMIN_USERNAME")
+	require.NotEmpty(t, mongoAdminUsername, "missing CI_MONGO_ADMIN_USERNAME env var")
+	mongoAdminPassword := os.Getenv("CI_MONGO_ADMIN_PASSWORD")
+	require.NotEmpty(t, mongoAdminPassword, "missing CI_MONGO_ADMIN_PASSWORD env var")
 	adminClient, err := mongo.Connect(options.Client().
+		ApplyURI(mongoAdminUri).
 		SetAppName("Mongo admin client").
 		SetCompressors([]string{"zstd", "snappy"}).
 		SetReadPreference(readpref.Primary()).
-		ApplyURI(mongoAdminUri))
+		SetAuth(options.Credential{
+			Username: mongoAdminUsername,
+			Password: mongoAdminPassword,
+		}))
 	require.NoError(t, err, "failed to setup mongo admin client")
+
+	mongoUri := os.Getenv("CI_MONGO_URI")
+	require.NotEmpty(t, mongoUri, "missing CI_MONGO_URI env var")
+	mongoUsername := os.Getenv("CI_MONGO_USERNAME")
+	require.NotEmpty(t, mongoUsername, "missing CI_MONGO_USERNAME env var")
+	mongoPassword := os.Getenv("CI_MONGO_PASSWORD")
+	require.NotEmpty(t, mongoPassword, "missing CI_MONGO_PASSWORD env var")
+
+	mongoConfig := &protos.MongoConfig{
+		Uri:        mongoUri,
+		Username:   mongoUsername,
+		Password:   mongoPassword,
+		DisableTls: true,
+	}
+
+	mongoConn, err := connmongo.NewMongoConnector(t.Context(), mongoConfig)
+	require.NoError(t, err, "failed to setup mongo connector")
 
 	testDb := GetTestDatabase(suffix)
 	db := adminClient.Database(testDb)

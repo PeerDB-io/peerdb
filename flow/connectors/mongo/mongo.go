@@ -2,6 +2,7 @@ package connmongo
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -11,7 +12,9 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -43,11 +46,12 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		return nil, err
 	}
 
-	client, err := mongo.Connect(options.Client().
-		SetAppName("PeerDB Mongo Connector").
-		SetReadPreference(readpref.SecondaryPreferred()).
-		SetCompressors([]string{"zstd", "snappy"}).
-		ApplyURI(config.Uri))
+	clientOptions, err := parseAsClientOptions(config)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := mongo.Connect(clientOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -381,4 +385,46 @@ func defaultPipeline() mongo.Pipeline {
 			{Key: "ns", Value: 1},
 		}}},
 	}
+}
+
+func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, error) {
+	connStr, err := connstring.Parse(config.Uri)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing uri: %w", err)
+	}
+
+	if connStr.Username != "" || connStr.Password != "" {
+		return nil, errors.New("connection string should not contain username and password")
+	}
+
+	clientOptions := options.Client().
+		ApplyURI(config.Uri).
+		SetAppName("PeerDB Mongo Connector").
+		SetAuth(options.Credential{
+			Username: config.Username,
+			Password: config.Password,
+		}).
+		// always use compression
+		SetCompressors([]string{"zstd", "snappy"}).
+		// always use majority read concern for correctness
+		SetReadConcern(readconcern.Majority())
+
+	// allow user to override with other read preference
+	if connStr.ReadPreference == "" {
+		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
+	}
+
+	if !config.DisableTls {
+		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, config.RootCa, "", config.TlsHost, false)
+		if err != nil {
+			return nil, err
+		}
+		clientOptions.SetTLSConfig(tlsConfig)
+	}
+
+	err = clientOptions.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("error validating client options: %w", err)
+	}
+	return clientOptions, nil
 }
