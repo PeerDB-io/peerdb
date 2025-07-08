@@ -195,9 +195,9 @@ func TestSupportedDataTypes(t *testing.T) {
 
 func TestStringDataTypes(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
 
 	tests := []struct {
+		Prefix        string
 		Type          string
 		Literal       string   // skipped if empty
 		Expected      string   // skipped if empty
@@ -338,6 +338,7 @@ func TestStringDataTypes(t *testing.T) {
 			ArrayExpected: []string{"[1,101)", "[200,301)", ""},
 		},
 		{
+			Prefix:        "empty_",
 			Type:          "int4range",
 			Literal:       "'(,)'::int4range",
 			Expected:      "(,)",
@@ -352,6 +353,7 @@ func TestStringDataTypes(t *testing.T) {
 			ArrayExpected: []string{"[1,10000000001)", "[20000000000,30000000001)", ""},
 		},
 		{
+			Prefix:        "empty_",
 			Type:          "int8range",
 			Literal:       "'(,)'::int8range",
 			Expected:      "(,)",
@@ -366,6 +368,7 @@ func TestStringDataTypes(t *testing.T) {
 			ArrayExpected: []string{"[1.5,99.9]", "[200.1,300.8]", ""},
 		},
 		{
+			Prefix:        "empty_",
 			Type:          "numrange",
 			Literal:       "'(,)'::numrange",
 			Expected:      "(,)",
@@ -380,6 +383,7 @@ func TestStringDataTypes(t *testing.T) {
 			ArrayExpected: []string{"[2023-01-01 00:00:00,2023-12-31 23:59:59]", "[2024-01-01 00:00:00,2024-12-31 23:59:59]", ""},
 		},
 		{
+			Prefix:        "empty_",
 			Type:          "tsrange",
 			Literal:       "'(,)'::tsrange",
 			Expected:      "(,)",
@@ -402,6 +406,7 @@ func TestStringDataTypes(t *testing.T) {
 			},
 		},
 		{
+			Prefix:        "empty_",
 			Type:          "tstzrange",
 			Literal:       "'(,)'::tstzrange",
 			Expected:      "(,)",
@@ -416,6 +421,7 @@ func TestStringDataTypes(t *testing.T) {
 			ArrayExpected: []string{"[2023-01-01,2024-01-01)", "[2024-01-01,2025-01-01)", ""},
 		},
 		{
+			Prefix:        "empty_",
 			Type:          "daterange",
 			Literal:       "'(,)'::daterange",
 			Expected:      "(,)",
@@ -430,6 +436,7 @@ func TestStringDataTypes(t *testing.T) {
 			ArrayExpected: []string{"{[1,11),[20,31)}", "{[100,111),[120,131)}", ""},
 		},
 		{
+			Prefix:        "open_",
 			Type:          "int4multirange",
 			Literal:       "'{(,10],[20,)}'::int4multirange",
 			Expected:      "{(,11),[20,)}",
@@ -452,6 +459,7 @@ func TestStringDataTypes(t *testing.T) {
 			},
 		},
 		{
+			Prefix:        "open_",
 			Type:          "int8multirange",
 			Literal:       "'{(,10000000000],[20000000000,)}'::int8multirange",
 			Expected:      "{(,10000000001),[20000000000,)}",
@@ -474,6 +482,7 @@ func TestStringDataTypes(t *testing.T) {
 			},
 		},
 		{
+			Prefix:        "open_",
 			Type:          "nummultirange",
 			Literal:       "'{(,10.9],[20.1,)}'::nummultirange",
 			Expected:      "{(,10.9],[20.1,)}",
@@ -496,6 +505,7 @@ func TestStringDataTypes(t *testing.T) {
 			},
 		},
 		{
+			Prefix:   "open_",
 			Type:     "tsmultirange",
 			Literal:  "'{(,2023-01-31 23:59:59],[2023-03-01 00:00:00,)}'::tsmultirange",
 			Expected: "{(,2023-01-31 23:59:59],[2023-03-01 00:00:00,)}",
@@ -523,6 +533,7 @@ func TestStringDataTypes(t *testing.T) {
 			},
 		},
 		{
+			Prefix:   "open_",
 			Type:     "tstzmultirange",
 			Literal:  "'{(,2023-01-31 23:59:59+00],[2023-03-01 00:00:00-02,)}'::tstzmultirange",
 			Expected: "{(,2023-01-31 23:59:59Z],[2023-03-01 02:00:00Z,)}",
@@ -551,6 +562,7 @@ func TestStringDataTypes(t *testing.T) {
 			},
 		},
 		{
+			Prefix:        "open_",
 			Type:          "datemultirange",
 			Literal:       "'{(,2023-01-31],[2023-03-01,)}'::datemultirange",
 			Expected:      "{(,2023-02-01),[2023-03-01,)}",
@@ -559,27 +571,22 @@ func TestStringDataTypes(t *testing.T) {
 		},
 	}
 
-	connector, schemaName := setupDB(t, "string")
-	conn := connector.conn
-	defer conn.Close(ctx)
-	defer teardownDB(t, conn, schemaName)
-
 	for _, tc := range tests {
-		t.Run(tc.Type, func(t *testing.T) {
+		t.Run(tc.Prefix+tc.Type, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			connector, schemaName := setupDB(t, tc.Prefix+tc.Type)
+			conn := connector.conn
+			defer conn.Close(ctx)
+			defer teardownDB(t, conn, schemaName)
+
 			query := fmt.Sprintf(
-				"CREATE TABLE %s.test_strings(col %s, col_arr %s[])",
-				utils.QuoteIdentifier(schemaName), tc.Type, tc.Type,
+				"CREATE TABLE %s.test(col %[2]s, col_arr %[2]s[])",
+				utils.QuoteIdentifier(schemaName), tc.Type,
 			)
 			_, err := conn.Exec(ctx, query)
 			require.NoError(t, err)
-
-			defer func() {
-				query := fmt.Sprintf(
-					"DROP TABLE %s.test_strings", utils.QuoteIdentifier(schemaName),
-				)
-				_, err := conn.Exec(ctx, query)
-				require.NoError(t, err)
-			}()
 
 			literal := tc.Literal
 			if literal == "" {
@@ -590,7 +597,7 @@ func TestStringDataTypes(t *testing.T) {
 				arrayLiteral = "null"
 			}
 			query = fmt.Sprintf(
-				"INSERT INTO %s.test_strings(col, col_arr) VALUES (%s, %s)",
+				"INSERT INTO %s.test(col, col_arr) VALUES (%s, %s)",
 				utils.QuoteIdentifier(schemaName), literal, arrayLiteral,
 			)
 			_, err = conn.Exec(ctx, query)
@@ -600,7 +607,7 @@ func TestStringDataTypes(t *testing.T) {
 			require.NoError(t, err)
 			// Select the row back out of the table
 			batch, err := qe.ExecuteAndProcessQuery(t.Context(),
-				fmt.Sprintf("SELECT * FROM %s.test_strings", utils.QuoteIdentifier(schemaName)))
+				fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
 			require.NoError(t, err)
 			require.Len(t, batch.Records, 1)
 
@@ -608,17 +615,10 @@ func TestStringDataTypes(t *testing.T) {
 			record := batch.Records[0]
 
 			if tc.Expected != "" {
-				str, ok := record[0].Value().(string)
-				require.True(t, ok)
-				require.Equal(t, tc.Expected, str)
+				require.Exactly(t, tc.Expected, record[0].Value())
 			}
 			if tc.ArrayExpected != nil {
-				strs, ok := record[1].Value().([]string)
-				require.True(t, ok)
-				require.Len(t, strs, len(tc.ArrayExpected))
-				for i, expected := range tc.ArrayExpected {
-					require.Equal(t, expected, strs[i])
-				}
+				require.Exactly(t, tc.ArrayExpected, record[1].Value())
 			}
 		})
 	}
