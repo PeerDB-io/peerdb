@@ -82,24 +82,49 @@ func GetTableColumnsMapping(ctx context.Context, logger log.Logger, conn clickho
 	for _, table := range tables {
 		queryTables = append(queryTables, QuoteLiteral(table))
 	}
+	obtainSchemaInBatches := len(queryTables) > 200
+	if obtainSchemaInBatches {
+		for i := 0; i < len(queryTables); i += 200 {
+			end := min(i+200, len(queryTables))
+			batch := queryTables[i:end]
+			if err := storeColumnInfoForTable(ctx, logger, conn, batch, tableColumnsMapping); err != nil {
+				return nil, fmt.Errorf("failed to get columns for destination tables in batch %d: %w", i/200, err)
+			}
+			logger.Info("fetched columns for batch", slog.Int("batch_index", i/200), slog.Int("batch_size", end-i))
+		}
+		return tableColumnsMapping, nil
+	} else {
+		// if we are not batching, we can fetch all columns in one go
+		if err := storeColumnInfoForTable(ctx, logger, conn, queryTables, tableColumnsMapping); err != nil {
+			return nil, err
+		}
+	}
+
+	return tableColumnsMapping, nil
+}
+
+func storeColumnInfoForTable(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
+	queryTables []string,
+	tableColumnsMapping map[string][]ClickHouseColumn,
+) error {
 	rows, err := Query(ctx, logger, conn,
 		fmt.Sprintf("SELECT name,type,table FROM system.columns WHERE database=currentDatabase() AND table IN (%s)",
 			strings.Join(queryTables, ",")))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get columns for destination tables: %w", err)
+		return fmt.Errorf("failed to get columns for destination tables: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var tableName string
 		var clickhouseColumn ClickHouseColumn
 		if err := rows.Scan(&clickhouseColumn.Name, &clickhouseColumn.Type, &tableName); err != nil {
-			return nil, fmt.Errorf("failed to scan columns for tables: %w", err)
+			return fmt.Errorf("failed to scan columns for tables: %w", err)
 		}
 		tableColumnsMapping[tableName] = append(tableColumnsMapping[tableName], clickhouseColumn)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read rows: %w", err)
+		return fmt.Errorf("failed to read rows: %w", err)
 	}
 
-	return tableColumnsMapping, nil
+	return nil
 }
