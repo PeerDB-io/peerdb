@@ -183,7 +183,7 @@ type QValueAvroConverter struct {
 }
 
 func QValueToAvro(
-	ctx context.Context, env map[string]string,
+	ctx context.Context,
 	value types.QValue, field *types.QField, targetDWH protos.DBType, logger log.Logger,
 	unboundedNumericAsString bool, stat *NumericStat,
 	binaryFormat internal.BinaryFormat,

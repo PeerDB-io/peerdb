@@ -62,7 +62,7 @@ func (qac *QRecordAvroConverter) Convert(
 			val = typeConversion.ValueConversion(val)
 		}
 		avroVal, err := qvalue.QValueToAvro(
-			ctx, env, val,
+			ctx, val,
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
 			numericTruncator.Get(idx),
 			format,
