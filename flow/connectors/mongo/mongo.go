@@ -394,7 +394,7 @@ func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, e
 	}
 
 	if connStr.Username != "" || connStr.Password != "" {
-		return nil, fmt.Errorf("connection string should not contain username and password")
+		return nil, errors.New("connection string should not contain username and password")
 	}
 
 	clientOptions := options.Client().
@@ -414,8 +414,8 @@ func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, e
 		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
 	}
 
-	if !config.DisableTls && len(connStr.Hosts) > 0 {
-		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, config.RootCa, connStr.Hosts[0], config.TlsHost, false)
+	if !config.DisableTls {
+		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, config.RootCa, "", config.TlsHost, false)
 		if err != nil {
 			return nil, err
 		}
