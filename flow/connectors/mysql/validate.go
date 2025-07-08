@@ -94,6 +94,18 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return fmt.Errorf("unable to establish replication connectivity: %w", err)
 	}
 
+	for conn, err := range c.withRetries(ctx) {
+		if err != nil {
+			return err
+		}
+
+		if isVitess, err := peerdb_mysql.CheckIfVitess(conn, c.logger); err != nil {
+			return fmt.Errorf("failed to check if Vitess: %w", err)
+		} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
+			return errors.New("vitess is currently not supported for MySQL mirrors in CDC")
+		}
+	}
+
 	requireRowMetadata := false
 	for _, tm := range cfg.TableMappings {
 		if len(tm.Exclude) > 0 {
