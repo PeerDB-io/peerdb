@@ -12,6 +12,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.mongodb.org/mongo-driver/x/mongo/driver/connstring"
 
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
@@ -49,7 +50,14 @@ func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
 	mongoUri := os.Getenv("CI_MONGO_URI")
 	require.NotEmpty(t, mongoUri, "missing CI_MONGO_URI env var")
 
-	mongoConfig := &protos.MongoConfig{Uri: mongoUri}
+	connStr, err := connstring.Parse(mongoUri)
+	require.NoError(t, err)
+	mongoConfig := &protos.MongoConfig{
+		Uri:        mongoUri,
+		Username:   connStr.Username,
+		Password:   connStr.Password,
+		DisableTls: true,
+	}
 
 	mongoConn, err := connmongo.NewMongoConnector(t.Context(), mongoConfig)
 	require.NoError(t, err, "failed to setup mongo connector")
