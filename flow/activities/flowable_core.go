@@ -402,7 +402,9 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	outstream TRead,
 	pullRecords func(
 		TPull,
-		context.Context, *protos.QRepConfig,
+		context.Context,
+		*otel_metrics.OtelManager,
+		*protos.QRepConfig,
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, error),
@@ -446,7 +448,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		}
 		defer connectors.CloseConnector(ctx, srcConn)
 
-		numRecords, numBytes, err := pullRecords(srcConn, errCtx, config, partition, stream)
+		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, partition, stream)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("[qrep] failed to pull records: %w", err))
 		}
