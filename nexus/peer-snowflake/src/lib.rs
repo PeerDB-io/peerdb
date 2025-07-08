@@ -402,8 +402,7 @@ impl QueryExecutor for SnowflakeQueryExecutor {
             }
             _ => {
                 let error = format!(
-                    "only SELECT statements are supported in snowflake. got: {}",
-                    stmt
+                    "only SELECT statements are supported in snowflake. got: {stmt}"
                 );
                 PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
