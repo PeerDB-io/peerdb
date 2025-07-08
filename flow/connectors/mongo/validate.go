@@ -2,6 +2,7 @@ package connmongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -30,7 +31,20 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 
 	_, err := shared_mongo.GetReplSetGetStatus(ctx, c.client)
 	if err != nil {
-		return fmt.Errorf("failed to get replica set status: %w", err)
+		return err
 	}
+
+	serverStatus, err := shared_mongo.GetServerStatus(ctx, c.client)
+	if err != nil {
+		return err
+	}
+	if serverStatus.StorageEngine.Name != "wiredTiger" {
+		return errors.New("storage engine must be 'wiredTiger'")
+	}
+	if serverStatus.OplogTruncation.OplogMinRetentionHours == 0 ||
+		serverStatus.OplogTruncation.OplogMinRetentionHours < shared_mongo.MinOplogRetentionHours {
+		return errors.New("oplog retention must be set to >= 24 hours")
+	}
+
 	return nil
 }

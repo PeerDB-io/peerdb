@@ -33,7 +33,7 @@ func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
 					subtest.Parallel()
 					suite := setup(subtest)
 					subtest.Cleanup(func() {
-						ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+						ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 						defer cancel()
 						suite.Teardown(ctx)
 					})
@@ -56,7 +56,7 @@ func RunSuiteNoParallel[T Suite](t *testing.T, setup func(t *testing.T) T) {
 				t.Run(m.Name, func(subtest *testing.T) {
 					suite := setup(subtest)
 					subtest.Cleanup(func() {
-						ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+						ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 						defer cancel()
 						suite.Teardown(ctx)
 					})
