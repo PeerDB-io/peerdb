@@ -195,7 +195,6 @@ func TestSupportedDataTypes(t *testing.T) {
 
 func TestStringDataTypes(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
 
 	tests := []struct {
 		Type          string
@@ -563,6 +562,7 @@ func TestStringDataTypes(t *testing.T) {
 		t.Run(tc.Type, func(t *testing.T) {
 			t.Parallel()
 
+			ctx := t.Context()
 			connector, schemaName := setupDB(t, tc.Type)
 			conn := connector.conn
 			defer conn.Close(ctx)
