@@ -179,12 +179,14 @@ type QValueAvroConverter struct {
 	Stat                     *NumericStat
 	TargetDWH                protos.DBType
 	UnboundedNumericAsString bool
+	binaryFormat             internal.BinaryFormat
 }
 
 func QValueToAvro(
-	ctx context.Context, env map[string]string,
+	ctx context.Context,
 	value types.QValue, field *types.QField, targetDWH protos.DBType, logger log.Logger,
 	unboundedNumericAsString bool, stat *NumericStat,
+	binaryFormat internal.BinaryFormat,
 ) (any, error) {
 	if value.Value() == nil {
 		return nil, nil
@@ -196,6 +198,7 @@ func QValueToAvro(
 		Stat:                     stat,
 		TargetDWH:                targetDWH,
 		UnboundedNumericAsString: unboundedNumericAsString,
+		binaryFormat:             binaryFormat,
 	}
 
 	switch v := value.(type) {
@@ -257,11 +260,7 @@ func QValueToAvro(
 	case types.QValueNumeric:
 		return c.processNumeric(v.Val), nil
 	case types.QValueBytes:
-		format, err := internal.PeerDBBinaryFormat(ctx, env)
-		if err != nil {
-			return nil, err
-		}
-		return c.processBytes(v.Val, format), nil
+		return c.processBytes(v.Val), nil
 	case types.QValueJSON:
 		return c.processJSON(v.Val), nil
 	case types.QValueHStore:
@@ -468,16 +467,16 @@ func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) an
 	return transformedNumArr
 }
 
-func (c *QValueAvroConverter) processBytes(byteData []byte, format internal.BinaryFormat) any {
-	if c.TargetDWH == protos.DBType_CLICKHOUSE && format != internal.BinaryFormatRaw {
+func (c *QValueAvroConverter) processBytes(byteData []byte) any {
+	if c.TargetDWH == protos.DBType_CLICKHOUSE && c.binaryFormat != internal.BinaryFormatRaw {
 		var encoded string
-		switch format {
+		switch c.binaryFormat {
 		case internal.BinaryFormatBase64:
 			encoded = base64.StdEncoding.EncodeToString(byteData)
 		case internal.BinaryFormatHex:
 			encoded = strings.ToUpper(hex.EncodeToString(byteData))
 		default:
-			panic(fmt.Sprintf("unhandled binary format: %d", format))
+			panic(fmt.Sprintf("unhandled binary format: %d", c.binaryFormat))
 		}
 		if c.Nullable {
 			return &encoded

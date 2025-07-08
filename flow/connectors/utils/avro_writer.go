@@ -247,11 +247,16 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 	})
 	defer shutdown()
 
+	format, err := internal.PeerDBBinaryFormat(ctx, env)
+	if err != nil {
+		return 0, err
+	}
+
 	for qrecord := range p.stream.Records {
 		if err := ctx.Err(); err != nil {
 			return numRows.Load(), err
 		} else {
-			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, numericTruncator)
+			avroMap, err := avroConverter.Convert(ctx, env, qrecord, typeConversions, numericTruncator, format)
 			if err != nil {
 				logger.Error("Failed to convert QRecord to Avro compatible map", slog.Any("error", err))
 				return numRows.Load(), fmt.Errorf("failed to convert QRecord to Avro compatible map: %w", err)
