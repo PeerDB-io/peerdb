@@ -60,7 +60,7 @@ pub async fn pg_execute_raw(client: &Client, query: &str) -> PgWireResult<QueryO
     // could hold the pin on the connection for a long time.
     let schema = schema_from_query(client, query).await.map_err(|e| {
         tracing::error!("error getting schema: {}", e);
-        PgWireError::ApiError(format!("error getting schema: {}", e).into())
+        PgWireError::ApiError(format!("error getting schema: {e}").into())
     })?;
 
     tracing::info!("[peer-postgres] rewritten query: {}", query);
@@ -72,7 +72,7 @@ pub async fn pg_execute_raw(client: &Client, query: &str) -> PgWireResult<QueryO
         .await
         .map_err(|e| {
             tracing::error!("error executing query: {}", e);
-            PgWireError::ApiError(format!("error executing query: {}", e).into())
+            PgWireError::ApiError(format!("error executing query: {e}").into())
         })?;
 
     // log that raw query execution has completed
@@ -102,13 +102,13 @@ pub async fn pg_execute(
             let mut rewritten_stmt = stmt.clone();
             ast.rewrite_statement(&mut rewritten_stmt).map_err(|e| {
                 tracing::error!("error rewriting statement: {}", e);
-                PgWireError::ApiError(format!("error rewriting statement: {}", e).into())
+                PgWireError::ApiError(format!("error rewriting statement: {e}").into())
             })?;
             let rewritten_query = rewritten_stmt.to_string();
             tracing::info!("[peer-postgres] rewritten statement: {}", rewritten_query);
             let rows_affected = client.execute(&rewritten_query, &[]).await.map_err(|e| {
                 tracing::error!("error executing query: {}", e);
-                PgWireError::ApiError(format!("error executing query: {}", e).into())
+                PgWireError::ApiError(format!("error executing query: {e}").into())
             })?;
             Ok(QueryOutput::AffectedRows(rows_affected as usize))
         }
@@ -122,7 +122,7 @@ pub async fn pg_describe(client: &Client, stmt: &Statement) -> PgWireResult<Opti
                 .await
                 .map_err(|e| {
                     tracing::error!("error getting schema: {}", e);
-                    PgWireError::ApiError(format!("error getting schema: {}", e).into())
+                    PgWireError::ApiError(format!("error getting schema: {e}").into())
                 })?;
             Ok(Some(schema))
         }
