@@ -21,6 +21,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -45,7 +46,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 
 	client, err := mongo.Connect(options.Client().
 		SetAppName("PeerDB Mongo Connector").
-		SetReadPreference(readpref.Primary()).
+		SetReadPreference(readpref.SecondaryPreferred()).
 		SetCompressors([]string{"zstd", "snappy"}).
 		ApplyURI(config.Uri))
 	if err != nil {
@@ -80,47 +81,11 @@ func (c *MongoConnector) ConnectionActive(ctx context.Context) error {
 }
 
 func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
-	db := c.client.Database("admin")
-
-	var buildInfoDoc bson.M
-	if err := db.RunCommand(ctx, bson.D{bson.E{Key: "buildInfo", Value: 1}}).Decode(&buildInfoDoc); err != nil {
-		return "", fmt.Errorf("failed to run buildInfo command: %w", err)
+	buildInfo, err := peerdb_mongo.GetBuildInfo(ctx, c.client)
+	if err != nil {
+		return "", err
 	}
-
-	version, ok := buildInfoDoc["version"].(string)
-	if !ok {
-		return "", fmt.Errorf("buildInfo.version is not a string, but %T", buildInfoDoc["version"])
-	}
-	return version, nil
-}
-
-func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
-	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
-		return nil
-	}
-
-	// Check if MongoDB is configured as a replica set
-	var result bson.M
-	if err := c.client.Database("admin").RunCommand(ctx, bson.D{
-		{Key: "replSetGetStatus", Value: 1},
-	}).Decode(&result); err != nil {
-		return fmt.Errorf("failed to get replica set status: %w", err)
-	}
-
-	// Check if this is a replica set
-	if _, ok := result["set"]; !ok {
-		return errors.New("MongoDB is not configured as a replica set, which is required for CDC")
-	}
-
-	if myState, ok := result["myState"]; !ok {
-		return errors.New("myState not found in response")
-	} else if myStateInt, ok := myState.(int32); !ok {
-		return fmt.Errorf("failed to convert myState %v to int32", myState)
-	} else if myStateInt != 1 {
-		return fmt.Errorf("MongoDB is not the primary node in the replica set, current state: %d", myState)
-	}
-
-	return nil
+	return buildInfo.Version, nil
 }
 
 func (c *MongoConnector) GetTableSchema(
