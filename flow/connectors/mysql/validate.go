@@ -99,8 +99,8 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 			return err
 		}
 
-		if isVitess, err := peerdb_mysql.CheckIfVitess(conn, c.logger); err != nil {
-			return fmt.Errorf("failed to check if Vitess: %w", err)
+		if isVitess, err := peerdb_mysql.IsVitess(conn); err != nil {
+			return err
 		} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
 			return errors.New("vitess is currently not supported for MySQL mirrors in CDC")
 		}

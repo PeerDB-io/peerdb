@@ -238,8 +238,8 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 	return nil
 }
 
-func CheckIfVitess(conn *client.Conn, logger log.Logger) (bool, error) {
-	// check if the server is a Vitess server
+// check if the server is a Vitess server, currently only works for initial load only
+func IsVitess(conn *client.Conn) (bool, error) {
 	if _, err := conn.Execute("SHOW VITESS_TABLETS"); err != nil {
 		var mErr *mysql.MyError
 		if errors.As(err, &mErr) && mErr.Code == mysql.ER_PARSE_ERROR {
