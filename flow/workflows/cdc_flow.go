@@ -35,6 +35,11 @@ type CDCFlowWorkflowState struct {
 	// Current signalled state of the peer flow.
 	ActiveSignal      model.CDCFlowSignal
 	CurrentFlowStatus protos.FlowStatus
+
+	// Initial load settings
+	SnapshotNumRowsPerPartition uint32
+	SnapshotMaxParallelWorkers  uint32
+	SnapshotNumTablesInParallel uint32
 }
 
 // returns a new empty PeerFlowState
@@ -53,6 +58,9 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 			TableMappings:      tableMappings,
 			NumberOfSyncs:      0,
 		},
+		SnapshotNumRowsPerPartition: cfg.SnapshotNumRowsPerPartition,
+		SnapshotMaxParallelWorkers:  cfg.SnapshotMaxParallelWorkers,
+		SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 	}
 	syncStatusToCatalog(ctx, workflow.GetLogger(ctx), state.CurrentFlowStatus)
 	return &state
@@ -98,6 +106,9 @@ func updateFlowConfigWithLatestSettings(
 	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
+	cloneCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+	cloneCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
+	cloneCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
 	return cloneCfg
 }
 
@@ -155,6 +166,15 @@ func processCDCFlowConfigUpdate(
 			cfg.Env = make(map[string]string, len(flowConfigUpdate.UpdatedEnv))
 		}
 		maps.Copy(cfg.Env, flowConfigUpdate.UpdatedEnv)
+	}
+	if flowConfigUpdate.SnapshotNumRowsPerPartition > 0 {
+		state.SnapshotNumRowsPerPartition = flowConfigUpdate.SnapshotNumRowsPerPartition
+	}
+	if flowConfigUpdate.SnapshotMaxParallelWorkers > 0 {
+		state.SnapshotMaxParallelWorkers = flowConfigUpdate.SnapshotMaxParallelWorkers
+	}
+	if flowConfigUpdate.SnapshotNumTablesInParallel > 0 {
+		state.SnapshotNumTablesInParallel = flowConfigUpdate.SnapshotNumTablesInParallel
 	}
 
 	tablesAreAdded := len(flowConfigUpdate.AdditionalTables) > 0
@@ -224,6 +244,9 @@ func processTableAdditions(
 	additionalTablesCfg.InitialSnapshotOnly = true
 	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
 	additionalTablesCfg.Resync = false
+	additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+	additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
+	additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
 
 	addTablesSelector := workflow.NewNamedSelector(ctx, "AddTables")
 	addTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
@@ -390,6 +413,9 @@ func addCdcPropertiesSignalListener(
 			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
 			slog.Int("NumberOfSyncs", int(state.SyncFlowOptions.NumberOfSyncs)),
 			slog.Any("UpdatedEnv", cdcConfigUpdate.UpdatedEnv),
+			slog.Uint64("SnapshotNumRowsPerPartition", uint64(cdcConfigUpdate.SnapshotNumRowsPerPartition)),
+			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),
+			slog.Uint64("SnapshotNumTablesInParallel", uint64(cdcConfigUpdate.SnapshotNumTablesInParallel)),
 		)
 	})
 }
@@ -613,6 +639,10 @@ func CDCFlowWorkflow(
 		}
 
 		snapshotFlowCtx := workflow.WithChildOptions(ctx, childSnapshotFlowOpts)
+		// now snapshot parameters are also part of the state, but until we finish snapshot they wouldn't be modifiable.
+		// so we can use the same cfg for snapshot flow, and then rely on being state being saved to catalog
+		// during any operation that triggers another snapshot (INCLUDING add tables).
+		// this could fail for very weird Temporal resets
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(snapshotFlowCtx, SnapshotFlowWorkflow, cfg)
 		var snapshotDone bool
 		var snapshotError error
