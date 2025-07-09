@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"log/slog"
 	"math"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
@@ -57,10 +58,13 @@ func (c *MongoConnector) PullQRepRecords(
 
 	stream.SetSchema(GetDefaultSchema())
 
-	reportCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	c.bytesRead.Store(0)
-	go monitoring.ReportOngoingBytesFetched(reportCtx, &c.bytesRead, otelManager)
+	shutDown := shared.Interval(ctx, time.Minute, func() {
+		if read := c.bytesRead.Swap(0); read != 0 {
+			otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
+		}
+	})
+	defer shutDown()
 
 	filter := bson.D{}
 	if !partition.FullTablePartition {

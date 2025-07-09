@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -18,7 +17,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
@@ -447,18 +445,4 @@ func AuditSchemaDelta(ctx context.Context, pool *pgxpool.Pool,
 		return fmt.Errorf("failed to insert row into table: %w", err)
 	}
 	return nil
-}
-
-func ReportOngoingBytesFetched(ctx context.Context, bytesRead *atomic.Int64, otelManager *otel_metrics.OtelManager) {
-	ticker := time.NewTicker(time.Minute)
-	for {
-		select {
-		case <-ticker.C:
-			if read := bytesRead.Swap(0); read != 0 {
-				otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
-			}
-		case <-ctx.Done():
-			return
-		}
-	}
 }
