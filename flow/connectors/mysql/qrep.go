@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strconv"
 	"text/template"
+	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
@@ -15,6 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -243,6 +245,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 
 func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
@@ -254,7 +257,6 @@ func (c *MySqlConnector) PullQRepRecords(
 	}
 
 	var totalRecords int64
-	var totalBytes int64
 	onResult := func(rs *mysql.Result) error {
 		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields)
 		if err != nil {
@@ -282,13 +284,31 @@ func (c *MySqlConnector) PullQRepRecords(
 		return nil
 	}
 
+	c.bytesRead.Store(0)
+	stop := make(chan struct{})
+	defer close(stop)
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if read := c.bytesRead.Swap(0); read != 0 {
+					otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
+				}
+			case <-ctx.Done():
+				return
+			case <-stop:
+				return
+			}
+		}
+	}()
+
 	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query
-		readBytes, err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult)
-		if err != nil {
+		if err := c.ExecuteSelectStreaming(ctx, config.Query, &rs, onRow, onResult); err != nil {
 			return 0, 0, err
 		}
-		totalBytes += readBytes
 	} else {
 		var rangeStart string
 		var rangeEnd string
@@ -315,15 +335,13 @@ func (c *MySqlConnector) PullQRepRecords(
 			return 0, 0, err
 		}
 
-		readBytes, err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult)
-		if err != nil {
+		if err := c.ExecuteSelectStreaming(ctx, query, &rs, onRow, onResult); err != nil {
 			return 0, 0, err
 		}
-		totalBytes += readBytes
 	}
 
 	close(stream.Records)
-	return totalRecords, totalBytes, nil
+	return totalRecords, c.bytesRead.Swap(0), nil
 }
 
 func BuildQuery(logger log.Logger, query string, start string, end string) (string, error) {

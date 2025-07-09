@@ -249,13 +249,12 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 	rowCb client.SelectPerRowCallback,
 	resultCb client.SelectPerResultCallback,
 	args ...any,
-) (int64, error) {
+) error {
 	var connectionErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return 0, err
+			return err
 		}
-		c.bytesRead.Store(0)
 
 		if len(args) == 0 {
 			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
@@ -263,7 +262,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return 0, err
+				return err
 			}
 		} else {
 			stmt, err := conn.Prepare(cmd)
@@ -272,7 +271,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return 0, err
+				return err
 			}
 			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
 			_ = stmt.Close()
@@ -281,12 +280,12 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return 0, err
+				return err
 			}
 		}
-		return c.bytesRead.Load(), nil
+		return nil
 	}
-	return 0, connectionErr
+	return connectionErr
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
