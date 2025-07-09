@@ -337,6 +337,21 @@ func TestPostgresCouldNotFindRecordWalErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestNeonQuotaExceededErrorShouldBeConnectivity(t *testing.T) {
+	// Simulate a Neon quota exceeded error
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InternalError,
+		Message:  "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewPeerCreateError(fmt.Errorf("failed to create connection: failed to connect to `<user, host>: server error: `: %w", err)))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 	t.Parallel()
 
