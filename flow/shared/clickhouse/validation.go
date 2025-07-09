@@ -33,37 +33,47 @@ func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger
 func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
 	tables []string, initialSnapshotEnabled bool, checkForCloudSMT bool, allowNonEmpty bool,
 ) error {
-	queryTables := make([]string, 0, len(tables))
-	for _, table := range tables {
-		queryTables = append(queryTables, QuoteLiteral(table))
-	}
-	rows, err := Query(ctx, logger, conn,
-		fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=currentDatabase() AND name IN (%s)",
-			strings.Join(queryTables, ",")))
-	if err != nil {
-		return fmt.Errorf("failed to get information for destination tables: %w", err)
-	}
-	defer rows.Close()
+	queryTables := make([]string, 0, min(len(tables), 200))
 
-	for rows.Next() {
-		var tableName, engine string
-		var totalRows uint64
-		if err := rows.Scan(&tableName, &engine, &totalRows); err != nil {
-			return fmt.Errorf("failed to scan information for tables: %w", err)
+	for chunk := range slices.Chunk(tables, 200) {
+		if err := func() error {
+			queryTables = queryTables[:0]
+			for _, table := range chunk {
+				queryTables = append(queryTables, QuoteLiteral(table))
+			}
+
+			rows, err := Query(ctx, logger, conn,
+				fmt.Sprintf("SELECT name,engine,total_rows FROM system.tables WHERE database=currentDatabase() AND name IN (%s)",
+					strings.Join(queryTables, ",")))
+			if err != nil {
+				return fmt.Errorf("failed to get information for destination tables: %w", err)
+			}
+			defer rows.Close()
+
+			for rows.Next() {
+				var tableName, engine string
+				var totalRows uint64
+				if err := rows.Scan(&tableName, &engine, &totalRows); err != nil {
+					return fmt.Errorf("failed to scan information for tables: %w", err)
+				}
+				if !allowNonEmpty && totalRows != 0 && initialSnapshotEnabled {
+					return fmt.Errorf("table %s exists and is not empty", tableName)
+				}
+				if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
+					logger.Warn("[clickhouse] table engine not explicitly supported",
+						slog.String("table", tableName), slog.String("engine", engine))
+				}
+				if checkForCloudSMT && !strings.HasPrefix(engine, "Shared") {
+					return fmt.Errorf("table %s exists and does not use SharedMergeTree engine", tableName)
+				}
+			}
+			if err := rows.Err(); err != nil {
+				return fmt.Errorf("failed to read rows: %w", err)
+			}
+			return nil
+		}(); err != nil {
+			return err
 		}
-		if !allowNonEmpty && totalRows != 0 && initialSnapshotEnabled {
-			return fmt.Errorf("table %s exists and is not empty", tableName)
-		}
-		if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {
-			logger.Warn("[clickhouse] table engine not explicitly supported",
-				slog.String("table", tableName), slog.String("engine", engine))
-		}
-		if checkForCloudSMT && !strings.HasPrefix(engine, "Shared") {
-			return fmt.Errorf("table %s exists and does not use SharedMergeTree engine", tableName)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("failed to read rows: %w", err)
 	}
 
 	return nil
@@ -78,25 +88,16 @@ func GetTableColumnsMapping(ctx context.Context, logger log.Logger, conn clickho
 	tables []string,
 ) (map[string][]ClickHouseColumn, error) {
 	tableColumnsMapping := make(map[string][]ClickHouseColumn, len(tables))
-	queryTables := make([]string, 0, len(tables))
-	for _, table := range tables {
-		queryTables = append(queryTables, QuoteLiteral(table))
-	}
-	obtainSchemaInBatches := len(queryTables) > 200
-	if obtainSchemaInBatches {
-		for i := 0; i < len(queryTables); i += 200 {
-			end := min(i+200, len(queryTables))
-			batch := queryTables[i:end]
-			if err := storeColumnInfoForTable(ctx, logger, conn, batch, tableColumnsMapping); err != nil {
-				return nil, fmt.Errorf("failed to get columns for destination tables in batch %d: %w", i/200, err)
-			}
-			logger.Info("fetched columns for batch", slog.Int("batch_index", i/200), slog.Int("batch_size", end-i))
+	queryTables := make([]string, 0, min(len(tables), 200))
+
+	for chunk := range slices.Chunk(tables, 200) {
+		queryTables = queryTables[:0]
+		for _, table := range chunk {
+			queryTables = append(queryTables, QuoteLiteral(table))
 		}
-		return tableColumnsMapping, nil
-	} else {
-		// if we are not batching, we can fetch all columns in one go
+
 		if err := storeColumnInfoForTable(ctx, logger, conn, queryTables, tableColumnsMapping); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get columns for destination tables in chunk: %w", err)
 		}
 	}
 
