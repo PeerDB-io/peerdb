@@ -8,12 +8,12 @@ import (
 	"log/slog"
 	"strconv"
 	"text/template"
-	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
@@ -284,25 +284,10 @@ func (c *MySqlConnector) PullQRepRecords(
 		return nil
 	}
 
+	reportCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	c.bytesRead.Store(0)
-	stop := make(chan struct{})
-	defer close(stop)
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if read := c.bytesRead.Swap(0); read != 0 {
-					otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
-				}
-			case <-ctx.Done():
-				return
-			case <-stop:
-				return
-			}
-		}
-	}()
+	go monitoring.ReportOngoingBytesFetched(reportCtx, &c.bytesRead, otelManager)
 
 	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query

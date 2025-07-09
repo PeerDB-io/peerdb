@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
@@ -41,13 +42,12 @@ func (c *MongoConnector) GetQRepPartitions(
 
 func (c *MongoConnector) PullQRepRecords(
 	ctx context.Context,
-	_otelManager *otel_metrics.OtelManager,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	var totalRecords int64
-	var totalBytes int64
 
 	parseWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -56,6 +56,11 @@ func (c *MongoConnector) PullQRepRecords(
 	collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
 
 	stream.SetSchema(GetDefaultSchema())
+
+	reportCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	c.bytesRead.Store(0)
+	go monitoring.ReportOngoingBytesFetched(reportCtx, &c.bytesRead, otelManager)
 
 	filter := bson.D{}
 	if !partition.FullTablePartition {
@@ -93,7 +98,7 @@ func (c *MongoConnector) PullQRepRecords(
 		}
 		stream.Records <- record
 		totalRecords += 1
-		totalBytes += bytes
+		c.bytesRead.Add(bytes)
 	}
 	close(stream.Records)
 	if err := cursor.Err(); err != nil {
@@ -110,7 +115,7 @@ func (c *MongoConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("cursor error: %w", err)
 	}
 
-	return totalRecords, totalBytes, nil
+	return totalRecords, c.bytesRead.Swap(0), nil
 }
 
 func GetDefaultSchema() types.QRecordSchema {
