@@ -270,7 +270,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// Handle Neon quota exceeded errors
-			if strings.Contains(pgErr.Message, "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.") {
+			if strings.Contains(pgErr.Message,
+				"Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.") {
 				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
