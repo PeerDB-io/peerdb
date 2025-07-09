@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"log/slog"
 	"strconv"
 	"text/template"
@@ -18,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
