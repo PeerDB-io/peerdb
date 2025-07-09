@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
@@ -285,24 +286,12 @@ func (c *MySqlConnector) PullQRepRecords(
 	}
 
 	c.bytesRead.Store(0)
-	stop := make(chan struct{})
-	defer close(stop)
-	go func() {
-		ticker := time.NewTicker(time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ticker.C:
-				if read := c.bytesRead.Swap(0); read != 0 {
-					otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
-				}
-			case <-ctx.Done():
-				return
-			case <-stop:
-				return
-			}
+	shutDown := shared.Interval(ctx, time.Minute, func() {
+		if read := c.bytesRead.Swap(0); read != 0 {
+			otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 		}
-	}()
+	})
+	defer shutDown()
 
 	if partition.FullTablePartition {
 		// this is a full table partition, so just run the query

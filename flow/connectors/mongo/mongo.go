@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -34,9 +35,10 @@ const (
 
 type MongoConnector struct {
 	*metadataStore.PostgresMetadata
-	config *protos.MongoConfig
-	client *mongo.Client
-	logger log.Logger
+	config    *protos.MongoConfig
+	client    *mongo.Client
+	logger    log.Logger
+	bytesRead atomic.Int64
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
