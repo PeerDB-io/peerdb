@@ -501,7 +501,8 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	outstream TRead,
 	pullRecords func(
 		*connpostgres.PostgresConnector,
-		context.Context, *protos.QRepConfig,
+		context.Context,
+		*protos.QRepConfig,
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, int64, error),
