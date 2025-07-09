@@ -1229,7 +1229,7 @@ func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
 			logger.Warn("flow entry not found in catalog, 0 records deleted")
 		} else {
 			logger.Info("flow entries removed from catalog",
-				slog.Int("rowsAffected", int(ct.RowsAffected())))
+				slog.Int64("rowsAffected", ct.RowsAffected()))
 		}
 	}
 
