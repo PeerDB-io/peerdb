@@ -10,7 +10,6 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -30,27 +29,6 @@ func CompareServerVersion(conn *client.Conn, version string) (int, error) {
 		return 0, fmt.Errorf("failed to compare server version: %w", err)
 	}
 	return cmp, nil
-}
-
-func ValidateFlavor(conn *client.Conn, flavor protos.MySqlFlavor) error {
-	// MariaDB specific setting, introduced in MariaDB 10.0.3
-	if rs, err := conn.Execute("SELECT @@gtid_strict_mode"); err != nil {
-		var mErr *mysql.MyError
-		// seems to be MySQL
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
-			if flavor != protos.MySqlFlavor_MYSQL_MYSQL {
-				return errors.New("server appears to be MySQL but MariaDB source has been selected")
-			}
-		} else {
-			return fmt.Errorf("failed to check GTID mode: %w", err)
-		}
-	} else if len(rs.Values) > 0 {
-		if flavor != protos.MySqlFlavor_MYSQL_MARIA {
-			return errors.New("server appears to be MariaDB but MySQL source has been selected")
-		}
-	}
-
-	return nil
 }
 
 // only for MySQL 5.7 and below
