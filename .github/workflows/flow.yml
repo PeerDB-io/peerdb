@@ -13,6 +13,7 @@ permissions:
 jobs:
   flow_test:
     strategy:
+      fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
         db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
