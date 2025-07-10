@@ -67,18 +67,13 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 			req.ConnectionConfigs.DestinationName, dstErr)
 	}
 
-	for _, v := range req.ConnectionConfigs.TableMappings {
-		if _, err := h.pool.Exec(ctx, `
-		INSERT INTO flows (workflow_id, name, source_peer, destination_peer, description,
-		source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		`, workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID,
-			"Mirror created via GRPC",
-			v.SourceTableIdentifier,
-			v.DestinationTableIdentifier,
-		); err != nil {
-			return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
-				req.ConnectionConfigs.FlowJobName, v.SourceTableIdentifier, err)
-		}
+	if _, err := h.pool.Exec(ctx,
+		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, description,
+		source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, 'gRPC', '', '')`,
+		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID,
+	); err != nil {
+		return fmt.Errorf("unable to insert into flows table for flow %s: %w",
+			req.ConnectionConfigs.FlowJobName, err)
 	}
 
 	return nil
