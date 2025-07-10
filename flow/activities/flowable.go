@@ -1001,13 +1001,15 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	defer shared.RollbackTx(tx, logger)
 
 	for _, option := range config.RenameTableOptions {
-		if _, err := tx.Exec(
-			ctx,
-			"delete from table_schema_mapping where flow_name = $1 and table_name = $2",
-			config.FlowJobName,
-			option.NewName,
-		); err != nil {
-			return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+		if option.NewName != option.CurrentName {
+			if _, err := tx.Exec(
+				ctx,
+				"delete from table_schema_mapping where flow_name = $1 and table_name = $2",
+				config.FlowJobName,
+				option.NewName,
+			); err != nil {
+				return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+			}
 		}
 		if _, err := tx.Exec(
 			ctx,
@@ -1229,7 +1231,7 @@ func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
 			logger.Warn("flow entry not found in catalog, 0 records deleted")
 		} else {
 			logger.Info("flow entries removed from catalog",
-				slog.Int("rowsAffected", int(ct.RowsAffected())))
+				slog.Int64("rowsAffected", ct.RowsAffected()))
 		}
 	}
 

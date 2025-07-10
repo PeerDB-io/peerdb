@@ -407,11 +407,11 @@ func addCdcPropertiesSignalListener(
 		// do this irrespective of additional tables being present, for auto unpausing
 		state.FlowConfigUpdate = cdcConfigUpdate
 		logger.Info("CDC Signal received",
-			slog.Int("BatchSize", int(state.SyncFlowOptions.BatchSize)),
-			slog.Int("IdleTimeout", int(state.SyncFlowOptions.IdleTimeoutSeconds)),
+			slog.Uint64("BatchSize", uint64(state.SyncFlowOptions.BatchSize)),
+			slog.Uint64("IdleTimeout", state.SyncFlowOptions.IdleTimeoutSeconds),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
 			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
-			slog.Int("NumberOfSyncs", int(state.SyncFlowOptions.NumberOfSyncs)),
+			slog.Int64("NumberOfSyncs", int64(state.SyncFlowOptions.NumberOfSyncs)),
 			slog.Any("UpdatedEnv", cdcConfigUpdate.UpdatedEnv),
 			slog.Uint64("SnapshotNumRowsPerPartition", uint64(cdcConfigUpdate.SnapshotNumRowsPerPartition)),
 			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),

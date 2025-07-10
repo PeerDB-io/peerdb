@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -42,34 +41,27 @@ func NewFlowRequestHandler(ctx context.Context, temporalClient client.Client, po
 	}
 }
 
-func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (int32, int32, error) {
+func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (int32, error) {
 	var id pgtype.Int4
 	var peerType pgtype.Int4
 	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
 	if err != nil {
 		slog.Error("unable to query peer id for peer "+peerName, slog.Any("error", err))
-		return -1, -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
+		return -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
 	}
-	return id.Int32, peerType.Int32, nil
-}
-
-func schemaForTableIdentifier(tableIdentifier string, peerDBType int32) string {
-	if peerDBType != int32(protos.DBType_BIGQUERY) && !strings.ContainsRune(tableIdentifier, '.') {
-		return "public." + tableIdentifier
-	}
-	return tableIdentifier
+	return id.Int32, nil
 }
 
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	req *protos.CreateCDCFlowRequest, workflowID string,
 ) error {
-	sourcePeerID, sourePeerType, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.SourceName)
+	sourcePeerID, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.SourceName)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
 			req.ConnectionConfigs.SourceName, srcErr)
 	}
 
-	destinationPeerID, destinationPeerType, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.DestinationName)
+	destinationPeerID, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.DestinationName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
 			req.ConnectionConfigs.DestinationName, dstErr)
@@ -81,8 +73,8 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 		source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		`, workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID,
 			"Mirror created via GRPC",
-			schemaForTableIdentifier(v.SourceTableIdentifier, sourePeerType),
-			schemaForTableIdentifier(v.DestinationTableIdentifier, destinationPeerType),
+			v.SourceTableIdentifier,
+			v.DestinationTableIdentifier,
 		); err != nil {
 			return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
 				req.ConnectionConfigs.FlowJobName, v.SourceTableIdentifier, err)
@@ -96,14 +88,14 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 	req *protos.CreateQRepFlowRequest, workflowID string,
 ) error {
 	sourcePeerName := req.QrepConfig.SourceName
-	sourcePeerID, _, srcErr := h.getPeerID(ctx, sourcePeerName)
+	sourcePeerID, srcErr := h.getPeerID(ctx, sourcePeerName)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
 			sourcePeerName, srcErr)
 	}
 
 	destinationPeerName := req.QrepConfig.DestinationName
-	destinationPeerID, _, dstErr := h.getPeerID(ctx, destinationPeerName)
+	destinationPeerID, dstErr := h.getPeerID(ctx, destinationPeerName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
 			destinationPeerName, dstErr)
@@ -478,7 +470,7 @@ func (h *FlowRequestHandler) DropPeer(
 	}
 
 	// Check if peer name is in flows table
-	peerID, _, err := h.getPeerID(ctx, req.PeerName)
+	peerID, err := h.getPeerID(ctx, req.PeerName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to obtain peer ID for peer %s: %w", req.PeerName, err)
 	}
