@@ -395,7 +395,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	oid uint32, typmod int32, value any, customTypeMapping map[uint32]shared.CustomDataType, version uint32,
 ) (types.QValue, error) {
 	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping, version)
-	if value == nil {
+	if value == nil && qvalueKind != types.QValueKindComposite {
 		return types.QValueNull(qvalueKind), nil
 	}
 
@@ -730,6 +730,59 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		} else {
 			return types.QValueGeometry{Val: wkt}, nil
 		}
+	case types.QValueKindComposite:
+		typ, ok := c.typeMap.TypeForOID(oid)
+		if !ok {
+			return nil, fmt.Errorf("composite type OID %d not found in typeMap", oid)
+		}
+
+		cc, ok := typ.Codec.(*pgtype.CompositeCodec)
+		if !ok {
+			return nil, fmt.Errorf("%s (%d) is not a composite type", typ.Name, oid)
+		}
+
+		fieldTypes := make(map[string]types.QValueKind)
+
+		if value == nil {
+			for _, fld := range cc.Fields {
+				fieldTypes[fld.Name] = c.postgresOIDToQValueKind(fld.Type.OID, customTypeMapping, version)
+			}
+			return types.QValueComposite{
+				Val:    nil,
+				Fields: fieldTypes,
+			}, nil
+		}
+
+		compositeMap, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("expected map[string]any for composite type, got %T", value)
+		}
+
+		fieldMap := make(map[string]types.QValue)
+		for _, field := range cc.Fields {
+			fieldName := field.Name
+			fieldType := c.postgresOIDToQValueKind(field.Type.OID, customTypeMapping, version)
+			fieldTypes[fieldName] = fieldType
+			fieldValue := compositeMap[fieldName]
+			if fieldValue == nil {
+				fieldMap[fieldName] = nil
+			} else {
+				// Convert the field value to the appropriate type
+				convertedValue, err := c.parseFieldFromPostgresOID(
+					field.Type.OID, -1, fieldValue, customTypeMapping, // TODO: get correct typmod
+					version,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse field %s: %w", fieldName, err)
+				}
+				fieldMap[fieldName] = convertedValue
+			}
+		}
+
+		return types.QValueComposite{
+			Val:    fieldMap,
+			Fields: fieldTypes,
+		}, nil
 	default:
 		if textVal, ok := value.(string); ok {
 			return types.QValueString{Val: textVal}, nil

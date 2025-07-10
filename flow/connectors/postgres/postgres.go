@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pglogrepl"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -147,6 +148,20 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 			return nil, err
 		}
 		c.customTypeMapping = customTypeMapping
+
+		var compositeTypeNames []string
+		for _, typeData := range customTypeMapping {
+			if typeData.Type == 'c' && typeData.Delim == 0 { // Only composite types
+				compositeTypeNames = append(compositeTypeNames, typeData.Name)
+			}
+		}
+		types, err := c.conn.LoadTypes(ctx, compositeTypeNames)
+		if err != nil {
+			c.logger.Error("failed to load composite types",
+				slog.Any("error", err), slog.Any("composite_type_names", compositeTypeNames))
+			return nil, fmt.Errorf("failed to load composite types: %w", err)
+		}
+		c.typeMap.RegisterTypes(types)
 	}
 	return c.customTypeMapping, nil
 }
@@ -950,6 +965,29 @@ func (c *PostgresConnector) getCompositeTypeDetails(ctx context.Context, system 
 			if err != nil {
 				return nil, fmt.Errorf("error getting composite type details for subfield %d: %w", subfield.Type.OID, err)
 			}
+		} else if subColType == "array_composite" {
+			slog.Info("array composite type detected, fetching element type details",
+				slog.Any("subfieldTypeOID", subfield.Type.OID),
+				slog.String("subfieldName", subfield.Name),
+			)
+			var elemOID uint32
+			err := c.conn.QueryRow(ctx,
+				`select typelem from pg_type where oid = $1`, subfield.Type.OID).Scan(&elemOID)
+			if err != nil {
+				return nil, fmt.Errorf("error getting array element type OID for %d: %w", subfield.Type.OID, err)
+			}
+			elemTypeDetails, err := c.getCompositeTypeDetails(ctx, system, version, customTypeMapping, elemOID)
+
+			subCompositeFields = append(subCompositeFields, &protos.FieldDescription{
+				Name:         subfield.Name,
+				Type:         "composite",
+				TypeModifier: -1,
+				Nullable:     false,
+				Composite:    elemTypeDetails,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error getting composite type details for array element %d: %w", elemOID, err)
+			}
 		}
 		result = append(result, &protos.FieldDescription{
 			Name:         subfield.Name,
@@ -1028,14 +1066,21 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, fmt.Errorf("error getting table schema for table %s: %w", schemaTable, err)
 	}
-	fields := rows.FieldDescriptions()
+
+	var fieldsCopy []pgconn.FieldDescription
+	{
+		fields := rows.FieldDescriptions()
+		fieldsCopy = make([]pgconn.FieldDescription, len(fields))
+		copy(fieldsCopy, fields)
+	}
+
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating over table schema: %w", err)
 	}
-	columnNames := make([]string, 0, len(fields))
-	columns := make([]*protos.FieldDescription, 0, len(fields))
-	for _, fieldDescription := range fields {
+	columnNames := make([]string, 0, len(fieldsCopy))
+	columns := make([]*protos.FieldDescription, 0, len(fieldsCopy))
+	for _, fieldDescription := range fieldsCopy {
 		var colType string
 		var err error
 		switch system {
@@ -1057,8 +1102,33 @@ func (c *PostgresConnector) getTableSchemaForTable(
 			}
 			composite = subtypes
 		}
+		if colType == "array_composite" {
+			slog.Info("array composite type detected, fetching element type details",
+				slog.Any("subfieldTypeOID", fieldDescription.DataTypeOID),
+				slog.String("subfieldName", fieldDescription.Name),
+			)
+			var elemOID uint32
+			err := c.conn.QueryRow(ctx,
+				`select typelem from pg_type where oid = $1`, fieldDescription.DataTypeOID).Scan(&elemOID)
+			if err != nil {
+				return nil, fmt.Errorf("error getting array element type OID for %d: %w", fieldDescription.DataTypeOID, err)
+			}
+			elemTypeDetails, err := c.getCompositeTypeDetails(ctx, system, version, customTypeMapping, elemOID)
+
+			composite = append(composite, &protos.FieldDescription{
+				Name:         fieldDescription.Name,
+				Type:         "composite",
+				TypeModifier: -1,
+				Nullable:     false,
+				Composite:    elemTypeDetails,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("error getting composite type details for array element %d: %w", elemOID, err)
+			}
+		}
 
 		columnNames = append(columnNames, fieldDescription.Name)
+		slog.Info("fieldDescription", slog.String("name", fieldDescription.Name))
 		_, nullable := nullableCols[fieldDescription.Name]
 		columns = append(columns, &protos.FieldDescription{
 			Name:         fieldDescription.Name,

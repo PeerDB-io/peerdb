@@ -73,16 +73,16 @@ func GetCompositeDataTypeDetails(ctx context.Context, conn *pgx.Conn, dataTypeOI
 		SELECT
 			att.attnum                              AS ordinal_position,
 			att.attname                             AS field,
-			att.atttypid                            AS field_type_oid,   -- ← here
-			pt.typname                              AS field_type_name,  -- readable
+			att.atttypid                            AS field_type_oid,
+			pt.typname                              AS field_type_name,
 			att.atttypmod       					AS type_modifier,  
 			att.attnotnull                          AS not_null,
 			pg_catalog.col_description(att.attrelid,
 									att.attnum)  AS comment
-		FROM   pg_type       ct                    -- the composite type
+		FROM   pg_type       ct
 		JOIN   pg_class      cls ON cls.oid = ct.typrelid
 		JOIN   pg_attribute  att ON att.attrelid = cls.oid
-		JOIN   pg_type       pt  ON pt.oid  = att.atttypid   -- lookup base type
+		JOIN   pg_type       pt  ON pt.oid  = att.atttypid
 		WHERE  ct.oid = '%d'
 		AND  att.attnum  > 0          -- skip system columns
 		AND  NOT att.attisdropped

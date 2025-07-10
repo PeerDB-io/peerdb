@@ -11,6 +11,7 @@ type QField struct {
 	Precision int16
 	Scale     int16
 	Nullable  bool
+	SubFields []*QField // For composite types, this holds the sub-fields
 }
 
 type QRecordSchema struct {
