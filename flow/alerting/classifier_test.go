@@ -378,8 +378,7 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 func TestClickHouseUnknownTableShouldBeDestinationModified(t *testing.T) {
 	// Simulate an unknown table error
 	err := &clickhouse.Exception{
-		Code: 60,
-		//nolint:lll
+		Code:    60,
 		Message: "Table abc does not exist.",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
