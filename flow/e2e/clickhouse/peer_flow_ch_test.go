@@ -2087,7 +2087,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`insert into %s values (3,'cdcresync',1)`, srcFullName)))
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, "nulltarget", "id,\"key\"")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on insert after resync", srcTableName, "nulltarget", "id,\"key\"")
 
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, chPeer)
 	require.NoError(s.t, err)
