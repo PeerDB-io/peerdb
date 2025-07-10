@@ -267,7 +267,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 		numTablesSetup.Add(1)
 		if !existing {
-			logger.Info("created table " + tableIdentifier)
 			a.Alerter.LogFlowInfo(ctx, config.FlowName, "created table "+tableIdentifier+" in destination")
 		} else {
 			logger.Info("table already exists " + tableIdentifier)

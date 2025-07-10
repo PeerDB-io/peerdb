@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-mysql-org/go-mysql/client"
+	"github.com/go-mysql-org/go-mysql/mysql"
+
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	peerdb_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
@@ -137,7 +140,28 @@ func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		return peerdb_mysql.ValidateFlavor(conn, c.config.Flavor)
+		return c.validateFlavor(conn)
 	}
 	return errors.New("failed to connect to MySQL server")
+}
+
+func (c *MySqlConnector) validateFlavor(conn *client.Conn) error {
+	// MariaDB specific setting, introduced in MariaDB 10.0.3
+	if rs, err := conn.Execute("SELECT @@gtid_strict_mode"); err != nil {
+		var mErr *mysql.MyError
+		// seems to be MySQL
+		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			if c.config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+				return errors.New("server appears to be MySQL but MariaDB source has been selected")
+			}
+		} else {
+			return fmt.Errorf("failed to check GTID mode: %w", err)
+		}
+	} else if len(rs.Values) > 0 {
+		if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+			return errors.New("server appears to be MariaDB but MySQL source has been selected")
+		}
+	}
+
+	return nil
 }
