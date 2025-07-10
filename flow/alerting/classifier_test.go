@@ -374,3 +374,35 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 		})
 	}
 }
+
+func TestClickHouseUnknownTableShouldBeDestinationModified(t *testing.T) {
+	// Simulate an unknown table error
+	err := &clickhouse.Exception{
+		Code: 60,
+		//nolint:lll
+		Message: "Table abc does not exist.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "60",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T) {
+	// Simulate an unknown table error while pushing to view
+	err := &clickhouse.Exception{
+		Code: 60,
+		//nolint:lll
+		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "60",
+	}, errInfo, "Unexpected error info")
+}
