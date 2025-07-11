@@ -498,6 +498,8 @@ func LuaRecordIndex(ls *lua.LState) int {
 		ls.Push(glua64.I64.New(ls, record.GetCheckpointID()))
 	case "commit_time":
 		ls.Push(shared.LuaTime.New(ls, record.GetCommitTime()))
+	case "transaction_id":
+		ls.Push(glua64.U64.New(ls, record.GetTransactionID()))
 	case "target":
 		ls.Push(lua.LString(record.GetDestinationTableName()))
 	case "source":
@@ -534,7 +536,7 @@ func LuaRecordJson(ls *lua.LState) int {
 	ud := ls.CheckUserData(1)
 	tbl := ls.CreateTable(0, 7)
 	for _, key := range []string{
-		"kind", "old", "new", "checkpoint", "commit_time", "source",
+		"kind", "old", "new", "checkpoint", "commit_time", "transaction_id", "source",
 	} {
 		tbl.RawSetString(key, ls.GetField(ud, key))
 	}
