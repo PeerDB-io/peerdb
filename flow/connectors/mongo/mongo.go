@@ -222,7 +222,9 @@ func (c *MongoConnector) PullRecords(
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
 		SetFullDocument(options.UpdateLookup).
-		SetFullDocumentBeforeChange(options.Off)
+		SetFullDocumentBeforeChange(options.Off).
+		SetMaxAwaitTime(req.IdleTimeout)
+
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
 		c.logger.Info("[mongo] resuming change stream", slog.String("resumeToken", req.LastOffset.Text))
