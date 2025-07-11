@@ -48,7 +48,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		return nil, err
 	}
 
-	clientOptions, err := parseAsClientOptions(config)
+	clientOptions, err := parseAsClientOptions(ctx, config)
 	if err != nil {
 		return nil, err
 	}
@@ -246,10 +246,9 @@ func (c *MongoConnector) PullRecords(
 		}
 		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
 	}()
-	// before first record, we wait indefinitely so give it ctx
+	// before first record, we wait for an hour and reset so we can periodically save resumeToken
 	// after first record, we wait for idle timeout
-	getCtx := ctx
-	var cancelTimeout context.CancelFunc
+	getCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 	defer func() {
 		if cancelTimeout != nil {
 			cancelTimeout()
@@ -268,100 +267,125 @@ func (c *MongoConnector) PullRecords(
 		return nil
 	}
 
-	for recordCount < req.MaxBatchSize && changeStream.Next(getCtx) {
-		var changeDoc bson.M
-		if err := changeStream.Decode(&changeDoc); err != nil {
-			return fmt.Errorf("failed to decode change stream document: %w", err)
+	saveResumeToken := func() {
+		if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
+			// Update the last offset with the resume token
+			req.RecordStream.UpdateLatestCheckpointText(base64.StdEncoding.EncodeToString(resumeToken))
+			c.logger.Info("[mongo] latest resume token", slog.String("resumeToken", req.LastOffset.Text))
+		} else {
+			c.logger.Warn("Change stream document does not contain a resume token")
 		}
+	}
 
-		if _, ok := changeDoc["operationType"]; !ok {
-			c.logger.Warn("operationType field not found")
-			continue
-		}
+	for {
+		for recordCount < req.MaxBatchSize && changeStream.Next(getCtx) {
+			var changeDoc bson.M
+			if err := changeStream.Decode(&changeDoc); err != nil {
+				//nolint:govet // cancelTimeout called by defer, spurious lint
+				return fmt.Errorf("failed to decode change stream document: %w", err)
+			}
 
-		clusterTime := changeDoc["clusterTime"].(bson.Timestamp)
-		clusterTimeNanos := time.Unix(int64(clusterTime.T), 0).UnixNano()
+			if _, ok := changeDoc["operationType"]; !ok {
+				c.logger.Warn("operationType field not found")
+				continue
+			}
 
-		sourceTableName := fmt.Sprintf("%s.%s", changeDoc["ns"].(bson.D)[0].Value, changeDoc["ns"].(bson.D)[1].Value)
-		destinationTableName := req.TableNameMapping[sourceTableName].Name
+			clusterTime := changeDoc["clusterTime"].(bson.Timestamp)
+			clusterTimeNanos := time.Unix(int64(clusterTime.T), 0).UnixNano()
 
-		items := model.NewMongoRecordItems(2)
+			sourceTableName := fmt.Sprintf("%s.%s", changeDoc["ns"].(bson.D)[0].Value, changeDoc["ns"].(bson.D)[1].Value)
+			destinationTableName := req.TableNameMapping[sourceTableName].Name
+			if destinationTableName == "" {
+				continue
+			}
 
-		if documentKey, found := changeDoc["documentKey"]; found {
-			if len(documentKey.(bson.D)) == 0 || documentKey.(bson.D)[0].Key != DefaultDocumentKeyColumnName {
+			items := model.NewMongoRecordItems(2)
+
+			if documentKey, found := changeDoc["documentKey"]; found {
+				if len(documentKey.(bson.D)) == 0 || documentKey.(bson.D)[0].Key != DefaultDocumentKeyColumnName {
+					// should never happen
+					return errors.New("invalid document key, expect _id")
+				}
+				id := documentKey.(bson.D)[0].Value
+				qValue, err := qValueStringFromKey(id)
+				if err != nil {
+					return fmt.Errorf("failed to convert _id to string: %w", err)
+				}
+				items.AddColumn(DefaultDocumentKeyColumnName, qValue)
+			} else {
 				// should never happen
-				return errors.New("invalid document key, expect _id")
+				return errors.New("documentKey field not found")
 			}
-			id := documentKey.(bson.D)[0].Value
-			qValue, err := qValueStringFromKey(id)
-			if err != nil {
-				return fmt.Errorf("failed to convert _id to string: %w", err)
+
+			if fullDocument, found := changeDoc["fullDocument"]; found {
+				qValue, err := qValueJSONFromDocument(fullDocument.(bson.D))
+				if err != nil {
+					return fmt.Errorf("failed to convert fullDocument to JSON: %w", err)
+				}
+				items.AddColumn(DefaultFullDocumentColumnName, qValue)
+			} else {
+				// `fullDocument` field will not exist in the following scenarios:
+				// 1) operationType is 'delete'
+				// 2) document is deleted / collection is dropped in between update and lookup
+				// 3) update changes the values for at least one of the fields in that collection's
+				//    shard key (although sharding is not supported today)
+				items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
 			}
-			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
-		} else {
-			// should never happen
-			return errors.New("documentKey field not found")
+
+			if operationType, ok := changeDoc["operationType"]; ok {
+				switch operationType {
+				case "insert":
+					if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
+						BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+						Items:                items,
+						SourceTableName:      sourceTableName,
+						DestinationTableName: destinationTableName,
+					}); err != nil {
+						return fmt.Errorf("failed to add insert record: %w", err)
+					}
+				case "update", "replace":
+					if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
+						BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+						NewItems:             items,
+						SourceTableName:      sourceTableName,
+						DestinationTableName: destinationTableName,
+					}); err != nil {
+						return fmt.Errorf("failed to add update record: %w", err)
+					}
+				case "delete":
+					if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
+						BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+						Items:                items,
+						SourceTableName:      sourceTableName,
+						DestinationTableName: destinationTableName,
+					}); err != nil {
+						return fmt.Errorf("failed to add delete record: %w", err)
+					}
+				case "invalidate":
+					return errors.New("change stream invalidated, please resync the mirror")
+				default:
+					return fmt.Errorf("unsupported operationType: %s", operationType)
+				}
+			}
+		}
+		// this branch will almost always be hit with the .Next() API
+		if err := changeStream.Err(); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				if recordCount == 0 {
+					//nolint:govet // cancelTimeout called by defer, spurious lint
+					getCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+				} else {
+					saveResumeToken()
+					break
+				}
+			} else {
+				c.logger.Error("PullRecords change stream error", "error", err)
+				return fmt.Errorf("change stream error: %w", err)
+			}
 		}
 
-		if fullDocument, found := changeDoc["fullDocument"]; found {
-			qValue, err := qValueJSONFromDocument(fullDocument.(bson.D))
-			if err != nil {
-				return fmt.Errorf("failed to convert fullDocument to JSON: %w", err)
-			}
-			items.AddColumn(DefaultFullDocumentColumnName, qValue)
-		} else {
-			// `fullDocument` field will not exist in the following scenarios:
-			// 1) operationType is 'delete'
-			// 2) document is deleted / collection is dropped in between update and lookup
-			// 3) update changes the values for at least one of the fields in that collection's
-			//    shard key (although sharding is not supported today)
-			items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
-		}
-
-		if operationType, ok := changeDoc["operationType"]; ok {
-			switch operationType {
-			case "insert":
-				if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-					BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
-					Items:                items,
-					SourceTableName:      sourceTableName,
-					DestinationTableName: destinationTableName,
-				}); err != nil {
-					return fmt.Errorf("failed to add insert record: %w", err)
-				}
-			case "update", "replace":
-				if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
-					BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
-					NewItems:             items,
-					SourceTableName:      sourceTableName,
-					DestinationTableName: destinationTableName,
-				}); err != nil {
-					return fmt.Errorf("failed to add update record: %w", err)
-				}
-			case "delete":
-				if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
-					BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
-					Items:                items,
-					SourceTableName:      sourceTableName,
-					DestinationTableName: destinationTableName,
-				}); err != nil {
-					return fmt.Errorf("failed to add delete record: %w", err)
-				}
-			default:
-				return fmt.Errorf("unsupported operationType: %s", operationType)
-			}
-		}
-	}
-	if err := changeStream.Err(); err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		c.logger.Error("PullRecords change stream error", "error", err)
-		return fmt.Errorf("change stream error: %w", err)
-	}
-	if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
-		// Update the last offset with the resume token
-		req.RecordStream.UpdateLatestCheckpointText(base64.StdEncoding.EncodeToString(resumeToken))
-		c.logger.Info("[mongo] latest resume token", slog.String("resumeToken", req.LastOffset.Text))
-	} else {
-		c.logger.Warn("Change stream document does not contain a resume token")
+		// save the resume token periodically
+		saveResumeToken()
 	}
 
 	return nil
@@ -371,7 +395,7 @@ func defaultPipeline() mongo.Pipeline {
 	return mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
 			{Key: "operationType", Value: bson.D{
-				{Key: "$in", Value: bson.A{"insert", "update", "replace", "delete"}},
+				{Key: "$in", Value: bson.A{"insert", "update", "replace", "delete", "invalidate"}},
 			}},
 		}}},
 
@@ -389,7 +413,7 @@ func defaultPipeline() mongo.Pipeline {
 	}
 }
 
-func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, error) {
+func parseAsClientOptions(ctx context.Context, config *protos.MongoConfig) (*options.ClientOptions, error) {
 	connStr, err := connstring.Parse(config.Uri)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing uri: %w", err)
@@ -399,9 +423,14 @@ func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, e
 		return nil, errors.New("connection string should not contain username and password")
 	}
 
+	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
+	var appNameSuffix string
+	if flowName != "" {
+		appNameSuffix = " for mirror " + flowName
+	}
 	clientOptions := options.Client().
 		ApplyURI(config.Uri).
-		SetAppName("PeerDB Mongo Connector").
+		SetAppName("PeerDB connector" + appNameSuffix).
 		SetAuth(options.Credential{
 			Username: config.Username,
 			Password: config.Password,
