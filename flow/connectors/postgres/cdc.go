@@ -712,12 +712,15 @@ func (p *PostgresCDCSource) updateConsumedOffset(
 
 func (p *PostgresCDCSource) baseRecord(lsn pglogrepl.LSN) model.BaseRecord {
 	var nano int64
+	var transactionID uint64
 	if p.commitLock != nil {
 		nano = p.commitLock.CommitTime.UnixNano()
+		transactionID = uint64(p.commitLock.Xid)
 	}
 	return model.BaseRecord{
 		CheckpointID:   int64(lsn),
 		CommitTimeNano: nano,
+		TransactionID:  transactionID,
 	}
 }
 
