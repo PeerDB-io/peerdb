@@ -602,7 +602,7 @@ func (h *FlowRequestHandler) TotalRowsSyncedByMirror(
 	var totalRowsCDC int64
 	var totalRowsInitialLoad int64
 	if !req.ExcludeCdc {
-		cdcErr := h.pool.QueryRow(ctx, `SELECT SUM(total_count),
+		cdcErr := h.pool.QueryRow(ctx, `SELECT SUM(total_count)
 		FROM peerdb_stats.cdc_table_aggregate_counts
 		WHERE flow_name = $1`, req.FlowJobName).Scan(&totalRowsCDC)
 		if cdcErr != nil {
