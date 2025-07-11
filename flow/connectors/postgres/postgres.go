@@ -73,10 +73,10 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		return nil, err
 	}
 
-	runtimeParams := connConfig.Config.RuntimeParams
-	runtimeParams["idle_in_transaction_session_timeout"] = "0"
-	runtimeParams["statement_timeout"] = "0"
-	runtimeParams["DateStyle"] = "ISO, DMY"
+	connConfig.Config.RuntimeParams["timezone"] = "UTC"
+	connConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	connConfig.Config.RuntimeParams["statement_timeout"] = "0"
+	connConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 
 	tunnel, err := utils.NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
@@ -159,10 +159,9 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	runtimeParams := replConfig.Config.RuntimeParams
-	runtimeParams["idle_in_transaction_session_timeout"] = "0"
-	runtimeParams["statement_timeout"] = "0"
-	// ensure that replication is set to database
+	replConfig.Config.RuntimeParams["timezone"] = "UTC"
+	replConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	replConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
