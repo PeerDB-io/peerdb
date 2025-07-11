@@ -29,8 +29,7 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return nil
 	}
 
-	_, err := shared_mongo.GetReplSetGetStatus(ctx, c.client)
-	if err != nil {
+	if _, err := shared_mongo.GetReplSetGetStatus(ctx, c.client); err != nil {
 		return err
 	}
 

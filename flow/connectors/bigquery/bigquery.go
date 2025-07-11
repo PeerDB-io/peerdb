@@ -83,10 +83,9 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		return nil, fmt.Errorf("failed to create BigQuery client: %v", err)
 	}
 
-	_, datasetErr := client.DatasetInProject(projectID, datasetID).Metadata(ctx)
-	if datasetErr != nil {
-		logger.Error("failed to get dataset metadata", "error", datasetErr)
-		return nil, fmt.Errorf("failed to get dataset metadata: %v", datasetErr)
+	if _, err := client.DatasetInProject(projectID, datasetID).Metadata(ctx); err != nil {
+		logger.Error("failed to get dataset metadata", "error", err)
+		return nil, fmt.Errorf("failed to get dataset metadata: %v", err)
 	}
 
 	storageClient, err := bqsa.CreateStorageClient(ctx)
@@ -166,8 +165,7 @@ func (c *BigQueryConnector) Close() error {
 
 // ConnectionActive returns nil if the connection is active.
 func (c *BigQueryConnector) ConnectionActive(ctx context.Context) error {
-	_, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx)
-	if err != nil {
+	if _, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx); err != nil {
 		return fmt.Errorf("failed to get dataset metadata: %v", err)
 	}
 
@@ -186,8 +184,7 @@ func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable 
 			return fmt.Errorf("timeout reached while waiting for table %s to be ready", datasetTable)
 		}
 
-		_, err := table.Metadata(ctx)
-		if err == nil {
+		if _, err := table.Metadata(ctx); err == nil {
 			return nil
 		}
 
@@ -768,8 +765,7 @@ func (c *BigQueryConnector) RenameTables(
 
 		// if _resync table does not exist, log and continue.
 		dataset := c.client.DatasetInProject(c.projectID, srcDatasetTable.dataset)
-		_, err := dataset.Table(srcDatasetTable.table).Metadata(ctx)
-		if err != nil {
+		if _, err := dataset.Table(srcDatasetTable.table).Metadata(ctx); err != nil {
 			if !strings.Contains(err.Error(), "notFound") {
 				return nil, fmt.Errorf("[renameTable] failed to get metadata for _resync table %s: %w", srcDatasetTable.string(), err)
 			}
@@ -779,8 +775,7 @@ func (c *BigQueryConnector) RenameTables(
 
 		// if the original table does not exist, log and skip soft delete step
 		originalTableExists := true
-		_, err = dataset.Table(dstDatasetTable.table).Metadata(ctx)
-		if err != nil {
+		if _, err := dataset.Table(dstDatasetTable.table).Metadata(ctx); err != nil {
 			if !strings.Contains(err.Error(), "notFound") {
 				return nil, fmt.Errorf("[renameTable] failed to get metadata for original table %s: %w", dstDatasetTable.string(), err)
 			}
@@ -860,8 +855,7 @@ func (c *BigQueryConnector) RenameTables(
 
 				query.DefaultProjectID = c.projectID
 				query.DefaultDatasetID = c.datasetID
-				_, err := query.Read(ctx)
-				if err != nil {
+				if _, err := query.Read(ctx); err != nil {
 					return nil, fmt.Errorf("unable to handle soft-deletes for table %s: %w", dstDatasetTable.string(), err)
 				}
 			}
@@ -876,8 +870,7 @@ func (c *BigQueryConnector) RenameTables(
 
 			query.DefaultProjectID = c.projectID
 			query.DefaultDatasetID = c.datasetID
-			_, err := query.Read(ctx)
-			if err != nil {
+			if _, err := query.Read(ctx); err != nil {
 				return nil, fmt.Errorf("unable to set synced at column for table %s: %w", srcDatasetTable.string(), err)
 			}
 		}
@@ -886,8 +879,7 @@ func (c *BigQueryConnector) RenameTables(
 		dropQuery := c.queryWithLogging("DROP TABLE IF EXISTS " + dstDatasetTable.string())
 		dropQuery.DefaultProjectID = c.projectID
 		dropQuery.DefaultDatasetID = c.datasetID
-		_, err = dropQuery.Read(ctx)
-		if err != nil {
+		if _, err := dropQuery.Read(ctx); err != nil {
 			return nil, fmt.Errorf("unable to drop table %s: %w", dstDatasetTable.string(), err)
 		}
 
@@ -896,8 +888,7 @@ func (c *BigQueryConnector) RenameTables(
 			srcDatasetTable.string(), dstDatasetTable.table))
 		query.DefaultProjectID = c.projectID
 		query.DefaultDatasetID = c.datasetID
-		_, err = query.Read(ctx)
-		if err != nil {
+		if _, err := query.Read(ctx); err != nil {
 			return nil, fmt.Errorf("unable to rename table %s to %s: %w", srcDatasetTable.string(),
 				dstDatasetTable.string(), err)
 		}
@@ -925,8 +916,7 @@ func (c *BigQueryConnector) CreateTablesFromExisting(
 			newDatasetTable.string(), existingDatasetTable.string()))
 		query.DefaultProjectID = c.projectID
 		query.DefaultDatasetID = c.datasetID
-		_, err := query.Read(ctx)
-		if err != nil {
+		if _, err := query.Read(ctx); err != nil {
 			return nil, fmt.Errorf("unable to create table %s: %w", newTable, err)
 		}
 
@@ -950,8 +940,7 @@ func (c *BigQueryConnector) RemoveTableEntriesFromRawTable(
 			rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
 		deleteCmd.DefaultProjectID = c.projectID
 		deleteCmd.DefaultDatasetID = c.datasetID
-		_, err := deleteCmd.Read(ctx)
-		if err != nil {
+		if _, err := deleteCmd.Read(ctx); err != nil {
 			c.logger.Error("failed to remove entries from raw table", "error", err)
 		}
 

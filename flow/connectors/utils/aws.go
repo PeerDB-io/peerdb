@@ -183,8 +183,7 @@ func NewAssumeRoleBasedAWSCredentialsProvider(
 	provider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(config), roleArn, func(o *stscreds.AssumeRoleOptions) {
 		o.RoleSessionName = sessionName
 	})
-	_, err := provider.Retrieve(ctx)
-	if err != nil {
+	if _, err := provider.Retrieve(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve chained AWS credentials: %w", err)
 	}
 	return &AssumeRoleBasedAWSCredentialsProvider{

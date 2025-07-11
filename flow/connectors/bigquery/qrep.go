@@ -103,8 +103,7 @@ func (c *BigQueryConnector) SetupQRepMetadataTables(ctx context.Context, config 
 		query := c.queryWithLogging("TRUNCATE TABLE " + config.DestinationTableIdentifier)
 		query.DefaultDatasetID = c.datasetID
 		query.DefaultProjectID = c.projectID
-		_, err := query.Read(ctx)
-		if err != nil {
+		if _, err := query.Read(ctx); err != nil {
 			return fmt.Errorf("failed to TRUNCATE table before query replication: %w", err)
 		}
 	}
