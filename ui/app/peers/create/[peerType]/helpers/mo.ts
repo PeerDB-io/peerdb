@@ -59,4 +59,5 @@ export const blankMongoSetting: MongoConfig = {
   disableTls: false,
   tlsHost: '',
   rootCa: '',
+  readPreference: '',
 };
