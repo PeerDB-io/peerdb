@@ -595,6 +595,38 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 	}, nil
 }
 
+func (h *FlowRequestHandler) TotalRowsSyncedByMirror(
+	ctx context.Context,
+	req *protos.TotalRowsSyncedByMirrorRequest,
+) (*protos.TotalRowsSyncedByMirrorResponse, error) {
+	var totalRowsCDC int64
+	var totalRowsInitialLoad int64
+	if !req.ExcludeCdc {
+		cdcErr := h.pool.QueryRow(ctx, `SELECT SUM(total_count)
+		FROM peerdb_stats.cdc_table_aggregate_counts
+		WHERE flow_name = $1`, req.FlowJobName).Scan(&totalRowsCDC)
+		if cdcErr != nil {
+			return nil, fmt.Errorf("unable to get total rows synced via CDC for mirror %s: %w", req.FlowJobName, cdcErr)
+		}
+	}
+
+	if !req.ExcludeInitialLoad {
+		err := h.pool.QueryRow(ctx, `
+		SELECT SUM(rows_in_partition) AS NumRowsSynced
+        FROM peerdb_stats.qrep_partitions
+        WHERE parent_mirror_name = $1 AND end_time IS NOT NULL`, req.FlowJobName).Scan(&totalRowsInitialLoad)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get total rows synced via CDC for mirror %s: %w", req.FlowJobName, err)
+		}
+	}
+
+	return &protos.TotalRowsSyncedByMirrorResponse{
+		TotalCountCDC:         totalRowsCDC,
+		TotalCountInitialLoad: totalRowsInitialLoad,
+		TotalCount:            totalRowsCDC + totalRowsInitialLoad,
+	}, nil
+}
+
 func (h *FlowRequestHandler) CDCTableTotalCounts(
 	ctx context.Context,
 	req *protos.CDCTableTotalCountsRequest,
