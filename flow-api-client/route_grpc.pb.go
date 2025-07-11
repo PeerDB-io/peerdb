@@ -59,6 +59,8 @@ const (
 	FlowService_GetVersion_FullMethodName               = "/peerdb_route.FlowService/GetVersion"
 	FlowService_GetInstanceInfo_FullMethodName          = "/peerdb_route.FlowService/GetInstanceInfo"
 	FlowService_Maintenance_FullMethodName              = "/peerdb_route.FlowService/Maintenance"
+	FlowService_GetMaintenanceStatus_FullMethodName     = "/peerdb_route.FlowService/GetMaintenanceStatus"
+	FlowService_SkipSnapshotWaitFlows_FullMethodName    = "/peerdb_route.FlowService/SkipSnapshotWaitFlows"
 	FlowService_CreateOrReplaceFlowTags_FullMethodName  = "/peerdb_route.FlowService/CreateOrReplaceFlowTags"
 	FlowService_GetFlowTags_FullMethodName              = "/peerdb_route.FlowService/GetFlowTags"
 )
@@ -107,6 +109,8 @@ type FlowServiceClient interface {
 	GetVersion(ctx context.Context, in *PeerDBVersionRequest, opts ...grpc.CallOption) (*PeerDBVersionResponse, error)
 	GetInstanceInfo(ctx context.Context, in *InstanceInfoRequest, opts ...grpc.CallOption) (*InstanceInfoResponse, error)
 	Maintenance(ctx context.Context, in *MaintenanceRequest, opts ...grpc.CallOption) (*MaintenanceResponse, error)
+	GetMaintenanceStatus(ctx context.Context, in *MaintenanceStatusRequest, opts ...grpc.CallOption) (*MaintenanceStatusResponse, error)
+	SkipSnapshotWaitFlows(ctx context.Context, in *SkipSnapshotWaitFlowsRequest, opts ...grpc.CallOption) (*SkipSnapshotWaitFlowsResponse, error)
 	CreateOrReplaceFlowTags(ctx context.Context, in *CreateOrReplaceFlowTagsRequest, opts ...grpc.CallOption) (*CreateOrReplaceFlowTagsResponse, error)
 	GetFlowTags(ctx context.Context, in *GetFlowTagsRequest, opts ...grpc.CallOption) (*GetFlowTagsResponse, error)
 }
@@ -479,6 +483,24 @@ func (c *flowServiceClient) Maintenance(ctx context.Context, in *MaintenanceRequ
 	return out, nil
 }
 
+func (c *flowServiceClient) GetMaintenanceStatus(ctx context.Context, in *MaintenanceStatusRequest, opts ...grpc.CallOption) (*MaintenanceStatusResponse, error) {
+	out := new(MaintenanceStatusResponse)
+	err := c.cc.Invoke(ctx, FlowService_GetMaintenanceStatus_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *flowServiceClient) SkipSnapshotWaitFlows(ctx context.Context, in *SkipSnapshotWaitFlowsRequest, opts ...grpc.CallOption) (*SkipSnapshotWaitFlowsResponse, error) {
+	out := new(SkipSnapshotWaitFlowsResponse)
+	err := c.cc.Invoke(ctx, FlowService_SkipSnapshotWaitFlows_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *flowServiceClient) CreateOrReplaceFlowTags(ctx context.Context, in *CreateOrReplaceFlowTagsRequest, opts ...grpc.CallOption) (*CreateOrReplaceFlowTagsResponse, error) {
 	out := new(CreateOrReplaceFlowTagsResponse)
 	err := c.cc.Invoke(ctx, FlowService_CreateOrReplaceFlowTags_FullMethodName, in, out, opts...)
@@ -541,6 +563,8 @@ type FlowServiceServer interface {
 	GetVersion(context.Context, *PeerDBVersionRequest) (*PeerDBVersionResponse, error)
 	GetInstanceInfo(context.Context, *InstanceInfoRequest) (*InstanceInfoResponse, error)
 	Maintenance(context.Context, *MaintenanceRequest) (*MaintenanceResponse, error)
+	GetMaintenanceStatus(context.Context, *MaintenanceStatusRequest) (*MaintenanceStatusResponse, error)
+	SkipSnapshotWaitFlows(context.Context, *SkipSnapshotWaitFlowsRequest) (*SkipSnapshotWaitFlowsResponse, error)
 	CreateOrReplaceFlowTags(context.Context, *CreateOrReplaceFlowTagsRequest) (*CreateOrReplaceFlowTagsResponse, error)
 	GetFlowTags(context.Context, *GetFlowTagsRequest) (*GetFlowTagsResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
@@ -669,6 +693,12 @@ func (UnimplementedFlowServiceServer) GetInstanceInfo(context.Context, *Instance
 }
 func (UnimplementedFlowServiceServer) Maintenance(context.Context, *MaintenanceRequest) (*MaintenanceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Maintenance not implemented")
+}
+func (UnimplementedFlowServiceServer) GetMaintenanceStatus(context.Context, *MaintenanceStatusRequest) (*MaintenanceStatusResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetMaintenanceStatus not implemented")
+}
+func (UnimplementedFlowServiceServer) SkipSnapshotWaitFlows(context.Context, *SkipSnapshotWaitFlowsRequest) (*SkipSnapshotWaitFlowsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SkipSnapshotWaitFlows not implemented")
 }
 func (UnimplementedFlowServiceServer) CreateOrReplaceFlowTags(context.Context, *CreateOrReplaceFlowTagsRequest) (*CreateOrReplaceFlowTagsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateOrReplaceFlowTags not implemented")
@@ -1409,6 +1439,42 @@ func _FlowService_Maintenance_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_GetMaintenanceStatus_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MaintenanceStatusRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).GetMaintenanceStatus(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_GetMaintenanceStatus_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).GetMaintenanceStatus(ctx, req.(*MaintenanceStatusRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _FlowService_SkipSnapshotWaitFlows_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SkipSnapshotWaitFlowsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).SkipSnapshotWaitFlows(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_SkipSnapshotWaitFlows_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).SkipSnapshotWaitFlows(ctx, req.(*SkipSnapshotWaitFlowsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _FlowService_CreateOrReplaceFlowTags_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateOrReplaceFlowTagsRequest)
 	if err := dec(in); err != nil {
@@ -1611,6 +1677,14 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Maintenance",
 			Handler:    _FlowService_Maintenance_Handler,
+		},
+		{
+			MethodName: "GetMaintenanceStatus",
+			Handler:    _FlowService_GetMaintenanceStatus_Handler,
+		},
+		{
+			MethodName: "SkipSnapshotWaitFlows",
+			Handler:    _FlowService_SkipSnapshotWaitFlows_Handler,
 		},
 		{
 			MethodName: "CreateOrReplaceFlowTags",
