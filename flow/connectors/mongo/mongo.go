@@ -417,24 +417,26 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 		}}})
 	}
 
-	// filter out non-cdc operations
-	pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{
-		{Key: "operationType", Value: bson.D{
-			{Key: "$in", Value: bson.A{"insert", "update", "replace", "delete"}},
-		}},
-	}}})
+	pipeline = append(pipeline,
+		// filter out non-cdc operations
+		bson.D{{Key: "$match", Value: bson.D{
+			{Key: "operationType", Value: bson.D{
+				{Key: "$in", Value: bson.A{"insert", "update", "replace", "delete"}},
+			}},
+		}}},
 
-	// Mongo recommend using '$project' first to reduce change event size, and only use
-	// '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the document
-	// themselves have a 16MB limit, project required fields for now for code simplicity.
-	// ref: https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStreamSplitLargeEvent/
-	pipeline = append(pipeline, bson.D{{Key: "$project", Value: bson.D{
-		{Key: "operationType", Value: 1},
-		{Key: "clusterTime", Value: 1},
-		{Key: "documentKey", Value: 1},
-		{Key: "fullDocument", Value: 1},
-		{Key: "ns", Value: 1},
-	}}})
+		// Mongo recommends using '$project' first to reduce change event size, and only use
+		// '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the document
+		// themselves have a 16MB limit, project required fields for now for code simplicity.
+		// ref: https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStreamSplitLargeEvent/
+		bson.D{{Key: "$project", Value: bson.D{
+			{Key: "operationType", Value: 1},
+			{Key: "clusterTime", Value: 1},
+			{Key: "documentKey", Value: 1},
+			{Key: "fullDocument", Value: 1},
+			{Key: "ns", Value: 1},
+		}}},
+	)
 
 	return pipeline, nil
 }
