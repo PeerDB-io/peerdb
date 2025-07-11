@@ -10,6 +10,7 @@ type Record[T Items] interface {
 	Kind() string
 	GetCheckpointID() int64
 	GetCommitTime() time.Time
+	GetTransactionID() uint64
 	GetDestinationTableName() string
 	GetSourceTableName() string
 	// get columns and values for the record
@@ -22,6 +23,8 @@ type BaseRecord struct {
 	CheckpointID int64 `json:"checkpointId"`
 	// BeginMessage.CommitTime.UnixNano(), 16 bytes smaller than time.Time
 	CommitTimeNano int64 `json:"commitTimeNano"`
+	// TransactionID is the `XID` corresponding to the transaction that committed this record.
+	TransactionID uint64 `json:"transactionId"`
 }
 
 func (r *BaseRecord) GetCheckpointID() int64 {
@@ -30,6 +33,10 @@ func (r *BaseRecord) GetCheckpointID() int64 {
 
 func (r *BaseRecord) GetCommitTime() time.Time {
 	return time.Unix(0, r.CommitTimeNano)
+}
+
+func (r *BaseRecord) GetTransactionID() uint64 {
+	return r.TransactionID
 }
 
 type InsertRecord[T Items] struct {

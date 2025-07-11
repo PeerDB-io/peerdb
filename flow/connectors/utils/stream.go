@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -59,6 +60,11 @@ func RecordsToRawTableStream[Items model.Items](
 				Type:     types.QValueKindString,
 				Nullable: true,
 			},
+			{
+				Name:     "_peerdb_origin",
+				Type:     types.QValueKindJSON,
+				Nullable: true,
+			},
 		},
 	})
 
@@ -85,7 +91,7 @@ func recordToQRecordOrError[Items model.Items](
 	batchID int64, record model.Record[Items], targetDWH protos.DBType, unboundedNumericAsString bool,
 	numericTruncator model.StreamNumericTruncator,
 ) ([]types.QValue, error) {
-	var entries [8]types.QValue
+	var entries [9]types.QValue
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[Items]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
@@ -142,6 +148,19 @@ func recordToQRecordOrError[Items model.Items](
 	entries[1] = types.QValueInt64{Val: time.Now().UnixNano()}
 	entries[2] = types.QValueString{Val: record.GetDestinationTableName()}
 	entries[6] = types.QValueInt64{Val: batchID}
+
+	// store the transactionId, checkpointId, commitTimeNano from the BaseRecord into a single JSON object
+	origin := map[string]any{
+		"transactionId":  record.GetTransactionID(),
+		"checkpointId":   record.GetCheckpointID(),
+		"commitTimeNano": record.GetCommitTime(),
+	}
+
+	originJSON, err := json.Marshal(origin)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize origin to JSON: %w", err)
+	}
+	entries[8] = types.QValueJSON{Val: string(originJSON), IsArray: false}
 
 	return entries[:], nil
 }
