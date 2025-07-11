@@ -164,7 +164,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:         "PEERDB_S3_BYTES_PER_AVRO_FILE",
 		Description:  "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
-		DefaultValue: "33333333333", // chosen to be round 30GB, but align with about half of 64MiB because S3 part size
+		DefaultValue: "10000000000", // 10GB, not GiB so to not align with 64MiB to avoid always having tiny part at end
 		ValueType:    protos.DynconfValueType_INT,
 		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 	},
@@ -307,6 +307,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_INITIAL_LOAD_ALLOW_NON_EMPTY_TABLES",
+		Description:      "Disables validation raising error if destination table of initial load is not empty",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_SKIP_SNAPSHOT_EXPORT",
 		Description:      "This avoids initial load failing due to connectivity drops, but risks data consistency unless precautions are taken",
 		DefaultValue:     "false",
@@ -328,6 +336,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description: "For Postgres CDC: attempt to fetch/remap child tables for tables that aren't partitioned by Postgres." +
 			"Useful for tables that are partitioned by extensions or table inheritance",
 		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_UI_MAINTENANCE_TAB_ENABLED",
+		Description:      "Enable/disable the maintenance tab in the PeerDB UI",
+		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
@@ -623,6 +639,10 @@ func PeerDBClickHouseNormalizationParts(ctx context.Context, env map[string]stri
 
 func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[string]string) (uint64, error) {
 	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION")
+}
+
+func PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_ALLOW_NON_EMPTY_TABLES")
 }
 
 func PeerDBSkipSnapshotExport(ctx context.Context, env map[string]string) (bool, error) {

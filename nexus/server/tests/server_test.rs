@@ -132,7 +132,7 @@ fn server_test() {
                 .expect("Failed to query");
             let mut column_names = Vec::new();
             if res.is_empty() {
-                panic!("No results for query: {}", query);
+                panic!("No results for query: {query}");
             }
 
             match res[0] {

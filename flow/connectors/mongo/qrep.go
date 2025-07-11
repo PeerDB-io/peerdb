@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
@@ -13,6 +14,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -40,12 +43,12 @@ func (c *MongoConnector) GetQRepPartitions(
 
 func (c *MongoConnector) PullQRepRecords(
 	ctx context.Context,
+	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	var totalRecords int64
-	var totalBytes int64
 
 	parseWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
@@ -54,6 +57,14 @@ func (c *MongoConnector) PullQRepRecords(
 	collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
 
 	stream.SetSchema(GetDefaultSchema())
+
+	c.bytesRead.Store(0)
+	shutDown := shared.Interval(ctx, time.Minute, func() {
+		if read := c.bytesRead.Swap(0); read != 0 {
+			otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
+		}
+	})
+	defer shutDown()
 
 	filter := bson.D{}
 	if !partition.FullTablePartition {
@@ -91,7 +102,7 @@ func (c *MongoConnector) PullQRepRecords(
 		}
 		stream.Records <- record
 		totalRecords += 1
-		totalBytes += bytes
+		c.bytesRead.Add(bytes)
 	}
 	close(stream.Records)
 	if err := cursor.Err(); err != nil {
@@ -108,7 +119,7 @@ func (c *MongoConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("cursor error: %w", err)
 	}
 
-	return totalRecords, totalBytes, nil
+	return totalRecords, c.bytesRead.Swap(0), nil
 }
 
 func GetDefaultSchema() types.QRecordSchema {

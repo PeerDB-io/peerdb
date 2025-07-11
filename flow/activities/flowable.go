@@ -267,7 +267,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 		numTablesSetup.Add(1)
 		if !existing {
-			logger.Info("created table " + tableIdentifier)
 			a.Alerter.LogFlowInfo(ctx, config.FlowName, "created table "+tableIdentifier+" in destination")
 		} else {
 			logger.Info("table already exists " + tableIdentifier)
@@ -823,7 +822,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				return
 			}
 
-			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
+			srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
 					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
@@ -1001,13 +1000,15 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	defer shared.RollbackTx(tx, logger)
 
 	for _, option := range config.RenameTableOptions {
-		if _, err := tx.Exec(
-			ctx,
-			"delete from table_schema_mapping where flow_name = $1 and table_name = $2",
-			config.FlowJobName,
-			option.NewName,
-		); err != nil {
-			return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+		if option.NewName != option.CurrentName {
+			if _, err := tx.Exec(
+				ctx,
+				"delete from table_schema_mapping where flow_name = $1 and table_name = $2",
+				config.FlowJobName,
+				option.NewName,
+			); err != nil {
+				return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+			}
 		}
 		if _, err := tx.Exec(
 			ctx,
@@ -1086,8 +1087,11 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	additionalTableMappings []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
+	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
@@ -1111,8 +1115,11 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	removedTablesMapping []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
+	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to get source connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
@@ -1223,7 +1230,7 @@ func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
 			logger.Warn("flow entry not found in catalog, 0 records deleted")
 		} else {
 			logger.Info("flow entries removed from catalog",
-				slog.Int("rowsAffected", int(ct.RowsAffected())))
+				slog.Int64("rowsAffected", ct.RowsAffected()))
 		}
 	}
 

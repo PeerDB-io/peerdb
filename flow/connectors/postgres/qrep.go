@@ -20,6 +20,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -284,6 +285,7 @@ func (c *PostgresConnector) GetMaxValue(
 
 func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
+	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
@@ -295,6 +297,7 @@ func (c *PostgresConnector) PullQRepRecords(
 
 func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
+	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
@@ -689,8 +692,7 @@ func (c *PostgresConnector) IsQRepPartitionSynced(ctx context.Context,
 
 	// prepare and execute the query
 	var result bool
-	err := c.conn.QueryRow(ctx, queryString, req.PartitionId).Scan(&result)
-	if err != nil {
+	if err := c.conn.QueryRow(ctx, queryString, req.PartitionId).Scan(&result); err != nil {
 		return false, fmt.Errorf("failed to execute query: %w", err)
 	}
 

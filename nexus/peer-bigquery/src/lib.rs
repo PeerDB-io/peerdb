@@ -193,8 +193,7 @@ impl QueryExecutor for BigQueryQueryExecutor {
             }
             _ => {
                 let error = format!(
-                    "only SELECT statements are supported in bigquery. got: {}",
-                    stmt
+                    "only SELECT statements are supported in bigquery. got: {stmt}"
                 );
                 PgWireResult::Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),

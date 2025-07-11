@@ -8,7 +8,6 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peerdb/flow/alerting"
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connelasticsearch "github.com/PeerDB-io/peerdb/flow/connectors/elasticsearch"
@@ -51,6 +50,12 @@ type MirrorDestinationValidationConnector interface {
 	Connector
 
 	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigs, map[string]*protos.TableSchema) error
+}
+
+type StatActivityConnector interface {
+	Connector
+
+	StatActivity(context.Context, *protos.PostgresPeerActivityInfoRequest) (*protos.PeerStatResponse, error)
 }
 
 type GetTableSchemaConnector interface {
@@ -103,24 +108,6 @@ type CDCPullConnectorCore interface {
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
-
-	// HandleSlotInfo update monitoring info on slot size etc
-	HandleSlotInfo(
-		ctx context.Context,
-		alerter *alerting.Alerter,
-		catalogPool shared.CatalogPool,
-		alertKeys *alerting.AlertKeys,
-		slotMetricGauges otel_metrics.SlotMetricGauges,
-	) error
-
-	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
-	GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error)
-
-	// AddTablesToPublication adds additional tables added to a mirror to the publication also
-	AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error
-
-	// RemoveTablesFromPublication removes tables from the publication
-	RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error
 }
 
 type CDCPullConnector interface {
@@ -244,14 +231,18 @@ type QRepPullConnector interface {
 	QRepPullConnectorCore
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int64, int64, error)
+	PullQRepRecords(
+		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream,
+	) (int64, int64, error)
 }
 
 type QRepPullPgConnector interface {
 	QRepPullConnectorCore
 
 	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int64, int64, error)
+	PullPgQRepRecords(
+		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter,
+	) (int64, int64, error)
 }
 
 type QRepSyncConnectorCore interface {
@@ -521,6 +512,9 @@ var (
 	_ CDCNormalizeConnector = &connbigquery.BigQueryConnector{}
 	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCNormalizeConnector = &connclickhouse.ClickHouseConnector{}
+
+	_ StatActivityConnector = &connpostgres.PostgresConnector{}
+	_ StatActivityConnector = &connmysql.MySqlConnector{}
 
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}

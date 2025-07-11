@@ -2,25 +2,29 @@ package connmongo
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readconcern"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/connstring"
 	"go.temporal.io/sdk/log"
 
-	"github.com/PeerDB-io/peerdb/flow/alerting"
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -31,9 +35,10 @@ const (
 
 type MongoConnector struct {
 	*metadataStore.PostgresMetadata
-	config *protos.MongoConfig
-	client *mongo.Client
-	logger log.Logger
+	config    *protos.MongoConfig
+	client    *mongo.Client
+	logger    log.Logger
+	bytesRead atomic.Int64
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
@@ -43,11 +48,12 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		return nil, err
 	}
 
-	client, err := mongo.Connect(options.Client().
-		SetAppName("PeerDB Mongo Connector").
-		SetReadPreference(readpref.Primary()).
-		SetCompressors([]string{"zstd", "snappy"}).
-		ApplyURI(config.Uri))
+	clientOptions, err := parseAsClientOptions(config)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := mongo.Connect(clientOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -80,47 +86,11 @@ func (c *MongoConnector) ConnectionActive(ctx context.Context) error {
 }
 
 func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
-	db := c.client.Database("admin")
-
-	var buildInfoDoc bson.M
-	if err := db.RunCommand(ctx, bson.D{bson.E{Key: "buildInfo", Value: 1}}).Decode(&buildInfoDoc); err != nil {
-		return "", fmt.Errorf("failed to run buildInfo command: %w", err)
+	buildInfo, err := peerdb_mongo.GetBuildInfo(ctx, c.client)
+	if err != nil {
+		return "", err
 	}
-
-	version, ok := buildInfoDoc["version"].(string)
-	if !ok {
-		return "", fmt.Errorf("buildInfo.version is not a string, but %T", buildInfoDoc["version"])
-	}
-	return version, nil
-}
-
-func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
-	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
-		return nil
-	}
-
-	// Check if MongoDB is configured as a replica set
-	var result bson.M
-	if err := c.client.Database("admin").RunCommand(ctx, bson.D{
-		{Key: "replSetGetStatus", Value: 1},
-	}).Decode(&result); err != nil {
-		return fmt.Errorf("failed to get replica set status: %w", err)
-	}
-
-	// Check if this is a replica set
-	if _, ok := result["set"]; !ok {
-		return errors.New("MongoDB is not configured as a replica set, which is required for CDC")
-	}
-
-	if myState, ok := result["myState"]; !ok {
-		return errors.New("myState not found in response")
-	} else if myStateInt, ok := myState.(int32); !ok {
-		return fmt.Errorf("failed to convert myState %v to int32", myState)
-	} else if myStateInt != 1 {
-		return fmt.Errorf("MongoDB is not the primary node in the replica set, current state: %d", myState)
-	}
-
-	return nil
+	return buildInfo.Version, nil
 }
 
 func (c *MongoConnector) GetTableSchema(
@@ -226,28 +196,6 @@ func (c *MongoConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffs
 }
 
 func (c *MongoConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
-	return nil
-}
-
-func (c *MongoConnector) HandleSlotInfo(
-	ctx context.Context,
-	alerter *alerting.Alerter,
-	catalogPool shared.CatalogPool,
-	alertKeys *alerting.AlertKeys,
-	slotMetricGauges otel_metrics.SlotMetricGauges,
-) error {
-	return nil
-}
-
-func (c *MongoConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	return nil, nil
-}
-
-func (c *MongoConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
-	return nil
-}
-
-func (c *MongoConnector) RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error {
 	return nil
 }
 
@@ -439,4 +387,46 @@ func defaultPipeline() mongo.Pipeline {
 			{Key: "ns", Value: 1},
 		}}},
 	}
+}
+
+func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, error) {
+	connStr, err := connstring.Parse(config.Uri)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing uri: %w", err)
+	}
+
+	if connStr.Username != "" || connStr.Password != "" {
+		return nil, errors.New("connection string should not contain username and password")
+	}
+
+	clientOptions := options.Client().
+		ApplyURI(config.Uri).
+		SetAppName("PeerDB Mongo Connector").
+		SetAuth(options.Credential{
+			Username: config.Username,
+			Password: config.Password,
+		}).
+		// always use compression
+		SetCompressors([]string{"zstd", "snappy"}).
+		// always use majority read concern for correctness
+		SetReadConcern(readconcern.Majority())
+
+	// allow user to override with other read preference
+	if connStr.ReadPreference == "" {
+		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
+	}
+
+	if !config.DisableTls {
+		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, config.RootCa, "", config.TlsHost, false)
+		if err != nil {
+			return nil, err
+		}
+		clientOptions.SetTLSConfig(tlsConfig)
+	}
+
+	err = clientOptions.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("error validating client options: %w", err)
+	}
+	return clientOptions, nil
 }

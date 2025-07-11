@@ -8,9 +8,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jws"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/httprc/v3"
+	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jws"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -80,8 +81,7 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) (grpc.UnaryServerInterc
 				slog.Warn("Multiple Authorization headers supplied, request rejected", slog.String("method", info.FullMethod))
 				return nil, status.Errorf(codes.Unauthenticated, "multiple Authorization headers supplied, request rejected")
 			}
-			_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
-			if err != nil {
+			if _, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...); err != nil {
 				slog.Debug("Failed to validate request token", slog.String("method", info.FullMethod), slog.Any("error", err))
 				return nil, status.Error(codes.Unauthenticated, err.Error())
 			}
@@ -118,8 +118,13 @@ func validateRequestToken(authHeader string, claims map[string]string, ip ...ide
 	}
 
 	for key, value := range claims {
-		if token.PrivateClaims()[key] != value {
-			return nil, fmt.Errorf("token claim %s mismatch", key)
+		var tokenValue string
+		if err := token.Get(key, &tokenValue); err != nil || tokenValue != value {
+			if err != nil {
+				return nil, fmt.Errorf("token claim %s mismatch: %w", key, err)
+			} else {
+				return nil, fmt.Errorf("token claim %s mismatch", key)
+			}
 		}
 	}
 
@@ -149,18 +154,17 @@ func identityProviderValidateOpts(provider identityProvider) []jwt.ValidateOptio
 }
 
 func identityProviderByToken(ip []identityProvider, token jwt.Token) (identityProvider, error) {
-	var provider identityProvider
-	for _, p := range ip {
-		if p.issuer == token.Issuer() {
-			provider = p
-			break
+	issuer, hasIssuer := token.Issuer()
+	if hasIssuer {
+		for _, p := range ip {
+			if p.issuer == issuer {
+				return p, nil
+			}
 		}
-	}
 
-	if provider.issuer == "" {
-		return identityProvider{}, fmt.Errorf("identity provider for issuer %s not found", token.Issuer())
+		return identityProvider{}, fmt.Errorf("identity provider for issuer %s not found", issuer)
 	}
-	return provider, nil
+	return identityProvider{}, errors.New("no identity provider on token")
 }
 
 type identityProviderResolver func(cfg AuthenticationConfig) (*identityProvider, error)
@@ -208,11 +212,17 @@ func openIdIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error)
 		return nil, err
 	}
 
-	cache := jwk.NewCache(context.Background())
-	if err := cache.Register(jwksDiscoveryUrl); err != nil {
+	cache, err := jwk.NewCache(context.Background(), httprc.NewClient())
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize JWK cache: %w", err)
+	}
+	if err := cache.Register(context.Background(), jwksDiscoveryUrl); err != nil {
 		return nil, fmt.Errorf("failed to register JWK key set from Discovery URL %s: %w", jwksDiscoveryUrl, err)
 	}
-	set := jwk.NewCachedSet(cache, jwksDiscoveryUrl)
+	set, err := cache.CachedSet(jwksDiscoveryUrl)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize JWK cache set: %w", err)
+	}
 
 	slog.Info("JWK key set from Discovery Endpoint loaded", slog.String("jwks", jwksDiscoveryUrl), slog.Int("size", set.Len()))
 

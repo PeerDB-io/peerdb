@@ -22,6 +22,8 @@ import (
 )
 
 func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
 	config, err := pgx.ParseConfig("postgres://non-existent.domain.name.here:123/db")
 	require.NoError(t, err)
 	_, err = pgx.ConnectConfig(t.Context(), config)
@@ -34,6 +36,8 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 }
 
 func TestOtherDNSErrorsShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
 	hostName := "non-existent.domain.name.here"
 	_, err := net.Dial("tcp", hostName+":123")
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
@@ -160,6 +164,8 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 }
 
 func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
+	t.Parallel()
+
 	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
 	config, err := pgx.ParseConfig(connectionString)
 	require.NoError(t, err)
@@ -331,7 +337,25 @@ func TestPostgresCouldNotFindRecordWalErrorShouldBeRecoverable(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestNeonQuotaExceededErrorShouldBeConnectivity(t *testing.T) {
+	// Simulate a Neon quota exceeded error
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InternalError,
+		Message:  "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewPeerCreateError(fmt.Errorf("failed to create connection: failed to connect to `<user, host>: server error: `: %w", err)))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
+	t.Parallel()
+
 	config, err := pgx.ParseConfig("postgres://localhost:1001/db")
 	require.NoError(t, err)
 	_, err = pgx.ConnectConfig(t.Context(), config)
@@ -339,6 +363,8 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 	t.Logf("Error: %v", err)
 	for _, e := range []error{err, exceptions.NewPeerCreateError(err)} {
 		t.Run(fmt.Sprintf("Testing error: %T", e), func(t *testing.T) {
+			t.Parallel()
+
 			errorClass, errInfo := GetErrorClass(t.Context(), err)
 			assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{
@@ -347,4 +373,35 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 			}, errInfo, "Unexpected error info")
 		})
 	}
+}
+
+func TestClickHouseUnknownTableShouldBeDestinationModified(t *testing.T) {
+	// Simulate an unknown table error
+	err := &clickhouse.Exception{
+		Code:    60,
+		Message: "Table abc does not exist.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "60",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T) {
+	// Simulate an unknown table error while pushing to view
+	err := &clickhouse.Exception{
+		Code: 60,
+		//nolint:lll
+		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "60",
+	}, errInfo, "Unexpected error info")
 }

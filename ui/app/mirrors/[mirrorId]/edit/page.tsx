@@ -37,6 +37,12 @@ type EditMirrorProps = {
 export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   const defaultBatchSize = blankCDCSetting.maxBatchSize;
   const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
+  const defaultSnapshotNumRowsPerPartition =
+    blankCDCSetting.snapshotNumRowsPerPartition;
+  const defaultSnapshotMaxParallelWorkers =
+    blankCDCSetting.snapshotMaxParallelWorkers;
+  const defaultSnapshotNumTablesInParallel =
+    blankCDCSetting.snapshotNumTablesInParallel;
 
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -48,6 +54,9 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
     removedTables: [],
     numberOfSyncs: 0,
     updatedEnv: {},
+    snapshotNumRowsPerPartition: defaultSnapshotNumRowsPerPartition,
+    snapshotMaxParallelWorkers: defaultSnapshotMaxParallelWorkers,
+    snapshotNumTablesInParallel: defaultSnapshotNumTablesInParallel,
   });
   const { push } = useRouter();
 
@@ -66,8 +75,24 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
       removedTables: [],
       numberOfSyncs: 0,
       updatedEnv: {},
+      snapshotNumRowsPerPartition:
+        (res as MirrorStatusResponse).cdcStatus?.config
+          ?.snapshotNumRowsPerPartition || defaultSnapshotNumRowsPerPartition,
+      snapshotMaxParallelWorkers:
+        (res as MirrorStatusResponse).cdcStatus?.config
+          ?.snapshotMaxParallelWorkers || defaultSnapshotMaxParallelWorkers,
+      snapshotNumTablesInParallel:
+        (res as MirrorStatusResponse).cdcStatus?.config
+          ?.snapshotNumTablesInParallel || defaultSnapshotNumTablesInParallel,
     });
-  }, [mirrorId, defaultBatchSize, defaultIdleTimeout]);
+  }, [
+    mirrorId,
+    defaultBatchSize,
+    defaultIdleTimeout,
+    defaultSnapshotNumRowsPerPartition,
+    defaultSnapshotMaxParallelWorkers,
+    defaultSnapshotNumTablesInParallel,
+  ]);
 
   useEffect(() => {
     fetchStateAndUpdateDeps();
@@ -79,7 +104,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
       mirrorState?.cdcStatus?.config?.tableMappings.forEach((value) => {
         const sourceSchema = value.sourceTableIdentifier.split('.').at(0)!;
         const mapVal: TableMapping[] =
-          alreadySelectedTablesMap.get(sourceSchema) || [];
+          alreadySelectedTablesMap.get(sourceSchema) ?? [];
         // needs to be schema qualified
         mapVal.push(value);
         alreadySelectedTablesMap.set(sourceSchema, mapVal);
@@ -156,7 +181,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   batchSize: e.target.valueAsNumber,
                 })
               }
-              defaultValue={config.batchSize}
+              value={config.batchSize}
             />
           </div>
         }
@@ -182,7 +207,85 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
                   idleTimeout: e.target.valueAsNumber,
                 })
               }
-              defaultValue={config.idleTimeout}
+              value={config.idleTimeout}
+            />
+          </div>
+        }
+      />
+
+      <RowWithTextField
+        key={3}
+        label={<Label>{'Snapshot Rows Per Partition'} </Label>}
+        action={
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <TextField
+              variant='simple'
+              type={'number'}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setConfig({
+                  ...config,
+                  snapshotNumRowsPerPartition: e.target.valueAsNumber,
+                })
+              }
+              value={config.snapshotNumRowsPerPartition}
+            />
+          </div>
+        }
+      />
+
+      <RowWithTextField
+        key={4}
+        label={<Label>{'Snapshot Max Parallel Workers'} </Label>}
+        action={
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <TextField
+              variant='simple'
+              type={'number'}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setConfig({
+                  ...config,
+                  snapshotMaxParallelWorkers: e.target.valueAsNumber,
+                })
+              }
+              value={config.snapshotMaxParallelWorkers}
+            />
+          </div>
+        }
+      />
+
+      <RowWithTextField
+        key={5}
+        label={<Label>{'Snapshot Tables In Parallel'} </Label>}
+        action={
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <TextField
+              variant='simple'
+              type={'number'}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setConfig({
+                  ...config,
+                  snapshotNumTablesInParallel: e.target.valueAsNumber,
+                })
+              }
+              value={config.snapshotNumTablesInParallel}
             />
           </div>
         }

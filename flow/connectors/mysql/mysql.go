@@ -249,13 +249,12 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 	rowCb client.SelectPerRowCallback,
 	resultCb client.SelectPerResultCallback,
 	args ...any,
-) (int64, error) {
+) error {
 	var connectionErr error
 	for conn, err := range c.withRetries(ctx) {
 		if err != nil {
-			return 0, err
+			return err
 		}
-		c.bytesRead.Store(0)
 
 		if len(args) == 0 {
 			if err := conn.ExecuteSelectStreaming(cmd, result, rowCb, resultCb); err != nil {
@@ -263,7 +262,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return 0, err
+				return err
 			}
 		} else {
 			stmt, err := conn.Prepare(cmd)
@@ -272,7 +271,7 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return 0, err
+				return err
 			}
 			err = stmt.ExecuteSelectStreaming(result, rowCb, resultCb, args...)
 			_ = stmt.Close()
@@ -281,12 +280,12 @@ func (c *MySqlConnector) ExecuteSelectStreaming(ctx context.Context, cmd string,
 					connectionErr = err
 					continue
 				}
-				return 0, err
+				return err
 			}
 		}
-		return c.bytesRead.Load(), nil
+		return nil
 	}
-	return 0, connectionErr
+	return connectionErr
 }
 
 func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
@@ -391,4 +390,46 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 		return version, nil
 	}
 	return "", errors.New("failed to connect")
+}
+
+func (c *MySqlConnector) StatActivity(
+	ctx context.Context,
+	req *protos.PostgresPeerActivityInfoRequest,
+) (*protos.PeerStatResponse, error) {
+	rs, err := c.Execute(ctx, "SELECT ID,COMMAND,STATE,TIME,INFO FROM performance_schema.processlist WHERE USER=?", c.config.User)
+	if err != nil {
+		// 42S02 is ER_NO_SUCH_TABLE
+		var myErr *mysql.MyError
+		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+			// mariadb
+			rs, err = c.Execute(ctx,
+				"SELECT PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
+					" FROM performance_schema.threads WHERE USER=?", c.config.User)
+			if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+				rs, err = c.Execute(ctx,
+					"SELECT ID,COMMAND,STATE,TIME,INFO FROM information_schema.processlist WHERE USER=?", c.config.User)
+			}
+		}
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	statInfoRows := make([]*protos.StatInfo, len(rs.Values))
+	for idx, row := range rs.Values {
+		statInfoRows[idx] = &protos.StatInfo{
+			Pid:           row[0].AsInt64(),
+			WaitEvent:     string(row[1].AsString()),
+			WaitEventType: "",
+			QueryStart:    "",
+			Query:         string(row[4].AsString()),
+			Duration:      float32(row[3].AsUint64()),
+			State:         string(row[2].AsString()),
+		}
+	}
+
+	return &protos.PeerStatResponse{
+		StatData: statInfoRows,
+	}, nil
 }

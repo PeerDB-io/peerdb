@@ -218,7 +218,7 @@ func (c *EventHubConnector) processBatch(
 
 				currNumRecords := numRecords.Load()
 
-				c.logger.Info("processBatch", slog.Int("Total records sent to event hub", int(currNumRecords)))
+				c.logger.Info("processBatch", slog.Uint64("Total records sent to event hub", uint64(currNumRecords)))
 				return currNumRecords, nil
 			}
 
@@ -300,7 +300,7 @@ func (c *EventHubConnector) processBatch(
 
 			curNumRecords := numRecords.Add(1)
 			if curNumRecords%10000 == 0 {
-				c.logger.Info("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
+				c.logger.Info("processBatch", slog.Uint64("number of records processed for sending", uint64(curNumRecords)))
 			}
 
 		case <-ctx.Done():

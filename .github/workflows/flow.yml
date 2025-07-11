@@ -13,6 +13,7 @@ permissions:
 jobs:
   flow_test:
     strategy:
+      fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
         db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
@@ -40,12 +41,12 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:95182a95a80f187a99cfe9fa03aaf18da0a3809a6741a229572f7ec33e795c13
+        image: redpandadata/redpanda@sha256:b22ff89f4384e72f773aca495ade051c789f41976a78699644ba3039b9e43f84
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.0.2@sha256:bfa9d2126a5c3381ac272ee67264083ca04318def1d7b4ea9194ad0b0a8959bf
+        image: elasticsearch:9.0.2@sha256:12829bb0fa8b3c6b65928868d2af0fbe67bf74aa6b92b14eca87957e9f554136
         ports:
           - 9200:9200
         env:
@@ -63,7 +64,7 @@ jobs:
           AWS_EC2_METADATA_DISABLED: true
           MINIO_DEFAULT_BUCKETS: peerdb
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.128.0@sha256:1ab0baba0ee3695d823c46653d8a6e8894896e668ce8bd7ebe002e948d827bc7
+        image: otel/opentelemetry-collector-contrib:0.129.1@sha256:4798e3095561ac8ae13a81965088d68b943b1991bbeede91b1564e12c95372cc
         ports:
           - 4317:4317
 
@@ -328,10 +329,18 @@ jobs:
             </keeper_server>
           </clickhouse>
           EOF
-          mkdir ch1 ch2 chkeep
+          mkdir chkeep ch1 ch2
+          (cd chkeep && ../clickhouse keeper -C ../config-keeper.xml) &
+          while true; do
+            if echo "ruok" | nc -w 3 127.0.0.1 2181 2>/dev/null | grep -q "imok"; then
+                break
+            fi
+            echo "Waiting for keeper..."
+            sleep 1
+          done
+          sleep 5
           (cd ch1 && ../clickhouse server -C ../config1.xml) &
           (cd ch2 && ../clickhouse server -C ../config2.xml) &
-          (cd chkeep && ../clickhouse keeper -C ../config-keeper.xml) &
 
       - name: Install Temporal CLI
         uses: temporalio/setup-temporal@1059a504f87e7fa2f385e3fa40d1aa7e62f1c6ca # v0
@@ -393,8 +402,12 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
-          CI_MONGO_ADMIN_URI: mongodb://admin:admin@localhost:27017/?replicaSet=rs0&authSource=admin
-          CI_MONGO_URI: mongodb://csuser:cspass@localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_ADMIN_URI: mongodb://localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_ADMIN_USERNAME: "admin"
+          CI_MONGO_ADMIN_PASSWORD: "admin"
+          CI_MONGO_URI: mongodb://localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_USERNAME: "csuser"
+          CI_MONGO_PASSWORD: "cspass"
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc

@@ -229,7 +229,7 @@ func (qProcessor) Process(
 		)
 		if err != nil {
 			p.logger.Error("error decoding text column data", slog.Any("error", err),
-				slog.String("columnName", col.Name), slog.Int64("dataType", int64(col.DataType)))
+				slog.String("columnName", col.Name), slog.Uint64("dataType", uint64(col.DataType)))
 			return fmt.Errorf("error decoding text column data: %w", err)
 		}
 		items.AddColumn(col.Name, data)
@@ -569,7 +569,7 @@ func PullCdcRecords[Items model.Items](
 				}
 
 				logger.Debug("XLogData",
-					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Any("ServerTime", xld.ServerTime))
+					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
 				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
 				if err != nil {
 					return fmt.Errorf("error processing message: %w", err)
@@ -741,7 +741,7 @@ func processMessage[Items model.Items](
 
 	switch msg := logicalMsg.(type) {
 	case *pglogrepl.BeginMessage:
-		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Any("XID", msg.Xid))
+		logger.Debug("BeginMessage", slog.Any("FinalLSN", msg.FinalLSN), slog.Uint64("XID", uint64(msg.Xid)))
 		p.commitLock = msg
 	case *pglogrepl.InsertMessage:
 		return processInsertMessage(p, xld.WALStart, msg, processor, customTypeMapping)
@@ -769,7 +769,7 @@ func processMessage[Items model.Items](
 		}
 
 		logger.Debug("RelationMessage",
-			slog.Any("RelationID", msg.RelationID),
+			slog.Uint64("RelationID", uint64(msg.RelationID)),
 			slog.String("Namespace", msg.Namespace),
 			slog.String("RelationName", msg.RelationName),
 			slog.Any("Columns", msg.Columns))
@@ -813,7 +813,7 @@ func processInsertMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn), slog.Any("RelationID", relID), slog.String("Relation Name", tableName))
+	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
@@ -854,7 +854,7 @@ func processUpdateMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Any("RelationID", relID), slog.String("Relation Name", tableName))
+	p.logger.Debug("UpdateMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
@@ -916,7 +916,7 @@ func processDeleteMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn), slog.Any("RelationID", relID), slog.String("Relation Name", tableName))
+	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
@@ -962,7 +962,7 @@ func processRelationMessage[Items model.Items](
 
 	p.logger.Info("processing RelationMessage",
 		slog.Any("LSN", lsn),
-		slog.Any("RelationName", currRelName))
+		slog.String("RelationName", currRelName))
 	// retrieve current TableSchema for table changed, mapping uses dst table name as key, need to translate source name
 	currRelDstInfo, ok := p.tableNameMapping[currRelName]
 	if !ok {

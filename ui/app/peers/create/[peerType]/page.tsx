@@ -18,6 +18,7 @@ import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig'
 import {
   ElasticsearchConfig,
   EventHubGroupConfig,
+  MongoConfig,
   MySqlConfig,
   PostgresConfig,
 } from '@/grpc_generated/peers';
@@ -35,6 +36,7 @@ import { ToastContainer } from 'react-toastify';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
+import { mongoSetting } from './helpers/mo';
 import { mysqlSetting } from './helpers/my';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
@@ -121,7 +123,13 @@ export default function CreateConfig({
           />
         );
       case 'MONGO':
-        return <MongoForm setter={setConfig} />;
+        return (
+          <MongoForm
+            settings={mongoSetting}
+            setter={setConfig}
+            config={config as MongoConfig}
+          />
+        );
       default:
         return <></>;
     }
