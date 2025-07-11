@@ -653,6 +653,10 @@ func PeerDBSourceSchemaAsDestinationColumn(ctx context.Context, env map[string]s
 	return dynamicConfBool(ctx, env, "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN")
 }
 
+func PeerDBOriginMetaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_ORIGIN_META_AS_DESTINATION_COLUMN")
+}
+
 func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES")
 }
