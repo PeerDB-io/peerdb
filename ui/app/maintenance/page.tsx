@@ -288,7 +288,7 @@ function SkipSnapshotWaitSection() {
               type='text'
               value={flowName}
               onChange={(e) => setFlowName(e.target.value)}
-              placeholder='Enter flow name (e.g., mirror_name)'
+              placeholder='Enter mirror name (e.g., mirror_name)'
               className='w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent'
               disabled={isSkipping}
             />
