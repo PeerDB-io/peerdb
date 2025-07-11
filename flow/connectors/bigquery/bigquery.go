@@ -180,10 +180,12 @@ func (c *BigQueryConnector) waitForTableReady(ctx context.Context, datasetTable 
 	attempt := 0
 
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if time.Now().After(deadline) {
 			return fmt.Errorf("timeout reached while waiting for table %s to be ready", datasetTable)
 		}
-
 		if _, err := table.Metadata(ctx); err == nil {
 			return nil
 		}

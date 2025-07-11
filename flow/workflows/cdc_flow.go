@@ -849,9 +849,7 @@ func CDCFlowWorkflow(
 		if finished {
 			// wait on sync flow before draining selector
 			cancelSync()
-			if state.ActiveSignal != model.PauseSignal {
-				_ = syncFlowFuture.Get(ctx, nil)
-			}
+			_ = syncFlowFuture.Get(ctx, nil)
 
 			for ctx.Err() == nil && mainLoopSelector.HasPending() {
 				mainLoopSelector.Select(ctx)
