@@ -411,7 +411,7 @@ func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, e
 		// always use majority read concern for correctness
 		SetReadConcern(readconcern.Majority())
 
-	// TODO: remove the empty string option once it's wired through the UI
+	// TODO: once it's wired through the UI, indicate with a clear error if this field is empty
 	if config.ReadPreference == "" {
 		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
 	} else {
