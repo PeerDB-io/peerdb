@@ -71,6 +71,7 @@ message MongoConfig {
   bool disable_tls = 4;
   string tls_host = 5;
   optional string root_ca = 6 [(peerdb_redacted) = true];
+  string read_preference = 7;
 }
 
 message AwsAuthStaticCredentialsConfig {

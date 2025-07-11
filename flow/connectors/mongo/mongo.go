@@ -411,9 +411,19 @@ func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, e
 		// always use majority read concern for correctness
 		SetReadConcern(readconcern.Majority())
 
-	// allow user to override with other read preference
-	if connStr.ReadPreference == "" {
+	// TODO: remove the empty string option once it's wired through the UI
+	if config.ReadPreference == "" {
 		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
+	} else {
+		mode, err := readpref.ModeFromString(config.ReadPreference)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing read preference mode: %w", err)
+		}
+		readPreference, err := readpref.New(mode)
+		if err != nil {
+			return nil, fmt.Errorf("error creating read preference from mode: %w", err)
+		}
+		clientOptions.SetReadPreference(readPreference)
 	}
 
 	if !config.DisableTls {
