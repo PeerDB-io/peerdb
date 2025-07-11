@@ -104,7 +104,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
       mirrorState?.cdcStatus?.config?.tableMappings.forEach((value) => {
         const sourceSchema = value.sourceTableIdentifier.split('.').at(0)!;
         const mapVal: TableMapping[] =
-          alreadySelectedTablesMap.get(sourceSchema) || [];
+          alreadySelectedTablesMap.get(sourceSchema) ?? [];
         // needs to be schema qualified
         mapVal.push(value);
         alreadySelectedTablesMap.set(sourceSchema, mapVal);
