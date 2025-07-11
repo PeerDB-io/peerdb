@@ -662,6 +662,10 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("tls_host")
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
+                read_preference: opts.
+                    .get("read_preference")
+                    .context("missing read preference in Mongo config")
+                    .to_string(),
             };
             Config::MongoConfig(mongo_config)
         }
