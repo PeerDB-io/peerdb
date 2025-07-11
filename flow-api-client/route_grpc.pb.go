@@ -63,6 +63,7 @@ const (
 	FlowService_SkipSnapshotWaitFlows_FullMethodName    = "/peerdb_route.FlowService/SkipSnapshotWaitFlows"
 	FlowService_CreateOrReplaceFlowTags_FullMethodName  = "/peerdb_route.FlowService/CreateOrReplaceFlowTags"
 	FlowService_GetFlowTags_FullMethodName              = "/peerdb_route.FlowService/GetFlowTags"
+	FlowService_TotalRowsSyncedByMirror_FullMethodName  = "/peerdb_route.FlowService/TotalRowsSyncedByMirror"
 )
 
 // FlowServiceClient is the client API for FlowService service.
@@ -113,6 +114,7 @@ type FlowServiceClient interface {
 	SkipSnapshotWaitFlows(ctx context.Context, in *SkipSnapshotWaitFlowsRequest, opts ...grpc.CallOption) (*SkipSnapshotWaitFlowsResponse, error)
 	CreateOrReplaceFlowTags(ctx context.Context, in *CreateOrReplaceFlowTagsRequest, opts ...grpc.CallOption) (*CreateOrReplaceFlowTagsResponse, error)
 	GetFlowTags(ctx context.Context, in *GetFlowTagsRequest, opts ...grpc.CallOption) (*GetFlowTagsResponse, error)
+	TotalRowsSyncedByMirror(ctx context.Context, in *TotalRowsSyncedByMirrorRequest, opts ...grpc.CallOption) (*TotalRowsSyncedByMirrorResponse, error)
 }
 
 type flowServiceClient struct {
@@ -519,6 +521,15 @@ func (c *flowServiceClient) GetFlowTags(ctx context.Context, in *GetFlowTagsRequ
 	return out, nil
 }
 
+func (c *flowServiceClient) TotalRowsSyncedByMirror(ctx context.Context, in *TotalRowsSyncedByMirrorRequest, opts ...grpc.CallOption) (*TotalRowsSyncedByMirrorResponse, error) {
+	out := new(TotalRowsSyncedByMirrorResponse)
+	err := c.cc.Invoke(ctx, FlowService_TotalRowsSyncedByMirror_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // FlowServiceServer is the server API for FlowService service.
 // All implementations must embed UnimplementedFlowServiceServer
 // for forward compatibility
@@ -567,6 +578,7 @@ type FlowServiceServer interface {
 	SkipSnapshotWaitFlows(context.Context, *SkipSnapshotWaitFlowsRequest) (*SkipSnapshotWaitFlowsResponse, error)
 	CreateOrReplaceFlowTags(context.Context, *CreateOrReplaceFlowTagsRequest) (*CreateOrReplaceFlowTagsResponse, error)
 	GetFlowTags(context.Context, *GetFlowTagsRequest) (*GetFlowTagsResponse, error)
+	TotalRowsSyncedByMirror(context.Context, *TotalRowsSyncedByMirrorRequest) (*TotalRowsSyncedByMirrorResponse, error)
 	mustEmbedUnimplementedFlowServiceServer()
 }
 
@@ -705,6 +717,9 @@ func (UnimplementedFlowServiceServer) CreateOrReplaceFlowTags(context.Context, *
 }
 func (UnimplementedFlowServiceServer) GetFlowTags(context.Context, *GetFlowTagsRequest) (*GetFlowTagsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetFlowTags not implemented")
+}
+func (UnimplementedFlowServiceServer) TotalRowsSyncedByMirror(context.Context, *TotalRowsSyncedByMirrorRequest) (*TotalRowsSyncedByMirrorResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method TotalRowsSyncedByMirror not implemented")
 }
 func (UnimplementedFlowServiceServer) mustEmbedUnimplementedFlowServiceServer() {}
 
@@ -1511,6 +1526,24 @@ func _FlowService_GetFlowTags_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _FlowService_TotalRowsSyncedByMirror_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TotalRowsSyncedByMirrorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(FlowServiceServer).TotalRowsSyncedByMirror(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: FlowService_TotalRowsSyncedByMirror_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(FlowServiceServer).TotalRowsSyncedByMirror(ctx, req.(*TotalRowsSyncedByMirrorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // FlowService_ServiceDesc is the grpc.ServiceDesc for FlowService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1693,6 +1726,10 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetFlowTags",
 			Handler:    _FlowService_GetFlowTags_Handler,
+		},
+		{
+			MethodName: "TotalRowsSyncedByMirror",
+			Handler:    _FlowService_TotalRowsSyncedByMirror_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
