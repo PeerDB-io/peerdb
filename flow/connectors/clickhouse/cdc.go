@@ -195,7 +195,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			}
 
 			// Distributed table isn't created for null tables, no need to alter shard tables that don't exist
-			if c.config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
+			if c.config.Cluster != "" && (tm != nil && tm.ShardingKey != "" && tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
 				if err := c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
 						peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName+"_shard"), onCluster,
