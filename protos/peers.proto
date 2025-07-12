@@ -239,6 +239,14 @@ message ElasticsearchConfig {
   optional string api_key = 5 [(peerdb_redacted) = true];
 }
 
+message OpensearchConfig {
+  repeated string addresses = 1;
+  ElasticsearchAuthType auth_type = 2;
+  optional string username = 3;
+  optional string password = 4 [(peerdb_redacted) = true];
+  optional string api_key = 5 [(peerdb_redacted) = true];
+}
+
 enum DBType {
   BIGQUERY = 0;
   SNOWFLAKE = 1;
@@ -252,6 +260,7 @@ enum DBType {
   PUBSUB = 10;
   EVENTHUBS = 11;
   ELASTICSEARCH = 12;
+  OPENSEARCH = 13;
 }
 
 message Peer {
@@ -270,5 +279,6 @@ message Peer {
     PubSubConfig pubsub_config = 13;
     ElasticsearchConfig elasticsearch_config = 14;
     MySqlConfig mysql_config = 15;
+    OpensearchConfig opensearch_config = 16;
   }
 }
