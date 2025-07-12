@@ -188,7 +188,7 @@ func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.
 	return tableNameRowsMapping
 }
 
-func appendOriginMeta[Items model.Items](items model.Items, originMeta model.Record[Items]) model.Items {
+func appendOriginMeta[Items model.Items](items Items, originMeta model.Record[Items]) Items {
 	originItems := model.NewRecordItems(3)
 	originItems.AddColumn("_peerdb_origin_transaction_id", types.QValueUInt64{Val: originMeta.GetTransactionID()})
 	originItems.AddColumn("_peerdb_origin_checkpoint_id", types.QValueInt64{Val: originMeta.GetCheckpointID()})
