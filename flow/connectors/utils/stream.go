@@ -15,6 +15,7 @@ import (
 
 func RecordsToRawTableStream[Items model.Items](
 	req *model.RecordsToStreamRequest[Items], numericTruncator model.StreamNumericTruncator,
+	includeOriginMeta bool,
 ) (*model.QRecordStream, error) {
 	recordStream := model.NewQRecordStream(1 << 17)
 	recordStream.SetSchema(types.QRecordSchema{
@@ -66,7 +67,7 @@ func RecordsToRawTableStream[Items model.Items](
 		for record := range req.GetRecords() {
 			record.PopulateCountMap(req.TableMapping)
 			qRecord, err := recordToQRecordOrError(
-				req.BatchID, record, req.TargetDWH, req.UnboundedNumericAsString, numericTruncator,
+				req.BatchID, record, req.TargetDWH, req.UnboundedNumericAsString, numericTruncator, includeOriginMeta,
 			)
 			if err != nil {
 				recordStream.Close(err)
@@ -84,14 +85,28 @@ func RecordsToRawTableStream[Items model.Items](
 func recordToQRecordOrError[Items model.Items](
 	batchID int64, record model.Record[Items], targetDWH protos.DBType, unboundedNumericAsString bool,
 	numericTruncator model.StreamNumericTruncator,
+	includeOriginMeta bool,
 ) ([]types.QValue, error) {
 	var entries [8]types.QValue
+
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[Items]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
 		preprocessedItems := truncateNumerics(
 			typedRecord.Items, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
+
+		originItemsJSON := ""
+		if includeOriginMeta {
+			originItems := getOriginMeta(record)
+
+			var err error
+			originItemsJSON, err = model.ItemsToJSON(originItems)
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize origin items to JSON: %w", err)
+			}
+		}
+
 		itemsJSON, err := model.ItemsToJSON(preprocessedItems)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
@@ -99,7 +114,7 @@ func recordToQRecordOrError[Items model.Items](
 
 		entries[3] = types.QValueString{Val: itemsJSON}
 		entries[4] = types.QValueInt64{Val: 0}
-		entries[5] = types.QValueString{Val: ""}
+		entries[5] = types.QValueString{Val: originItemsJSON}
 		entries[7] = types.QValueString{Val: ""}
 	case *model.UpdateRecord[Items]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
@@ -110,7 +125,14 @@ func recordToQRecordOrError[Items model.Items](
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 		}
-		oldItemsJSON, err := model.ItemsToJSON(typedRecord.OldItems)
+
+		oldItems := typedRecord.OldItems
+		if includeOriginMeta {
+			originMeta := getOriginMeta(record)
+			oldItems.UpdateIfNotExists(originMeta)
+		}
+
+		oldItemsJSON, err := model.ItemsToJSON(oldItems)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
 		}
@@ -122,13 +144,27 @@ func recordToQRecordOrError[Items model.Items](
 
 	case *model.DeleteRecord[Items]:
 		itemsJSON, err := model.ItemsToJSON(typedRecord.Items)
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
 		}
 
+		matchedItemsJSON := itemsJSON
+		if includeOriginMeta {
+			originMeta := getOriginMeta(record)
+			matchedItems := typedRecord.Items
+			matchedItems.UpdateIfNotExists(originMeta)
+			var err error
+
+			matchedItemsJSON, err = model.ItemsToJSON(matchedItems)
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize update record matched items to JSON: %w", err)
+			}
+		}
+
 		entries[3] = types.QValueString{Val: itemsJSON}
 		entries[4] = types.QValueInt64{Val: 2}
-		entries[5] = types.QValueString{Val: itemsJSON}
+		entries[5] = types.QValueString{Val: matchedItemsJSON}
 		entries[7] = types.QValueString{Val: KeysToString(typedRecord.UnchangedToastColumns)}
 
 	case *model.MessageRecord[Items]:
@@ -153,6 +189,15 @@ func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.
 	}
 
 	return tableNameRowsMapping
+}
+
+func getOriginMeta[Items model.Items](originMeta model.Record[Items]) model.Items {
+	originItems := model.NewRecordItems(3)
+	originItems.AddColumn("_peerdb_origin_transaction_id", types.QValueUInt64{Val: originMeta.GetTransactionID()})
+	originItems.AddColumn("_peerdb_origin_checkpoint_id", types.QValueInt64{Val: originMeta.GetCheckpointID()})
+	originItems.AddColumn("_peerdb_origin_commit_time_nano", types.QValueInt64{Val: originMeta.GetCommitTime().UnixNano()})
+
+	return originItems
 }
 
 func truncateNumerics(

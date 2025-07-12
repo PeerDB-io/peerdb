@@ -368,7 +368,7 @@ func (c *BigQueryConnector) syncRecordsViaAvro(
 	streamReq := model.NewRecordsToStreamRequest(
 		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, false, protos.DBType_BIGQUERY,
 	)
-	stream, err := utils.RecordsToRawTableStream(streamReq, nil)
+	stream, err := utils.RecordsToRawTableStream(streamReq, nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
