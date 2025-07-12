@@ -4,6 +4,7 @@ import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import {
   TableEngine,
   tableEngineFromJSON,
+  tableEngineToJSON,
   TableMapping,
 } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
@@ -217,21 +218,18 @@ export default function SchemaBox({
       ).then((newRows) => {
         if (alreadySelectedTables) {
           for (const row of newRows) {
-            if (
-              alreadySelectedTables
-                .map((tableMap) => tableMap.sourceTableIdentifier)
-                .includes(row.source)
-            ) {
-              const existingRow = alreadySelectedTables.find(
-                (tableMap) => tableMap.sourceTableIdentifier === row.source
-              );
+            const existingRow = alreadySelectedTables.find(
+              (tableMap) => tableMap.sourceTableIdentifier === row.source
+            );
+            if (existingRow) {
               row.selected = true;
-              row.engine =
-                existingRow?.engine ??
-                TableEngine.CH_ENGINE_REPLACING_MERGE_TREE;
               row.editingDisabled = true;
-              row.exclude = new Set(existingRow?.exclude ?? []);
-              row.destination = existingRow?.destinationTableIdentifier ?? '';
+              row.engine = existingRow.engine;
+              row.partitionKey = existingRow.partitionKey;
+              row.shardingKey = existingRow.shardingKey;
+              row.policyName = existingRow.policyName;
+              row.exclude = new Set(existingRow.exclude ?? []);
+              row.destination = existingRow.destinationTableIdentifier;
               addTableColumns(row.source);
             }
           }
@@ -414,7 +412,15 @@ export default function SchemaBox({
                                 isDisabled={row.editingDisabled}
                                 styles={engineOptionStyles}
                                 options={engineOptions}
-                                placeholder='ReplacingMergeTree (default)'
+                                value={
+                                  engineOptions.find(
+                                    (x) =>
+                                      x.value ===
+                                      (typeof row.engine === 'string'
+                                        ? row.engine
+                                        : tableEngineToJSON(row.engine))
+                                  ) ?? engineOptions[0]
+                                }
                                 onChange={(selectedOption) =>
                                   selectedOption &&
                                   updateEngine(

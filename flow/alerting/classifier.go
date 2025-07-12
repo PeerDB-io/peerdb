@@ -269,6 +269,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
+			// Handle Neon quota exceeded errors
+			if strings.Contains(pgErr.Message,
+				"Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.") {
+				return ErrorNotifyConnectivity, pgErrorInfo
+			}
+
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
@@ -366,6 +372,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 		switch chproto.Error(chException.Code) {
 		case chproto.ErrUnknownTable, chproto.ErrNoSuchColumnInTable:
+			if isClickHouseMvError(chException) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo

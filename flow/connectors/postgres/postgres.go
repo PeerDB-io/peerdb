@@ -73,10 +73,10 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		return nil, err
 	}
 
-	runtimeParams := connConfig.Config.RuntimeParams
-	runtimeParams["idle_in_transaction_session_timeout"] = "0"
-	runtimeParams["statement_timeout"] = "0"
-	runtimeParams["DateStyle"] = "ISO, DMY"
+	connConfig.Config.RuntimeParams["timezone"] = "UTC"
+	connConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	connConfig.Config.RuntimeParams["statement_timeout"] = "0"
+	connConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 
 	tunnel, err := utils.NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
@@ -159,10 +159,9 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	runtimeParams := replConfig.Config.RuntimeParams
-	runtimeParams["idle_in_transaction_session_timeout"] = "0"
-	runtimeParams["statement_timeout"] = "0"
-	// ensure that replication is set to database
+	replConfig.Config.RuntimeParams["timezone"] = "UTC"
+	replConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	replConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
@@ -776,6 +775,78 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	}
 
 	return nil, nil
+}
+
+func (c *PostgresConnector) StatActivity(
+	ctx context.Context,
+	req *protos.PostgresPeerActivityInfoRequest,
+) (*protos.PeerStatResponse, error) {
+	rows, err := c.Conn().Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
+		"CAST(EXTRACT(epoch FROM(now()-query_start)) AS float4) AS dur, state"+
+		" FROM pg_stat_activity WHERE "+
+		"usename=$1 AND application_name LIKE 'peerdb%';", c.Config.User)
+	if err != nil {
+		slog.Error("Failed to get stat info", slog.Any("error", err))
+		return nil, err
+	}
+
+	statInfoRows, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.StatInfo, error) {
+		var pid int64
+		var waitEvent pgtype.Text
+		var waitEventType pgtype.Text
+		var queryStart pgtype.Text
+		var query pgtype.Text
+		var duration pgtype.Float4
+		// shouldn't be null
+		var state string
+
+		if err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration, &state); err != nil {
+			slog.Error("Failed to scan row", slog.Any("error", err))
+			return nil, err
+		}
+
+		we := waitEvent.String
+		if !waitEvent.Valid {
+			we = ""
+		}
+
+		wet := waitEventType.String
+		if !waitEventType.Valid {
+			wet = ""
+		}
+
+		q := query.String
+		if !query.Valid {
+			q = ""
+		}
+
+		qs := queryStart.String
+		if !queryStart.Valid {
+			qs = ""
+		}
+
+		d := duration.Float32
+		if !duration.Valid {
+			d = -1
+		}
+
+		return &protos.StatInfo{
+			Pid:           pid,
+			WaitEvent:     we,
+			WaitEventType: wet,
+			QueryStart:    qs,
+			Query:         q,
+			Duration:      d,
+			State:         state,
+		}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &protos.PeerStatResponse{
+		StatData: statInfoRows,
+	}, nil
 }
 
 func (c *PostgresConnector) GetTableSchema(

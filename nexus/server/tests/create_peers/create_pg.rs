@@ -25,8 +25,7 @@ pub fn create(nexus: &mut Client) {
 
     // Hydrate peer first
     let peer_conn_str = format!(
-        "postgresql://{}:{}@{}:{}",
-        peer_user, peer_password, peer_host, peer_port
+        "postgresql://{peer_user}:{peer_password}@{peer_host}:{peer_port}"
     );
     let mut pg_client =
         Client::connect(&peer_conn_str, NoTls).expect("failed to connect to pg peer");

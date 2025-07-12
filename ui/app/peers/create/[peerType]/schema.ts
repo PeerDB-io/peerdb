@@ -681,4 +681,12 @@ export const esSchema = z
 
 export const mongoSchema = z.object({
   uri: z.string({ error: () => 'URI must be a string' }),
+  username: z.string({ error: () => 'Username must be a string' }),
+  password: z.string({ error: () => 'Password must be a string' }),
+  disableTls: z.boolean().optional(),
+  rootCa: z
+    .string({ error: () => 'Root CA must be a string' })
+    .optional()
+    .transform((e) => (e === '' ? undefined : e)),
+  tlsHost: z.string(),
 });

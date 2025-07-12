@@ -645,6 +645,27 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("uri")
                     .context("no uri specified")?
                     .to_string(),
+                username: opts
+                    .get("username")
+                    .context("no username specified")?
+                    .to_string(),
+                password: opts
+                    .get("password")
+                    .context("no password specified")?
+                    .to_string(),
+                disable_tls: opts
+                    .get("disable_tls")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                tls_host: opts
+                    .get("tls_host")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                read_preference: opts
+                    .get("read_preference")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
             };
             Config::MongoConfig(mongo_config)
         }

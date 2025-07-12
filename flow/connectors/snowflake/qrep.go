@@ -75,8 +75,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
 		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
 	} else if !schemaExists {
-		_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
-		if err != nil {
+		if _, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema)); err != nil {
 			return err
 		}
 	}
@@ -225,8 +224,7 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 	stageName := c.getStageNameForJob(job)
 	stmt := "DROP STAGE IF EXISTS " + stageName
 
-	_, err := c.ExecContext(ctx, stmt)
-	if err != nil {
+	if _, err := c.ExecContext(ctx, stmt); err != nil {
 		return fmt.Errorf("failed to drop stage %s: %w", stageName, err)
 	}
 

@@ -106,7 +106,7 @@ func (h *HubBatches) sendBatch(
 	}
 
 	internal.LoggerFromCtx(ctx).Info("sendBatch",
-		slog.Int("events sent", int(events.NumEvents())), slog.String("event hub topic", tblName.ToString()))
+		slog.Int64("events sent", int64(events.NumEvents())), slog.String("event hub topic", tblName.ToString()))
 	return nil
 }
 
@@ -127,16 +127,14 @@ func (h *HubBatches) flushAllBatches(
 			eventBatch *azeventhubs.EventDataBatch,
 		) error {
 			numEvents := eventBatch.NumEvents()
-			err := h.sendBatch(ctx, destination, eventBatch)
-			if err != nil {
+			if err := h.sendBatch(ctx, destination, eventBatch); err != nil {
 				return err
 			}
 
 			numEventsPushed.Add(numEvents)
 			logger.Info("flushAllBatches",
-				slog.String(string(shared.FlowNameKey), flowName),
-				slog.Int("events sent", int(numEvents)),
-				slog.String("event hub topic ", destination.ToString()))
+				slog.Int64("events sent", int64(numEvents)),
+				slog.String("event hub topic", destination.ToString()))
 			return nil
 		})
 

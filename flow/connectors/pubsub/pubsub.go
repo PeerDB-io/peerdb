@@ -59,8 +59,10 @@ func (c *PubSubConnector) Close() error {
 
 func (c *PubSubConnector) ConnectionActive(ctx context.Context) error {
 	topic := c.client.Topic("test")
-	_, err := topic.Exists(ctx)
-	return fmt.Errorf("pubsub connection active check failure: %w", err)
+	if _, err := topic.Exists(ctx); err != nil {
+		return fmt.Errorf("pubsub connection active check failure: %w", err)
+	}
+	return nil
 }
 
 func (c *PubSubConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
