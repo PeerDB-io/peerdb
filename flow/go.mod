@@ -38,7 +38,8 @@ require (
 	github.com/jackc/pglogrepl v0.0.0-20250509230407-a9884f6bd75a
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/joho/godotenv v1.5.1
-	github.com/lestrrat-go/jwx/v2 v2.0.21
+	github.com/lestrrat-go/httprc/v3 v3.0.0
+	github.com/lestrrat-go/jwx/v3 v3.0.8
 	github.com/opensearch-project/opensearch-go/v4 v4.5.0
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/pgvector/pgvector-go v0.3.0
