@@ -335,6 +335,12 @@ impl Catalog {
                         pt::peerdb_peers::MySqlConfig::decode(&options[..]).with_context(err)?;
                     Config::MysqlConfig(mysql_config)
                 }
+                DbType::Opensearch => {
+                    let opensearch_config =
+                        pt::peerdb_peers::OpenSearchConfig::decode(&options[..])
+                            .with_context(err)?;
+                    Config::OpensearchConfig(opensearch_config)
+                }
             })
         } else {
             None

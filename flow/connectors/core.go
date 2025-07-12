@@ -11,6 +11,7 @@ import (
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connelasticsearch "github.com/PeerDB-io/peerdb/flow/connectors/elasticsearch"
+	connopensearch "github.com/PeerDB-io/peerdb/flow/connectors/opensearch"
 	conneventhub "github.com/PeerDB-io/peerdb/flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peerdb/flow/connectors/kafka"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
@@ -422,6 +423,12 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 			return nil, fmt.Errorf("failed to unmarshal Elasticsearch config: %w", err)
 		}
 		peer.Config = &protos.Peer_ElasticsearchConfig{ElasticsearchConfig: &config}
+	case protos.DBType_OPENSEARCH:
+		var config protos.OpensearchConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal Opensearch config: %w", err)
+		}
+		peer.Config = &protos.Peer_OpensearchConfig{OpensearchConfig: &config}
 	default:
 		return nil, fmt.Errorf("unsupported peer type: %s", peer.Type)
 	}
@@ -453,6 +460,8 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 		return connpubsub.NewPubSubConnector(ctx, env, inner.PubsubConfig)
 	case *protos.Peer_ElasticsearchConfig:
 		return connelasticsearch.NewElasticsearchConnector(ctx, inner.ElasticsearchConfig)
+	case *protos.Peer_OpensearchConfig:
+		return connopensearch.NewOpensearchConnector(ctx, inner.OpensearchConfig)
 	default:
 		return nil, errors.ErrUnsupported
 	}
@@ -505,6 +514,7 @@ var (
 	_ CDCSyncConnector = &conns3.S3Connector{}
 	_ CDCSyncConnector = &connclickhouse.ClickHouseConnector{}
 	_ CDCSyncConnector = &connelasticsearch.ElasticsearchConnector{}
+	_ CDCSyncConnector = &connopensearch.OpensearchConnector{}
 
 	_ CDCSyncPgConnector = &connpostgres.PostgresConnector{}
 
@@ -546,6 +556,7 @@ var (
 	_ QRepSyncConnector = &conns3.S3Connector{}
 	_ QRepSyncConnector = &connclickhouse.ClickHouseConnector{}
 	_ QRepSyncConnector = &connelasticsearch.ElasticsearchConnector{}
+	_ QRepSyncConnector = &connopensearch.OpensearchConnector{}
 
 	_ QRepSyncPgConnector = &connpostgres.PostgresConnector{}
 

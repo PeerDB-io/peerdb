@@ -63,6 +63,24 @@ jobs:
           MINIO_API_PORT_NUMBER: 9999
           AWS_EC2_METADATA_DISABLED: true
           MINIO_DEFAULT_BUCKETS: peerdb
+      opensearch:
+        image: opensearchproject/opensearch:2.13.0
+        ports:
+          - 19200:9200
+        env:
+          discovery.type: single-node
+          plugins.security.ssl.http.enabled: false
+          plugins.ml.enabled: false
+          plugins.security.disabled: true
+          bootstrap.memory_lock: true
+          OPENSEARCH_INITIAL_ADMIN_PASSWORD: S3curepa55!
+          OPENSEARCH_USERNAME: admin
+          OPENSEARCH_PASSWORD: S3curepa55!
+        options: >-
+          --health-cmd "curl -f http://localhost:9200/ || exit 1"
+          --health-interval 10s
+          --health-timeout 10s
+          --health-retries 20
       otelcol:
         image: otel/opentelemetry-collector-contrib:0.129.1@sha256:4798e3095561ac8ae13a81965088d68b943b1991bbeede91b1564e12c95372cc
         ports:
@@ -400,6 +418,9 @@ jobs:
           PEERDB_CATALOG_DATABASE: postgres
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
+          OPENSEARCH_TEST_ADDRESS: http://localhost:19200
+          OPENSEARCH_TEST_USERNAME: admin
+          OPENSEARCH_TEST_PASSWORD: S3curepa55!
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
           CI_MONGO_ADMIN_URI: mongodb://localhost:27017/?replicaSet=rs0&authSource=admin
