@@ -98,10 +98,10 @@ func recordToQRecordOrError[Items model.Items](
 
 		originItemsJSON := ""
 		if includeOriginMeta {
-			originItems := appendOriginMeta(model.NewRecordItems(3), record)
+			originItems := getOriginMeta(record)
 
 			var err error
-			originItemsJSON, err = model.ItemsToJSON(originItems.(model.RecordItems))
+			originItemsJSON, err = model.ItemsToJSON(originItems)
 			if err != nil {
 				return nil, fmt.Errorf("failed to serialize origin items to JSON: %w", err)
 			}
@@ -128,7 +128,8 @@ func recordToQRecordOrError[Items model.Items](
 
 		oldItems := typedRecord.OldItems
 		if includeOriginMeta {
-			oldItems = appendOriginMeta(typedRecord.OldItems, record).(Items)
+			originMeta := getOriginMeta(record)
+			oldItems.UpdateIfNotExists(originMeta)
 		}
 
 		oldItemsJSON, err := model.ItemsToJSON(oldItems)
@@ -150,7 +151,9 @@ func recordToQRecordOrError[Items model.Items](
 
 		matchedItemsJSON := itemsJSON
 		if includeOriginMeta {
-			matchedItems := appendOriginMeta(typedRecord.Items, record)
+			originMeta := getOriginMeta(record)
+			matchedItems := typedRecord.Items
+			matchedItems.UpdateIfNotExists(originMeta)
 			var err error
 
 			matchedItemsJSON, err = model.ItemsToJSON(matchedItems)
@@ -188,14 +191,13 @@ func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.
 	return tableNameRowsMapping
 }
 
-func appendOriginMeta[Items model.Items](items Items, originMeta model.Record[Items]) Items {
+func getOriginMeta[Items model.Items](originMeta model.Record[Items]) model.Items {
 	originItems := model.NewRecordItems(3)
 	originItems.AddColumn("_peerdb_origin_transaction_id", types.QValueUInt64{Val: originMeta.GetTransactionID()})
 	originItems.AddColumn("_peerdb_origin_checkpoint_id", types.QValueInt64{Val: originMeta.GetCheckpointID()})
 	originItems.AddColumn("_peerdb_origin_commit_time_nano", types.QValueInt64{Val: originMeta.GetCommitTime().UnixNano()})
 
-	items.UpdateIfNotExists(originItems)
-	return items
+	return originItems
 }
 
 func truncateNumerics(
