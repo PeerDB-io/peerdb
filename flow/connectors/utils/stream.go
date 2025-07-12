@@ -189,20 +189,13 @@ func InitialiseTableRowsMap(tableMaps []*protos.TableMapping) map[string]*model.
 }
 
 func appendOriginMeta[Items model.Items](items model.Items, originMeta model.Record[Items]) model.Items {
-	recordItems, ok := items.(model.RecordItems)
-	if !ok {
-		return items
-	}
+	originItems := model.NewRecordItems(3)
+	originItems.AddColumn("_peerdb_origin_transaction_id", types.QValueUInt64{Val: originMeta.GetTransactionID()})
+	originItems.AddColumn("_peerdb_origin_checkpoint_id", types.QValueInt64{Val: originMeta.GetCheckpointID()})
+	originItems.AddColumn("_peerdb_origin_commit_time_nano", types.QValueInt64{Val: originMeta.GetCommitTime().UnixNano()})
 
-	recordWithOriginMeta := model.NewRecordItems(recordItems.Len() + 3)
-	for col, val := range recordItems.ColToVal {
-		recordWithOriginMeta.ColToVal[col] = val
-	}
-
-	recordWithOriginMeta.AddColumn("_peerdb_origin_transaction_id", types.QValueUInt64{Val: originMeta.GetTransactionID()})
-	recordWithOriginMeta.AddColumn("_peerdb_origin_checkpoint_id", types.QValueInt64{Val: originMeta.GetCheckpointID()})
-	recordWithOriginMeta.AddColumn("_peerdb_origin_commit_time_nano", types.QValueInt64{Val: originMeta.GetCommitTime().UnixNano()})
-	return recordWithOriginMeta
+	items.UpdateIfNotExists(originItems)
+	return items
 }
 
 func truncateNumerics(
