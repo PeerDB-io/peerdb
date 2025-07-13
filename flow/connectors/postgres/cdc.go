@@ -132,7 +132,12 @@ func (p *PostgresCDCSource) getOriginMeta(lsn pglogrepl.LSN) model.Items {
 	}
 
 	baseRecord := p.baseRecord(lsn)
-	originItems := model.NewRecordItems(3)
+	originItems := model.NewRecordItems(7)
+
+	originItems.AddColumn("_peerdb_origin_peerdb_version", types.QValueUInt32{Val: p.internalVersion})
+	originItems.AddColumn("_peerdb_origin_flow_job_name", types.QValueString{Val: p.flowJobName})
+	originItems.AddColumn("_peerdb_origin_slot", types.QValueString{Val: p.slot})
+	originItems.AddColumn("_peerdb_origin_publication", types.QValueString{Val: p.publication})
 	originItems.AddColumn("_peerdb_origin_transaction_id", types.QValueUInt64{Val: baseRecord.GetTransactionID()})
 	originItems.AddColumn("_peerdb_origin_checkpoint_id", types.QValueInt64{Val: baseRecord.GetCheckpointID()})
 	originItems.AddColumn("_peerdb_origin_commit_time_nano", types.QValueInt64{Val: baseRecord.GetCommitTime().UnixNano()})
