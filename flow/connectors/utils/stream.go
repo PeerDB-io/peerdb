@@ -86,14 +86,12 @@ func recordToQRecordOrError[Items model.Items](
 	numericTruncator model.StreamNumericTruncator,
 ) ([]types.QValue, error) {
 	var entries [8]types.QValue
-
 	switch typedRecord := record.(type) {
 	case *model.InsertRecord[Items]:
 		tableNumericTruncator := numericTruncator.Get(typedRecord.DestinationTableName)
 		preprocessedItems := truncateNumerics(
 			typedRecord.Items, targetDWH, unboundedNumericAsString, tableNumericTruncator,
 		)
-
 		itemsJSON, err := model.ItemsToJSON(preprocessedItems)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize insert record items to JSON: %w", err)
@@ -112,7 +110,6 @@ func recordToQRecordOrError[Items model.Items](
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize update record new items to JSON: %w", err)
 		}
-
 		oldItemsJSON, err := model.ItemsToJSON(typedRecord.OldItems)
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize update record old items to JSON: %w", err)
@@ -125,7 +122,6 @@ func recordToQRecordOrError[Items model.Items](
 
 	case *model.DeleteRecord[Items]:
 		itemsJSON, err := model.ItemsToJSON(typedRecord.Items)
-
 		if err != nil {
 			return nil, fmt.Errorf("failed to serialize delete record items to JSON: %w", err)
 		}
