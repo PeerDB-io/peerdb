@@ -441,6 +441,10 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get get setting for sourceSchemaAsDestinationColumn: %w", err)
 	}
+	originMetaAsDestinationColumn, err := internal.PeerDBOriginMetaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
+	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
@@ -454,6 +458,7 @@ func pullCore[Items model.Items](
 		Publication:                              publicationName,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
+		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
 	})
 	if err != nil {

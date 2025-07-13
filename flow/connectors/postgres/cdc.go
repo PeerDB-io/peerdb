@@ -55,6 +55,7 @@ type PostgresCDCSource struct {
 	hushWarnUnknownTableDetected             map[uint32]struct{}
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
+	originMetaAsDestinationColumn            bool
 	internalVersion                          uint32
 }
 
@@ -70,6 +71,7 @@ type PostgresCDCConfig struct {
 	Publication                              string
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
+	OriginMetaAsDestinationColumn            bool
 	InternalVersion                          uint32
 }
 
@@ -104,6 +106,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
+		originMetaAsDestinationColumn:            cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
 	}, nil
 }
@@ -121,6 +124,19 @@ func (p *PostgresCDCSource) getSourceSchemaForDestinationColumn(relID uint32, ta
 	}
 	p.schemaNameForRelID[relID] = schemaTable.Schema
 	return schemaTable.Schema, nil
+}
+
+func (p *PostgresCDCSource) getOriginMeta(lsn pglogrepl.LSN) model.Items {
+	if !p.originMetaAsDestinationColumn {
+		return nil
+	}
+
+	baseRecord := p.baseRecord(lsn)
+	originItems := model.NewRecordItems(3)
+	originItems.AddColumn("_peerdb_origin_transaction_id", types.QValueUInt64{Val: baseRecord.GetTransactionID()})
+	originItems.AddColumn("_peerdb_origin_checkpoint_id", types.QValueInt64{Val: baseRecord.GetCheckpointID()})
+	originItems.AddColumn("_peerdb_origin_commit_time_nano", types.QValueInt64{Val: baseRecord.GetCommitTime().UnixNano()})
+	return originItems
 }
 
 func getChildToParentRelIDMap(ctx context.Context,
@@ -259,6 +275,7 @@ func processTuple[Items model.Items](
 	nameAndExclude model.NameAndExclude,
 	customTypeMapping map[uint32]shared.CustomDataType,
 	schemaName string,
+	originMeta model.Items,
 ) (Items, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
@@ -286,6 +303,10 @@ func processTuple[Items model.Items](
 
 	if schemaName != "" {
 		processor.AddStringColumn(items, "_peerdb_source_schema", schemaName)
+	}
+
+	if originMeta != nil {
+		items.UpdateIfNotExists(originMeta)
 	}
 
 	return items, unchangedToastColumns, nil
@@ -828,7 +849,12 @@ func processInsertMessage[Items model.Items](
 		return nil, err
 	}
 
-	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
+	var originMeta model.Items
+	if p.originMetaAsDestinationColumn {
+		originMeta = p.getOriginMeta(lsn)
+	}
+
+	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, originMeta)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
@@ -869,13 +895,18 @@ func processUpdateMessage[Items model.Items](
 		return nil, err
 	}
 
-	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, "")
+	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, "", nil)
 	if err != nil {
 		return nil, fmt.Errorf("error converting old tuple to map: %w", err)
 	}
 
+	var originMeta model.Items
+	if p.originMetaAsDestinationColumn {
+		originMeta = p.getOriginMeta(lsn)
+	}
+
 	newItems, unchangedToastColumns, err := processTuple(
-		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
+		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, originMeta)
 	if err != nil {
 		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
 	}
@@ -931,7 +962,12 @@ func processDeleteMessage[Items model.Items](
 		return nil, err
 	}
 
-	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
+	var originMeta model.Items
+	if p.originMetaAsDestinationColumn {
+		originMeta = p.getOriginMeta(lsn)
+	}
+
+	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, originMeta)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
