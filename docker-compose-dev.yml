@@ -6,7 +6,7 @@ x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
   MINIO_ROOT_PASSWORD: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
-  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
+  PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9004
   PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
   MINIO_DEFAULT_BUCKETS: peerdbbucket
   MINIO_CONSOLE_PORT_NUMBER: 36987
@@ -189,7 +189,7 @@ services:
       context: .
       dockerfile: stacks/peerdb-ui.Dockerfile
     ports:
-      - 3000:3000
+      - 3001:3000
     env_file:
       - path: ./.env
         required: false
@@ -211,8 +211,8 @@ services:
     volumes:
       - minio-data:/data
     ports:
-      - "9001:9000"
-      - "9002:36987"
+      - "9004:9000"
+      - "9005:36987"
     environment:
       <<: *minio-config
 
