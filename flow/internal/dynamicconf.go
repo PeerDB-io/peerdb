@@ -332,6 +332,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN",
+		Description:      "Ingest additional metadata fields",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_QUEUES,
+	},
+	{
 		Name: "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES",
 		Description: "For Postgres CDC: attempt to fetch/remap child tables for tables that aren't partitioned by Postgres." +
 			"Useful for tables that are partitioned by extensions or table inheritance",
@@ -654,7 +662,7 @@ func PeerDBSourceSchemaAsDestinationColumn(ctx context.Context, env map[string]s
 }
 
 func PeerDBOriginMetaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_ORIGIN_META_AS_DESTINATION_COLUMN")
+	return dynamicConfBool(ctx, env, "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN")
 }
 
 func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Context, env map[string]string) (bool, error) {
