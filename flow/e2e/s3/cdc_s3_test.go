@@ -49,9 +49,8 @@ func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
 	for i := range 20 {
 		testKey := fmt.Sprintf("test_key_%d", i)
 		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-			INSERT INTO %s (key, value) VALUES ($1, $2)
-		`, srcTableName), testKey, testValue)
+		_, err := s.conn.Conn().Exec(s.t.Context(),
+			fmt.Sprintf(`INSERT INTO %s (key, value) VALUES ($1, $2)`, srcTableName), testKey, testValue)
 		e2e.EnvNoError(s.t, env, err)
 	}
 
@@ -60,7 +59,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
 		defer cancel()
 		files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
 		e2e.EnvNoError(s.t, env, err)
-		s.t.Logf("Files in Test_Complete_Simple_Flow_S3 %s: %d", flowJobName, len(files))
+		s.t.Logf("Files in %s: %d", flowJobName, len(files))
 		return len(files) == 4
 	})
 
@@ -101,15 +100,15 @@ func (s PeerFlowE2ETestSuiteS3) Test_OriginMetadata() {
 	}
 
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.MaxBatchSize = 5
 	flowConnConfig.Env = map[string]string{"PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN": "true"}
 
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 20 rows
 	for i := range 20 {
-		_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-			INSERT INTO %s (val) VALUES ($1, $2)
-		`, srcTableName), fmt.Sprintf("test_value_%d", i))
+		_, err := s.conn.Conn().Exec(s.t.Context(),
+			fmt.Sprintf(`INSERT INTO %s (val) VALUES ($1)`, srcTableName), fmt.Sprintf("test_value_%d", i))
 		e2e.EnvNoError(s.t, env, err)
 	}
 
@@ -118,7 +117,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_OriginMetadata() {
 		defer cancel()
 		files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
 		e2e.EnvNoError(s.t, env, err)
-		s.t.Logf("Files in Test_Complete_Simple_Flow_S3 %s: %d", flowJobName, len(files))
+		s.t.Logf("Files in %s: %d", flowJobName, len(files))
 		return len(files) == 4
 	})
 
