@@ -431,8 +431,6 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindArrayString
 		case "Array(UUID)":
 			qkind = types.QValueKindArrayUUID
-		case "Array(DateTime64(6))":
-			qkind = types.QValueKindArrayTimestamp
 		case "JSON":
 			qkind = types.QValueKindJSON
 		default:
