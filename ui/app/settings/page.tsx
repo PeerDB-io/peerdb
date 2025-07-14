@@ -232,9 +232,9 @@ export default function SettingsPage() {
       />
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-          gap: '16px',
+          display: 'flex',
+          flexDirection: 'column',
+          rowGap: '0.5rem'
         }}
       >
         {filteredSettings.map((setting) => (
