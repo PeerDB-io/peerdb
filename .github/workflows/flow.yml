@@ -46,7 +46,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.0.2@sha256:12829bb0fa8b3c6b65928868d2af0fbe67bf74aa6b92b14eca87957e9f554136
+        image: elasticsearch:9.0.3@sha256:e4b214ead12e1e54608c1640fff68e7e5365ca5d6a10c6d798b5476f468e5cc3
         ports:
           - 9200:9200
         env:
@@ -54,7 +54,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.5.24@sha256:451fe6858cb770cc9d0e77ba811ce287420f781c7c1b806a386f6896471a349c
+        image: bitnami/minio:2025.6.13@sha256:628d6a09902e59001eadc82590735eda210bf5d5a68cd72dfbb6894b3c1f97eb
         ports:
           - 9999:9999
         env:
@@ -76,7 +76,7 @@ jobs:
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: '1.24.4'
+          go-version: '1.24.5'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
