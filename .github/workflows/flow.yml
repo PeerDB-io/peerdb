@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
-        db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
+        db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0', ch: '24.12.6.70'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0', ch: '25.3.3.42'}, {pg: 17, mysql: 'maria', mongo: '8.0', ch: 'latest'}]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -193,12 +193,19 @@ jobs:
         id: cache-clickhouse
         with:
           path: ./clickhouse
-          key: ${{ runner.os }}-clickhouse
+          key: ${{ runner.os }}-clickhouse-${{ matrix.db-version.ch }}
 
       - name: Install ClickHouse
         if: steps.cache-clickhouse.outputs.cache-hit != 'true'
         run: |
-          curl https://clickhouse.com | sh
+          if test "${{ matrix.db-version.ch  }}" = latest
+          then curl https://clickhouse.com | sh
+          else
+            curl "https://packages.clickhouse.com/tgz/stable/clickhouse-common-static-${{ matrix.db-version.ch }}-amd64.tgz" -o clickhouse.tgz
+            mkdir -p chdir
+            tar xzf clickhouse.tgz -C ./chdir --strip-components=1
+            mv ./chdir/usr/bin/clickhouse .
+          fi
 
       - name: Run ClickHouse
         run: |
