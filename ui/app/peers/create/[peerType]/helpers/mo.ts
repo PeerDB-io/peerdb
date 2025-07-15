@@ -66,5 +66,5 @@ export const blankMongoSetting: MongoConfig = {
   password: '',
   disableTls: false,
   tlsHost: '',
-  readPreference: '',
+  readPreference: 0,
 };

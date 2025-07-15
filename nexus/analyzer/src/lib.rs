@@ -664,8 +664,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .unwrap_or_default(),
                 read_preference: opts
                     .get("read_preference")
-                    .map(|s| s.to_string())
-                    .unwrap_or_default(),
+                    .context("no read preference specified")?
+                    .parse::<i32>()
+                    .context("unable to parse read preference as valid int")?,
             };
             Config::MongoConfig(mongo_config)
         }

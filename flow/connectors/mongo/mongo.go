@@ -500,19 +500,22 @@ func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, e
 		// always use majority read concern for correctness
 		SetReadConcern(readconcern.Majority())
 
-	// TODO: once it's wired through the UI, indicate with a clear error if this field is empty
-	if config.ReadPreference == "" {
+	switch config.ReadPreference {
+	case protos.ReadPreference_PRIMARY:
+		clientOptions.SetReadPreference(readpref.Primary())
+	case protos.ReadPreference_PRIMARY_PREFERRED:
+		clientOptions.SetReadPreference(readpref.PrimaryPreferred())
+	case protos.ReadPreference_SECONDARY:
+		clientOptions.SetReadPreference(readpref.Secondary())
+	case protos.ReadPreference_SECONDARY_PREFERRED:
 		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
-	} else {
-		mode, err := readpref.ModeFromString(config.ReadPreference)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing read preference mode: %w", err)
-		}
-		readPreference, err := readpref.New(mode)
-		if err != nil {
-			return nil, fmt.Errorf("error creating read preference from mode: %w", err)
-		}
-		clientOptions.SetReadPreference(readPreference)
+	case protos.ReadPreference_NEAREST:
+		clientOptions.SetReadPreference(readpref.Nearest())
+	case protos.ReadPreference_PREFERENCE_UNKNOWN:
+		// use `secondaryPreferred` as default
+		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
+	default:
+		return nil, fmt.Errorf("invalid ReadPreference: %s", config.ReadPreference)
 	}
 
 	if !config.DisableTls {

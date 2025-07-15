@@ -234,7 +234,7 @@ export default function SettingsPage() {
         style={{
           display: 'flex',
           flexDirection: 'column',
-          rowGap: '0.5rem'
+          rowGap: '0.5rem',
         }}
       >
         {filteredSettings.map((setting) => (
