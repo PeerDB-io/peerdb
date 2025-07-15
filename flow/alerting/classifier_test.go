@@ -135,18 +135,16 @@ func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
 
 func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a ClickHouse access entity not found error
-	for idx, err := range []error{
-		&clickhouse.Exception{
-			Code:    492,
-			Message: "ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories",
-		},
-		&clickhouse.Exception{
-			Code: 492,
-			// With backticks
-			Message: "ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in `user directories`",
-		},
+	for idx, msg := range []string{
+		"ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories",
+		// With backticks
+		"ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in `user directories`",
 	} {
 		t.Run(fmt.Sprintf("Test case %d", idx), func(t *testing.T) {
+			err := &clickhouse.Exception{
+				Code:    492,
+				Message: msg,
+			}
 			errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
 			assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{

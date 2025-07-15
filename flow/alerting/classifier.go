@@ -398,7 +398,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if ClickHouseDecimalParsingRe.MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
 			}
-		case 492: // `ACCESS_ENTITY_NOT_FOUND` TBD via https://github.com/ClickHouse/ch-go/pull/1058
+		case chproto.ErrAccessEntityNotFound:
 			if ClickHouseNotFoundInUserDirsRe.MatchString(chException.Message) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
