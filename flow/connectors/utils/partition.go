@@ -326,7 +326,6 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
-	return nil, nil
 }
 
 func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition) error {
