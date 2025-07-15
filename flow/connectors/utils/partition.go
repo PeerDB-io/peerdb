@@ -322,9 +322,7 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 	case pgtype.TID:
 		return createTIDPartition(v, end.(pgtype.TID)), nil
 	case bson.ObjectID:
-		p.partitions = append(p.partitions, createObjectIdPartition(v, end.(bson.ObjectID)))
-		p.prevStart = v
-		p.prevEnd = end
+		return createObjectIdPartition(v, end.(bson.ObjectID)), nil
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
