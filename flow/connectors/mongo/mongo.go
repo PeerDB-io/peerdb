@@ -272,16 +272,18 @@ func (c *MongoConnector) PullRecords(
 	}
 
 	recreateChangeStream := func() error {
-		if err := changeStream.Close(timeoutCtx); err != nil {
+		if err := changeStream.Close(ctx); err != nil {
 			return fmt.Errorf("failed to close change stream: %w", err)
 		}
 
 		cancelTimeout()
 		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+
 		if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
 			changeStreamOpts.SetResumeAfter(resumeToken)
 		}
-		changeStream, err = c.client.Watch(timeoutCtx, defaultPipeline(), changeStreamOpts)
+
+		changeStream, err = c.client.Watch(ctx, defaultPipeline(), changeStreamOpts)
 		if err != nil {
 			return err
 		}
