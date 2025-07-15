@@ -36,7 +36,7 @@ var (
 		`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`,
 	)
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
-	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile(`ID\([a-z0-9-]+\) not found in user directories`)
+	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
 )
