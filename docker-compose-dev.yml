@@ -188,7 +188,7 @@ services:
       context: .
       dockerfile: stacks/peerdb-ui.Dockerfile
     ports:
-      - 3001:3000
+      - 3003:3000
     env_file:
       - path: ./.env
         required: false
