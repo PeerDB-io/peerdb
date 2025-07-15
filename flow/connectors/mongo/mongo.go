@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -136,7 +137,12 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 		SetComment("PeerDB changeStream").
 		SetFullDocument(options.UpdateLookup).
 		SetFullDocumentBeforeChange(options.Off)
-	changeStream, err := c.client.Watch(ctx, defaultPipeline(), changeStreamOpts)
+
+	pipeline, err := createPipeline(nil)
+	if err != nil {
+		return model.SetupReplicationResult{}, fmt.Errorf("failed to create changestream pipeline: %w", err)
+	}
+	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to start change stream for storing initial resume token: %w", err)
 	}
@@ -229,7 +235,12 @@ func (c *MongoConnector) PullRecords(
 		changeStreamOpts.SetResumeAfter(bson.Raw(resumeTokenBytes))
 	}
 
-	changeStream, err := c.client.Watch(ctx, defaultPipeline(), changeStreamOpts)
+	pipeline, err := createPipeline(req.TableNameMapping)
+	if err != nil {
+		return err
+	}
+
+	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		return fmt.Errorf("failed to create change stream: %w", err)
 	}
@@ -283,7 +294,7 @@ func (c *MongoConnector) PullRecords(
 			changeStreamOpts.SetResumeAfter(resumeToken)
 		}
 
-		changeStream, err = c.client.Watch(ctx, defaultPipeline(), changeStreamOpts)
+		changeStream, err = c.client.Watch(ctx, pipeline, changeStreamOpts)
 		if err != nil {
 			return err
 		}
@@ -329,8 +340,15 @@ func (c *MongoConnector) PullRecords(
 		clusterTime := changeDoc["clusterTime"].(bson.Timestamp)
 		clusterTimeNanos := time.Unix(int64(clusterTime.T), 0).UnixNano()
 
-		sourceTableName := fmt.Sprintf("%s.%s", changeDoc["ns"].(bson.D)[0].Value, changeDoc["ns"].(bson.D)[1].Value)
+		db := changeDoc["ns"].(bson.D)[0].Value
+		coll := changeDoc["ns"].(bson.D)[1].Value
+		sourceTableName := fmt.Sprintf("%s.%s", db, coll)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name
+		if destinationTableName == "" {
+			// should never happen since pipeline should filter out irrelevant tables
+			c.logger.Warn("Skipping event that cannot be mapped to a destination table %s", sourceTableName)
+			continue
+		}
 
 		items := model.NewMongoRecordItems(2)
 
@@ -404,26 +422,60 @@ func (c *MongoConnector) PullRecords(
 	return nil
 }
 
-func defaultPipeline() mongo.Pipeline {
-	return mongo.Pipeline{
-		{{Key: "$match", Value: bson.D{
+func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pipeline, error) {
+	pipeline := mongo.Pipeline{}
+
+	// filter out events from tables that are not in the mapping
+	if tableNameMapping != nil {
+		dbCollMap := make(map[string][]string)
+		for dbAndTable := range tableNameMapping {
+			parts := strings.SplitN(dbAndTable, ".", 2)
+			if len(parts) != 2 {
+				return nil, fmt.Errorf("failed to create pipeline due to invalid table name: %s", dbAndTable)
+			}
+			db := parts[0]
+			table := parts[1]
+			dbCollMap[db] = append(dbCollMap[db], table)
+		}
+
+		var orCondition bson.A
+		for db, tables := range dbCollMap {
+			andCondition := bson.A{
+				bson.D{{Key: "ns.db", Value: db}},
+				bson.D{{Key: "ns.coll", Value: bson.D{{Key: "$in", Value: tables}}}},
+			}
+			orCondition = append(orCondition, bson.D{
+				{Key: "$and", Value: andCondition},
+			})
+		}
+
+		pipeline = append(pipeline, bson.D{{Key: "$match", Value: bson.D{
+			{Key: "$or", Value: orCondition},
+		}}})
+	}
+
+	pipeline = append(pipeline,
+		// filter out non-cdc operations
+		bson.D{{Key: "$match", Value: bson.D{
 			{Key: "operationType", Value: bson.D{
 				{Key: "$in", Value: bson.A{"insert", "update", "replace", "delete"}},
 			}},
 		}}},
 
-		// Mongo recommend using '$project' first to reduce change event size, and only use
+		// Mongo recommends using '$project' first to reduce change event size, and only use
 		// '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the document
 		// themselves have a 16MB limit, project required fields for now for code simplicity.
 		// ref: https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStreamSplitLargeEvent/
-		{{Key: "$project", Value: bson.D{
+		bson.D{{Key: "$project", Value: bson.D{
 			{Key: "operationType", Value: 1},
 			{Key: "clusterTime", Value: 1},
 			{Key: "documentKey", Value: 1},
 			{Key: "fullDocument", Value: 1},
 			{Key: "ns", Value: 1},
 		}}},
-	}
+	)
+
+	return pipeline, nil
 }
 
 func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, error) {
