@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type PartitionRangeType string
@@ -296,6 +297,40 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 	return nil
 }
 
+func (p *PartitionHelper) AddPartitionsWithRange(start any, end any, numPartitions int64) error {
+	partition, err := p.getPartitionForStartAndEnd(start, end)
+	if err != nil {
+		return err
+	}
+
+	switch r := partition.Range.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		size := shared.DivCeil(r.IntRange.End-r.IntRange.Start, numPartitions)
+		for i := range numPartitions {
+			if err := p.AddPartition(r.IntRange.Start+size*i, min(r.IntRange.Start+size*(i+1), r.IntRange.End)); err != nil {
+				return err
+			}
+		}
+	case *protos.PartitionRange_UintRange:
+		size := shared.DivCeil(r.UintRange.End-r.UintRange.Start, uint64(numPartitions))
+		for i := range uint64(numPartitions) {
+			if err := p.AddPartition(r.UintRange.Start+size*i, min(r.UintRange.Start+size*(i+1), r.UintRange.End)); err != nil {
+				return err
+			}
+		}
+	case *protos.PartitionRange_TimestampRange:
+		tstart := r.TimestampRange.Start.AsTime().UnixMicro()
+		tend := r.TimestampRange.End.AsTime().UnixMicro()
+		size := shared.DivCeil(tend-tstart, numPartitions)
+		for i := range numPartitions {
+			if err := p.AddPartition(time.UnixMicro(tstart+size*i), time.UnixMicro(min(tstart+size*(i+1), tend))); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*protos.QRepPartition, error) {
 	if start == nil || end == nil {
 		return nil, nil
@@ -326,7 +361,6 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
-	return nil, nil
 }
 
 func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition) error {
