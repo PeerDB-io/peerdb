@@ -208,6 +208,7 @@ func (c *MongoConnector) PullRecords(
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
 	defer req.RecordStream.Close()
+
 	c.logger.Info("[started] PullRecords for mirror "+req.FlowJobName,
 		slog.Any("table_mapping", req.TableNameMapping),
 		slog.Uint64("max_batch_size", uint64(req.MaxBatchSize)),
@@ -217,6 +218,7 @@ func (c *MongoConnector) PullRecords(
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
 		SetFullDocument(options.UpdateLookup).
 		SetFullDocumentBeforeChange(options.Off)
+
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
 		c.logger.Info("[mongo] resuming change stream", slog.String("resumeToken", req.LastOffset.Text))
@@ -229,32 +231,34 @@ func (c *MongoConnector) PullRecords(
 
 	changeStream, err := c.client.Watch(ctx, defaultPipeline(), changeStreamOpts)
 	if err != nil {
-		var cmdErr mongo.CommandError
-		// ChangeStreamHistoryLost is basically slot invalidation
-		if errors.As(err, &cmdErr) && cmdErr.Code == 286 {
-			return errors.New("change stream history lost")
-		}
-		return err
+		return fmt.Errorf("failed to create change stream: %w", err)
 	}
 	defer changeStream.Close(ctx)
-	c.logger.Info("ChangeStream started for mirror " + req.FlowJobName)
 
 	var recordCount uint32
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
 		}
-		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
+		c.logger.Info("[mongo] PullRecords finished streaming", slog.Uint64("records", uint64(recordCount)))
 	}()
-	// before first record, we wait indefinitely so give it ctx
-	// after first record, we wait for idle timeout
-	getCtx := ctx
-	var cancelTimeout context.CancelFunc
+	// before the first record arrives, we wait for up to an hour before resetting context timeout
+	// after the first record arrives, we switch to configured idleTimeout
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
+	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
 	defer func() {
-		if cancelTimeout != nil {
-			cancelTimeout()
-		}
+		cancelTimeout()
 	}()
+
+	checkpoint := func() {
+		if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
+			resumeTokenText := base64.StdEncoding.EncodeToString(resumeToken)
+			req.RecordStream.UpdateLatestCheckpointText(resumeTokenText)
+		} else {
+			c.logger.Warn("change stream document does not contain a resume token")
+		}
+	}
+
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
 		recordCount += 1
 		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
@@ -262,13 +266,56 @@ func (c *MongoConnector) PullRecords(
 		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
-			// after the first record, we switch to a timeout context
-			getCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
 		}
 		return nil
 	}
 
-	for recordCount < req.MaxBatchSize && changeStream.Next(getCtx) {
+	recreateChangeStream := func() error {
+		if err := changeStream.Close(ctx); err != nil {
+			return fmt.Errorf("failed to close change stream: %w", err)
+		}
+
+		cancelTimeout()
+		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+
+		if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
+			changeStreamOpts.SetResumeAfter(resumeToken)
+		}
+
+		changeStream, err = c.client.Watch(ctx, defaultPipeline(), changeStreamOpts)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}
+
+	for recordCount < req.MaxBatchSize {
+		ok := changeStream.Next(timeoutCtx)
+		if !ok {
+			if err := changeStream.Err(); err != nil && errors.Is(err, context.DeadlineExceeded) {
+				if recordCount > 0 {
+					break
+				}
+
+				// update with PostBatchResumeToken on empty batch
+				// ref: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
+				checkpoint()
+				// DeadlineExceeded errors are deemed not recoverable/resumable, so we have to create a new change stream instance
+				csErr := recreateChangeStream()
+				if csErr != nil {
+					return fmt.Errorf("failed to recreate change stream: %w", err)
+				}
+				continue
+			}
+			if err := changeStream.Err(); err != nil {
+				return fmt.Errorf("change stream error: %w", err)
+			} else {
+				return errors.New("unexpected: Next returned false but no change stream error was recorded")
+			}
+		}
+
 		var changeDoc bson.M
 		if err := changeStream.Decode(&changeDoc); err != nil {
 			return fmt.Errorf("failed to decode change stream document: %w", err)
@@ -351,17 +398,7 @@ func (c *MongoConnector) PullRecords(
 				return fmt.Errorf("unsupported operationType: %s", operationType)
 			}
 		}
-	}
-	if err := changeStream.Err(); err != nil && !errors.Is(err, context.DeadlineExceeded) {
-		c.logger.Error("PullRecords change stream error", "error", err)
-		return fmt.Errorf("change stream error: %w", err)
-	}
-	if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
-		// Update the last offset with the resume token
-		req.RecordStream.UpdateLatestCheckpointText(base64.StdEncoding.EncodeToString(resumeToken))
-		c.logger.Info("[mongo] latest resume token", slog.String("resumeToken", req.LastOffset.Text))
-	} else {
-		c.logger.Warn("Change stream document does not contain a resume token")
+		checkpoint()
 	}
 
 	return nil
