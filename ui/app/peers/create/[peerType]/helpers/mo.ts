@@ -44,8 +44,16 @@ export const mongoSetting: PeerSetting[] = [
   {
     label: 'Root Certificate',
     field: 'rootCa',
-    stateHandler: (value, setter) =>
-      setter((curr) => ({ ...curr, rootCa: value as string })),
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          const newCurr = { ...curr } as MongoConfig;
+          delete newCurr.rootCa;
+          return newCurr;
+        });
+      } else setter((curr) => ({ ...curr, rootCa: value as string }));
+    },
     type: 'file',
     optional: true,
     tips: 'Root certificate for TLS connection.',
@@ -58,6 +66,5 @@ export const blankMongoSetting: MongoConfig = {
   password: '',
   disableTls: false,
   tlsHost: '',
-  rootCa: '',
   readPreference: '',
 };
