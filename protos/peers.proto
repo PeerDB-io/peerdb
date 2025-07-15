@@ -63,7 +63,7 @@ message PubSubConfig {
 }
 
 enum ReadPreference {
-  NULL = 0;
+  PREFERENCE_UNKNOWN = 0;
   PRIMARY = 1;
   PRIMARY_PREFERRED = 2;
   SECONDARY = 3;

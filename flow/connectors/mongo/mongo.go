@@ -511,7 +511,7 @@ func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, e
 		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
 	case protos.ReadPreference_NEAREST:
 		clientOptions.SetReadPreference(readpref.Nearest())
-	case protos.ReadPreference_NULL:
+	case protos.ReadPreference_PREFERENCE_UNKNOWN:
 		// use `secondaryPreferred` as default
 		clientOptions.SetReadPreference(readpref.SecondaryPreferred())
 	default:
