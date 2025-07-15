@@ -337,15 +337,12 @@ jobs:
           </clickhouse>
           EOF
           mkdir chkeep ch1 ch2
-          (cd chkeep && ../clickhouse keeper -C ../config-keeper.xml) &
-          while true; do
-            if echo "ruok" | nc -w 3 127.0.0.1 2181 2>/dev/null | grep -q "imok"; then
-                break
-            fi
+          (cd chkeep && ../clickhouse keeper -C ../config-keeper.xml)
+          until echo "ruok" | nc -w 3 127.0.0.1 2181 2>/dev/null | grep -q "imok"; do
             echo "Waiting for keeper..."
             sleep 1
           done
-          sleep 5
+          sleep 1
           (cd ch1 && ../clickhouse server -C ../config1.xml) &
           (cd ch2 && ../clickhouse server -C ../config2.xml) &
 
