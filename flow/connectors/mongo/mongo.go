@@ -392,8 +392,6 @@ func (c *MongoConnector) PullRecords(
 				}); err != nil {
 					return fmt.Errorf("failed to add delete record: %w", err)
 				}
-			case "invalidate":
-				return errors.New("change stream invalidated, please resync the mirror")
 			default:
 				return fmt.Errorf("unsupported operationType: %s", operationType)
 			}
@@ -408,7 +406,7 @@ func defaultPipeline() mongo.Pipeline {
 	return mongo.Pipeline{
 		{{Key: "$match", Value: bson.D{
 			{Key: "operationType", Value: bson.D{
-				{Key: "$in", Value: bson.A{"insert", "update", "replace", "delete", "invalidate"}},
+				{Key: "$in", Value: bson.A{"insert", "update", "replace", "delete"}},
 			}},
 		}}},
 
