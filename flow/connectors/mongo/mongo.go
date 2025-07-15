@@ -48,7 +48,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		return nil, err
 	}
 
-	clientOptions, err := parseAsClientOptions(ctx, config)
+	clientOptions, err := parseAsClientOptions(config)
 	if err != nil {
 		return nil, err
 	}
@@ -424,7 +424,7 @@ func defaultPipeline() mongo.Pipeline {
 	}
 }
 
-func parseAsClientOptions(ctx context.Context, config *protos.MongoConfig) (*options.ClientOptions, error) {
+func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, error) {
 	connStr, err := connstring.Parse(config.Uri)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing uri: %w", err)
@@ -434,14 +434,9 @@ func parseAsClientOptions(ctx context.Context, config *protos.MongoConfig) (*opt
 		return nil, errors.New("connection string should not contain username and password")
 	}
 
-	flowName, _ := ctx.Value(shared.FlowNameKey).(string)
-	var appNameSuffix string
-	if flowName != "" {
-		appNameSuffix = " for mirror " + flowName
-	}
 	clientOptions := options.Client().
 		ApplyURI(config.Uri).
-		SetAppName("PeerDB connector" + appNameSuffix).
+		SetAppName("PeerDB Mongo Connector").
 		SetAuth(options.Credential{
 			Username: config.Username,
 			Password: config.Password,
