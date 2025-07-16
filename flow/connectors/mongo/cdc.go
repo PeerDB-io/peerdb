@@ -20,6 +20,13 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+var SupportedOperations = map[string]struct{}{
+	"insert":  {},
+	"update":  {},
+	"replace": {},
+	"delete":  {},
+}
+
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
 	_ map[string]string,
@@ -224,8 +231,15 @@ func (c *MongoConnector) PullRecords(
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 
-		if _, ok := changeDoc["operationType"]; !ok {
+		if op, ok := changeDoc["operationType"]; !ok {
 			c.logger.Warn("operationType field not found")
+			continue
+		} else if _, supported := SupportedOperations[op.(string)]; !supported {
+			warnMsg := fmt.Sprintf("skipping unsupported operation %s", op)
+			if nsDoc, ok := changeDoc["ns"].(bson.D); ok && len(nsDoc) == 2 {
+				warnMsg += fmt.Sprintf(" for %s.%s", nsDoc[0].Value, nsDoc[1].Value)
+			}
+			c.logger.Warn(warnMsg)
 			continue
 		}
 
@@ -346,18 +360,11 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 		}}})
 	}
 
+	// Mongo recommends using '$project' first to reduce change event size, and only use
+	// '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the document
+	// themselves have a 16MB limit, project required fields for now for code simplicity.
+	// ref: https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStreamSplitLargeEvent/
 	pipeline = append(pipeline,
-		// filter out non-cdc operations
-		bson.D{{Key: "$match", Value: bson.D{
-			{Key: "operationType", Value: bson.D{
-				{Key: "$in", Value: bson.A{"insert", "update", "replace", "delete"}},
-			}},
-		}}},
-
-		// Mongo recommends using '$project' first to reduce change event size, and only use
-		// '$changeStreamSplitLargeEvent' in the pipeline if still necessary. Given the document
-		// themselves have a 16MB limit, project required fields for now for code simplicity.
-		// ref: https://www.mongodb.com/docs/manual/reference/operator/aggregation/changeStreamSplitLargeEvent/
 		bson.D{{Key: "$project", Value: bson.D{
 			{Key: "operationType", Value: 1},
 			{Key: "clusterTime", Value: 1},
