@@ -114,9 +114,8 @@ func (s KafkaSuite) TestSimple() {
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-		INSERT INTO %s (id, val) VALUES (1, 'testval')
-	`, srcTableName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, val) VALUES (1, 'testval')`, srcTableName))
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
@@ -227,9 +226,8 @@ func (s KafkaSuite) TestDefault() {
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-		INSERT INTO %s (id, val) VALUES (1, 'testval')
-	`, srcTableName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, val) VALUES (1, 'testval')`, srcTableName))
 	require.NoError(s.t, err)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
@@ -279,9 +277,8 @@ func (s KafkaSuite) TestInitialLoad() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-		INSERT INTO %s (id, val) VALUES (1, 'testval')
-	`, srcTableName))
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, val) VALUES (1, 'testval')`, srcTableName))
 	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -307,6 +304,66 @@ func (s KafkaSuite) TestInitialLoad() {
 				require.Contains(s.t, string(r.Value), "\"testval\"")
 				require.Equal(s.t, byte('{'), r.Value[0])
 				require.Equal(s.t, byte('}'), r.Value[len(r.Value)-1])
+			})
+		})
+		return true
+	})
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s KafkaSuite) TestOriginMetadata() {
+	srcTableName := e2e.AttachSchema(s, "kaorigin")
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			val text
+		);
+	`, srcTableName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), `insert into public.scripts (name, lang, source) values
+	('e2e_kaorigin', 'lua',
+		'function onRecord(r) return peerdb.type(r.transaction_id) .. tostring(r.row._peerdb_origin_transaction_id == r.transaction_id) end')
+		on conflict do nothing`)
+	require.NoError(s.t, err)
+
+	flowName := e2e.AddSuffix(s, "kaorigin")
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      flowName,
+		TableNameMapping: map[string]string{srcTableName: flowName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.Script = "e2e_kaorigin"
+	flowConnConfig.Env = map[string]string{"PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN": "true"}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, val) VALUES (1, 'testval')`, srcTableName))
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
+		kafka, err := kgo.NewClient(
+			kgo.SeedBrokers("localhost:9092"),
+			kgo.ConsumeTopics(flowName),
+		)
+		if err != nil {
+			return false
+		}
+		defer kafka.Close()
+
+		ctx, cancel := context.WithTimeout(s.t.Context(), time.Minute)
+		defer cancel()
+		fetches := kafka.PollFetches(ctx)
+		fetches.EachTopic(func(ft kgo.FetchTopic) {
+			require.Equal(s.t, flowName, ft.Topic)
+			ft.EachRecord(func(r *kgo.Record) {
+				require.Equal(s.t, "uint64true", string(r.Value))
 			})
 		})
 		return true
