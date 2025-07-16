@@ -16,29 +16,23 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
-
-const MongoFullTablePartitionId = "mongo-full-table-partition-id"
 
 func (c *MongoConnector) GetQRepPartitions(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	// if no watermark column is specified, return a single partition
-	if config.WatermarkColumn == "" {
-		return []*protos.QRepPartition{
-			{
-				PartitionId:        MongoFullTablePartitionId,
-				Range:              nil,
-				FullTablePartition: true,
-			},
-		}, nil
-	}
-
-	partitionHelper := utils.NewPartitionHelper(c.logger)
-	return partitionHelper.GetPartitions(), nil
+	// default to FullTablePartition=true until parallel initial load is implemented
+	return []*protos.QRepPartition{
+		{
+			PartitionId:        shared_mongo.MongoFullTablePartitionId,
+			Range:              nil,
+			FullTablePartition: true,
+		},
+	}, nil
 }
 
 func (c *MongoConnector) PullQRepRecords(
@@ -67,13 +61,11 @@ func (c *MongoConnector) PullQRepRecords(
 	defer shutDown()
 
 	filter := bson.D{}
+	// FullTablePartition is always true until parallel initial load is implemented, see `GetQRepPartitions`
 	if !partition.FullTablePartition {
-		// For now partition range is always nil, see `GetQRepPartitions`
-		if partition.Range != nil {
-			filter, err = toRangeFilter(partition.Range)
-			if err != nil {
-				return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
-			}
+		filter, err = toRangeFilter(partition.Range)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
 		}
 	}
 
