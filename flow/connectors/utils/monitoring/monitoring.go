@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
@@ -267,11 +268,12 @@ func AppendSlotSizeInfo(
 	return nil
 }
 
-func isMySQLFullTablePartition(partition *protos.QRepPartition) bool {
+func supportsStatsForFullTablePartition(partition *protos.QRepPartition) bool {
 	if partition == nil {
 		return false
 	}
-	return partition.PartitionId == shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID
+	return partition.PartitionId == shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID ||
+		partition.PartitionId == shared_mongo.MongoFullTablePartitionId
 }
 
 func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
@@ -282,7 +284,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
 		return errors.New("cannot add nil partition to qrep run")
 	}
-	if partition.Range == nil && partition.FullTablePartition && !isMySQLFullTablePartition(partition) {
+	if partition.Range == nil && partition.FullTablePartition && !supportsStatsForFullTablePartition(partition) {
 		internal.LoggerFromCtx(ctx).Info("partition "+partition.PartitionId+
 			" is a full table partition. Metrics logging is skipped.",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
