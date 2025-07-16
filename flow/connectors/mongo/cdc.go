@@ -20,11 +20,17 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-var SupportedOperations = map[string]struct{}{
-	"insert":  {},
-	"update":  {},
-	"replace": {},
-	"delete":  {},
+type Namespace struct {
+	Db   string `bson:"db"`
+	Coll string `bson:"coll"`
+}
+
+type ChangeEvent struct {
+	DocumentKey   map[string]any `bson:"documentKey,omitempty"`
+	FullDocument  map[string]any `bson:"fullDocument,omitempty"`
+	Ns            Namespace      `bson:"ns"`
+	OperationType string         `bson:"operationType"`
+	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
 func (c *MongoConnector) GetTableSchema(
@@ -169,6 +175,34 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
+	addRecordItems := func(documentKey map[string]any, fullDocument map[string]any, items *model.RecordItems) error {
+		if documentKey != nil && documentKey[DefaultDocumentKeyColumnName] != "" {
+			qValue, err := qValueStringFromKey(documentKey[DefaultDocumentKeyColumnName])
+			if err != nil {
+				return fmt.Errorf("failed to convert _id to string: %w", err)
+			}
+			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
+		} else {
+			return errors.New("document key _id not found")
+		}
+
+		if fullDocument != nil {
+			qValue, err := qValueJSONFromDocument(fullDocument)
+			if err != nil {
+				return fmt.Errorf("failed to convert full document to JSON: %w", err)
+			}
+			items.AddColumn(DefaultFullDocumentColumnName, qValue)
+		} else {
+			// `fullDocument` field will not exist in the following scenarios:
+			// 1) operationType is 'delete'
+			// 2) document is deleted / collection is dropped in between update and lookup
+			// 3) update changes the values for at least one of the fields in that collection's
+			//    shard key (although sharding is not supported today)
+			items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
+		}
+		return nil
+	}
+
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
 		recordCount += 1
 		if err := req.RecordStream.AddRecord(ctx, record); err != nil {
@@ -226,29 +260,14 @@ func (c *MongoConnector) PullRecords(
 			}
 		}
 
-		var changeDoc bson.M
-		if err := changeStream.Decode(&changeDoc); err != nil {
+		var changeEvent ChangeEvent
+		if err := changeStream.Decode(&changeEvent); err != nil {
 			return fmt.Errorf("failed to decode change stream document: %w", err)
 		}
 
-		if op, ok := changeDoc["operationType"]; !ok {
-			c.logger.Warn("operationType field not found")
-			continue
-		} else if _, supported := SupportedOperations[op.(string)]; !supported {
-			warnMsg := fmt.Sprintf("skipping unsupported operation %s", op)
-			if nsDoc, ok := changeDoc["ns"].(bson.D); ok && len(nsDoc) == 2 {
-				warnMsg += fmt.Sprintf(" for %s.%s", nsDoc[0].Value, nsDoc[1].Value)
-			}
-			c.logger.Warn(warnMsg)
-			continue
-		}
+		clusterTimeNanos := time.Unix(int64(changeEvent.ClusterTime.T), 0).UnixNano()
 
-		clusterTime := changeDoc["clusterTime"].(bson.Timestamp)
-		clusterTimeNanos := time.Unix(int64(clusterTime.T), 0).UnixNano()
-
-		db := changeDoc["ns"].(bson.D)[0].Value
-		coll := changeDoc["ns"].(bson.D)[1].Value
-		sourceTableName := fmt.Sprintf("%s.%s", db, coll)
+		sourceTableName := fmt.Sprintf("%s.%s", changeEvent.Ns.Db, changeEvent.Ns.Coll)
 		destinationTableName := req.TableNameMapping[sourceTableName].Name
 		if destinationTableName == "" {
 			// should never happen since pipeline should filter out irrelevant tables
@@ -257,70 +276,50 @@ func (c *MongoConnector) PullRecords(
 		}
 
 		items := model.NewMongoRecordItems(2)
+		switch changeEvent.OperationType {
+		case "insert":
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+				return fmt.Errorf("failed to process document: %w", err)
+			}
 
-		if documentKey, found := changeDoc["documentKey"]; found {
-			if len(documentKey.(bson.D)) == 0 || documentKey.(bson.D)[0].Key != DefaultDocumentKeyColumnName {
-				// should never happen
-				return errors.New("invalid document key, expect _id")
+			if err = addRecord(ctx, &model.InsertRecord[model.RecordItems]{
+				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				Items:                items,
+				SourceTableName:      sourceTableName,
+				DestinationTableName: destinationTableName,
+			}); err != nil {
+				return fmt.Errorf("failed to add insert record: %w", err)
 			}
-			id := documentKey.(bson.D)[0].Value
-			qValue, err := qValueStringFromKey(id)
-			if err != nil {
-				return fmt.Errorf("failed to convert _id to string: %w", err)
+		case "update", "replace":
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+				return fmt.Errorf("failed to process document: %w", err)
 			}
-			items.AddColumn(DefaultDocumentKeyColumnName, qValue)
-		} else {
-			// should never happen
-			return errors.New("documentKey field not found")
-		}
 
-		if fullDocument, found := changeDoc["fullDocument"]; found {
-			qValue, err := qValueJSONFromDocument(fullDocument.(bson.D))
-			if err != nil {
-				return fmt.Errorf("failed to convert fullDocument to JSON: %w", err)
+			if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
+				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				NewItems:             items,
+				SourceTableName:      sourceTableName,
+				DestinationTableName: destinationTableName,
+			}); err != nil {
+				return fmt.Errorf("failed to add update record: %w", err)
 			}
-			items.AddColumn(DefaultFullDocumentColumnName, qValue)
-		} else {
-			// `fullDocument` field will not exist in the following scenarios:
-			// 1) operationType is 'delete'
-			// 2) document is deleted / collection is dropped in between update and lookup
-			// 3) update changes the values for at least one of the fields in that collection's
-			//    shard key (although sharding is not supported today)
-			items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
-		}
+		case "delete":
+			if err := addRecordItems(changeEvent.DocumentKey, changeEvent.FullDocument, &items); err != nil {
+				return fmt.Errorf("failed to process document: %w", err)
+			}
 
-		if operationType, ok := changeDoc["operationType"]; ok {
-			switch operationType {
-			case "insert":
-				if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
-					BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
-					Items:                items,
-					SourceTableName:      sourceTableName,
-					DestinationTableName: destinationTableName,
-				}); err != nil {
-					return fmt.Errorf("failed to add insert record: %w", err)
-				}
-			case "update", "replace":
-				if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
-					BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
-					NewItems:             items,
-					SourceTableName:      sourceTableName,
-					DestinationTableName: destinationTableName,
-				}); err != nil {
-					return fmt.Errorf("failed to add update record: %w", err)
-				}
-			case "delete":
-				if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
-					BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
-					Items:                items,
-					SourceTableName:      sourceTableName,
-					DestinationTableName: destinationTableName,
-				}); err != nil {
-					return fmt.Errorf("failed to add delete record: %w", err)
-				}
-			default:
-				return fmt.Errorf("unsupported operationType: %s", operationType)
+			if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
+				BaseRecord:           model.BaseRecord{CommitTimeNano: clusterTimeNanos},
+				Items:                items,
+				SourceTableName:      sourceTableName,
+				DestinationTableName: destinationTableName,
+			}); err != nil {
+				return fmt.Errorf("failed to add delete record: %w", err)
 			}
+		default:
+			c.logger.Warn(fmt.Sprintf("skipping event with unsupported operation type '%s' (db=%s coll=%s)",
+				changeEvent.OperationType, changeEvent.Ns.Db, changeEvent.Ns.Coll))
+			continue
 		}
 		checkpoint()
 	}
