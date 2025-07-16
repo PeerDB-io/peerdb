@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"math/big"
+	"os"
 	"reflect"
 	"regexp"
 	"strconv"
@@ -41,6 +42,10 @@ func TestPeerFlowE2ETestSuitePG_CH(t *testing.T) {
 }
 
 func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
+	if os.Getenv("CI_MYSQL_VERSION") == "" {
+		t.Skip()
+	}
+
 	e2eshared.RunSuite(t, SetupSuite(t, false, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
 		suffix := "mych_" + strings.ToLower(shared.RandomString(8))
@@ -50,6 +55,10 @@ func TestPeerFlowE2ETestSuiteMySQL_CH(t *testing.T) {
 }
 
 func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
+	if os.Getenv("CI_CLICKHOUSE_CLUTER") == "" {
+		t.Skip()
+	}
+
 	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.PostgresSource, string, error) {
 		t.Helper()
 		suffix := "pgchcl_" + strings.ToLower(shared.RandomString(8))
@@ -59,6 +68,10 @@ func TestPeerFlowE2ETestSuitePG_CH_Cluster(t *testing.T) {
 }
 
 func TestPeerFlowE2ETestSuiteMySQL_CH_Cluster(t *testing.T) {
+	if os.Getenv("CI_CLICKHOUSE_CLUTER") == "" || os.Getenv("CI_MYSQL_VERSION") == "" {
+		t.Skip()
+	}
+
 	e2eshared.RunSuite(t, SetupSuite(t, true, func(t *testing.T) (*e2e.MySqlSource, string, error) {
 		t.Helper()
 		suffix := "mychcl_" + strings.ToLower(shared.RandomString(8))

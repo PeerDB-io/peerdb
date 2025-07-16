@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -65,6 +66,10 @@ func (s ClickHouseSuite) Suffix() string {
 }
 
 func (s ClickHouseSuite) Peer() *protos.Peer {
+	host := os.Getenv("CI_CLICKHOUSE_HOST")
+	if host == "" {
+		host = "localhost"
+	}
 	dbname := "e2e_test_" + s.suffix
 	if s.cluster {
 		ret := &protos.Peer{
@@ -72,9 +77,10 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 			Type: protos.DBType_CLICKHOUSE,
 			Config: &protos.Peer_ClickhouseConfig{
 				ClickhouseConfig: &protos.ClickhouseConfig{
-					Host:       "localhost",
+					Host:       host,
 					Port:       9001,
 					Database:   dbname,
+					Password:   os.Getenv("CI_CLICKHOUSE_PASSWORD"),
 					DisableTls: true,
 					S3:         s.s3Helper.S3Config,
 					Cluster:    "cicluster",
@@ -90,14 +96,19 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 }
 
 func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
+	host := os.Getenv("CI_CLICKHOUSE_HOST")
+	if host == "" {
+		host = "localhost"
+	}
 	ret := &protos.Peer{
 		Name: e2e.AddSuffix(s, dbname),
 		Type: protos.DBType_CLICKHOUSE,
 		Config: &protos.Peer_ClickhouseConfig{
 			ClickhouseConfig: &protos.ClickhouseConfig{
-				Host:       "localhost",
+				Host:       host,
 				Port:       9000,
 				Database:   dbname,
+				Password:   os.Getenv("CI_CLICKHOUSE_PASSWORD"),
 				DisableTls: true,
 				S3:         s.s3Helper.S3Config,
 			},
@@ -375,7 +386,7 @@ func SetupSuite[TSource e2e.SuiteSource](
 		t.Helper()
 
 		source, suffix, err := setupSource(t)
-		require.NoError(t, err, "failed to setup postgres")
+		require.NoError(t, err, "failed to setup source")
 
 		s3Helper, err := e2e_s3.NewS3TestHelper(t.Context(), e2e_s3.Minio)
 		require.NoError(t, err, "failed to setup S3")
