@@ -50,6 +50,11 @@ func (s *ClickHouseAvroSyncMethod) s3TableFunctionBuilder(ctx context.Context, a
 	if err != nil {
 		return "", err
 	}
+	if creds.AWS.CanExpire {
+		s.logger.Info("Retrieved Temporary AWS credentials",
+			slog.Time("expiryTimestamp", creds.AWS.Expires),
+			slog.Duration("duration", time.Until(creds.AWS.Expires)))
+	}
 
 	var expr strings.Builder
 	expr.WriteString("s3(")
