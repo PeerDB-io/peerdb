@@ -1,4 +1,4 @@
-name: peerdb-quickstart-dev
+name: peerdb-quickstart-e2e
 
 x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: _peerdb_minioadmin
@@ -13,28 +13,6 @@ x-catalog-config: &catalog-config
   PEERDB_CATALOG_USER: postgres
   PEERDB_CATALOG_PASSWORD: postgres
   PEERDB_CATALOG_DATABASE: postgres
-
-x-flow-worker-env: &flow-worker-env
-  # For Temporal Cloud, this will look like:
-  # <yournamespace>.<id>.tmprl.cloud:7233
-  TEMPORAL_HOST_PORT: temporal:7233
-  PEERDB_TEMPORAL_NAMESPACE: default
-  # For the below 2 cert and key variables,
-  # paste as base64 encoded strings.
-  TEMPORAL_CLIENT_CERT:
-  TEMPORAL_CLIENT_KEY:
-  # For GCS, these will be your HMAC keys instead
-  # For more information:
-  # https://cloud.google.com/storage/docs/authentication/managing-hmackeys
-  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-  # For GCS, set this to "auto" without the quotes
-  AWS_REGION: ${AWS_REGION:-}
-  # For GCS, set this as: https://storage.googleapis.com
-  AWS_ENDPOINT: ${AWS_ENDPOINT:-}
-  # enables worker profiling using Go's pprof
-  ENABLE_PROFILING: "true"
-  PPROF_PORT: "6060"
 
 services:
   catalog:
@@ -51,7 +29,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata-e2e:/var/lib/postgresql/data
       - ./volumes/postgresql.conf:/etc/postgresql.conf
       - ./volumes/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
     healthcheck:
@@ -114,53 +92,6 @@ services:
     ports:
       - 8085:8080
 
-  flow-api:
-    container_name: flow_api
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-api
-      args:
-        PEERDB_VERSION_SHA_SHORT: ${PEERDB_VERSION_SHA_SHORT:-}
-    ports:
-      - 8112:8112
-      - 8113:8113
-    environment:
-      <<: [*catalog-config, *flow-worker-env, *minio-config]
-      PEERDB_ALLOWED_TARGETS:
-      PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
-  flow-snapshot-worker:
-    container_name: flow-snapshot-worker
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-snapshot-worker
-    environment:
-      <<: [*catalog-config, *flow-worker-env, *minio-config]
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
-  flow-worker:
-    container_name: flow-worker
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-worker
-    environment:
-      <<: [*catalog-config, *flow-worker-env, *minio-config]
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      temporal-admin-tools:
-        condition: service_healthy
-
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
@@ -179,48 +110,18 @@ services:
       catalog:
         condition: service_healthy
 
-  peerdb-ui:
-    container_name: peerdb-ui
-    build:
-      context: .
-      dockerfile: stacks/peerdb-ui.Dockerfile
-    ports:
-      - 3000:3000
-    env_file:
-      - path: ./.env
-        required: false
-    environment:
-      <<: *catalog-config
-      DATABASE_URL: postgres://postgres:postgres@catalog:5432/postgres
-      PEERDB_FLOW_SERVER_HTTP: http://flow_api:8113
-      PEERDB_PASSWORD:
-      NEXTAUTH_SECRET: __changeme__
-      NEXTAUTH_URL: http://localhost:3000
-      PEERDB_ALLOWED_TARGETS:
-      PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
-      PEERDB_EXPERIMENTAL_ENABLE_SCRIPTING: true
-    depends_on:
-      - flow-api
-
   minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332
+    image: bitnami/minio:2025.6.13
     volumes:
-      - minio-data:/data
+      - minio-data-e2e:/data
     ports:
       - "9001:9000"
       - "9002:36987"
     environment:
-      <<: *minio-config
-    entrypoint: >
-      /bin/sh -c "
-      export MINIO_ROOT_USER=$$PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID;
-      export MINIO_ROOT_PASSWORD=$$PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY;
-      minio server /data --console-address=":36987" &
-      sleep 2;
-      /usr/bin/mc alias set myminiopeerdb http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
-      /usr/bin/mc mb myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME;
-      wait
-      "
+      MINIO_ROOT_USER: _peerdb_minioadmin
+      MINIO_ROOT_PASSWORD: _peerdb_minioadmin
+      MINIO_CONSOLE_PORT_NUMBER: 36987
+      MINIO_DEFAULT_BUCKETS: peerdbbucket
 
   mysql:
     container_name: mysql
@@ -232,7 +133,7 @@ services:
     environment:
       MYSQL_ROOT_PASSWORD: example
     volumes:
-      - mydata:/var/lib/mysql
+      - mydata-e2e:/var/lib/mysql
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -243,35 +144,27 @@ services:
     environment:
       CLICKHOUSE_PASSWORD: example
     volumes:
-      - chdata:/var/lib/clickhouse
+      - chdata-e2e:/var/lib/clickhouse
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  e2e:
-    image: golang:1.24-alpine@sha256:ddf52008bce1be455fe2b22d780b6693259aaf97b16383b6372f4b22dd33ad66
-    environment:
-      <<: [*catalog-config, *minio-config]
-      TEMPORAL_HOST_PORT: temporal:7233
-      ENABLE_OTEL_METRICS: 'false'
-      AWS_ACCESS_KEY_ID: _peerdb_minioadmin
-      AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
-      AWS_REGION: us-east-1
-      AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
-      CI_CLICKHOUSE_HOST: clickhouse
-      CI_CLICKHOUSE_PASSWORD: example
-    volumes:
-      - ./flow:/flow
-    entrypoint: >
-      /bin/sh -c "
-      apk add --no-cache gcc geos-dev musl-dev &&
-      cd /flow &&
-      go test -p 16 /flow/e2e/clickhouse/... -timeout 900s"
-
 volumes:
-  pgdata:
-  mydata:
-  chdata:
-  minio-data:
+  pgdata-e2e:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  mydata-e2e:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  chdata-e2e:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+  minio-data-e2e:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
 
 networks:
   default:

@@ -1,6 +1,8 @@
 #!/bin/sh
 set -Eeu
 
+cd "$(dirname "$0")"/..
+
 DOCKER="docker"
 EXTRA_ARGS="--no-attach temporal --no-attach temporal-ui"
 PODMAN_ARGS=""
