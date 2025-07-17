@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"sync/atomic"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -28,10 +30,11 @@ const (
 )
 
 type MongoConnector struct {
+	logger log.Logger
 	*metadataStore.PostgresMetadata
 	config    *protos.MongoConfig
 	client    *mongo.Client
-	logger    log.Logger
+	ssh       utils.SSHTunnel
 	bytesRead atomic.Int64
 }
 
@@ -42,7 +45,26 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		return nil, err
 	}
 
-	clientOptions, err := parseAsClientOptions(config)
+	mongoConnector := &MongoConnector{
+		PostgresMetadata: pgMetadata,
+		config:           config,
+		logger:           logger,
+	}
+
+	sshTunnel, err := utils.NewSSHTunnel(ctx, config.SshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
+	}
+	mongoConnector.ssh = sshTunnel
+
+	var meteredDialer meteredDialer
+	if sshTunnel.Client != nil {
+		meteredDialer = newMeteredDialer(&mongoConnector.bytesRead, sshTunnel.Client.DialContext)
+	} else {
+		meteredDialer = newMeteredDialer(&mongoConnector.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
+	}
+
+	clientOptions, err := parseAsClientOptions(config, meteredDialer)
 	if err != nil {
 		return nil, err
 	}
@@ -51,12 +73,16 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	if err != nil {
 		return nil, err
 	}
-	return &MongoConnector{
-		PostgresMetadata: pgMetadata,
-		config:           config,
-		client:           client,
-		logger:           logger,
-	}, nil
+	mongoConnector.client = client
+
+	return mongoConnector, nil
+}
+
+func (c *MongoConnector) Dialer() meteredDialer {
+	if c.ssh.Client == nil {
+		return newMeteredDialer(&c.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
+	}
+	return newMeteredDialer(&c.bytesRead, c.ssh.Client.DialContext)
 }
 
 func (c *MongoConnector) Close() error {
@@ -65,6 +91,11 @@ func (c *MongoConnector) Close() error {
 		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		return c.client.Disconnect(timeout)
+	}
+	if c.ssh.Client != nil {
+		if err := c.ssh.Close(); err != nil {
+			return fmt.Errorf("failed to close SSH tunnel: %w", err)
+		}
 	}
 	return nil
 }
@@ -87,7 +118,7 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 	return buildInfo.Version, nil
 }
 
-func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, error) {
+func parseAsClientOptions(config *protos.MongoConfig, meteredDialer meteredDialer) (*options.ClientOptions, error) {
 	connStr, err := connstring.Parse(config.Uri)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing uri: %w", err)
@@ -107,7 +138,8 @@ func parseAsClientOptions(config *protos.MongoConfig) (*options.ClientOptions, e
 		// always use compression
 		SetCompressors([]string{"zstd", "snappy"}).
 		// always use majority read concern for correctness
-		SetReadConcern(readconcern.Majority())
+		SetReadConcern(readconcern.Majority()).
+		SetDialer(&meteredDialer)
 
 	switch config.ReadPreference {
 	case protos.ReadPreference_PRIMARY:

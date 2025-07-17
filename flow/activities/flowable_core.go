@@ -453,6 +453,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("[qrep] failed to pull records: %w", err))
 		}
 
+		// should only be effective for Postgres source, others report within connector
 		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
@@ -556,6 +557,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
 
+		// should only be effective for Postgres source, others report within connector
 		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(

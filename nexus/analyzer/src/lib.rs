@@ -641,10 +641,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
         }
         DbType::Mongo => {
             let mongo_config = MongoConfig {
-                uri: opts
-                    .get("uri")
-                    .context("no uri specified")?
-                    .to_string(),
+                uri: opts.get("uri").context("no uri specified")?.to_string(),
                 username: opts
                     .get("username")
                     .context("no username specified")?
@@ -667,6 +664,7 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .context("no read preference specified")?
                     .parse::<i32>()
                     .context("unable to parse read preference as valid int")?,
+                ssh_config: None,
             };
             Config::MongoConfig(mongo_config)
         }

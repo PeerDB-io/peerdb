@@ -15,23 +15,23 @@ import (
 	"github.com/go-mysql-org/go-mysql/client"
 )
 
-type MeteredConn struct {
+type meteredConn struct {
 	net.Conn
 	bytesRead *atomic.Int64
 }
 
-func (mc *MeteredConn) Read(b []byte) (int, error) {
+func (mc *meteredConn) Read(b []byte) (int, error) {
 	read, err := mc.Conn.Read(b)
 	mc.bytesRead.Add(int64(read))
 	return read, err
 }
 
-func NewMeteredDialer(bytesRead *atomic.Int64, innerDialer client.Dialer) client.Dialer {
+func newMeteredDialer(bytesRead *atomic.Int64, innerDialer client.Dialer) client.Dialer {
 	return func(ctx context.Context, network string, address string) (net.Conn, error) {
 		conn, err := innerDialer(ctx, network, address)
 		if err != nil {
 			return conn, err
 		}
-		return &MeteredConn{Conn: conn, bytesRead: bytesRead}, nil
+		return &meteredConn{Conn: conn, bytesRead: bytesRead}, nil
 	}
 }
