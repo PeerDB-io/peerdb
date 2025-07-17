@@ -1,9 +1,15 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
-import { blankSSHConfig, sshSetting } from '@/app/peers/create/[peerType]/helpers/ssh';
+import {
+  blankSSHConfig,
+  sshSetting,
+} from '@/app/peers/create/[peerType]/helpers/ssh';
 import SelectTheme from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
-import { handleFieldChange, handleSSHParam } from '@/components/PeerForms/common';
+import {
+  handleFieldChange,
+  handleSSHParam,
+} from '@/components/PeerForms/common';
 import { MongoConfig, SSHConfig } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
@@ -24,16 +30,15 @@ export default function MongoForm({
   setter,
   config,
 }: MongoFormProps) {
-    const [showSSH, setShowSSH] = useState(false);
-    const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
+  const [showSSH, setShowSSH] = useState(false);
+  const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
 
-    useEffect(() => {
-      setter((prev) => ({
-        ...prev,
-        sshConfig: showSSH ? sshConfig : undefined,
-      }));
-    }, [sshConfig, setter, showSSH]);
-
+  useEffect(() => {
+    setter((prev) => ({
+      ...prev,
+      sshConfig: showSSH ? sshConfig : undefined,
+    }));
+  }, [sshConfig, setter, showSSH]);
 
   return (
     <>
