@@ -57,11 +57,11 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	}
 	mongoConnector.ssh = sshTunnel
 
-	var meteredDialer meteredDialer
+	var meteredDialer utils.MeteredDialer
 	if sshTunnel.Client != nil {
-		meteredDialer = newMeteredDialer(&mongoConnector.bytesRead, sshTunnel.Client.DialContext)
+		meteredDialer = utils.NewMeteredDialer(&mongoConnector.bytesRead, sshTunnel.Client.DialContext, true)
 	} else {
-		meteredDialer = newMeteredDialer(&mongoConnector.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
+		meteredDialer = utils.NewMeteredDialer(&mongoConnector.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
 
 	clientOptions, err := parseAsClientOptions(config, meteredDialer)
@@ -76,13 +76,6 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	mongoConnector.client = client
 
 	return mongoConnector, nil
-}
-
-func (c *MongoConnector) Dialer() meteredDialer {
-	if c.ssh.Client == nil {
-		return newMeteredDialer(&c.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
-	}
-	return newMeteredDialer(&c.bytesRead, c.ssh.Client.DialContext)
 }
 
 func (c *MongoConnector) Close() error {
@@ -118,7 +111,7 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 	return buildInfo.Version, nil
 }
 
-func parseAsClientOptions(config *protos.MongoConfig, meteredDialer meteredDialer) (*options.ClientOptions, error) {
+func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.MeteredDialer) (*options.ClientOptions, error) {
 	connStr, err := connstring.Parse(config.Uri)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing uri: %w", err)

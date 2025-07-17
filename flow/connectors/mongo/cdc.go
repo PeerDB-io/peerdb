@@ -160,22 +160,14 @@ func (c *MongoConnector) PullRecords(
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
-	reportBytesCtx, cancelReportBytes := context.WithCancel(ctx)
+
+	reportBytesShutdown := shared.Interval(ctx, time.Second*10, func() {
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, c.bytesRead.Swap(0))
+	})
 
 	defer func() {
 		cancelTimeout()
-		cancelReportBytes()
-	}()
-
-	go func() {
-		for {
-			select {
-			case <-reportBytesCtx.Done():
-				return
-			case <-time.After(10 * time.Second):
-				otelManager.Metrics.FetchedBytesCounter.Add(ctx, c.bytesRead.Swap(0))
-			}
-		}
+		reportBytesShutdown()
 	}()
 
 	checkpoint := func() {
