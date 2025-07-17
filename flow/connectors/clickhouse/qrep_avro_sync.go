@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -107,7 +108,7 @@ func (s *ClickHouseAvroSyncMethod) SyncRecords(
 	}
 
 	batchIdentifierForFile := fmt.Sprintf("%s_%d", shared.RandomString(16), syncBatchID)
-	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, flowJobName, nil, nil)
+	avroFile, err := s.writeToAvroFile(ctx, env, stream, nil, avroSchema, batchIdentifierForFile, nil, nil)
 	if err != nil {
 		return 0, err
 	}
@@ -223,7 +224,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 
 			subFile, err := s.writeToAvroFile(ctx, config.Env, substream, &avroSize, avroSchema,
 				fmt.Sprintf("%s.%06d", partition.PartitionId, chunkNum),
-				config.FlowJobName, destTypeConversions, numericTruncator)
+				destTypeConversions, numericTruncator)
 			if err != nil {
 				return nil, 0, err
 			}
@@ -237,7 +238,7 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 		}
 	} else {
 		avroFile, err := s.writeToAvroFile(
-			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId, config.FlowJobName,
+			ctx, config.Env, stream, nil, avroSchema, partition.PartitionId,
 			destTypeConversions, numericTruncator,
 		)
 		if err != nil {
@@ -384,7 +385,6 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	avroSize *atomic.Int64,
 	avroSchema *model.QRecordAvroSchemaDefinition,
 	identifierForFile string,
-	flowJobName string,
 	typeConversions map[string]types.TypeConversion,
 	numericTruncator model.SnapshotTableNumericTruncator,
 ) (utils.AvroFile, error) {
@@ -395,7 +395,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 		return utils.AvroFile{}, fmt.Errorf("failed to parse staging path: %w", err)
 	}
 
-	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
+	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, uuid.NewString(), identifierForFile)
 	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
 	avroFile, err := ocfWriter.WriteRecordsToS3(
 		ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, avroSize, typeConversions, numericTruncator,
