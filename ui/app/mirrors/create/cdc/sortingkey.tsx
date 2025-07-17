@@ -3,7 +3,7 @@ import {
   Dispatch,
   SetStateAction,
   useCallback,
-  useEffect,
+  useMemo,
   useState,
 } from 'react';
 import ReactSelect from 'react-select';
@@ -11,6 +11,7 @@ import ReactSelect from 'react-select';
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import SelectTheme from '@/app/styles/select';
 import { notifySortingKey } from '@/app/utils/notify';
+import { ColumnSetting } from '@/grpc_generated/flow';
 import { Button } from '@/lib/Button';
 import { Checkbox } from '@/lib/Checkbox';
 import { Icon } from '@/lib/Icon';
@@ -27,83 +28,188 @@ interface SortingKeysProps {
   columns: string[];
   tableRow: TableMapRow;
   loading: boolean;
+  rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
+}
+
+function SortedSelection(
+  tableRow: TableMapRow,
+  valueFunc: (setting: ColumnSetting) => number
+): ColumnSetting[] {
+  const filtered = tableRow.columns.filter((col) => valueFunc(col) > 0);
+  filtered.sort((r1, r2) => valueFunc(r1) - valueFunc(r2));
+  return filtered;
+}
+
+function UpdatedRows(
+  rows: TableMapRow[],
+  tableRow: TableMapRow,
+  colName: string,
+  update: (setting: ColumnSetting) => ColumnSetting
+): TableMapRow[] {
+  const rowIndex = rows.findIndex((row) => row.source === tableRow.source);
+  if (rowIndex !== -1) {
+    const newRows = [...rows];
+    const columns = rows[rowIndex].columns.map(update);
+    if (!columns.find((setting) => setting.sourceName === colName)) {
+      columns.push(
+        update({
+          sourceName: colName,
+          destinationName: '',
+          destinationType: '',
+          ordering: 0,
+          partitioning: 0,
+          nullableEnabled: false,
+        })
+      );
+    }
+    newRows[rowIndex] = { ...rows[rowIndex], columns };
+    return newRows;
+  }
+  return rows;
 }
 
 export default function SelectSortingKeys({
   columns,
   loading,
   tableRow,
+  rows,
   setRows,
 }: SortingKeysProps) {
-  const [sortingKeysSelections, setSortingKeysSelections] = useState<string[]>(
-    []
+  const sortingKeysSelections = useMemo(
+    () => SortedSelection(tableRow, (setting) => setting.ordering),
+    [tableRow]
   );
   const [showSortingKey, setShowSortingKey] = useState(false);
 
-  const handleSortingKey = useCallback(
-    (col: string, action: 'add' | 'remove') => {
-      setSortingKeysSelections((prev) => {
-        if (action === 'add' && !prev.some((key) => key === col)) {
-          return [...prev, col];
-        } else if (action === 'remove') {
-          return prev.filter((prevCol) => prevCol !== col);
-        }
-        return prev;
-      });
+  const partitioningKeysSelections = useMemo(
+    () => SortedSelection(tableRow, (setting) => setting.partitioning),
+    [tableRow]
+  );
+  const [showPartitioningKey, setShowPartitioningKey] = useState(false);
+
+  const handleAddSortingKey = useCallback(
+    (col: string) => {
+      if (
+        !sortingKeysSelections.find((setting) => setting.sourceName === col)
+      ) {
+        setRows((rows) =>
+          UpdatedRows(rows, tableRow, col, (setting) => ({
+            ...setting,
+            ordering:
+              setting.sourceName === col
+                ? sortingKeysSelections.length + 1
+                : sortingKeysSelections.indexOf(setting) + 1,
+          }))
+        );
+      }
     },
-    []
+    [sortingKeysSelections, setRows, tableRow]
   );
 
-  const registerSortingKeys = useCallback(() => {
-    setRows((prevRows) => {
-      const rowIndex = prevRows.findIndex(
-        (row) => row.source === tableRow.source
+  const handleRemoveSortingKey = useCallback(
+    (col: ColumnSetting) => {
+      const removedIndex = sortingKeysSelections.findIndex(
+        (setting) => setting === col
       );
-      if (rowIndex !== -1) {
-        const newColumns = prevRows[rowIndex].columns.map((col) => ({
-          ...col,
-          ordering:
-            sortingKeysSelections.findIndex((key) => key === col.sourceName) +
-            1,
-        }));
-        sortingKeysSelections.forEach((sortingKeyCol, orderingIndex) => {
-          if (!newColumns.some((col) => col.sourceName === sortingKeyCol)) {
-            newColumns.push({
-              sourceName: sortingKeyCol,
-              destinationName: '',
-              destinationType: '',
-              ordering: orderingIndex + 1,
-              nullableEnabled: false,
-            });
-          }
-        });
-        const newRows = [...prevRows];
-        newRows[rowIndex].columns = newColumns;
-        return newRows;
+      if (removedIndex !== -1) {
+        setRows((rows) =>
+          UpdatedRows(rows, tableRow, col.sourceName, (setting) => {
+            if (setting === col) {
+              return { ...setting, ordering: 0 };
+            }
+            const oldIndex = sortingKeysSelections.indexOf(setting);
+            return {
+              ...setting,
+              ordering: oldIndex + (oldIndex > removedIndex ? 2 : 1),
+            };
+          })
+        );
       }
-      return prevRows;
-    });
-  }, [sortingKeysSelections, setRows, tableRow.source]);
+    },
+    [sortingKeysSelections, setRows, tableRow]
+  );
+
+  const handleAddPartitioningKey = useCallback(
+    (col: string) => {
+      if (
+        !partitioningKeysSelections.find(
+          (setting) => setting.sourceName === col
+        )
+      ) {
+        setRows((rows) =>
+          UpdatedRows(rows, tableRow, col, (setting) => ({
+            ...setting,
+            partitioning:
+              setting.sourceName === col
+                ? partitioningKeysSelections.length + 1
+                : partitioningKeysSelections.indexOf(setting) + 1,
+          }))
+        );
+      }
+    },
+    [partitioningKeysSelections, setRows, tableRow]
+  );
+
+  const handleRemovePartitioningKey = useCallback(
+    (col: ColumnSetting) => {
+      const removedIndex = partitioningKeysSelections.findIndex(
+        (setting) => setting === col
+      );
+      if (removedIndex !== -1) {
+        setRows((rows) =>
+          UpdatedRows(rows, tableRow, col.sourceName, (setting) => {
+            if (setting === col) {
+              return { ...setting, partitioning: 0 };
+            }
+            const oldIndex = partitioningKeysSelections.indexOf(setting);
+            return {
+              ...setting,
+              partitioning: oldIndex + (oldIndex > removedIndex ? 2 : 1),
+            };
+          })
+        );
+      }
+    },
+    [partitioningKeysSelections, setRows, tableRow]
+  );
 
   const handleShowSortingKey = useCallback(
     (state: boolean) => {
       setShowSortingKey(state);
       if (!state) {
-        setSortingKeysSelections([]);
-        registerSortingKeys();
+        setRows((prevRows) =>
+          prevRows.map((row) => ({
+            ...row,
+            columns: row.columns.map((column) => ({ ...column, ordering: 0 })),
+          }))
+        );
       } else {
         notifySortingKey();
       }
     },
-    [registerSortingKeys]
+    [setRows]
   );
 
-  useEffect(() => {
-    if (showSortingKey) {
-      registerSortingKeys();
-    }
-  }, [registerSortingKeys, showSortingKey]);
+  const handleShowPartitioningKey = useCallback(
+    (state: boolean) => {
+      setShowPartitioningKey(state);
+      if (!state) {
+        setRows((prevRows) =>
+          prevRows.map((row) => ({
+            ...row,
+            columns: row.columns.map((column) => ({
+              ...column,
+              partitioning: 0,
+            })),
+          }))
+        );
+      } else {
+        // TODO notifyPartitioningKey();
+      }
+    },
+    [setRows]
+  );
 
   return (
     <div
@@ -114,7 +220,7 @@ export default function SelectSortingKeys({
         rowGap: '0.5rem',
       }}
     >
-      <ToastContainer containerId={'sorting_key_warning'} />
+      <ToastContainer containerId='sorting_key_warning' />
       <RowWithCheckbox
         label={
           <Label as='label' style={{ fontSize: 13 }}>
@@ -139,9 +245,9 @@ export default function SelectSortingKeys({
         >
           <ReactSelect
             menuPlacement='top'
-            placeholder={'Select sorting keys'}
+            placeholder='Select sorting keys'
             onChange={(val, action) => {
-              val && handleSortingKey(val.value, 'add');
+              if (val) handleAddSortingKey(val.value);
             }}
             isLoading={loading}
             value={null}
@@ -151,20 +257,69 @@ export default function SelectSortingKeys({
             isClearable
           />
           <div style={sortingKeyPillContainerStyle}>
-            {sortingKeysSelections.map((col: string) => {
-              return (
-                <div key={col} style={sortingKeyPillStyle}>
-                  <p style={{ fontSize: '0.7rem' }}>{col}</p>
-                  <Button
-                    variant='normalBorderless'
-                    onClick={() => handleSortingKey(col, 'remove')}
-                    style={{ padding: 0 }}
-                  >
-                    <Icon name='close' />
-                  </Button>
-                </div>
-              );
-            })}
+            {sortingKeysSelections.map((col: ColumnSetting) => (
+              <div key={col.sourceName} style={sortingKeyPillStyle}>
+                <p style={{ fontSize: '0.7rem' }}>{col.sourceName}</p>
+                <Button
+                  variant='normalBorderless'
+                  onClick={() => handleRemoveSortingKey(col)}
+                  style={{ padding: 0 }}
+                >
+                  <Icon name='close' />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <RowWithCheckbox
+        label={
+          <Label as='label' style={{ fontSize: 13 }}>
+            Partition destination
+          </Label>
+        }
+        action={
+          <Checkbox
+            style={{ marginLeft: 0 }}
+            checked={showPartitioningKey}
+            onCheckedChange={handleShowPartitioningKey}
+          />
+        }
+      />
+      {showPartitioningKey && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignContent: 'center',
+          }}
+        >
+          <ReactSelect
+            menuPlacement='top'
+            placeholder='Select partitioning columns'
+            onChange={(val, action) => {
+              if (val) handleAddPartitioningKey(val.value);
+            }}
+            isLoading={loading}
+            value={null}
+            styles={engineOptionStyles}
+            options={columns.map((col) => ({ value: col, label: col }))}
+            theme={SelectTheme}
+            isClearable
+          />
+          <div style={sortingKeyPillContainerStyle}>
+            {partitioningKeysSelections.map((col: ColumnSetting) => (
+              <div key={col.sourceName} style={sortingKeyPillStyle}>
+                <p style={{ fontSize: '0.7rem' }}>{col.sourceName}</p>
+                <Button
+                  variant='normalBorderless'
+                  onClick={() => handleRemovePartitioningKey(col)}
+                  style={{ padding: 0 }}
+                >
+                  <Icon name='close' />
+                </Button>
+              </div>
+            ))}
           </div>
         </div>
       )}

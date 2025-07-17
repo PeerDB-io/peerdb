@@ -45,7 +45,9 @@ export default function ColumnBox({
     const partOfOrderingKey = rows
       .find((row) => row.source == tableRow.source)
       ?.columns.some(
-        (col) => col.sourceName === column.name && col.ordering <= 0
+        (col) =>
+          col.sourceName === column.name &&
+          (col.ordering <= 0 || col.partitioning <= 0)
       );
     return (
       <RowWithCheckbox
