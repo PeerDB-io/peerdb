@@ -20,6 +20,7 @@ message ColumnSetting {
   string destination_name = 2;
   string destination_type = 3;
   int32 ordering = 4;
+  int32 partitioning = 6;
   bool nullable_enabled = 5;
 }
 

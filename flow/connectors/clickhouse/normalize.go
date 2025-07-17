@@ -138,13 +138,10 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 	colNameMap := make(map[string]string)
 	for idx, builder := range builders {
-		builder.WriteString("CREATE ")
 		if config.IsResync {
-			builder.WriteString("OR REPLACE ")
-		}
-		builder.WriteString("TABLE ")
-		if !config.IsResync {
-			builder.WriteString("IF NOT EXISTS ")
+			builder.WriteString("CREATE OR REPLACE TABLE ")
+		} else {
+			builder.WriteString("CREATE TABLE IF NOT EXISTS ")
 		}
 		if c.config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
 			// distributed table gets destination name, avoid naming conflict
@@ -212,18 +209,23 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 	fmt.Fprintf(&stmtBuilder, " ENGINE = %s", engine)
 
-	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
-	if sourceSchemaAsDestinationColumn {
-		orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
-	}
-
 	if tmEngine != protos.TableEngine_CH_ENGINE_NULL {
+		orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
+		if sourceSchemaAsDestinationColumn {
+			orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
+		}
+
 		if len(orderByColumns) > 0 {
 			orderByStr := strings.Join(orderByColumns, ",")
-
 			fmt.Fprintf(&stmtBuilder, " PRIMARY KEY (%[1]s) ORDER BY (%[1]s)", orderByStr)
 		} else {
 			stmtBuilder.WriteString(" ORDER BY tuple()")
+		}
+
+		partitionByColumns := getOrderedPartitionByColumns(tableMapping, colNameMap)
+		if len(partitionByColumns) > 0 {
+			partitionByStr := strings.Join(partitionByColumns, ",")
+			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
 		}
 
 		if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
@@ -268,11 +270,9 @@ func getOrderedOrderByColumns(
 	for idx, pk := range sourcePkeys {
 		pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(pk)
 	}
-	if len(sourcePkeys) > 0 {
-		if len(colNameMap) > 0 {
-			for idx, pk := range sourcePkeys {
-				pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, pk))
-			}
+	if len(sourcePkeys) > 0 && len(colNameMap) > 0 {
+		for idx, pk := range sourcePkeys {
+			pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, pk))
 		}
 	}
 
@@ -299,6 +299,31 @@ func getOrderedOrderByColumns(
 	}
 
 	return orderbyColumns
+}
+
+func getOrderedPartitionByColumns(
+	tableMapping *protos.TableMapping,
+	colNameMap map[string]string,
+) []string {
+	partitionby := make([]*protos.ColumnSetting, 0)
+	if tableMapping != nil {
+		for _, col := range tableMapping.Columns {
+			if col.Partitioning > 0 {
+				partitionby = append(partitionby, col)
+			}
+		}
+	}
+
+	slices.SortStableFunc(partitionby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
+		return cmp.Compare(a.Ordering, b.Ordering)
+	})
+
+	partitionbyColumns := make([]string, len(partitionby))
+	for idx, col := range partitionby {
+		partitionbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col.SourceName))
+	}
+
+	return partitionbyColumns
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(
