@@ -243,7 +243,7 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
                         sshParam.label === "Host's Public Key"
                           ? 'hostKey'
                           : (sshParam.label.toLowerCase() as keyof SSHConfig)
-                      ] || ''
+                      ] ?? ''
                     }
                   />
                 )}
