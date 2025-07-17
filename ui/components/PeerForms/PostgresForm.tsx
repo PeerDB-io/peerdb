@@ -225,6 +225,7 @@ export default function PostgresForm({
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                       handleSSHParam(e, sshParam, setSSHConfig)
                     }
+                    style={{ border: 'none' }}
                     type={sshParam.type}
                   />
                 ) : (
