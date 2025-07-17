@@ -226,7 +226,6 @@ export default function PostgresForm({
                       handleSSHParam(e, sshParam, setSSHConfig)
                     }
                     type={sshParam.type}
-                    defaultValue={(sshConfig as SSHConfig)['privateKey'] || ''}
                   />
                 ) : (
                   <TextField
