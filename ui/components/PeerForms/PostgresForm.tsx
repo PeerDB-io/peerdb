@@ -243,7 +243,7 @@ export default function PostgresForm({
                         sshParam.label === "Host's Public Key"
                           ? 'hostKey'
                           : (sshParam.label.toLowerCase() as keyof SSHConfig)
-                      ] || ''
+                      ] ?? ''
                     }
                   />
                 )}
