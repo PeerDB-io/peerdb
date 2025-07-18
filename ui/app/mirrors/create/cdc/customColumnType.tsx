@@ -50,7 +50,7 @@ export default function CustomColumnType({
     const columnsWithDstTypes = selectedColumns.filter(
       (col) => destinationTypeMapping[col.name] !== undefined
     );
-    if (columnsWithDstTypes.length == 0) {
+    if (columnsWithDstTypes.length === 0) {
       setUseCustom(false);
     }
     return columnsWithDstTypes;
@@ -100,7 +100,7 @@ export default function CustomColumnType({
                 tc.destinationTypes.map((type: string) => ({
                   value: type,
                   label: type,
-                })) ?? [];
+                }));
               break;
             }
           }
