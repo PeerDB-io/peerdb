@@ -449,7 +449,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			} else if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException:
+		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException, chproto.ErrCannotReadFromSocket:
 			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
