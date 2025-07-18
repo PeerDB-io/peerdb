@@ -219,26 +219,34 @@ export default function MySqlForm({ settings, setter, config }: MySqlProps) {
                   alignItems: 'center',
                 }}
               >
-                <TextField
-                  variant='simple'
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleSSHParam(e, sshParam, setSSHConfig)
-                  }
-                  style={{
-                    border: sshParam.type === 'file' ? 'none' : 'auto',
-                    height: sshParam.type === 'textarea' ? '15rem' : 'auto',
-                  }}
-                  type={sshParam.type}
-                  defaultValue={
-                    (sshConfig as SSHConfig)[
-                      sshParam.label === 'SSH Private Key'
-                        ? 'privateKey'
-                        : sshParam.label === "Host's Public Key"
+                {sshParam.label === 'SSH Private Key' ? (
+                  <TextField
+                    variant='simple'
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      handleSSHParam(e, sshParam, setSSHConfig)
+                    }
+                    style={{ border: 'none' }}
+                    type={sshParam.type}
+                  />
+                ) : (
+                  <TextField
+                    variant='simple'
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      handleSSHParam(e, sshParam, setSSHConfig)
+                    }
+                    style={{
+                      height: sshParam.type === 'textarea' ? '15rem' : 'auto',
+                    }}
+                    type={sshParam.type}
+                    value={
+                      (sshConfig as SSHConfig)[
+                        sshParam.label === "Host's Public Key"
                           ? 'hostKey'
                           : (sshParam.label.toLowerCase() as keyof SSHConfig)
-                    ] || ''
-                  }
-                />
+                      ] ?? ''
+                    }
+                  />
+                )}
                 {sshParam.tips && <InfoPopover tips={sshParam.tips} />}
               </div>
             }
