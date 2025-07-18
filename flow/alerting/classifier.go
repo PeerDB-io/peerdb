@@ -40,6 +40,7 @@ var (
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
 	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
+	MySqlRdsBinlogFileNotFoundRe      = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 )
 
 func (e ErrorAction) String() string {
@@ -333,6 +334,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(myErr.Code)),
 		}
 		switch myErr.Code {
+		case 29: // EE_FILENOTFOUND
+			if MySqlRdsBinlogFileNotFoundRe.MatchString(myErr.Message) {
+				return ErrorNotifyBinlogInvalid, myErrorInfo
+			}
+			return ErrorNotifyConnectivity, myErrorInfo
 		case 1037, 1038, 1041, 3015: // ER_OUTOFMEMORY, ER_OUT_OF_SORTMEMORY, ER_OUT_OF_RESOURCES, ER_ENGINE_OUT_OF_MEMORY
 			return ErrorNotifyOOMSource, myErrorInfo
 		case 1021, // ER_DISK_FULL
