@@ -38,6 +38,8 @@ const (
 	CommitLagGaugeName                  = "commit_lag"
 	ErrorEmittedGaugeName               = "error_emitted"
 	ErrorsEmittedCounterName            = "errors_emitted"
+	WarningEmittedGaugeName             = "warning_emitted"
+	WarningsEmittedCounterName          = "warnings_emitted"
 	RecordsSyncedGaugeName              = "records_synced"
 	RecordsSyncedCounterName            = "records_synced_counter"
 	SyncedTablesGaugeName               = "synced_tables"
@@ -61,6 +63,8 @@ type Metrics struct {
 	CommitLagGauge                  metric.Int64Gauge
 	ErrorEmittedGauge               metric.Int64Gauge
 	ErrorsEmittedCounter            metric.Int64Counter
+	WarningsEmittedGauge            metric.Int64Gauge
+	WarningEmittedCounter           metric.Int64Counter
 	RecordsSyncedGauge              metric.Int64Gauge
 	RecordsSyncedCounter            metric.Int64Counter
 	SyncedTablesGauge               metric.Int64Gauge
@@ -236,8 +240,22 @@ func (om *OtelManager) setupMetrics() error {
 	}
 
 	if om.Metrics.ErrorsEmittedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ErrorsEmittedCounterName),
-		// This the actual counter for errors emitted, used for alerting based on error rate/more detailed error analysis
+		// This the actual counter for errors emitted, used for alerting based on error rate, or using more detailed error analysis
 		metric.WithDescription("Counter of errors emitted"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.WarningsEmittedGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(WarningEmittedGaugeName),
+		// This mostly tells whether warning is emitted or not, used for hooking up event based alerting
+		metric.WithDescription("Whether warning was emitted, 1 if emitted, 0 otherwise"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.WarningEmittedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(WarningsEmittedCounterName),
+		// This the actual counter for warnings emitted, used for alerting based on warning rate, or using more detailed error analysis
+		metric.WithDescription("Counter of warnings emitted"),
 	); err != nil {
 		return err
 	}

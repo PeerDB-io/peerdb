@@ -433,14 +433,31 @@ func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.Event
 	a.sendTelemetryMessage(ctx, logger, string(eventType)+":"+key, message, level)
 }
 
+type flowErrorType string
+
+func (f flowErrorType) String() string {
+	return string(f)
+}
+
+const (
+	flowErrorTypeWarn  flowErrorType = "warn"
+	flowErrorTypeError flowErrorType = "error"
+)
+
 // logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
-func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType string, inErr error, loggerFunc func(string, ...any)) {
+func (a *Alerter) logFlowErrorInternal(
+	ctx context.Context,
+	flowName string,
+	errorType flowErrorType,
+	inErr error,
+	loggerFunc func(string, ...any),
+) {
 	logger := internal.LoggerFromCtx(ctx)
 	inErrWithStack := fmt.Sprintf("%+v", inErr)
 	loggerFunc(inErr.Error(), slog.String("stack", inErrWithStack))
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
-		flowName, inErrWithStack, errorType,
+		flowName, inErrWithStack, errorType.String(),
 	); err != nil {
 		logger.Error("failed to insert flow error", slog.Any("error", err))
 		return
@@ -490,25 +507,38 @@ func (a *Alerter) logFlowErrorInternal(ctx context.Context, flowName, errorType 
 		slog.Any("errorClass", errorClass),
 		slog.Any("errorInfo", errInfo),
 		slog.Any("stack", inErrWithStack))
-	errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(
+	errorAttributes := []attribute.KeyValue{
 		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
 		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
 		attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),
 		attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
-	))
-	a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, errorAttributeSet)
-	a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, errorAttributeSet)
+	}
+	if len(errInfo.AdditionalAttributes) != 0 {
+		for k, v := range errInfo.AdditionalAttributes {
+			errorAttributes = append(errorAttributes, attribute.String(k.String(), v))
+		}
+	}
+
+	errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(errorAttributes...))
+	counter := a.otelManager.Metrics.ErrorsEmittedCounter
+	gauge := a.otelManager.Metrics.ErrorEmittedGauge
+	if errorType == flowErrorTypeWarn {
+		counter = a.otelManager.Metrics.WarningEmittedCounter
+		gauge = a.otelManager.Metrics.WarningsEmittedGauge
+	}
+	counter.Add(ctx, 1, errorAttributeSet)
+	gauge.Record(ctx, 1, errorAttributeSet)
 }
 
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
-	a.logFlowErrorInternal(ctx, flowName, "error", inErr, logger.Error)
+	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeError, inErr, logger.Error)
 	return inErr
 }
 
 func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, inErr error) {
 	logger := internal.LoggerFromCtx(ctx)
-	a.logFlowErrorInternal(ctx, flowName, "warn", inErr, logger.Warn)
+	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeWarn, inErr, logger.Warn)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
