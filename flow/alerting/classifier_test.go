@@ -467,7 +467,7 @@ func TestNumericTruncateOrOutOfRangeWarningShouldBeLossyConversion(t *testing.T)
 			errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("lossy conversion: %w", err))
 			assert.Equal(t, ErrorLossyConversion, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{
-				Source: "avroConverter",
+				Source: "typeConversion",
 				Code:   code,
 				AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 					ErrorAttributeKeyTable:  "tableA1",

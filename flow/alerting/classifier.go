@@ -533,7 +533,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var numericOutOfRangeError *exceptions.NumericOutOfRangeError
 	if errors.As(err, &numericOutOfRangeError) {
 		return ErrorLossyConversion, ErrorInfo{
-			Source: "avroConverter",
+			Source: "typeConversion",
 			Code:   "NUMERIC_OUT_OF_RANGE",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  numericOutOfRangeError.DestinationTable,
@@ -545,7 +545,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var numericTruncatedError *exceptions.NumericTruncatedError
 	if errors.As(err, &numericTruncatedError) {
 		return ErrorLossyConversion, ErrorInfo{
-			Source: "avroConverter",
+			Source: "typeConversion",
 			Code:   "NUMERIC_TRUNCATED",
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  numericTruncatedError.DestinationTable,
