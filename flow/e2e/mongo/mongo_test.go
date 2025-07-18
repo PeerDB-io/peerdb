@@ -235,6 +235,73 @@ func (s MongoClickhouseSuite) Test_CDC() {
 	e2e.RequireEnvCanceled(t, env)
 }
 
+func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
+	t := s.T()
+
+	nestedDoc := func(ch string) bson.D {
+		var v interface{} = ch
+		for i := 100; i >= 1; i-- {
+			v = bson.D{bson.E{Key: fmt.Sprintf("lvl_%d", i), Value: v}}
+		}
+		return v.(bson.D)
+	}
+
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_nested_event"
+	dstTable := "test_nested_event_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	// insert nested doc for initial load
+	res, err := collection.InsertOne(t.Context(), nestedDoc("X"), options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,_full_document")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// insert nested doc for cdc
+	res, err = collection.InsertOne(t.Context(), nestedDoc("X"), options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events to match", srcTable, dstTable, "_id,_full_document")
+
+	oid := bson.D{bson.E{Key: "_id", Value: res.InsertedID}}
+
+	// update nested doc for cdc
+	updateRes, err := collection.UpdateOne(t.Context(), oid, bson.D{bson.E{Key: "$set", Value: nestedDoc("Y")}}, options.UpdateOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), updateRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "update events to match", srcTable, dstTable, "_id,_full_document")
+
+	// replace nested doc for cdc
+	replaceRes, err := collection.ReplaceOne(t.Context(), oid, nestedDoc("Z"), options.Replace())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), replaceRes.ModifiedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "replace events to match", srcTable, dstTable, "_id,_full_document")
+
+	// delete nested doc for cdc
+	deleteRes, err := collection.DeleteOne(t.Context(), oid, options.DeleteOne())
+	require.NoError(t, err)
+	require.Equal(t, int64(1), deleteRes.DeletedCount)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete events to match", srcTable, dstTable, "_id,_full_document")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	t := s.T()
 
