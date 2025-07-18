@@ -225,6 +225,21 @@ func TestPostgresPublicationDoesNotExistErrorShouldBePublicationMissing(t *testi
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresSnapshotDoesNotExistErrorShouldBeInvalidSnapshot(t *testing.T) {
+	// Simulate a snapshot does not exist error
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.UndefinedObject,
+		Message:  `snapshot "custom_snap" does not exist`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to set snapshot: %w", err))
+	assert.Equal(t, ErrorNotifyInvalidSnapshotIdentifier, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UndefinedObject,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresStaleFileHandleErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a stale file handle error
 	err := &exceptions.PostgresWalError{

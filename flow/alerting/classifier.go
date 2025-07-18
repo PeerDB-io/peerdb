@@ -38,6 +38,7 @@ var (
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
 	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
+	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
 )
 
@@ -244,6 +245,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// Check for publication does not exist error
 			if PostgresPublicationDoesNotExistRe.MatchString(pgErr.Message) {
 				return ErrorNotifyPublicationMissing, pgErrorInfo
+			}
+			if PostgresSnapshotDoesNotExistRe.MatchString(pgErr.Message) {
+				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
 			}
 			return ErrorNotifyConnectivity, pgErrorInfo
 
