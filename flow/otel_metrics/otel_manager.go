@@ -240,7 +240,7 @@ func (om *OtelManager) setupMetrics() error {
 	}
 
 	if om.Metrics.ErrorsEmittedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ErrorsEmittedCounterName),
-		// This the actual counter for warnings emitted, used for alerting based on error rate, or using more detailed error analysis
+		// This the actual counter for errors emitted, used for alerting based on error rate, or using more detailed error analysis
 		metric.WithDescription("Counter of errors emitted"),
 	); err != nil {
 		return err
