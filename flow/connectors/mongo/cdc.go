@@ -107,8 +107,7 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 	if err != nil {
 		return model.SetupReplicationResult{}, fmt.Errorf("failed to store initial resume token: %w", err)
 	}
-	c.logger.Info("SetupReplication completed, stored initial resume token",
-		slog.String("flowJobName", input.FlowJobName))
+	c.logger.Info("SetupReplication completed, stored initial resume token")
 	return model.SetupReplicationResult{}, nil
 }
 
@@ -123,7 +122,7 @@ func (c *MongoConnector) PullRecords(
 	c.logger.Info("[started] PullRecords for mirror "+req.FlowJobName,
 		slog.Any("table_mapping", req.TableNameMapping),
 		slog.Uint64("max_batch_size", uint64(req.MaxBatchSize)),
-		slog.Duration("idle_timeout", req.IdleTimeout))
+		slog.Duration("sync_interval", req.IdleTimeout))
 
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
@@ -161,9 +160,14 @@ func (c *MongoConnector) PullRecords(
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
-	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
+
+	reportBytesShutdown := shared.Interval(ctx, time.Second*10, func() {
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, c.bytesRead.Swap(0))
+	})
+
 	defer func() {
 		cancelTimeout()
+		reportBytesShutdown()
 	}()
 
 	checkpoint := func() {
@@ -171,7 +175,7 @@ func (c *MongoConnector) PullRecords(
 			resumeTokenText := base64.StdEncoding.EncodeToString(resumeToken)
 			req.RecordStream.UpdateLatestCheckpointText(resumeTokenText)
 		} else {
-			c.logger.Warn("change stream document does not contain a resume token")
+			c.logger.Warn("change stream does not currently contain a resume token")
 		}
 	}
 
