@@ -70,28 +70,80 @@ func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cu
 	return rows, nil
 }
 
+// buildQFieldFromOID recursively builds a QField from a PostgreSQL OID, handling nested composite types
+func (qe *QRepQueryExecutor) buildQFieldFromOID(name string, oid uint32, typeModifier int32) types.QField {
+	ctype := qe.postgresOIDToQValueKind(oid, qe.customTypeMapping, qe.version)
+
+	if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
+		precision, scale := datatypes.ParseNumericTypmod(typeModifier)
+		return types.QField{
+			Name:      name,
+			Type:      ctype,
+			Nullable:  true,
+			Precision: precision,
+			Scale:     scale,
+		}
+	} else if ctype == types.QValueKindComposite {
+		if typ, ok := qe.typeMap.TypeForOID(oid); ok {
+			if cc, ok := typ.Codec.(*pgtype.CompositeCodec); ok {
+				subQFields := make([]*types.QField, 0)
+				for _, f := range cc.Fields {
+					// Recursively build subfields, handling nested composite types
+					subField := qe.buildQFieldFromOID(f.Name, f.Type.OID, -1)
+					subQFields = append(subQFields, &subField)
+				}
+				return types.QField{
+					Name:      name,
+					Type:      ctype,
+					Nullable:  false,
+					SubFields: subQFields,
+				}
+			}
+		}
+		qe.logger.Error("[pg_query_executor] type not found for oid or not a composite type",
+			slog.String("type_oid", fmt.Sprintf("%d", oid)),
+			slog.String("type_name", name))
+		return types.QField{
+			Name:     name,
+			Type:     ctype,
+			Nullable: false,
+		}
+	} else if ctype == types.QValueKindArrayComposite {
+		if typ, ok := qe.typeMap.TypeForOID(oid); ok {
+			if ac, ok := typ.Codec.(*pgtype.ArrayCodec); ok {
+				subQFields := make([]*types.QField, 0)
+				subField := qe.buildQFieldFromOID(ac.ElementType.Name, ac.ElementType.OID, -1)
+				subQFields = append(subQFields, &subField)
+				return types.QField{
+					Name:      name,
+					Type:      ctype,
+					Nullable:  true,
+					SubFields: subQFields,
+				}
+			}
+		}
+		qe.logger.Error("[pg_query_executor] type not found for oid or not an array composite type",
+			slog.String("type_oid", fmt.Sprintf("%d", oid)),
+			slog.String("type_name", name))
+		return types.QField{
+			Name:     name,
+			Type:     ctype,
+			Nullable: true,
+		}
+	} else {
+		return types.QField{
+			Name:     name,
+			Type:     ctype,
+			Nullable: true,
+		}
+	}
+}
+
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
 func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) types.QRecordSchema {
 	qfields := make([]types.QField, len(fds))
 	for i, fd := range fds {
-		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping, qe.version)
-		// there isn't a way to know if a column is nullable or not
-		if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
-			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
-			qfields[i] = types.QField{
-				Name:      fd.Name,
-				Type:      ctype,
-				Nullable:  true,
-				Precision: precision,
-				Scale:     scale,
-			}
-		} else {
-			qfields[i] = types.QField{
-				Name:     fd.Name,
-				Type:     ctype,
-				Nullable: true,
-			}
-		}
+		qfields[i] = qe.buildQFieldFromOID(fd.Name, fd.DataTypeOID, fd.TypeModifier)
 	}
 	return types.NewQRecordSchema(qfields)
 }
