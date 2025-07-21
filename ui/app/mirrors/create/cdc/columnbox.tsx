@@ -47,7 +47,7 @@ export default function ColumnBox({
       ?.columns.some(
         (col) =>
           col.sourceName === column.name &&
-          (col.ordering <= 0 || col.partitioning <= 0)
+          (col.ordering > 0 || col.partitioning > 0)
       );
     return (
       <RowWithCheckbox
