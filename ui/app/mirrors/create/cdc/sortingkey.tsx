@@ -244,7 +244,7 @@ export default function SelectSortingKeys({
           <ReactSelect
             menuPlacement='top'
             placeholder='Select sorting keys'
-            onChange={(val, action) => {
+            onChange={(val, _action) => {
               if (val) handleAddSortingKey(val.value);
             }}
             isLoading={loading}
@@ -295,7 +295,7 @@ export default function SelectSortingKeys({
           <ReactSelect
             menuPlacement='top'
             placeholder='Select partitioning columns'
-            onChange={(val, action) => {
+            onChange={(val, _action) => {
               if (val) handleAddPartitioningKey(val.value);
             }}
             isLoading={loading}
