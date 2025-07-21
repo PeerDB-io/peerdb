@@ -317,7 +317,6 @@ export default function SchemaBox({
                       className='ml-5'
                       style={{
                         display: 'flex',
-                        //alignItems: 'center',
                         flexDirection: 'column',
                         rowGap: '1rem',
                       }}
