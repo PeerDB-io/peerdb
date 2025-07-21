@@ -2245,16 +2245,16 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	var partitioningKey, sortingKey string
+	var partitionKey, sortingKey string
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	require.NoError(s.t,
 		ch.QueryRow(s.t.Context(),
 			"select partition_key,sorting_key from system.tables where name="+clickhouse.QuoteLiteral(dstTableName),
-		).Scan(&partitioningKey, &sortingKey),
+		).Scan(&partitionKey, &sortingKey),
 	)
 	require.NoError(s.t, ch.Close())
-	require.Equal(s.t, "num", partitioningKey)
+	require.Equal(s.t, "num", partitionKey)
 	require.Equal(s.t, "val", sortingKey)
 
 	env.Cancel(s.t.Context())

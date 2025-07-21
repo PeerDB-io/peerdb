@@ -311,7 +311,7 @@ func getOrderedPartitionByColumns(
 	}
 
 	slices.SortStableFunc(partitionby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
-		return cmp.Compare(a.Ordering, b.Ordering)
+		return cmp.Compare(a.Partitioning, b.Partitioning)
 	})
 
 	partitionbyColumns := make([]string, len(partitionby))
