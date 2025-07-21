@@ -228,11 +228,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
 		}
 
-		if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
-			return nil, err
-		} else if nullable {
-			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
-		}
+		stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 
 		if c.config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
