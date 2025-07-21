@@ -28,7 +28,6 @@ interface SortingKeysProps {
   columns: string[];
   tableRow: TableMapRow;
   loading: boolean;
-  rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
 }
 
@@ -73,7 +72,6 @@ export default function SelectSortingKeys({
   columns,
   loading,
   tableRow,
-  rows,
   setRows,
 }: SortingKeysProps) {
   const sortingKeysSelections = useMemo(

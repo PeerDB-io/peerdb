@@ -529,7 +529,6 @@ export default function SchemaBox({
                                     ).filter((name) => !row.exclude.has(name))}
                                     loading={columnsLoading}
                                     tableRow={row}
-                                    rows={rows}
                                     setRows={setRows}
                                   />
                                 </div>
