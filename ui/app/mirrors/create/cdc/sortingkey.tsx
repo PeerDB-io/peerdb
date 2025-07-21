@@ -275,7 +275,7 @@ export default function SelectSortingKeys({
       <RowWithCheckbox
         label={
           <Label as='label' style={{ fontSize: 13 }}>
-            Partition destination
+            Partition ClickHouse table
           </Label>
         }
         action={
