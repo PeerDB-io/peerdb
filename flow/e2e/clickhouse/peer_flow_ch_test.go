@@ -2250,9 +2250,13 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 	var partitionKey, sortingKey string
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
+	var dstTableSuffix string
+	if s.cluster {
+		dstTableSuffix = "_shard"
+	}
 	require.NoError(s.t,
 		ch.QueryRow(s.t.Context(),
-			"select partition_key,sorting_key from system.tables where name="+clickhouse.QuoteLiteral(dstTableName),
+			"select partition_key,sorting_key from system.tables where name="+clickhouse.QuoteLiteral(dstTableName+dstTableSuffix),
 		).Scan(&partitionKey, &sortingKey),
 	)
 	require.NoError(s.t, ch.Close())
