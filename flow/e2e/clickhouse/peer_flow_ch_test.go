@@ -2255,7 +2255,7 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 	)
 	require.NoError(s.t, ch.Close())
 	require.Equal(s.t, "num", partitioningKey)
-	require.Equal(s.t, "id, val", sortingKey)
+	require.Equal(s.t, "val", sortingKey)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
