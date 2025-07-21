@@ -522,9 +522,9 @@ export default function SchemaBox({
                                 />
                                 <div style={{ width: '50%' }}>
                                   <SelectSortingKeys
-                                    columns={(
-                                      columns.map((column) => column.name) ?? []
-                                    ).filter((name) => !row.exclude.has(name))}
+                                    columns={columns
+                                      .map((column) => column.name)
+                                      .filter((name) => !row.exclude.has(name))}
                                     loading={columnsLoading}
                                     tableRow={row}
                                     setRows={setRows}
