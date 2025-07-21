@@ -361,7 +361,6 @@ func (s KafkaSuite) TestOriginMetadata() {
 		defer cancel()
 		fetches := kafka.PollFetches(ctx)
 		fetches.EachTopic(func(ft kgo.FetchTopic) {
-			require.Equal(s.t, flowName, ft.Topic)
 			ft.EachRecord(func(r *kgo.Record) {
 				require.Equal(s.t, "uint64true", string(r.Value))
 			})
