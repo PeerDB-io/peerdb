@@ -304,7 +304,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
-	randomString := s.attachSchemaSuffix("random_string")
 	dstTableName := s.attachSchemaSuffix("test_cpkey_toast1_dst")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -315,11 +314,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 			t TEXT,
 			t2 TEXT,
 			PRIMARY KEY(id,t)
-		);CREATE OR REPLACE FUNCTION %s( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
-	`, srcTableName, randomString))
+		);`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -341,9 +336,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = rowsTx.Exec(s.t.Context(), fmt.Sprintf(`
-			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,%s(9000))
-		`, srcTableName, randomString), i, testValue)
+		_, err = rowsTx.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))`, srcTableName), i, testValue)
 		e2e.EnvNoError(s.t, env, err)
 	}
 	s.t.Log("Inserted 10 rows into the source table")
@@ -368,7 +362,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
-	randomString := s.attachSchemaSuffix("random_string")
 	dstTableName := s.attachSchemaSuffix("test_cpkey_toast2_dst")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -379,11 +372,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 			t TEXT,
 			t2 TEXT,
 			PRIMARY KEY(id,t)
-		);CREATE OR REPLACE FUNCTION %s( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
-	`, srcTableName, randomString))
+		);`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -403,9 +392,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,%s(9000))
-		`, srcTableName, randomString), i, testValue)
+		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))`, srcTableName), i, testValue)
 		e2e.EnvNoError(s.t, env, err)
 	}
 	s.t.Log("Inserted 10 rows into the source table")

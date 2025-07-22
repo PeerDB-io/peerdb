@@ -2102,6 +2102,45 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_CoalescingEngine() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("relies on random_string UDF")
+	}
+
+	srcTableName := "test_coalescing"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_coalescing"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT)`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_nullengine"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			Engine:                     protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE,
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// test toast
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,num,val) VALUES (0,0,random_string(9000))`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert", srcTableName, dstTableName, "id,num,val")
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET num = 1`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "update", srcTableName, dstTableName, "id,num,val")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 	srcTableName := "test_partition_key_integer"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
