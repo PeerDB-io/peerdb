@@ -511,6 +511,7 @@ func CDCFlowWorkflow(
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
+	state.SyncFlowOptions.NumberOfSyncs = 0 // removed feature
 
 	var err error
 	ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{

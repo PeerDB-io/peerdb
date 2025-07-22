@@ -52,6 +52,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
     idleTimeout: defaultIdleTimeout,
     additionalTables: [],
     removedTables: [],
+    numberOfSyncs: 0,
     updatedEnv: {},
     snapshotNumRowsPerPartition: defaultSnapshotNumRowsPerPartition,
     snapshotMaxParallelWorkers: defaultSnapshotMaxParallelWorkers,
@@ -72,6 +73,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         defaultIdleTimeout,
       additionalTables: [],
       removedTables: [],
+      numberOfSyncs: 0,
       updatedEnv: {},
       snapshotNumRowsPerPartition:
         (res as MirrorStatusResponse).cdcStatus?.config
