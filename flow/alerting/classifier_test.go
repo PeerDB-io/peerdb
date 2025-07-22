@@ -428,3 +428,32 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 		Code:   "60",
 	}, errInfo, "Unexpected error info")
 }
+
+func TestNonClassifiedNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
+	// Simulate an unclassified normalize error
+	err := &clickhouse.Exception{
+		Code:    207,
+		Message: "JOIN  ANY LEFT JOIN ... ON a.id = b.b_id ambiguous identifier 'c_id'. In scope SELECT ...",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "207",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestNonClassifiedNonNormalizeErrorShouldBeOtherWithSourceClickHouse(t *testing.T) {
+	// Simulate an unclassified non-normalize error
+	err := &clickhouse.Exception{
+		Code:    -1,
+		Message: "Some random exception",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("random exception: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "-1",
+	}, errInfo, "Unexpected error info")
+}
