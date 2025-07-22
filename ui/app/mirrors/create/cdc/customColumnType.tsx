@@ -158,6 +158,7 @@ export default function CustomColumnType({
                     destinationName: '',
                     destinationType: value,
                     ordering: 0,
+                    partitioning: 0,
                     nullableEnabled: false,
                   },
                 ],

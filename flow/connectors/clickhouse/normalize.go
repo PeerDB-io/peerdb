@@ -227,17 +227,18 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 		if len(orderByColumns) > 0 {
 			orderByStr := strings.Join(orderByColumns, ",")
-
 			fmt.Fprintf(&stmtBuilder, " PRIMARY KEY (%[1]s) ORDER BY (%[1]s)", orderByStr)
 		} else {
 			stmtBuilder.WriteString(" ORDER BY tuple()")
 		}
 
-		if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
-			return nil, err
-		} else if nullable {
-			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+		partitionByColumns := getOrderedPartitionByColumns(tableMapping, colNameMap)
+		if len(partitionByColumns) > 0 {
+			partitionByStr := strings.Join(partitionByColumns, ",")
+			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
 		}
+
+		stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 
 		if c.config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
@@ -304,6 +305,31 @@ func getOrderedOrderByColumns(
 	}
 
 	return orderbyColumns
+}
+
+func getOrderedPartitionByColumns(
+	tableMapping *protos.TableMapping,
+	colNameMap map[string]string,
+) []string {
+	partitionby := make([]*protos.ColumnSetting, 0)
+	if tableMapping != nil {
+		for _, col := range tableMapping.Columns {
+			if col.Partitioning > 0 {
+				partitionby = append(partitionby, col)
+			}
+		}
+	}
+
+	slices.SortStableFunc(partitionby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
+		return cmp.Compare(a.Partitioning, b.Partitioning)
+	})
+
+	partitionbyColumns := make([]string, len(partitionby))
+	for idx, col := range partitionby {
+		partitionbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col.SourceName))
+	}
+
+	return partitionbyColumns
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(

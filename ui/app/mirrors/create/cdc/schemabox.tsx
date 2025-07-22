@@ -318,7 +318,6 @@ export default function SchemaBox({
                       className='ml-5'
                       style={{
                         display: 'flex',
-                        //alignItems: 'center',
                         flexDirection: 'column',
                         rowGap: '1rem',
                       }}
@@ -524,10 +523,9 @@ export default function SchemaBox({
                                 />
                                 <div style={{ width: '50%' }}>
                                   <SelectSortingKeys
-                                    columns={
-                                      columns?.map((column) => column.name) ??
-                                      []
-                                    }
+                                    columns={columns
+                                      .map((column) => column.name)
+                                      .filter((name) => !row.exclude.has(name))}
                                     loading={columnsLoading}
                                     tableRow={row}
                                     setRows={setRows}

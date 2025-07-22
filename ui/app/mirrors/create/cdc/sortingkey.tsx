@@ -57,6 +57,7 @@ function UpdatedRows(
           destinationName: '',
           destinationType: '',
           ordering: 0,
+          partitioning: 0,
           nullableEnabled: false,
         })
       );
@@ -78,6 +79,12 @@ export default function SelectSortingKeys({
     [tableRow]
   );
   const [showSortingKey, setShowSortingKey] = useState(false);
+
+  const partitioningKeysSelections = useMemo(
+    () => SortedSelection(tableRow, (setting) => setting.partitioning),
+    [tableRow]
+  );
+  const [showPartitioningKey, setShowPartitioningKey] = useState(false);
 
   const handleAddSortingKey = useCallback(
     (col: string) => {
@@ -121,6 +128,50 @@ export default function SelectSortingKeys({
     [sortingKeysSelections, setRows, tableRow]
   );
 
+  const handleAddPartitioningKey = useCallback(
+    (col: string) => {
+      if (
+        !partitioningKeysSelections.find(
+          (setting) => setting.sourceName === col
+        )
+      ) {
+        setRows((rows) =>
+          UpdatedRows(rows, tableRow, col, (setting) => ({
+            ...setting,
+            partitioning:
+              setting.sourceName === col
+                ? partitioningKeysSelections.length + 1
+                : partitioningKeysSelections.indexOf(setting) + 1,
+          }))
+        );
+      }
+    },
+    [partitioningKeysSelections, setRows, tableRow]
+  );
+
+  const handleRemovePartitioningKey = useCallback(
+    (col: ColumnSetting) => {
+      const removedIndex = partitioningKeysSelections.findIndex(
+        (setting) => setting === col
+      );
+      if (removedIndex !== -1) {
+        setRows((rows) =>
+          UpdatedRows(rows, tableRow, col.sourceName, (setting) => {
+            if (setting === col) {
+              return { ...setting, partitioning: 0 };
+            }
+            const oldIndex = partitioningKeysSelections.indexOf(setting);
+            return {
+              ...setting,
+              partitioning: oldIndex + (oldIndex > removedIndex ? 2 : 1),
+            };
+          })
+        );
+      }
+    },
+    [partitioningKeysSelections, setRows, tableRow]
+  );
+
   const handleShowSortingKey = useCallback(
     (state: boolean) => {
       setShowSortingKey(state);
@@ -133,6 +184,26 @@ export default function SelectSortingKeys({
         );
       } else {
         notifySortingKey();
+      }
+    },
+    [setRows]
+  );
+
+  const handleShowPartitioningKey = useCallback(
+    (state: boolean) => {
+      setShowPartitioningKey(state);
+      if (!state) {
+        setRows((prevRows) =>
+          prevRows.map((row) => ({
+            ...row,
+            columns: row.columns.map((column) => ({
+              ...column,
+              partitioning: 0,
+            })),
+          }))
+        );
+      } else {
+        // TODO notifyPartitioningKey();
       }
     },
     [setRows]
@@ -190,6 +261,57 @@ export default function SelectSortingKeys({
                 <Button
                   variant='normalBorderless'
                   onClick={() => handleRemoveSortingKey(col)}
+                  style={{ padding: 0 }}
+                >
+                  <Icon name='close' />
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <RowWithCheckbox
+        label={
+          <Label as='label' style={{ fontSize: 13 }}>
+            Partition ClickHouse table
+          </Label>
+        }
+        action={
+          <Checkbox
+            style={{ marginLeft: 0 }}
+            checked={showPartitioningKey}
+            onCheckedChange={handleShowPartitioningKey}
+          />
+        }
+      />
+      {showPartitioningKey && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignContent: 'center',
+          }}
+        >
+          <ReactSelect
+            menuPlacement='top'
+            placeholder='Select partitioning columns'
+            onChange={(val, _action) => {
+              if (val) handleAddPartitioningKey(val.value);
+            }}
+            isLoading={loading}
+            value={null}
+            styles={engineOptionStyles}
+            options={columns.map((col) => ({ value: col, label: col }))}
+            theme={SelectTheme}
+            isClearable
+          />
+          <div style={sortingKeyPillContainerStyle}>
+            {partitioningKeysSelections.map((col: ColumnSetting) => (
+              <div key={col.sourceName} style={sortingKeyPillStyle}>
+                <p style={{ fontSize: '0.7rem' }}>{col.sourceName}</p>
+                <Button
+                  variant='normalBorderless'
+                  onClick={() => handleRemovePartitioningKey(col)}
                   style={{ padding: 0 }}
                 >
                   <Icon name='close' />
