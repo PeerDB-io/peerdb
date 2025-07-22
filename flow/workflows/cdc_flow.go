@@ -56,7 +56,6 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 			BatchSize:          cfg.MaxBatchSize,
 			IdleTimeoutSeconds: cfg.IdleTimeoutSeconds,
 			TableMappings:      tableMappings,
-			NumberOfSyncs:      0,
 		},
 		SnapshotNumRowsPerPartition: cfg.SnapshotNumRowsPerPartition,
 		SnapshotMaxParallelWorkers:  cfg.SnapshotMaxParallelWorkers,
@@ -155,11 +154,6 @@ func processCDCFlowConfigUpdate(
 	}
 	if flowConfigUpdate.IdleTimeout > 0 {
 		state.SyncFlowOptions.IdleTimeoutSeconds = flowConfigUpdate.IdleTimeout
-	}
-	if flowConfigUpdate.NumberOfSyncs > 0 {
-		state.SyncFlowOptions.NumberOfSyncs = flowConfigUpdate.NumberOfSyncs
-	} else if flowConfigUpdate.NumberOfSyncs < 0 {
-		state.SyncFlowOptions.NumberOfSyncs = 0
 	}
 	if flowConfigUpdate.UpdatedEnv != nil {
 		if cfg.Env == nil {
@@ -411,7 +405,6 @@ func addCdcPropertiesSignalListener(
 			slog.Uint64("IdleTimeout", state.SyncFlowOptions.IdleTimeoutSeconds),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
 			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
-			slog.Int64("NumberOfSyncs", int64(state.SyncFlowOptions.NumberOfSyncs)),
 			slog.Any("UpdatedEnv", cdcConfigUpdate.UpdatedEnv),
 			slog.Uint64("SnapshotNumRowsPerPartition", uint64(cdcConfigUpdate.SnapshotNumRowsPerPartition)),
 			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),
@@ -783,16 +776,10 @@ func CDCFlowWorkflow(
 				logger.Info("sync finished after waiting after error")
 				finished = true
 				finishedError = true
-				if state.SyncFlowOptions.NumberOfSyncs > 0 {
-					state.ActiveSignal = model.PauseSignal
-				}
 			})
 		} else {
 			logger.Info("sync finished")
 			finished = true
-			if state.SyncFlowOptions.NumberOfSyncs > 0 {
-				state.ActiveSignal = model.PauseSignal
-			}
 		}
 	})
 
