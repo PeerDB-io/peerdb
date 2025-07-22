@@ -60,7 +60,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		Env:                         s.config.Env,
 	}
 
-	res := &protos.SetupReplicationOutput{}
+	var res *protos.SetupReplicationOutput
 	if err := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput).Get(ctx, &res); err != nil {
 		return nil, fmt.Errorf("failed to setup replication on source peer: %w", err)
 	}
