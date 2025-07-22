@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -395,7 +396,17 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 		return utils.AvroFile{}, fmt.Errorf("failed to parse staging path: %w", err)
 	}
 
-	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
+	s3UuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, s.config.Env)
+	if err != nil {
+		return utils.AvroFile{}, err
+	}
+
+	var s3AvroFileKey string
+	if s3UuidPrefix {
+		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, uuid.NewString(), identifierForFile)
+	} else {
+		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
+	}
 	s3AvroFileKey = strings.TrimLeft(s3AvroFileKey, "/")
 	avroFile, err := ocfWriter.WriteRecordsToS3(
 		ctx, env, s3o.Bucket, s3AvroFileKey, s.credsProvider.Provider, avroSize, typeConversions, numericTruncator,

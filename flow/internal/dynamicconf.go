@@ -153,6 +153,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_S3_UUID_PREFIX",
+		Description:      "Use random UUID as prefix instead of flow name, can help partitioning on non-AWS based s3 providers",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_S3_PART_SIZE",
 		Description: "S3 upload part size in bytes, may need to increase for large batches. " +
 			"https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
@@ -604,6 +612,10 @@ func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bo
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
+}
+
+func PeerDBS3UuidPrefix(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_S3_UUID_PREFIX")
 }
 
 func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
