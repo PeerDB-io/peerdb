@@ -118,6 +118,16 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		} else {
 			engine = "MergeTree()"
 		}
+	case protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE:
+		if c.config.Replicated {
+			engine = fmt.Sprintf(
+				"ReplicatedCoalescingMergeTree('%s%s','{replica}')",
+				zooPathPrefix,
+				peerdb_clickhouse.EscapeStr(tableIdentifier),
+			)
+		} else {
+			engine = "CoalescingMergeTree()"
+		}
 	case protos.TableEngine_CH_ENGINE_NULL:
 		engine = "Null"
 	}

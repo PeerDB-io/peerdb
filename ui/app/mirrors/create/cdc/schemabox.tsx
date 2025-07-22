@@ -257,6 +257,7 @@ export default function SchemaBox({
   const engineOptions = [
     { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
     { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
+    { value: 'CH_ENGINE_COALESCING_MERGE_TREE', label: 'CoalescingMergeTree' },
     { value: 'CH_ENGINE_NULL', label: 'Null' },
   ];
 
