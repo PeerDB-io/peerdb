@@ -61,7 +61,7 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 		SnapshotMaxParallelWorkers:  cfg.SnapshotMaxParallelWorkers,
 		SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 	}
-	syncStatusToCatalog(ctx, workflow.GetLogger(ctx), state.CurrentFlowStatus)
+	syncStatusToCatalog(ctx, logger, state.CurrentFlowStatus)
 	return &state
 }
 
@@ -489,6 +489,7 @@ func CDCFlowWorkflow(
 				selector.Select(ctx)
 			}
 			if err := ctx.Err(); err != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return state, err
 			}
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
@@ -497,6 +498,7 @@ func CDCFlowWorkflow(
 
 			if state.FlowConfigUpdate != nil {
 				if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 					return state, err
 				}
 				logger.Info("wiping flow state after state update processing")
@@ -514,16 +516,26 @@ func CDCFlowWorkflow(
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 	state.SyncFlowOptions.NumberOfSyncs = 0 // removed feature
 
-	var err error
-	ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
-		FlowName:        cfg.FlowJobName,
-		SourceName:      cfg.SourceName,
-		DestinationName: cfg.DestinationName,
-		Status:          state.CurrentFlowStatus,
-		IsResync:        cfg.Resync,
-	})
-	if err != nil {
-		return state, fmt.Errorf("failed to get flow metadata context: %w", err)
+	for {
+		if err := ctx.Err(); err != nil {
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+			return state, err
+		}
+
+		var err error
+		ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
+			FlowName:        cfg.FlowJobName,
+			SourceName:      cfg.SourceName,
+			DestinationName: cfg.DestinationName,
+			Status:          state.CurrentFlowStatus,
+			IsResync:        cfg.Resync,
+		})
+		if err != nil {
+			logger.Error("failed to GetFlowMetadataContext", slog.Any("error", err))
+			continue
+		} else {
+			break
+		}
 	}
 
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
@@ -608,9 +620,11 @@ func CDCFlowWorkflow(
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 			if setupFlowError != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute setup workflow: %w", setupFlowError)
 			}
 		}
@@ -652,9 +666,11 @@ func CDCFlowWorkflow(
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 			if snapshotError != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute snapshot workflow: %w", snapshotError)
 			}
 		}
@@ -709,9 +725,11 @@ func CDCFlowWorkflow(
 					return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 				}
 				if err := ctx.Err(); err != nil {
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 					return nil, err
 				}
 				if renameTablesError != nil {
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 					return state, renameTablesError
 				}
 			}
@@ -828,6 +846,7 @@ func CDCFlowWorkflow(
 		}
 		if err := ctx.Err(); err != nil {
 			logger.Info("mirror canceled", slog.Any("error", err))
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 			return state, err
 		}
 
