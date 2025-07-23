@@ -23,8 +23,6 @@ import (
 )
 
 type CDCFlowWorkflowState struct {
-	// deprecated field
-	RelationMessageMapping model.RelationMessageMapping
 	// flow config update request, set to nil after processed
 	FlowConfigUpdate *protos.CDCFlowConfigUpdate
 	// options passed to all SyncFlows
