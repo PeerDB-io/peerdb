@@ -754,8 +754,6 @@ func CDCFlowWorkflow(
 				)
 				sleepFor = 10 * time.Minute
 			} else {
-				logger.Error("error in sync flow", slog.Any("error", err))
-
 				// cannot use shared.IsSQLStateError because temporal serialize/deserialize
 				if !temporal.IsApplicationError(err) || strings.Contains(err.Error(), "(SQLSTATE 55006)") {
 					logger.Info("sync flow errored, waiting 1 minute before retrying")
