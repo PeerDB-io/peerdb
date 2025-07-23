@@ -403,7 +403,7 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 
 	var s3AvroFileKey string
 	if s3UuidPrefix {
-		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, uuid.NewString(), identifierForFile)
+		s3AvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", s3o.Prefix, flowJobName, uuid.NewString(), identifierForFile)
 	} else {
 		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, flowJobName, identifierForFile)
 	}

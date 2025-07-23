@@ -74,7 +74,7 @@ func (c *S3Connector) writeToAvroFile(
 	}
 	var s3AvroFileKey string
 	if s3UuidPrefix {
-		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, uuid.NewString(), partitionID)
+		s3AvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", s3o.Prefix, jobName, uuid.NewString(), partitionID)
 	} else {
 		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
 	}
