@@ -88,7 +88,7 @@ func (self TypedReceiveChannel[T]) AddToSelector(selector workflow.Selector, f f
 	})
 }
 
-type CDCFlowSignal int64
+type CDCFlowSignal int32
 
 const (
 	NoopSignal CDCFlowSignal = iota
