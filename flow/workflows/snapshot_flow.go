@@ -296,13 +296,21 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 			s.logger.Error("failed to close slot keep alive", slog.Any("error", err))
 		}
 	}()
+	var slotName string
+	var snapshotName string
+	var supportsTidScans bool
+	if slotInfo != nil {
+		slotName = slotInfo.SlotName
+		snapshotName = slotInfo.SnapshotName
+		supportsTidScans = slotInfo.SupportsTidScans
+	}
 
-	s.logger.Info(fmt.Sprintf("cloning %d tables in parallel", numTablesInParallel))
+	s.logger.Info("cloning tables in parallel", slog.Int("parallelism", numTablesInParallel))
 	if err := s.cloneTables(ctx,
 		SNAPSHOT_TYPE_SLOT,
-		slotInfo.SlotName,
-		slotInfo.SnapshotName,
-		slotInfo.SupportsTidScans,
+		slotName,
+		snapshotName,
+		supportsTidScans,
 		numTablesInParallel,
 	); err != nil {
 		s.logger.Error("failed to clone tables", slog.Any("error", err))
