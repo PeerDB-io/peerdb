@@ -521,17 +521,26 @@ func CDCFlowWorkflow(
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
 
-	var err error
-	ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
-		FlowName:        cfg.FlowJobName,
-		SourceName:      cfg.SourceName,
-		DestinationName: cfg.DestinationName,
-		Status:          state.CurrentFlowStatus,
-		IsResync:        cfg.Resync,
-	})
-	if err != nil {
-		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
-		return state, fmt.Errorf("failed to get flow metadata context: %w", err)
+	for {
+		if err := ctx.Err(); err != nil {
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+			return state, err
+		}
+
+		var err error
+		ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
+			FlowName:        cfg.FlowJobName,
+			SourceName:      cfg.SourceName,
+			DestinationName: cfg.DestinationName,
+			Status:          state.CurrentFlowStatus,
+			IsResync:        cfg.Resync,
+		})
+		if err != nil {
+			logger.Error("failed to GetFlowMetadataContext", slog.Any("error", err))
+			continue
+		} else {
+			break
+		}
 	}
 
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
@@ -616,6 +625,7 @@ func CDCFlowWorkflow(
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 			if setupFlowError != nil {
