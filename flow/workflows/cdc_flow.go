@@ -217,31 +217,6 @@ func processTableAdditions(
 	}
 	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
 
-	logger.Info("altering publication for additional tables")
-	alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
-	alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
-		alterPublicationAddAdditionalTablesCtx,
-		flowable.AddTablesToPublication,
-		cfg, flowConfigUpdate.AdditionalTables)
-	if err := alterPublicationAddAdditionalTablesFuture.Get(ctx, nil); err != nil {
-		logger.Error("failed to alter publication for additional tables", slog.Any("error", err))
-		return err
-	}
-
-	logger.Info("additional tables added to publication")
-	additionalTablesUUID := GetUUID(ctx)
-	childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
-	additionalTablesCfg := proto.CloneOf(cfg)
-	additionalTablesCfg.DoInitialSnapshot = true
-	additionalTablesCfg.InitialSnapshotOnly = true
-	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
-	additionalTablesCfg.Resync = false
-	additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
-	additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
-	additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
-
 	addTablesSelector := workflow.NewNamedSelector(ctx, "AddTables")
 	addTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
@@ -276,27 +251,53 @@ func processTableAdditions(
 		}
 	})
 
-	// execute the sync flow as a child workflow
-	childAddTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
-		WorkflowID:        childAdditionalTablesCDCFlowID,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
-		TypedSearchAttributes: mirrorNameSearch,
-		WaitForCancellation:   true,
-	}
-	childAddTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAddTablesCDCFlowOpts)
-	childAddTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
-		childAddTablesCDCFlowCtx,
-		CDCFlowWorkflow,
-		additionalTablesCfg,
-		nil,
-	)
+	logger.Info("altering publication for additional tables")
+	alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+	alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
+		alterPublicationAddAdditionalTablesCtx,
+		flowable.AddTablesToPublication,
+		cfg, flowConfigUpdate.AdditionalTables)
+
 	var res *CDCFlowWorkflowResult
 	var addTablesFlowErr error
-	addTablesSelector.AddFuture(childAddTablesCDCFlowFuture, func(f workflow.Future) {
-		addTablesFlowErr = f.Get(childAddTablesCDCFlowCtx, &res)
+	addTablesSelector.AddFuture(alterPublicationAddAdditionalTablesFuture, func(f workflow.Future) {
+		addTablesFlowErr = f.Get(alterPublicationAddAdditionalTablesCtx, f)
+		if addTablesFlowErr == nil {
+			logger.Info("additional tables added to publication")
+			additionalTablesUUID := GetUUID(ctx)
+			childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
+			additionalTablesCfg := proto.CloneOf(cfg)
+			additionalTablesCfg.DoInitialSnapshot = true
+			additionalTablesCfg.InitialSnapshotOnly = true
+			additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
+			additionalTablesCfg.Resync = false
+			additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+			additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
+			additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
+
+			// execute the sync flow as a child workflow
+			childAddTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
+				WorkflowID:        childAdditionalTablesCDCFlowID,
+				ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+				RetryPolicy: &temporal.RetryPolicy{
+					MaximumAttempts: 20,
+				},
+				TypedSearchAttributes: mirrorNameSearch,
+				WaitForCancellation:   true,
+			}
+			childAddTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAddTablesCDCFlowOpts)
+			childAddTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
+				childAddTablesCDCFlowCtx,
+				CDCFlowWorkflow,
+				additionalTablesCfg,
+				nil,
+			)
+			addTablesSelector.AddFuture(childAddTablesCDCFlowFuture, func(f workflow.Future) {
+				addTablesFlowErr = f.Get(childAddTablesCDCFlowCtx, &res)
+			})
+		}
 	})
 
 	for res == nil {
