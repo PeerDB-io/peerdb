@@ -762,6 +762,8 @@ func CDCFlowWorkflow(
 					logger.Info("sync flow errored, waiting 10 minutes before retrying")
 					sleepFor = 10 * time.Minute
 				}
+
+				logger.Error("error in sync flow", slog.Any("error", err), slog.Any("sleepFor", sleepFor))
 			}
 			mainLoopSelector.AddFuture(model.SleepFuture(ctx, sleepFor), func(_ workflow.Future) {
 				logger.Info("sync finished after waiting after error")
