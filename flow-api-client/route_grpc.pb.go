@@ -25,7 +25,6 @@ const (
 	FlowService_DropPeer_FullMethodName                 = "/peerdb_route.FlowService/DropPeer"
 	FlowService_CreateCDCFlow_FullMethodName            = "/peerdb_route.FlowService/CreateCDCFlow"
 	FlowService_CreateQRepFlow_FullMethodName           = "/peerdb_route.FlowService/CreateQRepFlow"
-	FlowService_CustomSyncFlow_FullMethodName           = "/peerdb_route.FlowService/CustomSyncFlow"
 	FlowService_GetAlertConfigs_FullMethodName          = "/peerdb_route.FlowService/GetAlertConfigs"
 	FlowService_PostAlertConfig_FullMethodName          = "/peerdb_route.FlowService/PostAlertConfig"
 	FlowService_DeleteAlertConfig_FullMethodName        = "/peerdb_route.FlowService/DeleteAlertConfig"
@@ -76,7 +75,6 @@ type FlowServiceClient interface {
 	DropPeer(ctx context.Context, in *DropPeerRequest, opts ...grpc.CallOption) (*DropPeerResponse, error)
 	CreateCDCFlow(ctx context.Context, in *CreateCDCFlowRequest, opts ...grpc.CallOption) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(ctx context.Context, in *CreateQRepFlowRequest, opts ...grpc.CallOption) (*CreateQRepFlowResponse, error)
-	CustomSyncFlow(ctx context.Context, in *CreateCustomSyncRequest, opts ...grpc.CallOption) (*CreateCustomSyncResponse, error)
 	GetAlertConfigs(ctx context.Context, in *GetAlertConfigsRequest, opts ...grpc.CallOption) (*GetAlertConfigsResponse, error)
 	PostAlertConfig(ctx context.Context, in *PostAlertConfigRequest, opts ...grpc.CallOption) (*PostAlertConfigResponse, error)
 	DeleteAlertConfig(ctx context.Context, in *DeleteAlertConfigRequest, opts ...grpc.CallOption) (*DeleteAlertConfigResponse, error)
@@ -173,15 +171,6 @@ func (c *flowServiceClient) CreateCDCFlow(ctx context.Context, in *CreateCDCFlow
 func (c *flowServiceClient) CreateQRepFlow(ctx context.Context, in *CreateQRepFlowRequest, opts ...grpc.CallOption) (*CreateQRepFlowResponse, error) {
 	out := new(CreateQRepFlowResponse)
 	err := c.cc.Invoke(ctx, FlowService_CreateQRepFlow_FullMethodName, in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *flowServiceClient) CustomSyncFlow(ctx context.Context, in *CreateCustomSyncRequest, opts ...grpc.CallOption) (*CreateCustomSyncResponse, error) {
-	out := new(CreateCustomSyncResponse)
-	err := c.cc.Invoke(ctx, FlowService_CustomSyncFlow_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -540,7 +529,6 @@ type FlowServiceServer interface {
 	DropPeer(context.Context, *DropPeerRequest) (*DropPeerResponse, error)
 	CreateCDCFlow(context.Context, *CreateCDCFlowRequest) (*CreateCDCFlowResponse, error)
 	CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error)
-	CustomSyncFlow(context.Context, *CreateCustomSyncRequest) (*CreateCustomSyncResponse, error)
 	GetAlertConfigs(context.Context, *GetAlertConfigsRequest) (*GetAlertConfigsResponse, error)
 	PostAlertConfig(context.Context, *PostAlertConfigRequest) (*PostAlertConfigResponse, error)
 	DeleteAlertConfig(context.Context, *DeleteAlertConfigRequest) (*DeleteAlertConfigResponse, error)
@@ -603,9 +591,6 @@ func (UnimplementedFlowServiceServer) CreateCDCFlow(context.Context, *CreateCDCF
 }
 func (UnimplementedFlowServiceServer) CreateQRepFlow(context.Context, *CreateQRepFlowRequest) (*CreateQRepFlowResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateQRepFlow not implemented")
-}
-func (UnimplementedFlowServiceServer) CustomSyncFlow(context.Context, *CreateCustomSyncRequest) (*CreateCustomSyncResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method CustomSyncFlow not implemented")
 }
 func (UnimplementedFlowServiceServer) GetAlertConfigs(context.Context, *GetAlertConfigsRequest) (*GetAlertConfigsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetAlertConfigs not implemented")
@@ -838,24 +823,6 @@ func _FlowService_CreateQRepFlow_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(FlowServiceServer).CreateQRepFlow(ctx, req.(*CreateQRepFlowRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _FlowService_CustomSyncFlow_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CreateCustomSyncRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(FlowServiceServer).CustomSyncFlow(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: FlowService_CustomSyncFlow_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(FlowServiceServer).CustomSyncFlow(ctx, req.(*CreateCustomSyncRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1574,10 +1541,6 @@ var FlowService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateQRepFlow",
 			Handler:    _FlowService_CreateQRepFlow_Handler,
-		},
-		{
-			MethodName: "CustomSyncFlow",
-			Handler:    _FlowService_CustomSyncFlow_Handler,
 		},
 		{
 			MethodName: "GetAlertConfigs",
