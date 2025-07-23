@@ -62,7 +62,7 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 		SnapshotMaxParallelWorkers:  cfg.SnapshotMaxParallelWorkers,
 		SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 	}
-	syncStatusToCatalog(ctx, workflow.GetLogger(ctx), state.CurrentFlowStatus)
+	syncStatusToCatalog(ctx, logger, state.CurrentFlowStatus)
 	return &state
 }
 
@@ -495,7 +495,7 @@ func CDCFlowWorkflow(
 				selector.Select(ctx)
 			}
 			if err := ctx.Err(); err != nil {
-				syncStatusToCatalog(ctx, workflow.GetLogger(ctx), protos.FlowStatus_STATUS_TERMINATED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return state, err
 			}
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
@@ -504,7 +504,7 @@ func CDCFlowWorkflow(
 
 			if state.FlowConfigUpdate != nil {
 				if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
-					syncStatusToCatalog(ctx, workflow.GetLogger(ctx), protos.FlowStatus_STATUS_FAILED)
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 					return state, err
 				}
 				logger.Info("wiping flow state after state update processing")
@@ -530,7 +530,7 @@ func CDCFlowWorkflow(
 		IsResync:        cfg.Resync,
 	})
 	if err != nil {
-		syncStatusToCatalog(ctx, workflow.GetLogger(ctx), protos.FlowStatus_STATUS_FAILED)
+		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 		return state, fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
 
@@ -619,7 +619,7 @@ func CDCFlowWorkflow(
 				return nil, err
 			}
 			if setupFlowError != nil {
-				syncStatusToCatalog(ctx, workflow.GetLogger(ctx), protos.FlowStatus_STATUS_FAILED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute setup workflow: %w", setupFlowError)
 			}
 		}
@@ -661,11 +661,11 @@ func CDCFlowWorkflow(
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
-				syncStatusToCatalog(ctx, workflow.GetLogger(ctx), protos.FlowStatus_STATUS_TERMINATED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 			if snapshotError != nil {
-				syncStatusToCatalog(ctx, workflow.GetLogger(ctx), protos.FlowStatus_STATUS_FAILED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute snapshot workflow: %w", snapshotError)
 			}
 		}
@@ -720,11 +720,11 @@ func CDCFlowWorkflow(
 					return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 				}
 				if err := ctx.Err(); err != nil {
-					syncStatusToCatalog(ctx, workflow.GetLogger(ctx), protos.FlowStatus_STATUS_TERMINATED)
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 					return nil, err
 				}
 				if renameTablesError != nil {
-					syncStatusToCatalog(ctx, workflow.GetLogger(ctx), protos.FlowStatus_STATUS_FAILED)
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 					return state, renameTablesError
 				}
 			}
@@ -847,7 +847,7 @@ func CDCFlowWorkflow(
 		}
 		if err := ctx.Err(); err != nil {
 			logger.Info("mirror canceled", slog.Any("error", err))
-			syncStatusToCatalog(ctx, workflow.GetLogger(ctx), protos.FlowStatus_STATUS_TERMINATED)
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 			return state, err
 		}
 
