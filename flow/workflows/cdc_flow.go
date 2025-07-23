@@ -768,9 +768,6 @@ func CDCFlowWorkflow(
 			mainLoopSelector.AddFuture(model.SleepFuture(ctx, sleepFor), func(_ workflow.Future) {
 				logger.Info("sync finished after waiting after error")
 				finished = true
-				if state.SyncFlowOptions.NumberOfSyncs > 0 {
-					state.ActiveSignal = model.PauseSignal
-				}
 			})
 		} else {
 			logger.Info("sync finished")
