@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -18,6 +19,7 @@ import (
 	e2e_clickhouse "github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -481,6 +483,67 @@ func (s MongoClickhouseSuite) Test_Enable_Json() {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleteRes.DeletedCount)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete event", srcTable, dstTable, "_id,_full_document")
+
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
+	t := s.T()
+
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable1 := "t1"
+	dstTable1 := "t1_dst"
+	srcTable2 := "t2"
+	dstTable2 := "t2_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, "can_resume_after_delete_table"),
+		TableMappings: e2e.TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	db := s.Source().(*MongoSource).AdminClient().Database(srcDatabase)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// insert a document to t1 and t2
+	// since t2 is written last, saved resume token references t2
+	insertRes, err := db.Collection(srcTable1).InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	insertRes, err = db.Collection(srcTable2).InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable1, dstTable1, "_id,_full_document")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable2, dstTable2, "_id,_full_document")
+
+	// pause workflow
+	e2e.SignalWorkflow(t.Context(), env, model.FlowSignal, model.PauseSignal)
+	e2e.EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
+	})
+
+	// resume workflow with t2 removed from table mapping
+	e2e.SignalWorkflow(t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+		RemovedTables: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcDatabase + "." + srcTable2,
+			DestinationTableIdentifier: srcDatabase + "." + dstTable2,
+		}},
+	})
+	e2e.EnvWaitFor(t, env, 1*time.Minute, "resumed workflow", func() bool {
+		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// insert a document to t1 should succeed
+	insertRes, err = db.Collection(srcTable1).InsertOne(t.Context(), bson.D{bson.E{Key: "key2", Value: "val2"}}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable1, dstTable1, "_id,_full_document")
 
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)

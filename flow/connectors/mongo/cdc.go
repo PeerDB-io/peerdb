@@ -129,14 +129,17 @@ func (c *MongoConnector) PullRecords(
 		SetFullDocument(options.UpdateLookup).
 		SetFullDocumentBeforeChange(options.Off)
 
+	var resumeToken bson.Raw
+	var err error
+
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
 		c.logger.Info("[mongo] resuming change stream", slog.String("resumeToken", req.LastOffset.Text))
-		resumeTokenBytes, err := base64.StdEncoding.DecodeString(req.LastOffset.Text)
+		resumeToken, err = base64.StdEncoding.DecodeString(req.LastOffset.Text)
 		if err != nil {
 			return fmt.Errorf("failed to parse last offset: %w", err)
 		}
-		changeStreamOpts.SetResumeAfter(bson.Raw(resumeTokenBytes))
+		changeStreamOpts.SetResumeAfter(resumeToken)
 	}
 
 	pipeline, err := createPipeline(req.TableNameMapping)
@@ -146,7 +149,20 @@ func (c *MongoConnector) PullRecords(
 
 	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
-		return fmt.Errorf("failed to create change stream: %w", err)
+		if isResumeTokenNotFoundError(err) && resumeToken != nil {
+			timestamp, err := decodeTimestampFromResumeToken(resumeToken)
+			if err != nil {
+				return fmt.Errorf("failed to decode resume token: %w", err)
+			}
+			changeStreamOpts.SetStartAtOperationTime(&timestamp)
+			changeStreamOpts.SetResumeAfter(nil)
+			changeStream, err = c.client.Watch(ctx, pipeline, changeStreamOpts)
+			if err != nil {
+				return fmt.Errorf("failed to recreate change stream: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to create change stream: %w", err)
+		}
 	}
 	defer changeStream.Close(ctx)
 
@@ -219,16 +235,33 @@ func (c *MongoConnector) PullRecords(
 		return nil
 	}
 
-	recreateChangeStream := func() error {
+	recreateChangeStream := func(useOperationTime bool) error {
+		// extract the most recent resumeToken
+		resumeToken := changeStream.ResumeToken()
+		if resumeToken == nil {
+			return errors.New("resume token is nil")
+		}
+
+		// close existing change stream
 		if err := changeStream.Close(ctx); err != nil {
 			return fmt.Errorf("failed to close change stream: %w", err)
 		}
 
+		// reset context timeout
 		cancelTimeout()
 		timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
 
-		if resumeToken := changeStream.ResumeToken(); resumeToken != nil {
+		// set resume point based on whether operation time should be used or not
+		if useOperationTime {
+			timestamp, err := decodeTimestampFromResumeToken(resumeToken)
+			if err != nil {
+				return fmt.Errorf("failed to decode resume token: %w", err)
+			}
+			changeStreamOpts.SetStartAtOperationTime(&timestamp)
+			changeStreamOpts.SetResumeAfter(nil)
+		} else {
 			changeStreamOpts.SetResumeAfter(resumeToken)
+			changeStreamOpts.SetStartAtOperationTime(nil)
 		}
 
 		changeStream, err = c.client.Watch(ctx, pipeline, changeStreamOpts)
@@ -240,28 +273,34 @@ func (c *MongoConnector) PullRecords(
 	}
 
 	for recordCount < req.MaxBatchSize {
-		ok := changeStream.Next(timeoutCtx)
-		if !ok {
-			if err := changeStream.Err(); err != nil && errors.Is(err, context.DeadlineExceeded) {
+		if ok := changeStream.Next(timeoutCtx); !ok {
+			err := changeStream.Err()
+			if err == nil {
+				return errors.New("unexpected: changestream.Next() returned false but no change stream error was recorded")
+			}
+
+			if errors.Is(err, context.DeadlineExceeded) {
 				if recordCount > 0 {
 					break
 				}
-
 				// update with PostBatchResumeToken on empty batch
 				// ref: https://github.com/mongodb/specifications/blob/master/source/change-streams/change-streams.md
 				checkpoint()
 				// DeadlineExceeded errors are deemed not recoverable/resumable, so we have to create a new change stream instance
-				csErr := recreateChangeStream()
-				if csErr != nil {
+				if err := recreateChangeStream(false); err != nil {
 					return fmt.Errorf("failed to recreate change stream: %w", err)
 				}
 				continue
 			}
-			if err := changeStream.Err(); err != nil {
-				return fmt.Errorf("change stream error: %w", err)
-			} else {
-				return errors.New("unexpected: Next returned false but no change stream error was recorded")
+
+			if isResumeTokenNotFoundError(err) {
+				if err := recreateChangeStream(true); err != nil {
+					return fmt.Errorf("failed to recreate change stream: %w", err)
+				}
+				continue
 			}
+
+			return fmt.Errorf("change stream error: %w", err)
 		}
 
 		var changeEvent ChangeEvent
@@ -378,6 +417,14 @@ func createPipeline(tableNameMapping map[string]model.NameAndExclude) (mongo.Pip
 	)
 
 	return pipeline, nil
+}
+
+// This can happen if the resumeToken we are attempting to `ResumeAfter` refers to a table that has been
+// filtered out of the change stream pipeline (for example, if a user pauses and edits a mirror). If
+// this happens, we decode the resumeToken and extract its operation time, and start a new changeStream
+// with `StartAtOperationTime` instead of `ResumeAfter`.
+func isResumeTokenNotFoundError(err error) bool {
+	return strings.Contains(err.Error(), "cannot resume stream; the resume token was not found.")
 }
 
 // stubs for CDCPullConnectorCore
