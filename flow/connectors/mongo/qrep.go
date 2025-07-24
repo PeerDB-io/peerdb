@@ -88,13 +88,12 @@ func (c *MongoConnector) PullQRepRecords(
 			return 0, 0, fmt.Errorf("failed to decode record: %w", err)
 		}
 
-		record, bytes, err := QValuesFromDocument(doc)
+		record, err := QValuesFromDocument(doc)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
 		}
 		stream.Records <- record
 		totalRecords += 1
-		c.bytesRead.Add(bytes)
 	}
 	close(stream.Records)
 	if err := cursor.Err(); err != nil {
@@ -144,9 +143,8 @@ func toRangeFilter(partitionRange *protos.PartitionRange) (bson.D, error) {
 	}
 }
 
-func QValuesFromDocument(doc bson.D) ([]types.QValue, int64, error) {
+func QValuesFromDocument(doc bson.D) ([]types.QValue, error) {
 	var qValues []types.QValue
-	var size int64
 
 	var qvalueId types.QValueString
 	var err error
@@ -154,23 +152,21 @@ func QValuesFromDocument(doc bson.D) ([]types.QValue, int64, error) {
 		if v.Key == DefaultDocumentKeyColumnName {
 			qvalueId, err = qValueStringFromKey(v.Value)
 			if err != nil {
-				return nil, 0, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
+				return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 			}
 			break
 		}
 	}
 	if qvalueId.Val == "" {
-		return nil, 0, fmt.Errorf("key %s not found", DefaultDocumentKeyColumnName)
+		return nil, fmt.Errorf("key %s not found", DefaultDocumentKeyColumnName)
 	}
 	qValues = append(qValues, qvalueId)
 
 	qvalueDoc, err := qValueJSONFromDocument(doc)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	qValues = append(qValues, qvalueDoc)
 
-	size += int64(len(qvalueDoc.Val))
-
-	return qValues, size, nil
+	return qValues, nil
 }
