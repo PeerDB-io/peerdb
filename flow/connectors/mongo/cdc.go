@@ -129,14 +129,16 @@ func (c *MongoConnector) PullRecords(
 		SetFullDocument(options.UpdateLookup).
 		SetFullDocumentBeforeChange(options.Off)
 
+	var resumeToken bson.Raw
+	var err error
 	if req.LastOffset.Text != "" {
 		// If we have a last offset, we resume from that point
 		c.logger.Info("[mongo] resuming change stream", slog.String("resumeToken", req.LastOffset.Text))
-		resumeTokenBytes, err := base64.StdEncoding.DecodeString(req.LastOffset.Text)
+		resumeToken, err = base64.StdEncoding.DecodeString(req.LastOffset.Text)
 		if err != nil {
 			return fmt.Errorf("failed to parse last offset: %w", err)
 		}
-		changeStreamOpts.SetResumeAfter(bson.Raw(resumeTokenBytes))
+		changeStreamOpts.SetResumeAfter(resumeToken)
 	}
 
 	pipeline, err := createPipeline(req.TableNameMapping)
@@ -146,7 +148,17 @@ func (c *MongoConnector) PullRecords(
 
 	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
-		return fmt.Errorf("failed to create change stream: %w", err)
+		if isResumeTokenNotFoundError(err) && resumeToken != nil {
+			timestamp, err := decodeTimestampFromResumeToken(resumeToken)
+			if err != nil {
+				return fmt.Errorf("failed to decode resume token: %w", err)
+			}
+			changeStreamOpts.SetStartAtOperationTime(&timestamp)
+			changeStreamOpts.SetResumeAfter(nil)
+			changeStream, err = c.client.Watch(ctx, pipeline, changeStreamOpts)
+		} else {
+			return fmt.Errorf("failed to create change stream: %w", err)
+		}
 	}
 	defer changeStream.Close(ctx)
 
