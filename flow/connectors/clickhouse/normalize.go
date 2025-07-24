@@ -340,6 +340,8 @@ func (c *ClickHouseConnector) TryConsolidateSchema(
 	tableSchema *protos.TableSchema,
 	env map[string]string,
 ) error {
+	c.logger.Info("trying to consolidate ClickHouse schema",
+		slog.String("tableName", tableName))
 	rows, err := conn.Query(
 		ctx,
 		fmt.Sprintf(`SELECT * FROM %s LIMIT 0 SETTINGS use_query_cache = false`, peerdb_clickhouse.QuoteIdentifier(tableName)),
@@ -367,7 +369,7 @@ func (c *ClickHouseConnector) TryConsolidateSchema(
 	prefixChar := byte(' ')
 	for _, fd := range expectedColumns {
 		clickHouseType, err := qvalue.ToDWHColumnType(
-			ctx, types.QValueKind(fd.Type), env, protos.DBType_CLICKHOUSE, fd, tableSchema.NullableEnabled,
+			ctx, types.QValueKind(fd.Type), env, protos.DBType_CLICKHOUSE, c.chVersion, fd, tableSchema.NullableEnabled,
 		)
 		if err != nil {
 			return fmt.Errorf("error converting column type to ClickHouse type trying to consolidate: %w", err)
@@ -380,6 +382,9 @@ func (c *ClickHouseConnector) TryConsolidateSchema(
 	if err := conn.Exec(ctx, alterTable.String()); err != nil {
 		return fmt.Errorf("error consolidating ClickHouse schema: %w", err)
 	}
+	c.logger.Info("successfully consolidated ClickHouse schema",
+		slog.String("tableName", tableName),
+		slog.Any("expectedColumns", expectedColumns))
 	return nil
 }
 
