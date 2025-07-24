@@ -136,6 +136,24 @@ func main() {
 		Usage: "Skip maintenance if the k8s service is missing, generally used during pre-upgrade hook",
 	}
 
+	apiPortFlag := &cli.Uint16Flag{
+		Name:    "port",
+		Aliases: []string{"p"},
+		Value:   8110,
+	}
+
+	apiGatewayPortFlag := &cli.Uint16Flag{
+		Name:  "gateway-port",
+		Value: 8111,
+		Usage: "Port grpc-gateway listens on",
+	}
+
+	apiRunScheduledTasksWithoutTemporalFlag := &cli.BoolFlag{
+		Name:    "run-scheduled-tasks-without-temporal",
+		Value:   false,
+		Sources: cli.EnvVars("RUN_SCHEDULED_TASKS_WITHOUT_TEMPORAL"),
+	}
+
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Before: func(ctx context.Context, clicmd *cli.Command) (context.Context, error) {
@@ -216,27 +234,21 @@ func main() {
 			{
 				Name: "api",
 				Flags: []cli.Flag{
-					&cli.Uint16Flag{
-						Name:    "port",
-						Aliases: []string{"p"},
-						Value:   8110,
-					},
-					// gateway port is the port that the grpc-gateway listens on
-					&cli.Uint16Flag{
-						Name:  "gateway-port",
-						Value: 8111,
-					},
+					apiPortFlag,
+					apiGatewayPortFlag,
+					apiRunScheduledTasksWithoutTemporalFlag,
 					temporalHostPortFlag,
 					temporalNamespaceFlag,
 					otelMetricsFlag,
 				},
 				Action: func(ctx context.Context, clicmd *cli.Command) error {
 					return cmd.APIMain(ctx, &cmd.APIServerParams{
-						Port:              clicmd.Uint16("port"),
-						GatewayPort:       clicmd.Uint16("gateway-port"),
-						TemporalHostPort:  clicmd.String(temporalHostPortFlag.Name),
-						TemporalNamespace: clicmd.String(temporalNamespaceFlag.Name),
-						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),
+						Port:                             clicmd.Uint16(apiPortFlag.Name),
+						GatewayPort:                      clicmd.Uint16(apiGatewayPortFlag.Name),
+						TemporalHostPort:                 clicmd.String(temporalHostPortFlag.Name),
+						TemporalNamespace:                clicmd.String(temporalNamespaceFlag.Name),
+						EnableOtelMetrics:                clicmd.Bool(otelMetricsFlag.Name),
+						RunScheduledTasksWithoutTemporal: clicmd.Bool(apiRunScheduledTasksWithoutTemporalFlag.Name),
 					})
 				},
 			},
