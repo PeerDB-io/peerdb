@@ -23,6 +23,8 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
+	"github.com/PeerDB-io/peerdb/flow/activities"
+	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/middleware"
@@ -32,11 +34,12 @@ import (
 )
 
 type APIServerParams struct {
-	TemporalHostPort  string
-	TemporalNamespace string
-	Port              uint16
-	GatewayPort       uint16
-	EnableOtelMetrics bool
+	TemporalHostPort                 string
+	TemporalNamespace                string
+	Port                             uint16
+	GatewayPort                      uint16
+	EnableOtelMetrics                bool
+	RunScheduledTasksWithoutTemporal bool
 }
 
 type RecryptItem struct {
@@ -246,18 +249,56 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to kill existing scheduler flows: %w", err)
 	}
 
-	workflowID := fmt.Sprintf("scheduler-%s", uuid.New())
-	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: taskQueue,
-	}
+	if args.RunScheduledTasksWithoutTemporal {
+		go func() {
+			otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowWorkerServiceName, args.EnableOtelMetrics)
+			if err != nil {
+				log.Fatalf("[scheduled-tasks] unable to create otel manager: %v", err)
+			}
 
-	if _, err := flowHandler.temporalClient.ExecuteWorkflow(
-		ctx,
-		workflowOptions,
-		peerflow.GlobalScheduleManagerWorkflow,
-	); err != nil {
-		return fmt.Errorf("unable to start scheduler workflow: %w", err)
+			tc, err := setupTemporalClient(ctx, clientOptions)
+			if err != nil {
+				log.Fatalf("[scheduled-tasks] unable to create temporal client: %v", err)
+			}
+
+			flowable := &activities.FlowableActivity{
+				CatalogPool:    catalogPool,
+				Alerter:        alerting.NewAlerter(ctx, catalogPool, otelManager),
+				OtelManager:    otelManager,
+				TemporalClient: tc,
+			}
+
+			heartbeatTicker := time.NewTicker(12 * time.Minute)
+			slotSizeTicker := time.NewTicker(time.Minute)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-heartbeatTicker.C:
+					if err := flowable.SendWALHeartbeat(ctx); err != nil {
+						slog.Error("[scheduled-tasks] SendWALHeartbeat failed", slog.Any("error", err))
+					}
+				case <-slotSizeTicker.C:
+					if err := flowable.RecordSlotSizes(ctx); err != nil {
+						slog.Error("[scheduled-tasks] RecordSlotSizes failed", slog.Any("error", err))
+					}
+				}
+			}
+		}()
+	} else {
+		workflowID := fmt.Sprintf("scheduler-%s", uuid.New())
+		workflowOptions := client.StartWorkflowOptions{
+			ID:        workflowID,
+			TaskQueue: taskQueue,
+		}
+
+		if _, err := flowHandler.temporalClient.ExecuteWorkflow(
+			ctx,
+			workflowOptions,
+			peerflow.GlobalScheduleManagerWorkflow,
+		); err != nil {
+			return fmt.Errorf("unable to start scheduler workflow: %w", err)
+		}
 	}
 
 	protos.RegisterFlowServiceServer(grpcServer, flowHandler)
@@ -269,7 +310,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	slog.Info(fmt.Sprintf("Starting API server on port %d", args.Port))
+	slog.Info("Starting API server on port", slog.Uint64("port", uint64(args.Port)))
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
 			log.Fatalf("failed to serve: %v", err)
@@ -281,7 +322,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to setup gateway server: %w", err)
 	}
 
-	slog.Info(fmt.Sprintf("Starting API gateway on port %d", args.GatewayPort))
+	slog.Info("Starting API gateway", slog.Uint64("port", uint64(args.GatewayPort)))
 	go func() {
 		if err := gateway.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("failed to serve http: %v", err)
