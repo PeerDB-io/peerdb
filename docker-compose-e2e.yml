@@ -8,15 +8,15 @@ x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
 
 x-catalog-config: &catalog-config
-  PEERDB_CATALOG_HOST: catalog
+  PEERDB_CATALOG_HOST: catalog-e2e
   PEERDB_CATALOG_PORT: 5432
   PEERDB_CATALOG_USER: postgres
   PEERDB_CATALOG_PASSWORD: postgres
   PEERDB_CATALOG_DATABASE: postgres
 
 services:
-  catalog:
-    container_name: catalog
+  catalog-e2e:
+    container_name: catalog-e2e
     image: postgres:17-alpine@sha256:fbe21607052bb5c298674f2fd8cf044a63aa3ddf50b81627f894f91f40f50bcb
     command: -c config_file=/etc/postgresql.conf
     ports:
@@ -39,17 +39,17 @@ services:
       retries: 5
       start_period: 60s
 
-  temporal:
-    container_name: temporal
+  temporal-e2e:
+    container_name: temporal-e2e
     depends_on:
-      catalog:
+      catalog-e2e:
         condition: service_healthy
     environment:
       - DB=postgres12
       - DB_PORT=5432
       - POSTGRES_USER=postgres
       - POSTGRES_PWD=postgres
-      - POSTGRES_SEEDS=catalog
+      - POSTGRES_SEEDS=catalog-e2e
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
     image: temporalio/auto-setup:1.28@sha256:3ee84bf3ec5494f2be6ee0c1fea3b52684e50da3ddc5f997e6fa56ad340da9a8
     ports:
@@ -59,13 +59,13 @@ services:
     labels:
       kompose.volume.type: configMap
 
-  temporal-admin-tools:
-    container_name: temporal-admin-tools
+  temporal-admin-tools-e2e:
+    container_name: temporal-admin-tools-e2e
     depends_on:
-      - temporal
+      - temporal-e2e
     environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - TEMPORAL_CLI_ADDRESS=temporal:7233
+      - TEMPORAL_ADDRESS=temporal-e2e:7233
+      - TEMPORAL_CLI_ADDRESS=temporal-e2e:7233
       - TEMPORAL_CLI_SHOW_STACKS=1
     image: temporalio/admin-tools:1.25.2-tctl-1.18.1-cli-1.1.1@sha256:da0c7a7982b571857173ab8f058e7f139b3054800abb4dcb100445d29a563ee8
     stdin_open: true
@@ -80,20 +80,20 @@ services:
     volumes:
       - ./scripts/mirror-name-search.sh:/etc/temporal/entrypoint.sh
 
-  temporal-ui:
-    container_name: temporal-ui
+  temporal-ui-e2e:
+    container_name: temporal-ui-e2e
     depends_on:
-      - temporal
+      - temporal-e2e
     environment:
-      - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_ADDRESS=temporal-e2e:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
     image: temporalio/ui:2.39.0@sha256:b768f87f18b59663a6749e98a2f7782c266e8e4e4749f92248e2ba41d6330d3f
     ports:
       - 8085:8080
 
-  peerdb:
-    container_name: peerdb-server
+  peerdb-e2e:
+    container_name: peerdb-server-e2e
     stop_signal: SIGINT
     build:
       context: .
@@ -107,10 +107,10 @@ services:
     ports:
       - 9900:9900
     depends_on:
-      catalog:
+      catalog-e2e:
         condition: service_healthy
 
-  minio:
+  minio-e2e:
     image: bitnami/minio:2025.6.13
     volumes:
       - minio-data-e2e:/data
@@ -123,8 +123,8 @@ services:
       MINIO_CONSOLE_PORT_NUMBER: 36987
       MINIO_DEFAULT_BUCKETS: peerdbbucket
 
-  mysql:
-    container_name: mysql
+  mysql-e2e:
+    container_name: mysql-e2e
     build:
       context: .
       dockerfile: stacks/mysql.Dockerfile
@@ -137,7 +137,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
-  clickhouse:
+  clickhouse-e2e:
     image: clickhouse/clickhouse-server
     ports:
       - 9000:9000
