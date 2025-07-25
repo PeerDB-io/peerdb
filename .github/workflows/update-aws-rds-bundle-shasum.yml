@@ -29,7 +29,7 @@ jobs:
         run: |
           set -eou pipefail
           latest_sha="$(curl -v -fsS "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" | sha256sum | cut -d' ' -f1)"
-          sed -i -E 's|(ADD --checksum=sha256:)(\w+)( https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem)|\1'"${latest_sha}"'\2|g' stacks/flow.Dockerfile
+          sed -i -E 's|(ADD --checksum=sha256:)(\w+)( https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem)|\1'"${latest_sha}"'\3|g' stacks/flow.Dockerfile
           git config --global user.name "${GITHUB_ACTOR}"
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git checkout -b "${PR_BRANCH}"
