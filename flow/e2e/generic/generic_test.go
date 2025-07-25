@@ -19,7 +19,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 func TestGenericPG(t *testing.T) {
@@ -121,7 +120,7 @@ func (s Generic) Test_Simple_Flow() {
 	}
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// insert 10 rows into the source table
@@ -177,7 +176,7 @@ func (s Generic) Test_Initial_Custom_Partition() {
 	}
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.EnvWaitForFinished(t, env, 3*time.Minute)
 	e2e.RequireEqualTablesWithNames(s, srcTable, dstTable, "id,val,tm")
 
@@ -191,7 +190,7 @@ func (s Generic) Test_Initial_Custom_Partition() {
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
 
-	env = e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env = e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.EnvWaitForFinished(t, env, 3*time.Minute)
 	e2e.RequireEqualTablesWithNames(s, srcTable, dstTableTm, "id,val,tm")
 }
@@ -226,7 +225,7 @@ func (s Generic) Test_Simple_Schema_Changes() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(1)`, srcTableName)))
 
@@ -428,7 +427,7 @@ func (s Generic) Test_Partitioned_Table() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// insert 10 rows into the source table
@@ -478,7 +477,7 @@ func (s Generic) Test_Schema_Changes_Cutoff_Bug() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(2)`, srcTableName2)))
 	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`ALTER TABLE %s ADD COLUMN c2 BIGINT`, srcTableName1)))
@@ -609,7 +608,7 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 	flowConnConfig.IdleTimeoutSeconds = 60
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// add a partition to the source table after CDC is running to test if
@@ -680,7 +679,7 @@ func (s Generic) Test_Inheritance_Table_Without_Dynamic_Setting() {
 	flowConnConfig.Env = map[string]string{"PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES": "false"}
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	_, err = conn.Conn().Exec(t.Context(), fmt.Sprintf(`
@@ -740,7 +739,7 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	flowConnConfig.DoInitialSnapshot = true
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// add a child table after CDC is running to test if is picked up by the flow.
