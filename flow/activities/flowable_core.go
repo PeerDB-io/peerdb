@@ -21,7 +21,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
+	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -139,17 +139,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	lastOffset, err := func() (model.CdcCheckpoint, error) {
-		if myConn, isMy := any(srcConn).(*connmysql.MySqlConnector); isMy {
-			return myConn.GetLastOffset(ctx, config.FlowJobName)
-		} else {
-			dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
-			if err != nil {
-				return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector: %w", err)
-			}
-			defer connectors.CloseConnector(ctx, dstConn)
-
-			return dstConn.GetLastOffset(ctx, config.FlowJobName)
-		}
+		pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+		return pgMetadata.GetLastOffset(ctx, flowName)
 	}()
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
