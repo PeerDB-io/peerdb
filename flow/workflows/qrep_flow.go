@@ -154,6 +154,8 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 				{
 					SourceTableIdentifier:      q.config.WatermarkTable,
 					DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+					Exclude:                    q.config.Exclude,
+					Columns:                    q.config.Columns,
 				},
 			},
 			SyncedAtColName:   q.config.SyncedAtColName,

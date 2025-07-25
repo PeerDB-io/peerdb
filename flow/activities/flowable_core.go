@@ -461,6 +461,9 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 			return fmt.Errorf("[qrep] failed to pull records: %w", err)
 		}
 
+		// for Postgres source, reports all bytes fetched from source
+		// for MySQL and MongoDB source, connector reports bytes fetched but some bytes are counted here
+		// since the reporting is asynchronous (goroutine)
 		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
@@ -567,6 +570,9 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
 
+		// for Postgres source, reports all bytes fetched from source
+		// for MySQL and MongoDB source, connector reports bytes fetched but some bytes are counted here
+		// since the reporting is asynchronous (goroutine)
 		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(

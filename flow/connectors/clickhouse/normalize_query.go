@@ -128,13 +128,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		switch clickHouseType {
 		case "Date32", "Nullable(Date32)":
 			fmt.Fprintf(&projection,
-				"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6)) AS %s,",
+				"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC')) AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6)) AS %s,",
+					"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC')) AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
@@ -144,26 +144,26 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 				// parseDateTime64BestEffortOrNull for hh:mm:ss puts the year as current year
 				// (or previous year if result would be in future) so explicitly anchor to unix epoch
 				fmt.Fprintf(&projection,
-					"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_data, %s),6) AS %s,",
+					"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_data, %s),6,'UTC') AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
 					fmt.Fprintf(&projectionUpdate,
-						"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_match_data, %s),6) AS %s,",
+						"parseDateTime64BestEffortOrNull('1970-01-01 ' || JSONExtractString(_peerdb_match_data, %s),6,'UTC') AS %s,",
 						peerdb_clickhouse.QuoteLiteral(colName),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
 				}
 			} else {
 				fmt.Fprintf(&projection,
-					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6) AS %s,",
+					"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6,'UTC') AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 				if t.enablePrimaryUpdate {
 					fmt.Fprintf(&projectionUpdate,
-						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6) AS %s,",
+						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6,'UTC') AS %s,",
 						peerdb_clickhouse.QuoteLiteral(colName),
 						peerdb_clickhouse.QuoteIdentifier(dstColName),
 					)
@@ -171,13 +171,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			}
 		case "Array(DateTime64(6))", "Nullable(Array(DateTime64(6)))":
 			fmt.Fprintf(&projection,
-				`arrayMap(x -> parseDateTime64BestEffortOrNull(trimBoth(x, '"'), 6), JSONExtractArrayRaw(_peerdb_data, %s)) AS %s,`,
+				`arrayMap(x -> parseDateTime64BestEffortOrNull(x,6,'UTC'),JSONExtract(_peerdb_data,%s,'Array(String)')) AS %s,`,
 				peerdb_clickhouse.QuoteLiteral(colName),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					`arrayMap(x -> parseDateTime64BestEffortOrNull(trimBoth(x, '"'), 6), JSONExtractArrayRaw(_peerdb_match_data, %s)) AS %s,`,
+					`arrayMap(x -> parseDateTime64BestEffortOrNull(x,6,'UTC'),JSONExtract(_peerdb_match_data,%s,'Array(String)')) AS %s,`,
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)

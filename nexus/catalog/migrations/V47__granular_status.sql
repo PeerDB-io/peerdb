@@ -2,11 +2,6 @@ create function utc_now() returns timestamp as $$
   select now() at time zone 'utc';
 $$ language sql;
 
--- retry attempts per code? no, key not code
--- what is key?
-
--- snapshots have root - tables - partitions (in seq batches)
-
 CREATE TABLE IF NOT EXISTS peerdb_stats.snapshots {
     flow_name TEXT NOT NULL,
     snapshot_id SERIAL PRIMARY KEY,

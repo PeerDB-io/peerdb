@@ -2102,6 +2102,45 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_CoalescingEngine() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("relies on random_string UDF")
+	}
+
+	srcTableName := "test_coalescing"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_coalescing"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT)`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_nullengine"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			Engine:                     protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE,
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// test toast
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,num,val) VALUES (0,0,random_string(9000))`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert", srcTableName, dstTableName, "id,num,val")
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`UPDATE %s SET num = 1`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "update", srcTableName, dstTableName, "id,num,val")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_Partition_Key_Integer() {
 	srcTableName := "test_partition_key_integer"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
@@ -2213,6 +2252,55 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 	var partitionCount int
 	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
 	require.GreaterOrEqual(s.t, partitionCount, 10, "expected at least 10 partitions to be created")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_PartitionBy() {
+	srcTableName := "test_partition_by"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_partition_by"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT NOT NULL)`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_partition_by"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "id", NullableEnabled: true},
+				{SourceName: "num", NullableEnabled: true, Partitioning: 1},
+				{SourceName: "val", NullableEnabled: true, Ordering: 1},
+			},
+		}},
+		Destination: s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "table setup", srcTableName, dstTableName, "id")
+
+	var partitionKey, sortingKey string
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	var dstTableSuffix string
+	if s.cluster {
+		dstTableSuffix = "_shard"
+	}
+	require.NoError(s.t,
+		ch.QueryRow(s.t.Context(),
+			"select partition_key,sorting_key from system.tables where name="+clickhouse.QuoteLiteral(dstTableName+dstTableSuffix),
+		).Scan(&partitionKey, &sortingKey),
+	)
+	require.NoError(s.t, ch.Close())
+	require.Equal(s.t, "num", partitionKey)
+	require.Equal(s.t, "val", sortingKey)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

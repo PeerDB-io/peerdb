@@ -2,10 +2,14 @@ name: peerdb-quickstart-dev
 
 x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: _peerdb_minioadmin
+  MINIO_ROOT_USER: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
+  MINIO_ROOT_PASSWORD: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
   PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
+  MINIO_DEFAULT_BUCKETS: peerdbbucket
+  MINIO_CONSOLE_PORT_NUMBER: 36987
 
 x-catalog-config: &catalog-config
   PEERDB_CATALOG_HOST: catalog
@@ -39,7 +43,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:17-alpine@sha256:fbe21607052bb5c298674f2fd8cf044a63aa3ddf50b81627f894f91f40f50bcb
+    image: postgres:17-alpine@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa
     command: -c config_file=/etc/postgresql.conf
     ports:
       - 9901:5432
@@ -203,7 +207,7 @@ services:
       - flow-api
 
   minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332
+    image: bitnami/minio:2025.7.18@sha256:7ca49beb7c158c93dccf45105e98a5395e1c54a3cb7b82cd806e3821daa25701
     volumes:
       - minio-data:/data
     ports:
@@ -211,16 +215,6 @@ services:
       - "9002:36987"
     environment:
       <<: *minio-config
-    entrypoint: >
-      /bin/sh -c "
-      export MINIO_ROOT_USER=$$PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID;
-      export MINIO_ROOT_PASSWORD=$$PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY;
-      minio server /data --console-address=":36987" &
-      sleep 2;
-      /usr/bin/mc alias set myminiopeerdb http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
-      /usr/bin/mc mb myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME;
-      wait
-      "
 
 volumes:
   pgdata:

@@ -357,3 +357,37 @@ func TestBuildQuery_WithNumParts(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, query, "cityHash64(_peerdb_uid) % 4 = 2")
 }
+
+func TestGetOrderedPartitionByColumns(t *testing.T) {
+	tableMapping := &protos.TableMapping{
+		SourceTableIdentifier:      "test_table",
+		DestinationTableIdentifier: "test_table_ch",
+		Columns: []*protos.ColumnSetting{
+			{
+				SourceName:      "col1",
+				DestinationName: "col1",
+				Partitioning:    1,
+			},
+			{
+				SourceName:      "col2",
+				DestinationName: "col2",
+				Partitioning:    2,
+			},
+			{
+				SourceName:      "col3",
+				DestinationName: "col3",
+				Partitioning:    0, // Not partitioned
+			},
+		},
+	}
+
+	colNameMap := map[string]string{
+		"col1": "column_one",
+		"col2": "column_two",
+	}
+
+	expected := []string{"`column_one`", "`column_two`"}
+	actual := getOrderedPartitionByColumns(tableMapping, colNameMap)
+
+	require.Equal(t, expected, actual)
+}

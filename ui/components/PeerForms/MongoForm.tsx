@@ -1,14 +1,22 @@
 import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
+import {
+  blankSSHConfig,
+  sshSetting,
+} from '@/app/peers/create/[peerType]/helpers/ssh';
 import SelectTheme from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
-import { handleFieldChange } from '@/components/PeerForms/common';
-import { MongoConfig } from '@/grpc_generated/peers';
+import {
+  handleFieldChange,
+  handleSSHParam,
+} from '@/components/PeerForms/common';
+import { MongoConfig, SSHConfig } from '@/grpc_generated/peers';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
+import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
 
 interface MongoFormProps {
@@ -22,6 +30,16 @@ export default function MongoForm({
   setter,
   config,
 }: MongoFormProps) {
+  const [showSSH, setShowSSH] = useState(false);
+  const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
+
+  useEffect(() => {
+    setter((prev) => ({
+      ...prev,
+      sshConfig: showSSH ? sshConfig : undefined,
+    }));
+  }, [sshConfig, setter, showSSH]);
+
   return (
     <>
       {settings.map((setting, id) => {
@@ -158,6 +176,74 @@ export default function MongoForm({
           </div>
         );
       })}
+      <Label
+        as='label'
+        style={{ marginTop: '1rem', display: 'block' }}
+        variant='subheadline'
+        colorName='lowContrast'
+      >
+        SSH Configuration
+      </Label>
+      <Label>
+        You may provide SSH configuration to connect to your MongoDB cluster
+        through SSH tunnel.
+      </Label>
+      <div style={{ width: '50%', display: 'flex', alignItems: 'center' }}>
+        <Label variant='subheadline'>Configure SSH Tunnel</Label>
+        <Switch onCheckedChange={(state) => setShowSSH(state)} />
+      </div>
+      {showSSH &&
+        sshSetting.map((sshParam, index) => (
+          <RowWithTextField
+            key={index}
+            label={
+              <Label>
+                {sshParam.label}{' '}
+                {!sshParam.optional && (
+                  <Tooltip
+                    style={{ width: '100%' }}
+                    content='This is a required field.'
+                  >
+                    <Label colorName='lowContrast' colorSet='destructive'>
+                      *
+                    </Label>
+                  </Tooltip>
+                )}
+              </Label>
+            }
+            action={
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                }}
+              >
+                <TextField
+                  variant='simple'
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    handleSSHParam(e, sshParam, setSSHConfig)
+                  }
+                  style={{
+                    border: sshParam.type === 'file' ? 'none' : 'auto',
+                    height: sshParam.type === 'textarea' ? '15rem' : 'auto',
+                  }}
+                  type={sshParam.type}
+                  defaultValue={
+                    (sshConfig as SSHConfig)[
+                      sshParam.label === 'SSH Private Key'
+                        ? 'privateKey'
+                        : sshParam.label === "Host's Public Key"
+                          ? 'hostKey'
+                          : (sshParam.label.toLowerCase() as keyof SSHConfig)
+                    ] || ''
+                  }
+                />
+                {sshParam.tips && <InfoPopover tips={sshParam.tips} />}
+              </div>
+            }
+          />
+        ))}
     </>
   );
 }

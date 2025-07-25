@@ -135,16 +135,24 @@ func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
 
 func TestClickHouseAccessEntityNotFoundErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a ClickHouse access entity not found error
-	err := &clickhouse.Exception{
-		Code:    492,
-		Message: "ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories",
+	for idx, msg := range []string{
+		"ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories",
+		// With backticks
+		"ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in `user directories`",
+	} {
+		t.Run(fmt.Sprintf("Test case %d", idx), func(t *testing.T) {
+			err := &clickhouse.Exception{
+				Code:    492,
+				Message: msg,
+			}
+			errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
+			assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+			assert.Equal(t, ErrorInfo{
+				Source: ErrorSourceClickHouse,
+				Code:   "492",
+			}, errInfo, "Unexpected error info")
+		})
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewQRepSyncError(fmt.Errorf("error in WAL: %w", err), "", ""))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourceClickHouse,
-		Code:   "492",
-	}, errInfo, "Unexpected error info")
 }
 
 func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
@@ -211,6 +219,21 @@ func TestPostgresPublicationDoesNotExistErrorShouldBePublicationMissing(t *testi
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
 	assert.Equal(t, ErrorNotifyPublicationMissing, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.UndefinedObject,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresSnapshotDoesNotExistErrorShouldBeInvalidSnapshot(t *testing.T) {
+	// Simulate a snapshot does not exist error
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.UndefinedObject,
+		Message:  `snapshot "custom_snap" does not exist`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to set snapshot: %w", err))
+	assert.Equal(t, ErrorNotifyInvalidSnapshotIdentifier, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.UndefinedObject,
@@ -403,5 +426,34 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
 		Code:   "60",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestNonClassifiedNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
+	// Simulate an unclassified normalize error
+	err := &clickhouse.Exception{
+		Code:    207,
+		Message: "JOIN  ANY LEFT JOIN ... ON a.id = b.b_id ambiguous identifier 'c_id'. In scope SELECT ...",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewNormalizationError("failed to normalize records: %w", err))
+	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "207",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestNonClassifiedNonNormalizeErrorShouldBeOtherWithSourceClickHouse(t *testing.T) {
+	// Simulate an unclassified non-normalize error
+	err := &clickhouse.Exception{
+		Code:    -1,
+		Message: "Some random exception",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("random exception: %w", err))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceClickHouse,
+		Code:   "-1",
 	}, errInfo, "Unexpected error info")
 }

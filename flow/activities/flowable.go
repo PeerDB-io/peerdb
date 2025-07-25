@@ -462,7 +462,7 @@ func (a *FlowableActivity) SyncFlow(
 			)))
 			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 		}
-		if (options.NumberOfSyncs > 0 && syncNum >= options.NumberOfSyncs) || (reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches) {
+		if reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches {
 			break
 		}
 	}

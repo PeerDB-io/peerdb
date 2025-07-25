@@ -56,13 +56,12 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 			BatchSize:          cfg.MaxBatchSize,
 			IdleTimeoutSeconds: cfg.IdleTimeoutSeconds,
 			TableMappings:      tableMappings,
-			NumberOfSyncs:      0,
 		},
 		SnapshotNumRowsPerPartition: cfg.SnapshotNumRowsPerPartition,
 		SnapshotMaxParallelWorkers:  cfg.SnapshotMaxParallelWorkers,
 		SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
 	}
-	syncStatusToCatalog(ctx, workflow.GetLogger(ctx), state.CurrentFlowStatus)
+	syncStatusToCatalog(ctx, logger, state.CurrentFlowStatus)
 	return &state
 }
 
@@ -152,11 +151,6 @@ func processCDCFlowConfigUpdate(
 	if flowConfigUpdate.IdleTimeout > 0 {
 		state.SyncFlowOptions.IdleTimeoutSeconds = flowConfigUpdate.IdleTimeout
 	}
-	if flowConfigUpdate.NumberOfSyncs > 0 {
-		state.SyncFlowOptions.NumberOfSyncs = flowConfigUpdate.NumberOfSyncs
-	} else if flowConfigUpdate.NumberOfSyncs < 0 {
-		state.SyncFlowOptions.NumberOfSyncs = 0
-	}
 	if flowConfigUpdate.UpdatedEnv != nil {
 		if cfg.Env == nil {
 			cfg.Env = make(map[string]string, len(flowConfigUpdate.UpdatedEnv))
@@ -219,31 +213,6 @@ func processTableAdditions(
 	}
 	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
 
-	logger.Info("altering publication for additional tables")
-	alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 5 * time.Minute,
-	})
-	alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
-		alterPublicationAddAdditionalTablesCtx,
-		flowable.AddTablesToPublication,
-		cfg, flowConfigUpdate.AdditionalTables)
-	if err := alterPublicationAddAdditionalTablesFuture.Get(ctx, nil); err != nil {
-		logger.Error("failed to alter publication for additional tables", slog.Any("error", err))
-		return err
-	}
-
-	logger.Info("additional tables added to publication")
-	additionalTablesUUID := GetUUID(ctx)
-	childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
-	additionalTablesCfg := proto.CloneOf(cfg)
-	additionalTablesCfg.DoInitialSnapshot = true
-	additionalTablesCfg.InitialSnapshotOnly = true
-	additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
-	additionalTablesCfg.Resync = false
-	additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
-	additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
-	additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
-
 	addTablesSelector := workflow.NewNamedSelector(ctx, "AddTables")
 	addTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
@@ -278,27 +247,53 @@ func processTableAdditions(
 		}
 	})
 
-	// execute the sync flow as a child workflow
-	childAddTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
-		WorkflowID:        childAdditionalTablesCDCFlowID,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
-		TypedSearchAttributes: mirrorNameSearch,
-		WaitForCancellation:   true,
-	}
-	childAddTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAddTablesCDCFlowOpts)
-	childAddTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
-		childAddTablesCDCFlowCtx,
-		CDCFlowWorkflow,
-		additionalTablesCfg,
-		nil,
-	)
+	logger.Info("altering publication for additional tables")
+	alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
+	})
+	alterPublicationAddAdditionalTablesFuture := workflow.ExecuteActivity(
+		alterPublicationAddAdditionalTablesCtx,
+		flowable.AddTablesToPublication,
+		cfg, flowConfigUpdate.AdditionalTables)
+
 	var res *CDCFlowWorkflowResult
 	var addTablesFlowErr error
-	addTablesSelector.AddFuture(childAddTablesCDCFlowFuture, func(f workflow.Future) {
-		addTablesFlowErr = f.Get(childAddTablesCDCFlowCtx, &res)
+	addTablesSelector.AddFuture(alterPublicationAddAdditionalTablesFuture, func(f workflow.Future) {
+		addTablesFlowErr = f.Get(alterPublicationAddAdditionalTablesCtx, f)
+		if addTablesFlowErr == nil {
+			logger.Info("additional tables added to publication")
+			additionalTablesUUID := GetUUID(ctx)
+			childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
+			additionalTablesCfg := proto.CloneOf(cfg)
+			additionalTablesCfg.DoInitialSnapshot = true
+			additionalTablesCfg.InitialSnapshotOnly = true
+			additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
+			additionalTablesCfg.Resync = false
+			additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+			additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
+			additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
+
+			// execute the sync flow as a child workflow
+			childAddTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
+				WorkflowID:        childAdditionalTablesCDCFlowID,
+				ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+				RetryPolicy: &temporal.RetryPolicy{
+					MaximumAttempts: 20,
+				},
+				TypedSearchAttributes: mirrorNameSearch,
+				WaitForCancellation:   true,
+			}
+			childAddTablesCDCFlowCtx := workflow.WithChildOptions(ctx, childAddTablesCDCFlowOpts)
+			childAddTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
+				childAddTablesCDCFlowCtx,
+				CDCFlowWorkflow,
+				additionalTablesCfg,
+				nil,
+			)
+			addTablesSelector.AddFuture(childAddTablesCDCFlowFuture, func(f workflow.Future) {
+				addTablesFlowErr = f.Get(childAddTablesCDCFlowCtx, &res)
+			})
+		}
 	})
 
 	for res == nil {
@@ -407,7 +402,6 @@ func addCdcPropertiesSignalListener(
 			slog.Uint64("IdleTimeout", state.SyncFlowOptions.IdleTimeoutSeconds),
 			slog.Any("AdditionalTables", cdcConfigUpdate.AdditionalTables),
 			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
-			slog.Int64("NumberOfSyncs", int64(state.SyncFlowOptions.NumberOfSyncs)),
 			slog.Any("UpdatedEnv", cdcConfigUpdate.UpdatedEnv),
 			slog.Uint64("SnapshotNumRowsPerPartition", uint64(cdcConfigUpdate.SnapshotNumRowsPerPartition)),
 			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),
@@ -491,6 +485,7 @@ func CDCFlowWorkflow(
 				selector.Select(ctx)
 			}
 			if err := ctx.Err(); err != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return state, err
 			}
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
@@ -499,6 +494,7 @@ func CDCFlowWorkflow(
 
 			if state.FlowConfigUpdate != nil {
 				if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 					return state, err
 				}
 				logger.Info("wiping flow state after state update processing")
@@ -514,17 +510,28 @@ func CDCFlowWorkflow(
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
+	state.SyncFlowOptions.NumberOfSyncs = 0 // removed feature
 
-	var err error
-	ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
-		FlowName:        cfg.FlowJobName,
-		SourceName:      cfg.SourceName,
-		DestinationName: cfg.DestinationName,
-		Status:          state.CurrentFlowStatus,
-		IsResync:        cfg.Resync,
-	})
-	if err != nil {
-		return state, fmt.Errorf("failed to get flow metadata context: %w", err)
+	for {
+		if err := ctx.Err(); err != nil {
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
+			return state, err
+		}
+
+		var err error
+		ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
+			FlowName:        cfg.FlowJobName,
+			SourceName:      cfg.SourceName,
+			DestinationName: cfg.DestinationName,
+			Status:          state.CurrentFlowStatus,
+			IsResync:        cfg.Resync,
+		})
+		if err != nil {
+			logger.Error("failed to GetFlowMetadataContext", slog.Any("error", err))
+			continue
+		} else {
+			break
+		}
 	}
 
 	// we cannot skip SetupFlow if SnapshotFlow did not complete in cases where Resync is enabled
@@ -609,9 +616,11 @@ func CDCFlowWorkflow(
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 			if setupFlowError != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute setup workflow: %w", setupFlowError)
 			}
 		}
@@ -653,9 +662,11 @@ func CDCFlowWorkflow(
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 			if snapshotError != nil {
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute snapshot workflow: %w", snapshotError)
 			}
 		}
@@ -710,9 +721,11 @@ func CDCFlowWorkflow(
 					return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 				}
 				if err := ctx.Err(); err != nil {
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 					return nil, err
 				}
 				if renameTablesError != nil {
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 					return state, renameTablesError
 				}
 			}
@@ -779,16 +792,10 @@ func CDCFlowWorkflow(
 				logger.Info("sync finished after waiting after error")
 				finished = true
 				finishedError = true
-				if state.SyncFlowOptions.NumberOfSyncs > 0 {
-					state.ActiveSignal = model.PauseSignal
-				}
 			})
 		} else {
 			logger.Info("sync finished")
 			finished = true
-			if state.SyncFlowOptions.NumberOfSyncs > 0 {
-				state.ActiveSignal = model.PauseSignal
-			}
 		}
 	})
 
@@ -835,6 +842,7 @@ func CDCFlowWorkflow(
 		}
 		if err := ctx.Err(); err != nil {
 			logger.Info("mirror canceled", slog.Any("error", err))
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 			return state, err
 		}
 

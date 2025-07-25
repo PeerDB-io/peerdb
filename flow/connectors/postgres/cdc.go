@@ -55,6 +55,7 @@ type PostgresCDCSource struct {
 	hushWarnUnknownTableDetected             map[uint32]struct{}
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
+	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
 }
 
@@ -70,6 +71,7 @@ type PostgresCDCConfig struct {
 	Publication                              string
 	HandleInheritanceForNonPartitionedTables bool
 	SourceSchemaAsDestinationColumn          bool
+	OriginMetaAsDestinationColumn            bool
 	InternalVersion                          uint32
 }
 
@@ -104,6 +106,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
+		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
 	}, nil
 }
@@ -259,6 +262,7 @@ func processTuple[Items model.Items](
 	nameAndExclude model.NameAndExclude,
 	customTypeMapping map[uint32]shared.CustomDataType,
 	schemaName string,
+	baseRecord model.BaseRecord,
 ) (Items, map[string]struct{}, error) {
 	// if the tuple is nil, return an empty map
 	if tuple == nil {
@@ -286,6 +290,10 @@ func processTuple[Items model.Items](
 
 	if schemaName != "" {
 		processor.AddStringColumn(items, "_peerdb_source_schema", schemaName)
+	}
+
+	if p.originMetadataAsDestinationColumn {
+		items.UpdateWithBaseRecord(baseRecord)
 	}
 
 	return items, unchangedToastColumns, nil
@@ -712,12 +720,15 @@ func (p *PostgresCDCSource) updateConsumedOffset(
 
 func (p *PostgresCDCSource) baseRecord(lsn pglogrepl.LSN) model.BaseRecord {
 	var nano int64
+	var transactionID uint64
 	if p.commitLock != nil {
 		nano = p.commitLock.CommitTime.UnixNano()
+		transactionID = uint64(p.commitLock.Xid)
 	}
 	return model.BaseRecord{
 		CheckpointID:   int64(lsn),
 		CommitTimeNano: nano,
+		TransactionID:  transactionID,
 	}
 }
 
@@ -825,13 +836,14 @@ func processInsertMessage[Items model.Items](
 		return nil, err
 	}
 
-	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
+	baseRecord := p.baseRecord(lsn)
+	items, _, err := processTuple(processor, p, msg.Tuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.InsertRecord[Items]{
-		BaseRecord:           p.baseRecord(lsn),
+		BaseRecord:           baseRecord,
 		Items:                items,
 		DestinationTableName: p.tableNameMapping[tableName].Name,
 		SourceTableName:      tableName,
@@ -866,13 +878,14 @@ func processUpdateMessage[Items model.Items](
 		return nil, err
 	}
 
-	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, "")
+	oldItems, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, "", model.BaseRecord{})
 	if err != nil {
 		return nil, fmt.Errorf("error converting old tuple to map: %w", err)
 	}
 
+	baseRecord := p.baseRecord(lsn)
 	newItems, unchangedToastColumns, err := processTuple(
-		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
+		processor, p, msg.NewTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
 		return nil, fmt.Errorf("error converting new tuple to map: %w", err)
 	}
@@ -891,7 +904,7 @@ func processUpdateMessage[Items model.Items](
 	}
 
 	return &model.UpdateRecord[Items]{
-		BaseRecord:            p.baseRecord(lsn),
+		BaseRecord:            baseRecord,
 		OldItems:              oldItems,
 		NewItems:              newItems,
 		DestinationTableName:  p.tableNameMapping[tableName].Name,
@@ -928,13 +941,14 @@ func processDeleteMessage[Items model.Items](
 		return nil, err
 	}
 
-	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName)
+	baseRecord := p.baseRecord(lsn)
+	items, _, err := processTuple(processor, p, msg.OldTuple, rel, p.tableNameMapping[tableName], customTypeMapping, schemaName, baseRecord)
 	if err != nil {
 		return nil, fmt.Errorf("error converting tuple to map: %w", err)
 	}
 
 	return &model.DeleteRecord[Items]{
-		BaseRecord:           p.baseRecord(lsn),
+		BaseRecord:           baseRecord,
 		Items:                items,
 		DestinationTableName: p.tableNameMapping[tableName].Name,
 		SourceTableName:      tableName,

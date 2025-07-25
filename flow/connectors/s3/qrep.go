@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/hamba/avro/v2/ocf"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -66,7 +68,16 @@ func (c *S3Connector) writeToAvroFile(
 		return 0, fmt.Errorf("failed to parse bucket path: %w", err)
 	}
 
-	s3AvroFileKey := fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
+	s3UuidPrefix, err := internal.PeerDBS3UuidPrefix(ctx, env)
+	if err != nil {
+		return 0, err
+	}
+	var s3AvroFileKey string
+	if s3UuidPrefix {
+		s3AvroFileKey = fmt.Sprintf("%s/%s/%s/%s.avro", s3o.Prefix, jobName, uuid.NewString(), partitionID)
+	} else {
+		s3AvroFileKey = fmt.Sprintf("%s/%s/%s.avro", s3o.Prefix, jobName, partitionID)
+	}
 
 	var codec ocf.CodecName
 	switch c.codec {

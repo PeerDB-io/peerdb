@@ -154,6 +154,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_S3_UUID_PREFIX",
+		Description:      "Use random UUID as prefix instead of flow name, can help partitioning on non-AWS based s3 providers",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_S3_PART_SIZE",
 		Description: "S3 upload part size in bytes, may need to increase for large batches. " +
 			"https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
@@ -331,6 +339,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN",
+		Description:      "Ingest additional metadata fields",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_QUEUES,
 	},
 	{
 		Name: "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES",
@@ -599,6 +615,10 @@ func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string)
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 }
 
+func PeerDBS3UuidPrefix(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_S3_UUID_PREFIX")
+}
+
 func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_PART_SIZE")
 }
@@ -652,6 +672,10 @@ func PeerDBSkipSnapshotExport(ctx context.Context, env map[string]string) (bool,
 
 func PeerDBSourceSchemaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN")
+}
+
+func PeerDBOriginMetaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN")
 }
 
 func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Context, env map[string]string) (bool, error) {

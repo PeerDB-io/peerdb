@@ -149,8 +149,7 @@ func (s *SnowflakeAvroConsolidateHandler) handleAppendMode(ctx context.Context) 
 	parsedDstTable, _ := utils.ParseSchemaTable(s.dstTableName)
 	copyCmd := s.getCopyTransformation(snowflakeSchemaTableNormalize(parsedDstTable))
 	s.connector.logger.Info("running copy command: " + copyCmd)
-	_, err := s.connector.ExecContext(ctx, copyCmd)
-	if err != nil {
+	if _, err := s.connector.ExecContext(ctx, copyCmd); err != nil {
 		return fmt.Errorf("failed to run COPY INTO command: %w", err)
 	}
 

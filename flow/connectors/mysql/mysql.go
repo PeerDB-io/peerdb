@@ -125,10 +125,13 @@ func (c *MySqlConnector) ConnectionActive(context.Context) error {
 }
 
 func (c *MySqlConnector) Dialer() client.Dialer {
-	if c.ssh.Client == nil {
-		return NewMeteredDialer(&c.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext)
+	var meteredDialer utils.MeteredDialer
+	if c.ssh.Client != nil {
+		meteredDialer = utils.NewMeteredDialer(&c.bytesRead, c.ssh.Client.DialContext, false)
+	} else {
+		meteredDialer = utils.NewMeteredDialer(&c.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
-	return NewMeteredDialer(&c.bytesRead, c.ssh.Client.DialContext)
+	return meteredDialer.DialContext
 }
 
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
