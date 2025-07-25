@@ -54,7 +54,7 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	)
 	qrepConfig.InitialCopyOnly = false
 
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 
 	e2e.EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
 		return s.countDocumentsInIndex(srcTableName) == int64(rowCount)
@@ -111,7 +111,7 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	}
 	qrepConfig.InitialCopyOnly = false
 
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 
 	e2e.EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
 		return s.countDocumentsInIndex(srcTableName) == int64(rowCount)

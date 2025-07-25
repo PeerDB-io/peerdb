@@ -20,6 +20,8 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
@@ -485,12 +487,17 @@ func CreateQRepWorkflowConfig(
 	}
 }
 
-func RunQRepFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(ctx, tc, peerflow.QRepFlowWorkflow, config, nil)
-}
+func RunQRepFlowWorkflow(t *testing.T, tc client.Client, config *protos.QRepConfig) WorkflowRun {
+	t.Helper()
 
-func RunXminFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(ctx, tc, peerflow.XminFlowWorkflow, config, nil)
+	client, err := NewApiClient()
+	require.NoError(t, err)
+	res, err := client.CreateQRepFlow(t.Context(), &protos.CreateQRepFlowRequest{QrepConfig: config})
+	require.NoError(t, err)
+	return WorkflowRun{
+		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
+		c:           tc,
+	}
 }
 
 func GetOwnersSchema() *types.QRecordSchema {
@@ -612,6 +619,14 @@ func NewTemporalClient(t *testing.T) client.Client {
 	return tc
 }
 
+func NewApiClient() (protos.FlowServiceClient, error) {
+	client, err := grpc.NewClient("0.0.0.0:8112", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	return protos.NewFlowServiceClient(client), nil
+}
+
 type WorkflowRun struct {
 	client.WorkflowRun
 	c client.Client
@@ -627,8 +642,17 @@ func GetPeerflow(ctx context.Context, catalog *pgx.Conn, tc client.Client, flowN
 	return WorkflowRun{WorkflowRun: tc.GetWorkflow(ctx, workflowID, ""), c: tc}, nil
 }
 
-func ExecutePeerflow(ctx context.Context, tc client.Client, wf any, args ...any) WorkflowRun {
-	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, wf, args...)
+func ExecutePeerflow(t *testing.T, tc client.Client, config *protos.FlowConnectionConfigs) WorkflowRun {
+	t.Helper()
+
+	client, err := NewApiClient()
+	require.NoError(t, err)
+	res, err := client.CreateCDCFlow(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: config})
+	require.NoError(t, err)
+	return WorkflowRun{
+		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
+		c:           tc,
+	}
 }
 
 func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf any, args ...any) WorkflowRun {

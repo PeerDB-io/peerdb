@@ -21,7 +21,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 type MongoClickhouseSuite struct {
@@ -112,7 +111,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow() {
 	}
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,_full_document")
 
@@ -162,7 +161,7 @@ func (s MongoClickhouseSuite) Test_Inconsistent_Schema() {
 	}
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,_full_document")
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
@@ -202,7 +201,7 @@ func (s MongoClickhouseSuite) Test_CDC() {
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: 1}}, options.InsertOne())
@@ -269,7 +268,7 @@ func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
 	require.True(t, res.Acknowledged)
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,_full_document")
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
@@ -336,7 +335,7 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	require.True(t, res.Acknowledged)
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,_full_document")
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
@@ -409,7 +408,7 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 	require.True(t, res.([]*mongo.InsertOneResult)[1].Acknowledged)
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable1, dstTable1, "_id,_full_document")
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable2, dstTable2, "_id,_full_document")
 
@@ -463,7 +462,7 @@ func (s MongoClickhouseSuite) Test_Enable_Json() {
 	require.True(t, res.Acknowledged)
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,_full_document")
 
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
@@ -508,7 +507,7 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 	db := s.Source().(*MongoSource).AdminClient().Database(srcDatabase)
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	// insert a document to t1 and t2

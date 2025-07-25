@@ -9,7 +9,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 func (s PeerFlowE2ETestSuiteS3) attachSchemaSuffix(tableName string) string {
@@ -43,7 +42,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 5
 
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 20 rows
 	for i := range 20 {
@@ -103,7 +102,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_OriginMetadata() {
 	flowConnConfig.MaxBatchSize = 5
 	flowConnConfig.Env = map[string]string{"PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN": "true"}
 
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 20 rows
 	for i := range 20 {
