@@ -36,6 +36,8 @@ jobs:
           git fetch || true
           git diff --exit-code && exit 0
           git add -u
+
+          git commit -m 'chore(automated): update `aws-rds-bundle-shasum` in Dockerfile'
           
           git push -u origin "${PR_BRANCH}" --force-with-lease
 
