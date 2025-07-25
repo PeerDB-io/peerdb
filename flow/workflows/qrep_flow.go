@@ -83,7 +83,9 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 		},
 	})
 
-	if err := workflow.ExecuteActivity(ctx, flowable.SetupQRepMetadataTables, q.config).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(
+		ctx, flowable.SetupQRepMetadataTables, q.config, q.runUUID,
+	).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to setup metadata tables: %w", err)
 	}
 
@@ -119,7 +121,9 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		Version:  q.config.Version,
 	}
 
-	return workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil)
+	return workflow.ExecuteActivity(
+		ctx, flowable.SetupQRepTableSchemaActivity, tableSchemaInput, q.config.SnapshotId, q.runUUID,
+	).Get(ctx, nil)
 }
 
 func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Context) error {
@@ -159,7 +163,9 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			IsResync:          q.config.DstTableFullResync,
 		}
 
-		if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
+		if err := workflow.ExecuteActivity(
+			ctx, flowable.CreateQRepNormalizedTable, setupConfig, q.config.SnapshotId, q.runUUID,
+		).Get(ctx, nil); err != nil {
 			q.logger.Error("failed to create watermark table", slog.Any("error", err))
 			return fmt.Errorf("failed to create watermark table: %w", err)
 		}
@@ -317,6 +323,19 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 	return nil
 }
 
+func (q *QRepFlowExecution) updateStatusSuccess(ctx workflow.Context) error {
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 4 * 24 * time.Hour,
+	})
+
+	if err := workflow.ExecuteActivity(
+		ctx, flowable.UpdateQRepStatusSuccess, q.config, q.runUUID,
+	).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to update qrep status: %w", err)
+	}
+	return nil
+}
+
 func (q *QRepFlowExecution) waitForNewRows(
 	ctx workflow.Context,
 	signalChan model.TypedReceiveChannel[model.CDCFlowSignal],
@@ -371,6 +390,8 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 				NewToExistingTableMapping: map[string]string{
 					renamedTableIdentifier: q.config.DestinationTableIdentifier,
 				},
+				SnapshotId: q.config.SnapshotId,
+				RunUuid:    q.runUUID,
 			})
 		if err := createTablesFromExistingFuture.Get(createTablesFromExistingCtx, nil); err != nil {
 			return fmt.Errorf("failed to create table for mirror resync: %w", err)
@@ -410,7 +431,9 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 				NonRetryableErrorTypes: nil,
 			},
 		})
-		renameTablesFuture := workflow.ExecuteActivity(renameTablesCtx, flowable.RenameTables, renameOpts)
+		renameTablesFuture := workflow.ExecuteActivity(
+			renameTablesCtx, flowable.QRepRenameTables, renameOpts, q.config.SnapshotId, q.runUUID,
+		)
 		if err := renameTablesFuture.Get(renameTablesCtx, nil); err != nil {
 			return fmt.Errorf("failed to execute rename tables activity: %w", err)
 		}
@@ -592,12 +615,20 @@ func QRepFlowWorkflow(
 		}
 
 		if config.InitialCopyOnly {
+			if err := q.updateStatusSuccess(ctx); err != nil {
+				return state, err
+			}
+
 			q.logger.Info("initial copy completed for peer flow")
 			updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_COMPLETED)
 			return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 		}
 
 		if err := q.handleTableRenameForResync(ctx, state); err != nil {
+			return state, err
+		}
+
+		if err := q.updateStatusSuccess(ctx); err != nil {
 			return state, err
 		}
 

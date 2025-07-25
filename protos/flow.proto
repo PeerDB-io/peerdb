@@ -110,6 +110,8 @@ message CreateTablesFromExistingInput {
   string flow_job_name = 1;
   map<string, string> new_to_existing_table_mapping = 3;
   string peer_name = 4;
+  int32 snapshot_id = 5;
+  string run_uuid = 6;
 }
 
 message CreateTablesFromExistingOutput {
@@ -151,6 +153,7 @@ message SetupReplicationInput {
   string existing_replication_slot_name = 7;
   string peer_name = 8;
   string destination_name = 9;
+  int32 snapshot_id = 10;
 }
 
 message SetupReplicationOutput {
@@ -340,6 +343,8 @@ message QRepConfig {
 
   repeated ColumnSetting columns = 27;
   uint32 version = 28;
+
+  int32 snapshot_id = 29;
 }
 
 message QRepPartition {

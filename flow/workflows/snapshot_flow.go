@@ -31,8 +31,39 @@ type SnapshotFlowExecution struct {
 	logger log.Logger
 }
 
+func (s *SnapshotFlowExecution) initializeSnapshot(ctx workflow.Context) (int32, error) {
+	flowName := s.config.FlowJobName
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 4 * 24 * time.Hour,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Second,
+		},
+	})
+	var snapshotID int32
+	if err := workflow.ExecuteActivity(ctx, snapshot.InitializeSnapshot, flowName).Get(ctx, &snapshotID); err != nil {
+		return -1, fmt.Errorf("failed to initialize snapshot: %w", err)
+	}
+	return snapshotID, nil
+}
+
+func (s *SnapshotFlowExecution) finishSnapshot(ctx workflow.Context, snapshotId int32) error {
+	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 4 * 24 * time.Hour,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Second,
+		},
+	})
+	if err := workflow.ExecuteActivity(
+		ctx, snapshot.FinishSnapshot, s.config.FlowJobName, snapshotId,
+	).Get(ctx, nil); err != nil {
+		return fmt.Errorf("failed to update end time for snapshot %d: %w", snapshotId, err)
+	}
+	return nil
+}
+
 func (s *SnapshotFlowExecution) setupReplication(
 	ctx workflow.Context,
+	snapshotID int32,
 ) (*protos.SetupReplicationOutput, error) {
 	flowName := s.config.FlowJobName
 	s.logger.Info("setting up replication on source for peer flow")
@@ -58,6 +89,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		ExistingPublicationName:     s.config.PublicationName,
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
 		Env:                         s.config.Env,
+		SnapshotId:                  snapshotID,
 	}
 
 	res := &protos.SetupReplicationOutput{}
@@ -96,6 +128,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	boundSelector *shared.BoundSelector,
 	snapshotName string,
 	mapping *protos.TableMapping,
+	snapshotID int32,
 ) error {
 	flowName := s.config.FlowJobName
 	cloneLog := slog.Group("clone-log",
@@ -126,7 +159,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 
 		schemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: time.Minute,
 			WaitForCancellation: true,
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval: 1 * time.Minute,
@@ -137,13 +169,20 @@ func (s *SnapshotFlowExecution) cloneTable(
 			snapshot.LoadTableSchema,
 			s.config.FlowJobName,
 			dstName,
+			snapshotID,
 		).Get(ctx, &tableSchema)
 	}
 
-	parsedSrcTable, err := utils.ParseSchemaTable(srcName)
-	if err != nil {
-		s.logger.Error("unable to parse source table", slog.Any("error", err), cloneLog)
-		return fmt.Errorf("unable to parse source table: %w", err)
+	parseTableCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Second,
+		},
+	})
+	var parsedSrcTable *utils.SchemaTable
+	if err := workflow.ExecuteActivity(
+		parseTableCtx, snapshot.ParseSchemaTable, s.config.FlowJobName, srcName, snapshotID,
+	).Get(ctx, &parsedSrcTable); err != nil {
+		return err
 	}
 	from := "*"
 	if len(mapping.Exclude) != 0 {
@@ -162,9 +201,18 @@ func (s *SnapshotFlowExecution) cloneTable(
 	// usually MySQL supports double quotes with ANSI_QUOTES, but Vitess doesn't
 	// Vitess currently only supports initial load so change here is enough
 	srcTableEscaped := parsedSrcTable.String()
-	if dbtype, err := getPeerType(ctx, s.config.SourceName); err != nil {
+	peerTypeCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Second,
+		},
+	})
+	var srcDbtype protos.DBType
+	if err := workflow.ExecuteActivity(
+		peerTypeCtx, snapshot.GetPeerType, s.config.FlowJobName, s.config.SourceName, snapshotID,
+	).Get(ctx, &srcDbtype); err != nil {
 		return err
-	} else if dbtype == protos.DBType_MYSQL {
+	}
+	if srcDbtype == protos.DBType_MYSQL {
 		srcTableEscaped = parsedSrcTable.MySQL()
 	}
 
@@ -192,9 +240,13 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	// ensure document IDs are synchronized across initial load and CDC
 	// for the same document
-	if dbtype, err := getPeerType(ctx, s.config.DestinationName); err != nil {
+	var destDbtype protos.DBType
+	if err := workflow.ExecuteActivity(
+		peerTypeCtx, snapshot.GetPeerType, s.config.FlowJobName, s.config.DestinationName, snapshotID,
+	).Get(ctx, &destDbtype); err != nil {
 		return err
-	} else if dbtype == protos.DBType_ELASTICSEARCH {
+	}
+	if destDbtype == protos.DBType_ELASTICSEARCH {
 		if err := initTableSchema(); err != nil {
 			return err
 		}
@@ -227,6 +279,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Exclude:                    mapping.Exclude,
 		Columns:                    mapping.Columns,
 		Version:                    s.config.Version,
+		SnapshotId:                 snapshotID,
 	}
 
 	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
@@ -240,6 +293,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	snapshotName string,
 	supportsTIDScans bool,
 	maxParallelClones int,
+	snapshotID int32,
 ) error {
 	if snapshotType == SNAPSHOT_TYPE_SLOT {
 		s.logger.Info("cloning tables for slot", slog.String("slot", slotName), slog.String("snapshot", snapshotName))
@@ -265,7 +319,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 		if v.PartitionKey == "" {
 			v.PartitionKey = defaultPartitionCol
 		}
-		if err := s.cloneTable(ctx, boundSelector, snapshotName, v); err != nil {
+		if err := s.cloneTable(ctx, boundSelector, snapshotName, v, snapshotID); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
 			continue
 		}
@@ -284,8 +338,9 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 	ctx workflow.Context,
 	sessionCtx workflow.Context,
 	numTablesInParallel int,
+	snapshotID int32,
 ) error {
-	slotInfo, err := s.setupReplication(sessionCtx)
+	slotInfo, err := s.setupReplication(sessionCtx, snapshotID)
 	if err != nil {
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
@@ -304,6 +359,7 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		slotInfo.SnapshotName,
 		slotInfo.SupportsTidScans,
 		numTablesInParallel,
+		snapshotID,
 	); err != nil {
 		s.logger.Error("failed to clone tables", slog.Any("error", err))
 		return fmt.Errorf("failed to clone tables: %w", err)
@@ -336,13 +392,22 @@ func SnapshotFlowWorkflow(
 	}
 	defer workflow.CompleteSession(sessionCtx)
 
+	snapshotID, err := se.initializeSnapshot(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to initialize snapshot: %w", err)
+	}
+
 	if !config.DoInitialSnapshot {
-		if _, err := se.setupReplication(sessionCtx); err != nil {
+		if _, err := se.setupReplication(sessionCtx, snapshotID); err != nil {
 			return fmt.Errorf("failed to setup replication: %w", err)
 		}
 
 		if err := se.closeSlotKeepAlive(sessionCtx); err != nil {
 			return fmt.Errorf("failed to close slot keep alive: %w", err)
+		}
+
+		if err := se.finishSnapshot(sessionCtx, snapshotID); err != nil {
+			return fmt.Errorf("failed to finish snapshot: %w", err)
 		}
 
 		return nil
@@ -366,6 +431,7 @@ func SnapshotFlowWorkflow(
 			sessionInfo.SessionID,
 			config.SourceName,
 			config.Env,
+			snapshotID,
 		)
 
 		fExportSnapshot := workflow.ExecuteActivity(
@@ -399,11 +465,16 @@ func SnapshotFlowWorkflow(
 			txnSnapshotState.SnapshotName,
 			txnSnapshotState.SupportsTIDScans,
 			numTablesInParallel,
+			snapshotID,
 		); err != nil {
 			return fmt.Errorf("failed to clone tables: %w", err)
 		}
-	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
+	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel, snapshotID); err != nil {
 		return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+	}
+
+	if err := se.finishSnapshot(sessionCtx, snapshotID); err != nil {
+		return fmt.Errorf("failed to finish snapshot: %w", err)
 	}
 
 	return nil

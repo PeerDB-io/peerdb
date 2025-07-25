@@ -67,13 +67,9 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 }
 
 func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
-	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
-	})
-
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateFlowStatusInCatalogActivity,
+	updateFuture := workflow.ExecuteActivity(ctx, flowable.UpdateFlowStatusInCatalogActivity,
 		workflow.GetInfo(ctx).WorkflowExecution.ID, status)
-	if err := updateFuture.Get(updateCtx, nil); err != nil {
+	if err := updateFuture.Get(ctx, nil); err != nil {
 		logger.Warn("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
 }

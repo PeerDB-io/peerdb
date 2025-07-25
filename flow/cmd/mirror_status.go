@@ -11,7 +11,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
@@ -425,7 +424,7 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	}
 
 	var config protos.FlowConnectionConfigs
-	if err := proto.Unmarshal(configBytes, &config); err != nil {
+	if err := internal.ProtoUnmarshal(configBytes, &config); err != nil {
 		slog.Error("unable to unmarshal flow config", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}

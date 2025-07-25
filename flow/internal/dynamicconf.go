@@ -17,6 +17,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 const (
@@ -424,7 +425,7 @@ func dynamicConfSigned[T constraints.Signed](ctx context.Context, env map[string
 	})
 	if err != nil {
 		LoggerFromCtx(ctx).Error("Failed to parse as int64", slog.String("key", key), slog.Any("error", err))
-		return 0, fmt.Errorf("failed to parse %s as int64: %w", key, err)
+		return 0, exceptions.NewDynamicConfError("failed to parse %s as int64: %w", key, err)
 	}
 
 	return T(value), nil
@@ -436,7 +437,7 @@ func dynamicConfUnsigned[T constraints.Unsigned](ctx context.Context, env map[st
 	})
 	if err != nil {
 		LoggerFromCtx(ctx).Error("Failed to parse as uint64", slog.String("key", key), slog.Any("error", err))
-		return 0, fmt.Errorf("failed to parse %s as uint64: %w", key, err)
+		return 0, exceptions.NewDynamicConfError("failed to parse %s as uint64: %w", key, err)
 	}
 
 	return T(value), nil
@@ -446,7 +447,7 @@ func dynamicConfBool(ctx context.Context, env map[string]string, key string) (bo
 	value, err := dynLookupConvert(ctx, env, key, strconv.ParseBool)
 	if err != nil {
 		LoggerFromCtx(ctx).Error("Failed to parse bool", slog.String("key", key), slog.Any("error", err))
-		return false, fmt.Errorf("failed to parse %s as bool: %w", key, err)
+		return false, exceptions.NewDynamicConfError("failed to parse %s as bool: %w", key, err)
 	}
 
 	return value, nil

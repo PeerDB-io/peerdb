@@ -23,18 +23,6 @@ func (e *PostgresSetupError) Unwrap() error {
 	return e.error
 }
 
-type CatalogError struct {
-	error
-}
-
-func NewCatalogError(err error) *CatalogError {
-	return &CatalogError{err}
-}
-
-func (e *CatalogError) Unwrap() error {
-	return e.error
-}
-
 type PostgresWalError struct {
 	error
 	Msg *pgproto3.ErrorResponse
