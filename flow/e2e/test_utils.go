@@ -245,17 +245,19 @@ func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 
 func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowConnectionConfigs) {
 	t.Helper()
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	if err != nil {
+		env.Cancel(t.Context())
+		t.Fatal("could not get catalog connection", err)
+	}
 	// errors expected while PeerFlowStatusQuery is setup
 	counter := 0
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.Query(t.Context(), shared.FlowStatusQuery, config.FlowJobName)
+		status, err := internal.GetWorkflowStatus(t.Context(), pool, env.GetID())
 		if err == nil {
-			var status protos.FlowStatus
-			if err := response.Get(&status); err != nil {
-				t.Fatal(err.Error())
-			} else if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
+			if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
 			} else if counter > 30 {
 				env.Cancel(t.Context())
@@ -676,11 +678,11 @@ func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any)
 
 func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
 	t.Helper()
-	res, err := env.c.QueryWorkflow(t.Context(), env.GetID(), "", shared.FlowStatusQuery)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
 	EnvNoError(t, env, err)
-	var flowStatus protos.FlowStatus
-	EnvNoError(t, env, res.Get(&flowStatus))
-	return flowStatus
+	status, err := internal.GetWorkflowStatus(t.Context(), pool, env.GetID())
+	EnvNoError(t, env, err)
+	return status
 }
 
 func SignalWorkflow[T any](ctx context.Context, env WorkflowRun, signal model.TypedSignal[T], value T) {

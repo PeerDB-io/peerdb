@@ -70,10 +70,15 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 			req.ConnectionConfigs.DestinationName, dstErr)
 	}
 
+	cfgBytes, err := proto.Marshal(req.ConnectionConfigs)
+	if err != nil {
+		return fmt.Errorf("unable to marshal flow config: %w", err)
+	}
+
 	if _, err := h.pool.Exec(ctx,
-		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, description,
-		source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, 'gRPC', '', '')`,
-		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID,
+		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,
+		description, source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, 'gRPC', '', '', $5)`,
+		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
 	); err != nil {
 		return fmt.Errorf("unable to insert into flows table for flow %s: %w",
 			req.ConnectionConfigs.FlowJobName, err)
@@ -141,11 +146,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	if err := h.updateFlowConfigInCatalog(ctx, cfg); err != nil {
-		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
@@ -154,13 +154,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	return &protos.CreateCDCFlowResponse{
 		WorkflowId: workflowID,
 	}, nil
-}
-
-func (h *FlowRequestHandler) updateFlowConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
-) error {
-	return internal.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
 }
 
 func (h *FlowRequestHandler) CreateQRepFlow(
