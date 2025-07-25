@@ -134,18 +134,16 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	}); err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
-	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
-		if input.Resync {
-			return protos.FlowStatus_STATUS_RESYNC, nil
-		} else {
-			return protos.FlowStatus_STATUS_TERMINATING, nil
-		}
-	}); err != nil {
-		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
+
+	status := protos.FlowStatus_STATUS_TERMINATING
+	if input.Resync {
+		status = protos.FlowStatus_STATUS_RESYNC
 	}
+	logger := workflow.GetLogger(ctx)
+	syncStatusToCatalog(ctx, logger, status)
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
-	workflow.GetLogger(ctx).Info("performing cleanup for flow",
+	logger.Info("performing cleanup for flow",
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
 	contextMetadataInput := &protos.FlowContextMetadataInput{
 		FlowName: input.FlowJobName,

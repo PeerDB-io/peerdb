@@ -825,7 +825,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			}
 			ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 			logger = internal.LoggerFromCtx(ctx)
-			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, a.TemporalClient, info.workflowID)
+			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, info.workflowID)
 			if sErr != nil {
 				logger.Error("Failed to get workflow status", slog.Any("error", sErr), slog.String("status", status.String()))
 			}

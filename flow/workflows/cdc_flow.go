@@ -435,11 +435,10 @@ func CDCFlowWorkflow(
 	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
-	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+	_ = workflow.SetQueryHandler(ctx, "q-flow-status", func() (protos.FlowStatus, error) {
+		// no longer used, handler kept to avoid nondeterminism
 		return state.CurrentFlowStatus, nil
-	}); err != nil {
-		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
-	}
+	})
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {
 		return state, nil

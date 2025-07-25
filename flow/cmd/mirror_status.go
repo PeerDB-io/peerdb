@@ -293,7 +293,9 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 			return nil, fmt.Errorf("unable to scan initial load partition - %s: %w", parentMirrorName, err)
 		}
 
-		var res protos.CloneTableSummary
+		res := &protos.CloneTableSummary{
+			MirrorName: parentMirrorName,
+		}
 
 		if flowName.Valid {
 			res.FlowJobName = flowName.String
@@ -335,9 +337,7 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 			res.AvgTimePerPartitionMs = int64(avgTimePerPartitionMs.Float64)
 		}
 
-		res.MirrorName = parentMirrorName
-
-		cloneStatuses = append(cloneStatuses, &res)
+		cloneStatuses = append(cloneStatuses, res)
 	}
 	return &protos.InitialLoadSummaryResponse{
 		TableSummaries: cloneStatuses,
@@ -351,7 +351,6 @@ func (h *FlowRequestHandler) qrepFlowStatus(
 	slog.Info("QRep Flow status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
 	partitionStatuses, err := h.getPartitionStatuses(ctx, req.FlowJobName)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query qrep partition - %s: %s", req.FlowJobName, err.Error()))
 		return nil, err
 	}
 
@@ -369,7 +368,8 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 	q := "SELECT partition_uuid,start_time,end_time,rows_in_partition,rows_synced FROM peerdb_stats.qrep_partitions WHERE flow_name=$1"
 	rows, err := h.pool.Query(ctx, q, flowJobName)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query qrep partition - %s: %s", flowJobName, err.Error()))
+		slog.Error("unable to query qrep partition",
+			slog.String("flow", flowJobName), slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query qrep partition - %s: %w", flowJobName, err)
 	}
 
@@ -384,7 +384,8 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 
 	for rows.Next() {
 		if err := rows.Scan(&partitionId, &startTime, &endTime, &numRowsInPartition, &numRowsSynced); err != nil {
-			slog.Error(fmt.Sprintf("unable to scan qrep partition - %s: %s", flowJobName, err.Error()))
+			slog.Error("unable to scan qrep partition",
+				slog.String("flow", flowJobName), slog.Any("error", err))
 			return nil, fmt.Errorf("unable to scan qrep partition - %s: %w", flowJobName, err)
 		}
 
@@ -417,9 +418,9 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	flowJobName string,
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
-	err := h.pool.QueryRow(ctx,
-		"SELECT config_proto FROM flows WHERE name = $1", flowJobName).Scan(&configBytes)
-	if err != nil {
+	if err := h.pool.QueryRow(ctx,
+		"SELECT config_proto FROM flows WHERE name = $1", flowJobName,
+	).Scan(&configBytes); err != nil {
 		slog.Error("unable to query flow config from catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
 	}
@@ -445,7 +446,7 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 }
 
 func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
-	return internal.GetWorkflowStatus(ctx, h.pool, h.temporalClient, workflowID)
+	return internal.GetWorkflowStatus(ctx, h.pool, workflowID)
 }
 
 func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
