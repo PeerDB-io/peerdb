@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"go.temporal.io/sdk/client"
@@ -75,6 +76,8 @@ func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
 func UpdateFlowStatusInCatalog(ctx context.Context, pool shared.CatalogPool,
 	workflowID string, status protos.FlowStatus,
 ) (protos.FlowStatus, error) {
+	ctx, cancelCtx := context.WithTimeout(ctx, 30*time.Second)
+	defer cancelCtx()
 	if _, err := pool.Exec(ctx, "UPDATE flows SET status=$1,updated_at=now() WHERE workflow_id=$2", status, workflowID); err != nil {
 		slog.Error("failed to update flow status", slog.Any("error", err), slog.String("flowID", workflowID))
 		return status, fmt.Errorf("failed to update flow status: %w", err)

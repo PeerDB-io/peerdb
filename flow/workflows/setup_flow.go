@@ -199,7 +199,7 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		Version:       flowConnectionConfigs.Version,
 	}
 
-	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchemaActivity, tableSchemaInput).Get(ctx, nil); err != nil {
 		s.Error("failed to fetch schema for source tables", slog.Any("error", err))
 		return fmt.Errorf("failed to fetch schema for source tables: %w", err)
 	}
@@ -215,7 +215,7 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		IsResync:          flowConnectionConfigs.Resync,
 	}
 
-	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, flowable.CreateSetupNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
 		s.Error("failed to create normalized tables", slog.Any("error", err))
 		return fmt.Errorf("failed to create normalized tables: %w", err)
 	}

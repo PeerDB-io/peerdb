@@ -1,11 +1,13 @@
 package exceptions
 
+import "fmt"
+
 type DropFlowError struct {
 	error
 }
 
-func NewDropFlowError(err error) *DropFlowError {
-	return &DropFlowError{err}
+func NewDropFlowError(format string, a ...any) *DropFlowError {
+	return &DropFlowError{fmt.Errorf(format, a...)}
 }
 
 func (e *DropFlowError) Error() string {

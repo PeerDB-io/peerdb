@@ -97,7 +97,7 @@ func CreatePeerNoValidate(
 		return wrongConfigResponse, nil
 	}
 
-	encodedConfig, encodingErr := proto.Marshal(innerConfig)
+	encodedConfig, encodingErr := internal.ProtoMarshal(innerConfig)
 	if encodingErr != nil {
 		slog.Error(fmt.Sprintf("failed to encode peer configuration for %s peer %s : %v",
 			peer.Type, peer.Name, encodingErr))
