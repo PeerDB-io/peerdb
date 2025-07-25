@@ -77,7 +77,7 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 
 	if _, err := h.pool.Exec(ctx,
 		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,
-		description, source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, 'gRPC', '', '', $5)`,
+		description, source_table_identifier, destination_table_identifier) VALUES ($1,$2,$3,$4,$5,$6,'gRPC','','')`,
 		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
 	); err != nil {
 		return fmt.Errorf("unable to insert into flows table for flow %s: %w",
@@ -111,7 +111,7 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 
 	flowName := req.QrepConfig.FlowJobName
 	if _, err := h.pool.Exec(ctx, `INSERT INTO flows(workflow_id,name,source_peer,destination_peer,config_proto,status,
-		description, destination_table_identifier, query_string) VALUES ($1, $2, $3, $4, $5,$6,'gRPC',$7,$8)
+		description, destination_table_identifier, query_string) VALUES ($1,$2,$3,$4,$5,$6,'gRPC',$7,$8)
 	`, workflowID, flowName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_RUNNING,
 		req.QrepConfig.DestinationTableIdentifier,
 		req.QrepConfig.Query,
