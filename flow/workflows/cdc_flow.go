@@ -780,7 +780,7 @@ func CDCFlowWorkflow(
 					"panic in sync flow",
 					slog.Any("error", panicErr.Error()),
 					slog.String("stack", panicErr.StackTrace()),
-					slog.Any("sleepFor", sleepFor),
+					slog.Duration("sleepFor", sleepFor),
 				)
 			} else {
 				// cannot use shared.IsSQLStateError because temporal serialize/deserialize
