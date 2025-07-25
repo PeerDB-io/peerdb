@@ -122,6 +122,13 @@ func CustomTypeToQKind(typeData shared.CustomDataType, version uint32) types.QVa
 			return types.QValueKindEnum
 		}
 	}
+	if typeData.Type == 'c' {
+		if typeData.Delim != 0 {
+			return types.QValueKindArrayComposite
+		} else {
+			return types.QValueKindComposite
+		}
+	}
 
 	if typeData.Delim != 0 {
 		return types.QValueKindArrayString
