@@ -357,6 +357,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_FORCE_INTERNAL_VERSION",
+		Description:      "Forces mirrors to be created with a different internal version than the latest peerdb internal version.",
+		DefaultValue:     strconv.FormatUint(uint64(shared.InternalVersion_Latest), 10),
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:             "PEERDB_UI_MAINTENANCE_TAB_ENABLED",
 		Description:      "Enable/disable the maintenance tab in the PeerDB UI",
 		DefaultValue:     "false",
@@ -679,4 +687,8 @@ func PeerDBOriginMetaAsDestinationColumn(ctx context.Context, env map[string]str
 
 func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES")
+}
+
+func PeerDBForceInternalVersion(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_FORCE_INTERNAL_VERSION")
 }

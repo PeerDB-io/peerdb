@@ -594,7 +594,7 @@ func (s Generic) Test_Partitioned_Table_Without_Publish_Via_Partition_Root() {
 			CREATE TABLE %[1]s_2024q3
 				PARTITION OF %[1]s
 				FOR VALUES FROM ('2024-07-01') TO ('2024-10-01');
-			CREATE PUBLICATION %[2]s FOR TABLES IN SCHEMA %[3]s;
+			CREATE PUBLICATION %[2]s FOR ALL TABLES;
 	`, srcSchemaTable, srcPublicationName, e2e.Schema(s)))
 	require.NoError(t, err)
 
