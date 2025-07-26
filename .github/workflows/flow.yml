@@ -134,7 +134,7 @@ jobs:
         run: |
           echo "starting mongoDB..."
           docker run -d --rm --name mongo -p 27017:27017 mongo:${{ matrix.db-version.mongo }} \
-            bash -c 'openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && mongod --replSet rs0 --bind_ip_all --keyFile /data/mongo.key'
+            bash -c 'openssl rand -base64 756 > /data/mongo.key && chmod 400 /data/mongo.key && mongod --replSet rs0  --oplogMinRetentionHours 24 --bind_ip_all --keyFile /data/mongo.key'
 
           until docker exec mongo mongosh --eval 'db.runCommand({ ping: 1 })' &> /dev/null; do
             echo "waiting for MongoDB to be ready..."
