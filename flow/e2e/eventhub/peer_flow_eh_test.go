@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 type EventhubsSuite struct {
@@ -157,7 +156,7 @@ func (s EventhubsSuite) Test_EH_Simple() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "e2e_eh_simple_script"
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`

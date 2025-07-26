@@ -70,10 +70,15 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 			req.ConnectionConfigs.DestinationName, dstErr)
 	}
 
+	cfgBytes, err := proto.Marshal(req.ConnectionConfigs)
+	if err != nil {
+		return fmt.Errorf("unable to marshal flow config: %w", err)
+	}
+
 	if _, err := h.pool.Exec(ctx,
-		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, description,
-		source_table_identifier, destination_table_identifier) VALUES ($1, $2, $3, $4, 'gRPC', '', '')`,
-		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID,
+		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,
+		description, source_table_identifier, destination_table_identifier) VALUES ($1,$2,$3,$4,$5,$6,'gRPC','','')`,
+		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
 	); err != nil {
 		return fmt.Errorf("unable to insert into flows table for flow %s: %w",
 			req.ConnectionConfigs.FlowJobName, err)
@@ -98,15 +103,19 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
 			destinationPeerName, dstErr)
 	}
+
+	cfgBytes, err := proto.Marshal(req.QrepConfig)
+	if err != nil {
+		return fmt.Errorf("unable to marshal qrep config: %w", err)
+	}
+
 	flowName := req.QrepConfig.FlowJobName
-	_, err := h.pool.Exec(ctx, `INSERT INTO flows(workflow_id,name, source_peer, destination_peer, description,
-		destination_table_identifier, query_string) VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, workflowID, flowName, sourcePeerID, destinationPeerID,
-		"Mirror created via GRPC",
+	if _, err := h.pool.Exec(ctx, `INSERT INTO flows(workflow_id,name,source_peer,destination_peer,config_proto,status,
+		description, destination_table_identifier, query_string) VALUES ($1,$2,$3,$4,$5,$6,'gRPC',$7,$8)
+	`, workflowID, flowName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_RUNNING,
 		req.QrepConfig.DestinationTableIdentifier,
 		req.QrepConfig.Query,
-	)
-	if err != nil {
+	); err != nil {
 		return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
 			flowName, req.QrepConfig.WatermarkTable, err)
 	}
@@ -118,7 +127,11 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
-	cfg.Version = shared.InternalVersion_Latest
+	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Version = internalVersion
 
 	// For resync, we validate the mirror before dropping it and getting to this step.
 	// There is no point validating again here if it's a resync - the mirror is dropped already
@@ -141,11 +154,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	if err := h.updateFlowConfigInCatalog(ctx, cfg); err != nil {
-		slog.Error("unable to update flow config in catalog", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
-	}
-
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
@@ -156,18 +164,15 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}, nil
 }
 
-func (h *FlowRequestHandler) updateFlowConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
-) error {
-	return internal.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
-}
-
 func (h *FlowRequestHandler) CreateQRepFlow(
 	ctx context.Context, req *protos.CreateQRepFlowRequest,
 ) (*protos.CreateQRepFlowResponse, error) {
 	cfg := req.QrepConfig
-	cfg.Version = shared.InternalVersion_Latest
+	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.QrepConfig.Env)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Version = internalVersion
 
 	workflowID := fmt.Sprintf("%s-qrepflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
@@ -175,12 +180,10 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		TaskQueue:             h.peerflowTaskQueueID,
 		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
-	if req.CreateCatalogEntry {
-		if err := h.createQRepJobEntry(ctx, req, workflowID); err != nil {
-			slog.Error("unable to create flow job entry",
-				slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
-			return nil, fmt.Errorf("unable to create flow job entry: %w", err)
-		}
+	if err := h.createQRepJobEntry(ctx, req, workflowID); err != nil {
+		slog.Error("unable to create flow job entry",
+			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
+		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 	dbtype, err := connectors.LoadPeerType(ctx, h.pool, cfg.SourceName)
 	if err != nil {
@@ -193,10 +196,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		workflowFn = peerflow.QRepFlowWorkflow
 	}
 
-	if req.QrepConfig.SyncedAtColName == "" {
-		cfg.SyncedAtColName = "_PEERDB_SYNCED_AT"
-	}
-
 	cfg.ParentMirrorName = cfg.FlowJobName
 
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, nil); err != nil {
@@ -205,34 +204,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
 	}
 
-	if err := h.updateQRepConfigInCatalog(ctx, cfg); err != nil {
-		slog.Error("unable to update qrep config in catalog",
-			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
-		return nil, fmt.Errorf("unable to update qrep config in catalog: %w", err)
-	}
-
 	return &protos.CreateQRepFlowResponse{
 		WorkflowId: workflowID,
 	}, nil
-}
-
-func (h *FlowRequestHandler) updateQRepConfigInCatalog(
-	ctx context.Context,
-	cfg *protos.QRepConfig,
-) error {
-	cfgBytes, err := proto.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("unable to marshal qrep config: %w", err)
-	}
-
-	_, err = h.pool.Exec(ctx,
-		"UPDATE flows SET config_proto=$1,updated_at=now() WHERE name=$2",
-		cfgBytes, cfg.FlowJobName)
-	if err != nil {
-		return fmt.Errorf("unable to update qrep config in catalog: %w", err)
-	}
-
-	return nil
 }
 
 func (h *FlowRequestHandler) shutdownFlow(

@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/e2e"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
@@ -41,7 +40,7 @@ func (s elasticsearchSuite) Test_Simple_PKey_CDC_Mirror() {
 		require.NoError(s.t, err, "failed to insert row")
 	}
 
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	for i := range rowCount {
@@ -110,7 +109,7 @@ func (s elasticsearchSuite) Test_Composite_PKey_CDC_Mirror() {
 		require.NoError(s.t, err, "failed to insert row")
 	}
 
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	for i := range rowCount {
