@@ -1397,6 +1397,7 @@ func (s ClickHouseSuite) Test_PgVector_Version0() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(shared.InternalVersion_First), 10)}
 	flowConnConfig.Version = shared.InternalVersion_First
 
 	tc := e2e.NewTemporalClient(s.t)

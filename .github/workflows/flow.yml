@@ -162,7 +162,7 @@ jobs:
             db.createUser({
               user: "csuser",
               pwd: "cspass",
-              roles: ["readAnyDatabase"]
+              roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
       - name: MinIO TLS
