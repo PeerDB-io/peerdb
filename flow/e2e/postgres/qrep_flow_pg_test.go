@@ -216,8 +216,8 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
 	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
 
-	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		s.suffix, srcTable)
+	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		srcSchemaQualified)
 
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,

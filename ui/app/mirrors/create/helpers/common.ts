@@ -65,7 +65,7 @@ export const blankQRepSetting: QRepConfig = {
   dstTableFullResync: false,
   snapshotName: '',
   softDeleteColName: '_PEERDB_IS_DELETED',
-  syncedAtColName: '',
+  syncedAtColName: '_PEERDB_SYNCED_AT',
   script: '',
   system: TypeSystem.Q,
   env: {},
