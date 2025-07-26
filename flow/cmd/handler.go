@@ -196,10 +196,6 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		workflowFn = peerflow.QRepFlowWorkflow
 	}
 
-	if req.QrepConfig.SyncedAtColName == "" {
-		cfg.SyncedAtColName = "_PEERDB_SYNCED_AT"
-	}
-
 	cfg.ParentMirrorName = cfg.FlowJobName
 
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, nil); err != nil {
