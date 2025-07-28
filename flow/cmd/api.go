@@ -23,8 +23,6 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/PeerDB-io/peerdb/flow/activities"
-	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/middleware"
@@ -249,56 +247,17 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to kill existing scheduler flows: %w", err)
 	}
 
-	if args.RunScheduledTasksWithoutTemporal {
-		go func() {
-			otelManager, err := otel_metrics.NewOtelManager(ctx, otel_metrics.FlowWorkerServiceName, args.EnableOtelMetrics)
-			if err != nil {
-				log.Fatalf("[scheduled-tasks] unable to create otel manager: %v", err)
-			}
+	workflowOptions := client.StartWorkflowOptions{
+		ID:        "scheduler-" + uuid.NewString(),
+		TaskQueue: taskQueue,
+	}
 
-			tc, err := setupTemporalClient(ctx, clientOptions)
-			if err != nil {
-				log.Fatalf("[scheduled-tasks] unable to create temporal client: %v", err)
-			}
-
-			flowable := &activities.FlowableActivity{
-				CatalogPool:    catalogPool,
-				Alerter:        alerting.NewAlerter(ctx, catalogPool, otelManager),
-				OtelManager:    otelManager,
-				TemporalClient: tc,
-			}
-
-			heartbeatTicker := time.NewTicker(12 * time.Minute)
-			slotSizeTicker := time.NewTicker(time.Minute)
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-heartbeatTicker.C:
-					if err := flowable.SendWALHeartbeat(ctx); err != nil {
-						slog.Error("[scheduled-tasks] SendWALHeartbeat failed", slog.Any("error", err))
-					}
-				case <-slotSizeTicker.C:
-					if err := flowable.RecordSlotSizes(ctx); err != nil {
-						slog.Error("[scheduled-tasks] RecordSlotSizes failed", slog.Any("error", err))
-					}
-				}
-			}
-		}()
-	} else {
-		workflowID := fmt.Sprintf("scheduler-%s", uuid.New())
-		workflowOptions := client.StartWorkflowOptions{
-			ID:        workflowID,
-			TaskQueue: taskQueue,
-		}
-
-		if _, err := flowHandler.temporalClient.ExecuteWorkflow(
-			ctx,
-			workflowOptions,
-			peerflow.GlobalScheduleManagerWorkflow,
-		); err != nil {
-			return fmt.Errorf("unable to start scheduler workflow: %w", err)
-		}
+	if _, err := flowHandler.temporalClient.ExecuteWorkflow(
+		ctx,
+		workflowOptions,
+		peerflow.GlobalScheduleManagerWorkflow,
+	); err != nil {
+		return fmt.Errorf("unable to start scheduler workflow: %w", err)
 	}
 
 	protos.RegisterFlowServiceServer(grpcServer, flowHandler)
