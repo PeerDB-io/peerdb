@@ -15,7 +15,8 @@ import (
 	"time"
 
 	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/v2"
+	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"github.com/snowflakedb/gosnowflake"
 	"github.com/youmark/pkcs8"
 	"google.golang.org/api/iterator"
@@ -128,27 +129,29 @@ func CleanupBQ(ctx context.Context) {
 	}
 	defer CheckedClose(psclient)
 
-	topics := psclient.Topics(ctx)
+	topics := psclient.TopicAdminClient.ListTopics(ctx, &pubsubpb.ListTopicsRequest{Project: "projects/" + psclient.Project()})
 	for {
 		topic, err := topics.Next()
 		if handleIteratorError(err) {
 			break
 		}
-		if strings.HasPrefix(topic.ID(), "e2e") {
-			if err := topic.Delete(ctx); err != nil {
+		if strings.HasPrefix(topic.Name, "e2e") {
+			if err := psclient.TopicAdminClient.DeleteTopic(ctx, &pubsubpb.DeleteTopicRequest{Topic: topic.Name}); err != nil {
 				panic(err)
 			}
 		}
 	}
 
-	subscriptions := psclient.Subscriptions(ctx)
+	subscriptions := psclient.SubscriptionAdminClient.ListSubscriptions(ctx, &pubsubpb.ListSubscriptionsRequest{Project: "projects/" + psclient.Project()})
 	for {
 		subscription, err := subscriptions.Next()
 		if handleIteratorError(err) {
 			break
 		}
-		if strings.HasPrefix(subscription.ID(), "e2e") {
-			if err := subscription.Delete(ctx); err != nil {
+		if strings.HasPrefix(subscription.Name, "e2e") {
+			if err := psclient.SubscriptionAdminClient.DeleteSubscription(ctx, &pubsubpb.DeleteSubscriptionRequest{
+				Subscription: subscription.Name,
+			}); err != nil {
 				panic(err)
 			}
 		}

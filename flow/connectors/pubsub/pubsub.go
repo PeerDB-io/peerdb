@@ -8,9 +8,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/v2"
+	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -58,8 +61,10 @@ func (c *PubSubConnector) Close() error {
 }
 
 func (c *PubSubConnector) ConnectionActive(ctx context.Context) error {
-	topic := c.client.Topic("test")
-	if _, err := topic.Exists(ctx); err != nil {
+	topicName := fmt.Sprintf("projects/%s/topics/%s", c.client.Project(), "test")
+	if _, err := c.client.TopicAdminClient.GetTopic(ctx, &pubsubpb.GetTopicRequest{
+		Topic: topicName,
+	}); err != nil || status.Code(err) == codes.NotFound {
 		return fmt.Errorf("pubsub connection active check failure: %w", err)
 	}
 	return nil
@@ -161,37 +166,39 @@ func (c *PubSubConnector) createPool(
 		return ls, nil
 	}, func(result poolResult) {
 		for _, message := range result.messages {
-			topicClient, err := topiccache.GetOrSet(message.Topic, func() (*pubsub.Topic, error) {
-				topicClient := c.client.Topic(message.Topic)
-				if message.OrderingKey != "" {
-					topicClient.EnableMessageOrdering = true
-				}
+			topic, err := topiccache.GetOrSet(message.Topic, func() (*pubsubpb.Topic, error) {
+				topicName := fmt.Sprintf("projects/%s/topics/%s", c.client.Project(), message.Topic)
+				topic, err := c.client.TopicAdminClient.GetTopic(ctx, &pubsubpb.GetTopicRequest{
+					Topic: topicName,
+				})
 
-				force, envErr := internal.PeerDBQueueForceTopicCreation(ctx, env)
-				if envErr != nil {
-					return nil, envErr
-				}
-				if force {
-					exists, err := topicClient.Exists(ctx)
-					if err != nil {
-						return nil, fmt.Errorf("error checking if topic exists: %w", err)
+				if err != nil && status.Code(err) == codes.NotFound {
+					force, envErr := internal.PeerDBQueueForceTopicCreation(ctx, env)
+					if envErr != nil {
+						return nil, envErr
 					}
-					if !exists {
-						topicClient, err = c.client.CreateTopic(ctx, message.Topic)
-						if err != nil {
+					if force {
+						if newTopic, err := c.client.TopicAdminClient.CreateTopic(ctx, &pubsubpb.Topic{
+							Name: topicName,
+						}); err != nil {
 							return nil, fmt.Errorf("error creating topic: %w", err)
+						} else {
+							topic = newTopic
 						}
 					}
 				}
-				return topicClient, nil
+				return topic, nil
 			})
 			if err != nil {
 				queueErr(fmt.Errorf("[pubsub] error getting topic: %w", err))
 				return
 			}
 
+			if message.OrderingKey != "" {
+				topic.Publisher.EnableMessageOrdering = true
+			}
 			publish <- publishResult{
-				PublishResult: topicClient.Publish(ctx, message.Message),
+				PublishResult: topic.Publisher.Publish(ctx, message.Message),
 			}
 		}
 		publish <- publishResult{
@@ -200,49 +207,11 @@ func (c *PubSubConnector) createPool(
 	})
 }
 
-type topicCache struct {
-	cache map[string]*pubsub.Topic
-	lock  sync.RWMutex
-}
-
-func (tc *topicCache) Flush(ctx context.Context) {
-	tc.forEach(ctx, func(topic *pubsub.Topic) {
-		topic.Flush()
-	})
-}
-
-func (tc *topicCache) Stop(ctx context.Context) {
-	tc.forEach(ctx, func(topic *pubsub.Topic) {
-		topic.Stop()
-	})
-}
-
-func (tc *topicCache) GetOrSet(topic string, f func() (*pubsub.Topic, error)) (*pubsub.Topic, error) {
-	tc.lock.RLock()
-	client, ok := tc.cache[topic]
-	tc.lock.RUnlock()
-	if ok {
-		return client, nil
-	}
-	tc.lock.Lock()
-	defer tc.lock.Unlock()
-	// check cache again, in case of write race
-	if client, ok := tc.cache[topic]; ok {
-		return client, nil
-	}
-	client, err := f()
-	if err != nil {
-		return nil, err
-	}
-	tc.cache[topic] = client
-	return client, nil
-}
-
 func (c *PubSubConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	numRecords := atomic.Int64{}
 	lastSeenLSN := atomic.Int64{}
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
+	topiccache := c.NewTopicCache()
 	publish := make(chan publishResult, 32)
 	waitChan := make(chan struct{})
 
@@ -356,7 +325,9 @@ Loop:
 		return nil, fmt.Errorf("[pubsub] pool.Wait error: %w", err)
 	}
 	close(publish)
-	topiccache.Stop(queueCtx)
+	topiccache.ForEach(queueCtx, func(_ *pubsubpb.Topic, publisher *pubsub.Publisher) {
+		publisher.Stop()
+	})
 	select {
 	case <-queueCtx.Done():
 		return nil, fmt.Errorf("[pubsub] queueCtx.Done: %w", context.Cause(queueCtx))
@@ -377,13 +348,56 @@ Loop:
 	}, nil
 }
 
-func (tc *topicCache) forEach(ctx context.Context, f func(topic *pubsub.Topic)) {
+func (c *PubSubConnector) NewTopicCache() topicCache {
+	return topicCache{
+		client: c.client,
+		cache:  make(map[string]topicCacheValue),
+	}
+}
+
+type topicCacheValue struct {
+	Topic     *pubsubpb.Topic
+	Publisher *pubsub.Publisher
+}
+
+type topicCache struct {
+	client *pubsub.Client
+	cache  map[string]topicCacheValue
+	lock   sync.RWMutex
+}
+
+func (tc *topicCache) GetOrSet(topicName string, f func() (*pubsubpb.Topic, error)) (topicCacheValue, error) {
+	tc.lock.RLock()
+	value, ok := tc.cache[topicName]
+	tc.lock.RUnlock()
+	if ok {
+		return value, nil
+	}
+	tc.lock.Lock()
+	defer tc.lock.Unlock()
+	// check cache again, in case of write race
+	if client, ok := tc.cache[topicName]; ok {
+		return client, nil
+	}
+	topic, err := f()
+	if err != nil {
+		return topicCacheValue{}, err
+	}
+	value = topicCacheValue{
+		Topic:     topic,
+		Publisher: tc.client.Publisher(topic.Name),
+	}
+	tc.cache[topicName] = value
+	return value, nil
+}
+
+func (tc *topicCache) ForEach(ctx context.Context, f func(topic *pubsubpb.Topic, publisher *pubsub.Publisher)) {
 	tc.lock.RLock()
 	defer tc.lock.RUnlock()
-	for _, topicClient := range tc.cache {
+	for _, value := range tc.cache {
 		if ctx.Err() != nil {
 			return
 		}
-		f(topicClient)
+		f(value.Topic, value.Publisher)
 	}
 }
