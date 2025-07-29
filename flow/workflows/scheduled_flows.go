@@ -12,8 +12,8 @@ func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
 		HeartbeatTimeout:    time.Hour,
 		WaitForCancellation: true,
 	})
-	slotSizeFuture := workflow.ExecuteActivity(ctx, flowable.ScheduledTasks)
-	if err := slotSizeFuture.Get(ctx, nil); err != nil {
+	scheduledTasksFuture := workflow.ExecuteActivity(ctx, flowable.ScheduledTasks)
+	if err := scheduledTasksFuture(ctx, nil); err != nil {
 		return err
 	}
 	return ctx.Err()
