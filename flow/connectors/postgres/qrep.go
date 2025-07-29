@@ -45,7 +45,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
-				PartitionId:        uuid.New().String(),
+				PartitionId:        uuid.NewString(),
 				FullTablePartition: true,
 				Range:              nil,
 			},
