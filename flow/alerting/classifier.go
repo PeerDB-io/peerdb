@@ -238,6 +238,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var pgConnErr *pgconn.ConnectError
+	if errors.As(err, &pgConnErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNKNOWN",
+		}
+	}
+
 	// Consolidated PostgreSQL error handling
 	if pgErr != nil {
 		switch pgErr.Code {
@@ -323,14 +331,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.QueryCanceled:
 			return ErrorRetryRecoverable, pgErrorInfo
-		}
-	}
-
-	var pgConnErr *pgconn.ConnectError
-	if errors.As(err, &pgConnErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourcePostgres,
-			Code:   "UNKNOWN",
 		}
 	}
 
