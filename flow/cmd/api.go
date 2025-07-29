@@ -162,12 +162,13 @@ func killExistingScheduleFlows(
 	ctx context.Context,
 	tc client.Client,
 	namespace string,
+	workflowType string,
 	taskQueue string,
 ) error {
 	listRes, err := tc.ListWorkflow(ctx,
 		&workflowservice.ListWorkflowExecutionsRequest{
 			Namespace: namespace,
-			Query:     "WorkflowType = 'GlobalScheduleManagerWorkflow' AND TaskQueue = '" + taskQueue + "'",
+			Query:     fmt.Sprintf("WorkflowType = '%s' AND TaskQueue = '%s'", workflowType, taskQueue),
 		})
 	if err != nil {
 		return fmt.Errorf("unable to list workflows: %w", err)
@@ -241,22 +242,19 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	flowHandler := NewFlowRequestHandler(ctx, tc, catalogPool, taskQueue)
-
-	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue); err != nil {
+	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, "GlobalScheduleManagerWorkflow", taskQueue); err != nil {
+		return fmt.Errorf("unable to kill deprecated scheduler flows: %w", err)
+	}
+	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, "ScheduledTasksWorkflow", taskQueue); err != nil {
 		return fmt.Errorf("unable to kill existing scheduler flows: %w", err)
 	}
 
-	workflowID := fmt.Sprintf("scheduler-%s", uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
+		ID:        "scheduler-" + uuid.NewString(),
 		TaskQueue: taskQueue,
 	}
 
-	if _, err := flowHandler.temporalClient.ExecuteWorkflow(
-		ctx,
-		workflowOptions,
-		peerflow.GlobalScheduleManagerWorkflow,
-	); err != nil {
+	if _, err := flowHandler.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.ScheduledTasksWorkflow); err != nil {
 		return fmt.Errorf("unable to start scheduler workflow: %w", err)
 	}
 
@@ -269,7 +267,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	slog.Info(fmt.Sprintf("Starting API server on port %d", args.Port))
+	slog.Info("Starting API server on port", slog.Uint64("port", uint64(args.Port)))
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
 			log.Fatalf("failed to serve: %v", err)
@@ -281,7 +279,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to setup gateway server: %w", err)
 	}
 
-	slog.Info(fmt.Sprintf("Starting API gateway on port %d", args.GatewayPort))
+	slog.Info("Starting API gateway", slog.Uint64("port", uint64(args.GatewayPort)))
 	go func() {
 		if err := gateway.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("failed to serve http: %v", err)

@@ -728,6 +728,28 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	return nil
 }
 
+func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
+	ticker := time.NewTicker(time.Minute)
+	walHeartbeatCounter := 10
+	for range ticker.C {
+		activity.RecordHeartbeat(ctx, "running")
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if err := a.RecordSlotSizes(ctx); err != nil {
+			slog.Error("[scheduled-tasks] RecordSlotSizes failed", slog.Any("error", err))
+		}
+		walHeartbeatCounter -= 1
+		if walHeartbeatCounter <= 0 {
+			walHeartbeatCounter = 10
+			if err := a.SendWALHeartbeat(ctx); err != nil {
+				slog.Error("[scheduled-tasks] SendWALHeartbeat failed", slog.Any("error", err))
+			}
+		}
+	}
+	return nil
+}
+
 type flowInformation struct {
 	config     *protos.FlowConnectionConfigs
 	workflowID string
