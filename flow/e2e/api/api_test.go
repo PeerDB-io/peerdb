@@ -131,8 +131,7 @@ func (s Suite) checkCatalogTableMapping(
 	}
 
 	var config protos.FlowConnectionConfigs
-	err = internal.ProtoUnmarshal(configBytes, &config)
-	if err != nil {
+	if err := internal.ProtoUnmarshal(configBytes, &config); err != nil {
 		return false, err
 	}
 
