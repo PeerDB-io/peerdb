@@ -251,11 +251,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		TaskQueue: taskQueue,
 	}
 
-	if _, err := flowHandler.temporalClient.ExecuteWorkflow(
-		ctx,
-		workflowOptions,
-		peerflow.GlobalScheduleManagerWorkflow,
-	); err != nil {
+	if _, err := flowHandler.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.ScheduledTasksWorkflow); err != nil {
 		return fmt.Errorf("unable to start scheduler workflow: %w", err)
 	}
 
