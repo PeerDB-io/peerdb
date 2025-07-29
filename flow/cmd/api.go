@@ -32,12 +32,11 @@ import (
 )
 
 type APIServerParams struct {
-	TemporalHostPort                 string
-	TemporalNamespace                string
-	Port                             uint16
-	GatewayPort                      uint16
-	EnableOtelMetrics                bool
-	RunScheduledTasksWithoutTemporal bool
+	TemporalHostPort  string
+	TemporalNamespace string
+	Port              uint16
+	GatewayPort       uint16
+	EnableOtelMetrics bool
 }
 
 type RecryptItem struct {
