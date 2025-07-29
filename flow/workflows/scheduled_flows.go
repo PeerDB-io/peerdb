@@ -13,7 +13,7 @@ func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
 		WaitForCancellation: true,
 	})
 	scheduledTasksFuture := workflow.ExecuteActivity(ctx, flowable.ScheduledTasks)
-	if err := scheduledTasksFuture(ctx, nil); err != nil {
+	if err := scheduledTasksFuture.Get(ctx, nil); err != nil {
 		return err
 	}
 	return ctx.Err()
