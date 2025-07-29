@@ -433,8 +433,26 @@ func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.Event
 	a.sendTelemetryMessage(ctx, logger, string(eventType)+":"+key, message, level)
 }
 
+type flowErrorType string
+
+func (f flowErrorType) String() string {
+	return string(f)
+}
+
+const (
+	flowErrorTypeWarn  flowErrorType = "warn"
+	flowErrorTypeError flowErrorType = "error"
+)
+
 // logFlowErrorImpl pushes the error to the errors table and emits a metric as well as a telemetry message
-func (a *Alerter) logFlowErrorImpl(ctx context.Context, flowName, errorType string, inErr error, logger log.Logger, loggerFunc func(string, ...any)) {
+func (a *Alerter) logFlowErrorImpl(
+	ctx context.Context,
+	flowName string,
+	errorType flowErrorType,
+	inErr error,
+	logger log.Logger,
+	loggerFunc func(string, ...any),
+) {
 	inErrWithStack := fmt.Sprintf("%+v", inErr)
 	loggerFunc(inErr.Error(), slog.String("stack", inErrWithStack))
 	retryInterval := time.Second
@@ -445,7 +463,7 @@ func (a *Alerter) logFlowErrorImpl(ctx context.Context, flowName, errorType stri
 		); err != nil {
 			insertErr := shared.LogError(logger, fmt.Errorf("failed to insert flow error: %w", err))
 			errInfo := ErrorInfo{Source: ErrorSourcePostgresCatalog, Code: "UNKNOWN"}
-			a.emitClassifiedError(ctx, logger, flowName, ErrorInternal, errInfo, insertErr, insertErr.Error(), loggerFunc)
+			a.emitClassifiedError(ctx, logger, flowName, errorType, ErrorInternal, errInfo, insertErr, insertErr.Error(), loggerFunc)
 			time.Sleep(retryInterval)
 			retryInterval = min(retryInterval*2, time.Minute)
 			continue
@@ -454,11 +472,11 @@ func (a *Alerter) logFlowErrorImpl(ctx context.Context, flowName, errorType stri
 	}
 
 	errorClass, errInfo := GetErrorClass(ctx, inErr)
-	a.emitClassifiedError(ctx, logger, flowName, errorClass, errInfo, inErr, inErrWithStack, loggerFunc)
+	a.emitClassifiedError(ctx, logger, flowName, errorType, errorClass, errInfo, inErr, inErrWithStack, loggerFunc)
 }
 
 func (a *Alerter) emitClassifiedError(
-	ctx context.Context, logger log.Logger, flowName string, errorClass ErrorClass, errInfo ErrorInfo,
+	ctx context.Context, logger log.Logger, flowName string, errorType flowErrorType, errorClass ErrorClass, errInfo ErrorInfo,
 	inErr error, inErrWithStack string, loggerFunc func(string, ...any),
 ) {
 	var tags []string
@@ -502,41 +520,54 @@ func (a *Alerter) emitClassifiedError(
 		slog.Any("errorClass", errorClass),
 		slog.Any("errorInfo", errInfo),
 		slog.Any("stack", inErrWithStack))
-	errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(
+	errorAttributes := []attribute.KeyValue{
 		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
 		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
 		attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),
 		attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
-	))
-	a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, errorAttributeSet)
-	a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, errorAttributeSet)
+	}
+	if len(errInfo.AdditionalAttributes) != 0 {
+		for k, v := range errInfo.AdditionalAttributes {
+			errorAttributes = append(errorAttributes, attribute.String(k.String(), v))
+		}
+	}
+
+	errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(errorAttributes...))
+	counter := a.otelManager.Metrics.ErrorsEmittedCounter
+	gauge := a.otelManager.Metrics.ErrorEmittedGauge
+	if errorType == flowErrorTypeWarn {
+		counter = a.otelManager.Metrics.WarningEmittedCounter
+		gauge = a.otelManager.Metrics.WarningsEmittedGauge
+	}
+	counter.Add(ctx, 1, errorAttributeSet)
+	gauge.Record(ctx, 1, errorAttributeSet)
 }
 
 func (a *Alerter) LogFlowErrorNoStatus(ctx context.Context, flowName string, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
 	// TODO check that this one just logs without updating status
-	a.logFlowErrorImpl(ctx, flowName, "error", inErr, logger, logger.Error)
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
 	return inErr
 }
 
 func (a *Alerter) LogFlowSyncError(ctx context.Context, flowName string, batchID int64, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
 	// TODO use batchID
-	a.logFlowErrorImpl(ctx, flowName, "error", inErr, logger, logger.Error)
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
 	return inErr
 }
 
 func (a *Alerter) LogFlowNormalizeError(ctx context.Context, flowName string, batchID int64, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
 	// TODO use batchID
-	a.logFlowErrorImpl(ctx, flowName, "error", inErr, logger, logger.Error)
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
 	return inErr
 }
 
 func (a *Alerter) LogFlowSnapshotError(ctx context.Context, flowName string, snapshotID int32, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
 	// TODO use snapshotID
-	a.logFlowErrorImpl(ctx, flowName, "error", inErr, logger, logger.Error)
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
 	return inErr
 }
 
@@ -545,7 +576,7 @@ func (a *Alerter) LogFlowSnapshotQRepError(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 	// TODO use snapshotID, qRepRunID
-	a.logFlowErrorImpl(ctx, flowName, "error", inErr, logger, logger.Error)
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
 	return inErr
 }
 
@@ -554,13 +585,13 @@ func (a *Alerter) LogFlowSnapshotPartitionError(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 	// TODO use snapshotID, partitionID
-	a.logFlowErrorImpl(ctx, flowName, "error", inErr, logger, logger.Error)
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
 	return inErr
 }
 
 func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, inErr error) {
 	logger := internal.LoggerFromCtx(ctx)
-	a.logFlowErrorImpl(ctx, flowName, "warn", inErr, logger, logger.Warn)
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeWarn, inErr, logger, logger.Warn)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {
