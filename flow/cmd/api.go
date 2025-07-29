@@ -162,12 +162,13 @@ func killExistingScheduleFlows(
 	ctx context.Context,
 	tc client.Client,
 	namespace string,
+	workflowType string,
 	taskQueue string,
 ) error {
 	listRes, err := tc.ListWorkflow(ctx,
 		&workflowservice.ListWorkflowExecutionsRequest{
 			Namespace: namespace,
-			Query:     "WorkflowType = 'GlobalScheduleManagerWorkflow' AND TaskQueue = '" + taskQueue + "'",
+			Query:     fmt.Sprintf("WorkflowType = '%s' AND TaskQueue = '%s'", workflowType, taskQueue),
 		})
 	if err != nil {
 		return fmt.Errorf("unable to list workflows: %w", err)
@@ -241,8 +242,10 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	taskQueue := internal.PeerFlowTaskQueueName(shared.PeerFlowTaskQueue)
 	flowHandler := NewFlowRequestHandler(ctx, tc, catalogPool, taskQueue)
-
-	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, taskQueue); err != nil {
+	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, "GlobalScheduleManagerWorkflow", taskQueue); err != nil {
+		return fmt.Errorf("unable to kill deprecated scheduler flows: %w", err)
+	}
+	if err := killExistingScheduleFlows(ctx, tc, args.TemporalNamespace, "ScheduledTasksWorkflow", taskQueue); err != nil {
 		return fmt.Errorf("unable to kill existing scheduler flows: %w", err)
 	}
 
