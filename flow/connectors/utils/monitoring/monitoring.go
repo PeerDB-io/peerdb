@@ -552,13 +552,7 @@ func FinishPartition(ctx context.Context, logger log.Logger, pool shared.Catalog
 
 	if _, err := tx.Exec(ctx, `
 		UPDATE peerdb_stats.granular_status
-		SET snapshot_failing_partition_ids = array_remove(snapshot_failing_partitions, $1),
-			snapshot_succeeding = (
-				snapshot_failing_id = 0 and
-				array_length(snapshot_failing_qrep_run_ids) = 0 and
-				array_length(snapshot_failing_partition_ids) = 0 and
-				not snapshot_internal_error
-			),
+		SET snapshot_failing_partition_ids = array_remove(snapshot_failing_partition_ids, $1),
 			snapshot_updated_at = utc_now()
 		WHERE flow_name = $2
 		`, partition.PartitionId, flowName,
