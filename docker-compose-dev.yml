@@ -8,7 +8,7 @@ x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
   PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
-  MINIO_DEFAULT_BUCKETS: peerdbbucket
+  MINIO_DEFAULT_BUCKETS: peerdbbucket,peerdb
   MINIO_CONSOLE_PORT_NUMBER: 36987
 
 x-catalog-config: &catalog-config
