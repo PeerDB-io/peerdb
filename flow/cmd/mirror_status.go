@@ -234,6 +234,59 @@ func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequ
 	return &protos.GraphResponse{Data: data}, nil
 }
 
+func (h *FlowRequestHandler) CDCGraphForLastXTime(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
+	var interval string
+	var numPoints int
+	switch req.AggregateType {
+	case "1hour":
+		interval = "1 minute"
+		numPoints = 60
+	case "1day":
+		interval = "1 hour"
+		numPoints = 24
+	case "1month":
+		interval = "1 day"
+		numPoints = 30
+	default:
+		interval = "1 minute"
+		numPoints = 60
+	}
+
+	rows, err := h.pool.Query(ctx, `
+		SELECT tm, COALESCE(SUM(rows_in_batch), 0)
+		FROM generate_series(
+			now() - $1::interval * $2,
+			now(),
+			$1::interval
+		) tm
+		LEFT JOIN peerdb_stats.cdc_batches
+			ON start_time >= tm AND start_time < tm + $1::interval AND flow_name = $3
+		GROUP BY tm
+		ORDER BY tm
+	`, interval, numPoints, req.FlowJobName)
+	if err != nil {
+		return nil, err
+	}
+	var totalRows int64
+	data, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.GraphResponseItem, error) {
+		var t time.Time
+		var r int64
+		if err := row.Scan(&t, &r); err != nil {
+			return nil, err
+		}
+		totalRows += r
+		return &protos.GraphResponseItem{Time: float64(t.UnixMilli()), Rows: float64(r)}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &protos.GraphResponse{
+		Data:      data,
+		TotalRows: totalRows,
+	}, nil
+}
+
 func (h *FlowRequestHandler) InitialLoadSummary(
 	ctx context.Context,
 	req *protos.InitialLoadSummaryRequest,

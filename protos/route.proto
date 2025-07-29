@@ -335,7 +335,11 @@ message GraphResponseItem {
   double rows = 2;
 }
 
-message GraphResponse { repeated GraphResponseItem data = 1; }
+message GraphResponse {
+  repeated GraphResponseItem data = 1;
+  int64 total_rows = 2;
+
+}
 
 message MirrorLog {
   string flow_name = 1;
