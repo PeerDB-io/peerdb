@@ -3,6 +3,7 @@ package connpostgres
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -101,7 +103,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	// Query to get the total number of rows in the table
 	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, parsedWatermarkTable.String(), whereClause)
 	var row pgx.Row
-	var minVal any = nil
+	var minVal any
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
@@ -186,6 +188,19 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	}
 
 	if err := rows.Err(); err != nil {
+		var pgErr *pgconn.PgError
+		if config.WatermarkColumn == "ctid" && errors.As(err, &pgErr) &&
+			pgErr.Message == "transparent decompression only supports tableoid system column" {
+			// timescale, fallback to full table partition
+			return []*protos.QRepPartition{
+				{
+					PartitionId:        uuid.NewString(),
+					FullTablePartition: true,
+					Range:              nil,
+				},
+			}, nil
+		}
+
 		return nil, fmt.Errorf("failed to read rows: %w", err)
 	}
 
