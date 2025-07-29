@@ -271,7 +271,7 @@ func InitializeSnapshot(
 
 	row := tx.QueryRow(ctx,
 		"INSERT INTO peerdb_stats.snapshots(flow_name,start_time)"+
-			" VALUES($1,utc_now(),$2) ON CONFLICT DO NOTHING RETURNING snapshot_id",
+			" VALUES($1,utc_now()) ON CONFLICT DO NOTHING RETURNING snapshot_id",
 		flowName)
 	var snapshotId int32
 	if err := row.Scan(&snapshotId); err != nil {
@@ -280,8 +280,8 @@ func InitializeSnapshot(
 
 	if _, err := tx.Exec(ctx,
 		"UPDATE peerdb_stats.granular_status"+
-			" SET snapshot_current_id = $1, snapshot_succeeding = true, snapshot_failing_qrep_run_ids = {},"+
-			" snapshot_failing_partition_ids = {}, snapshot_is_internal_error = false,"+
+			" SET snapshot_current_id = $1, snapshot_succeeding = true, snapshot_failing_qrep_run_ids = '{}',"+
+			" snapshot_failing_partition_ids = '{}', snapshot_is_internal_error = false,"+
 			" snapshot_updated_at = utc_now()"+
 			" WHERE flow_name = $2",
 		snapshotId, flowName,
@@ -318,8 +318,8 @@ func FinishSnapshot(
 
 	if _, err := pool.Exec(ctx, `
 		UPDATE peerdb_stats.granular_status
-		SET snapshot_succeeding = true, snapshot_failing_qrep_run_ids = {},
-			snapshot_failing_partition_ids = {}, snapshot_is_internal_error = false,
+		SET snapshot_succeeding = true, snapshot_failing_qrep_run_ids = '{}',
+			snapshot_failing_partition_ids = '{}', snapshot_is_internal_error = false,
 			snapshot_updated_at = utc_now()
 		WHERE flow_name = $1 and snapshot_current_id = $2
 		`, flowName, snapshotID,
@@ -550,7 +550,7 @@ func FinishPartition(ctx context.Context, logger log.Logger, pool shared.Catalog
 		return fmt.Errorf("error while updating qrep partition in qrep_partitions: %w", err)
 	}
 
-	if _, err := pool.Exec(ctx, `
+	if _, err := tx.Exec(ctx, `
 		UPDATE peerdb_stats.granular_status
 		SET snapshot_failing_partition_ids = array_remove(snapshot_failing_partitions, $1),
 			snapshot_succeeding = (
