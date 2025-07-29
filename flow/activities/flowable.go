@@ -730,9 +730,9 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	ticker := time.NewTicker(time.Minute)
-	walHeartbeatCounter := 12
+	walHeartbeatCounter := 10
 	for range ticker.C {
-		activity.RecordHeartbeat(ctx, "recording slot size")
+		activity.RecordHeartbeat(ctx, "running")
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -741,7 +741,7 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		}
 		walHeartbeatCounter -= 1
 		if walHeartbeatCounter <= 0 {
-			walHeartbeatCounter = 12
+			walHeartbeatCounter = 10
 			if err := a.SendWALHeartbeat(ctx); err != nil {
 				slog.Error("[scheduled-tasks] SendWALHeartbeat failed", slog.Any("error", err))
 			}
