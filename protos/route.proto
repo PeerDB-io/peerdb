@@ -17,7 +17,6 @@ message CreateCDCFlowResponse { string workflow_id = 1; }
 
 message CreateQRepFlowRequest {
   peerdb_flow.QRepConfig qrep_config = 1;
-  bool create_catalog_entry = 2;
 }
 
 message CreateQRepFlowResponse { string workflow_id = 1; }

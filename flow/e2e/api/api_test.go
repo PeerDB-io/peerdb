@@ -859,8 +859,7 @@ func (s Suite) TestQRep() {
 	qrepConfig.WaitBetweenBatchesSeconds = 5
 	qrepConfig.NumRowsPerPartition = 1
 	_, err = s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
-		QrepConfig:         qrepConfig,
-		CreateCatalogEntry: true,
+		QrepConfig: qrepConfig,
 	})
 	require.NoError(s.t, err)
 
