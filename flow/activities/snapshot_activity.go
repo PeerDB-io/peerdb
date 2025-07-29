@@ -38,7 +38,7 @@ type SnapshotActivity struct {
 }
 
 // closes the slot signal
-func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName string) {
+func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName string) error {
 	a.SnapshotStatesMutex.Lock()
 	defer a.SnapshotStatesMutex.Unlock()
 
@@ -50,6 +50,7 @@ func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName s
 		delete(a.SlotSnapshotStates, flowJobName)
 	}
 	a.Alerter.LogFlowEvent(ctx, flowJobName, "Ended Snapshot Flow Job")
+	return nil
 }
 
 func (a *SnapshotActivity) InitializeSnapshot(

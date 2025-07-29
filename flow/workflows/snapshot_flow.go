@@ -174,6 +174,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 
 	parseTableCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Second,
 		},
@@ -202,6 +203,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	// Vitess currently only supports initial load so change here is enough
 	srcTableEscaped := parsedSrcTable.String()
 	peerTypeCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 5 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Second,
 		},
