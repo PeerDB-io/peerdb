@@ -203,6 +203,14 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 }
 
 func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
+	if req.Mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+		return h.CDCGraphForLastXTime(ctx, req)
+	}
+
+	return h.CDCGraphGroupByXTime(ctx, req)
+}
+
+func (h *FlowRequestHandler) CDCGraphGroupByXTime(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
 	truncField := "minute"
 	switch req.AggregateType {
 	case "1hour":

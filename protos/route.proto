@@ -325,9 +325,16 @@ message GetCDCBatchesResponse {
   int32 page = 3;
 }
 
+enum GraphMode {
+  GRAPH_MODE_UNKNOWN = 0;
+  GRAPH_MODE_GROUP_BY = 1;
+  GRAPH_MODE_LAST_X = 2;
+}
+
 message GraphRequest {
   string flow_job_name = 1;
-  string aggregate_type = 2; // TODO name?
+  string aggregate_type = 2;
+  GraphMode mode = 3;
 }
 
 message GraphResponseItem {
