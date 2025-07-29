@@ -557,11 +557,10 @@ func (a *Alerter) LogFlowSyncError(ctx context.Context, flowName string, batchID
 	return inErr
 }
 
-func (a *Alerter) LogFlowNormalizeError(ctx context.Context, flowName string, batchID int64, inErr error) error {
+func (a *Alerter) LogFlowNormalizeError(ctx context.Context, flowName string, batchID int64, inErr error) {
 	logger := internal.LoggerFromCtx(ctx)
 	// TODO use batchID
 	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
-	return inErr
 }
 
 func (a *Alerter) LogFlowSnapshotError(ctx context.Context, flowName string, snapshotID int32, inErr error) error {

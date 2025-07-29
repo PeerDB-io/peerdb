@@ -1,8 +1,9 @@
 package internal
 
 import (
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"google.golang.org/protobuf/proto"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func ProtoUnmarshal(b []byte, m proto.Message) error {

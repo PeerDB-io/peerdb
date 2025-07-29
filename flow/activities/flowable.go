@@ -185,8 +185,7 @@ func (a *FlowableActivity) SetupQRepTableSchemaActivity(
 ) error {
 	if err := setupTableSchema(ctx, a.CatalogPool, config); err != nil {
 		setupErr := fmt.Errorf("failed to setup table schema: %w", err)
-		a.Alerter.LogFlowSnapshotQRepError(ctx, config.FlowName, snapshotID, runUUID, setupErr)
-		return setupErr
+		return a.Alerter.LogFlowSnapshotQRepError(ctx, config.FlowName, snapshotID, runUUID, setupErr)
 	}
 	return nil
 }
@@ -265,8 +264,7 @@ func (a *FlowableActivity) CreateQRepNormalizedTable(
 	res, err := createNormalizedTable(ctx, a.CatalogPool, config, a.Alerter.LogFlowInfo)
 	if err != nil {
 		createErr := fmt.Errorf("failed to create normalized table: %w", err)
-		a.Alerter.LogFlowSnapshotQRepError(ctx, config.FlowName, snapshotID, runUUID, createErr)
-		return nil, err
+		return nil, a.Alerter.LogFlowSnapshotQRepError(ctx, config.FlowName, snapshotID, runUUID, createErr)
 	}
 	return res, nil
 }
@@ -446,7 +444,7 @@ func (a *FlowableActivity) SyncFlow(
 			syncErr := fmt.Errorf("failed to sync records: %w", err)
 			var skipLogFlowError *exceptions.SkipLogFlowError
 			if !errors.As(syncErr, &skipLogFlowError) {
-				a.Alerter.LogFlowSyncError(ctx, config.FlowJobName, syncingBatchID.Load(), syncErr)
+				_ = a.Alerter.LogFlowSyncError(ctx, config.FlowJobName, syncingBatchID.Load(), syncErr)
 			} else {
 				logger.Error(syncErr.Error())
 			}
