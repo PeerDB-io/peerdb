@@ -229,7 +229,7 @@ func (om *OtelManager) setupMetrics() error {
 
 	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
 		metric.WithUnit("By"),
-		metric.WithDescription("Bytes received of CopyData over replication protocol but only for mapped tables"),
+		metric.WithDescription("Bytes received of CopyData over replication protocol for mapped tables only"),
 	); err != nil {
 		return err
 	}
