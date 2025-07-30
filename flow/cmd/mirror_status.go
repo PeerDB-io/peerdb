@@ -202,60 +202,44 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 	}, nil
 }
 
-type graphParams struct {
-	TickInterval  string
-	NumberOfTicks int
-	TruncUnit     string
-}
-
-func getGraphParams(aggType protos.TimeAggregateType, mode protos.GraphMode) graphParams {
+// returns truncation, tick size, & number of ticks
+func getGraphParams(aggType protos.TimeAggregateType, mode protos.GraphMode) (string, string, int) {
 	switch aggType {
 	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_FIVE_MIN:
 		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
-			// 1 minute tick size, 5 ticks, truncate to the minute
-			return graphParams{"1 minute", 5, "minute"}
+			return "1 minute", "minute", 5
 		}
-		// 5 minute tick size, 30 ticks, truncate to the minute
-		return graphParams{"5 minutes", 30, "minute"}
+		return "minute", "5 minutes", 30
 	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_FIFTEEN_MIN:
 		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
-			// 1 minute tick size, 30 ticks, truncate to the minute
-			return graphParams{"1 minute", 30, "minute"}
+			return "minute", "1 minute", 30
 		}
-		// 15 minute tick size, 30 ticks, truncate to the minute
-		return graphParams{"15 minutes", 30, "minute"}
+		return "minute", "15 minutes", 30
 	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_ONE_HOUR:
 		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
-			// 1 minute tick size, 60 ticks, truncate to the minute
-			return graphParams{"1 minute", 60, "minute"}
+			return "minute", "1 minute", 60
 		}
-		// 1 hour tick size, 30 ticks, truncate to the hour
-		return graphParams{"1 hour", 30, "hour"}
+		return "hour", "1 hour", 30
 	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_ONE_DAY:
 		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
-			return graphParams{"1 hour", 24, "hour"}
+			return "hour", "1 hour", 24
 		}
-		// 1 day tick size, 30 ticks, truncate to the day
-		return graphParams{"1 day", 30, "day"}
+		return "day", "1 day", 30
 	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_ONE_MONTH:
 		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
-			// 30 ticks of 1 day tick size, truncate to the day
-			return graphParams{"1 day", 30, "day"}
+			return "day", "1 day", 30
 		}
-		// 1 month tick size, 30 ticks, truncate to the month
-		return graphParams{"1 month", 30, "month"}
+		return "month", "1 month", 30
 	default:
 		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
-			// 1 hour tick size, 60 ticks, truncate to the minute
-			return graphParams{"1 minute", 60, "minute"}
+			return "minute", "1 minute", 60
 		}
-		// 1 hour tick size, 30 ticks, truncate to the hour
-		return graphParams{"1 hour", 30, "hour"}
+		return "hour", "1 hour", 30
 	}
 }
 
 func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
-	params := getGraphParams(req.AggregateType, req.Mode)
+	truncUnit, tickInterval, numberOfTicks := getGraphParams(req.AggregateType, req.Mode)
 	rows, err := h.pool.Query(ctx, `
 		SELECT tm, COALESCE(SUM(rows_in_batch), 0)
 		FROM generate_series(
@@ -268,7 +252,7 @@ func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequ
 			AND flow_name = $4
 		GROUP BY 1
 		ORDER BY 1
-	`, params.TickInterval, params.TruncUnit, params.NumberOfTicks, req.FlowJobName)
+	`, tickInterval, truncUnit, numberOfTicks, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
