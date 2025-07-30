@@ -2,12 +2,14 @@ package connclickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/google/uuid"
 	"github.com/hamba/avro/v2/ocf"
 
@@ -356,6 +358,12 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 					slog.Uint64("numParts", numParts),
 					slog.Int("chunkIdx", chunkIdx),
 					slog.Any("error", err))
+
+				var chException *clickhouse.Exception
+				if errors.As(err, &chException) {
+					qrepErr := exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database)
+					return errors.New(qrepErr.SanitizeClickHouseError(chException))
+				}
 				return exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database)
 			}
 		}
