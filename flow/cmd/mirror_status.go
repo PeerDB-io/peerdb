@@ -202,79 +202,77 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 	}, nil
 }
 
-func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
-	if req.Mode == protos.GraphMode_GRAPH_MODE_LAST_X {
-		return h.CDCGraphForLastXTime(ctx, req)
-	}
-
-	return h.CDCGraphGroupByXTime(ctx, req)
+type graphParams struct {
+	TickInterval  string
+	NumberOfTicks int
+	TruncUnit     string
 }
 
-func (h *FlowRequestHandler) CDCGraphGroupByXTime(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
-	truncField := "minute"
-	switch req.AggregateType {
-	case "1hour":
-		truncField = "hour"
-	case "1day":
-		truncField = "day"
-	case "1month":
-		truncField = "month"
-	}
-	rows, err := h.pool.Query(ctx, `select tm, coalesce(sum(rows_in_batch), 0)
-	from generate_series(date_trunc($2, now() - $1::INTERVAL * 30), now(), $1::INTERVAL) tm
-	left join peerdb_stats.cdc_batches on start_time >= tm and start_time < tm + $1::INTERVAL and flow_name = $3
-	group by 1 order by 1`, req.AggregateType, truncField, req.FlowJobName)
-	if err != nil {
-		return nil, err
-	}
-	data, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.GraphResponseItem, error) {
-		var t time.Time
-		var r int64
-		if err := row.Scan(&t, &r); err != nil {
-			return nil, err
+func getGraphParams(aggType protos.TimeAggregateType, mode protos.GraphMode) graphParams {
+	switch aggType {
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_FIVE_MIN:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			// 1 minute tick size, 5 ticks, truncate to the minute
+			return graphParams{"1 minute", 5, "minute"}
 		}
-		return &protos.GraphResponseItem{Time: float64(t.UnixMilli()), Rows: float64(r)}, nil
-	})
-	if err != nil {
-		return nil, err
+		// 5 minute tick size, 30 ticks, truncate to the minute
+		return graphParams{"5 minutes", 30, "minute"}
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_FIFTEEN_MIN:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			// 1 minute tick size, 30 ticks, truncate to the minute
+			return graphParams{"1 minute", 30, "minute"}
+		}
+		// 15 minute tick size, 30 ticks, truncate to the minute
+		return graphParams{"15 minutes", 30, "minute"}
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_ONE_HOUR:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			// 1 minute tick size, 60 ticks, truncate to the minute
+			return graphParams{"1 minute", 60, "minute"}
+		}
+		// 1 hour tick size, 30 ticks, truncate to the hour
+		return graphParams{"1 hour", 30, "hour"}
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_ONE_DAY:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			return graphParams{"1 hour", 24, "hour"}
+		}
+		// 1 day tick size, 30 ticks, truncate to the day
+		return graphParams{"1 day", 30, "day"}
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_ONE_MONTH:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			// 30 ticks of 1 day tick size, truncate to the day
+			return graphParams{"1 day", 30, "day"}
+		}
+		// 1 month tick size, 30 ticks, truncate to the month
+		return graphParams{"1 month", 30, "month"}
+	default:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			// 1 hour tick size, 60 ticks, truncate to the minute
+			return graphParams{"1 minute", 60, "minute"}
+		}
+		// 1 hour tick size, 30 ticks, truncate to the hour
+		return graphParams{"1 hour", 30, "hour"}
 	}
-
-	return &protos.GraphResponse{Data: data}, nil
 }
 
-func (h *FlowRequestHandler) CDCGraphForLastXTime(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
-	var interval string
-	var numPoints int
-	switch req.AggregateType {
-	case "1hour":
-		interval = "1 minute"
-		numPoints = 60
-	case "1day":
-		interval = "1 hour"
-		numPoints = 24
-	case "1month":
-		interval = "1 day"
-		numPoints = 30
-	default:
-		interval = "1 minute"
-		numPoints = 60
-	}
-
+func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
+	params := getGraphParams(req.AggregateType, req.Mode)
 	rows, err := h.pool.Query(ctx, `
 		SELECT tm, COALESCE(SUM(rows_in_batch), 0)
 		FROM generate_series(
-			now() - $1::interval * $2,
+			date_trunc($2, now() - $1::INTERVAL * $3),
 			now(),
-			$1::interval
+			$1::INTERVAL
 		) tm
 		LEFT JOIN peerdb_stats.cdc_batches
-			ON start_time >= tm AND start_time < tm + $1::interval AND flow_name = $3
-		GROUP BY tm
-		ORDER BY tm
-	`, interval, numPoints, req.FlowJobName)
+			ON start_time >= tm AND start_time < tm + $1::INTERVAL
+			AND flow_name = $4
+		GROUP BY 1
+		ORDER BY 1
+	`, params.TickInterval, params.TruncUnit, params.NumberOfTicks, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
+
 	var totalRows int64
 	data, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.GraphResponseItem, error) {
 		var t time.Time

@@ -331,9 +331,18 @@ enum GraphMode {
   GRAPH_MODE_LAST_X = 2;
 }
 
+enum TimeAggregateType {
+  TIME_AGGREGATE_TYPE_UNKNOWN = 0;
+  TIME_AGGREGATE_TYPE_FIVE_MIN = 1;
+  TIME_AGGREGATE_TYPE_FIFTEEN_MIN = 2;
+  TIME_AGGREGATE_TYPE_ONE_HOUR = 3;
+  TIME_AGGREGATE_TYPE_ONE_DAY = 4;
+  TIME_AGGREGATE_TYPE_ONE_MONTH = 5;
+}
+
 message GraphRequest {
   string flow_job_name = 1;
-  string aggregate_type = 2;
+  TimeAggregateType aggregate_type = 2;
   GraphMode mode = 3;
 }
 
