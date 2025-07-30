@@ -160,6 +160,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 		schemaCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 			WaitForCancellation: true,
+			StartToCloseTimeout: 5 * time.Minute,
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval: 1 * time.Minute,
 			},
