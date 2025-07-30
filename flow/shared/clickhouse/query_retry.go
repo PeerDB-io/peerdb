@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"go.temporal.io/sdk/log"
@@ -15,22 +16,22 @@ import (
 // https://github.com/ClickHouse/clickhouse-kafka-connect/blob/2e0c17e2f900d29c00482b9d0a1f55cb678244e5/src/main/java/com/clickhouse/kafka/connect/util/Utils.java#L78-L93
 //
 //nolint:lll
-var retryableExceptions = map[int32]struct{}{
-	3:   {}, // UNEXPECTED_END_OF_FILE
-	107: {}, // FILE_DOESNT_EXIST
-	159: {}, // TIMEOUT_EXCEEDED
-	164: {}, // READONLY
-	202: {}, // TOO_MANY_SIMULTANEOUS_QUERIES
-	203: {}, // NO_FREE_CONNECTION
-	209: {}, // SOCKET_TIMEOUT
-	210: {}, // NETWORK_ERROR
-	241: {}, // MEMORY_LIMIT_EXCEEDED
-	242: {}, // TABLE_IS_READ_ONLY
-	252: {}, // TOO_MANY_PARTS
-	285: {}, // TOO_FEW_LIVE_REPLICAS
-	319: {}, // UNKNOWN_STATUS_OF_INSERT
-	425: {}, // SYSTEM_ERROR
-	999: {}, // KEEPER_EXCEPTION
+var retryableExceptions = map[chproto.Error]struct{}{
+	chproto.ErrUnexpectedEndOfFile:        {},
+	chproto.ErrFileDoesntExist:            {},
+	chproto.ErrTimeoutExceeded:            {},
+	chproto.ErrReadonly:                   {},
+	chproto.ErrTooManySimultaneousQueries: {},
+	chproto.ErrNoFreeConnection:           {},
+	chproto.ErrSocketTimeout:              {},
+	chproto.ErrNetworkError:               {},
+	chproto.ErrMemoryLimitExceeded:        {},
+	chproto.ErrTableIsReadOnly:            {},
+	chproto.ErrTooManyParts:               {},
+	chproto.ErrTooLessLiveReplicas:        {},
+	chproto.ErrUnknownStatusOfInsert:      {},
+	425:                                   {}, // SYSTEM_ERROR
+	chproto.ErrKeeperException:            {},
 }
 
 func isRetryableException(err error) bool {
@@ -38,7 +39,7 @@ func isRetryableException(err error) bool {
 		if ex == nil {
 			return false
 		}
-		_, yes := retryableExceptions[ex.Code]
+		_, yes := retryableExceptions[chproto.Error(ex.Code)]
 		return yes
 	}
 	return errors.Is(err, io.EOF)
@@ -56,6 +57,13 @@ func Exec(ctx context.Context, logger log.Logger,
 		logger.Info("[exec] retryable error", slog.Any("error", err), slog.Int64("retry", int64(i)))
 		if i < 4 {
 			time.Sleep(time.Second * time.Duration(i*5+1))
+		}
+	}
+	if ex, ok := err.(*clickhouse.Exception); ok {
+		if chproto.Error(ex.Code) == chproto.ErrIncorrectData {
+			// error message often includes json blobs, avoid logging these
+			ex.Message = "REDACTED"
+			return ex
 		}
 	}
 	return err
