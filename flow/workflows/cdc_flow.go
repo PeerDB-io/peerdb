@@ -77,9 +77,8 @@ func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.
 }
 
 func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Logger, newStatus protos.FlowStatus) {
-	s.CurrentFlowStatus = newStatus
-	// update the status in the catalog
 	syncStatusToCatalog(ctx, logger, s.CurrentFlowStatus)
+	s.CurrentFlowStatus = newStatus
 }
 
 func GetUUID(ctx workflow.Context) string {
