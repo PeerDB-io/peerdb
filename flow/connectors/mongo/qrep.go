@@ -70,7 +70,7 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 
 	batchSize := config.NumRowsPerPartition
-	if config.NumRowsPerPartition <= 0 || config.NumRowsPerPartition > math.MaxInt32 {
+	if config.NumRowsPerPartition == 0 || config.NumRowsPerPartition > math.MaxInt32 {
 		batchSize = math.MaxInt32
 	}
 

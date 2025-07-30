@@ -37,9 +37,10 @@ type CDCFlowWorkflowState struct {
 	CurrentFlowStatus protos.FlowStatus
 
 	// Initial load settings
-	SnapshotNumRowsPerPartition uint32
-	SnapshotMaxParallelWorkers  uint32
-	SnapshotNumTablesInParallel uint32
+	SnapshotNumRowsPerPartition   uint32
+	SnapshotNumPartitionsOverride uint32
+	SnapshotMaxParallelWorkers    uint32
+	SnapshotNumTablesInParallel   uint32
 }
 
 // returns a new empty PeerFlowState
@@ -57,9 +58,10 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 			IdleTimeoutSeconds: cfg.IdleTimeoutSeconds,
 			TableMappings:      tableMappings,
 		},
-		SnapshotNumRowsPerPartition: cfg.SnapshotNumRowsPerPartition,
-		SnapshotMaxParallelWorkers:  cfg.SnapshotMaxParallelWorkers,
-		SnapshotNumTablesInParallel: cfg.SnapshotNumTablesInParallel,
+		SnapshotNumRowsPerPartition:   cfg.SnapshotNumRowsPerPartition,
+		SnapshotNumPartitionsOverride: cfg.SnapshotNumPartitionsOverride,
+		SnapshotMaxParallelWorkers:    cfg.SnapshotMaxParallelWorkers,
+		SnapshotNumTablesInParallel:   cfg.SnapshotNumTablesInParallel,
 	}
 	syncStatusToCatalog(ctx, logger, state.CurrentFlowStatus)
 	return &state
@@ -105,6 +107,7 @@ func updateFlowConfigWithLatestSettings(
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
 	cloneCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+	cloneCfg.SnapshotNumPartitionsOverride = state.SnapshotNumPartitionsOverride
 	cloneCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
 	cloneCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
 	return cloneCfg
@@ -162,6 +165,9 @@ func processCDCFlowConfigUpdate(
 	}
 	if flowConfigUpdate.SnapshotNumRowsPerPartition > 0 {
 		state.SnapshotNumRowsPerPartition = flowConfigUpdate.SnapshotNumRowsPerPartition
+	}
+	if flowConfigUpdate.SnapshotNumPartitionsOverride > 0 {
+		state.SnapshotNumPartitionsOverride = flowConfigUpdate.SnapshotNumPartitionsOverride
 	}
 	if flowConfigUpdate.SnapshotMaxParallelWorkers > 0 {
 		state.SnapshotMaxParallelWorkers = flowConfigUpdate.SnapshotMaxParallelWorkers
@@ -273,6 +279,7 @@ func processTableAdditions(
 			additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
 			additionalTablesCfg.Resync = false
 			additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+			additionalTablesCfg.SnapshotNumPartitionsOverride = state.SnapshotNumPartitionsOverride
 			additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
 			additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
 
@@ -407,6 +414,7 @@ func addCdcPropertiesSignalListener(
 			slog.Any("RemovedTables", cdcConfigUpdate.RemovedTables),
 			slog.Any("UpdatedEnv", cdcConfigUpdate.UpdatedEnv),
 			slog.Uint64("SnapshotNumRowsPerPartition", uint64(cdcConfigUpdate.SnapshotNumRowsPerPartition)),
+			slog.Uint64("SnapshotNumPartitionsOverride", uint64(cdcConfigUpdate.SnapshotNumPartitionsOverride)),
 			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),
 			slog.Uint64("SnapshotNumTablesInParallel", uint64(cdcConfigUpdate.SnapshotNumTablesInParallel)),
 		)
