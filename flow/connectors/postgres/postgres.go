@@ -1403,7 +1403,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	if slotMetricGauges.ConfirmedFlushLSNGauge != nil {
 		lsn, err := pglogrepl.ParseLSN(slotInfo[0].ConfirmedFlushLSN)
 		if err != nil {
-			logger.Error("error parsing confirmed flush LSN", "error", err)
+			logger.Warn("error parsing confirmed flush LSN", slog.Any("error", err))
 		}
 		slotMetricGauges.ConfirmedFlushLSNGauge.Record(ctx, int64(lsn), attributeSet)
 	} else {
@@ -1413,7 +1413,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	if slotMetricGauges.RestartLSNGauge != nil {
 		lsn, err := pglogrepl.ParseLSN(slotInfo[0].RestartLSN)
 		if err != nil {
-			logger.Error("error parsing restart LSN", "error", err)
+			logger.Warn("error parsing restart LSN", slog.Any("error", err))
 		}
 		slotMetricGauges.RestartLSNGauge.Record(ctx, int64(lsn), attributeSet)
 	} else {
