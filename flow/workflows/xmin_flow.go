@@ -26,7 +26,7 @@ func XminFlowWorkflow(
 	if state == nil {
 		state = newQRepFlowState()
 		// needed only for xmin mirrors
-		state.LastPartition.PartitionId = uuid.New().String()
+		state.LastPartition.PartitionId = uuid.NewString()
 	}
 
 	if err := setWorkflowQueries(ctx, state); err != nil {
