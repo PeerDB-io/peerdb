@@ -85,7 +85,7 @@ func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Log
 
 func GetUUID(ctx workflow.Context) string {
 	return GetSideEffect(ctx, func(_ workflow.Context) string {
-		return uuid.New().String()
+		return uuid.NewString()
 	})
 }
 

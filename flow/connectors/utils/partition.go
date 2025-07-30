@@ -151,7 +151,7 @@ func adjustStartValueOfPartition(prevRange *protos.PartitionRange, currentRange 
 
 func createIntPartition(start int64, end int64) *protos.QRepPartition {
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_IntRange{
 				IntRange: &protos.IntPartitionRange{
@@ -165,7 +165,7 @@ func createIntPartition(start int64, end int64) *protos.QRepPartition {
 
 func createTimePartition(start time.Time, end time.Time) *protos.QRepPartition {
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_TimestampRange{
 				TimestampRange: &protos.TimestampPartitionRange{
@@ -189,7 +189,7 @@ func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition 
 	}
 
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_TidRange{
 				TidRange: &protos.TIDPartitionRange{
@@ -203,7 +203,7 @@ func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition 
 
 func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_UintRange{
 				UintRange: &protos.UIntPartitionRange{
@@ -217,7 +217,7 @@ func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
 
 func createObjectIdPartition(start bson.ObjectID, end bson.ObjectID) *protos.QRepPartition {
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_ObjectIdRange{
 				ObjectIdRange: &protos.ObjectIdPartitionRange{

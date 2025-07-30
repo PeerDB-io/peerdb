@@ -460,7 +460,7 @@ func (lt *RecalculateV4Signature) RoundTrip(req *http.Request) (*http.Response, 
 func PutAndRemoveS3(ctx context.Context, client *s3.Client, bucket string, prefix string) error {
 	reader := strings.NewReader(time.Now().Format(time.RFC3339))
 	bucketName := aws.String(bucket)
-	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.New().String()
+	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.NewString()
 	key := aws.String(strings.TrimPrefix(temporaryObjectPath, "/"))
 
 	if _, putErr := client.PutObject(ctx, &s3.PutObjectInput{
