@@ -99,7 +99,7 @@ func comparePartitionRanges(
 			return c
 		}
 		return cmp.Compare(prevTuple.OffsetNumber, currTuple.OffsetNumber)
-		// we can compare ObjectIDs, but not sure if doing this is correct so returning 0
+		// we can compare ObjectIDs, but not sure if doing this is correct
 	case *protos.PartitionRange_ObjectIdRange:
 		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_ObjectIdRange)
 		if !ok {
