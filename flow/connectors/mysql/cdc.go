@@ -403,6 +403,8 @@ func (c *MySqlConnector) PullRecords(
 			return err
 		}
 
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
+
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
 			if ev.ImmediateCommitTimestamp > 0 {
