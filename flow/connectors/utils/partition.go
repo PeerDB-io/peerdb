@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -98,6 +99,30 @@ func comparePartitionRanges(
 			return c
 		}
 		return cmp.Compare(prevTuple.OffsetNumber, currTuple.OffsetNumber)
+		// we can compare ObjectIDs, but not sure if doing this is correct so returning 0
+	case *protos.PartitionRange_ObjectIdRange:
+		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_ObjectIdRange)
+		if !ok {
+			return 0
+		}
+
+		getVal := func(r *protos.ObjectIdPartitionRange, t PartitionRangeType) (bson.ObjectID, error) {
+			if t == PartitionEndRangeType {
+				return bson.ObjectIDFromHex(r.End)
+			}
+			return bson.ObjectIDFromHex(r.Start)
+		}
+
+		prevVal, err := getVal(pr.ObjectIdRange, previousPartition.rangeTypeToCompare)
+		if err != nil {
+			return 0
+		}
+		currVal, err := getVal(cr.ObjectIdRange, currentPartition.rangeTypeToCompare)
+		if err != nil {
+			return 0
+		}
+		// Compare the ObjectIDs
+		return bytes.Compare(prevVal[:], currVal[:])
 	default:
 		return 0
 	}

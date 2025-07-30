@@ -131,7 +131,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 		// Calculate the number of partitions
 		adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
-		c.logger.Info("partition adjustment details",
+		c.logger.Info("[postgres] partition adjustment details",
 			slog.Int64("totalRows", totalRows.Int64),
 			slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
 			slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),

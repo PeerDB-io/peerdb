@@ -126,12 +126,19 @@ func (c *MySqlConnector) GetQRepPartitions(
 			numPartitions++
 		}
 
-		c.logger.Info("queried info for partitioning",
-			slog.Int64("totalRows", totalRows), slog.Int64("numPartitions", numPartitions), slog.Int64("rowsPerPartition", numRowsPerPartition))
+		// Calculate the number of partitions
+		adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
+		c.logger.Info("[mysql] partition details",
+			slog.Int64("totalRows", totalRows),
+			slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+			slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+			slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
+
+		numPartitions = adjustedPartitions.AdjustedNumPartitions
 	}
 
-	watermarkMyType := rs.Fields[0].Type
-	watermarkQKind, err := qkindFromMysql(rs.Fields[0])
+	watermarkMyType := rs.Fields[1].Type
+	watermarkQKind, err := qkindFromMysql(rs.Fields[1])
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert mysql type to qvaluekind: %w", err)
 	}
@@ -143,7 +150,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 	val2, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, rs.Values[0][1])
 	if err != nil {
-		return nil, fmt.Errorf("fialed to convert partition maximum to qvalue: %w", err)
+		return nil, fmt.Errorf("failed to convert partition maximum to qvalue: %w", err)
 	}
 	if err := partitionHelper.AddPartitionsWithRange(val1.Value(), val2.Value(), numPartitions); err != nil {
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
