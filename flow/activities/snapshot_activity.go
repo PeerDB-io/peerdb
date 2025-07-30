@@ -167,6 +167,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 				finishErr := fmt.Errorf("failed to finish export: %w", err)
 				return a.Alerter.LogFlowSnapshotError(ctx, sessionID, snapshotID, finishErr)
 			}
+			return nil
 		}
 		time.Sleep(time.Minute)
 	}
