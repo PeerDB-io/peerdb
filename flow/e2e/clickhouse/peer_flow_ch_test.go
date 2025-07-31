@@ -1207,6 +1207,116 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_JSON_CH() {
+	// TODO: fix and enable failing test cases
+	jsonTestCases := []struct {
+		Value      string
+		Desc       string
+		SkipReason string
+		Skip       bool
+	}{
+		{
+			Desc:  "obj",
+			Value: `'{"key": "val", "number": 30, "bool": true}'`,
+		},
+		{
+			Desc:  "nested obj",
+			Value: `'{"name": "john", "contact": {"email": "john@example.com", "phone": {"cell": "1234567890"}}}'`,
+		},
+		{
+			Desc:  "obj with array as values",
+			Value: `'{"array_key": [1, 2, 3, ["hello", "world"]], "empty_array": []}'`,
+		},
+		{
+			Desc:  "obj with numeric values",
+			Value: `'{"int": 42, "float": 3.14159, "scientific": 1.23e-4, "negative": -456}'`,
+		},
+		{
+			Desc:  "obj with special chars as values",
+			Value: `'{"path": "/home/user", "unicode": "🚀", "quote": "check \"quoted\"", "newline": "line1\nline2"}'`,
+		},
+		{
+			Desc:  "empty object",
+			Value: `'{}'`,
+		},
+		{
+			Desc:       "top-level number",
+			Value:      `'123''`,
+			Skip:       true,
+			SkipReason: "not supported by ClickHouse JSON",
+		},
+		{
+			Desc:       "top-level string",
+			Value:      `'"string value"'`,
+			Skip:       true,
+			SkipReason: "not supported by ClickHouse JSON",
+		},
+		{
+			Desc:       "top-level boolean",
+			Value:      `'true'`,
+			Skip:       true,
+			SkipReason: "not supported by ClickHouse JSON",
+		},
+		{
+			Desc:       "top-level arrays",
+			Value:      `'[1, 2, 3, {"key": "val"}, ["hello", "world"]]'`,
+			Skip:       true,
+			SkipReason: "not supported by ClickHouse JSON",
+		},
+		{
+			Desc:       "nulls",
+			Value:      `'null'`,
+			Skip:       true,
+			SkipReason: "peerdb bug where null value is parsed as empty string due to JSONExtractString",
+		},
+		{
+			Desc:       "null as values",
+			Value:      `'{"key1": null, "key2": {"nested_key": null}}'`,
+			Skip:       true,
+			SkipReason: "insertion succeeds; but comparison fails because CH JSON removes all null fields but postgres does not",
+		},
+	}
+
+	srcTableName := "test_json"
+	dstTableName := "test_json_dst"
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			json JSON,
+			jsonb JSONB
+		);
+	`, s.attachSchemaSuffix(srcTableName)))
+	require.NoError(s.T(), err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("test_json_pg"),
+		TableNameMapping: map[string]string{s.attachSchemaSuffix(srcTableName): dstTableName},
+		Destination:      s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	for _, testCase := range jsonTestCases {
+		if !testCase.Skip {
+			_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (json, jsonb) VALUES (%s, %s)`,
+				s.attachSchemaSuffix(srcTableName), testCase.Value, testCase.Value))
+			e2e.EnvNoError(s.t, env, err)
+		}
+	}
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "compare cdc", srcTableName, dstTableName, "id,json,jsonb")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_PgVector() {
 	if _, ok := s.source.(*e2e.PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
