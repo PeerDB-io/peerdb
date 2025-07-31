@@ -68,11 +68,11 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 }
 
 func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
-	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+	updateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
 
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateFlowStatusInCatalogActivity,
+	updateFuture := workflow.ExecuteActivity(updateCtx, flowable.UpdateFlowStatusInCatalogActivity,
 		workflow.GetInfo(ctx).WorkflowExecution.ID, status)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
@@ -130,12 +130,12 @@ func uploadConfigToCatalog(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
 ) {
-	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+	updateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 
 	logger := workflow.GetLogger(ctx)
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, logger, cfg)
+	updateFuture := workflow.ExecuteActivity(updateCtx, flowable.UpdateCDCConfigInCatalogActivity, logger, cfg)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
 	}

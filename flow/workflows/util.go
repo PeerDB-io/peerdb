@@ -1,8 +1,10 @@
 package peerflow
 
 import (
+	"log/slog"
 	"time"
 
+	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
@@ -26,11 +28,11 @@ func GetFlowMetadataContext(
 	ctx workflow.Context,
 	input *protos.FlowContextMetadataInput,
 ) (workflow.Context, error) {
-	metadataCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+	metadataCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumInterval: time.Minute},
 	})
-	getMetadataFuture := workflow.ExecuteLocalActivity(metadataCtx, flowable.GetFlowMetadata, input)
+	getMetadataFuture := workflow.ExecuteActivity(metadataCtx, flowable.GetFlowMetadata, input)
 	var metadata *protos.FlowContextMetadata
 	if err := getMetadataFuture.Get(metadataCtx, &metadata); err != nil {
 		return nil, err
@@ -42,4 +44,28 @@ func ShouldWorkflowContinueAsNew(ctx workflow.Context) bool {
 	info := workflow.GetInfo(ctx)
 	return info.GetContinueAsNewSuggested() &&
 		(info.GetCurrentHistoryLength() > 40960 || info.GetCurrentHistorySize() > 40*1024*1024)
+}
+
+func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, env map[string]string) bool {
+	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var fullRefreshEnabled bool
+	getFullRefreshFuture := workflow.ExecuteActivity(checkCtx, env)
+	if err := getFullRefreshFuture.Get(checkCtx, &fullRefreshEnabled); err != nil {
+		logger.Warn("Failed to check if full refresh mode is enabled", slog.Any("error", err))
+		return false
+	}
+	return fullRefreshEnabled
+}
+
+func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
+	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var dbtype protos.DBType
+	err := workflow.ExecuteActivity(checkCtx, flowable.GetPeerType, name).Get(checkCtx, &dbtype)
+	return dbtype, err
 }
