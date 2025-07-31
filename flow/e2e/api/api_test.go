@@ -16,7 +16,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
@@ -132,8 +131,7 @@ func (s Suite) checkCatalogTableMapping(
 	}
 
 	var config protos.FlowConnectionConfigs
-	err = proto.Unmarshal(configBytes, &config)
-	if err != nil {
+	if err := internal.ProtoUnmarshal(configBytes, &config); err != nil {
 		return false, err
 	}
 

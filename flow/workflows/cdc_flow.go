@@ -66,21 +66,19 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 }
 
 func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
-	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
+	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+	updateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 4 * 24 * time.Hour,
 	})
-
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateFlowStatusInCatalogActivity,
-		workflow.GetInfo(ctx).WorkflowExecution.ID, status)
+	updateFuture := workflow.ExecuteActivity(updateCtx, flowable.UpdateFlowStatusInCatalogActivity, workflowID, status)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Warn("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
 }
 
 func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Logger, newStatus protos.FlowStatus) {
-	s.CurrentFlowStatus = newStatus
-	// update the status in the catalog
 	syncStatusToCatalog(ctx, logger, s.CurrentFlowStatus)
+	s.CurrentFlowStatus = newStatus
 }
 
 func GetUUID(ctx workflow.Context) string {

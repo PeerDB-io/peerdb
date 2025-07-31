@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -20,6 +21,8 @@ var (
 func GetCatalogConnectionPoolFromEnv(ctx context.Context) (shared.CatalogPool, error) {
 	poolMutex.Lock()
 	defer poolMutex.Unlock()
+	ctx, cancelCtx := context.WithTimeout(ctx, time.Minute)
+	defer cancelCtx()
 	if pool == nil {
 		var err error
 		catalogConnectionString := GetCatalogConnectionStringFromEnv(ctx)

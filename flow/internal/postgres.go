@@ -7,7 +7,6 @@ import (
 	"net/url"
 
 	"go.temporal.io/sdk/log"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -40,7 +39,7 @@ func UpdateCDCConfigInCatalog(ctx context.Context, pool shared.CatalogPool,
 ) error {
 	logger.Info("syncing state to catalog: updating config_proto in flows", slog.String("flowName", cfg.FlowJobName))
 
-	cfgBytes, err := proto.Marshal(cfg)
+	cfgBytes, err := ProtoMarshal(cfg)
 	if err != nil {
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
@@ -70,5 +69,5 @@ func LoadTableSchemaFromCatalog(
 		return nil, err
 	}
 	tableSchema := &protos.TableSchema{}
-	return tableSchema, proto.Unmarshal(tableSchemaBytes, tableSchema)
+	return tableSchema, ProtoUnmarshal(tableSchemaBytes, tableSchema)
 }

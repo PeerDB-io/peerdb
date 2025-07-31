@@ -8,11 +8,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	tEnums "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
-	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -146,6 +147,11 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, fmt.Errorf("unable to update flow config in catalog: %w", err)
 	}
 
+	if err := h.createGranularStatusEntry(ctx, cfg); err != nil {
+		slog.Error("unable to create granular status entry", slog.Any("error", err))
+		return nil, fmt.Errorf("unable to create granular status entry: %w", err)
+	}
+
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
 		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
@@ -161,6 +167,44 @@ func (h *FlowRequestHandler) updateFlowConfigInCatalog(
 	cfg *protos.FlowConnectionConfigs,
 ) error {
 	return internal.UpdateCDCConfigInCatalog(ctx, h.pool, slog.Default(), cfg)
+}
+
+func (h *FlowRequestHandler) createGranularStatusEntry(
+	ctx context.Context,
+	cfg *protos.FlowConnectionConfigs,
+) error {
+	var pgErr *pgconn.PgError
+	if _, err := h.pool.Exec(ctx, `
+		INSERT INTO peerdb_stats.granular_status (flow_name, snapshot_succeeding,
+		sync_succeeding, normalize_succeeding, slot_lag_low) VALUES ($1, true, true, true, true)
+		`, cfg.FlowJobName,
+	); errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation {
+		tx, err := h.pool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to begin transaction for resetting granular status: %w", err)
+		}
+		defer shared.RollbackTx(tx, internal.LoggerFromCtx(ctx))
+
+		if _, err := tx.Exec(ctx, `
+			DELETE FROM peerdb_stats.granular_status where flow_name = $1
+			`, cfg.FlowJobName,
+		); err != nil {
+			return fmt.Errorf("unable to reset granular status: %w", err)
+		}
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO peerdb_stats.granular_status (flow_name, snapshot_succeeding,
+			sync_succeeding, normalize_succeeding, slot_lag_low) VALUES ($1, true, true, true, true)
+			`, cfg.FlowJobName,
+		); err != nil {
+			return fmt.Errorf("unable to replace granular status: %w", err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("unable to commit transaction for resetting granular status: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("unable to insert into granular status table: %w", err)
+	}
+	return nil
 }
 
 func (h *FlowRequestHandler) CreateQRepFlow(
@@ -220,7 +264,7 @@ func (h *FlowRequestHandler) updateQRepConfigInCatalog(
 	ctx context.Context,
 	cfg *protos.QRepConfig,
 ) error {
-	cfgBytes, err := proto.Marshal(cfg)
+	cfgBytes, err := internal.ProtoMarshal(cfg)
 	if err != nil {
 		return fmt.Errorf("unable to marshal qrep config: %w", err)
 	}

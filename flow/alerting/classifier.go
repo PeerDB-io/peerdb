@@ -220,6 +220,30 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var dynamicConfError *exceptions.DynamicConfError
+	if errors.As(err, &dynamicConfError) {
+		return ErrorInternal, ErrorInfo{
+			Source: ErrorSourceOther,
+			Code:   "UNKNOWN",
+		}
+	}
+
+	var protoMarshalError *exceptions.ProtoMarshalError
+	if errors.As(err, &protoMarshalError) {
+		return ErrorInternal, ErrorInfo{
+			Source: ErrorSourceOther,
+			Code:   "UNKNOWN",
+		}
+	}
+
+	var protoUnmarshalError *exceptions.ProtoUnmarshalError
+	if errors.As(err, &protoUnmarshalError) {
+		return ErrorInternal, ErrorInfo{
+			Source: ErrorSourceOther,
+			Code:   "UNKNOWN",
+		}
+	}
+
 	if errors.Is(err, context.Canceled) {
 		// Generally happens during workflow cancellation
 		return ErrorIgnoreContextCancelled, ErrorInfo{

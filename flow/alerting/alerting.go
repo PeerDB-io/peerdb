@@ -444,25 +444,41 @@ const (
 	flowErrorTypeError flowErrorType = "error"
 )
 
-// logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
-func (a *Alerter) logFlowErrorInternal(
+// logFlowErrorImpl pushes the error to the errors table and emits a metric as well as a telemetry message
+func (a *Alerter) logFlowErrorImpl(
 	ctx context.Context,
 	flowName string,
 	errorType flowErrorType,
 	inErr error,
+	logger log.Logger,
 	loggerFunc func(string, ...any),
 ) {
-	logger := internal.LoggerFromCtx(ctx)
 	inErrWithStack := fmt.Sprintf("%+v", inErr)
 	loggerFunc(inErr.Error(), slog.String("stack", inErrWithStack))
-	if _, err := a.CatalogPool.Exec(
-		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
-		flowName, inErrWithStack, errorType.String(),
-	); err != nil {
-		logger.Error("failed to insert flow error", slog.Any("error", err))
-		return
+	retryInterval := time.Second
+	for {
+		if _, err := a.CatalogPool.Exec(
+			ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
+			flowName, inErrWithStack, errorType,
+		); err != nil {
+			insertErr := shared.LogError(logger, fmt.Errorf("failed to insert flow error: %w", err))
+			errInfo := ErrorInfo{Source: ErrorSourcePostgresCatalog, Code: "UNKNOWN"}
+			a.emitClassifiedError(ctx, logger, flowName, errorType, ErrorInternal, errInfo, insertErr, insertErr.Error(), loggerFunc)
+			time.Sleep(retryInterval)
+			retryInterval = min(retryInterval*2, time.Minute)
+			continue
+		}
+		break
 	}
 
+	errorClass, errInfo := GetErrorClass(ctx, inErr)
+	a.emitClassifiedError(ctx, logger, flowName, errorType, errorClass, errInfo, inErr, inErrWithStack, loggerFunc)
+}
+
+func (a *Alerter) emitClassifiedError(
+	ctx context.Context, logger log.Logger, flowName string, errorType flowErrorType, errorClass ErrorClass, errInfo ErrorInfo,
+	inErr error, inErrWithStack string, loggerFunc func(string, ...any),
+) {
 	var tags []string
 	if errors.Is(inErr, context.Canceled) {
 		tags = append(tags, string(shared.ErrTypeCanceled))
@@ -494,14 +510,11 @@ func (a *Alerter) logFlowErrorInternal(
 	if errors.As(inErr, &sshErr) {
 		tags = append(tags, string(shared.ErrTypeNet))
 	}
-
-	errorClass, errInfo := GetErrorClass(ctx, inErr)
 	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
-
 	if !internal.PeerDBTelemetryErrorActionBasedAlertingEnabled() || errorClass.ErrorAction() == NotifyTelemetry {
-		// Warnings alert us just like errors until there's a customer warning system
 		a.sendTelemetryMessage(ctx, logger, flowName, inErrWithStack, telemetry.ERROR, tags...)
 	}
+
 	loggerFunc(fmt.Sprintf("Emitting classified error '%s'", inErr.Error()),
 		slog.Any("error", inErr),
 		slog.Any("errorClass", errorClass),
@@ -530,15 +543,54 @@ func (a *Alerter) logFlowErrorInternal(
 	gauge.Record(ctx, 1, errorAttributeSet)
 }
 
-func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
+func (a *Alerter) LogFlowErrorNoStatus(ctx context.Context, flowName string, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
-	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeError, inErr, logger.Error)
+	// TODO check that this one just logs without updating status
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
+	return inErr
+}
+
+func (a *Alerter) LogFlowSyncError(ctx context.Context, flowName string, batchID int64, inErr error) error {
+	logger := internal.LoggerFromCtx(ctx)
+	// TODO use batchID
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
+	return inErr
+}
+
+func (a *Alerter) LogFlowNormalizeError(ctx context.Context, flowName string, batchID int64, inErr error) {
+	logger := internal.LoggerFromCtx(ctx)
+	// TODO use batchID
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
+}
+
+func (a *Alerter) LogFlowSnapshotError(ctx context.Context, flowName string, snapshotID int32, inErr error) error {
+	logger := internal.LoggerFromCtx(ctx)
+	// TODO use snapshotID
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
+	return inErr
+}
+
+func (a *Alerter) LogFlowSnapshotQRepError(
+	ctx context.Context, flowName string, snapshotID int32, qRepRunID string, inErr error,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	// TODO use snapshotID, qRepRunID
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
+	return inErr
+}
+
+func (a *Alerter) LogFlowSnapshotPartitionError(
+	ctx context.Context, flowName string, snapshotID int32, partitionID string, inErr error,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	// TODO use snapshotID, partitionID
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeError, inErr, logger, logger.Error)
 	return inErr
 }
 
 func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, inErr error) {
 	logger := internal.LoggerFromCtx(ctx)
-	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeWarn, inErr, logger.Warn)
+	a.logFlowErrorImpl(ctx, flowName, flowErrorTypeWarn, inErr, logger, logger.Warn)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {

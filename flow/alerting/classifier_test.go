@@ -164,7 +164,7 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 		is not supported: while converting source column created_at to destination column created_at:
 		while pushing to view db_name.hello_mv`,
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewNormalizationError(fmt.Errorf("error in WAL: %w", err)))
+	errorClass, errInfo := GetErrorClass(t.Context(), exceptions.NewNormalizationError("error in WAL: %w", err))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -200,8 +200,8 @@ func TestClickHouseChaoticNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
 				Left key __table1.column_2 type String. Right key __table2.column_1 type Int64`,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf(`Normalization Error: failed to normalize records:
-		 error while inserting into normalized table table_A: %w`, err)))
+		exceptions.NewNormalizationError(`Normalization Error: failed to normalize records:
+		 error while inserting into normalized table table_A: %w`, err))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -406,7 +406,7 @@ func TestClickHouseUnknownTableShouldBeDestinationModified(t *testing.T) {
 		Message: "Table abc does not exist.",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+		exceptions.NewNormalizationError("failed to normalize records: %w", err))
 	assert.Equal(t, ErrorNotifyDestinationModified, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -422,7 +422,7 @@ func TestClickHouseUnkownTableWhilePushingToViewShouldBeNotifyMVNow(t *testing.T
 		Message: "Table abc does not exist. Maybe you meant abc2?: while executing 'FUNCTION func()': while pushing to view some_mv (some-uuid-here)",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+		exceptions.NewNormalizationError("failed to normalize records: %w", err))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,
@@ -437,7 +437,7 @@ func TestNonClassifiedNormalizeErrorShouldBeNotifyMVNow(t *testing.T) {
 		Message: "JOIN  ANY LEFT JOIN ... ON a.id = b.b_id ambiguous identifier 'c_id'. In scope SELECT ...",
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(),
-		exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+		exceptions.NewNormalizationError("failed to normalize records: %w", err))
 	assert.Equal(t, ErrorNotifyMVOrView, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceClickHouse,

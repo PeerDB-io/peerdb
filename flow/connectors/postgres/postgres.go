@@ -1391,6 +1391,15 @@ func (c *PostgresConnector) HandleSlotInfo(
 		slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo[0])
 
+	if _, err := catalogPool.Exec(ctx, `update peerdb_stats.granular_status
+		set slot_lag_low = $1, slot_lag_mib = $2, slot_lag_updated_at = utc_now()
+		where flow_name = $3
+		`, slotInfo[0].LagInMb > float32(shared.SlotLagThresholdMiB), slotInfo[0].LagInMb,
+		alertKeys.FlowName,
+	); err != nil {
+		logger.Warn("failed to update granular status slot lag", slog.Any("error", err))
+	}
+
 	attributeSet := metric.WithAttributeSet(attribute.NewSet(
 		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
 		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),

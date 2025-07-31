@@ -189,6 +189,166 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 	return nil
 }
 
+func UpdateSyncStatusSuccess(
+	ctx context.Context, pool shared.CatalogPool, flowJobName string, batchID int64,
+) error {
+	if _, err := pool.Exec(ctx, `
+		UPDATE peerdb_stats.granular_status
+		SET sync_succeeding = true, sync_is_internal_error = false,
+			sync_last_successful_batch_id = $1, sync_updated_at = utc_now()
+		WHERE flow_name = $2
+		`, batchID, flowJobName,
+	); err != nil {
+		return fmt.Errorf("failed to update granular status for sync batch: %w", err)
+	}
+	return nil
+}
+
+func UpdateNormalizeStatusSuccess(
+	ctx context.Context, pool shared.CatalogPool, flowJobName string, batchID int64,
+) error {
+	if _, err := pool.Exec(ctx, `
+		UPDATE peerdb_stats.granular_status
+		SET normalize_succeeding = true, normalize_is_internal_error = false,
+			normalize_last_successful_batch_id = $1, normalize_updated_at = utc_now()
+		WHERE flow_name = $2
+		`, batchID, flowJobName,
+	); err != nil {
+		return fmt.Errorf("failed to update granular status for normalize batch: %w", err)
+	}
+	return nil
+}
+
+func UpdateSyncStatusError(
+	ctx context.Context, pool shared.CatalogPool, flowJobName string, isInternalError bool,
+) error {
+	syncIsInternalError := "sync_is_internal_error" // don't modify the value
+	if isInternalError {
+		syncIsInternalError = "true"
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE peerdb_stats.granular_status
+		SET sync_succeeding = false, sync_is_internal_error = `+syncIsInternalError+`,
+			sync_updated_at = utc_now()
+		WHERE flow_name = $1
+		`, flowJobName,
+	); err != nil {
+		return fmt.Errorf("failed to update granular status for sync batch: %w", err)
+	}
+	return nil
+}
+
+func UpdateNormalizeStatusError(
+	ctx context.Context, pool shared.CatalogPool, flowJobName string, isInternalError bool,
+) error {
+	normalizeIsInternalError := "normalize_is_internal_error" // don't modify the value
+	if isInternalError {
+		normalizeIsInternalError = "true"
+	}
+	if _, err := pool.Exec(ctx, `
+		UPDATE peerdb_stats.granular_status
+		SET normalize_succeeding = false, normalize_is_internal_error = `+normalizeIsInternalError+`,
+			normalize_updated_at = utc_now()
+		WHERE flow_name = $1
+		`, flowJobName,
+	); err != nil {
+		return fmt.Errorf("failed to update granular status for normalize batch: %w", err)
+	}
+	return nil
+}
+
+func InitializeSnapshot(
+	ctx context.Context,
+	logger log.Logger,
+	pool shared.CatalogPool,
+	flowName string,
+) (int32, error) {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return -1, fmt.Errorf("error while starting transaction to initialize snapshot: %w", err)
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	row := tx.QueryRow(ctx,
+		"INSERT INTO peerdb_stats.snapshots(flow_name,start_time)"+
+			" VALUES($1,utc_now()) ON CONFLICT DO NOTHING RETURNING snapshot_id",
+		flowName)
+	var snapshotId int32
+	if err := row.Scan(&snapshotId); err != nil {
+		return -1, fmt.Errorf("error while inserting snapshot in peerdb_stats: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		"UPDATE peerdb_stats.granular_status"+
+			" SET snapshot_current_id = $1, snapshot_succeeding = true, snapshot_failing_qrep_run_ids = '{}',"+
+			" snapshot_failing_partition_ids = '{}', snapshot_is_internal_error = false,"+
+			" snapshot_updated_at = utc_now()"+
+			" WHERE flow_name = $2",
+		snapshotId, flowName,
+	); err != nil {
+		return -1, fmt.Errorf("error while initializing granular status for snapshot: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return -1, fmt.Errorf("error while committing transaction to initialize snapshot: %w", err)
+	}
+
+	return snapshotId, nil
+}
+
+func FinishSnapshot(
+	ctx context.Context,
+	logger log.Logger,
+	pool shared.CatalogPool,
+	flowName string,
+	snapshotID int32,
+) error {
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("error while starting transaction to finish snapshot: %w", err)
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	if _, err := tx.Exec(ctx,
+		"UPDATE peerdb_stats.snapshots SET end_time = utc_now() where snapshot_id = $1",
+		snapshotID,
+	); err != nil {
+		return fmt.Errorf("error while updating end time for snapshot: %w", err)
+	}
+
+	if _, err := pool.Exec(ctx, `
+		UPDATE peerdb_stats.granular_status
+		SET snapshot_succeeding = true, snapshot_failing_qrep_run_ids = '{}',
+			snapshot_failing_partition_ids = '{}', snapshot_is_internal_error = false,
+			snapshot_updated_at = utc_now()
+		WHERE flow_name = $1 and snapshot_current_id = $2
+		`, flowName, snapshotID,
+	); err != nil {
+		return fmt.Errorf("error while updating granular status for snapshot: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("error while committing transaction to finish snapshot: %w", err)
+	}
+
+	return nil
+}
+
+func UpdateQRepStatusSuccess(
+	ctx context.Context, pool shared.CatalogPool, flowJobName string, snapshotID int32, runUUID string,
+) error {
+	if _, err := pool.Exec(ctx, `
+		UPDATE peerdb_stats.granular_status
+		SET snapshot_failing_qrep_run_ids = array_remove(snapshot_failing_qrep_run_ids, $1),
+			snapshot_updated_at = utc_now()
+		WHERE flow_name = $2 and snapshot_current_id = $3
+		`, runUUID, flowJobName, snapshotID,
+	); err != nil {
+		return fmt.Errorf("failed to update granular status for qrep run: %w", err)
+	}
+	return nil
+}
+
 func InitializeQRepRun(
 	ctx context.Context,
 	logger log.Logger,
@@ -374,14 +534,34 @@ func UpdatePullEndTimeAndRowsForPartition(ctx context.Context, pool shared.Catal
 	return nil
 }
 
-func UpdateEndTimeForPartition(ctx context.Context, pool shared.CatalogPool, runUUID string,
+func FinishPartition(ctx context.Context, logger log.Logger, pool shared.CatalogPool, flowName string, runUUID string,
 	partition *protos.QRepPartition,
 ) error {
-	if _, err := pool.Exec(ctx,
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("error while starting transaction to delete metadata: %w", err)
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	if _, err := tx.Exec(ctx,
 		`UPDATE peerdb_stats.qrep_partitions SET end_time=$1 WHERE run_uuid=$2 AND partition_uuid=$3`,
 		time.Now(), runUUID, partition.PartitionId,
 	); err != nil {
 		return fmt.Errorf("error while updating qrep partition in qrep_partitions: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		UPDATE peerdb_stats.granular_status
+		SET snapshot_failing_partition_ids = array_remove(snapshot_failing_partition_ids, $1),
+			snapshot_updated_at = utc_now()
+		WHERE flow_name = $2
+		`, partition.PartitionId, flowName,
+	); err != nil {
+		return fmt.Errorf("failed to update granular status for snapshot partition: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("error while committing transaction to finish partition: %w", err)
 	}
 	return nil
 }
