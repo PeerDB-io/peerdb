@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
+	"github.com/google/uuid"
 )
 
 func (c *MongoConnector) GetQRepPartitions(
@@ -93,7 +94,7 @@ func (c *MongoConnector) GetQRepPartitions(
 	}
 	defer cursor.Close(ctx)
 
-	partitionHelper := utils.NewPartitionHelper(c.logger)
+	partitions := make([]*protos.QRepPartition, 0, adjustedPartitions.AdjustedNumPartitions)
 	for cursor.Next(ctx) {
 		var bucket struct {
 			ID struct {
@@ -105,9 +106,18 @@ func (c *MongoConnector) GetQRepPartitions(
 			return nil, fmt.Errorf("failed to decode bucket: %w", err)
 		}
 
-		if err := partitionHelper.AddPartition(bucket.ID.Min, bucket.ID.Max); err != nil {
-			return nil, fmt.Errorf("failed to add partition: %w", err)
-		}
+		partitions = append(partitions, &protos.QRepPartition{
+			PartitionId: uuid.NewString(),
+			Range: &protos.PartitionRange{
+				Range: &protos.PartitionRange_ObjectIdRange{
+					ObjectIdRange: &protos.ObjectIdPartitionRange{
+						Start: bucket.ID.Min.Hex(),
+						End:   bucket.ID.Max.Hex(),
+					},
+				},
+			},
+			FullTablePartition: false,
+		})
 	}
 	if err := cursor.Err(); err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -121,7 +131,7 @@ func (c *MongoConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("cursor error during bucketAuto aggregation: %w", err)
 	}
 
-	return partitionHelper.GetPartitions(), nil
+	return partitions, nil
 }
 
 func (c *MongoConnector) PullQRepRecords(
@@ -222,6 +232,8 @@ func GetDefaultSchema() types.QRecordSchema {
 	return types.QRecordSchema{Fields: schema}
 }
 
+// with $bucketAuto, buckets except the last bucket treat their max value as exclusive
+// we can't tell what bucket is the "last" bucket without additional tracking, so we accept bounday records being inserted twice
 func toRangeFilter(watermarkColumn string, partitionRange *protos.PartitionRange) (bson.D, error) {
 	switch r := partitionRange.Range.(type) {
 	case *protos.PartitionRange_ObjectIdRange:
