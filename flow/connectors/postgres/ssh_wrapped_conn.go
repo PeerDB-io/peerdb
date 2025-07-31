@@ -27,7 +27,7 @@ func NewPostgresConnFromConfig(
 			if err != nil {
 				return nil, err
 			}
-			return &noDeadlineConn{Conn: conn}, nil
+			return &utils.NoDeadlineConn{Conn: conn}, nil
 		}
 		// DNS lookup seems to happen before connection is established which can be an issue if given host
 		// can only be resolved on the SSH host https://github.com/jackc/pgx/issues/1724
@@ -60,8 +60,7 @@ func NewPostgresConnFromConfig(
 	}
 
 	if err := retryWithBackoff(logger, func() error {
-		_, err := conn.Exec(ctx, "SELECT 1")
-		if err != nil {
+		if _, err := conn.Exec(ctx, "SELECT 1"); err != nil {
 			logger.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", connConfig.Host))
 			return err
 		}
@@ -93,10 +92,3 @@ func retryWithBackoff(logger log.Logger, fn retryFunc, maxRetries int, backoff t
 		}
 	}
 }
-
-// see: https://github.com/jackc/pgx/issues/382#issuecomment-1496586216
-type noDeadlineConn struct{ net.Conn }
-
-func (c *noDeadlineConn) SetDeadline(t time.Time) error      { return nil }
-func (c *noDeadlineConn) SetReadDeadline(t time.Time) error  { return nil }
-func (c *noDeadlineConn) SetWriteDeadline(t time.Time) error { return nil }

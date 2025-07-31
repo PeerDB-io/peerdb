@@ -22,16 +22,6 @@ message CreateQRepFlowRequest {
 
 message CreateQRepFlowResponse { string workflow_id = 1; }
 
-message CreateCustomSyncRequest {
-  string flow_job_name = 1;
-  int32 number_of_syncs = 2;
-}
-
-message CreateCustomSyncResponse {
-  string flow_job_name = 1;
-  int32 number_of_syncs = 2;
-}
-
 message AlertConfig {
   int32 id = 1;
   string service_type = 2;
@@ -520,13 +510,6 @@ service FlowService {
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {
     option (google.api.http) = {
       post : "/v1/flows/qrep/create",
-      body : "*"
-    };
-  }
-  rpc CustomSyncFlow(CreateCustomSyncRequest)
-      returns (CreateCustomSyncResponse) {
-    option (google.api.http) = {
-      post : "/v1/flows/cdc/sync",
       body : "*"
     };
   }

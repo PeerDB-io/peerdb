@@ -73,10 +73,10 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		return nil, err
 	}
 
-	runtimeParams := connConfig.Config.RuntimeParams
-	runtimeParams["idle_in_transaction_session_timeout"] = "0"
-	runtimeParams["statement_timeout"] = "0"
-	runtimeParams["DateStyle"] = "ISO, DMY"
+	connConfig.Config.RuntimeParams["timezone"] = "UTC"
+	connConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	connConfig.Config.RuntimeParams["statement_timeout"] = "0"
+	connConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 
 	tunnel, err := utils.NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
@@ -159,10 +159,9 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	runtimeParams := replConfig.Config.RuntimeParams
-	runtimeParams["idle_in_transaction_session_timeout"] = "0"
-	runtimeParams["statement_timeout"] = "0"
-	// ensure that replication is set to database
+	replConfig.Config.RuntimeParams["timezone"] = "UTC"
+	replConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	replConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
@@ -442,6 +441,10 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return fmt.Errorf("failed to get get setting for sourceSchemaAsDestinationColumn: %w", err)
 	}
+	originMetaAsDestinationColumn, err := internal.PeerDBOriginMetaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
+	}
 
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
@@ -455,6 +458,7 @@ func pullCore[Items model.Items](
 		Publication:                              publicationName,
 		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
 		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
+		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
 		InternalVersion:                          req.InternalVersion,
 	})
 	if err != nil {
@@ -1399,7 +1403,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	if slotMetricGauges.ConfirmedFlushLSNGauge != nil {
 		lsn, err := pglogrepl.ParseLSN(slotInfo[0].ConfirmedFlushLSN)
 		if err != nil {
-			logger.Error("error parsing confirmed flush LSN", "error", err)
+			logger.Warn("error parsing confirmed flush LSN", slog.Any("error", err))
 		}
 		slotMetricGauges.ConfirmedFlushLSNGauge.Record(ctx, int64(lsn), attributeSet)
 	} else {
@@ -1409,7 +1413,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	if slotMetricGauges.RestartLSNGauge != nil {
 		lsn, err := pglogrepl.ParseLSN(slotInfo[0].RestartLSN)
 		if err != nil {
-			logger.Error("error parsing restart LSN", "error", err)
+			logger.Warn("error parsing restart LSN", slog.Any("error", err))
 		}
 		slotMetricGauges.RestartLSNGauge.Record(ctx, int64(lsn), attributeSet)
 	} else {

@@ -59,8 +59,7 @@ func (c *PubSubConnector) Close() error {
 
 func (c *PubSubConnector) ConnectionActive(ctx context.Context) error {
 	topic := c.client.Topic("test")
-	_, err := topic.Exists(ctx)
-	if err != nil {
+	if _, err := topic.Exists(ctx); err != nil {
 		return fmt.Errorf("pubsub connection active check failure: %w", err)
 	}
 	return nil

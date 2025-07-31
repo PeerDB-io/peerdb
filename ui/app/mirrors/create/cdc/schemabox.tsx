@@ -257,6 +257,7 @@ export default function SchemaBox({
   const engineOptions = [
     { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
     { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
+    { value: 'CH_ENGINE_COALESCING_MERGE_TREE', label: 'CoalescingMergeTree' },
     { value: 'CH_ENGINE_NULL', label: 'Null' },
   ];
 
@@ -317,7 +318,6 @@ export default function SchemaBox({
                       className='ml-5'
                       style={{
                         display: 'flex',
-                        //alignItems: 'center',
                         flexDirection: 'column',
                         rowGap: '1rem',
                       }}
@@ -523,10 +523,9 @@ export default function SchemaBox({
                                 />
                                 <div style={{ width: '50%' }}>
                                   <SelectSortingKeys
-                                    columns={
-                                      columns?.map((column) => column.name) ??
-                                      []
-                                    }
+                                    columns={columns
+                                      .map((column) => column.name)
+                                      .filter((name) => !row.exclude.has(name))}
                                     loading={columnsLoading}
                                     tableRow={row}
                                     setRows={setRows}

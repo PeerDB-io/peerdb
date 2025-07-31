@@ -16,29 +16,23 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
-
-const MongoFullTablePartitionId = "mongo-full-table-partition-id"
 
 func (c *MongoConnector) GetQRepPartitions(
 	ctx context.Context,
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	// if no watermark column is specified, return a single partition
-	if config.WatermarkColumn == "" {
-		return []*protos.QRepPartition{
-			{
-				PartitionId:        MongoFullTablePartitionId,
-				Range:              nil,
-				FullTablePartition: true,
-			},
-		}, nil
-	}
-
-	partitionHelper := utils.NewPartitionHelper(c.logger)
-	return partitionHelper.GetPartitions(), nil
+	// default to FullTablePartition=true until parallel initial load is implemented
+	return []*protos.QRepPartition{
+		{
+			PartitionId:        shared_mongo.MongoFullTablePartitionId,
+			Range:              nil,
+			FullTablePartition: true,
+		},
+	}, nil
 }
 
 func (c *MongoConnector) PullQRepRecords(
@@ -67,13 +61,11 @@ func (c *MongoConnector) PullQRepRecords(
 	defer shutDown()
 
 	filter := bson.D{}
+	// FullTablePartition is always true until parallel initial load is implemented, see `GetQRepPartitions`
 	if !partition.FullTablePartition {
-		// For now partition range is always nil, see `GetQRepPartitions`
-		if partition.Range != nil {
-			filter, err = toRangeFilter(partition.Range)
-			if err != nil {
-				return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
-			}
+		filter, err = toRangeFilter(partition.Range)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to convert partition range to filter: %w", err)
 		}
 	}
 
@@ -96,13 +88,12 @@ func (c *MongoConnector) PullQRepRecords(
 			return 0, 0, fmt.Errorf("failed to decode record: %w", err)
 		}
 
-		record, bytes, err := QValuesFromDocument(doc)
+		record, err := QValuesFromDocument(doc)
 		if err != nil {
 			return 0, 0, fmt.Errorf("failed to convert record: %w", err)
 		}
 		stream.Records <- record
 		totalRecords += 1
-		c.bytesRead.Add(bytes)
 	}
 	close(stream.Records)
 	if err := cursor.Err(); err != nil {
@@ -152,9 +143,8 @@ func toRangeFilter(partitionRange *protos.PartitionRange) (bson.D, error) {
 	}
 }
 
-func QValuesFromDocument(doc bson.D) ([]types.QValue, int64, error) {
+func QValuesFromDocument(doc bson.D) ([]types.QValue, error) {
 	var qValues []types.QValue
-	var size int64
 
 	var qvalueId types.QValueString
 	var err error
@@ -162,23 +152,21 @@ func QValuesFromDocument(doc bson.D) ([]types.QValue, int64, error) {
 		if v.Key == DefaultDocumentKeyColumnName {
 			qvalueId, err = qValueStringFromKey(v.Value)
 			if err != nil {
-				return nil, 0, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
+				return nil, fmt.Errorf("failed to convert key %s: %w", DefaultDocumentKeyColumnName, err)
 			}
 			break
 		}
 	}
 	if qvalueId.Val == "" {
-		return nil, 0, fmt.Errorf("key %s not found", DefaultDocumentKeyColumnName)
+		return nil, fmt.Errorf("key %s not found", DefaultDocumentKeyColumnName)
 	}
 	qValues = append(qValues, qvalueId)
 
 	qvalueDoc, err := qValueJSONFromDocument(doc)
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	qValues = append(qValues, qvalueDoc)
 
-	size += int64(len(qvalueDoc.Val))
-
-	return qValues, size, nil
+	return qValues, nil
 }

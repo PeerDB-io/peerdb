@@ -13,6 +13,7 @@ import (
 type Items interface {
 	json.Marshaler
 	UpdateIfNotExists(Items) []string
+	UpdateWithBaseRecord(BaseRecord)
 	GetBytesByColName(string) ([]byte, error)
 	ToJSONWithOptions(ToJSONOptions) (string, error)
 	DeleteColName(string)
@@ -66,6 +67,12 @@ func (r RecordItems) UpdateIfNotExists(input_ Items) []string {
 		}
 	}
 	return updatedCols
+}
+
+func (r RecordItems) UpdateWithBaseRecord(baseRecord BaseRecord) {
+	r.AddColumn("_peerdb_origin_transaction_id", types.QValueUInt64{Val: baseRecord.GetTransactionID()})
+	r.AddColumn("_peerdb_origin_checkpoint_id", types.QValueInt64{Val: baseRecord.GetCheckpointID()})
+	r.AddColumn("_peerdb_origin_commit_time_nano", types.QValueInt64{Val: baseRecord.GetCommitTime().UnixNano()})
 }
 
 func (r RecordItems) GetValueByColName(colName string) (types.QValue, error) {

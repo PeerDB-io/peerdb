@@ -3,14 +3,8 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"log"
 	"log/slog"
-	"net/http"
-	//nolint:gosec
-	_ "net/http/pprof"
 	"os"
-	"runtime"
-	"time"
 
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
@@ -31,10 +25,8 @@ type WorkerSetupOptions struct {
 	TemporalNamespace                  string
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
-	EnableProfiling                    bool
 	EnableOtelMetrics                  bool
 	UseMaintenanceTaskQueue            bool
-	PprofPort                          int // Port for pprof HTTP server
 }
 
 type WorkerSetupResponse struct {
@@ -51,35 +43,7 @@ func (w *WorkerSetupResponse) Close(ctx context.Context) {
 	}
 }
 
-func setupPprof(opts *WorkerSetupOptions) {
-	// Set default pprof port if not specified
-	pprofPort := opts.PprofPort
-
-	// Enable mutex and block profiling
-	runtime.SetMutexProfileFraction(5)
-	runtime.SetBlockProfileRate(5)
-
-	// Start HTTP server with pprof endpoints
-	go func() {
-		pprofAddr := fmt.Sprintf(":%d", pprofPort)
-		slog.Info("Starting pprof HTTP server on " + pprofAddr)
-		server := &http.Server{
-			Addr:         pprofAddr,
-			ReadTimeout:  1 * time.Minute,
-			WriteTimeout: 11 * time.Minute,
-		}
-
-		if err := server.ListenAndServe(); err != nil {
-			log.Fatalf("Failed to start pprof HTTP server: %v", err)
-		}
-	}()
-}
-
 func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
-	if opts.EnableProfiling {
-		setupPprof(opts)
-	}
-
 	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
@@ -115,11 +79,10 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	}
 	taskQueue := internal.PeerFlowTaskQueueName(queueId)
 	slog.Info(
-		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",
-			taskQueue,
-			opts.TemporalMaxConcurrentWorkflowTasks,
-			opts.TemporalMaxConcurrentActivities,
-		),
+		"Creating temporal worker",
+		slog.String("taskQueue", taskQueue),
+		slog.Int("workflowConcurrency", opts.TemporalMaxConcurrentWorkflowTasks),
+		slog.Int("activityConcurrency", opts.TemporalMaxConcurrentActivities),
 	)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker:                    true,

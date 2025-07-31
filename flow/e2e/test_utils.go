@@ -353,7 +353,7 @@ func CreateTableForQRep(ctx context.Context, conn *pgx.Conn, suffix string, tabl
 func generate20MBJson() ([]byte, error) {
 	xn := make(map[string]any, 215000)
 	for range 215000 {
-		xn[uuid.New().String()] = uuid.New().String()
+		xn[uuid.NewString()] = uuid.NewString()
 	}
 
 	v, err := json.Marshal(xn)
@@ -368,7 +368,7 @@ func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tab
 	var id0 string
 	rows := make([]string, 0, rowCount)
 	for i := range rowCount - 1 {
-		id := uuid.New().String()
+		id := uuid.NewString()
 		if i == 0 {
 			id0 = id
 		}
@@ -394,8 +394,8 @@ func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tab
 						pi(), 1, 1.0,
 						'10.0.0.0/32', '1.1.10.2'::cidr, 'a1:b2:c3:d4:e5:f6'
 					)`,
-			id, uuid.New().String(), uuid.New().String(),
-			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
+			id, uuid.NewString(), uuid.NewString(),
+			uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString())
 		rows = append(rows, row)
 	}
 
@@ -423,7 +423,7 @@ func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tab
 	) VALUES (
 			'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
 			0, 1, false, 12345
-	);`, suffix, tableName, uuid.New().String())); err != nil {
+	);`, suffix, tableName, uuid.NewString())); err != nil {
 		return err
 	}
 

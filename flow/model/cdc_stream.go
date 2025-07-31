@@ -13,7 +13,7 @@ type CDCStream[T Items] struct {
 	// empty signal to indicate if the records are going to be empty or not.
 	emptySignal chan struct{}
 	records     chan Record[T]
-	// lastCheckpointText is used for mysql GTID
+	// lastCheckpointText is used for mysql GTID and MongoDB ResumeToken
 	lastCheckpointText string
 	// Schema changes from slot
 	SchemaDeltas []*protos.TableSchemaDelta

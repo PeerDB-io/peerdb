@@ -20,6 +20,7 @@ message ColumnSetting {
   string destination_name = 2;
   string destination_type = 3;
   int32 ordering = 4;
+  int32 partitioning = 6;
   bool nullable_enabled = 5;
 }
 
@@ -263,6 +264,7 @@ enum TableEngine {
   CH_ENGINE_NULL = 2;
   CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE = 3;
   CH_ENGINE_REPLICATED_MERGE_TREE = 4;
+  CH_ENGINE_COALESCING_MERGE_TREE = 5;
 }
 
 // protos for qrep
@@ -397,11 +399,8 @@ message GetOpenConnectionsForUserResult {
 // UI reads current workflow status and also requests status changes using same enum
 // see flow/cmd/handler.go FlowStateChange
 enum FlowStatus {
-  // should never be read by UI, bail
   STATUS_UNKNOWN = 0;
-  // enable pause and terminate buttons
   STATUS_RUNNING = 1;
-  // pause button becomes resume button
   STATUS_PAUSED = 2;
   STATUS_PAUSING = 3;
   // not reachable in QRep mirrors
@@ -412,6 +411,7 @@ enum FlowStatus {
   STATUS_TERMINATED = 7;
   STATUS_COMPLETED = 8;
   STATUS_RESYNC = 9;
+  STATUS_FAILED = 10;
 }
 
 message CDCFlowConfigUpdate {

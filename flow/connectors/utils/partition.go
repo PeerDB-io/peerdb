@@ -14,6 +14,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type PartitionRangeType string
@@ -150,7 +151,7 @@ func adjustStartValueOfPartition(prevRange *protos.PartitionRange, currentRange 
 
 func createIntPartition(start int64, end int64) *protos.QRepPartition {
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_IntRange{
 				IntRange: &protos.IntPartitionRange{
@@ -164,7 +165,7 @@ func createIntPartition(start int64, end int64) *protos.QRepPartition {
 
 func createTimePartition(start time.Time, end time.Time) *protos.QRepPartition {
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_TimestampRange{
 				TimestampRange: &protos.TimestampPartitionRange{
@@ -188,7 +189,7 @@ func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition 
 	}
 
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_TidRange{
 				TidRange: &protos.TIDPartitionRange{
@@ -202,7 +203,7 @@ func createTIDPartition(start pgtype.TID, end pgtype.TID) *protos.QRepPartition 
 
 func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_UintRange{
 				UintRange: &protos.UIntPartitionRange{
@@ -216,7 +217,7 @@ func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
 
 func createObjectIdPartition(start bson.ObjectID, end bson.ObjectID) *protos.QRepPartition {
 	return &protos.QRepPartition{
-		PartitionId: uuid.New().String(),
+		PartitionId: uuid.NewString(),
 		Range: &protos.PartitionRange{
 			Range: &protos.PartitionRange_ObjectIdRange{
 				ObjectIdRange: &protos.ObjectIdPartitionRange{
@@ -296,6 +297,40 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 	return nil
 }
 
+func (p *PartitionHelper) AddPartitionsWithRange(start any, end any, numPartitions int64) error {
+	partition, err := p.getPartitionForStartAndEnd(start, end)
+	if err != nil {
+		return err
+	}
+
+	switch r := partition.Range.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		size := shared.DivCeil(r.IntRange.End-r.IntRange.Start, numPartitions)
+		for i := range numPartitions {
+			if err := p.AddPartition(r.IntRange.Start+size*i, min(r.IntRange.Start+size*(i+1), r.IntRange.End)); err != nil {
+				return err
+			}
+		}
+	case *protos.PartitionRange_UintRange:
+		size := shared.DivCeil(r.UintRange.End-r.UintRange.Start, uint64(numPartitions))
+		for i := range uint64(numPartitions) {
+			if err := p.AddPartition(r.UintRange.Start+size*i, min(r.UintRange.Start+size*(i+1), r.UintRange.End)); err != nil {
+				return err
+			}
+		}
+	case *protos.PartitionRange_TimestampRange:
+		tstart := r.TimestampRange.Start.AsTime().UnixMicro()
+		tend := r.TimestampRange.End.AsTime().UnixMicro()
+		size := shared.DivCeil(tend-tstart, numPartitions)
+		for i := range numPartitions {
+			if err := p.AddPartition(time.UnixMicro(tstart+size*i), time.UnixMicro(min(tstart+size*(i+1), tend))); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*protos.QRepPartition, error) {
 	if start == nil || end == nil {
 		return nil, nil
@@ -322,13 +357,10 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 	case pgtype.TID:
 		return createTIDPartition(v, end.(pgtype.TID)), nil
 	case bson.ObjectID:
-		p.partitions = append(p.partitions, createObjectIdPartition(v, end.(bson.ObjectID)))
-		p.prevStart = v
-		p.prevEnd = end
+		return createObjectIdPartition(v, end.(bson.ObjectID)), nil
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
-	return nil, nil
 }
 
 func (p *PartitionHelper) updatePartitionHelper(partition *protos.QRepPartition) error {

@@ -183,8 +183,7 @@ func NewAssumeRoleBasedAWSCredentialsProvider(
 	provider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(config), roleArn, func(o *stscreds.AssumeRoleOptions) {
 		o.RoleSessionName = sessionName
 	})
-	_, err := provider.Retrieve(ctx)
-	if err != nil {
+	if _, err := provider.Retrieve(ctx); err != nil {
 		return nil, fmt.Errorf("failed to retrieve chained AWS credentials: %w", err)
 	}
 	return &AssumeRoleBasedAWSCredentialsProvider{
@@ -461,7 +460,7 @@ func (lt *RecalculateV4Signature) RoundTrip(req *http.Request) (*http.Response, 
 func PutAndRemoveS3(ctx context.Context, client *s3.Client, bucket string, prefix string) error {
 	reader := strings.NewReader(time.Now().Format(time.RFC3339))
 	bucketName := aws.String(bucket)
-	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.New().String()
+	temporaryObjectPath := prefix + "/" + _peerDBCheck + uuid.NewString()
 	key := aws.String(strings.TrimPrefix(temporaryObjectPath, "/"))
 
 	if _, putErr := client.PutObject(ctx, &s3.PutObjectInput{

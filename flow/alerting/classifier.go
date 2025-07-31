@@ -36,9 +36,11 @@ var (
 		`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`,
 	)
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
-	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile(`ID\([a-z0-9-]+\) not found in user directories`)
+	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
+	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
 	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
+	MySqlRdsBinlogFileNotFoundRe      = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 )
 
 func (e ErrorAction) String() string {
@@ -61,13 +63,21 @@ func (e ErrorSource) String() string {
 	return string(e)
 }
 
-func AvroConverterTableColumnErrorSource(destinationTable, destinationColumn string) ErrorSource {
-	return ErrorSource(fmt.Sprintf("avroConverter:column:%s.%s", destinationTable, destinationColumn))
+type AdditionalErrorAttributeKey string
+
+func (e AdditionalErrorAttributeKey) String() string {
+	return string(e)
 }
 
+const (
+	ErrorAttributeKeyTable  AdditionalErrorAttributeKey = "errorAdditionalAttributeTable"
+	ErrorAttributeKeyColumn AdditionalErrorAttributeKey = "errorAdditionalAttributeColumn"
+)
+
 type ErrorInfo struct {
-	Source ErrorSource
-	Code   string
+	AdditionalAttributes map[AdditionalErrorAttributeKey]string
+	Source               ErrorSource
+	Code                 string
 }
 
 type ErrorClass struct {
@@ -135,7 +145,7 @@ var (
 		Class: "INTERNAL_CLICKHOUSE", action: NotifyTelemetry,
 	}
 	ErrorLossyConversion = ErrorClass{
-		Class: "WARNING_LOSSY_CONVERSION", action: NotifyTelemetry,
+		Class: "WARNING_LOSSY_CONVERSION", action: NotifyUser,
 	}
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
@@ -228,6 +238,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var pgConnErr *pgconn.ConnectError
+	if errors.As(err, &pgConnErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNKNOWN",
+		}
+	}
+
 	// Consolidated PostgreSQL error handling
 	if pgErr != nil {
 		switch pgErr.Code {
@@ -244,6 +262,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			// Check for publication does not exist error
 			if PostgresPublicationDoesNotExistRe.MatchString(pgErr.Message) {
 				return ErrorNotifyPublicationMissing, pgErrorInfo
+			}
+			if PostgresSnapshotDoesNotExistRe.MatchString(pgErr.Message) {
+				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
 			}
 			return ErrorNotifyConnectivity, pgErrorInfo
 
@@ -313,14 +334,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var pgConnErr *pgconn.ConnectError
-	if errors.As(err, &pgConnErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourcePostgres,
-			Code:   "UNKNOWN",
-		}
-	}
-
 	var myErr *mysql.MyError
 	if errors.As(err, &myErr) {
 		// https://mariadb.com/kb/en/mariadb-error-code-reference
@@ -329,6 +342,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(myErr.Code)),
 		}
 		switch myErr.Code {
+		case 29: // EE_FILENOTFOUND
+			if MySqlRdsBinlogFileNotFoundRe.MatchString(myErr.Message) {
+				return ErrorNotifyBinlogInvalid, myErrorInfo
+			}
+			return ErrorNotifyConnectivity, myErrorInfo
 		case 1037, 1038, 1041, 3015: // ER_OUTOFMEMORY, ER_OUT_OF_SORTMEMORY, ER_OUT_OF_RESOURCES, ER_ENGINE_OUT_OF_MEMORY
 			return ErrorNotifyOOMSource, myErrorInfo
 		case 1021, // ER_DISK_FULL
@@ -398,7 +416,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if ClickHouseDecimalParsingRe.MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
 			}
-		case 492: // `ACCESS_ENTITY_NOT_FOUND` TBD via https://github.com/ClickHouse/ch-go/pull/1058
+		case chproto.ErrAccessEntityNotFound:
 			if ClickHouseNotFoundInUserDirsRe.MatchString(chException.Message) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
@@ -439,19 +457,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			} else if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException:
+		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException, chproto.ErrCannotReadFromSocket:
 			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-			return ErrorOther, chErrorInfo
 		}
 		var normalizationErr *exceptions.NormalizationError
 		if errors.As(err, &normalizationErr) {
 			// notify if normalization hits error on destination
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
+		return ErrorOther, chErrorInfo
 	}
 
 	// Connection reset errors can mostly be ignored
@@ -515,16 +533,24 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	var numericOutOfRangeError *exceptions.NumericOutOfRangeError
 	if errors.As(err, &numericOutOfRangeError) {
 		return ErrorLossyConversion, ErrorInfo{
-			Source: AvroConverterTableColumnErrorSource(numericOutOfRangeError.DestinationTable, numericOutOfRangeError.DestinationColumn),
+			Source: "typeConversion",
 			Code:   "NUMERIC_OUT_OF_RANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  numericOutOfRangeError.DestinationTable,
+				ErrorAttributeKeyColumn: numericOutOfRangeError.DestinationColumn,
+			},
 		}
 	}
 
 	var numericTruncatedError *exceptions.NumericTruncatedError
 	if errors.As(err, &numericTruncatedError) {
 		return ErrorLossyConversion, ErrorInfo{
-			Source: AvroConverterTableColumnErrorSource(numericTruncatedError.DestinationTable, numericTruncatedError.DestinationColumn),
+			Source: "typeConversion",
 			Code:   "NUMERIC_TRUNCATED",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  numericTruncatedError.DestinationTable,
+				ErrorAttributeKeyColumn: numericTruncatedError.DestinationColumn,
+			},
 		}
 	}
 
