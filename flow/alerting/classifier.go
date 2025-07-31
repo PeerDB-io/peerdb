@@ -115,6 +115,9 @@ var (
 	ErrorNotifyPublicationMissing = ErrorClass{
 		Class: "NOTIFY_PUBLICATION_MISSING", action: NotifyUser,
 	}
+	ErrorNotifyReplicationSlotMissing = ErrorClass{
+		Class: "NOTIFY_REPLICATION_SLOT_MISSING", action: NotifyUser,
+	}
 	ErrorUnsupportedDatatype = ErrorClass{
 		Class: "NOTIFY_UNSUPPORTED_DATATYPE", action: NotifyUser,
 	}
@@ -251,7 +254,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				}
 			}
 			if PostgresReplicationSlotDoesNotExistRe.MatchString(temporalErr.Error()) {
-				return ErrorNotifySlotInvalid, ErrorInfo{
+				return ErrorNotifyReplicationSlotMissing, ErrorInfo{
 					Source: ErrorSourcePostgres,
 					Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
 				}
