@@ -1208,6 +1208,10 @@ func (s ClickHouseSuite) Test_Types_CH() {
 }
 
 func (s ClickHouseSuite) Test_JSON_CH() {
+	if mySource, ok := s.source.(*e2e.MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
+		s.t.Skip("skip maria, where JSON is not a supported data type")
+	}
+
 	// TODO: fix and enable failing test cases
 	jsonTestCases := []struct {
 		Value      string
@@ -1264,8 +1268,14 @@ func (s ClickHouseSuite) Test_JSON_CH() {
 			SkipReason: "not supported by ClickHouse JSON",
 		},
 		{
-			Desc:       "nulls",
+			Desc:       "json null value",
 			Value:      `'null'`,
+			Skip:       true,
+			SkipReason: "peerdb bug where null value is parsed as empty string due to JSONExtractString",
+		},
+		{
+			Desc:       "postgres null value",
+			Value:      `null`,
 			Skip:       true,
 			SkipReason: "peerdb bug where null value is parsed as empty string due to JSONExtractString",
 		},
@@ -1278,20 +1288,29 @@ func (s ClickHouseSuite) Test_JSON_CH() {
 	}
 
 	srcTableName := "test_json"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
 	dstTableName := "test_json_dst"
 
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			json JSON,
-			jsonb JSONB
-		);
-	`, s.attachSchemaSuffix(srcTableName)))
-	require.NoError(s.T(), err)
+	cols := "id,json"
+	createStmt := fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON);`, srcFullName)
+	insertStmt := func(v string) string { return fmt.Sprintf(`INSERT INTO %s (json) VALUES (%s)`, srcFullName, v) }
+	if _, isPostgres := s.source.(*e2e.PostgresSource); isPostgres {
+		cols = "id,json,jsonb"
+		createStmt = fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, json JSON, jsonb JSONB);`, srcFullName)
+		insertStmt = func(v string) string {
+			return fmt.Sprintf(`INSERT INTO %s (json, jsonb) VALUES (%s, %s)`, srcFullName, v, v)
+		}
+	}
 
+	require.NoError(s.T(), s.source.Exec(s.t.Context(), createStmt))
+	for _, testCase := range jsonTestCases {
+		if !testCase.Skip {
+			require.NoError(s.t, s.source.Exec(s.t.Context(), insertStmt(testCase.Value)))
+		}
+	}
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_json_pg"),
-		TableNameMapping: map[string]string{s.attachSchemaSuffix(srcTableName): dstTableName},
+		FlowJobName:      s.attachSuffix("test_json"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
 	}
 
@@ -1303,15 +1322,14 @@ func (s ClickHouseSuite) Test_JSON_CH() {
 	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "compare initial load", srcTableName, dstTableName, cols)
+
 	for _, testCase := range jsonTestCases {
 		if !testCase.Skip {
-			_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (json, jsonb) VALUES (%s, %s)`,
-				s.attachSchemaSuffix(srcTableName), testCase.Value, testCase.Value))
-			e2e.EnvNoError(s.t, env, err)
+			require.NoError(s.t, s.source.Exec(s.t.Context(), insertStmt(testCase.Value)))
 		}
 	}
-
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "compare cdc", srcTableName, dstTableName, "id,json,jsonb")
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "compare cdc", srcTableName, dstTableName, cols)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
