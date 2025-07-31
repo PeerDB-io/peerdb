@@ -1319,7 +1319,7 @@ func (s ClickHouseSuite) Test_JSON_CH() {
 	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "compare initial load", srcTableName, dstTableName, cols)
