@@ -408,13 +408,15 @@ func pullCore[Items model.Items](
 	if !exists.PublicationExists {
 		c.logger.Warn("publication does not exist", slog.String("name", publicationName))
 		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("publication %s does not exist, restarting workflow", publicationName), "irrecoverable", nil)
+			fmt.Sprintf("publication %s does not exist, restarting workflow", publicationName),
+			exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(), nil)
 	}
 
 	if !exists.SlotExists {
 		c.logger.Warn("slot does not exist", slog.String("name", slotName))
 		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName), "irrecoverable", nil)
+			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName),
+			exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(), nil)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")

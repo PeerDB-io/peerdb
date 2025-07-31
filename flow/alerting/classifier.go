@@ -37,12 +37,11 @@ var (
 		`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`,
 	)
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
-	ClickHouseNotFoundInUserDirsRe        = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
-	PostgresPublicationDoesNotExistRe     = regexp.MustCompile(`publication ".*?" does not exist`)
-	PostgresReplicationSlotDoesNotExistRe = regexp.MustCompile(`replication slot ".*?" does not exist`)
-	PostgresSnapshotDoesNotExistRe        = regexp.MustCompile(`snapshot ".*?" does not exist`)
-	PostgresWalSegmentRemovedRe           = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
-	MySqlRdsBinlogFileNotFoundRe          = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
+	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
+	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
+	PostgresSnapshotDoesNotExistRe    = regexp.MustCompile(`snapshot ".*?" does not exist`)
+	PostgresWalSegmentRemovedRe       = regexp.MustCompile(`requested WAL segment \w+ has already been removed`)
+	MySqlRdsBinlogFileNotFoundRe      = regexp.MustCompile(`File '/rdsdbdata/log/binlog/mysql-bin-changelog.\d+' not found`)
 )
 
 func (e ErrorAction) String() string {
@@ -58,6 +57,7 @@ const (
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
+	ErrorSourceTemporal        ErrorSource = "temporal"
 	ErrorSourceOther           ErrorSource = "other"
 )
 
@@ -245,20 +245,21 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	var temporalErr *temporal.ApplicationError
 	if errors.As(err, &temporalErr) {
-		if temporalErr.Type() == "irrecoverable" {
-			// either slot missing or publication missing
-			if PostgresPublicationDoesNotExistRe.MatchString(temporalErr.Error()) {
-				return ErrorNotifyPublicationMissing, ErrorInfo{
-					Source: ErrorSourcePostgres,
-					Code:   "PUBLICATION_DOES_NOT_EXIST",
-				}
+		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
+		case exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing:
+			return ErrorNotifyPublicationMissing, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "PUBLICATION_DOES_NOT_EXIST",
 			}
-			if PostgresReplicationSlotDoesNotExistRe.MatchString(temporalErr.Error()) {
-				return ErrorNotifyReplicationSlotMissing, ErrorInfo{
-					Source: ErrorSourcePostgres,
-					Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
-				}
+		case exceptions.ApplicationErrorTypeIrrecoverableSlotMissing:
+			return ErrorNotifyReplicationSlotMissing, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
 			}
+		}
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourceTemporal,
+			Code:   temporalErr.Type(),
 		}
 	}
 
