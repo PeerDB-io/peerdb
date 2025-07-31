@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -10,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -99,30 +97,6 @@ func comparePartitionRanges(
 			return c
 		}
 		return cmp.Compare(prevTuple.OffsetNumber, currTuple.OffsetNumber)
-		// we can compare ObjectIDs, but not sure if doing this is correct
-	case *protos.PartitionRange_ObjectIdRange:
-		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_ObjectIdRange)
-		if !ok {
-			return 0
-		}
-
-		getVal := func(r *protos.ObjectIdPartitionRange, t PartitionRangeType) (bson.ObjectID, error) {
-			if t == PartitionEndRangeType {
-				return bson.ObjectIDFromHex(r.End)
-			}
-			return bson.ObjectIDFromHex(r.Start)
-		}
-
-		prevVal, err := getVal(pr.ObjectIdRange, previousPartition.rangeTypeToCompare)
-		if err != nil {
-			return 0
-		}
-		currVal, err := getVal(cr.ObjectIdRange, currentPartition.rangeTypeToCompare)
-		if err != nil {
-			return 0
-		}
-		// Compare the ObjectIDs
-		return bytes.Compare(prevVal[:], currVal[:])
 	default:
 		return 0
 	}
@@ -234,20 +208,6 @@ func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
 				UintRange: &protos.UIntPartitionRange{
 					Start: start,
 					End:   end,
-				},
-			},
-		},
-	}
-}
-
-func createObjectIdPartition(start bson.ObjectID, end bson.ObjectID) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.NewString(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_ObjectIdRange{
-				ObjectIdRange: &protos.ObjectIdPartitionRange{
-					Start: start.Hex(),
-					End:   end.Hex(),
 				},
 			},
 		},
@@ -381,8 +341,6 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 		return createTimePartition(v, end.(time.Time)), nil
 	case pgtype.TID:
 		return createTIDPartition(v, end.(pgtype.TID)), nil
-	case bson.ObjectID:
-		return createObjectIdPartition(v, end.(bson.ObjectID)), nil
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
