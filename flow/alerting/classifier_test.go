@@ -501,7 +501,11 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 		},
 	} {
 		t.Run(code.String(), func(t *testing.T) {
-			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError("irrecoverable error", code.String(), nil))
+			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError(
+				"irrecoverable error",
+				code.String(),
+				nil,
+			))
 			assert.Equal(t, cinfo.errorClass, errorClass, "Unexpected error class")
 			assert.Equal(t, cinfo.errInfo, errInfo, "Unexpected error info")
 		})
