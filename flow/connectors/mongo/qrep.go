@@ -8,6 +8,7 @@ import (
 	"math"
 	"time"
 
+	"github.com/google/uuid"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
@@ -18,7 +19,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
-	"github.com/google/uuid"
 )
 
 func (c *MongoConnector) GetQRepPartitions(
@@ -160,7 +160,6 @@ func (c *MongoConnector) PullQRepRecords(
 	defer shutDown()
 
 	filter := bson.D{}
-	// FullTablePartition is always true until parallel initial load is implemented, see `GetQRepPartitions`
 	if !partition.FullTablePartition {
 		filter, err = toRangeFilter(config.WatermarkColumn, partition.Range)
 		if err != nil {
