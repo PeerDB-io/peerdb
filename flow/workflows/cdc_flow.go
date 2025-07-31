@@ -73,13 +73,12 @@ func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.
 	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateFlowStatusInCatalogActivity,
 		workflow.GetInfo(ctx).WorkflowExecution.ID, status)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
-		logger.Warn("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
+		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
 }
 
 func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Logger, newStatus protos.FlowStatus) {
 	s.CurrentFlowStatus = newStatus
-	// update the status in the catalog
 	syncStatusToCatalog(ctx, logger, s.CurrentFlowStatus)
 }
 
@@ -435,11 +434,10 @@ func CDCFlowWorkflow(
 	}); err != nil {
 		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
-	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+	_ = workflow.SetQueryHandler(ctx, "q-flow-status", func() (protos.FlowStatus, error) {
+		// no longer used, handler kept to avoid nondeterminism
 		return state.CurrentFlowStatus, nil
-	}); err != nil {
-		return state, fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
-	}
+	})
 
 	if state.CurrentFlowStatus == protos.FlowStatus_STATUS_COMPLETED {
 		return state, nil

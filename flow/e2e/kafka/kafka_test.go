@@ -16,7 +16,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 type KafkaSuite struct {
@@ -111,7 +110,7 @@ func (s KafkaSuite) TestSimple() {
 	flowConnConfig.Script = "e2e_kasimple"
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
@@ -169,7 +168,7 @@ func (s KafkaSuite) TestMessage() {
 	flowConnConfig.Script = "e2e_kamessage"
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// insert record to bypass empty cdc store optimization which handles messages at source when message precedes records
@@ -223,7 +222,7 @@ func (s KafkaSuite) TestDefault() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
@@ -282,7 +281,7 @@ func (s KafkaSuite) TestInitialLoad() {
 	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize insert", func() bool {
@@ -340,7 +339,7 @@ func (s KafkaSuite) TestOriginMetadata() {
 	flowConnConfig.Env = map[string]string{"PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN": "true"}
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(

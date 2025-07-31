@@ -353,7 +353,6 @@ export async function handleCreateQRep(
     method: 'POST',
     body: JSON.stringify({
       qrepConfig: config,
-      createCatalogEntry: true,
     } as CreateQRepFlowRequest),
   });
   if (!res.ok) {
