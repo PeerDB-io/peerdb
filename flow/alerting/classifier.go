@@ -17,6 +17,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -56,6 +57,7 @@ const (
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
+	ErrorSourceTemporal        ErrorSource = "temporal"
 	ErrorSourceOther           ErrorSource = "other"
 )
 
@@ -112,6 +114,9 @@ var (
 	}
 	ErrorNotifyPublicationMissing = ErrorClass{
 		Class: "NOTIFY_PUBLICATION_MISSING", action: NotifyUser,
+	}
+	ErrorNotifyReplicationSlotMissing = ErrorClass{
+		Class: "NOTIFY_REPLICATION_SLOT_MISSING", action: NotifyUser,
 	}
 	ErrorUnsupportedDatatype = ErrorClass{
 		Class: "NOTIFY_UNSUPPORTED_DATATYPE", action: NotifyUser,
@@ -235,6 +240,26 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifySourceTableMissing, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "TABLE_DOES_NOT_EXIST",
+		}
+	}
+
+	var temporalErr *temporal.ApplicationError
+	if errors.As(err, &temporalErr) {
+		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
+		case exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing:
+			return ErrorNotifyPublicationMissing, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "PUBLICATION_DOES_NOT_EXIST",
+			}
+		case exceptions.ApplicationErrorTypeIrrecoverableSlotMissing:
+			return ErrorNotifyReplicationSlotMissing, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
+			}
+		}
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourceTemporal,
+			Code:   temporalErr.Type(),
 		}
 	}
 
