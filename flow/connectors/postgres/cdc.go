@@ -553,7 +553,7 @@ func PullCdcRecords[Items model.Items](
 		case *pgproto3.ErrorResponse:
 			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
 		case *pgproto3.CopyData:
-			p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
+			p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
 			switch msg.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
@@ -588,6 +588,7 @@ func PullCdcRecords[Items model.Items](
 				}
 
 				if rec != nil {
+					p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
 					tableName := rec.GetDestinationTableName()
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:

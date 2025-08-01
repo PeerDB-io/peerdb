@@ -178,12 +178,17 @@ func (c *MongoConnector) PullRecords(
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 
 	reportBytesShutdown := shared.Interval(ctx, time.Second*10, func() {
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, c.bytesRead.Swap(0))
+		read := c.bytesRead.Swap(0)
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	})
 
 	defer func() {
 		cancelTimeout()
 		reportBytesShutdown()
+		read := c.bytesRead.Swap(0)
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	}()
 
 	checkpoint := func() {
