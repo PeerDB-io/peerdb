@@ -220,7 +220,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	fmt.Fprintf(&stmtBuilder, " ENGINE = %s", engine)
 
 	if tmEngine != protos.TableEngine_CH_ENGINE_NULL {
-		orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
+		orderByColumns, allowNullablePK := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
 		if sourceSchemaAsDestinationColumn {
 			orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
 		}
@@ -238,7 +238,9 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
 		}
 
-		stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+		if allowNullablePK {
+			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+		}
 
 		if c.config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
@@ -265,13 +267,17 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	return result, nil
 }
 
-// Returns a list of order by columns ordered by their ordering, and puts the pkeys at the end.
-// pkeys are excluded from the order by columns.
+// getOrderedOrderByColumns returns columns to be used for ordering in destination table operations.
+// If custom ordering columns are specified in the table mapping, returns those columns sorted by their ordering value.
+// If no custom ordering is specified, returns the source table's primary key columns as fallback.
+// The boolean return value indicates whether nullable keys are allowed in the destination table schema:
+// true when using custom ordering (which may include nullable columns), false when using primary keys
+// (which are non-nullable by definition).
 func getOrderedOrderByColumns(
 	tableMapping *protos.TableMapping,
 	sourcePkeys []string,
 	colNameMap map[string]string,
-) []string {
+) ([]string, bool) {
 	pkeys := make([]string, len(sourcePkeys))
 	for idx, pk := range sourcePkeys {
 		pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(pk)
@@ -292,7 +298,7 @@ func getOrderedOrderByColumns(
 	}
 
 	if len(orderby) == 0 {
-		return pkeys
+		return pkeys, false
 	}
 
 	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
@@ -304,7 +310,7 @@ func getOrderedOrderByColumns(
 		orderbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col.SourceName))
 	}
 
-	return orderbyColumns
+	return orderbyColumns, true
 }
 
 func getOrderedPartitionByColumns(
