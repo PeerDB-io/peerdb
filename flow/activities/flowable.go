@@ -1298,3 +1298,27 @@ func (a *FlowableActivity) GetFlowMetadata(
 		IsResync: input.IsResync,
 	}, nil
 }
+
+func (a *FlowableActivity) GetPeerType(ctx context.Context, name string) (protos.DBType, error) {
+	return connectors.LoadPeerType(ctx, a.CatalogPool, name)
+}
+
+func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) error {
+	return internal.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, logger, cfg)
+}
+
+func (a *FlowableActivity) UpdateFlowStatusInCatalogActivity(
+	ctx context.Context,
+	workflowID string,
+	status protos.FlowStatus,
+) (protos.FlowStatus, error) {
+	if _, err := a.CatalogPool.Exec(ctx, "UPDATE flows SET status=$1,updated_at=now() WHERE workflow_id=$2", status, workflowID); err != nil {
+		slog.Error("failed to update flow status", slog.Any("error", err), slog.String("flowID", workflowID))
+		return status, fmt.Errorf("failed to update flow status: %w", err)
+	}
+	return status, nil
+}
+
+func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
+	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
+}
