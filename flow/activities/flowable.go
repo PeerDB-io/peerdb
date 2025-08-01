@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -758,6 +759,8 @@ type flowInformation struct {
 }
 
 func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
+	logger := internal.LoggerFromCtx(ctx)
+	logger.Info("Started RecordSlotSizes")
 	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
 	if err != nil {
 		return err
@@ -785,7 +788,6 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		return err
 	}
 
-	logger := internal.LoggerFromCtx(ctx)
 	slotMetricGauges := otel_metrics.SlotMetricGauges{}
 	slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
 	slotMetricGauges.RestartLSNGauge = a.OtelManager.Metrics.RestartLSNGauge
@@ -812,6 +814,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		attribute.String(otel_metrics.PeerDBVersionKey, internal.PeerDBVersionShaShort()),
 		attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
 	)))
+	logger.Info("Emitting Instance and Flow Status", slog.Int("flows", len(infos)))
 	activeFlows := make([]*flowInformation, 0, len(infos))
 	for _, info := range infos {
 		func(ctx context.Context) {
@@ -843,56 +846,42 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 				flowMetadata.Status == protos.FlowStatus_STATUS_TERMINATED {
 				return
 			}
-
-			srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
-			if err != nil {
-				if !errors.Is(err, errors.ErrUnsupported) {
-					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
-				}
-				return
-			}
-			defer connectors.CloseConnector(ctx, srcConn)
-
-			slotName := "peerflow_slot_" + info.config.FlowJobName
-			if info.config.ReplicationSlotName != "" {
-				slotName = info.config.ReplicationSlotName
-			}
-			peerName := info.config.SourceName
-
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
-			if ctx.Err() != nil {
-				return
-			}
-			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
-				FlowName: info.config.FlowJobName,
-				PeerName: peerName,
-				SlotName: slotName,
-			}, slotMetricGauges); err != nil {
-				logger.Error("Failed to handle slot info", slog.Any("error", err))
-			}
 		}(ctx)
 	}
+	logger.Info("Finished emitting Instance and Flow Status", slog.Int("flows", len(infos)))
+	var totalCpuLimit float64
+	if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
+		totalCpuLimit, err = strconv.ParseFloat(cpuLimitStr, 64)
+		if err != nil {
+			logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
+		}
+	}
+
+	var totalMemoryLimit float64
+	if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
+		totalMemoryLimit, err = strconv.ParseFloat(memLimitStr, 64)
+		if err != nil {
+			logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
+		}
+	}
+
+	var workloadTotalReplicaCount int
+	if workloadTotalReplicaCountStr, ok := os.LookupEnv("CURRENT_WORKLOAD_TOTAL_REPLICAS"); ok {
+		workloadTotalReplicaCount, err = strconv.Atoi(workloadTotalReplicaCountStr)
+		if err != nil {
+			logger.Error("Failed to parse workloadTotalReplicaCount", slog.Any("error", err), slog.String("workloadTotalReplicaCount", workloadTotalReplicaCountStr))
+		}
+	}
+
+	logger.Info("Emitting Workload Compute information")
+	a.OtelManager.Metrics.TotalCPULimitsGauge.Record(ctx, totalCpuLimit)
+	a.OtelManager.Metrics.TotalMemoryLimitsGauge.Record(ctx, totalMemoryLimit)
+	a.OtelManager.Metrics.WorkloadTotalReplicasGauge.Record(ctx, int64(workloadTotalReplicaCount))
+	logger.Info("Finished emitting Workload Compute information")
+	logger.Info("Emitting Active Flow Info", slog.Int("flows", len(activeFlows)))
 	if activeFlowCount := len(activeFlows); activeFlowCount > 0 {
-		var activeFlowCpuLimit float64
-		var totalCpuLimit float64
-		if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
-			totalCpuLimit, err = strconv.ParseFloat(cpuLimitStr, 64)
-			if err != nil {
-				logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
-			}
-		}
-
-		var activeFlowMemoryLimit float64
-		var totalMemoryLimit float64
-		if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
-			totalMemoryLimit, err = strconv.ParseFloat(memLimitStr, 64)
-			if err != nil {
-				logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
-			}
-		}
-
-		activeFlowCpuLimit = totalCpuLimit / float64(activeFlowCount)
-		activeFlowMemoryLimit = totalMemoryLimit / float64(activeFlowCount)
+		activeFlowCpuLimit := totalCpuLimit / float64(activeFlowCount)
+		activeFlowMemoryLimit := totalMemoryLimit / float64(activeFlowCount)
 		a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(activeFlowCount))
 		if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
 			for _, info := range activeFlows {
@@ -918,8 +907,61 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			}
 		}
 	}
-
+	logger.Info("Finished emitting Active Flow Info", slog.Int("flows", len(activeFlows)))
+	logger.Info("Recording Slot Information", slog.Int("flows", len(infos)))
+	var wg sync.WaitGroup
+	for _, info := range infos {
+		wg.Add(1)
+		go func(ctx context.Context, info *flowInformation) {
+			defer wg.Done()
+			timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			defer cancel()
+			a.recordSlotInformation(timeoutCtx, info, logger, slotMetricGauges)
+		}(ctx, info)
+	}
+	logger.Info("Waiting for Slot Information to be recorded", slog.Int("flows", len(infos)))
+	wg.Wait()
+	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
+	logger.Info("Finished RecordSlotSizes")
 	return nil
+}
+
+func (a *FlowableActivity) recordSlotInformation(ctx context.Context, info *flowInformation, logger log.Logger, slotMetricGauges otel_metrics.SlotMetricGauges) {
+	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+		FlowName:        info.config.FlowJobName,
+		SourceName:      info.config.SourceName,
+		DestinationName: info.config.DestinationName,
+	})
+	if err != nil {
+		logger.Error("Failed to get flow metadata", slog.Any("error", err))
+	}
+	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
+	if err != nil {
+		if !errors.Is(err, errors.ErrUnsupported) {
+			logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
+		}
+		return
+	}
+	defer connectors.CloseConnector(ctx, srcConn)
+
+	slotName := "peerflow_slot_" + info.config.FlowJobName
+	if info.config.ReplicationSlotName != "" {
+		slotName = info.config.ReplicationSlotName
+	}
+	peerName := info.config.SourceName
+
+	activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
+	if ctx.Err() != nil {
+		return
+	}
+	if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
+		FlowName: info.config.FlowJobName,
+		PeerName: peerName,
+		SlotName: slotName,
+	}, slotMetricGauges); err != nil {
+		logger.Error("Failed to handle slot info", slog.Any("error", err))
+	}
 }
 
 var activeFlowStatuses = map[protos.FlowStatus]struct{}{
