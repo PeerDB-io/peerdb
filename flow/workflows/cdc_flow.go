@@ -69,7 +69,7 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 
 func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
 	updateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 1 * time.Minute,
+		StartToCloseTimeout: 4 * 24 * time.Hour,
 	})
 
 	updateFuture := workflow.ExecuteActivity(updateCtx, flowable.UpdateFlowStatusInCatalogActivity,
