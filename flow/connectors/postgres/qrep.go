@@ -41,7 +41,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	if config.WatermarkColumn == "" {
+	if config.WatermarkColumn == "" || config.NumPartitionsOverride == 1 {
 		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
@@ -85,6 +85,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
+	numPartitions := int64(config.NumPartitionsOverride)
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
 	quotedWatermarkColumn := utils.QuoteIdentifier(config.WatermarkColumn)
 
@@ -98,102 +99,133 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		return nil, fmt.Errorf("unable to parse watermark table: %w", err)
 	}
 
-	// Query to get the total number of rows in the table
-	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, parsedWatermarkTable.String(), whereClause)
-	var row pgx.Row
-	var minVal any = nil
-	if last != nil && last.Range != nil {
-		switch lastRange := last.Range.Range.(type) {
-		case *protos.PartitionRange_IntRange:
-			minVal = lastRange.IntRange.End
-		case *protos.PartitionRange_UintRange:
-			minVal = lastRange.UintRange.End
-		case *protos.PartitionRange_TimestampRange:
-			minVal = lastRange.TimestampRange.End.AsTime()
+	if numPartitions == 0 {
+		// Query to get the total number of rows in the table
+		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s %s`, parsedWatermarkTable.String(), whereClause)
+		var row pgx.Row
+		var minVal any
+		if last != nil && last.Range != nil {
+			switch lastRange := last.Range.Range.(type) {
+			case *protos.PartitionRange_IntRange:
+				minVal = lastRange.IntRange.End
+			case *protos.PartitionRange_UintRange:
+				minVal = lastRange.UintRange.End
+			case *protos.PartitionRange_TimestampRange:
+				minVal = lastRange.TimestampRange.End.AsTime()
+			}
+
+			row = tx.QueryRow(ctx, countQuery, minVal)
+		} else {
+			row = tx.QueryRow(ctx, countQuery)
 		}
 
-		row = tx.QueryRow(ctx, countQuery, minVal)
-	} else {
-		row = tx.QueryRow(ctx, countQuery)
-	}
+		var totalRows pgtype.Int8
+		if err := row.Scan(&totalRows); err != nil {
+			return nil, fmt.Errorf("failed to query for total rows: %w", err)
+		}
 
-	var totalRows pgtype.Int8
-	if err := row.Scan(&totalRows); err != nil {
-		return nil, fmt.Errorf("failed to query for total rows: %w", err)
-	}
+		if totalRows.Int64 == 0 {
+			c.logger.Warn("no records to replicate, returning")
+			return nil, nil
+		}
 
-	if totalRows.Int64 == 0 {
-		c.logger.Warn("no records to replicate, returning")
-		return nil, nil
-	}
+		// Calculate the number of partitions
+		adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
+		c.logger.Info("partition adjustment details",
+			slog.Int64("totalRows", totalRows.Int64),
+			slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+			slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+			slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
 
-	// Calculate the number of partitions
-	adjustedPartitions := shared.AdjustNumPartitions(totalRows.Int64, numRowsPerPartition)
-	c.logger.Info("partition adjustment details",
-		slog.Int64("totalRows", totalRows.Int64),
-		slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
-		slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
-		slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
-
-	// Query to get partitions using window functions
-	var rows pgx.Rows
-	if minVal != nil {
-		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
+		// Query to get partitions using window functions
+		var rows pgx.Rows
+		if minVal != nil {
+			partitionsQuery := fmt.Sprintf(
+				`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
 				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s
 				FROM %[3]s WHERE %[2]s > $1
 			) subquery
 			GROUP BY bucket
 			ORDER BY start`,
-			adjustedPartitions.AdjustedNumPartitions,
-			quotedWatermarkColumn,
-			parsedWatermarkTable.String(),
-		)
-		c.logger.Info("[row_based_next] partitions query", slog.String("query", partitionsQuery))
-		rows, err = tx.Query(ctx, partitionsQuery, minVal)
-	} else {
-		partitionsQuery := fmt.Sprintf(
-			`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
+				adjustedPartitions.AdjustedNumPartitions,
+				quotedWatermarkColumn,
+				parsedWatermarkTable.String(),
+			)
+			c.logger.Info("[row_based_next] partitions query", slog.String("query", partitionsQuery))
+			rows, err = tx.Query(ctx, partitionsQuery, minVal)
+		} else {
+			partitionsQuery := fmt.Sprintf(
+				`SELECT bucket, MIN(%[2]s) AS start, MAX(%[2]s) AS end
 			FROM (
 				SELECT NTILE(%[1]d) OVER (ORDER BY %[2]s) AS bucket, %[2]s FROM %[3]s
 			) subquery
 			GROUP BY bucket
 			ORDER BY start`,
-			adjustedPartitions.AdjustedNumPartitions,
-			quotedWatermarkColumn,
-			parsedWatermarkTable.String(),
-		)
-		c.logger.Info("[row_based] partitions query", slog.String("query", partitionsQuery))
-		rows, err = tx.Query(ctx, partitionsQuery)
-	}
-	if err != nil {
-		return nil, shared.LogError(c.logger, fmt.Errorf("failed to query for partitions: %w", err))
-	}
-	defer rows.Close()
+				adjustedPartitions.AdjustedNumPartitions,
+				quotedWatermarkColumn,
+				parsedWatermarkTable.String(),
+			)
+			c.logger.Info("[row_based] partitions query", slog.String("query", partitionsQuery))
+			rows, err = tx.Query(ctx, partitionsQuery)
+		}
+		if err != nil {
+			return nil, shared.LogError(c.logger, fmt.Errorf("failed to query for partitions: %w", err))
+		}
+		defer rows.Close()
 
-	partitionHelper := utils.NewPartitionHelper(c.logger)
-	for rows.Next() {
-		var bucket pgtype.Int8
+		partitionHelper := utils.NewPartitionHelper(c.logger)
+		for rows.Next() {
+			var bucket pgtype.Int8
+			var start, end any
+			if err := rows.Scan(&bucket, &start, &end); err != nil {
+				return nil, fmt.Errorf("failed to scan row: %w", err)
+			}
+
+			if err := partitionHelper.AddPartition(start, end); err != nil {
+				return nil, fmt.Errorf("failed to add partition: %w", err)
+			}
+		}
+
+		if err := rows.Err(); err != nil {
+			return nil, fmt.Errorf("failed to read rows: %w", err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("failed to commit transaction: %w", err)
+		}
+
+		return partitionHelper.GetPartitions(), nil
+	} else {
+		minmaxQuery := fmt.Sprintf("SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s",
+			parsedWatermarkTable.String(), config.WatermarkColumn, whereClause)
+		var row pgx.Row
+		var minVal any
+		if last != nil && last.Range != nil {
+			switch lastRange := last.Range.Range.(type) {
+			case *protos.PartitionRange_IntRange:
+				minVal = lastRange.IntRange.End
+			case *protos.PartitionRange_UintRange:
+				minVal = lastRange.UintRange.End
+			case *protos.PartitionRange_TimestampRange:
+				minVal = lastRange.TimestampRange.End.AsTime()
+			}
+
+			row = tx.QueryRow(ctx, minmaxQuery, minVal)
+		} else {
+			row = tx.QueryRow(ctx, minmaxQuery)
+		}
 		var start, end any
-		if err := rows.Scan(&bucket, &start, &end); err != nil {
-			return nil, fmt.Errorf("failed to scan row: %w", err)
+		if err := row.Scan(&start, &end); err != nil {
+			return nil, err
 		}
 
-		if err := partitionHelper.AddPartition(start, end); err != nil {
-			return nil, fmt.Errorf("failed to add partition: %w", err)
+		partitionHelper := utils.NewPartitionHelper(c.logger)
+		if err := partitionHelper.AddPartitionsWithRange(start, end, numPartitions); err != nil {
+			return nil, fmt.Errorf("failed to add partitions: %w", err)
 		}
+		return partitionHelper.GetPartitions(), nil
 	}
-
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("failed to read rows: %w", err)
-	}
-
-	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	return partitionHelper.GetPartitions(), nil
 }
 
 func (c *PostgresConnector) getMinMaxValues(

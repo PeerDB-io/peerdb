@@ -57,6 +57,7 @@ message FlowConnectionConfigs {
   // config for the initial load feature, along with interactions like resync and initial_snapshot_only
   bool do_initial_snapshot = 10;
   uint32 snapshot_num_rows_per_partition = 11;
+  uint32 snapshot_num_partitions_override = 26;
   string snapshot_staging_path = 12;
   // max parallel workers is per table
   uint32 snapshot_max_parallel_workers = 13;
@@ -313,10 +314,9 @@ message QRepConfig {
   // if using GCS or S3 make sure your instance has the correct permissions.
   string staging_path = 12;
 
-  // This setting overrides batch_size_int and batch_duration_seconds
-  // and instead uses the number of rows per partition to determine
-  // how many rows to process per batch.
   uint32 num_rows_per_partition = 13;
+  // overrides num_rows_per_partition to skip count(*) query
+  uint32 num_partitions_override = 29;
 
   // Creates the watermark table on the destination as-is, can be used for some queries.
   bool setup_watermark_table_on_destination = 14;
@@ -423,6 +423,7 @@ message CDCFlowConfigUpdate {
   // updates keys in the env map, existing keys left unchanged
   map<string, string> updated_env = 6;
   uint32 snapshot_num_rows_per_partition = 7;
+  uint32 snapshot_num_partitions_override = 10;
   uint32 snapshot_max_parallel_workers = 8;
   uint32 snapshot_num_tables_in_parallel = 9;
 }

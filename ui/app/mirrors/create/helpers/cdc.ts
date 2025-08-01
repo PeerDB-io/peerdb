@@ -87,6 +87,20 @@ export const cdcSettings: MirrorSetting[] = [
     advanced: AdvancedSettingType.ALL,
   },
   {
+    label: 'Snapshot Number of Partitions Override',
+    stateHandler: (value, setter) =>
+      setter(
+        (curr: CDCConfig): CDCConfig => ({
+          ...curr,
+          snapshotNumPartitionsOverride: parseInt(value as string, 10) || 0,
+        })
+      ),
+    tips: 'Set this to avoid COUNT(*) necessary when using Snapshot Number of Rows Per Partition. This should only be used when ingesting billions of rows.',
+    default: '0',
+    type: 'number',
+    advanced: AdvancedSettingType.ALL,
+  },
+  {
     label: 'Parallelism for Initial Load',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
