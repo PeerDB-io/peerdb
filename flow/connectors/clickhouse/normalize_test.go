@@ -34,7 +34,7 @@ func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
 	}
 
 	expected := []string{"`my id`", "`name`"}
-	actual := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, colNameMap)
+	actual, allowNullableKey := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, colNameMap)
 
 	if len(expected) != len(actual) {
 		t.Fatalf("Expected %v, got %v", expected, actual)
@@ -45,6 +45,8 @@ func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
 			t.Fatalf("Expected %v, got %v", expected, actual)
 		}
 	}
+
+	require.True(t, allowNullableKey)
 }
 
 func Test_GetOrderByColumns_NoOrdering_NoColMap(t *testing.T) {
@@ -65,7 +67,7 @@ func Test_GetOrderByColumns_NoOrdering_NoColMap(t *testing.T) {
 
 	sourcePkeys := []string{"my id"}
 	expected := []string{"`my id`"}
-	actual := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, nil)
+	actual, allowNullableKey := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, nil)
 
 	if len(expected) != len(actual) {
 		t.Fatalf("Expected %v, got %v", expected, actual)
@@ -76,6 +78,8 @@ func Test_GetOrderByColumns_NoOrdering_NoColMap(t *testing.T) {
 			t.Fatalf("Expected %v, got %v", expected, actual)
 		}
 	}
+
+	require.False(t, allowNullableKey)
 }
 
 func Test_GetOrderByColumns_WithColMap_NoOrdering(t *testing.T) {
@@ -100,7 +104,7 @@ func Test_GetOrderByColumns_WithColMap_NoOrdering(t *testing.T) {
 		"name":  "name",
 	}
 	expected := []string{"`my id destination`", "`name`"}
-	actual := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, colNameMap)
+	actual, allowNullableKey := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, colNameMap)
 
 	if len(expected) != len(actual) {
 		t.Fatalf("Expected %v, got %v", expected, actual)
@@ -111,6 +115,8 @@ func Test_GetOrderByColumns_WithColMap_NoOrdering(t *testing.T) {
 			t.Fatalf("Expected %v, got %v", expected, actual)
 		}
 	}
+
+	require.False(t, allowNullableKey)
 }
 
 func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
@@ -133,7 +139,7 @@ func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
 
 	sourcePkeys := []string{"my id", "name"}
 	expected := []string{"`my id`", "`name`"}
-	actual := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, nil)
+	actual, allowNullableKey := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, nil)
 
 	if len(expected) != len(actual) {
 		t.Fatalf("Expected %v, got %v", expected, actual)
@@ -144,6 +150,8 @@ func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
 			t.Fatalf("Expected %v, got %v", expected, actual)
 		}
 	}
+
+	require.True(t, allowNullableKey)
 }
 
 func TestBuildQuery_Basic(t *testing.T) {
