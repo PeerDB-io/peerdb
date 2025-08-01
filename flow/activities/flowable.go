@@ -869,7 +869,8 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	if workloadTotalReplicaCountStr, ok := os.LookupEnv("CURRENT_WORKLOAD_TOTAL_REPLICAS"); ok {
 		workloadTotalReplicaCount, err = strconv.Atoi(workloadTotalReplicaCountStr)
 		if err != nil {
-			logger.Error("Failed to parse workloadTotalReplicaCount", slog.Any("error", err), slog.String("workloadTotalReplicaCount", workloadTotalReplicaCountStr))
+			logger.Error("Failed to parse workloadTotalReplicaCount",
+				slog.Any("error", err), slog.String("workloadTotalReplicaCount", workloadTotalReplicaCountStr))
 		}
 	}
 
@@ -916,7 +917,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			defer wg.Done()
 			timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			a.recordSlotInformation(timeoutCtx, info, logger, slotMetricGauges)
+			a.recordSlotInformation(timeoutCtx, info, slotMetricGauges)
 		}(ctx, info)
 	}
 	logger.Info("Waiting for Slot Information to be recorded", slog.Int("flows", len(infos)))
@@ -926,7 +927,12 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) recordSlotInformation(ctx context.Context, info *flowInformation, logger log.Logger, slotMetricGauges otel_metrics.SlotMetricGauges) {
+func (a *FlowableActivity) recordSlotInformation(
+	ctx context.Context,
+	info *flowInformation,
+	slotMetricGauges otel_metrics.SlotMetricGauges,
+) {
+	logger := internal.LoggerFromCtx(ctx)
 	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
 		FlowName:        info.config.FlowJobName,
 		SourceName:      info.config.SourceName,
