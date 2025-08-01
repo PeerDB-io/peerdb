@@ -41,7 +41,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	if config.WatermarkColumn == "" {
+	if config.WatermarkColumn == "" || config.NumPartitionsOverride == 1 {
 		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
