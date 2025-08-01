@@ -9,7 +9,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.temporal.io/sdk/log"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -215,20 +214,6 @@ func createUIntPartition(start uint64, end uint64) *protos.QRepPartition {
 	}
 }
 
-func createObjectIdPartition(start bson.ObjectID, end bson.ObjectID) *protos.QRepPartition {
-	return &protos.QRepPartition{
-		PartitionId: uuid.NewString(),
-		Range: &protos.PartitionRange{
-			Range: &protos.PartitionRange_ObjectIdRange{
-				ObjectIdRange: &protos.ObjectIdPartitionRange{
-					Start: start.Hex(),
-					End:   end.Hex(),
-				},
-			},
-		},
-	}
-}
-
 type PartitionHelper struct {
 	logger     log.Logger
 	prevStart  any
@@ -356,8 +341,6 @@ func (p *PartitionHelper) getPartitionForStartAndEnd(start any, end any) (*proto
 		return createTimePartition(v, end.(time.Time)), nil
 	case pgtype.TID:
 		return createTIDPartition(v, end.(pgtype.TID)), nil
-	case bson.ObjectID:
-		return createObjectIdPartition(v, end.(bson.ObjectID)), nil
 	default:
 		return nil, fmt.Errorf("unsupported type: %T", v)
 	}
