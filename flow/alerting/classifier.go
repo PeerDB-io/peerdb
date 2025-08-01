@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -564,6 +565,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				ErrorAttributeKeyTable:  numericOutOfRangeError.DestinationTable,
 				ErrorAttributeKeyColumn: numericOutOfRangeError.DestinationColumn,
 			},
+		}
+	}
+
+	var tlsCertVerificationError *tls.CertificateVerificationError
+	if errors.As(err, &tlsCertVerificationError) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "tls.CertificateVerificationError",
 		}
 	}
 
