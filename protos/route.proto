@@ -324,9 +324,25 @@ message GetCDCBatchesResponse {
   int32 page = 3;
 }
 
+enum GraphMode {
+  GRAPH_MODE_UNKNOWN = 0;
+  GRAPH_MODE_GROUP_BY = 1;
+  GRAPH_MODE_LAST_X = 2;
+}
+
+enum TimeAggregateType {
+  TIME_AGGREGATE_TYPE_UNKNOWN = 0;
+  TIME_AGGREGATE_TYPE_FIVE_MIN = 1;
+  TIME_AGGREGATE_TYPE_FIFTEEN_MIN = 2;
+  TIME_AGGREGATE_TYPE_ONE_HOUR = 3;
+  TIME_AGGREGATE_TYPE_ONE_DAY = 4;
+  TIME_AGGREGATE_TYPE_ONE_MONTH = 5;
+}
+
 message GraphRequest {
   string flow_job_name = 1;
-  string aggregate_type = 2; // TODO name?
+  TimeAggregateType aggregate_type = 2;
+  GraphMode mode = 3;
 }
 
 message GraphResponseItem {
@@ -334,7 +350,11 @@ message GraphResponseItem {
   double rows = 2;
 }
 
-message GraphResponse { repeated GraphResponseItem data = 1; }
+message GraphResponse {
+  repeated GraphResponseItem data = 1;
+  int64 total_rows = 2;
+
+}
 
 message MirrorLog {
   string flow_name = 1;

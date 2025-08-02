@@ -1,10 +1,11 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
-import { TimeAggregateTypes, timeOptions } from '@/app/utils/graph';
+import { timeOptions } from '@/app/utils/graph';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import {
   GetSlotLagHistoryRequest,
   GetSlotLagHistoryResponse,
+  TimeAggregateType,
 } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
@@ -27,6 +28,23 @@ function parseLSN(lsn: string): number {
   return Number((BigInt(parsedLsn1) << BigInt(32)) | BigInt(parsedLsn2));
 }
 
+function stringifyTimeAggregateType(timeSince: TimeAggregateType): string {
+  switch (timeSince) {
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_FIVE_MIN:
+      return '5min';
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_FIFTEEN_MIN:
+      return '15min';
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR:
+      return '1hour';
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_DAY:
+      return '1day';
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_MONTH:
+      return '1month';
+    default:
+      return '1hour';
+  }
+}
+
 export default function LagGraph({ peerName }: LagGraphProps) {
   const [slotNames, setSlotNames] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
@@ -39,8 +57,8 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   );
   const [selectedSlot, setSelectedSlot] = useState<string>(defaultSlot);
   const [loading, setLoading] = useState(false);
-  const [timeSince, setTimeSince] = useState<TimeAggregateTypes>(
-    TimeAggregateTypes.HOUR
+  const [timeSince, setTimeSince] = useState<TimeAggregateType>(
+    TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
   const [showLsn, setShowLsn] = useState(false);
 
@@ -55,13 +73,15 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     }
 
     setLoading(true);
+    let timeSinceStr: string;
+
     const pointsRes = await fetch(`/api/v1/peers/slots/lag_history`, {
       method: 'POST',
       cache: 'no-store',
       body: JSON.stringify({
         peerName,
         slotName: selectedSlot,
-        timeSince,
+        timeSince: stringifyTimeAggregateType(timeSince),
       } as GetSlotLagHistoryRequest),
     });
     if (pointsRes.ok) {
@@ -140,9 +160,11 @@ export default function LagGraph({ peerName }: LagGraphProps) {
           onClick={() => setShowLsn((val) => !val)}
         />
         <ReactSelect
-          id={timeSince}
+          id={stringifyTimeAggregateType(timeSince)}
           placeholder='Select a timeframe'
-          options={timeOptions.filter((x) => !x.value.endsWith('min'))}
+          options={timeOptions.filter(
+            (x) => !stringifyTimeAggregateType(x.value).endsWith('min')
+          )}
           defaultValue={timeOptions.at(3)}
           onChange={(val, _) => val && setTimeSince(val.value)}
           theme={SelectTheme}
