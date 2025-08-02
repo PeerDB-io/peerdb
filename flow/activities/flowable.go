@@ -740,7 +740,9 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	go runEveryDurationInfinitely(ctx, "RecordMetrics", 1*time.Minute, a.RecordMetrics)
 	go runEveryDurationInfinitely(ctx, "RecordSlotSizes", 1*time.Minute, a.RecordSlotSizes)
 	<-ctx.Done()
-	return ctx.Err()
+	logger := internal.LoggerFromCtx(ctx)
+	logger.Info("Stopping scheduled tasks due to context done", slog.Any("error", ctx.Err()))
+	return nil
 }
 
 func runEveryDurationInfinitely(ctx context.Context, funcName string, duration time.Duration, fn func(context.Context) error) {
