@@ -730,6 +730,12 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
+	go runEveryDurationInfinitely(ctx, "RecordHeartbeat", 1*time.Minute,
+		//nolint:unparam
+		func(ctx context.Context) error {
+			activity.RecordHeartbeat(ctx, "Running scheduled tasks")
+			return nil
+		})
 	go runEveryDurationInfinitely(ctx, "SendWALHeartbeat", 10*time.Minute, a.SendWALHeartbeat)
 	go runEveryDurationInfinitely(ctx, "RecordMetrics", 1*time.Minute, a.RecordMetrics)
 	go runEveryDurationInfinitely(ctx, "RecordSlotSizes", 1*time.Minute, a.RecordSlotSizes)
