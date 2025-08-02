@@ -730,6 +730,8 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
+	logger := internal.LoggerFromCtx(ctx)
+	logger.Info("Starting scheduled tasks")
 	defer shared.Interval(ctx, 20*time.Second, func() {
 		activity.RecordHeartbeat(ctx, "Running scheduled tasks")
 	})()
@@ -748,7 +750,6 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog(ctx, "RecordMetrics", a.RecordMetrics))()
 	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog(ctx, "RecordSlotSizes", a.RecordSlotSizes))()
 	<-ctx.Done()
-	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Stopping scheduled tasks due to context done", slog.Any("error", ctx.Err()))
 	return nil
 }
