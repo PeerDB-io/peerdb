@@ -730,25 +730,31 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
-	ticker := time.NewTicker(time.Minute)
-	walHeartbeatCounter := 10
-	for range ticker.C {
-		activity.RecordHeartbeat(ctx, "running")
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := a.RecordSlotSizes(ctx); err != nil {
-			slog.Error("[scheduled-tasks] RecordSlotSizes failed", slog.Any("error", err))
-		}
-		walHeartbeatCounter -= 1
-		if walHeartbeatCounter <= 0 {
-			walHeartbeatCounter = 10
-			if err := a.SendWALHeartbeat(ctx); err != nil {
-				slog.Error("[scheduled-tasks] SendWALHeartbeat failed", slog.Any("error", err))
+	go runEveryDurationInfinitely(ctx, "SendWALHeartbeat", 10*time.Minute, a.SendWALHeartbeat)
+	go runEveryDurationInfinitely(ctx, "RecordMetrics", 1*time.Minute, a.RecordMetrics)
+	go runEveryDurationInfinitely(ctx, "RecordSlotSizes", 1*time.Minute, a.RecordSlotSizes)
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+func runEveryDurationInfinitely(ctx context.Context, funcName string, duration time.Duration, fn func(context.Context) error) {
+	logger := internal.LoggerFromCtx(ctx)
+	logger.Info("[" + funcName + "] starting ticker")
+	ticker := time.NewTicker(duration)
+	for {
+		select {
+		case <-ctx.Done():
+			logger.Info("[" + funcName + "] stopping ticker due to context done")
+			return
+		case <-ticker.C:
+			logger.Info("[" + funcName + "] running")
+			now := time.Now()
+			if err := fn(ctx); err != nil {
+				logger.Error("["+funcName+"] runEveryDurationInfinitely failed", slog.Any("error", err))
 			}
+			logger.Info("["+funcName+"] completed", slog.Duration("duration", time.Since(now)))
 		}
 	}
-	return nil
 }
 
 type flowInformation struct {
@@ -758,46 +764,15 @@ type flowInformation struct {
 	isActive   bool
 }
 
-func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
+func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
 	logger := internal.LoggerFromCtx(ctx)
-	logger.Info("Started RecordSlotSizes")
-	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
+	logger.Info("Started RecordMetrics")
+	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	infos, err := a.getAllFlows(timeoutCtx)
 	if err != nil {
 		return err
 	}
-
-	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*flowInformation, error) {
-		var flowName string
-		var configProto []byte
-		var workflowID string
-		if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
-			return nil, err
-		}
-
-		var config protos.FlowConnectionConfigs
-		if err := proto.Unmarshal(configProto, &config); err != nil {
-			return nil, err
-		}
-
-		return &flowInformation{
-			config:     &config,
-			workflowID: workflowID,
-		}, nil
-	})
-	if err != nil {
-		return err
-	}
-
-	slotMetricGauges := otel_metrics.SlotMetricGauges{}
-	slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
-	slotMetricGauges.RestartLSNGauge = a.OtelManager.Metrics.RestartLSNGauge
-	slotMetricGauges.ConfirmedFlushLSNGauge = a.OtelManager.Metrics.ConfirmedFlushLSNGauge
-
-	slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
-
-	slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
-
-	slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
 
 	maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	instanceStatus := otel_metrics.InstanceStatusReady
@@ -909,12 +884,35 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 		}
 	}
 	logger.Info("Finished emitting Active Flow Info", slog.Int("flows", len(activeFlows)))
-	logger.Info("Recording Slot Information", slog.Int("flows", len(infos)))
+	logger.Info("Finished RecordMetrics")
+	return nil
+}
+
+func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
+	logger := internal.LoggerFromCtx(ctx)
+	logger.Info("Recording Slot Information")
+	slotMetricGauges := otel_metrics.SlotMetricGauges{}
+	slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
+	slotMetricGauges.RestartLSNGauge = a.OtelManager.Metrics.RestartLSNGauge
+	slotMetricGauges.ConfirmedFlushLSNGauge = a.OtelManager.Metrics.ConfirmedFlushLSNGauge
+	slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
+	slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
+	slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
+	infos, err := a.getAllFlows(ctx)
+	if err != nil {
+		return err
+	}
+	logger.Info("Fetching and recording Slot Information", slog.Int("flows", len(infos)))
 	var wg sync.WaitGroup
+	maxParallel := 5
+	semaphore := make(chan struct{}, maxParallel)
 	for _, info := range infos {
 		wg.Add(1)
 		go func(ctx context.Context, info *flowInformation) {
 			defer wg.Done()
+			semaphore <- struct{}{}
+			defer func() { <-semaphore }()
+
 			timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
 			a.recordSlotInformation(timeoutCtx, info, slotMetricGauges)
@@ -923,8 +921,34 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	logger.Info("Waiting for Slot Information to be recorded", slog.Int("flows", len(infos)))
 	wg.Wait()
 	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
-	logger.Info("Finished RecordSlotSizes")
 	return nil
+}
+
+func (a *FlowableActivity) getAllFlows(ctx context.Context) ([]*flowInformation, error) {
+	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
+	if err != nil {
+		return nil, err
+	}
+
+	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*flowInformation, error) {
+		var flowName string
+		var configProto []byte
+		var workflowID string
+		if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
+			return nil, err
+		}
+
+		var config protos.FlowConnectionConfigs
+		if err := proto.Unmarshal(configProto, &config); err != nil {
+			return nil, err
+		}
+
+		return &flowInformation{
+			config:     &config,
+			workflowID: workflowID,
+		}, nil
+	})
+	return infos, err
 }
 
 func (a *FlowableActivity) recordSlotInformation(
