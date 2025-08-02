@@ -65,7 +65,7 @@ func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
 func ScheduledTasksWorkflow(ctx workflow.Context) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Hour * 24 * 365,
-		HeartbeatTimeout:    10 * time.Minute,
+		HeartbeatTimeout:    1 * time.Minute,
 		WaitForCancellation: true,
 	})
 	scheduledTasksFuture := workflow.ExecuteActivity(ctx, flowable.ScheduledTasks)
