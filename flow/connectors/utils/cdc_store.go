@@ -112,6 +112,7 @@ func init() {
 	gob.Register(types.QValueCIDR{})
 	gob.Register(types.QValueINET{})
 	gob.Register(types.QValueMacaddr{})
+	gob.Register(types.QValueComposite{})
 	gob.Register(types.QValueArrayFloat32{})
 	gob.Register(types.QValueArrayFloat64{})
 	gob.Register(types.QValueArrayInt16{})
@@ -126,6 +127,7 @@ func init() {
 	gob.Register(types.QValueArrayBoolean{})
 	gob.Register(types.QValueArrayUUID{})
 	gob.Register(types.QValueArrayNumeric{})
+	gob.Register(types.QValueArrayComposite{})
 }
 
 func (c *cdcStore[T]) initPebbleDB() error {
