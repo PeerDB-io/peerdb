@@ -730,39 +730,27 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 }
 
 func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
-	go runEveryDurationInfinitely(ctx, "RecordHeartbeat", 20*time.Second,
-		//nolint:unparam
-		func(ctx context.Context) error {
-			activity.RecordHeartbeat(ctx, "Running scheduled tasks")
-			return nil
-		})
-	go runEveryDurationInfinitely(ctx, "SendWALHeartbeat", 10*time.Minute, a.SendWALHeartbeat)
-	go runEveryDurationInfinitely(ctx, "RecordMetrics", 1*time.Minute, a.RecordMetrics)
-	go runEveryDurationInfinitely(ctx, "RecordSlotSizes", 1*time.Minute, a.RecordSlotSizes)
+	defer shared.Interval(ctx, 20*time.Second, func() {
+		activity.RecordHeartbeat(ctx, "Running scheduled tasks")
+	})()
+	wrapWithLog := func(ctx context.Context, name string, fn func(context.Context) error) func() {
+		return func() {
+			logger := internal.LoggerFromCtx(ctx)
+			now := time.Now()
+			logger.Info(name + " starting")
+			if err := fn(ctx); err != nil {
+				logger.Error(name+" failed", slog.Any("error", err))
+			}
+			logger.Info(name+" completed", slog.Duration("duration", time.Since(now)))
+		}
+	}
+	defer shared.Interval(ctx, 10*time.Minute, wrapWithLog(ctx, "SendWALHeartbeat", a.SendWALHeartbeat))()
+	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog(ctx, "RecordMetrics", a.RecordMetrics))()
+	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog(ctx, "RecordSlotSizes", a.RecordSlotSizes))()
 	<-ctx.Done()
 	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Stopping scheduled tasks due to context done", slog.Any("error", ctx.Err()))
 	return nil
-}
-
-func runEveryDurationInfinitely(ctx context.Context, funcName string, duration time.Duration, fn func(context.Context) error) {
-	logger := internal.LoggerFromCtx(ctx)
-	logger.Info("[" + funcName + "] starting ticker")
-	ticker := time.NewTicker(duration)
-	for {
-		select {
-		case <-ctx.Done():
-			logger.Info("[" + funcName + "] stopping ticker due to context done")
-			return
-		case <-ticker.C:
-			logger.Info("[" + funcName + "] running")
-			now := time.Now()
-			if err := fn(ctx); err != nil {
-				logger.Error("["+funcName+"] runEveryDurationInfinitely failed", slog.Any("error", err))
-			}
-			logger.Info("["+funcName+"] completed", slog.Duration("duration", time.Since(now)))
-		}
-	}
 }
 
 type flowInformation struct {
