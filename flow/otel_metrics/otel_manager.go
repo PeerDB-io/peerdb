@@ -47,6 +47,11 @@ const (
 	MaintenanceStatusGaugeName          = "maintenance_status"
 	FlowStatusGaugeName                 = "flow_status"
 	ActiveFlowsGaugeName                = "active_flows"
+	CPULimitsPerActiveFlowGaugeName     = "cpu_limits_per_active_flow_vcores"
+	MemoryLimitsPerActiveFlowGaugeName  = "memory_limits_per_active_flow"
+	TotalCPULimitsGaugeName             = "total_cpu_limits_vcores"
+	TotalMemoryLimitsGaugeName          = "total_memory_limits"
+	WorkloadTotalReplicasGaugeName      = "workload_total_replicas"
 )
 
 type Metrics struct {
@@ -74,6 +79,9 @@ type Metrics struct {
 	ActiveFlowsGauge                metric.Int64Gauge
 	CPULimitsPerActiveFlowGauge     metric.Float64Gauge
 	MemoryLimitsPerActiveFlowGauge  metric.Float64Gauge
+	TotalCPULimitsGauge             metric.Float64Gauge
+	TotalMemoryLimitsGauge          metric.Float64Gauge
+	WorkloadTotalReplicasGauge      metric.Int64Gauge
 }
 
 type SlotMetricGauges struct {
@@ -304,7 +312,7 @@ func (om *OtelManager) setupMetrics() error {
 	}
 
 	// Appending unit since UCUM does not support `vcores` as a unit
-	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("cpu_limits_per_active_flow_vcores"),
+	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(CPULimitsPerActiveFlowGaugeName),
 		metric.WithDescription(
 			"CPU limits per active flow. To get total CPU limits, multiply by number of active flows or do sum over all flows",
 		),
@@ -312,11 +320,30 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
-	if om.Metrics.MemoryLimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("memory_limits_per_active_flow"),
+	if om.Metrics.MemoryLimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(MemoryLimitsPerActiveFlowGaugeName),
 		metric.WithDescription(
 			"Memory per active flow. To get total memory limits, multiply by number of active flows or do sum over all flows",
 		),
 		metric.WithUnit("By"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.TotalCPULimitsGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(TotalCPULimitsGaugeName),
+		metric.WithDescription("Total CPU limits for the current workload"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.TotalMemoryLimitsGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(TotalMemoryLimitsGaugeName),
+		metric.WithDescription("Total memory limits for the current workload"),
+		metric.WithUnit("By"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.WorkloadTotalReplicasGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(WorkloadTotalReplicasGaugeName),
+		metric.WithDescription("Total number of replicas for the current workload"),
 	); err != nil {
 		return err
 	}

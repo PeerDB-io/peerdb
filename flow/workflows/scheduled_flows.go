@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -65,8 +66,11 @@ func GlobalScheduleManagerWorkflow(ctx workflow.Context) error {
 func ScheduledTasksWorkflow(ctx workflow.Context) error {
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Hour * 24 * 365,
-		HeartbeatTimeout:    time.Hour,
+		HeartbeatTimeout:    1 * time.Minute,
 		WaitForCancellation: true,
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumInterval: 1 * time.Minute,
+		},
 	})
 	scheduledTasksFuture := workflow.ExecuteActivity(ctx, flowable.ScheduledTasks)
 	if err := scheduledTasksFuture.Get(ctx, nil); err != nil {
