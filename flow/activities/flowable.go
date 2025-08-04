@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -125,6 +127,12 @@ func (a *FlowableActivity) EnsurePullability(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
+	cfg, err := internal.FetchConfigFromDB(config.FlowJobName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to fetch config from DB: %w", err))
+	}
+
+	config.SourceTableIdentifiers = slices.Sorted(maps.Keys(internal.TableNameMapping(cfg.TableMappings)))
 	output, err := srcConn.EnsurePullability(ctx, config)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to ensure pullability: %w", err))
@@ -166,6 +174,18 @@ func (a *FlowableActivity) SetupTableSchema(
 	})
 	defer shutdown()
 
+	// have to fetch config from the DB
+	cfg, err := internal.FetchConfigFromDB(config.FlowName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to fetch config from DB: %w", err))
+	}
+	tableMappings := cfg.TableMappings
+	if len(config.FilteredTableMappings) > 0 {
+		// we use the filtered table mappings if provided. they are provided from
+		// the sync flow which includes changes to the schema.
+		tableMappings = config.FilteredTableMappings
+	}
+
 	logger := internal.LoggerFromCtx(ctx)
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
 	srcConn, err := connectors.GetByNameAs[connectors.GetTableSchemaConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
@@ -174,11 +194,11 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, config.TableMappings)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, tableMappings)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}
-	processed := internal.BuildProcessedSchemaMapping(config.TableMappings, tableNameSchemaMapping, logger)
+	processed := internal.BuildProcessedSchemaMapping(tableMappings, tableNameSchemaMapping, logger)
 
 	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -214,6 +234,13 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	numTablesSetup := atomic.Uint32{}
 	numTablesToSetup := atomic.Int32{}
 
+	cfg, err := internal.FetchConfigFromDB(config.FlowName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to fetch config from DB: %w", err))
+	}
+
+	tableMappings := cfg.TableMappings
+
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return fmt.Sprintf("setting up normalized tables - %d of %d done", numTablesSetup.Load(), numTablesToSetup.Load())
 	})
@@ -245,7 +272,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
-	for _, tableMapping := range config.TableMappings {
+	for _, tableMapping := range tableMappings {
 		tableIdentifier := tableMapping.DestinationTableIdentifier
 		tableSchema := tableNameSchemaMapping[tableIdentifier]
 		existing, err := conn.SetupNormalizedTable(
@@ -293,6 +320,12 @@ func (a *FlowableActivity) SyncFlow(
 	var syncingBatchID atomic.Int64
 	var syncState atomic.Pointer[string]
 	syncState.Store(shared.Ptr("setup"))
+
+	config, err := internal.FetchConfigFromDB(config.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("unable to query flow config from catalog: %w", err)
+	}
+
 	shutdown := heartbeatRoutine(ctx, func() string {
 		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
 		sBatchID := syncingBatchID.Load()
@@ -364,10 +397,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncResponse *model.SyncResponse
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
-			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
+			syncResponse, syncErr = a.syncRecords(groupCtx, config, srcConn.(connectors.CDCPullConnector),
 				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
 		} else {
-			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
+			syncResponse, syncErr = a.syncPg(groupCtx, config, srcConn.(connectors.CDCPullPgConnector),
 				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
 		}
 
@@ -415,7 +448,6 @@ func (a *FlowableActivity) SyncFlow(
 func (a *FlowableActivity) syncRecords(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
-	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
@@ -452,7 +484,7 @@ func (a *FlowableActivity) syncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, srcConn,
+	return syncCore(ctx, a, config, srcConn,
 		normRequests, normResponses, normBufferSize,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
@@ -462,7 +494,6 @@ func (a *FlowableActivity) syncRecords(
 func (a *FlowableActivity) syncPg(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
-	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
 	normRequests *concurrency.LastChan,
 	normResponses *concurrency.LastChan,
@@ -470,7 +501,7 @@ func (a *FlowableActivity) syncPg(
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, srcConn,
+	return syncCore(ctx, a, config, srcConn,
 		normRequests, normResponses, normBufferSize,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
@@ -1431,9 +1462,13 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 }
 
-func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, flowJobName string,
 	additionalTableMappings []*protos.TableMapping,
 ) error {
+	cfg, err := internal.FetchConfigFromDB(flowJobName)
+	if err != nil {
+		return fmt.Errorf("unable to query flow config from catalog: %w", err)
+	}
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
