@@ -52,20 +52,10 @@ func getQRepOverwriteFullRefreshMode(wCtx workflow.Context, logger log.Logger, e
 	})
 
 	var fullRefreshEnabled bool
-	getFullRefreshFuture := workflow.ExecuteActivity(checkCtx, env)
+	getFullRefreshFuture := workflow.ExecuteActivity(checkCtx, flowable.PeerDBFullRefreshOverwriteMode, env)
 	if err := getFullRefreshFuture.Get(checkCtx, &fullRefreshEnabled); err != nil {
 		logger.Warn("Failed to check if full refresh mode is enabled", slog.Any("error", err))
 		return false
 	}
 	return fullRefreshEnabled
-}
-
-func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
-	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
-		StartToCloseTimeout: time.Minute,
-	})
-
-	var dbtype protos.DBType
-	err := workflow.ExecuteActivity(checkCtx, flowable.GetPeerType, name).Get(checkCtx, &dbtype)
-	return dbtype, err
 }

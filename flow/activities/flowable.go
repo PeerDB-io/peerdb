@@ -1368,10 +1368,6 @@ func (a *FlowableActivity) GetFlowMetadata(
 	}, nil
 }
 
-func (a *FlowableActivity) GetPeerType(ctx context.Context, name string) (protos.DBType, error) {
-	return connectors.LoadPeerType(ctx, a.CatalogPool, name)
-}
-
 func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) error {
 	return internal.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, logger, cfg)
 }

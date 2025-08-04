@@ -169,3 +169,7 @@ func (a *SnapshotActivity) LoadTableSchema(
 ) (*protos.TableSchema, error) {
 	return internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
 }
+
+func (a *SnapshotActivity) GetPeerType(ctx context.Context, name string) (protos.DBType, error) {
+	return connectors.LoadPeerType(ctx, a.CatalogPool, name)
+}
