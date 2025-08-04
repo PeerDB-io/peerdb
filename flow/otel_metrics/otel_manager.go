@@ -34,6 +34,7 @@ const (
 	RestartLSNGaugeName                 = "restart_lsn"
 	ConfirmedFlushLSNGaugeName          = "confirmed_flush_lsn"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
+	AllFetchedBytesCounterName          = "all_fetched_bytes"
 	FetchedBytesCounterName             = "fetched_bytes"
 	CommitLagGaugeName                  = "commit_lag"
 	ErrorEmittedGaugeName               = "error_emitted"
@@ -64,6 +65,7 @@ type Metrics struct {
 	RestartLSNGauge                 metric.Int64Gauge
 	ConfirmedFlushLSNGauge          metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
+	AllFetchedBytesCounter          metric.Int64Counter
 	FetchedBytesCounter             metric.Int64Counter
 	CommitLagGauge                  metric.Int64Gauge
 	ErrorEmittedGauge               metric.Int64Gauge
@@ -226,9 +228,16 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
+	if om.Metrics.AllFetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(AllFetchedBytesCounterName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Bytes received of CopyData over replication protocol for all tables"),
+	); err != nil {
+		return err
+	}
+
 	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
 		metric.WithUnit("By"),
-		metric.WithDescription("Bytes received of CopyData over replication slot"),
+		metric.WithDescription("Bytes received of CopyData over replication protocol for mapped tables only"),
 	); err != nil {
 		return err
 	}
