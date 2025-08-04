@@ -473,7 +473,7 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
 	if err := h.pool.QueryRow(ctx,
-		"SELECT config_proto FROM flows WHERE name = $1", flowJobName,
+		"SELECT config_proto FROM flows WHERE name = $1 LIMIT 1", flowJobName,
 	).Scan(&configBytes); err != nil {
 		slog.ErrorContext(ctx, "unable to query flow config from catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
