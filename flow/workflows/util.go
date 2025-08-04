@@ -35,7 +35,7 @@ func GetFlowMetadataContext(
 	getMetadataFuture := workflow.ExecuteActivity(metadataCtx, flowable.GetFlowMetadata, input)
 	var metadata *protos.FlowContextMetadata
 	if err := getMetadataFuture.Get(metadataCtx, &metadata); err != nil {
-		return nil, err
+		return ctx, err
 	}
 	return workflow.WithValue(ctx, internal.FlowMetadataKey, metadata), nil
 }
