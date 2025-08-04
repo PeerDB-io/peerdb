@@ -79,11 +79,10 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 func (a *FlowableActivity) applySchemaDeltas(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
-	options *protos.SyncFlowOptions,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	filteredTableMappings := make([]*protos.TableMapping, 0, len(schemaDeltas))
-	for _, tableMapping := range options.TableMappings {
+	for _, tableMapping := range config.TableMappings {
 		if slices.ContainsFunc(schemaDeltas, func(schemaDelta *protos.TableSchemaDelta) bool {
 			return schemaDelta.SrcTableName == tableMapping.SourceTableIdentifier &&
 				schemaDelta.DstTableName == tableMapping.DestinationTableIdentifier
@@ -94,12 +93,12 @@ func (a *FlowableActivity) applySchemaDeltas(
 
 	if len(schemaDeltas) > 0 {
 		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
-			PeerName:      config.SourceName,
-			TableMappings: filteredTableMappings,
-			FlowName:      config.FlowJobName,
-			System:        config.System,
-			Env:           config.Env,
-			Version:       config.Version,
+			PeerName:              config.SourceName,
+			FilteredTableMappings: filteredTableMappings,
+			FlowName:              config.FlowJobName,
+			System:                config.System,
+			Env:                   config.Env,
+			Version:               config.Version,
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}
@@ -111,7 +110,6 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	ctx context.Context,
 	a *FlowableActivity,
 	config *protos.FlowConnectionConfigs,
-	options *protos.SyncFlowOptions,
 	srcConn TPull,
 	normRequests chan<- NormalizeBatchRequest,
 	syncingBatchID *atomic.Int64,
@@ -124,8 +122,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	ctx = context.WithValue(ctx, shared.FlowNameKey, flowName)
 	logger := internal.LoggerFromCtx(ctx)
 
-	tblNameMapping := make(map[string]model.NameAndExclude, len(options.TableMappings))
-	for _, v := range options.TableMappings {
+	// we should be able to rely on `config` here.
+	tblNameMapping := make(map[string]model.NameAndExclude, len(config.TableMappings))
+	for _, v := range config.TableMappings {
 		tblNameMapping[v.SourceTableIdentifier] = model.NewNameAndExclude(v.DestinationTableIdentifier, v.Exclude)
 	}
 
@@ -133,7 +132,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		return nil, temporal.NewNonRetryableApplicationError("connection to source down", "disconnect", nil)
 	}
 
-	batchSize := options.BatchSize
+	batchSize := config.MaxBatchSize
 	if batchSize == 0 {
 		batchSize = 250_000
 	}
@@ -183,13 +182,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	errGroup.Go(func() error {
 		return pull(srcConn, errCtx, a.CatalogPool, a.OtelManager, &model.PullRecordsRequest[Items]{
 			FlowJobName:           flowName,
-			SrcTableIDNameMapping: options.SrcTableIdNameMapping,
+			SrcTableIDNameMapping: config.SrcTableIdNameMapping,
 			TableNameMapping:      tblNameMapping,
 			LastOffset:            lastOffset,
 			ConsumedOffset:        &consumedOffset,
 			MaxBatchSize:          batchSize,
 			IdleTimeout: internal.PeerDBCDCIdleTimeoutSeconds(
-				int(options.IdleTimeoutSeconds),
+				int(config.IdleTimeoutSeconds),
 			),
 			TableNameSchemaMapping:      tableNameSchemaMapping,
 			OverridePublicationName:     config.PublicationName,
@@ -225,11 +224,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		defer connectors.CloseConnector(ctx, dstConn)
 
 		syncState.Store(shared.Ptr("updating schema"))
-		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas); err != nil {
+		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, config.TableMappings, recordBatchSync.SchemaDeltas); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
-		return nil, a.applySchemaDeltas(ctx, config, options, recordBatchSync.SchemaDeltas)
+		return nil, a.applySchemaDeltas(ctx, config, recordBatchSync.SchemaDeltas)
 	}
 
 	var res *model.SyncResponse
@@ -262,7 +261,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			Records:                recordBatchSync,
 			ConsumedOffset:         &consumedOffset,
 			FlowJobName:            flowName,
-			TableMappings:          options.TableMappings,
+			TableMappings:          config.TableMappings,
 			StagingPath:            config.CdcStagingPath,
 			Script:                 config.Script,
 			TableNameSchemaMapping: tableNameSchemaMapping,
@@ -325,7 +324,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
 	syncState.Store(shared.Ptr("updating schema"))
-	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
+	if err := a.applySchemaDeltas(ctx, config, res.TableSchemaDeltas); err != nil {
 		return nil, err
 	}
 

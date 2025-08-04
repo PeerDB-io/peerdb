@@ -107,12 +107,6 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
 		PeerName: q.config.SourceName,
-		TableMappings: []*protos.TableMapping{
-			{
-				SourceTableIdentifier:      tableName,
-				DestinationTableIdentifier: q.config.DestinationTableIdentifier,
-			},
-		},
 		FlowName: q.config.FlowJobName,
 		System:   q.config.System,
 		Env:      q.config.Env,
@@ -145,15 +139,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 
 		// now setup the normalized tables on the destination peer
 		setupConfig := &protos.SetupNormalizedTableBatchInput{
-			PeerName: q.config.DestinationName,
-			TableMappings: []*protos.TableMapping{
-				{
-					SourceTableIdentifier:      q.config.WatermarkTable,
-					DestinationTableIdentifier: q.config.DestinationTableIdentifier,
-					Exclude:                    q.config.Exclude,
-					Columns:                    q.config.Columns,
-				},
-			},
+			PeerName:          q.config.DestinationName,
 			SyncedAtColName:   q.config.SyncedAtColName,
 			SoftDeleteColName: q.config.SoftDeleteColName,
 			FlowName:          q.config.FlowJobName,

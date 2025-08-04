@@ -589,6 +589,7 @@ func PullCdcRecords[Items model.Items](
 
 				if rec != nil {
 					p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
+					slog.Info("!!! in pull records", slog.Any("record", rec))
 					tableName := rec.GetDestinationTableName()
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:
@@ -596,6 +597,8 @@ func PullCdcRecords[Items model.Items](
 						// should be ideally sourceTableName as we are in PullRecords.
 						// will change in future
 						// TODO: replident is cached here, should not cache since it can change
+						// TODO: AS: req does not have the table schema mapping. needs to be fetched
+						// from catalog
 						isFullReplica := req.TableNameSchemaMapping[tableName].IsReplicaIdentityFull
 						if isFullReplica {
 							if err := addRecordWithKey(model.TableWithPkey{}, rec); err != nil {

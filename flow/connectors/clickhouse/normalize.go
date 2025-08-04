@@ -89,7 +89,13 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
 
 	var tableMapping *protos.TableMapping
-	for _, tm := range config.TableMappings {
+
+	cfg, err := internal.FetchConfigFromDB(config.FlowName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch config from DB: %w", err)
+	}
+	tableMappings := cfg.TableMappings
+	for _, tm := range tableMappings {
 		if tm.DestinationTableIdentifier == tableIdentifier {
 			tmEngine = tm.Engine
 			tableMapping = tm

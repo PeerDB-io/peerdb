@@ -27,8 +27,9 @@ const (
 )
 
 type SnapshotFlowExecution struct {
-	config *protos.FlowConnectionConfigs
-	logger log.Logger
+	FlowJobName      string
+	logger           log.Logger
+	AdditionalTables []*protos.TableMapping
 }
 
 func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
@@ -44,7 +45,7 @@ func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
 func (s *SnapshotFlowExecution) setupReplication(
 	ctx workflow.Context,
 ) (*protos.SetupReplicationOutput, error) {
-	flowName := s.config.FlowJobName
+	flowName := s.FlowJobName
 	s.logger.Info("setting up replication on source for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -55,19 +56,24 @@ func (s *SnapshotFlowExecution) setupReplication(
 		},
 	})
 
-	tblNameMapping := make(map[string]string, len(s.config.TableMappings))
-	for _, v := range s.config.TableMappings {
+	config, err := internal.FetchConfigFromDB(s.FlowJobName)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch config from DB for flow-job-name %s; err : %w", s.FlowJobName, err)
+	}
+
+	tblNameMapping := make(map[string]string, len(s.AdditionalTables))
+	for _, v := range s.AdditionalTables {
 		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
 	}
 
 	setupReplicationInput := &protos.SetupReplicationInput{
-		PeerName:                    s.config.SourceName,
+		PeerName:                    config.SourceName,
 		FlowJobName:                 flowName,
 		TableNameMapping:            tblNameMapping,
-		DoInitialSnapshot:           s.config.DoInitialSnapshot,
-		ExistingPublicationName:     s.config.PublicationName,
-		ExistingReplicationSlotName: s.config.ReplicationSlotName,
-		Env:                         s.config.Env,
+		DoInitialSnapshot:           config.DoInitialSnapshot,
+		ExistingPublicationName:     config.PublicationName,
+		ExistingReplicationSlotName: config.ReplicationSlotName,
+		Env:                         config.Env,
 	}
 
 	var res *protos.SetupReplicationOutput
@@ -92,7 +98,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 		},
 	})
 
-	if err := workflow.ExecuteActivity(ctx, snapshot.CloseSlotKeepAlive, s.config.FlowJobName).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, snapshot.CloseSlotKeepAlive, s.FlowJobName).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to close slot keep alive for peer flow: %w", err)
 	}
 
@@ -107,7 +113,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	snapshotName string,
 	mapping *protos.TableMapping,
 ) error {
-	flowName := s.config.FlowJobName
+	flowName := s.FlowJobName
 	cloneLog := slog.Group("clone-log",
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("snapshotName", snapshotName))
@@ -145,7 +151,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		return workflow.ExecuteActivity(
 			schemaCtx,
 			snapshot.LoadTableSchema,
-			s.config.FlowJobName,
+			s.FlowJobName,
 			dstName,
 		).Get(ctx, &tableSchema)
 	}
@@ -172,7 +178,12 @@ func (s *SnapshotFlowExecution) cloneTable(
 	// usually MySQL supports double quotes with ANSI_QUOTES, but Vitess doesn't
 	// Vitess currently only supports initial load so change here is enough
 	srcTableEscaped := parsedSrcTable.String()
-	if dbtype, err := getPeerType(ctx, s.config.SourceName); err != nil {
+	config, err := internal.FetchConfigFromDB(s.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("unable to fetch config from DB: %w", err)
+	}
+
+	if dbtype, err := getPeerType(ctx, config.SourceName); err != nil {
 		return err
 	} else if dbtype == protos.DBType_MYSQL {
 		srcTableEscaped = parsedSrcTable.MySQL()
@@ -187,18 +198,18 @@ func (s *SnapshotFlowExecution) cloneTable(
 	}
 
 	numWorkers := uint32(8)
-	if s.config.SnapshotMaxParallelWorkers > 0 {
-		numWorkers = s.config.SnapshotMaxParallelWorkers
+	if config.SnapshotMaxParallelWorkers > 0 {
+		numWorkers = config.SnapshotMaxParallelWorkers
 	}
 
 	numRowsPerPartition := uint32(250000)
-	if s.config.SnapshotNumRowsPerPartition > 0 {
-		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
+	if config.SnapshotNumRowsPerPartition > 0 {
+		numRowsPerPartition = config.SnapshotNumRowsPerPartition
 	}
 
 	numPartitionsOverride := uint32(0)
-	if s.config.SnapshotNumPartitionsOverride > 0 {
-		numPartitionsOverride = s.config.SnapshotNumPartitionsOverride
+	if config.SnapshotNumPartitionsOverride > 0 {
+		numPartitionsOverride = config.SnapshotNumPartitionsOverride
 	}
 
 	snapshotWriteMode := &protos.QRepWriteMode{
@@ -207,7 +218,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	// ensure document IDs are synchronized across initial load and CDC
 	// for the same document
-	if dbtype, err := getPeerType(ctx, s.config.DestinationName); err != nil {
+	if dbtype, err := getPeerType(ctx, config.DestinationName); err != nil {
 		return err
 	} else if dbtype == protos.DBType_ELASTICSEARCH {
 		if err := initTableSchema(); err != nil {
@@ -219,10 +230,10 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 	}
 
-	config := &protos.QRepConfig{
+	qRepConfig := &protos.QRepConfig{
 		FlowJobName:                childWorkflowID,
-		SourceName:                 s.config.SourceName,
-		DestinationName:            s.config.DestinationName,
+		SourceName:                 config.SourceName,
+		DestinationName:            config.DestinationName,
 		Query:                      query,
 		WatermarkColumn:            mapping.PartitionKey,
 		WatermarkTable:             srcName,
@@ -232,20 +243,20 @@ func (s *SnapshotFlowExecution) cloneTable(
 		NumRowsPerPartition:        numRowsPerPartition,
 		NumPartitionsOverride:      numPartitionsOverride,
 		MaxParallelWorkers:         numWorkers,
-		StagingPath:                s.config.SnapshotStagingPath,
-		SyncedAtColName:            s.config.SyncedAtColName,
-		SoftDeleteColName:          s.config.SoftDeleteColName,
+		StagingPath:                config.SnapshotStagingPath,
+		SyncedAtColName:            config.SyncedAtColName,
+		SoftDeleteColName:          config.SoftDeleteColName,
 		WriteMode:                  snapshotWriteMode,
-		System:                     s.config.System,
-		Script:                     s.config.Script,
-		Env:                        s.config.Env,
+		System:                     config.System,
+		Script:                     config.Script,
+		Env:                        config.Env,
 		ParentMirrorName:           flowName,
 		Exclude:                    mapping.Exclude,
 		Columns:                    mapping.Columns,
-		Version:                    s.config.Version,
+		Version:                    config.Version,
 	}
 
-	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
+	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, qRepConfig, nil)
 	return nil
 }
 
@@ -275,9 +286,15 @@ func (s *SnapshotFlowExecution) cloneTables(
 		return fmt.Errorf("failed to get default partition keys for tables: %w", err)
 	}
 
+<<<<<<< HEAD
 	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)
 
 	for _, v := range s.config.TableMappings {
+||||||| parent of b5a62b69 (Initial approach to fetching cfg from DB)
+	for _, v := range s.config.TableMappings {
+=======
+	for _, v := range s.AdditionalTables {
+>>>>>>> b5a62b69 (Initial approach to fetching cfg from DB)
 		source := v.SourceTableIdentifier
 		destination := v.DestinationTableIdentifier
 		s.logger.Info(
@@ -341,10 +358,17 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 
 func SnapshotFlowWorkflow(
 	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
+	flowJobName string,
+	additionalTables []*protos.TableMapping,
 ) error {
+	config, err := internal.FetchConfigFromDB(flowJobName)
+	if err != nil {
+		return fmt.Errorf("unable to fetch config from DB: %w", err)
+	}
+
 	se := &SnapshotFlowExecution{
-		config: config,
+		FlowJobName:      flowJobName,
+		AdditionalTables: additionalTables,
 		logger: log.With(workflow.GetLogger(ctx),
 			slog.String(string(shared.FlowNameKey), config.FlowJobName),
 			slog.String("sourcePeer", config.SourceName)),
