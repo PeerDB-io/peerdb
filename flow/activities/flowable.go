@@ -1368,7 +1368,8 @@ func (a *FlowableActivity) GetFlowMetadata(
 	}, nil
 }
 
-func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) error {
+func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+	logger := internal.LoggerFromCtx(ctx)
 	return internal.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, logger, cfg)
 }
 

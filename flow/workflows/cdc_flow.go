@@ -135,10 +135,9 @@ func uploadConfigToCatalog(
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 
-	logger := workflow.GetLogger(ctx)
-	updateFuture := workflow.ExecuteActivity(updateCtx, flowable.UpdateCDCConfigInCatalogActivity, logger, cfg)
+	updateFuture := workflow.ExecuteActivity(updateCtx, flowable.UpdateCDCConfigInCatalogActivity, cfg)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
-		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
+		workflow.GetLogger(ctx).Warn("Failed to update CDC config in catalog", slog.Any("error", err))
 	}
 }
 
