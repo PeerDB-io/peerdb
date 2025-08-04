@@ -82,6 +82,7 @@ message FlowConnectionConfigs {
 
   map<string, string> env = 24;
   uint32 version = 25;
+  map<uint32, string> src_table_id_name_mapping = 27;
 }
 
 message RenameTableOption {
@@ -120,11 +121,9 @@ message CreateTablesFromExistingOutput {
 }
 
 message SyncFlowOptions {
-  reserved 5;
+  reserved 4,5,6;
   uint32 batch_size = 1;
   uint64 idle_timeout_seconds = 3;
-  map<uint32, string> src_table_id_name_mapping = 4;
-  repeated TableMapping table_mappings = 6;
   int32 number_of_syncs = 7;
 }
 
@@ -188,13 +187,13 @@ message FieldDescription {
 }
 
 message SetupTableSchemaBatchInput {
-  reserved 2;
+  reserved 2,6;
   map<string, string> env = 1;
   string flow_name = 3;
   TypeSystem system = 4;
   string peer_name = 5;
-  repeated TableMapping table_mappings = 6;
   uint32 version = 7;
+  repeated TableMapping filtered_table_mappings = 8;
 }
 
 message SetupNormalizedTableBatchInput {
