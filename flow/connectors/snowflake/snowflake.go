@@ -547,7 +547,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 			}
 
 			startTime := time.Now()
-			c.logger.Info("[merge] merging records...", "destTable", tableName, "batchId", batchId)
+			c.logger.Info("[snowflake] merging records...", "destTable", tableName, "batchId", batchId)
 
 			result, err := c.ExecContext(gCtx, mergeStatement, tableName)
 			if err != nil {
@@ -556,7 +556,7 @@ func (c *SnowflakeConnector) mergeTablesForBatch(
 			}
 
 			endTime := time.Now()
-			c.logger.Info(fmt.Sprintf("[merge] merged records into %s, took: %d seconds",
+			c.logger.Info(fmt.Sprintf("[snowflake] merged records into %s, took: %d seconds",
 				tableName, endTime.Sub(startTime)/time.Second), "batchId", batchId)
 
 			rowsAffected, err := result.RowsAffected()

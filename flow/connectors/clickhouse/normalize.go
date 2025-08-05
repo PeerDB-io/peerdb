@@ -54,7 +54,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error occurred while checking if destination ClickHouse table exists: %w", err)
 	}
 	if tableAlreadyExists && !config.IsResync {
-		c.logger.Info("[ch] destination ClickHouse table already exists, skipping", "table", destinationTableIdentifier)
+		c.logger.Info("[clickhouse] destination ClickHouse table already exists, skipping", "table", destinationTableIdentifier)
 		return true, nil
 	}
 
@@ -71,7 +71,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 
 	for _, sql := range normalizedTableCreateSQL {
 		if err := c.execWithLogging(ctx, sql); err != nil {
-			return false, fmt.Errorf("[ch] error while creating destination ClickHouse table: %w", err)
+			return false, fmt.Errorf("[clickhouse] error while creating destination ClickHouse table: %w", err)
 		}
 	}
 	return false, nil
