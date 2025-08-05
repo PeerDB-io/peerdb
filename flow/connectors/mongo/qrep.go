@@ -53,7 +53,8 @@ func (c *MongoConnector) GetQRepPartitions(
 
 	c.logger.Info("[mongo] fetching count of documents for partitioning",
 		slog.String("watermark_table", config.WatermarkTable))
-	totalRows, err := collection.CountDocuments(ctx, bson.D{})
+	// estimated, worst case we are off by a few documents but should be fine for partitioning
+	totalRows, err := collection.EstimatedDocumentCount(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to count documents in collection %s: %w", parseWatermarkTable.Table, err)
 	}
