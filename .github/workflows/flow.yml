@@ -402,10 +402,10 @@ jobs:
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
           CI_MYSQL_VERSION: ${{ matrix.db-version.mysql }}
-          CI_MONGO_ADMIN_URI: mongodb://localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_ADMIN_URI: mongodb://localhost:27017
           CI_MONGO_ADMIN_USERNAME: "admin"
           CI_MONGO_ADMIN_PASSWORD: "admin"
-          CI_MONGO_URI: mongodb://localhost:27017/?replicaSet=rs0&authSource=admin
+          CI_MONGO_URI: mongodb://localhost:27017
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
