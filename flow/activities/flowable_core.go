@@ -99,6 +99,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 			FlowName:      config.FlowJobName,
 			System:        config.System,
 			Env:           config.Env,
+			Version:       config.Version,
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}
@@ -195,6 +196,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			OverrideReplicationSlotName: config.ReplicationSlotName,
 			RecordStream:                recordBatchPull,
 			Env:                         config.Env,
+			InternalVersion:             config.Version,
 		})
 	})
 
@@ -223,7 +225,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		defer connectors.CloseConnector(ctx, dstConn)
 
 		syncState.Store(shared.Ptr("updating schema"))
-		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, recordBatchSync.SchemaDeltas); err != nil {
+		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas); err != nil {
 			return nil, fmt.Errorf("failed to sync schema: %w", err)
 		}
 
@@ -264,9 +266,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			StagingPath:            config.CdcStagingPath,
 			Script:                 config.Script,
 			TableNameSchemaMapping: tableNameSchemaMapping,
+			Env:                    config.Env,
+			Version:                config.Version,
 		})
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, flowName, fmt.Errorf("failed to push records: %w", err))
+		}
+		for _, warning := range res.Warnings {
+			a.Alerter.LogFlowWarning(ctx, flowName, warning)
 		}
 
 		logger.Info("finished pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
@@ -276,7 +283,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	syncStartTime := time.Now()
 	if err := errGroup.Wait(); err != nil {
 		// don't log flow error for "replState changed" and "slot is already active"
-		if !(temporal.IsApplicationError(err) || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+		var applicationError *temporal.ApplicationError
+		if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 			_ = a.Alerter.LogFlowError(ctx, flowName, err)
 		}
 		if temporal.IsApplicationError(err) {
@@ -311,13 +319,10 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 	}
 
-	pushedRecordsWithCount := fmt.Sprintf("pushed %d records for batch %d in %v",
-		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second))
-	a.Alerter.LogFlowInfo(ctx, flowName, pushedRecordsWithCount)
+	a.Alerter.LogFlowInfo(ctx, flowName, fmt.Sprintf("stored %d records into intermediate storage for batch %d in %v",
+		res.NumRecordsSynced, res.CurrentSyncBatchID, syncDuration.Truncate(time.Second)))
 
-	if a.OtelManager != nil {
-		a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
-	}
+	a.OtelManager.Metrics.CurrentBatchIdGauge.Record(ctx, res.CurrentSyncBatchID)
 
 	syncState.Store(shared.Ptr("updating schema"))
 	if err := a.applySchemaDeltas(ctx, config, options, res.TableSchemaDeltas); err != nil {
@@ -397,11 +402,13 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	outstream TRead,
 	pullRecords func(
 		TPull,
-		context.Context, *protos.QRepConfig,
+		context.Context,
+		*otel_metrics.OtelManager,
+		*protos.QRepConfig,
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, error),
-	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
+	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
@@ -429,9 +436,9 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to update start time for partition: %w", err))
 	}
 
-	logger.Info("replicating partition " + partition.PartitionId)
+	logger.Info("replicating partition", slog.String("partitionId", partition.PartitionId))
 
-	var rowsSynced int
+	var rowsSynced int64
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
 		srcConn, err := connectors.GetByNameAs[TPull](ctx, config.Env, a.CatalogPool, config.SourceName)
@@ -441,14 +448,15 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		}
 		defer connectors.CloseConnector(ctx, srcConn)
 
-		numRecords, numBytes, err := pullRecords(srcConn, errCtx, config, partition, stream)
+		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, partition, stream)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("[qrep] failed to pull records: %w", err))
 		}
 
-		if a.OtelManager != nil {
-			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
-		}
+		// for Postgres source, reports all bytes fetched from source
+		// for MySQL and MongoDB source, connector reports bytes fetched but some bytes are counted here
+		// since the reporting is asynchronous (goroutine)
+		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, numRecords,
@@ -459,10 +467,14 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	})
 
 	errGroup.Go(func() error {
+		var warnings shared.QRepWarnings
 		var err error
-		rowsSynced, err = syncRecords(dstConn, errCtx, config, partition, outstream)
+		rowsSynced, warnings, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+		}
+		for _, warning := range warnings {
+			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
 		}
 		return context.Canceled
 	})
@@ -473,8 +485,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 
 	if rowsSynced > 0 {
 		logger.Info(fmt.Sprintf("pushed %d records", rowsSynced))
-		err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition)
-		if err != nil {
+		if err := monitoring.UpdateRowsSyncedForPartition(ctx, a.CatalogPool, rowsSynced, runUUID, partition); err != nil {
 			return err
 		}
 	}
@@ -493,11 +504,12 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	outstream TRead,
 	pullRecords func(
 		*connpostgres.PostgresConnector,
-		context.Context, *protos.QRepConfig,
+		context.Context,
+		*protos.QRepConfig,
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, int64, error),
-	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int, error),
+	syncRecords func(TSync, context.Context, *protos.QRepConfig, *protos.QRepPartition, TRead) (int64, shared.QRepWarnings, error),
 ) (int64, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
@@ -506,7 +518,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	startTime := time.Now()
 
 	var currentSnapshotXmin int64
-	var rowsSynced int
+	var rowsSynced int64
 	errGroup.Go(func() error {
 		srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 		if err != nil {
@@ -547,9 +559,10 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 			return fmt.Errorf("failed to update start time for partition: %w", err)
 		}
 
-		if a.OtelManager != nil {
-			a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
-		}
+		// for Postgres source, reports all bytes fetched from source
+		// for MySQL and MongoDB source, connector reports bytes fetched but some bytes are counted here
+		// since the reporting is asynchronous (goroutine)
+		a.OtelManager.Metrics.FetchedBytesCounter.Add(ctx, numBytes)
 
 		if err := monitoring.UpdatePullEndTimeAndRowsForPartition(
 			errCtx, a.CatalogPool, runUUID, partition, numRecords,
@@ -568,9 +581,13 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		}
 		defer connectors.CloseConnector(ctx, dstConn)
 
-		rowsSynced, err = syncRecords(dstConn, ctx, config, partition, outstream)
+		var warnings shared.QRepWarnings
+		rowsSynced, warnings, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+		}
+		for _, warning := range warnings {
+			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
 		}
 		return context.Canceled
 	})
@@ -649,10 +666,11 @@ func (a *FlowableActivity) startNormalize(
 		SoftDeleteColName:      config.SoftDeleteColName,
 		SyncedAtColName:        config.SyncedAtColName,
 		SyncBatchID:            batchID,
+		Version:                config.Version,
 	})
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName,
-			exceptions.NewNormalizationError(fmt.Errorf("failed to normalized records: %w", err)))
+			exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
 	}
 	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
 		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
@@ -707,11 +725,9 @@ func (a *FlowableActivity) normalizeLoop(
 				} else if req.Done != nil {
 					close(req.Done)
 				}
-				if a.OtelManager != nil {
-					a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
-						attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
-					)))
-				}
+				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
+				)))
 				break
 			}
 		case <-syncDone:

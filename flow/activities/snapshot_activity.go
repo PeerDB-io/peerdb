@@ -58,7 +58,7 @@ func (a *SnapshotActivity) SetupReplication(
 ) (*protos.SetupReplicationOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := internal.LoggerFromCtx(ctx)
-
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Setting up replication slot and publication")
 	a.Alerter.LogFlowEvent(ctx, config.FlowJobName, "Started Snapshot Flow Job")
 
 	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
@@ -89,6 +89,8 @@ func (a *SnapshotActivity) SetupReplication(
 		snapshotName: slotInfo.SnapshotName,
 		connector:    conn,
 	}
+
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Replication slot and publication setup complete")
 
 	return &protos.SetupReplicationOutput{
 		SlotName:         slotInfo.SlotName,

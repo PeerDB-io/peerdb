@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/eventhub/armeventhub"
 	cmap "github.com/orcaman/concurrent-map/v2"
 
@@ -62,8 +62,7 @@ func (m *EventHubManager) GetOrCreateHubClient(ctx context.Context, name ScopedE
 	hub, hubConnectOK = m.hubs.Load(name)
 	if hubConnectOK {
 		hubTmp := hub.(*azeventhubs.ProducerClient)
-		_, err := hubTmp.GetEventHubProperties(ctx, nil)
-		if err != nil {
+		if _, err := hubTmp.GetEventHubProperties(ctx, nil); err != nil {
 			logger := internal.LoggerFromCtx(ctx)
 			logger.Info(
 				fmt.Sprintf("eventhub %s not reachable. Will re-establish connection and re-create it.", name),
@@ -169,8 +168,7 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 			},
 		}
 
-		_, err := hubClient.CreateOrUpdate(ctx, resourceGroup, namespace, name.Eventhub, opts, nil)
-		if err != nil {
+		if _, err := hubClient.CreateOrUpdate(ctx, resourceGroup, namespace, name.Eventhub, opts, nil); err != nil {
 			slog.Error("failed to create event hub", slog.Any("error", err))
 			return err
 		}

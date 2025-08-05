@@ -21,6 +21,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 	ctx = workflow.WithDataConverter(ctx, converter.NewCompositeDataConverter(converter.NewJSONPayloadConverter()))
+	logger := workflow.GetLogger(ctx)
 
 	var sourceError, destinationError error
 	var sourceOk, destinationOk, canceled bool
@@ -106,15 +107,43 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 	for !sourceOk || !destinationOk {
 		selector.Select(ctx)
 		if canceled {
+			if input.Resync {
+				if err := errors.Join(ctx.Err(), sourceError, destinationError); err != nil {
+					logger.Warn("resync failed drop, proceeding with cdc flow", slog.Any("error", err))
+				}
+				break
+			}
 			return errors.Join(ctx.Err(), sourceError, destinationError)
 		}
 	}
+
 	return nil
 }
 
 func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
+	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
+		state := CDCFlowWorkflowState{DropFlowInput: input}
+		if input.Resync {
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_RESYNC
+			state.ActiveSignal = model.ResyncSignal
+		} else {
+			state.CurrentFlowStatus = protos.FlowStatus_STATUS_TERMINATING
+			state.ActiveSignal = model.TerminateSignal
+		}
+		return state, nil
+	}); err != nil {
+		return fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
+	}
+
+	status := protos.FlowStatus_STATUS_TERMINATING
+	if input.Resync {
+		status = protos.FlowStatus_STATUS_RESYNC
+	}
+	logger := workflow.GetLogger(ctx)
+	syncStatusToCatalog(ctx, logger, status)
+
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
-	workflow.GetLogger(ctx).Info("performing cleanup for flow",
+	logger.Info("performing cleanup for flow",
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
 	contextMetadataInput := &protos.FlowContextMetadataInput{
 		FlowName: input.FlowJobName,
@@ -124,11 +153,14 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	if input.FlowConnectionConfigs != nil {
 		contextMetadataInput.SourceName = input.FlowConnectionConfigs.SourceName
 		contextMetadataInput.DestinationName = input.FlowConnectionConfigs.DestinationName
+		contextMetadataInput.IsResync = input.Resync
 	}
+
 	ctx, err := GetFlowMetadataContext(ctx, contextMetadataInput)
 	if err != nil {
 		return fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
+
 	if input.FlowConnectionConfigs != nil {
 		if input.DropFlowStats {
 			dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -159,11 +191,20 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 			InitialInterval: 1 * time.Minute,
 		},
 	})
+
+	req := model.RemoveFlowDetailsFromCatalogRequest{
+		FlowName: input.FlowJobName,
+		Resync:   input.Resync,
+	}
 	if err := workflow.ExecuteActivity(
-		removeFlowEntriesCtx, flowable.RemoveFlowEntryFromCatalog, input.FlowJobName,
+		removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, &req,
 	).Get(ctx, nil); err != nil {
-		workflow.GetLogger(ctx).Error("failed to remove flow entries from catalog", slog.Any("error", err))
+		workflow.GetLogger(ctx).Error("failed to remove flow details from catalog", slog.Any("error", err))
 		return err
+	}
+
+	if input.Resync {
+		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, input.FlowConnectionConfigs, nil)
 	}
 
 	return nil

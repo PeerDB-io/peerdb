@@ -2,6 +2,7 @@ syntax = "proto3";
 
 import "google/api/annotations.proto";
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/duration.proto";
 
 import "peers.proto";
 import "flow.proto";
@@ -16,20 +17,9 @@ message CreateCDCFlowResponse { string workflow_id = 1; }
 
 message CreateQRepFlowRequest {
   peerdb_flow.QRepConfig qrep_config = 1;
-  bool create_catalog_entry = 2;
 }
 
 message CreateQRepFlowResponse { string workflow_id = 1; }
-
-message CreateCustomSyncRequest {
-  string flow_job_name = 1;
-  int32 number_of_syncs = 2;
-}
-
-message CreateCustomSyncResponse {
-  string flow_job_name = 1;
-  int32 number_of_syncs = 2;
-}
 
 message AlertConfig {
   int32 id = 1;
@@ -155,6 +145,18 @@ message CDCTableTotalCountsResponse {
   repeated CDCTableRowCounts tables_data = 2;
 }
 
+message TotalRowsSyncedByMirrorRequest {
+  string flow_job_name = 1;
+  bool exclude_cdc = 2; // if true, only initial load rows are counted
+  bool exclude_initial_load = 3; // if true, only cdc rows are counted
+}
+
+message TotalRowsSyncedByMirrorResponse {
+  int64 totalCountCDC = 1;
+  int64 totalCountInitialLoad = 2;
+  int64 totalCount = 3;
+}
+
 message PeerSchemasResponse { repeated string schemas = 1; }
 
 message PeerPublicationsResponse { repeated string publication_names = 1; }
@@ -181,7 +183,29 @@ message TableColumnsRequest {
   string table_name = 3;
 }
 
-message TableColumnsResponse { repeated string columns = 1; }
+message ColumnsItem {
+  string name = 1;
+  string type = 2;
+  bool is_key = 3;
+  string qkind = 4;
+}
+
+message TableColumnsResponse {
+  repeated ColumnsItem columns = 1;
+}
+
+message ColumnsTypeConversionRequest {
+  string destination_peer_type = 1;
+}
+
+message ColumnsTypeConversion {
+  string qkind = 1;
+  repeated string destination_types = 2;
+}
+
+message ColumnsTypeConversionResponse {
+  repeated ColumnsTypeConversion conversions = 1;
+}
 
 message PostgresPeerActivityInfoRequest { string peer_name = 1; }
 
@@ -300,9 +324,25 @@ message GetCDCBatchesResponse {
   int32 page = 3;
 }
 
+enum GraphMode {
+  GRAPH_MODE_UNKNOWN = 0;
+  GRAPH_MODE_GROUP_BY = 1;
+  GRAPH_MODE_LAST_X = 2;
+}
+
+enum TimeAggregateType {
+  TIME_AGGREGATE_TYPE_UNKNOWN = 0;
+  TIME_AGGREGATE_TYPE_FIVE_MIN = 1;
+  TIME_AGGREGATE_TYPE_FIFTEEN_MIN = 2;
+  TIME_AGGREGATE_TYPE_ONE_HOUR = 3;
+  TIME_AGGREGATE_TYPE_ONE_DAY = 4;
+  TIME_AGGREGATE_TYPE_ONE_MONTH = 5;
+}
+
 message GraphRequest {
   string flow_job_name = 1;
-  string aggregate_type = 2; // TODO name?
+  TimeAggregateType aggregate_type = 2;
+  GraphMode mode = 3;
 }
 
 message GraphResponseItem {
@@ -310,7 +350,11 @@ message GraphResponseItem {
   double rows = 2;
 }
 
-message GraphResponse { repeated GraphResponseItem data = 1; }
+message GraphResponse {
+  repeated GraphResponseItem data = 1;
+  int64 total_rows = 2;
+
+}
 
 message MirrorLog {
   string flow_name = 1;
@@ -363,14 +407,10 @@ message FlowStateChangeRequest {
 message FlowStateChangeResponse {}
 
 message PeerDBVersionRequest {}
-message PeerDBVersionResponse { string version = 1; }
-
-message ResyncMirrorRequest {
-  string flow_job_name = 1;
-  bool drop_stats = 2;
+message PeerDBVersionResponse {
+  string version = 1;
+  optional string deployment_version = 2;
 }
-
-message ResyncMirrorResponse {}
 
 message PeerDBStateRequest {}
 
@@ -398,6 +438,40 @@ message MaintenanceRequest {
 message MaintenanceResponse {
   string workflow_id = 1;
   string run_id = 2;
+}
+
+enum MaintenancePhase {
+  MAINTENANCE_PHASE_UNKNOWN = 0;
+  MAINTENANCE_PHASE_START_MAINTENANCE = 1;
+  MAINTENANCE_PHASE_MAINTENANCE_MODE_ENABLED = 2;
+  MAINTENANCE_PHASE_END_MAINTENANCE = 3;
+}
+
+message MaintenanceStatusRequest {
+  // Empty request message
+}
+
+message MaintenanceActivityDetails {
+  string activity_name = 1;
+  google.protobuf.Duration activity_duration = 2;
+  google.protobuf.Timestamp last_heartbeat = 3;
+  string activity_id = 4;
+  repeated string heartbeat_payloads = 5;
+}
+
+message MaintenanceStatusResponse {
+  bool maintenance_running = 1;
+  MaintenancePhase phase = 2;
+  repeated MaintenanceActivityDetails pending_activities = 3;
+}
+
+message SkipSnapshotWaitFlowsRequest {
+  repeated string flow_names = 1;
+}
+
+message SkipSnapshotWaitFlowsResponse {
+  bool signal_sent = 1;
+  string message = 2;
 }
 
 message FlowTag {
@@ -455,13 +529,6 @@ service FlowService {
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {
     option (google.api.http) = {
       post : "/v1/flows/qrep/create",
-      body : "*"
-    };
-  }
-  rpc CustomSyncFlow(CreateCustomSyncRequest)
-      returns (CreateCustomSyncResponse) {
-    option (google.api.http) = {
-      post : "/v1/flows/cdc/sync",
       body : "*"
     };
   }
@@ -554,6 +621,12 @@ service FlowService {
   rpc GetColumns(TableColumnsRequest) returns (TableColumnsResponse) {
     option (google.api.http) = {
       get : "/v1/peers/columns"
+    };
+  }
+
+  rpc GetColumnsTypeConversion(ColumnsTypeConversionRequest) returns (ColumnsTypeConversionResponse) {
+    option (google.api.http) = {
+      get : "/v1/peers/columns/all_type_conversions",
     };
   }
 
@@ -658,13 +731,6 @@ service FlowService {
     };
   }
 
-  rpc ResyncMirror(ResyncMirrorRequest) returns (ResyncMirrorResponse) {
-    option (google.api.http) = {
-      post : "/v1/mirrors/resync",
-      body : "*"
-    };
-  }
-
   rpc GetInstanceInfo(InstanceInfoRequest) returns (InstanceInfoResponse) {
     option (google.api.http) = {
       get : "/v1/instance/info"
@@ -674,6 +740,19 @@ service FlowService {
   rpc Maintenance(MaintenanceRequest) returns (MaintenanceResponse) {
     option (google.api.http) = {
       post : "/v1/instance/maintenance",
+      body : "*"
+    };
+  }
+
+  rpc GetMaintenanceStatus(MaintenanceStatusRequest) returns (MaintenanceStatusResponse) {
+    option (google.api.http) = {
+      get : "/v1/instance/maintenance/status"
+    };
+  }
+
+  rpc SkipSnapshotWaitFlows(SkipSnapshotWaitFlowsRequest) returns (SkipSnapshotWaitFlowsResponse) {
+    option (google.api.http) = {
+      post : "/v1/instance/maintenance/skip-snapshot-wait",
       body : "*"
     };
   }
@@ -689,6 +768,13 @@ service FlowService {
   rpc GetFlowTags(GetFlowTagsRequest) returns (GetFlowTagsResponse) {
     option (google.api.http) = {
       get : "/v1/flows/tags/{flow_name}"
+    };
+  }
+
+  rpc TotalRowsSyncedByMirror(TotalRowsSyncedByMirrorRequest)
+      returns (TotalRowsSyncedByMirrorResponse) {
+    option (google.api.http) = {
+      get : "/v1/mirrors/total_rows_synced/{flow_job_name}"
     };
   }
 }

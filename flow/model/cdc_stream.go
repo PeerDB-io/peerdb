@@ -13,7 +13,7 @@ type CDCStream[T Items] struct {
 	// empty signal to indicate if the records are going to be empty or not.
 	emptySignal chan struct{}
 	records     chan Record[T]
-	// lastCheckpointText is used for mysql GTID
+	// lastCheckpointText is used for mysql GTID and MongoDB ResumeToken
 	lastCheckpointText string
 	// Schema changes from slot
 	SchemaDeltas []*protos.TableSchemaDelta
@@ -102,12 +102,12 @@ func (r *CDCStream[T]) WaitAndCheckEmpty() bool {
 
 func (r *CDCStream[T]) Close() {
 	if !r.lastCheckpointSet {
+		r.lastCheckpointSet = true
+		close(r.records)
 		if !r.emptySet {
 			r.emptySet = true
 			close(r.emptySignal)
 		}
-		close(r.records)
-		r.lastCheckpointSet = true
 	}
 }
 

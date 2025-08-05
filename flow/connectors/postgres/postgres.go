@@ -2,11 +2,10 @@ package connpostgres
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
-	"maps"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,7 +27,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -43,7 +41,7 @@ type ReplState struct {
 
 type PostgresConnector struct {
 	logger                 log.Logger
-	customTypeMapping      map[uint32]string
+	customTypeMapping      map[uint32]shared.CustomDataType
 	ssh                    utils.SSHTunnel
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
@@ -52,6 +50,7 @@ type PostgresConnector struct {
 	hushWarnOID            map[uint32]struct{}
 	relationMessageMapping model.RelationMessageMapping
 	typeMap                *pgtype.Map
+	rdsAuth                *utils.RDSAuth
 	connStr                string
 	metadataSchema         string
 	replLock               sync.Mutex
@@ -69,16 +68,15 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		flowName, _ = ctx.Value(shared.FlowNameKey).(string)
 	}
 	connectionString := internal.GetPGConnectionString(pgConfig, flowName)
-
-	connConfig, err := pgx.ParseConfig(connectionString)
+	connConfig, err := ParseConfig(connectionString, pgConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+		return nil, err
 	}
 
-	runtimeParams := connConfig.Config.RuntimeParams
-	runtimeParams["idle_in_transaction_session_timeout"] = "0"
-	runtimeParams["statement_timeout"] = "0"
-	runtimeParams["DateStyle"] = "ISO, DMY"
+	connConfig.Config.RuntimeParams["timezone"] = "UTC"
+	connConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	connConfig.Config.RuntimeParams["statement_timeout"] = "0"
+	connConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 
 	tunnel, err := utils.NewSSHTunnel(ctx, pgConfig.SshConfig)
 	if err != nil {
@@ -86,7 +84,17 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
 
-	conn, err := NewPostgresConnFromConfig(ctx, connConfig, tunnel)
+	var rdsAuth *utils.RDSAuth
+	if pgConfig.AuthType == protos.PostgresAuthType_POSTGRES_IAM_AUTH {
+		rdsAuth = &utils.RDSAuth{
+			AwsAuthConfig: pgConfig.AwsAuth,
+		}
+		if err := rdsAuth.VerifyAuthConfig(); err != nil {
+			logger.Error("failed to verify auth config", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
+	}
+	conn, err := NewPostgresConnFromConfig(ctx, connConfig, pgConfig.TlsHost, rdsAuth, tunnel)
 	if err != nil {
 		tunnel.Close()
 		logger.Error("failed to create connection", slog.Any("error", err))
@@ -113,10 +121,26 @@ func NewPostgresConnector(ctx context.Context, env map[string]string, pgConfig *
 		replLock:               sync.Mutex{},
 		pgVersion:              0,
 		typeMap:                pgtype.NewMap(),
+		rdsAuth:                rdsAuth,
 	}, nil
 }
 
-func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]string, error) {
+func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx.ConnConfig, error) {
+	connConfig, err := pgx.ParseConfig(connectionString)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse connection string: %w", err)
+	}
+	if pgConfig.RequireTls || pgConfig.RootCa != nil {
+		tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, pgConfig.RootCa, connConfig.Host, pgConfig.TlsHost, false)
+		if err != nil {
+			return nil, err
+		}
+		connConfig.TLSConfig = tlsConfig
+	}
+	return connConfig, nil
+}
+
+func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]shared.CustomDataType, error) {
 	if c.customTypeMapping == nil {
 		customTypeMapping, err := shared.GetCustomDataTypes(ctx, c.conn)
 		if err != nil {
@@ -130,22 +154,21 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
 	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
-	replConfig, err := pgx.ParseConfig(c.connStr)
+	replConfig, err := ParseConfig(c.connStr, c.Config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse connection string: %w", err)
 	}
 
-	runtimeParams := replConfig.Config.RuntimeParams
-	runtimeParams["idle_in_transaction_session_timeout"] = "0"
-	runtimeParams["statement_timeout"] = "0"
-	// ensure that replication is set to database
+	replConfig.Config.RuntimeParams["timezone"] = "UTC"
+	replConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
+	replConfig.Config.RuntimeParams["statement_timeout"] = "0"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
 
-	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.ssh)
+	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
 	if err != nil {
 		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
@@ -385,13 +408,15 @@ func pullCore[Items model.Items](
 	if !exists.PublicationExists {
 		c.logger.Warn("publication does not exist", slog.String("name", publicationName))
 		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("publication %s does not exist, restarting workflow", slotName), "disconnect", nil)
+			fmt.Sprintf("publication %s does not exist, restarting workflow", publicationName),
+			exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(), nil)
 	}
 
 	if !exists.SlotExists {
 		c.logger.Warn("slot does not exist", slog.String("name", slotName))
 		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName), "disconnect", nil)
+			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName),
+			exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(), nil)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
@@ -401,11 +426,6 @@ func pullCore[Items model.Items](
 	if err != nil {
 		return err
 	}
-	childToParentRelIDMap, err := GetChildToParentRelIDMap(ctx, c.conn, slices.Collect(maps.Keys(req.SrcTableIDNameMapping)))
-	if err != nil {
-		return fmt.Errorf("error getting child to parent relid map: %w", err)
-	}
-
 	if err := c.MaybeStartReplication(ctx, slotName, publicationName, req.LastOffset.ID, pgVersion); err != nil {
 		// in case of Aurora error ERROR: replication slots cannot be used on RO (Read Only) node (SQLSTATE 55000)
 		if shared.IsSQLStateError(err, pgerrcode.ObjectNotInPrerequisiteState) &&
@@ -415,19 +435,38 @@ func pullCore[Items model.Items](
 		c.logger.Error("error starting replication", slog.Any("error", err))
 		return err
 	}
+	handleInheritanceForNonPartitionedTables, err := internal.PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get get setting for handleInheritanceForNonPartitionedTables: %w", err)
+	}
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get get setting for sourceSchemaAsDestinationColumn: %w", err)
+	}
+	originMetaAsDestinationColumn, err := internal.PeerDBOriginMetaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
+	}
 
-	cdc := c.NewPostgresCDCSource(&PostgresCDCConfig{
-		CatalogPool:            catalogPool,
-		OtelManager:            otelManager,
-		SrcTableIDNameMapping:  req.SrcTableIDNameMapping,
-		TableNameMapping:       req.TableNameMapping,
-		TableNameSchemaMapping: req.TableNameSchemaMapping,
-		ChildToParentRelIDMap:  childToParentRelIDMap,
-		RelationMessageMapping: c.relationMessageMapping,
-		FlowJobName:            req.FlowJobName,
-		Slot:                   slotName,
-		Publication:            publicationName,
+	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
+		CatalogPool:                              catalogPool,
+		OtelManager:                              otelManager,
+		SrcTableIDNameMapping:                    req.SrcTableIDNameMapping,
+		TableNameMapping:                         req.TableNameMapping,
+		TableNameSchemaMapping:                   req.TableNameSchemaMapping,
+		RelationMessageMapping:                   c.relationMessageMapping,
+		FlowJobName:                              req.FlowJobName,
+		Slot:                                     slotName,
+		Publication:                              publicationName,
+		HandleInheritanceForNonPartitionedTables: handleInheritanceForNonPartitionedTables,
+		SourceSchemaAsDestinationColumn:          sourceSchemaAsDestinationColumn,
+		OriginMetaAsDestinationColumn:            originMetaAsDestinationColumn,
+		InternalVersion:                          req.InternalVersion,
 	})
+	if err != nil {
+		c.logger.Error("error creating cdc source", slog.Any("error", err))
+		return err
+	}
 
 	if err := PullCdcRecords(ctx, cdc, req, processor, &c.replLock); err != nil {
 		c.logger.Error("error pulling records", slog.Any("error", err))
@@ -591,7 +630,7 @@ func syncRecordsCore[Items model.Items](
 		return nil, err
 	}
 
-	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.Records.SchemaDeltas); err != nil {
+	if err := c.ReplayTableSchemaDeltas(ctx, req.Env, req.FlowJobName, req.TableMappings, req.Records.SchemaDeltas); err != nil {
 		return nil, fmt.Errorf("failed to sync schema changes: %w", err)
 	}
 
@@ -745,16 +784,89 @@ func (c *PostgresConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 	return nil, nil
 }
 
+func (c *PostgresConnector) StatActivity(
+	ctx context.Context,
+	req *protos.PostgresPeerActivityInfoRequest,
+) (*protos.PeerStatResponse, error) {
+	rows, err := c.Conn().Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
+		"CAST(EXTRACT(epoch FROM(now()-query_start)) AS float4) AS dur, state"+
+		" FROM pg_stat_activity WHERE "+
+		"usename=$1 AND application_name LIKE 'peerdb%';", c.Config.User)
+	if err != nil {
+		slog.Error("Failed to get stat info", slog.Any("error", err))
+		return nil, err
+	}
+
+	statInfoRows, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.StatInfo, error) {
+		var pid int64
+		var waitEvent pgtype.Text
+		var waitEventType pgtype.Text
+		var queryStart pgtype.Text
+		var query pgtype.Text
+		var duration pgtype.Float4
+		// shouldn't be null
+		var state string
+
+		if err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration, &state); err != nil {
+			slog.Error("Failed to scan row", slog.Any("error", err))
+			return nil, err
+		}
+
+		we := waitEvent.String
+		if !waitEvent.Valid {
+			we = ""
+		}
+
+		wet := waitEventType.String
+		if !waitEventType.Valid {
+			wet = ""
+		}
+
+		q := query.String
+		if !query.Valid {
+			q = ""
+		}
+
+		qs := queryStart.String
+		if !queryStart.Valid {
+			qs = ""
+		}
+
+		d := duration.Float32
+		if !duration.Valid {
+			d = -1
+		}
+
+		return &protos.StatInfo{
+			Pid:           pid,
+			WaitEvent:     we,
+			WaitEventType: wet,
+			QueryStart:    qs,
+			Query:         q,
+			Duration:      d,
+			State:         state,
+		}, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &protos.PeerStatResponse{
+		StatData: statInfoRows,
+	}, nil
+}
+
 func (c *PostgresConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
+	version uint32,
 	system protos.TypeSystem,
 	tableMapping []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
 	res := make(map[string]*protos.TableSchema, len(tableMapping))
 
 	for _, tm := range tableMapping {
-		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system)
+		tableSchema, err := c.getTableSchemaForTable(ctx, env, tm, system, version)
 		if err != nil {
 			c.logger.Info("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
 			return nil, err
@@ -816,6 +928,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	env map[string]string,
 	tm *protos.TableMapping,
 	system protos.TypeSystem,
+	version uint32,
 ) (*protos.TableSchema, error) {
 	schemaTable, err := utils.ParseSchemaTable(tm.SourceTableIdentifier)
 	if err != nil {
@@ -883,27 +996,16 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	columns := make([]*protos.FieldDescription, 0, len(fields))
 	for _, fieldDescription := range fields {
 		var colType string
+		var err error
 		switch system {
 		case protos.TypeSystem_PG:
-			colType = c.postgresOIDToName(fieldDescription.DataTypeOID)
-			if colType == "" {
-				typeName, ok := customTypeMapping[fieldDescription.DataTypeOID]
-				if !ok {
-					return nil, fmt.Errorf("error getting type name for %d", fieldDescription.DataTypeOID)
-				}
-				colType = typeName
-			}
+			colType, err = c.postgresOIDToName(fieldDescription.DataTypeOID, customTypeMapping)
 		case protos.TypeSystem_Q:
-			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID)
-			if qColType == qvalue.QValueKindInvalid {
-				typeName, ok := customTypeMapping[fieldDescription.DataTypeOID]
-				if ok {
-					qColType = customTypeToQKind(typeName)
-				} else {
-					qColType = qvalue.QValueKindString
-				}
-			}
+			qColType := c.postgresOIDToQValueKind(fieldDescription.DataTypeOID, customTypeMapping, version)
 			colType = string(qColType)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error getting type name for %d: %w", fieldDescription.DataTypeOID, err)
 		}
 
 		columnNames = append(columnNames, fieldDescription.Name)
@@ -996,6 +1098,7 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	ctx context.Context,
 	_ map[string]string,
 	flowJobName string,
+	_ []*protos.TableMapping,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	if len(schemaDeltas) == 0 {
@@ -1242,9 +1345,12 @@ func (c *PostgresConnector) SyncFlowCleanup(ctx context.Context, jobName string)
 		return fmt.Errorf("unable to drop raw table: %w", err)
 	}
 
-	mirrorJobsTableExists, err := c.jobMetadataExists(ctx, jobName)
+	mirrorJobsTableExists, err := c.tableExists(ctx, &utils.SchemaTable{
+		Schema: c.metadataSchema,
+		Table:  mirrorJobsTableIdentifier,
+	})
 	if err != nil {
-		return fmt.Errorf("unable to check if job metadata exists: %w", err)
+		return fmt.Errorf("unable to check if job metadata table exists: %w", err)
 	}
 	if mirrorJobsTableExists {
 		if _, err := syncFlowCleanupTx.Exec(ctx,
@@ -1285,14 +1391,35 @@ func (c *PostgresConnector) HandleSlotInfo(
 		slog.Float64("LagInMB", float64(slotInfo[0].LagInMb)))
 	alerter.AlertIfSlotLag(ctx, alertKeys, slotInfo[0])
 
+	attributeSet := metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
+		attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
+		attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
+	))
 	if slotMetricGauges.SlotLagGauge != nil {
-		slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo[0].LagInMb), metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, alertKeys.FlowName),
-			attribute.String(otel_metrics.PeerNameKey, alertKeys.PeerName),
-			attribute.String(otel_metrics.SlotNameKey, alertKeys.SlotName),
-		)))
+		slotMetricGauges.SlotLagGauge.Record(ctx, float64(slotInfo[0].LagInMb), attributeSet)
 	} else {
 		logger.Warn("warning: slotMetricGauges.SlotLagGauge is nil")
+	}
+
+	if slotMetricGauges.ConfirmedFlushLSNGauge != nil {
+		lsn, err := pglogrepl.ParseLSN(slotInfo[0].ConfirmedFlushLSN)
+		if err != nil {
+			logger.Warn("error parsing confirmed flush LSN", slog.Any("error", err))
+		}
+		slotMetricGauges.ConfirmedFlushLSNGauge.Record(ctx, int64(lsn), attributeSet)
+	} else {
+		logger.Warn("warning: slotMetricGauges.ConfirmedFlushLSNGauge is nil")
+	}
+
+	if slotMetricGauges.RestartLSNGauge != nil {
+		lsn, err := pglogrepl.ParseLSN(slotInfo[0].RestartLSN)
+		if err != nil {
+			logger.Warn("error parsing restart LSN", slog.Any("error", err))
+		}
+		slotMetricGauges.RestartLSNGauge.Record(ctx, int64(lsn), attributeSet)
+	} else {
+		logger.Warn("warning: slotMetricGauges.RestartLSNGauge is nil")
 	}
 
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
@@ -1330,7 +1457,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	var intervalSinceLastNormalize *time.Duration
 	if err := alerter.CatalogPool.QueryRow(
-		ctx, "SELECT now()-max(end_time) FROM peerdb_stats.cdc_batches WHERE flow_name=$1", alertKeys.FlowName,
+		ctx, "SELECT now()-last_updated_at FROM peerdb_stats.cdc_table_aggregate_counts WHERE flow_name=$1", alertKeys.FlowName,
 	).Scan(&intervalSinceLastNormalize); err != nil {
 		logger.Warn("failed to get interval since last normalize", slog.Any("error", err))
 	}
@@ -1560,8 +1687,7 @@ func (c *PostgresConnector) RenameTables(
 		c.logger.Info(fmt.Sprintf("successfully renamed table '%s' to '%s'", src, dst))
 	}
 
-	err = renameTablesTx.Commit(ctx)
-	if err != nil {
+	if err := renameTablesTx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("unable to commit transaction for rename tables: %w", err)
 	}
 

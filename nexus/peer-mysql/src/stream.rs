@@ -11,8 +11,8 @@ use mysql_async::{Column, Row};
 use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
     api::{
-        results::{FieldFormat, FieldInfo},
         Type,
+        results::{FieldFormat, FieldInfo},
     },
     error::{PgWireError, PgWireResult},
 };

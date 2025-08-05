@@ -1,6 +1,6 @@
 use std::{
-    fs::{read_dir, File},
-    io::{prelude::*, BufReader, Write},
+    fs::{File, read_dir},
+    io::{BufReader, Write, prelude::*},
     path::Path,
     process::Command,
     thread,
@@ -132,7 +132,7 @@ fn server_test() {
                 .expect("Failed to query");
             let mut column_names = Vec::new();
             if res.is_empty() {
-                panic!("No results for query: {}", query);
+                panic!("No results for query: {query}");
             }
 
             match res[0] {

@@ -19,6 +19,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+const (
+	DefaultPeerDBS3PartSize int64 = 64 * 1024 * 1024 // 64MiB
+)
+
 var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_CDC_CHANNEL_BUFFER_SIZE",
@@ -30,8 +34,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	},
 	{
 		Name: "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
-		Description: "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalizing, " +
-			"use with PEERDB_PARALLEL_SYNC_NORMALIZE",
+		Description: "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalization, " +
+			"use with PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE",
 		DefaultValue:     "128",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
@@ -94,6 +98,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
+		Name:             "PEERDB_RECONNECT_AFTER_BATCHES",
+		Description:      "Force peerdb to reconnect connection to source after N batches",
+		DefaultValue:     "0",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name:         "PEERDB_FULL_REFRESH_OVERWRITE_MODE",
 		Description:  "Enables full refresh mode for query replication mirrors of overwrite type",
 		DefaultValue: "false",
@@ -109,20 +121,28 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
-		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
-		DefaultValue:     "raw",
-		ValueType:        protos.DynconfValueType_STRING,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
-		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
-	},
-	{
 		Name:             "PEERDB_SNOWFLAKE_MERGE_PARALLELISM",
 		Description:      "Parallel MERGE statements to run for CDC mirrors with Snowflake targets. -1 for no limit",
 		DefaultValue:     "8",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
+	},
+	{
+		Name:             "PEERDB_SNOWFLAKE_AUTO_COMPRESS",
+		Description:      "AUTO_COMPRESS option when uploading to Snowflake",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
+	},
+	{
+		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
+		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
+		DefaultValue:     "raw",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
 		Name:             "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME",
@@ -133,13 +153,28 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_S3_UUID_PREFIX",
+		Description:      "Use random UUID as prefix instead of flow name, can help partitioning on non-AWS based s3 providers",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
 		Name: "PEERDB_S3_PART_SIZE",
 		Description: "S3 upload part size in bytes, may need to increase for large batches. " +
 			"https://docs.aws.amazon.com/AmazonS3/latest/userguide/qfacts.html",
-		DefaultValue:     "0",
+		DefaultValue:     strconv.FormatInt(DefaultPeerDBS3PartSize, 10),
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:         "PEERDB_S3_BYTES_PER_AVRO_FILE",
+		Description:  "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
+		DefaultValue: "10000000000", // 10GB, not GiB so to not align with 64MiB to avoid always having tiny part at end
+		ValueType:    protos.DynconfValueType_INT,
+		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 	},
 	{
 		Name:             "PEERDB_QUEUE_FORCE_TOPIC_CREATION",
@@ -223,6 +258,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_ENABLE_JSON",
+		Description:      "Map JSON datatype from source to JSON in ClickHouse instead of String",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_INTERVAL_SINCE_LAST_NORMALIZE_THRESHOLD_MINUTES",
 		Description:      "Duration in minutes since last normalize to start alerting, 0 disables all alerting entirely",
 		DefaultValue:     "240",
@@ -272,11 +315,61 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_CLICKHOUSE_INITIAL_LOAD_ALLOW_NON_EMPTY_TABLES",
+		Description:      "Disables validation raising error if destination table of initial load is not empty",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_SKIP_SNAPSHOT_EXPORT",
 		Description:      "This avoids initial load failing due to connectivity drops, but risks data consistency unless precautions are taken",
 		DefaultValue:     "false",
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name: "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN",
+		Description: "Ingest source schema as column to destination. " +
+			"Useful when multiple tables from source ingest into single table on destination",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN",
+		Description:      "Ingest additional metadata fields",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_QUEUES,
+	},
+	{
+		Name: "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES",
+		Description: "For Postgres CDC: attempt to fetch/remap child tables for tables that aren't partitioned by Postgres." +
+			"Useful for tables that are partitioned by extensions or table inheritance",
+		DefaultValue:     "true",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_FORCE_INTERNAL_VERSION",
+		Description:      "Forces mirrors to be created with a different internal version than the latest peerdb internal version.",
+		DefaultValue:     strconv.FormatUint(uint64(shared.InternalVersion_Latest), 10),
+		ValueType:        protos.DynconfValueType_UINT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_NEW_MIRROR,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
+	{
+		Name:             "PEERDB_UI_MAINTENANCE_TAB_ENABLED",
+		Description:      "Enable/disable the maintenance tab in the PeerDB UI",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 }
@@ -468,6 +561,10 @@ func PeerDBEnableParallelSyncNormalize(ctx context.Context, env map[string]strin
 	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
 }
 
+func PeerDBReconnectAfterBatches(ctx context.Context, env map[string]string) (int32, error) {
+	return dynamicConfSigned[int32](ctx, env, "PEERDB_RECONNECT_AFTER_BATCHES")
+}
+
 func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_FULL_REFRESH_OVERWRITE_MODE")
 }
@@ -509,16 +606,32 @@ func PeerDBEnableClickHouseNumericAsString(ctx context.Context, env map[string]s
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING")
 }
 
+func PeerDBEnableClickHouseJSON(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_ENABLE_JSON")
+}
+
 func PeerDBSnowflakeMergeParallelism(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_SNOWFLAKE_MERGE_PARALLELISM")
+}
+
+func PeerDBSnowflakeAutoCompress(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_SNOWFLAKE_AUTO_COMPRESS")
 }
 
 func PeerDBClickHouseAWSS3BucketName(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME")
 }
 
+func PeerDBS3UuidPrefix(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_S3_UUID_PREFIX")
+}
+
 func PeerDBS3PartSize(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_PART_SIZE")
+}
+
+func PeerDBS3BytesPerAvroFile(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_S3_BYTES_PER_AVRO_FILE")
 }
 
 // Kafka has topic auto create as an option, auto.create.topics.enable
@@ -556,6 +669,26 @@ func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[s
 	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION")
 }
 
+func PeerDBClickHouseInitialLoadAllowNonEmptyTables(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_INITIAL_LOAD_ALLOW_NON_EMPTY_TABLES")
+}
+
 func PeerDBSkipSnapshotExport(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_SKIP_SNAPSHOT_EXPORT")
+}
+
+func PeerDBSourceSchemaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_SOURCE_SCHEMA_AS_DESTINATION_COLUMN")
+}
+
+func PeerDBOriginMetaAsDestinationColumn(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN")
+}
+
+func PeerDBPostgresCDCHandleInheritanceForNonPartitionedTables(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_CDC_HANDLE_INHERITANCE_FOR_NON_PARTITIONED_TABLES")
+}
+
+func PeerDBForceInternalVersion(ctx context.Context, env map[string]string) (uint32, error) {
+	return dynamicConfUnsigned[uint32](ctx, env, "PEERDB_FORCE_INTERNAL_VERSION")
 }

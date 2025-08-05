@@ -8,23 +8,23 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peerdb/flow/alerting"
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connelasticsearch "github.com/PeerDB-io/peerdb/flow/connectors/elasticsearch"
 	conneventhub "github.com/PeerDB-io/peerdb/flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peerdb/flow/connectors/kafka"
+	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connpubsub "github.com/PeerDB-io/peerdb/flow/connectors/pubsub"
 	conns3 "github.com/PeerDB-io/peerdb/flow/connectors/s3"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
-	connsqlserver "github.com/PeerDB-io/peerdb/flow/connectors/sqlserver"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type Connector interface {
@@ -52,6 +52,12 @@ type MirrorDestinationValidationConnector interface {
 	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigs, map[string]*protos.TableSchema) error
 }
 
+type StatActivityConnector interface {
+	Connector
+
+	StatActivity(context.Context, *protos.PostgresPeerActivityInfoRequest) (*protos.PeerStatResponse, error)
+}
+
 type GetTableSchemaConnector interface {
 	Connector
 
@@ -59,8 +65,9 @@ type GetTableSchemaConnector interface {
 	GetTableSchema(
 		ctx context.Context,
 		env map[string]string,
+		version uint32,
 		system protos.TypeSystem,
-		tableIdentifiers []*protos.TableMapping,
+		tableMappings []*protos.TableMapping,
 	) (map[string]*protos.TableSchema, error)
 }
 
@@ -68,7 +75,7 @@ type GetSchemaConnector interface {
 	Connector
 
 	GetAllTables(context.Context) (*protos.AllTablesResponse, error)
-	GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error)
+	GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error)
 	GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error)
 	GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error)
 }
@@ -101,24 +108,6 @@ type CDCPullConnectorCore interface {
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
-
-	// HandleSlotInfo update monitoring info on slot size etc
-	HandleSlotInfo(
-		ctx context.Context,
-		alerter *alerting.Alerter,
-		catalogPool shared.CatalogPool,
-		alertKeys *alerting.AlertKeys,
-		slotMetricGauges otel_metrics.SlotMetricGauges,
-	) error
-
-	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
-	GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error)
-
-	// AddTablesToPublication adds additional tables added to a mirror to the publication also
-	AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error
-
-	// RemoveTablesFromPublication removes tables from the publication
-	RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error
 }
 
 type CDCPullConnector interface {
@@ -164,8 +153,8 @@ type NormalizedTablesConnector interface {
 		ctx context.Context,
 		tx any,
 		config *protos.SetupNormalizedTableBatchInput,
-		tableIdentifier string,
-		tableSchema *protos.TableSchema,
+		destinationTableIdentifier string,
+		sourceTableSchema *protos.TableSchema,
 	) (bool, error)
 }
 
@@ -194,11 +183,10 @@ type CDCSyncConnectorCore interface {
 	SyncFlowCleanup(ctx context.Context, jobName string) error
 
 	// ReplayTableSchemaDelta changes a destination table to match the schema at source
-	// This could involve adding or dropping multiple columns.
+	// This could involve adding multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
-	ReplayTableSchemaDeltas(
-		ctx context.Context, env map[string]string, flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
-	) error
+	ReplayTableSchemaDeltas(ctx context.Context, env map[string]string, flowJobName string,
+		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta) error
 }
 
 type CDCSyncConnector interface {
@@ -243,14 +231,18 @@ type QRepPullConnector interface {
 	QRepPullConnectorCore
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int64, int64, error)
+	PullQRepRecords(
+		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream,
+	) (int64, int64, error)
 }
 
 type QRepPullPgConnector interface {
 	QRepPullConnectorCore
 
 	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int64, int64, error)
+	PullPgQRepRecords(
+		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter,
+	) (int64, int64, error)
 }
 
 type QRepSyncConnectorCore interface {
@@ -267,18 +259,18 @@ type QRepSyncConnector interface {
 	QRepSyncConnectorCore
 
 	// SyncQRepRecords syncs the records for a given partition.
-	// returns the number of records synced.
+	// returns the number of records synced and a slice of warnings to report to the user.
 	SyncQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-		stream *model.QRecordStream) (int, error)
+		stream *model.QRecordStream) (int64, shared.QRepWarnings, error)
 }
 
 type QRepSyncPgConnector interface {
 	QRepSyncConnectorCore
 
 	// SyncPgQRepRecords syncs the records for a given partition.
-	// returns the number of records synced.
+	// returns the number of records synced and a slice of warnings to report to the user.
 	SyncPgQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-		stream connpostgres.PgCopyReader) (int, error)
+		stream connpostgres.PgCopyReader) (int64, shared.QRepWarnings, error)
 }
 
 type QRepConsolidateConnector interface {
@@ -370,12 +362,6 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 			return nil, fmt.Errorf("failed to unmarshal Snowflake config: %w", err)
 		}
 		peer.Config = &protos.Peer_SnowflakeConfig{SnowflakeConfig: &config}
-	case protos.DBType_MONGO:
-		var config protos.MongoConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal MongoDB config: %w", err)
-		}
-		peer.Config = &protos.Peer_MongoConfig{MongoConfig: &config}
 	case protos.DBType_POSTGRES:
 		var config protos.PostgresConfig
 		if err := proto.Unmarshal(peerOptions, &config); err != nil {
@@ -394,6 +380,12 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 			return nil, fmt.Errorf("failed to unmarshal SQL Server config: %w", err)
 		}
 		peer.Config = &protos.Peer_SqlserverConfig{SqlserverConfig: &config}
+	case protos.DBType_MONGO:
+		var config protos.MongoConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal MongoDB config: %w", err)
+		}
+		peer.Config = &protos.Peer_MongoConfig{MongoConfig: &config}
 	case protos.DBType_MYSQL:
 		var config protos.MySqlConfig
 		if err := proto.Unmarshal(peerOptions, &config); err != nil {
@@ -449,8 +441,8 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, inner.S3Config)
-	case *protos.Peer_SqlserverConfig:
-		return connsqlserver.NewSQLServerConnector(ctx, inner.SqlserverConfig)
+	case *protos.Peer_MongoConfig:
+		return connmongo.NewMongoConnector(ctx, inner.MongoConfig)
 	case *protos.Peer_MysqlConfig:
 		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:
@@ -470,7 +462,7 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 	var none T
 	conn, err := GetConnector(ctx, env, config)
 	if err != nil {
-		return none, err
+		return none, exceptions.NewPeerCreateError(err)
 	}
 
 	if tconn, ok := conn.(T); ok {
@@ -500,6 +492,7 @@ func CloseConnector(ctx context.Context, conn Connector) {
 var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
 	_ CDCPullConnector = &connmysql.MySqlConnector{}
+	_ CDCPullConnector = &connmongo.MongoConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -520,6 +513,9 @@ var (
 	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCNormalizeConnector = &connclickhouse.ClickHouseConnector{}
 
+	_ StatActivityConnector = &connpostgres.PostgresConnector{}
+	_ StatActivityConnector = &connmysql.MySqlConnector{}
+
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
@@ -527,6 +523,7 @@ var (
 
 	_ GetSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetSchemaConnector = &connmysql.MySqlConnector{}
+	_ GetSchemaConnector = &connmongo.MongoConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
@@ -538,7 +535,7 @@ var (
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connmysql.MySqlConnector{}
-	_ QRepPullConnector = &connsqlserver.SQLServerConnector{}
+	_ QRepPullConnector = &connmongo.MongoConnector{}
 
 	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -580,4 +577,5 @@ var (
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
 	_ GetVersionConnector = &connmysql.MySqlConnector{}
+	_ GetVersionConnector = &connmongo.MongoConnector{}
 )

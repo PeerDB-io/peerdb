@@ -38,17 +38,17 @@ func (s *BoundSelector) SpawnChild(ctx workflow.Context, w any, futureCallback f
 	s.count += 1
 }
 
-func (s *BoundSelector) waitOne(ctx workflow.Context) {
-	if s.count > 0 {
-		s.selector.Select(ctx)
-		s.count -= 1
-	}
-}
-
 func (s *BoundSelector) Wait(ctx workflow.Context) error {
 	for s.count > 0 {
 		s.waitOne(ctx)
 	}
 
 	return errors.Join(s.ferrors...)
+}
+
+func (s *BoundSelector) waitOne(ctx workflow.Context) {
+	if s.count > 0 {
+		s.selector.Select(ctx)
+		s.count -= 1
+	}
 }

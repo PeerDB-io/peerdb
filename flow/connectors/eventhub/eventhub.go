@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
-	azeventhubs "github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs"
+	"github.com/Azure/azure-sdk-for-go/sdk/messaging/azeventhubs/v2"
 	lua "github.com/yuin/gopher-lua"
 	"go.temporal.io/sdk/log"
 
@@ -218,7 +218,7 @@ func (c *EventHubConnector) processBatch(
 
 				currNumRecords := numRecords.Load()
 
-				c.logger.Info("processBatch", slog.Int("Total records sent to event hub", int(currNumRecords)))
+				c.logger.Info("processBatch", slog.Uint64("Total records sent to event hub", uint64(currNumRecords)))
 				return currNumRecords, nil
 			}
 
@@ -288,7 +288,7 @@ func (c *EventHubConnector) processBatch(
 						partitionKey = fmt.Sprint(partitionValue)
 					}
 
-					partitionKey = utils.HashedPartitionKey(partitionKey, ehConfig.PartitionCount)
+					partitionKey = HashedPartitionKey(partitionKey, ehConfig.PartitionCount)
 					event.Hub.PartitionKeyValue = partitionKey
 				}
 				err := batchPerTopic.AddEvent(ctx, event.Hub, event.Data, false)
@@ -300,7 +300,7 @@ func (c *EventHubConnector) processBatch(
 
 			curNumRecords := numRecords.Add(1)
 			if curNumRecords%10000 == 0 {
-				c.logger.Info("processBatch", slog.Int("number of records processed for sending", int(curNumRecords)))
+				c.logger.Info("processBatch", slog.Uint64("number of records processed for sending", uint64(curNumRecords)))
 			}
 
 		case <-ctx.Done():
@@ -330,8 +330,7 @@ func (c *EventHubConnector) SyncRecords(ctx context.Context, req *model.SyncReco
 	}
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
@@ -359,8 +358,7 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 			return nil, err
 		}
 
-		err = c.hubManager.EnsureEventHubExists(ctx, name)
-		if err != nil {
+		if err := c.hubManager.EnsureEventHubExists(ctx, name); err != nil {
 			c.logger.Error("failed to ensure eventhub exists",
 				slog.Any("error", err), slog.String("destinationTable", destinationTable))
 			return nil, err
@@ -373,8 +371,7 @@ func (c *EventHubConnector) CreateRawTable(ctx context.Context, req *protos.Crea
 }
 
 func (c *EventHubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
 ) error {
-	c.logger.Info("ReplayTableSchemaDeltas for event hub is a no-op")
 	return nil
 }

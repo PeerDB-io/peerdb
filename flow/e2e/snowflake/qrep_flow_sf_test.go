@@ -73,7 +73,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	)
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
@@ -114,7 +114,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	}
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
@@ -151,7 +151,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
@@ -169,8 +169,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
 
-	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s",
-		s.pgSuffix, tblName)
+	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s", s.pgSuffix, tblName)
 
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
@@ -191,7 +190,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	qrepConfig.WatermarkColumn = "xmin"
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunXminFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
@@ -230,7 +229,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
@@ -269,7 +268,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	}
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
@@ -307,7 +306,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
 	}
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 

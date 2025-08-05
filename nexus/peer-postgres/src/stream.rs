@@ -9,9 +9,9 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio_postgres::{types::Type, Row, RowStream};
+use tokio_postgres::{Row, RowStream, types::Type};
 use uuid::Uuid;
-use value::{array::ArrayValue, Value};
+use value::{Value, array::ArrayValue};
 pub struct PgRecordStream {
     row_stream: Pin<Box<RowStream>>,
     schema: Schema,

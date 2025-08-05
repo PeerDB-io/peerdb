@@ -4,7 +4,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/bits"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,178 +15,105 @@ import (
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func qkindFromMysql(field *mysql.Field) (qvalue.QValueKind, error) {
+func qkindFromMysql(field *mysql.Field) (types.QValueKind, error) {
 	unsigned := (field.Flag & mysql.UNSIGNED_FLAG) != 0
 	switch field.Type {
 	case mysql.MYSQL_TYPE_TINY:
 		if unsigned {
-			return qvalue.QValueKindUInt8, nil
+			return types.QValueKindUInt8, nil
 		} else {
-			return qvalue.QValueKindInt8, nil
+			return types.QValueKindInt8, nil
 		}
 	case mysql.MYSQL_TYPE_SHORT:
 		if unsigned {
-			return qvalue.QValueKindUInt16, nil
+			return types.QValueKindUInt16, nil
 		} else {
-			return qvalue.QValueKindInt16, nil
+			return types.QValueKindInt16, nil
 		}
 	case mysql.MYSQL_TYPE_INT24, mysql.MYSQL_TYPE_LONG:
 		if unsigned {
-			return qvalue.QValueKindUInt32, nil
+			return types.QValueKindUInt32, nil
 		} else {
-			return qvalue.QValueKindInt32, nil
+			return types.QValueKindInt32, nil
 		}
 	case mysql.MYSQL_TYPE_LONGLONG:
 		if unsigned {
-			return qvalue.QValueKindUInt64, nil
+			return types.QValueKindUInt64, nil
 		} else {
-			return qvalue.QValueKindInt64, nil
+			return types.QValueKindInt64, nil
 		}
 	case mysql.MYSQL_TYPE_FLOAT:
-		return qvalue.QValueKindFloat32, nil
+		return types.QValueKindFloat32, nil
 	case mysql.MYSQL_TYPE_DOUBLE:
-		return qvalue.QValueKindFloat64, nil
+		return types.QValueKindFloat64, nil
 	case mysql.MYSQL_TYPE_NULL:
-		return qvalue.QValueKindInvalid, nil
-	case mysql.MYSQL_TYPE_TIMESTAMP:
-		return qvalue.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_DATE:
-		return qvalue.QValueKindDate, nil
-	case mysql.MYSQL_TYPE_TIME:
-		return qvalue.QValueKindTime, nil
-	case mysql.MYSQL_TYPE_DATETIME:
-		return qvalue.QValueKindTimestamp, nil
+		return types.QValueKindInvalid, nil
+	case mysql.MYSQL_TYPE_DATE, mysql.MYSQL_TYPE_NEWDATE:
+		return types.QValueKindDate, nil
+	case mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_TIME, mysql.MYSQL_TYPE_DATETIME,
+		mysql.MYSQL_TYPE_TIMESTAMP2, mysql.MYSQL_TYPE_DATETIME2, mysql.MYSQL_TYPE_TIME2:
+		return types.QValueKindTimestamp, nil
 	case mysql.MYSQL_TYPE_YEAR:
-		return qvalue.QValueKindInt16, nil
-	case mysql.MYSQL_TYPE_NEWDATE:
-		return qvalue.QValueKindDate, nil
-	case mysql.MYSQL_TYPE_VARCHAR:
-		return qvalue.QValueKindString, nil
+		return types.QValueKindInt16, nil
 	case mysql.MYSQL_TYPE_BIT:
-		return qvalue.QValueKindInt64, nil
-	case mysql.MYSQL_TYPE_TIMESTAMP2:
-		return qvalue.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_DATETIME2:
-		return qvalue.QValueKindTimestamp, nil
-	case mysql.MYSQL_TYPE_TIME2:
-		return qvalue.QValueKindTime, nil
+		return types.QValueKindInt64, nil
 	case mysql.MYSQL_TYPE_JSON:
-		return qvalue.QValueKindJSON, nil
+		return types.QValueKindJSON, nil
 	case mysql.MYSQL_TYPE_DECIMAL, mysql.MYSQL_TYPE_NEWDECIMAL:
-		return qvalue.QValueKindNumeric, nil
+		return types.QValueKindNumeric, nil
 	case mysql.MYSQL_TYPE_ENUM:
-		return qvalue.QValueKindString, nil
+		return types.QValueKindEnum, nil
 	case mysql.MYSQL_TYPE_SET:
-		return qvalue.QValueKindString, nil
+		return types.QValueKindString, nil
 	case mysql.MYSQL_TYPE_TINY_BLOB, mysql.MYSQL_TYPE_MEDIUM_BLOB, mysql.MYSQL_TYPE_LONG_BLOB, mysql.MYSQL_TYPE_BLOB:
 		if field.Charset == 0x3f { // binary https://dev.mysql.com/doc/dev/mysql-server/8.4.3/page_protocol_basic_character_set.html
-			return qvalue.QValueKindBytes, nil
+			return types.QValueKindBytes, nil
 		} else {
-			return qvalue.QValueKindString, nil
+			return types.QValueKindString, nil
 		}
-	case mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING:
-		return qvalue.QValueKindString, nil
+	case mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING, mysql.MYSQL_TYPE_VARCHAR:
+		return types.QValueKindString, nil
 	case mysql.MYSQL_TYPE_GEOMETRY:
-		return qvalue.QValueKindGeometry, nil
+		return types.QValueKindGeometry, nil
 	case mysql.MYSQL_TYPE_VECTOR:
-		return qvalue.QValueKindArrayFloat32, nil
+		return types.QValueKindArrayFloat32, nil
 	default:
-		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %d", field.Type)
+		return types.QValueKind(""), fmt.Errorf("unknown mysql type %d", field.Type)
 	}
 }
 
-func qkindFromMysqlColumnType(ct string) (qvalue.QValueKind, error) {
-	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
-	ct, param, _ := strings.Cut(ct, "(")
-	switch ct {
-	case "json":
-		return qvalue.QValueKindJSON, nil
-	case "char", "varchar", "text", "enum", "set":
-		return qvalue.QValueKindString, nil
-	case "binary", "varbinary", "blob":
-		return qvalue.QValueKindBytes, nil
-	case "date":
-		return qvalue.QValueKindDate, nil
-	case "time":
-		return qvalue.QValueKindTime, nil
-	case "datetime":
-		return qvalue.QValueKindTimestamp, nil
-	case "timestamp":
-		return qvalue.QValueKindTimestamp, nil
-	case "decimal", "numeric":
-		return qvalue.QValueKindNumeric, nil
-	case "float":
-		return qvalue.QValueKindFloat32, nil
-	case "double":
-		return qvalue.QValueKindFloat64, nil
-	case "tinyint":
-		if strings.HasPrefix(param, "1)") {
-			return qvalue.QValueKindBoolean, nil
-		} else if isUnsigned {
-			return qvalue.QValueKindUInt8, nil
-		} else {
-			return qvalue.QValueKindInt8, nil
-		}
-	case "smallint", "year":
-		if isUnsigned {
-			return qvalue.QValueKindUInt16, nil
-		} else {
-			return qvalue.QValueKindInt16, nil
-		}
-	case "mediumint", "int":
-		if isUnsigned {
-			return qvalue.QValueKindUInt32, nil
-		} else {
-			return qvalue.QValueKindInt32, nil
-		}
-	case "bigint", "bit":
-		if isUnsigned {
-			return qvalue.QValueKindUInt64, nil
-		} else {
-			return qvalue.QValueKindInt64, nil
-		}
-	case "vector":
-		return qvalue.QValueKindArrayFloat32, nil
-
-	case "geometry":
-		return qvalue.QValueKindGeometry, nil
-	default:
-		return qvalue.QValueKind(""), fmt.Errorf("unknown mysql type %s", ct)
-	}
-}
-
-func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mysql.Field) (qvalue.QRecordSchema, error) {
+func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mysql.Field) (types.QRecordSchema, error) {
 	tableColumns := make(map[string]*protos.FieldDescription, len(tableSchema.Columns))
 	for _, col := range tableSchema.Columns {
 		tableColumns[col.Name] = col
 	}
 
-	schema := make([]qvalue.QField, 0, len(fields))
+	schema := make([]types.QField, 0, len(fields))
 	for _, field := range fields {
 		var precision int16
 		var scale int16
 		name := string(field.Name)
-		var qkind qvalue.QValueKind
+		var qkind types.QValueKind
 		if col, ok := tableColumns[name]; ok {
-			qkind = qvalue.QValueKind(col.Type)
-			if qkind == qvalue.QValueKindNumeric {
+			qkind = types.QValueKind(col.Type)
+			if qkind == types.QValueKindNumeric {
 				precision, scale = datatypes.ParseNumericTypmod(col.TypeModifier)
 			}
 		} else {
 			var err error
 			qkind, err = qkindFromMysql(field)
 			if err != nil {
-				return qvalue.QRecordSchema{}, err
+				return types.QRecordSchema{}, err
 			}
 		}
 
-		schema = append(schema, qvalue.QField{
+		schema = append(schema, types.QField{
 			Name:      name,
 			Type:      qkind,
 			Precision: precision,
@@ -192,7 +121,7 @@ func QRecordSchemaFromMysqlFields(tableSchema *protos.TableSchema, fields []*mys
 			Nullable:  (field.Flag & mysql.NOT_NULL_FLAG) == 0,
 		})
 	}
-	return qvalue.QRecordSchema{Fields: schema}, nil
+	return types.QRecordSchema{Fields: schema}, nil
 }
 
 // Helper function to convert MySQL geometry binary data to WKT format
@@ -212,77 +141,141 @@ func geometryValueFromBytes(wkbData []byte) (string, error) {
 }
 
 // Helper function to process geometry data and return a QValueGeometry
-func processGeometryData(data []byte) qvalue.QValueGeometry {
+func processGeometryData(data []byte) types.QValueGeometry {
 	// For geometry data, we need to convert from MySQL's binary format to WKT
 	if len(data) > 4 {
 		wkt, err := geometryValueFromBytes(data)
 		if err == nil {
-			return qvalue.QValueGeometry{Val: wkt}
+			return types.QValueGeometry{Val: wkt}
 		}
 	}
-	strVal := string(data)
-	return qvalue.QValueGeometry{Val: strVal}
+	return types.QValueGeometry{Val: string(data)}
 }
 
-func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qvalue.QValue, error) {
+// https://dev.mysql.com/doc/refman/8.4/en/time.html
+func processTime(str string) (time.Duration, error) {
+	abs, isNeg := strings.CutPrefix(str, "-")
+	tpart, frac, _ := strings.Cut(abs, ".")
+
+	var nsec uint64
+	if frac != "" {
+		fint, err := strconv.ParseUint(frac, 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		if len(frac) <= 9 {
+			nsec = fint * uint64(math.Pow10(9-len(frac)))
+		} else {
+			nsec = fint
+		}
+	}
+
+	if nsec > 999999999 {
+		return 0, fmt.Errorf("nanoseconds (%d) should not exceed one second", nsec)
+	}
+
+	var err error
+	var spart, mpart, hpart uint64
+	h, ms, hasMS := strings.Cut(tpart, ":")
+	if hasMS {
+		m, s, hasS := strings.Cut(ms, ":")
+		if hasS {
+			spart, err = strconv.ParseUint(s, 10, 64)
+		}
+		if err == nil {
+			mpart, err = strconv.ParseUint(m, 10, 64)
+			if err == nil {
+				hpart, err = strconv.ParseUint(h, 10, 64)
+			}
+		}
+	} else if len(h) <= 2 {
+		spart, err = strconv.ParseUint(h, 10, 64)
+	} else if len(h) <= 4 {
+		spart, err = strconv.ParseUint(h[len(h)-2:], 10, 64)
+		if err == nil {
+			mpart, err = strconv.ParseUint(h[:len(h)-2], 10, 64)
+		}
+	} else {
+		spart, err = strconv.ParseUint(h[len(h)-2:], 10, 64)
+		if err == nil {
+			mpart, err = strconv.ParseUint(h[len(h)-4:len(h)-2], 10, 64)
+			if err == nil {
+				hpart, err = strconv.ParseUint(h[:len(h)-4], 10, 64)
+			}
+		}
+	}
+
+	if err != nil {
+		return 0, err
+	}
+
+	sec := hpart*3600 + mpart*60 + spart
+	val := time.Duration(sec)*time.Second + time.Duration(nsec)
+	if isNeg {
+		return -val, nil
+	}
+	return val, nil
+}
+
+func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.FieldValue) (types.QValue, error) {
 	switch fv.Type {
 	case mysql.FieldValueTypeNull:
-		return qvalue.QValueNull(qkind), nil
+		return types.QValueNull(qkind), nil
 	case mysql.FieldValueTypeUnsigned:
 		v := fv.AsUint64()
 		switch qkind {
-		case qvalue.QValueKindBoolean:
-			return qvalue.QValueBoolean{Val: v != 0}, nil
-		case qvalue.QValueKindInt8:
-			return qvalue.QValueInt8{Val: int8(v)}, nil
-		case qvalue.QValueKindInt16:
-			return qvalue.QValueInt16{Val: int16(v)}, nil
-		case qvalue.QValueKindInt32:
-			return qvalue.QValueInt32{Val: int32(v)}, nil
-		case qvalue.QValueKindInt64:
-			return qvalue.QValueInt64{Val: int64(v)}, nil
-		case qvalue.QValueKindUInt8:
-			return qvalue.QValueUInt8{Val: uint8(v)}, nil
-		case qvalue.QValueKindUInt16:
-			return qvalue.QValueUInt16{Val: uint16(v)}, nil
-		case qvalue.QValueKindUInt32:
-			return qvalue.QValueUInt32{Val: uint32(v)}, nil
-		case qvalue.QValueKindUInt64:
-			return qvalue.QValueUInt64{Val: v}, nil
+		case types.QValueKindBoolean:
+			return types.QValueBoolean{Val: v != 0}, nil
+		case types.QValueKindInt8:
+			return types.QValueInt8{Val: int8(v)}, nil
+		case types.QValueKindInt16:
+			return types.QValueInt16{Val: int16(v)}, nil
+		case types.QValueKindInt32:
+			return types.QValueInt32{Val: int32(v)}, nil
+		case types.QValueKindInt64:
+			return types.QValueInt64{Val: int64(v)}, nil
+		case types.QValueKindUInt8:
+			return types.QValueUInt8{Val: uint8(v)}, nil
+		case types.QValueKindUInt16:
+			return types.QValueUInt16{Val: uint16(v)}, nil
+		case types.QValueKindUInt32:
+			return types.QValueUInt32{Val: uint32(v)}, nil
+		case types.QValueKindUInt64:
+			return types.QValueUInt64{Val: v}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert uint64 to %s", qkind)
 		}
 	case mysql.FieldValueTypeSigned:
 		v := fv.AsInt64()
 		switch qkind {
-		case qvalue.QValueKindBoolean:
-			return qvalue.QValueBoolean{Val: v != 0}, nil
-		case qvalue.QValueKindInt8:
-			return qvalue.QValueInt8{Val: int8(v)}, nil
-		case qvalue.QValueKindInt16:
-			return qvalue.QValueInt16{Val: int16(v)}, nil
-		case qvalue.QValueKindInt32:
-			return qvalue.QValueInt32{Val: int32(v)}, nil
-		case qvalue.QValueKindInt64:
-			return qvalue.QValueInt64{Val: v}, nil
-		case qvalue.QValueKindUInt8:
-			return qvalue.QValueUInt8{Val: uint8(v)}, nil
-		case qvalue.QValueKindUInt16:
-			return qvalue.QValueUInt16{Val: uint16(v)}, nil
-		case qvalue.QValueKindUInt32:
-			return qvalue.QValueUInt32{Val: uint32(v)}, nil
-		case qvalue.QValueKindUInt64:
-			return qvalue.QValueUInt64{Val: uint64(v)}, nil
+		case types.QValueKindBoolean:
+			return types.QValueBoolean{Val: v != 0}, nil
+		case types.QValueKindInt8:
+			return types.QValueInt8{Val: int8(v)}, nil
+		case types.QValueKindInt16:
+			return types.QValueInt16{Val: int16(v)}, nil
+		case types.QValueKindInt32:
+			return types.QValueInt32{Val: int32(v)}, nil
+		case types.QValueKindInt64:
+			return types.QValueInt64{Val: v}, nil
+		case types.QValueKindUInt8:
+			return types.QValueUInt8{Val: uint8(v)}, nil
+		case types.QValueKindUInt16:
+			return types.QValueUInt16{Val: uint16(v)}, nil
+		case types.QValueKindUInt32:
+			return types.QValueUInt32{Val: uint32(v)}, nil
+		case types.QValueKindUInt64:
+			return types.QValueUInt64{Val: uint64(v)}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert int64 to %s", qkind)
 		}
 	case mysql.FieldValueTypeFloat:
 		v := fv.AsFloat64()
 		switch qkind {
-		case qvalue.QValueKindFloat32:
-			return qvalue.QValueFloat32{Val: float32(v)}, nil
-		case qvalue.QValueKindFloat64:
-			return qvalue.QValueFloat64{Val: float64(v)}, nil
+		case types.QValueKindFloat32:
+			return types.QValueFloat32{Val: float32(v)}, nil
+		case types.QValueKindFloat64:
+			return types.QValueFloat64{Val: float64(v)}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert float64 to %s", qkind)
 		}
@@ -290,51 +283,68 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 		v := fv.AsString()
 		unsafeString := shared.UnsafeFastReadOnlyBytesToString(v)
 		switch qkind {
-		case qvalue.QValueKindString:
-			return qvalue.QValueString{Val: string(v)}, nil
-		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: slices.Clone(v)}, nil
-		case qvalue.QValueKindJSON:
-			return qvalue.QValueJSON{Val: string(v)}, nil
-		case qvalue.QValueKindGeometry:
+		case types.QValueKindUInt64: // bit
+			var bit uint64
+			for _, b := range v {
+				bit = (bit << 8) | uint64(b)
+			}
+			return types.QValueUInt64{Val: bit}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: string(v)}, nil
+		case types.QValueKindEnum:
+			return types.QValueEnum{Val: string(v)}, nil
+		case types.QValueKindBytes:
+			return types.QValueBytes{Val: slices.Clone(v)}, nil
+		case types.QValueKindJSON:
+			return types.QValueJSON{Val: string(v)}, nil
+		case types.QValueKindGeometry:
 			return processGeometryData(v), nil
-		case qvalue.QValueKindNumeric:
+		case types.QValueKindNumeric:
 			val, err := decimal.NewFromString(unsafeString)
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueNumeric{Val: val}, nil
-		case qvalue.QValueKindTimestamp:
+			return types.QValueNumeric{Val: val}, nil
+		case types.QValueKindTimestamp:
+			if mytype == mysql.MYSQL_TYPE_TIME || mytype == mysql.MYSQL_TYPE_TIME2 {
+				tm, err := processTime(unsafeString)
+				if err != nil {
+					return nil, err
+				}
+				return types.QValueTimestamp{Val: time.Unix(0, 0).UTC().Add(tm)}, nil
+			}
 			if strings.HasPrefix(unsafeString, "0000-00-00") {
-				return qvalue.QValueTimestamp{Val: time.Unix(0, 0)}, nil
+				return types.QValueTimestamp{Val: time.Unix(0, 0)}, nil
 			}
-			val, err := time.Parse("2006-01-02 15:04:05.999999", unsafeString)
+			val, err := time.Parse("2006-01-02 15:04:05.999999", strings.ReplaceAll(unsafeString, "-00", "-01"))
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueTimestamp{Val: val}, nil
-		case qvalue.QValueKindTime:
-			val, err := time.Parse("15:04:05.999999", unsafeString)
+			return types.QValueTimestamp{Val: val}, nil
+		case types.QValueKindTime:
+			// deprecated: most databases expect time to be time part of datetime
+			// mysql it's a +/- 800 hour range to represent duration
+			// keep codepath for backwards compat when mysql time was mapped to QValueKindTime
+			tm, err := processTime(unsafeString)
 			if err != nil {
 				return nil, err
 			}
-			h, m, s := val.Clock()
-			return qvalue.QValueTime{Val: time.Date(1970, 1, 1, h, m, s, val.Nanosecond(), val.Location())}, nil
-		case qvalue.QValueKindDate:
+			return types.QValueTime{Val: tm}, nil
+		case types.QValueKindDate:
 			if unsafeString == "0000-00-00" {
-				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil
+				return types.QValueDate{Val: time.Unix(0, 0)}, nil
 			}
-			val, err := time.Parse(time.DateOnly, unsafeString)
+			val, err := time.Parse(time.DateOnly, strings.ReplaceAll(unsafeString, "-00", "-01"))
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueDate{Val: val}, nil
-		case qvalue.QValueKindArrayFloat32:
+			return types.QValueDate{Val: val}, nil
+		case types.QValueKindArrayFloat32:
 			floats := make([]float32, 0, len(v)/4)
 			for i := 0; i < len(v); i += 4 {
 				floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(v[i:])))
 			}
-			return qvalue.QValueArrayFloat32{Val: floats}, nil
+			return types.QValueArrayFloat32{Val: floats}, nil
 		default:
 			return nil, fmt.Errorf("cannot convert bytes %v to %s", v, qkind)
 		}
@@ -343,107 +353,146 @@ func QValueFromMysqlFieldValue(qkind qvalue.QValueKind, fv mysql.FieldValue) (qv
 	}
 }
 
-func QValueFromMysqlRowEvent(mytype byte, qkind qvalue.QValueKind, val any) (qvalue.QValue, error) {
+func QValueFromMysqlRowEvent(
+	mytype byte, enums []string, sets []string,
+	qkind types.QValueKind, val any,
+) (types.QValue, error) {
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
 	case nil:
-		return qvalue.QValueNull(qkind), nil
+		return types.QValueNull(qkind), nil
 	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
-		if qkind == qvalue.QValueKindBoolean {
-			return qvalue.QValueBoolean{Val: val != 0}, nil
-		} else if qkind == qvalue.QValueKindUInt8 {
-			return qvalue.QValueUInt8{Val: uint8(val)}, nil
+		if qkind == types.QValueKindBoolean {
+			return types.QValueBoolean{Val: val != 0}, nil
+		} else if qkind == types.QValueKindUInt8 {
+			return types.QValueUInt8{Val: uint8(val)}, nil
 		} else {
-			return qvalue.QValueInt8{Val: val}, nil
+			return types.QValueInt8{Val: val}, nil
 		}
 	case int16:
-		if qkind == qvalue.QValueKindUInt16 {
-			return qvalue.QValueUInt16{Val: uint16(val)}, nil
+		if qkind == types.QValueKindUInt16 {
+			return types.QValueUInt16{Val: uint16(val)}, nil
 		} else {
-			return qvalue.QValueInt16{Val: val}, nil
+			return types.QValueInt16{Val: val}, nil
 		}
 	case int32:
-		if qkind == qvalue.QValueKindUInt32 {
+		if qkind == types.QValueKindUInt32 {
 			if mytype == mysql.MYSQL_TYPE_INT24 {
-				return qvalue.QValueUInt32{Val: uint32(val) & 0xFFFFFF}, nil
+				return types.QValueUInt32{Val: uint32(val) & 0xFFFFFF}, nil
 			} else {
-				return qvalue.QValueUInt32{Val: uint32(val)}, nil
+				return types.QValueUInt32{Val: uint32(val)}, nil
 			}
 		} else {
-			return qvalue.QValueInt32{Val: val}, nil
+			return types.QValueInt32{Val: val}, nil
 		}
 	case int64:
-		if qkind == qvalue.QValueKindUInt64 {
-			return qvalue.QValueUInt64{Val: uint64(val)}, nil
-		} else {
-			return qvalue.QValueInt64{Val: val}, nil
+		switch qkind {
+		case types.QValueKindUInt64:
+			return types.QValueUInt64{Val: uint64(val)}, nil
+		case types.QValueKindInt64:
+			return types.QValueInt64{Val: val}, nil
+		case types.QValueKindString: // set
+			var set []string
+			if sets == nil {
+				return types.QValueString{Val: strconv.FormatInt(val, 10)}, nil
+			}
+			for val != 0 {
+				idx := bits.TrailingZeros64(uint64(val))
+				if idx < len(sets) {
+					set = append(set, sets[idx])
+					val ^= int64(1) << idx
+				} else {
+					return nil, fmt.Errorf("set value out of range %d %v", idx, sets)
+				}
+			}
+			return types.QValueString{Val: strings.Join(set, ",")}, nil
+		case types.QValueKindEnum: // enum
+			if val == 0 {
+				return types.QValueEnum{Val: ""}, nil
+			} else if int(val)-1 < len(enums) {
+				return types.QValueEnum{Val: enums[int(val)-1]}, nil
+			} else if enums == nil {
+				return types.QValueEnum{Val: strconv.FormatInt(val, 10)}, nil
+			} else {
+				return nil, fmt.Errorf("enum value out of range %d %v", val, enums)
+			}
 		}
 	case float32:
-		return qvalue.QValueFloat32{Val: val}, nil
+		return types.QValueFloat32{Val: val}, nil
 	case float64:
-		return qvalue.QValueFloat64{Val: val}, nil
+		return types.QValueFloat64{Val: val}, nil
 	case decimal.Decimal:
-		return qvalue.QValueNumeric{Val: val}, nil
+		return types.QValueNumeric{Val: val}, nil
 	case int:
 		// YEAR: https://dev.mysql.com/doc/refman/8.4/en/year.html
-		return qvalue.QValueInt16{Val: int16(val)}, nil
+		return types.QValueInt16{Val: int16(val)}, nil
 	case time.Time:
-		return qvalue.QValueTimestamp{Val: val}, nil
+		return types.QValueTimestamp{Val: val}, nil
 	case *replication.JsonDiff:
 		// TODO support somehow??
-		return qvalue.QValueNull(qvalue.QValueKindJSON), nil
+		return types.QValueNull(types.QValueKindJSON), nil
 	case []byte:
 		switch qkind {
-		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: val}, nil
-		case qvalue.QValueKindString:
-			return qvalue.QValueString{Val: string(val)}, nil
-		case qvalue.QValueKindJSON:
-			return qvalue.QValueJSON{Val: string(val)}, nil
-		case qvalue.QValueKindGeometry:
+		case types.QValueKindBytes:
+			return types.QValueBytes{Val: val}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: string(val)}, nil
+		case types.QValueKindEnum:
+			return types.QValueEnum{Val: string(val)}, nil
+		case types.QValueKindJSON:
+			return types.QValueJSON{Val: string(val)}, nil
+		case types.QValueKindGeometry:
 			// Handle geometry data as binary (WKB format)
 			return processGeometryData(val), nil
-		case qvalue.QValueKindArrayFloat32:
+		case types.QValueKindArrayFloat32:
 			floats := make([]float32, 0, len(val)/4)
 			for i := 0; i < len(val); i += 4 {
 				floats = append(floats, math.Float32frombits(binary.LittleEndian.Uint32(val[i:])))
 			}
-			return qvalue.QValueArrayFloat32{Val: floats}, nil
+			return types.QValueArrayFloat32{Val: floats}, nil
 		}
 	case string:
 		switch qkind {
-		case qvalue.QValueKindBytes:
-			return qvalue.QValueBytes{Val: shared.UnsafeFastStringToReadOnlyBytes(val)}, nil
-		case qvalue.QValueKindString:
-			return qvalue.QValueString{Val: val}, nil
-		case qvalue.QValueKindJSON:
-			return qvalue.QValueJSON{Val: val}, nil
-		case qvalue.QValueKindTime:
-			val, err := time.Parse("15:04:05.999999", val)
+		case types.QValueKindBytes:
+			return types.QValueBytes{Val: shared.UnsafeFastStringToReadOnlyBytes(val)}, nil
+		case types.QValueKindString:
+			return types.QValueString{Val: val}, nil
+		case types.QValueKindEnum:
+			return types.QValueEnum{Val: val}, nil
+		case types.QValueKindJSON:
+			return types.QValueJSON{Val: val}, nil
+		case types.QValueKindTime:
+			tm, err := processTime(val)
 			if err != nil {
 				return nil, err
 			}
-			h, m, s := val.Clock()
-			return qvalue.QValueTime{Val: time.Date(1970, 1, 1, h, m, s, val.Nanosecond(), val.Location())}, nil
-		case qvalue.QValueKindDate:
+			return types.QValueTime{Val: tm}, nil
+		case types.QValueKindDate:
 			if val == "0000-00-00" {
-				return qvalue.QValueDate{Val: time.Unix(0, 0)}, nil
+				return types.QValueDate{Val: time.Unix(0, 0).UTC()}, nil
 			}
-			val, err := time.Parse(time.DateOnly, val)
+			val, err := time.Parse(time.DateOnly, strings.ReplaceAll(val, "-00", "-01"))
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueDate{Val: val}, nil
-		case qvalue.QValueKindTimestamp: // 0000-00-00 ends up here
+			return types.QValueDate{Val: val.UTC()}, nil
+		case types.QValueKindTimestamp: // 0000-00-00 ends up here
+			if mytype == mysql.MYSQL_TYPE_TIME || mytype == mysql.MYSQL_TYPE_TIME2 {
+				tm, err := processTime(val)
+				if err != nil {
+					return nil, err
+				}
+				return types.QValueTimestamp{Val: time.Unix(0, 0).UTC().Add(tm)}, nil
+			}
 			if strings.HasPrefix(val, "0000-00-00") {
-				return qvalue.QValueTimestamp{Val: time.Unix(0, 0)}, nil
+				return types.QValueTimestamp{Val: time.Unix(0, 0).UTC()}, nil
 			}
-			val, err := time.Parse("2006-01-02 15:04:05.999999", val)
+			tm, err := time.Parse("2006-01-02 15:04:05.999999", strings.ReplaceAll(val, "-00", "-01"))
 			if err != nil {
 				return nil, err
 			}
-			return qvalue.QValueTimestamp{Val: val}, nil
+			return types.QValueTimestamp{Val: tm.UTC()}, nil
 		}
 	}
-	return nil, fmt.Errorf("unexpected type %T for mysql type %d", val, mytype)
+	return nil, fmt.Errorf("unexpected type %T for mysql type %d, qkind %s", val, mytype, qkind)
 }

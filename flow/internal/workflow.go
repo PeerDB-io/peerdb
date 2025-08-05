@@ -2,27 +2,43 @@ package internal
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
-	"go.temporal.io/sdk/client"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-func GetWorkflowStatus(ctx context.Context, temporalClient client.Client, workflowID string) (protos.FlowStatus, error) {
-	res, err := temporalClient.QueryWorkflow(ctx, workflowID, "", shared.FlowStatusQuery)
+func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
+	workflowID string,
+) (protos.FlowStatus, error) {
+	var flowStatus protos.FlowStatus
+	err := pool.QueryRow(ctx, "SELECT status FROM flows WHERE workflow_id = $1", workflowID).Scan(&flowStatus)
 	if err != nil {
-		slog.Error("failed to query status in workflow with ID "+workflowID, slog.Any("error", err))
-		return protos.FlowStatus_STATUS_UNKNOWN,
-			fmt.Errorf("failed to query status in workflow with ID %s: %w", workflowID, err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			slog.Warn("workflowId not found in catalog, will raise an error",
+				slog.String("workflowId", workflowID))
+			return protos.FlowStatus_STATUS_UNKNOWN, fmt.Errorf("workflowId not found in catalog: %w", err)
+		}
+		slog.Error("failed to get status for flow from catalog",
+			slog.Any("error", err),
+			slog.String("flowID", workflowID))
+		return flowStatus, fmt.Errorf("failed ot get status for flow from catalog: %w", err)
+	} else if flowStatus == protos.FlowStatus_STATUS_UNKNOWN {
+		slog.Warn("flow status from catalog is unknown", slog.String("flowID", workflowID))
 	}
-	var state protos.FlowStatus
-	if err := res.Get(&state); err != nil {
-		slog.Error("failed to get status in workflow with ID "+workflowID, slog.Any("error", err))
-		return protos.FlowStatus_STATUS_UNKNOWN,
-			fmt.Errorf("failed to get status in workflow with ID %s: %w", workflowID, err)
+	return flowStatus, nil
+}
+
+func UpdateFlowStatusInCatalog(ctx context.Context, pool shared.CatalogPool,
+	workflowID string, status protos.FlowStatus,
+) (protos.FlowStatus, error) {
+	if _, err := pool.Exec(ctx, "UPDATE flows SET status=$1,updated_at=now() WHERE workflow_id=$2", status, workflowID); err != nil {
+		slog.Error("failed to update flow status", slog.Any("error", err), slog.String("flowID", workflowID))
+		return status, fmt.Errorf("failed to update flow status: %w", err)
 	}
-	return state, nil
+	return status, nil
 }

@@ -10,10 +10,12 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-func setupDB(t *testing.T) (*PostgresConnector, string) {
+func setupDB(t *testing.T, testName string) (*PostgresConnector, string) {
 	t.Helper()
 
 	connector, err := NewPostgresConnector(t.Context(),
@@ -21,10 +23,11 @@ func setupDB(t *testing.T) (*PostgresConnector, string) {
 	require.NoError(t, err, "error while creating connector")
 
 	// Create unique schema name using current time
-	schemaName := fmt.Sprintf("schema_%d", time.Now().Unix())
+	schemaName := fmt.Sprintf("qrep_query_executor_%s_%d", testName, time.Now().Unix())
 
 	// Create the schema
-	_, err = connector.conn.Exec(t.Context(), fmt.Sprintf("CREATE SCHEMA %s;", schemaName))
+	_, err = connector.conn.Exec(t.Context(),
+		"CREATE SCHEMA "+utils.QuoteIdentifier(schemaName))
 	require.NoError(t, err, "error while creating schema")
 
 	return connector, schemaName
@@ -33,38 +36,40 @@ func setupDB(t *testing.T) (*PostgresConnector, string) {
 func teardownDB(t *testing.T, conn *pgx.Conn, schemaName string) {
 	t.Helper()
 
-	_, err := conn.Exec(t.Context(), fmt.Sprintf("DROP SCHEMA %s CASCADE;", schemaName))
+	_, err := conn.Exec(t.Context(),
+		fmt.Sprintf("DROP SCHEMA %s CASCADE", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while dropping schema")
 }
 
 func TestExecuteAndProcessQuery(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	connector, schemaName := setupDB(t)
+	connector, schemaName := setupDB(t, "query")
 	conn := connector.conn
 	defer connector.Close()
 	defer teardownDB(t, conn, schemaName)
 
-	query := fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT);", schemaName)
-	_, err := conn.Exec(ctx, query)
+	_, err := conn.Exec(ctx,
+		fmt.Sprintf("CREATE TABLE IF NOT EXISTS %s.test(id SERIAL PRIMARY KEY, data TEXT)", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while creating table")
 
-	query = fmt.Sprintf("INSERT INTO %s.test(data) VALUES('testdata');", schemaName)
-	_, err = conn.Exec(ctx, query)
+	_, err = conn.Exec(ctx,
+		fmt.Sprintf("INSERT INTO %s.test(data) VALUES ('testdata')", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while inserting data")
 
-	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 
-	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	batch, err := qe.ExecuteAndProcessQuery(t.Context(), query)
+	batch, err := qe.ExecuteAndProcessQuery(t.Context(), fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while executing query")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 	require.Equal(t, "testdata", batch.Records[0][1].Value(), "expected 'testdata'")
 }
 
-func TestAllDataTypes(t *testing.T) {
+func TestSupportedDataTypes(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
-	connector, schemaName := setupDB(t)
+	connector, schemaName := setupDB(t, "datatypes")
 	conn := connector.conn
 	defer conn.Close(ctx)
 	defer teardownDB(t, conn, schemaName)
@@ -88,7 +93,7 @@ func TestAllDataTypes(t *testing.T) {
 		col_tz3 TIME WITHOUT TIME ZONE,
 		col_tz4 TIMESTAMP WITHOUT TIME ZONE,
 		col_date DATE
-	);`, schemaName)
+	);`, utils.QuoteIdentifier(schemaName))
 
 	_, err := conn.Exec(ctx, query)
 	require.NoError(t, err, "error while creating table")
@@ -112,10 +117,7 @@ func TestAllDataTypes(t *testing.T) {
 		col_tz3,
 		col_tz4,
 		col_date
-	) VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-		$12, $13, $14, $15, $16
-		)`,
-		schemaName)
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, utils.QuoteIdentifier(schemaName))
 
 	savedTime := time.Now().UTC()
 	savedUUID := uuid.New()
@@ -142,18 +144,11 @@ func TestAllDataTypes(t *testing.T) {
 	)
 	require.NoError(t, err, "error while inserting into test table")
 
-	qe, err := connector.NewQRepQueryExecutor(ctx, "test flow", "test part")
+	qe, err := connector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "test flow", "test part")
 	require.NoError(t, err, "error while creating QRepQueryExecutor")
 	// Select the row back out of the table
-	query = fmt.Sprintf("SELECT * FROM %s.test;", schemaName)
-	rows, err := qe.ExecuteQuery(t.Context(), query)
-	require.NoError(t, err, "error while executing query")
-	defer rows.Close()
-
-	// Use rows.FieldDescriptions() to get field descriptions
-	fieldDescriptions := rows.FieldDescriptions()
-
-	batch, err := qe.ProcessRows(ctx, rows, fieldDescriptions)
+	batch, err := qe.ExecuteAndProcessQuery(t.Context(),
+		fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
 	require.NoError(t, err, "error while processing rows")
 	require.Len(t, batch.Records, 1, "expected 1 record")
 
@@ -196,4 +191,435 @@ func TestAllDataTypes(t *testing.T) {
 	expectedNumeric := "123.456"
 	actualNumeric := record[10].Value().(decimal.Decimal).String()
 	require.Equal(t, expectedNumeric, actualNumeric, "expected 123.456")
+}
+
+func TestStringDataTypes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		Prefix        string
+		Type          string
+		Literal       string   // skipped if empty
+		Expected      string   // skipped if empty
+		ArrayLiteral  string   // skipped if empty
+		ArrayExpected []string // skipped if empty
+	}{
+		{
+			Type:          "text",
+			Literal:       "'abc'",
+			Expected:      "abc",
+			ArrayLiteral:  "ARRAY['abc', 'def', NULL]",
+			ArrayExpected: []string{"abc", "def", ""},
+		},
+		{
+			Type:          "bytea",
+			Literal:       "",
+			Expected:      "",
+			ArrayLiteral:  `'{"\\x012345", "\\x6789ab", NULL}'::bytea[]`,
+			ArrayExpected: []string{"\x01\x23\x45", "\x67\x89\xab", ""},
+		},
+		{
+			Type:          "bit(3)",
+			Literal:       "b'101'",
+			Expected:      "101",
+			ArrayLiteral:  "ARRAY[b'101', b'111', NULL]",
+			ArrayExpected: []string{"101", "111", ""},
+		},
+		{
+			Type:          "varbit",
+			Literal:       "b'101'",
+			Expected:      "101",
+			ArrayLiteral:  "ARRAY[b'1', b'101', NULL]",
+			ArrayExpected: []string{"1", "101", ""},
+		},
+		{
+			Type:          "xml",
+			Literal:       "'<item>data</item>'::xml",
+			Expected:      "<item>data</item>",
+			ArrayLiteral:  `'{"<root><test>value</test></root>", "<item>data</item>", NULL}'::xml[]`,
+			ArrayExpected: []string{"<root><test>value</test></root>", "<item>data</item>", ""},
+		},
+		{
+			Type:          "time",
+			Literal:       "",
+			Expected:      "",
+			ArrayLiteral:  `'{"12:30:45", "18:15:30", NULL}'::time[]`,
+			ArrayExpected: []string{"12:30:45.000000", "18:15:30.000000", ""},
+		},
+		{
+			Type:          "timetz",
+			Literal:       "",
+			Expected:      "",
+			ArrayLiteral:  `'{"12:30:45+05", "18:15:30-08", NULL}'::timetz[]`,
+			ArrayExpected: []string{"12:30:45+05", "18:15:30-08", ""},
+		},
+		{
+			Type:          "interval",
+			Literal:       "'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval",
+			Expected:      "{\"minutes\":1,\"seconds\":2.22,\"days\":29,\"months\":2,\"years\":5,\"valid\":true}",
+			ArrayLiteral:  `'{"1 day", "2 hours 30 minutes", NULL}'::interval[]`,
+			ArrayExpected: []string{"{\"days\":1,\"valid\":true}", "{\"hours\":2,\"minutes\":30,\"valid\":true}", ""},
+		},
+		{
+			Type:          "point",
+			Literal:       "",
+			Expected:      "",
+			ArrayLiteral:  `'{"(1,2)", "(3,4)", NULL}'::point[]`,
+			ArrayExpected: []string{"(1,2)", "(3,4)", ""},
+		},
+		{
+			Type:          "line",
+			Literal:       "'{1,-1,0}'::line",
+			Expected:      "{1,-1,0}",
+			ArrayLiteral:  `'{"{1,-1,0}", "{2,-1,3}", NULL}'::line[]`,
+			ArrayExpected: []string{"{1,-1,0}", "{2,-1,3}", ""},
+		},
+		{
+			Type:          "lseg",
+			Literal:       "'[(1,1),(2,2)]'::lseg",
+			Expected:      "[(1,1),(2,2)]",
+			ArrayLiteral:  `'{"[(1,1),(2,2)]", "[(3,3),(4,4)]", NULL}'::lseg[]`,
+			ArrayExpected: []string{"[(1,1),(2,2)]", "[(3,3),(4,4)]", ""},
+		},
+		{
+			Type:          "path",
+			Literal:       "'((1,1),(2,2),(3,1))'::path",
+			Expected:      "((1,1),(2,2),(3,1))",
+			ArrayLiteral:  `'{"((1,1),(2,2),(3,1))", "((4,4),(5,5),(6,4))", NULL}'::path[]`,
+			ArrayExpected: []string{"((1,1),(2,2),(3,1))", "((4,4),(5,5),(6,4))", ""},
+		},
+		{
+			Type:          "box",
+			Literal:       "'((1,1),(3,3))'::box",
+			Expected:      "(3,3),(1,1)",
+			ArrayLiteral:  `array['((1,1),(3,3))','((4,4),(6,6))', NULL]::box[]`,
+			ArrayExpected: []string{"(3,3),(1,1)", "(6,6),(4,4)", ""},
+		},
+		{
+			Type:          "polygon",
+			Literal:       "'((1,1),(2,2),(3,1))'::polygon",
+			Expected:      "((1,1),(2,2),(3,1))",
+			ArrayLiteral:  `'{"((1,1),(2,2),(3,1))", "((4,4),(5,5),(6,4))", NULL}'::polygon[]`,
+			ArrayExpected: []string{"((1,1),(2,2),(3,1))", "((4,4),(5,5),(6,4))", ""},
+		},
+		{
+			Type:          "circle",
+			Literal:       "'<(1,-1),2>'::circle",
+			Expected:      "<(1,-1),2>",
+			ArrayLiteral:  `'{"<(1,-1),2>", "<(2,-1),3>", NULL}'::circle[]`,
+			ArrayExpected: []string{"<(1,-1),2>", "<(2,-1),3>", ""},
+		},
+		{
+			Type:          "macaddr",
+			Literal:       "",
+			Expected:      "",
+			ArrayLiteral:  `'{"08:00:2b:01:02:03", "08:00:2b:01:02:04", NULL}'::macaddr[]`,
+			ArrayExpected: []string{"08:00:2b:01:02:03", "08:00:2b:01:02:04", ""},
+		},
+		{
+			Type:          "cidr",
+			Literal:       "",
+			Expected:      "",
+			ArrayLiteral:  `'{"192.168.1.0/24", "10.0.0.0/8", NULL}'::cidr[]`,
+			ArrayExpected: []string{"192.168.1.0/24", "10.0.0.0/8", ""},
+		},
+		{
+			Type:          "inet",
+			Literal:       "",
+			Expected:      "",
+			ArrayLiteral:  `'{"192.168.1.1/32", "10.0.0.1/32", NULL}'::inet[]`,
+			ArrayExpected: []string{"192.168.1.1/32", "10.0.0.1/32", ""},
+		},
+		{
+			Type:          "int4range",
+			Literal:       "'[1,100]'::int4range",
+			Expected:      "[1,101)",
+			ArrayLiteral:  `'{"[1,100]", "[200,300]", NULL}'::int4range[]`,
+			ArrayExpected: []string{"[1,101)", "[200,301)", ""},
+		},
+		{
+			Prefix:        "empty_",
+			Type:          "int4range",
+			Literal:       "'(,)'::int4range",
+			Expected:      "(,)",
+			ArrayLiteral:  `'{"(,)", "(,)"}'::int4range[]`,
+			ArrayExpected: []string{"(,)", "(,)"},
+		},
+		{
+			Type:          "int8range",
+			Literal:       "'[1,10000000000]'::int8range",
+			Expected:      "[1,10000000001)",
+			ArrayLiteral:  `'{"[1,10000000000]", "[20000000000,30000000000]", NULL}'::int8range[]`,
+			ArrayExpected: []string{"[1,10000000001)", "[20000000000,30000000001)", ""},
+		},
+		{
+			Prefix:        "empty_",
+			Type:          "int8range",
+			Literal:       "'(,)'::int8range",
+			Expected:      "(,)",
+			ArrayLiteral:  `'{"(,)", "(,)"}'::int8range[]`,
+			ArrayExpected: []string{"(,)", "(,)"},
+		},
+		{
+			Type:          "numrange",
+			Literal:       "'[1.5,99.9]'::numrange",
+			Expected:      "[1.5,99.9]",
+			ArrayLiteral:  `'{"[1.5,99.9]", "[200.1,300.8]", NULL}'::numrange[]`,
+			ArrayExpected: []string{"[1.5,99.9]", "[200.1,300.8]", ""},
+		},
+		{
+			Prefix:        "empty_",
+			Type:          "numrange",
+			Literal:       "'(,)'::numrange",
+			Expected:      "(,)",
+			ArrayLiteral:  `'{"(,)", "(,)"}'::numrange[]`,
+			ArrayExpected: []string{"(,)", "(,)"},
+		},
+		{
+			Type:          "tsrange",
+			Literal:       "'[2023-01-01 00:00:00,2023-12-31 23:59:59]'::tsrange",
+			Expected:      "[2023-01-01 00:00:00,2023-12-31 23:59:59]",
+			ArrayLiteral:  `'{"[2023-01-01 00:00:00,2023-12-31 23:59:59]", "[2024-01-01 00:00:00,2024-12-31 23:59:59]", NULL}'::tsrange[]`,
+			ArrayExpected: []string{"[2023-01-01 00:00:00,2023-12-31 23:59:59]", "[2024-01-01 00:00:00,2024-12-31 23:59:59]", ""},
+		},
+		{
+			Prefix:        "empty_",
+			Type:          "tsrange",
+			Literal:       "'(,)'::tsrange",
+			Expected:      "(,)",
+			ArrayLiteral:  `'{"(,)", "(,)"}'::tsrange[]`,
+			ArrayExpected: []string{"(,)", "(,)"},
+		},
+		{
+			Type:     "tstzrange",
+			Literal:  "'[2023-01-01 00:00:00-02,2023-12-31 23:59:59+00]'::tstzrange",
+			Expected: "[2023-01-01 02:00:00Z,2023-12-31 23:59:59Z]",
+			ArrayLiteral: `'{` +
+				`"[2023-01-01 00:00:00-02,2023-12-31 23:59:59+00]",` +
+				`"[2024-01-01 00:00:00-02,2024-12-31 23:59:59+00]",` +
+				`NULL` +
+				`}'::tstzrange[]`,
+			ArrayExpected: []string{
+				"[2023-01-01 02:00:00Z,2023-12-31 23:59:59Z]",
+				"[2024-01-01 02:00:00Z,2024-12-31 23:59:59Z]",
+				"",
+			},
+		},
+		{
+			Prefix:        "empty_",
+			Type:          "tstzrange",
+			Literal:       "'(,)'::tstzrange",
+			Expected:      "(,)",
+			ArrayLiteral:  `'{"(,)", "(,)"}'::tstzrange[]`,
+			ArrayExpected: []string{"(,)", "(,)"},
+		},
+		{
+			Type:          "daterange",
+			Literal:       "'[2023-01-01,2023-12-31]'::daterange",
+			Expected:      "[2023-01-01,2024-01-01)",
+			ArrayLiteral:  `'{"[2023-01-01,2023-12-31]", "[2024-01-01,2024-12-31]", NULL}'::daterange[]`,
+			ArrayExpected: []string{"[2023-01-01,2024-01-01)", "[2024-01-01,2025-01-01)", ""},
+		},
+		{
+			Prefix:        "empty_",
+			Type:          "daterange",
+			Literal:       "'(,)'::daterange",
+			Expected:      "(,)",
+			ArrayLiteral:  `'{"(,)", "(,)"}'::daterange[]`,
+			ArrayExpected: []string{"(,)", "(,)"},
+		},
+		{
+			Type:          "int4multirange",
+			Literal:       "'{[1,10],[20,30]}'::int4multirange",
+			Expected:      "{[1,11),[20,31)}",
+			ArrayLiteral:  `'{"{[1,10],[20,30]}", "{[100,110],[120,130]}", NULL}'::int4multirange[]`,
+			ArrayExpected: []string{"{[1,11),[20,31)}", "{[100,111),[120,131)}", ""},
+		},
+		{
+			Prefix:        "open_",
+			Type:          "int4multirange",
+			Literal:       "'{(,10],[20,)}'::int4multirange",
+			Expected:      "{(,11),[20,)}",
+			ArrayLiteral:  `'{"{(,10],[20,)}", "{(,110],[120,)}"}'::int4multirange[]`,
+			ArrayExpected: []string{"{(,11),[20,)}", "{(,111),[120,)}"},
+		},
+		{
+			Type:     "int8multirange",
+			Literal:  "'{[1,10000000000],[20000000000,30000000000]}'::int8multirange",
+			Expected: "{[1,10000000001),[20000000000,30000000001)}",
+			ArrayLiteral: `'{` +
+				`"{[1,10000000000],[20000000000,30000000000]}",` +
+				`"{[40000000000,50000000000],[60000000000,70000000000]}",` +
+				`NULL` +
+				`}'::int8multirange[]`,
+			ArrayExpected: []string{
+				"{[1,10000000001),[20000000000,30000000001)}",
+				"{[40000000000,50000000001),[60000000000,70000000001)}",
+				"",
+			},
+		},
+		{
+			Prefix:        "open_",
+			Type:          "int8multirange",
+			Literal:       "'{(,10000000000],[20000000000,)}'::int8multirange",
+			Expected:      "{(,10000000001),[20000000000,)}",
+			ArrayLiteral:  `'{"{(,10000000000],[20000000000,)}", "{(,50000000000],[60000000000,)}"}'::int8multirange[]`,
+			ArrayExpected: []string{"{(,10000000001),[20000000000,)}", "{(,50000000001),[60000000000,)}"},
+		},
+		{
+			Type:     "nummultirange",
+			Literal:  "'{[1.1,10.9],[20.1,30.9]}'::nummultirange",
+			Expected: "{[1.1,10.9],[20.1,30.9]}",
+			ArrayLiteral: `'{` +
+				`"{[1.1,10.9],[20.1,30.9]}",` +
+				`"{[100.1,110.9],[120.1,130.9]}",` +
+				`NULL` +
+				`}'::nummultirange[]`,
+			ArrayExpected: []string{
+				"{[1.1,10.9],[20.1,30.9]}",
+				"{[100.1,110.9],[120.1,130.9]}",
+				"",
+			},
+		},
+		{
+			Prefix:        "open_",
+			Type:          "nummultirange",
+			Literal:       "'{(,10.9],[20.1,)}'::nummultirange",
+			Expected:      "{(,10.9],[20.1,)}",
+			ArrayLiteral:  `'{"{(,10.9],[20.1,)}", "{(,110.9],[120.1,)}"}'::nummultirange[]`,
+			ArrayExpected: []string{"{(,10.9],[20.1,)}", "{(,110.9],[120.1,)}"},
+		},
+		{
+			Type:     "tsmultirange",
+			Literal:  "'{[2023-01-01 00:00:00,2023-01-31 23:59:59],[2023-03-01 00:00:00,2023-03-31 23:59:59]}'::tsmultirange",
+			Expected: "{[2023-01-01 00:00:00,2023-01-31 23:59:59],[2023-03-01 00:00:00,2023-03-31 23:59:59]}",
+			ArrayLiteral: `'{` +
+				`"{[2023-01-01 00:00:00,2023-01-31 23:59:59],[2023-03-01 00:00:00,2023-03-31 23:59:59]}",` +
+				`"{[2024-01-01 00:00:00,2024-01-31 23:59:59],[2024-03-01 00:00:00,2024-03-31 23:59:59]}",` +
+				`NULL` +
+				`}'::tsmultirange[]`,
+			ArrayExpected: []string{
+				"{[\"2023-01-01 00:00:00\",\"2023-01-31 23:59:59\"],[\"2023-03-01 00:00:00\",\"2023-03-31 23:59:59\"]}",
+				"{[\"2024-01-01 00:00:00\",\"2024-01-31 23:59:59\"],[\"2024-03-01 00:00:00\",\"2024-03-31 23:59:59\"]}",
+				"",
+			},
+		},
+		{
+			Prefix:   "open_",
+			Type:     "tsmultirange",
+			Literal:  "'{(,2023-01-31 23:59:59],[2023-03-01 00:00:00,)}'::tsmultirange",
+			Expected: "{(,2023-01-31 23:59:59],[2023-03-01 00:00:00,)}",
+			ArrayLiteral: `'{` +
+				`"{(,2023-01-31 23:59:59],[2023-03-01 00:00:00,)}",` +
+				`"{(,2024-01-31 23:59:59],[2024-03-01 00:00:00,)}"` +
+				`}'::tsmultirange[]`,
+			ArrayExpected: []string{
+				"{(,\"2023-01-31 23:59:59\"],[\"2023-03-01 00:00:00\",)}",
+				"{(,\"2024-01-31 23:59:59\"],[\"2024-03-01 00:00:00\",)}",
+			},
+		},
+		{
+			Type:     "tstzmultirange",
+			Literal:  "'{[2023-01-01 00:00:00-02,2023-01-31 23:59:59+00],[2023-03-01 00:00:00-02,2023-03-31 23:59:59+00]}'::tstzmultirange",
+			Expected: "{[2023-01-01 02:00:00Z,2023-01-31 23:59:59Z],[2023-03-01 02:00:00Z,2023-03-31 23:59:59Z]}",
+			ArrayLiteral: `'{"{[2023-01-01 00:00:00-02,2023-01-31 23:59:59+00],[2023-03-01 00:00:00-02,2023-03-31 23:59:59+00]}",` +
+				`"{[2024-01-01 00:00:00-02,2024-01-31 23:59:59+00],[2024-03-01 00:00:00-02,2024-03-31 23:59:59+00]}",` +
+				`NULL` +
+				`}'::tstzmultirange[]`,
+			ArrayExpected: []string{
+				"{[\"2023-01-01 02:00:00+00\",\"2023-01-31 23:59:59+00\"],[\"2023-03-01 02:00:00+00\",\"2023-03-31 23:59:59+00\"]}",
+				"{[\"2024-01-01 02:00:00+00\",\"2024-01-31 23:59:59+00\"],[\"2024-03-01 02:00:00+00\",\"2024-03-31 23:59:59+00\"]}",
+				"",
+			},
+		},
+		{
+			Prefix:   "open_",
+			Type:     "tstzmultirange",
+			Literal:  "'{(,2023-01-31 23:59:59+00],[2023-03-01 00:00:00-02,)}'::tstzmultirange",
+			Expected: "{(,2023-01-31 23:59:59Z],[2023-03-01 02:00:00Z,)}",
+			ArrayLiteral: `'{` +
+				`"{(,2023-01-31 23:59:59+00],[2023-03-01 00:00:00-02,)}",` +
+				`"{(,2024-01-31 23:59:59+00],[2024-03-01 00:00:00-02,)}"` +
+				`}'::tstzmultirange[]`,
+			ArrayExpected: []string{
+				"{(,\"2023-01-31 23:59:59+00\"],[\"2023-03-01 02:00:00+00\",)}",
+				"{(,\"2024-01-31 23:59:59+00\"],[\"2024-03-01 02:00:00+00\",)}",
+			},
+		},
+		{
+			Type:     "datemultirange",
+			Literal:  "'{[2023-01-01,2023-01-31],[2023-03-01,2023-03-31]}'::datemultirange",
+			Expected: "{[2023-01-01,2023-02-01),[2023-03-01,2023-04-01)}",
+			ArrayLiteral: `'{` +
+				`"{[2023-01-01,2023-01-31],[2023-03-01,2023-03-31]}",` +
+				`"{[2024-01-01,2024-01-31],[2024-03-01,2024-03-31]}",` +
+				`NULL` +
+				`}'::datemultirange[]`,
+			ArrayExpected: []string{
+				"{[2023-01-01,2023-02-01),[2023-03-01,2023-04-01)}",
+				"{[2024-01-01,2024-02-01),[2024-03-01,2024-04-01)}",
+				"",
+			},
+		},
+		{
+			Prefix:        "open_",
+			Type:          "datemultirange",
+			Literal:       "'{(,2023-01-31],[2023-03-01,)}'::datemultirange",
+			Expected:      "{(,2023-02-01),[2023-03-01,)}",
+			ArrayLiteral:  `'{"{(,2023-01-31],[2023-03-01,)}","{(,2024-01-31],[2024-03-01,)}"}'::datemultirange[]`,
+			ArrayExpected: []string{"{(,2023-02-01),[2023-03-01,)}", "{(,2024-02-01),[2024-03-01,)}"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.Prefix+tc.Type, func(t *testing.T) {
+			t.Parallel()
+
+			ctx := t.Context()
+			connector, schemaName := setupDB(t, tc.Prefix+tc.Type)
+			conn := connector.conn
+			defer conn.Close(ctx)
+			defer teardownDB(t, conn, schemaName)
+
+			query := fmt.Sprintf(
+				"CREATE TABLE %s.test(col %[2]s, col_arr %[2]s[])",
+				utils.QuoteIdentifier(schemaName), tc.Type,
+			)
+			_, err := conn.Exec(ctx, query)
+			require.NoError(t, err)
+
+			literal := tc.Literal
+			if literal == "" {
+				literal = "null"
+			}
+			arrayLiteral := tc.ArrayLiteral
+			if arrayLiteral == "" {
+				arrayLiteral = "null"
+			}
+			query = fmt.Sprintf(
+				"INSERT INTO %s.test(col, col_arr) VALUES (%s, %s)",
+				utils.QuoteIdentifier(schemaName), literal, arrayLiteral,
+			)
+			_, err = conn.Exec(ctx, query)
+			require.NoError(t, err)
+
+			qe, err := connector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "test flow", "test part")
+			require.NoError(t, err)
+			// Select the row back out of the table
+			batch, err := qe.ExecuteAndProcessQuery(t.Context(),
+				fmt.Sprintf("SELECT * FROM %s.test", utils.QuoteIdentifier(schemaName)))
+			require.NoError(t, err)
+			require.Len(t, batch.Records, 1)
+
+			// Retrieve the results.
+			record := batch.Records[0]
+
+			if tc.Expected != "" {
+				require.Exactly(t, tc.Expected, record[0].Value())
+			}
+			if tc.ArrayExpected != nil {
+				require.Exactly(t, tc.ArrayExpected, record[1].Value())
+			}
+		})
+	}
 }

@@ -2,10 +2,14 @@ name: peerdb-quickstart-dev
 
 x-minio-config: &minio-config
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: _peerdb_minioadmin
+  MINIO_ROOT_USER: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
+  MINIO_ROOT_PASSWORD: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
   PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
+  MINIO_DEFAULT_BUCKETS: peerdbbucket,peerdb
+  MINIO_CONSOLE_PORT_NUMBER: 36987
 
 x-catalog-config: &catalog-config
   PEERDB_CATALOG_HOST: catalog
@@ -32,14 +36,14 @@ x-flow-worker-env: &flow-worker-env
   AWS_REGION: ${AWS_REGION:-}
   # For GCS, set this as: https://storage.googleapis.com
   AWS_ENDPOINT: ${AWS_ENDPOINT:-}
-  # enables worker profiling using Grafana Pyroscope
+  # enables worker profiling using Go's pprof
   ENABLE_PROFILING: "true"
-  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+  PPROF_PORT: "6060"
 
 services:
   catalog:
     container_name: catalog
-    image: postgres:17-alpine@sha256:7062a2109c4b51f3c792c7ea01e83ed12ef9a980886e3b3d380a7d2e5f6ce3f5
+    image: postgres:17-alpine@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa
     command: -c config_file=/etc/postgresql.conf
     ports:
       - 9901:5432
@@ -73,19 +77,13 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.27@sha256:b76fb70af37ef50084d97e1559822ab223ed59e74ac9e3679f4930b5e34d7eee
+    image: temporalio/auto-setup:1.28@sha256:3ee84bf3ec5494f2be6ee0c1fea3b52684e50da3ddc5f997e6fa56ad340da9a8
     ports:
       - 7233:7233
     volumes:
       - ./volumes/temporal-dynamicconfig:/etc/temporal/config/dynamicconfig
     labels:
       kompose.volume.type: configMap
-
-  pyroscope:
-    container_name: pyroscope
-    image: grafana/pyroscope:latest@sha256:0710120c873260efda93b30a70a4ff47cf16678d249d904b68cc91900efce610
-    ports:
-      - 4040:4040
 
   temporal-admin-tools:
     container_name: temporal-admin-tools
@@ -116,7 +114,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.36.0@sha256:59283f21d6c3b1f5f939666da532bc8756ea345114a82fe1b469303a90d675f0
+    image: temporalio/ui:2.39.0@sha256:b768f87f18b59663a6749e98a2f7782c266e8e4e4749f92248e2ba41d6330d3f
     ports:
       - 8085:8080
 
@@ -209,7 +207,7 @@ services:
       - flow-api
 
   minio:
-    image: minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332
+    image: bitnami/minio:2025.7.23@sha256:8935e75fa5d11295c17171e4aa49efe390a1193cd7f12e4d21b92af9ffef09d7
     volumes:
       - minio-data:/data
     ports:
@@ -217,16 +215,6 @@ services:
       - "9002:36987"
     environment:
       <<: *minio-config
-    entrypoint: >
-      /bin/sh -c "
-      export MINIO_ROOT_USER=$$PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID;
-      export MINIO_ROOT_PASSWORD=$$PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY;
-      minio server /data --console-address=":36987" &
-      sleep 2;
-      /usr/bin/mc alias set myminiopeerdb http://minio:9000 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD;
-      /usr/bin/mc mb myminiopeerdb/$$PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME;
-      wait
-      "
 
 volumes:
   pgdata:

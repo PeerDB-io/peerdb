@@ -27,6 +27,10 @@ func PeerDBDeploymentUID() string {
 	return GetEnvString("PEERDB_DEPLOYMENT_UID", "")
 }
 
+func PeerDBDeploymentVersion() string {
+	return GetEnvString("PEERDB_DEPLOYMENT_VERSION", "")
+}
+
 func PeerFlowTaskQueueName(taskQueueID shared.TaskQueueID) string {
 	deploymentUID := PeerDBDeploymentUID()
 	if deploymentUID == "" {
@@ -81,6 +85,10 @@ func PeerDBCatalogPassword(ctx context.Context) string {
 // PEERDB_CATALOG_DATABASE
 func PeerDBCatalogDatabase() string {
 	return GetEnvString("PEERDB_CATALOG_DATABASE", "")
+}
+
+func PeerDBCatalogRequireTls() bool {
+	return getEnvConvert("PEERDB_CATALOG_REQUIRE_TLS", false, strconv.ParseBool)
 }
 
 // PEERDB_TELEMETRY_AWS_SNS_TOPIC_ARN
@@ -155,6 +163,14 @@ func PeerDBTemporalClientKey(ctx context.Context) ([]byte, error) {
 	return GetKmsDecryptedEnvBase64EncodedBytes(ctx, "TEMPORAL_CLIENT_KEY", nil)
 }
 
+func PeerDBTemporalClientCertPath() string {
+	return GetEnvString("TEMPORAL_CLIENT_CERT_PATH", "")
+}
+
+func PeerDBTemporalClientKeyPath() string {
+	return GetEnvString("TEMPORAL_CLIENT_KEY_PATH", "")
+}
+
 func PeerDBGetIncidentIoUrl() string {
 	return GetEnvString("PEERDB_INCIDENTIO_URL", "")
 }
@@ -172,8 +188,7 @@ func PeerDBRAPIRequestLoggingEnabled() bool {
 	return requestLoggingEnabled
 }
 
-// PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS tells how long to wait before alerting that peerdb has been stuck in maintenance mode
-// for too long
+// PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS is how long to wait before alerting that peerdb's been stuck in maintenance mode too long
 func PeerDBMaintenanceModeWaitAlertSeconds() int {
 	return getEnvConvert("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600, strconv.Atoi)
 }

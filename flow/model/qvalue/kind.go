@@ -3,189 +3,68 @@ package qvalue
 import (
 	"context"
 	"fmt"
-	"strings"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-type QValueKind string
-
-const (
-	QValueKindInvalid     QValueKind = "invalid"
-	QValueKindFloat32     QValueKind = "float32"
-	QValueKindFloat64     QValueKind = "float64"
-	QValueKindInt8        QValueKind = "int8"
-	QValueKindInt16       QValueKind = "int16"
-	QValueKindInt32       QValueKind = "int32"
-	QValueKindInt64       QValueKind = "int64"
-	QValueKindUInt8       QValueKind = "uint8"
-	QValueKindUInt16      QValueKind = "uint16"
-	QValueKindUInt32      QValueKind = "uint32"
-	QValueKindUInt64      QValueKind = "uint64"
-	QValueKindBoolean     QValueKind = "bool"
-	QValueKindStruct      QValueKind = "struct"
-	QValueKindQChar       QValueKind = "qchar"
-	QValueKindString      QValueKind = "string"
-	QValueKindTimestamp   QValueKind = "timestamp"
-	QValueKindTimestampTZ QValueKind = "timestamptz"
-	QValueKindDate        QValueKind = "date"
-	QValueKindTime        QValueKind = "time"
-	QValueKindTimeTZ      QValueKind = "timetz"
-	QValueKindInterval    QValueKind = "interval"
-	QValueKindTSTZRange   QValueKind = "tstzrange"
-	QValueKindNumeric     QValueKind = "numeric"
-	QValueKindBytes       QValueKind = "bytes"
-	QValueKindUUID        QValueKind = "uuid"
-	QValueKindJSON        QValueKind = "json"
-	QValueKindJSONB       QValueKind = "jsonb"
-	QValueKindHStore      QValueKind = "hstore"
-	QValueKindGeography   QValueKind = "geography"
-	QValueKindGeometry    QValueKind = "geometry"
-	QValueKindPoint       QValueKind = "point"
-
-	// network types
-	QValueKindCIDR    QValueKind = "cidr"
-	QValueKindINET    QValueKind = "inet"
-	QValueKindMacaddr QValueKind = "macaddr"
-
-	// array types
-	QValueKindArrayFloat32     QValueKind = "array_float32"
-	QValueKindArrayFloat64     QValueKind = "array_float64"
-	QValueKindArrayInt16       QValueKind = "array_int16"
-	QValueKindArrayInt32       QValueKind = "array_int32"
-	QValueKindArrayInt64       QValueKind = "array_int64"
-	QValueKindArrayString      QValueKind = "array_string"
-	QValueKindArrayDate        QValueKind = "array_date"
-	QValueKindArrayTimestamp   QValueKind = "array_timestamp"
-	QValueKindArrayTimestampTZ QValueKind = "array_timestamptz"
-	QValueKindArrayBoolean     QValueKind = "array_bool"
-	QValueKindArrayJSON        QValueKind = "array_json"
-	QValueKindArrayJSONB       QValueKind = "array_jsonb"
-	QValueKindArrayUUID        QValueKind = "array_uuid"
-)
-
-func (kind QValueKind) IsArray() bool {
-	return strings.HasPrefix(string(kind), "array_")
+type NumericDestinationType struct {
+	IsString         bool
+	Precision, Scale int16
 }
 
-var QValueKindToSnowflakeTypeMap = map[QValueKind]string{
-	QValueKindBoolean:     "BOOLEAN",
-	QValueKindInt8:        "INTEGER",
-	QValueKindInt16:       "INTEGER",
-	QValueKindInt32:       "INTEGER",
-	QValueKindInt64:       "INTEGER",
-	QValueKindUInt8:       "INTEGER",
-	QValueKindUInt16:      "INTEGER",
-	QValueKindUInt32:      "INTEGER",
-	QValueKindUInt64:      "INTEGER",
-	QValueKindFloat32:     "FLOAT",
-	QValueKindFloat64:     "FLOAT",
-	QValueKindQChar:       "CHAR",
-	QValueKindString:      "STRING",
-	QValueKindJSON:        "VARIANT",
-	QValueKindJSONB:       "VARIANT",
-	QValueKindTimestamp:   "TIMESTAMP_NTZ",
-	QValueKindTimestampTZ: "TIMESTAMP_TZ",
-	QValueKindInterval:    "VARIANT",
-	QValueKindTime:        "TIME",
-	QValueKindTimeTZ:      "TIME",
-	QValueKindDate:        "DATE",
-	QValueKindBytes:       "BINARY",
-	QValueKindStruct:      "STRING",
-	QValueKindUUID:        "STRING",
-	QValueKindInvalid:     "STRING",
-	QValueKindHStore:      "VARIANT",
-	QValueKindGeography:   "GEOGRAPHY",
-	QValueKindGeometry:    "GEOMETRY",
-	QValueKindPoint:       "GEOMETRY",
-
-	// array types will be mapped to VARIANT
-	QValueKindArrayFloat32:     "VARIANT",
-	QValueKindArrayFloat64:     "VARIANT",
-	QValueKindArrayInt32:       "VARIANT",
-	QValueKindArrayInt64:       "VARIANT",
-	QValueKindArrayInt16:       "VARIANT",
-	QValueKindArrayString:      "VARIANT",
-	QValueKindArrayDate:        "VARIANT",
-	QValueKindArrayTimestamp:   "VARIANT",
-	QValueKindArrayTimestampTZ: "VARIANT",
-	QValueKindArrayBoolean:     "VARIANT",
-	QValueKindArrayJSON:        "VARIANT",
-	QValueKindArrayJSONB:       "VARIANT",
-	QValueKindArrayUUID:        "VARIANT",
-}
-
-var QValueKindToClickHouseTypeMap = map[QValueKind]string{
-	QValueKindBoolean:     "Bool",
-	QValueKindInt8:        "Int8",
-	QValueKindInt16:       "Int16",
-	QValueKindInt32:       "Int32",
-	QValueKindInt64:       "Int64",
-	QValueKindUInt8:       "UInt8",
-	QValueKindUInt16:      "UInt16",
-	QValueKindUInt32:      "UInt32",
-	QValueKindUInt64:      "UInt64",
-	QValueKindFloat32:     "Float32",
-	QValueKindFloat64:     "Float64",
-	QValueKindQChar:       "FixedString(1)",
-	QValueKindString:      "String",
-	QValueKindJSON:        "String",
-	QValueKindTimestamp:   "DateTime64(6)",
-	QValueKindTimestampTZ: "DateTime64(6)",
-	QValueKindTSTZRange:   "String",
-	QValueKindTime:        "DateTime64(6)",
-	QValueKindTimeTZ:      "DateTime64(6)",
-	QValueKindDate:        "Date32",
-	QValueKindBytes:       "String",
-	QValueKindStruct:      "String",
-	QValueKindUUID:        "UUID",
-	QValueKindInvalid:     "String",
-	QValueKindHStore:      "String",
-
-	QValueKindArrayFloat32:     "Array(Float32)",
-	QValueKindArrayFloat64:     "Array(Float64)",
-	QValueKindArrayInt16:       "Array(Int16)",
-	QValueKindArrayInt32:       "Array(Int32)",
-	QValueKindArrayInt64:       "Array(Int64)",
-	QValueKindArrayString:      "Array(String)",
-	QValueKindArrayBoolean:     "Array(Bool)",
-	QValueKindArrayDate:        "Array(Date)",
-	QValueKindArrayTimestamp:   "Array(DateTime64(6))",
-	QValueKindArrayTimestampTZ: "Array(DateTime64(6))",
-	QValueKindArrayJSON:        "String",
-	QValueKindArrayJSONB:       "String",
-	QValueKindArrayUUID:        "Array(UUID)",
-}
-
-func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, column *protos.FieldDescription) (string, error) {
-	if column.TypeModifier == -1 {
-		numericAsStringEnabled, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
-		if err != nil {
-			return "", err
+func GetNumericDestinationType(
+	precision, scale int16, targetDWH protos.DBType, unboundedNumericAsString bool,
+) NumericDestinationType {
+	if targetDWH == protos.DBType_CLICKHOUSE {
+		if precision == 0 && scale == 0 && unboundedNumericAsString {
+			return NumericDestinationType{IsString: true}
 		}
-		if numericAsStringEnabled {
-			return "String", nil
+		if precision > datatypes.PeerDBClickHouseMaxPrecision {
+			return NumericDestinationType{IsString: true}
 		}
-	} else if rawPrecision, _ := datatypes.ParseNumericTypmod(column.TypeModifier); rawPrecision > datatypes.PeerDBClickHouseMaxPrecision {
+	}
+	destPrecision, destScale := DetermineNumericSettingForDWH(precision, scale, targetDWH)
+	return NumericDestinationType{
+		IsString:  false,
+		Precision: destPrecision,
+		Scale:     destScale,
+	}
+}
+
+func getClickHouseTypeForNumericColumn(ctx context.Context, env map[string]string, typeModifier int32) (string, error) {
+	precision, scale := datatypes.ParseNumericTypmod(typeModifier)
+	asString, err := internal.PeerDBEnableClickHouseNumericAsString(ctx, env)
+	if err != nil {
+		return "", err
+	}
+	destinationType := GetNumericDestinationType(precision, scale, protos.DBType_CLICKHOUSE, asString)
+	if destinationType.IsString {
 		return "String", nil
 	}
-	precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.ClickHouseNumericCompatibility{})
-	return fmt.Sprintf("Decimal(%d, %d)", precision, scale), nil
+	return fmt.Sprintf("Decimal(%d, %d)", destinationType.Precision, destinationType.Scale), nil
 }
 
-// SEE ALSO: QField ToDWHColumnType
-func (kind QValueKind) ToDWHColumnType(
-	ctx context.Context, env map[string]string, dwhType protos.DBType, column *protos.FieldDescription, nullableEnabled bool,
+func ToDWHColumnType(
+	ctx context.Context,
+	kind types.QValueKind,
+	env map[string]string,
+	dwhType protos.DBType,
+	dwhVersion *chproto.Version,
+	column *protos.FieldDescription,
+	nullableEnabled bool,
 ) (string, error) {
 	var colType string
 	switch dwhType {
 	case protos.DBType_SNOWFLAKE:
-		if kind == QValueKindNumeric {
+		if kind == types.QValueKindNumeric {
 			precision, scale := datatypes.GetNumericTypeForWarehouse(column.TypeModifier, datatypes.SnowflakeNumericCompatibility{})
 			colType = fmt.Sprintf("NUMERIC(%d,%d)", precision, scale)
-		} else if val, ok := QValueKindToSnowflakeTypeMap[kind]; ok {
+		} else if val, ok := types.QValueKindToSnowflakeTypeMap[kind]; ok {
 			colType = val
 		} else {
 			colType = "STRING"
@@ -194,22 +73,46 @@ func (kind QValueKind) ToDWHColumnType(
 			colType += " NOT NULL"
 		}
 	case protos.DBType_CLICKHOUSE:
-		if kind == QValueKindNumeric {
+		if kind == types.QValueKindNumeric {
 			var err error
-			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column)
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
 			if err != nil {
 				return "", err
 			}
-		} else if val, ok := QValueKindToClickHouseTypeMap[kind]; ok {
+		} else if kind == types.QValueKindArrayNumeric {
+			var err error
+			colType, err = getClickHouseTypeForNumericColumn(ctx, env, column.TypeModifier)
+			if err != nil {
+				return "", err
+			}
+			colType = fmt.Sprintf("Array(%s)", colType)
+		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
+			colType = "JSON"
+		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
 		} else {
 			colType = "String"
 		}
 		if nullableEnabled && column.Nullable && !kind.IsArray() {
-			colType = fmt.Sprintf("Nullable(%s)", colType)
+			if colType == "LowCardinality(String)" {
+				colType = "LowCardinality(Nullable(String))"
+			} else {
+				colType = fmt.Sprintf("Nullable(%s)", colType)
+			}
 		}
 	default:
 		return "", fmt.Errorf("unknown dwh type: %v", dwhType)
 	}
 	return colType, nil
+}
+
+func ShouldUseNativeJSONType(ctx context.Context, env map[string]string, chVersion *chproto.Version) bool {
+	if chVersion == nil {
+		return false
+	}
+	// JSON data type is marked as production ready in version ClickHouse 25.3
+	isJsonSupported := chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 3, Patch: 0}, *chVersion)
+	// Treat error the same as not enabled
+	isJsonEnabled, _ := internal.PeerDBEnableClickHouseJSON(ctx, env)
+	return isJsonSupported && isJsonEnabled
 }

@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
-	"strings"
 
+	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared"
+	peerdb_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
 func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {
@@ -23,32 +22,20 @@ func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*ut
 	return nil
 }
 
-func (c *MySqlConnector) CheckReplicationPermissions(ctx context.Context) error {
-	rs, err := c.Execute(ctx, "SHOW GRANTS FOR CURRENT_USER()")
-	if err != nil {
-		return fmt.Errorf("failed to check replication privileges: %w", err)
-	}
-
-	for _, row := range rs.Values {
-		grant := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
-		for permission := range strings.FieldsFuncSeq(grant, func(r rune) bool { return r == ',' }) {
-			permission = strings.TrimSpace(permission)
-			if permission == "REPLICATION SLAVE" || permission == "REPLICATION CLIENT" {
-				return nil
+func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
+	// GTID -> check GTID and error out if not enabled, check filepos as well
+	// AUTO -> check GTID and fall back to filepos check
+	// FILEPOS -> check filepos only
+	if c.config.ReplicationMechanism != protos.MySqlReplicationMechanism_MYSQL_FILEPOS {
+		if _, err := c.GetMasterGTIDSet(ctx); err != nil {
+			if c.config.ReplicationMechanism == protos.MySqlReplicationMechanism_MYSQL_GTID {
+				return fmt.Errorf("failed to check replication status: %w", err)
 			}
 		}
 	}
-
-	return errors.New("MySQL user does not have replication privileges")
-}
-
-func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error {
-	namePos, err := c.GetMasterPos(ctx)
-	if err != nil {
+	if namePos, err := c.GetMasterPos(ctx); err != nil {
 		return fmt.Errorf("failed to check replication status: %w", err)
-	}
-
-	if namePos.Name == "" || namePos.Pos <= 0 {
+	} else if namePos.Name == "" || namePos.Pos <= 0 {
 		return errors.New("invalid replication status: missing log file or position")
 	}
 
@@ -56,74 +43,36 @@ func (c *MySqlConnector) CheckReplicationConnectivity(ctx context.Context) error
 }
 
 func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMetadata bool) error {
-	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MYSQL {
-		return nil
-	}
+	for conn, err := range c.withRetries(ctx) {
+		if err != nil {
+			return err
+		}
 
-	cmp, err := c.CompareServerVersion(ctx, "8.0.1")
-	if err != nil {
-		return fmt.Errorf("failed to get server version: %w", err)
-	}
-	if cmp < 0 {
-		c.logger.Warn("cannot validate mysql prior to 8.0.1")
-		return nil
-	}
-	query := "SELECT @@binlog_expire_logs_seconds, @@binlog_format, @@binlog_row_image, @@binlog_row_metadata"
-
-	checkRowValueOptions := false
-	cmp, err = c.CompareServerVersion(ctx, "8.0.3")
-	if err != nil {
-		return fmt.Errorf("failed to get server version: %w", err)
-	}
-	if cmp >= 0 {
-		checkRowValueOptions = true
-		query += ", @@binlog_row_value_options"
-	}
-
-	rs, err := c.Execute(ctx, query)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve settings: %w", err)
-	}
-	if len(rs.Values) == 0 {
-		return errors.New("no value returned for settings")
-	}
-	row := rs.Values[0]
-
-	binlogExpireLogsSeconds := row[0].AsUint64()
-	if binlogExpireLogsSeconds < 86400 {
-		c.logger.Warn("binlog_expire_logs_seconds should be at least 24 hours",
-			slog.Uint64("binlog_expire_logs_seconds", binlogExpireLogsSeconds))
-	}
-
-	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(row[1].AsString())
-	if binlogFormat != "ROW" {
-		return errors.New("binlog_format must be set to 'ROW', currently " + binlogFormat)
-	}
-
-	if checkRowValueOptions {
-		binlogRowValueOptions := shared.UnsafeFastReadOnlyBytesToString(row[4].AsString())
-		if binlogRowValueOptions != "" {
-			return errors.New("binlog_row_value_options must be disabled, currently " + binlogRowValueOptions)
+		switch c.config.Flavor {
+		case protos.MySqlFlavor_MYSQL_MARIA:
+			return peerdb_mysql.CheckMariaDBBinlogSettings(conn, c.logger)
+		case protos.MySqlFlavor_MYSQL_MYSQL:
+			cmp, err := c.CompareServerVersion(ctx, "8.0.1")
+			if err != nil {
+				return fmt.Errorf("failed to get server version: %w", err)
+			}
+			if cmp < 0 {
+				if requireRowMetadata {
+					return errors.New(
+						"MySQL version too old for column exclusion support, " +
+							"please disable it or upgrade to >8.0.1 (binlog_row_metadata needed)",
+					)
+				}
+				c.logger.Warn("cannot validate mysql prior to 8.0.1, falling back to MySQL 5.7 check")
+				return peerdb_mysql.CheckMySQL5BinlogSettings(conn, c.logger)
+			} else {
+				return peerdb_mysql.CheckMySQL8BinlogSettings(conn, c.logger)
+			}
+		default:
+			return fmt.Errorf("unsupported MySQL flavor: %s", c.config.Flavor.String())
 		}
 	}
-
-	binlogRowMetadata := shared.UnsafeFastReadOnlyBytesToString(row[3].AsString())
-	if binlogRowMetadata != "FULL" {
-		if requireRowMetadata {
-			return errors.New("binlog_row_metadata must be set to 'FULL' for column exclusion support, currently " + binlogRowMetadata)
-		} else {
-			c.logger.Warn("binlog_row_metadata should be set to 'FULL' for more reliable replication",
-				slog.String("binlog_row_metadata", strings.Clone(binlogRowMetadata)))
-		}
-	}
-
-	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[2].AsString())
-	if binlogRowImage != "FULL" {
-		c.logger.Warn("binlog_row_image should be set to 'FULL' to avoid missing data",
-			slog.String("binlog_row_image", strings.Clone(binlogRowImage)))
-	}
-
-	return nil
+	return errors.New("failed to connect to MySQL server")
 }
 
 func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
@@ -136,16 +85,28 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		sourceTables = append(sourceTables, parsedTable)
 	}
 
+	if err := c.CheckSourceTables(ctx, sourceTables); err != nil {
+		return fmt.Errorf("provided source tables invalidated: %w", err)
+	}
+	// no need to check replication stuff for initial snapshot only mirrors
+	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
+		return nil
+	}
+
 	if err := c.CheckReplicationConnectivity(ctx); err != nil {
 		return fmt.Errorf("unable to establish replication connectivity: %w", err)
 	}
 
-	if err := c.CheckReplicationPermissions(ctx); err != nil {
-		return fmt.Errorf("failed to check replication permissions: %w", err)
-	}
+	for conn, err := range c.withRetries(ctx) {
+		if err != nil {
+			return err
+		}
 
-	if err := c.CheckSourceTables(ctx, sourceTables); err != nil {
-		return fmt.Errorf("provided source tables invalidated: %w", err)
+		if isVitess, err := peerdb_mysql.IsVitess(conn); err != nil {
+			return err
+		} else if isVitess && !(cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly) {
+			return errors.New("vitess is currently not supported for MySQL mirrors in CDC")
+		}
 	}
 
 	requireRowMetadata := false
@@ -158,36 +119,48 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	if err := c.CheckBinlogSettings(ctx, requireRowMetadata); err != nil {
 		return fmt.Errorf("binlog configuration error: %w", err)
 	}
+	for conn, err := range c.withRetries(ctx) {
+		if err != nil {
+			return err
+		}
+		if err := peerdb_mysql.CheckRDSBinlogSettings(conn, c.logger); err != nil {
+			return fmt.Errorf("binlog configuration error: %w", err)
+		}
+	}
 
 	return nil
 }
 
 func (c *MySqlConnector) ValidateCheck(ctx context.Context) error {
-	if _, err := c.Execute(ctx, "select @@gtid_mode"); err != nil {
-		var mErr *mysql.MyError
-		// seems to be MariaDB
-		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE && c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
-			return errors.New("server appears to be MariaDB but flavor is not set to MariaDB")
-		} else {
-			return nil
-		}
-	}
-	if c.config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		return errors.New("flavor is set to MariaDB but the server appears to be MySQL")
-	} else if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
+	if c.config.Flavor == protos.MySqlFlavor_MYSQL_UNKNOWN {
 		return errors.New("flavor is set to unknown")
 	}
 
-	if err := c.CheckReplicationConnectivity(ctx); err != nil {
-		return fmt.Errorf("unable to establish replication connectivity: %w", err)
+	for conn, err := range c.withRetries(ctx) {
+		if err != nil {
+			return err
+		}
+		return c.validateFlavor(conn)
 	}
+	return errors.New("failed to connect to MySQL server")
+}
 
-	if err := c.CheckReplicationPermissions(ctx); err != nil {
-		return fmt.Errorf("failed to check replication permissions: %w", err)
-	}
-
-	if err := c.CheckBinlogSettings(ctx, false); err != nil {
-		return fmt.Errorf("binlog configuration error: %w", err)
+func (c *MySqlConnector) validateFlavor(conn *client.Conn) error {
+	// MariaDB specific setting, introduced in MariaDB 10.0.3
+	if rs, err := conn.Execute("SELECT @@gtid_strict_mode"); err != nil {
+		var mErr *mysql.MyError
+		// seems to be MySQL
+		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			if c.config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+				return errors.New("server appears to be MySQL but MariaDB source has been selected")
+			}
+		} else {
+			return fmt.Errorf("failed to check GTID mode: %w", err)
+		}
+	} else if len(rs.Values) > 0 {
+		if c.config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+			return errors.New("server appears to be MariaDB but MySQL source has been selected")
+		}
 	}
 
 	return nil

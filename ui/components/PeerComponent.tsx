@@ -15,8 +15,6 @@ export function DBTypeToImageMapping(peerType: DBType | string) {
       return '/svgs/rds.svg';
     case 'GOOGLE CLOUD POSTGRESQL':
       return '/svgs/gcp.svg';
-    case 'TEMBO':
-      return '/images/tembo.png';
     case 'CRUNCHY POSTGRES':
       return '/images/crunchy.png';
     case 'NEON':
@@ -57,6 +55,9 @@ export function DBTypeToImageMapping(peerType: DBType | string) {
     case DBType.ELASTICSEARCH:
     case 'ELASTICSEARCH':
       return '/svgs/elasticsearch.svg';
+    case DBType.MONGO:
+    case 'MONGO':
+      return '/svgs/mongo.svg';
     default:
       return '/svgs/pg.svg';
   }

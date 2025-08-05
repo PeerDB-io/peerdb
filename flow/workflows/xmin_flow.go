@@ -26,7 +26,7 @@ func XminFlowWorkflow(
 	if state == nil {
 		state = newQRepFlowState()
 		// needed only for xmin mirrors
-		state.LastPartition.PartitionId = uuid.New().String()
+		state.LastPartition.PartitionId = uuid.NewString()
 	}
 
 	if err := setWorkflowQueries(ctx, state); err != nil {
@@ -42,7 +42,7 @@ func XminFlowWorkflow(
 		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
 		startTime := workflow.Now(ctx)
 		q.activeSignal = model.PauseSignal
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 
 		for q.activeSignal == model.PauseSignal {
 			logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
@@ -54,7 +54,7 @@ func XminFlowWorkflow(
 				return state, err
 			}
 		}
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
 
 	if err := q.setupWatermarkTableOnDestination(ctx); err != nil {
@@ -122,7 +122,7 @@ func XminFlowWorkflow(
 		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 	}
 	return state, workflow.NewContinueAsNewError(ctx, XminFlowWorkflow, config, state)
 }

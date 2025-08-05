@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type mergeStmtGenerator struct {
@@ -24,7 +24,7 @@ type mergeStmtGenerator struct {
 
 // generateFlattenedCTE generates a flattened CTE.
 func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTableSchema *protos.TableSchema) string {
-	// for each column in the normalized table, generate CAST + JSON_EXTRACT_SCALAR
+	// for each column in the normalized table, generate CAST + JSON_VALUE
 	// statement.
 	flattenedProjs := make([]string, 0, len(normalizedTableSchema.Columns)+3)
 
@@ -33,40 +33,26 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 		bqTypeString := qValueKindToBigQueryTypeString(column, normalizedTableSchema.NullableEnabled, true)
 		var castStmt string
 		shortCol := m.shortColumn[column.Name]
-		switch qvalue.QValueKind(colType) {
-		case qvalue.QValueKindJSON, qvalue.QValueKindJSONB, qvalue.QValueKindHStore:
+		switch types.QValueKind(colType) {
+		case types.QValueKindJSON, types.QValueKindJSONB, types.QValueKindHStore:
 			// if the type is JSON, then just extract JSON
 			castStmt = fmt.Sprintf("CAST(PARSE_JSON(JSON_VALUE(_peerdb_data, '$.%s'),wide_number_mode=>'round') AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)
 		// expecting data in BASE64 format
-		case qvalue.QValueKindBytes:
+		case types.QValueKindBytes:
 			castStmt = fmt.Sprintf("FROM_BASE64(JSON_VALUE(_peerdb_data,'$.%s')) AS `%s`",
 				column.Name, shortCol)
-		case qvalue.QValueKindArrayFloat32, qvalue.QValueKindArrayFloat64, qvalue.QValueKindArrayInt16,
-			qvalue.QValueKindArrayInt32, qvalue.QValueKindArrayInt64, qvalue.QValueKindArrayString,
-			qvalue.QValueKindArrayBoolean, qvalue.QValueKindArrayTimestamp, qvalue.QValueKindArrayTimestampTZ,
-			qvalue.QValueKindArrayDate, qvalue.QValueKindArrayUUID:
+		case types.QValueKindArrayFloat32, types.QValueKindArrayFloat64, types.QValueKindArrayInt16,
+			types.QValueKindArrayInt32, types.QValueKindArrayInt64, types.QValueKindArrayString,
+			types.QValueKindArrayBoolean, types.QValueKindArrayTimestamp, types.QValueKindArrayTimestampTZ,
+			types.QValueKindArrayDate, types.QValueKindArrayInterval, types.QValueKindArrayUUID,
+			types.QValueKindArrayNumeric, types.QValueKindArrayEnum:
 			castStmt = fmt.Sprintf("ARRAY(SELECT CAST(element AS %s) FROM "+
 				"UNNEST(CAST(JSON_VALUE_ARRAY(_peerdb_data, '$.%s') AS ARRAY<STRING>)) AS element WHERE element IS NOT null) AS `%s`",
 				bqTypeString, column.Name, shortCol)
-		case qvalue.QValueKindGeography, qvalue.QValueKindGeometry, qvalue.QValueKindPoint:
+		case types.QValueKindGeography, types.QValueKindGeometry, types.QValueKindPoint:
 			castStmt = fmt.Sprintf("CAST(ST_GEOGFROMTEXT(JSON_VALUE(_peerdb_data, '$.%s')) AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)
-		// MAKE_INTERVAL(years INT64, months INT64, days INT64, hours INT64, minutes INT64, seconds INT64)
-		// Expecting interval to be in the format of {"Microseconds":2000000,"Days":0,"Months":0,"Valid":true}
-		// json.Marshal in SyncRecords for Postgres already does this - once new data-stores are added,
-		// this needs to be handled again
-		// TODO add interval types again
-		// case model.ColumnTypeInterval:
-		// castStmt = fmt.Sprintf("MAKE_INTERVAL(0,CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Months') AS INT64),"+
-		// 	"CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Days') AS INT64),0,0,"+
-		// 	"CAST(CAST(JSON_EXTRACT_SCALAR(_peerdb_data, '$.%s.Microseconds') AS INT64)/1000000 AS  INT64)) AS %s",
-		// 	column.Name, column.Name, column.Name, column.Name)
-		// TODO add proper granularity for time types, then restore this
-		// case model.ColumnTypeTime:
-		// 	castStmt = fmt.Sprintf("time(timestamp_micros(CAST(JSON_EXTRACT(_peerdb_data, '$.%s.Microseconds')"+
-		// 		" AS int64))) AS %s",
-		// 		column.Name, column.Name)
 		default:
 			castStmt = fmt.Sprintf("CAST(JSON_VALUE(_peerdb_data, '$.%s') AS %s) AS `%s`",
 				column.Name, bqTypeString, shortCol)
@@ -90,9 +76,9 @@ func (m *mergeStmtGenerator) generateFlattenedCTE(dstTable string, normalizedTab
 // This function is to support datatypes like JSON which cannot be partitioned by or compared by BigQuery
 func (m *mergeStmtGenerator) transformedPkeyStrings(normalizedTableSchema *protos.TableSchema, forPartition bool) []string {
 	pkeys := make([]string, 0, len(normalizedTableSchema.PrimaryKeyColumns))
-	columnNameTypeMap := make(map[string]qvalue.QValueKind, len(normalizedTableSchema.Columns))
+	columnNameTypeMap := make(map[string]types.QValueKind, len(normalizedTableSchema.Columns))
 	for _, col := range normalizedTableSchema.Columns {
-		columnNameTypeMap[col.Name] = qvalue.QValueKind(col.Type)
+		columnNameTypeMap[col.Name] = types.QValueKind(col.Type)
 	}
 
 	for _, pkeyCol := range normalizedTableSchema.PrimaryKeyColumns {
@@ -101,14 +87,14 @@ func (m *mergeStmtGenerator) transformedPkeyStrings(normalizedTableSchema *proto
 			continue
 		}
 		switch pkeyColType {
-		case qvalue.QValueKindJSON:
+		case types.QValueKindJSON, types.QValueKindJSONB:
 			if forPartition {
 				pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(%s)", m.shortColumn[pkeyCol]))
 			} else {
 				pkeys = append(pkeys, fmt.Sprintf("TO_JSON_STRING(_t.`%s`)=TO_JSON_STRING(_d.%s)",
 					pkeyCol, m.shortColumn[pkeyCol]))
 			}
-		case qvalue.QValueKindFloat32, qvalue.QValueKindFloat64:
+		case types.QValueKindFloat32, types.QValueKindFloat64:
 			if forPartition {
 				pkeys = append(pkeys, fmt.Sprintf("CAST(%s as STRING)", m.shortColumn[pkeyCol]))
 			} else {

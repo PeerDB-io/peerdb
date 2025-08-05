@@ -24,18 +24,18 @@ func (c *KafkaConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, shared.QRepWarnings, error) {
 	startTime := time.Now()
 	numRecords := atomic.Int64{}
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, nil, queueErr)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer pool.Close()
 
@@ -107,14 +107,14 @@ Loop:
 	}
 
 	if err := pool.Wait(queueCtx); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	if err := c.client.Flush(queueCtx); err != nil {
-		return 0, fmt.Errorf("[kafka] final flush error: %w", err)
+		return 0, nil, fmt.Errorf("[kafka] final flush error: %w", err)
 	}
 
 	if err := c.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	return int(numRecords.Load()), nil
+	return numRecords.Load(), nil, nil
 }

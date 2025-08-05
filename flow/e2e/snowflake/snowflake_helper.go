@@ -13,16 +13,16 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type SnowflakeTestHelper struct {
 	// config is the Snowflake config.
 	Config *protos.SnowflakeConfig
 	// connection to another database, to manage the test database
-	adminClient *connsnowflake.SnowflakeClient
+	adminClient *connsnowflake.SnowflakeConnector
 	// connection to the test database
-	testClient *connsnowflake.SnowflakeClient
+	testClient *connsnowflake.SnowflakeConnector
 	// testSchemaName is the schema to use for testing.
 	testSchemaName string
 	// dbName is the database used for testing.
@@ -51,11 +51,11 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 	runID := rand.Uint64()
 	testDatabaseName := fmt.Sprintf("e2e_test_%d", runID)
 
-	adminClient, err := connsnowflake.NewSnowflakeClient(t.Context(), config)
+	adminClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
-	err = adminClient.ExecuteQuery(
+	_, err = adminClient.ExecContext(
 		t.Context(),
 		fmt.Sprintf("CREATE TRANSIENT DATABASE %s DATA_RETENTION_TIME_IN_DAYS = 0", testDatabaseName),
 	)
@@ -64,7 +64,7 @@ func NewSnowflakeTestHelper(t *testing.T) (*SnowflakeTestHelper, error) {
 	}
 
 	config.Database = testDatabaseName
-	testClient, err := connsnowflake.NewSnowflakeClient(t.Context(), config)
+	testClient, err := connsnowflake.NewSnowflakeConnector(t.Context(), config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Snowflake client: %w", err)
 	}
@@ -83,7 +83,7 @@ func (s *SnowflakeTestHelper) Cleanup(ctx context.Context) error {
 	if err := s.testClient.Close(); err != nil {
 		return err
 	}
-	if err := s.adminClient.ExecuteQuery(ctx, "DROP DATABASE "+s.testDatabaseName); err != nil {
+	if _, err := s.adminClient.ExecContext(ctx, "DROP DATABASE "+s.testDatabaseName); err != nil {
 		return err
 	}
 	return s.adminClient.Close()
@@ -91,7 +91,8 @@ func (s *SnowflakeTestHelper) Cleanup(ctx context.Context) error {
 
 // RunCommand runs the given command.
 func (s *SnowflakeTestHelper) RunCommand(ctx context.Context, command string) error {
-	return s.testClient.ExecuteQuery(ctx, command)
+	_, err := s.testClient.ExecContext(ctx, command)
+	return err
 }
 
 // CountRows(tableName) returns the number of rows in the given table.
@@ -116,10 +117,6 @@ func (s *SnowflakeTestHelper) ExecuteAndProcessQuery(ctx context.Context, query 
 	return s.testClient.ExecuteAndProcessQuery(ctx, query)
 }
 
-func (s *SnowflakeTestHelper) CreateTable(ctx context.Context, tableName string, schema *qvalue.QRecordSchema) error {
-	return s.testClient.CreateTable(ctx, schema, s.testSchemaName, tableName)
-}
-
 // runs a query that returns an int result
 func (s *SnowflakeTestHelper) RunIntQuery(ctx context.Context, query string) (int, error) {
 	rows, err := s.testClient.ExecuteAndProcessQuery(ctx, query)
@@ -141,11 +138,11 @@ func (s *SnowflakeTestHelper) RunIntQuery(ctx context.Context, query string) (in
 	}
 
 	switch v := rec[0].(type) {
-	case qvalue.QValueInt32:
+	case types.QValueInt32:
 		return int(v.Val), nil
-	case qvalue.QValueInt64:
+	case types.QValueInt64:
 		return int(v.Val), nil
-	case qvalue.QValueNumeric:
+	case types.QValueNumeric:
 		return int(v.Val.IntPart()), nil
 	default:
 		return 0, fmt.Errorf("failed to execute query: %s, returned value of type %s", query, rec[0].Kind())
@@ -160,7 +157,7 @@ func (s *SnowflakeTestHelper) checkSyncedAt(ctx context.Context, query string) e
 
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
-			_, ok := entry.(qvalue.QValueTimestamp)
+			_, ok := entry.(types.QValueTimestamp)
 			if !ok {
 				return errors.New("synced_at column failed: _PEERDB_SYNCED_AT is not a timestamp")
 			}
@@ -178,7 +175,7 @@ func (s *SnowflakeTestHelper) checkIsDeleted(ctx context.Context, query string) 
 
 	for _, record := range recordBatch.Records {
 		for _, entry := range record {
-			_, ok := entry.(qvalue.QValueBoolean)
+			_, ok := entry.(types.QValueBoolean)
 			if !ok {
 				return errors.New("is_deleted column failed: _PEERDB_IS_DELETED is not a boolean")
 			}

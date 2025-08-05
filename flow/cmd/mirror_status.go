@@ -84,12 +84,10 @@ func (h *FlowRequestHandler) MirrorStatus(
 	}
 
 	if req.IncludeFlowInfo {
-		cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName)
-		if err != nil {
+		if cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 			slog.Error("unable to determine if mirror is cdc", slog.Any("error", err))
 			return nil, fmt.Errorf("unable to determine if mirror %s is of type CDC: %w", req.FlowJobName, err)
-		}
-		if cdcFlow {
+		} else if cdcFlow {
 			cdcStatus, err := h.cdcFlowStatus(ctx, req)
 			if err != nil {
 				slog.Error("unable to obtain CDC information for mirror", slog.Any("error", err))
@@ -204,36 +202,79 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 	}, nil
 }
 
-func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
-	truncField := "minute"
-	switch req.AggregateType {
-	case "1hour":
-		truncField = "hour"
-	case "1day":
-		truncField = "day"
-	case "1month":
-		truncField = "month"
+// returns truncation, tick size, & number of ticks
+func getGraphParams(aggType protos.TimeAggregateType, mode protos.GraphMode) (string, string, int) {
+	switch aggType {
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_FIVE_MIN:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			return "1 minute", "minute", 5
+		}
+		return "minute", "5 minutes", 30
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_FIFTEEN_MIN:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			return "minute", "1 minute", 30
+		}
+		return "minute", "15 minutes", 30
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_ONE_HOUR:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			return "minute", "1 minute", 60
+		}
+		return "hour", "1 hour", 30
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_ONE_DAY:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			return "hour", "1 hour", 24
+		}
+		return "day", "1 day", 30
+	case protos.TimeAggregateType_TIME_AGGREGATE_TYPE_ONE_MONTH:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			return "day", "1 day", 30
+		}
+		return "month", "1 month", 30
+	default:
+		if mode == protos.GraphMode_GRAPH_MODE_LAST_X {
+			return "minute", "1 minute", 60
+		}
+		return "hour", "1 hour", 30
 	}
-	rows, err := h.pool.Query(ctx, `select tm, coalesce(sum(rows_in_batch), 0)
-	from generate_series(date_trunc($2, now() - $1::INTERVAL * 30), now(), $1::INTERVAL) tm
-	left join peerdb_stats.cdc_batches on start_time >= tm and start_time < tm + $1::INTERVAL and flow_name = $3
-	group by 1 order by 1`, req.AggregateType, truncField, req.FlowJobName)
+}
+
+func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequest) (*protos.GraphResponse, error) {
+	truncUnit, tickInterval, numberOfTicks := getGraphParams(req.AggregateType, req.Mode)
+	rows, err := h.pool.Query(ctx, `
+		SELECT tm, COALESCE(SUM(rows_in_batch), 0)
+		FROM generate_series(
+			date_trunc($2, now() - $1::INTERVAL * $3),
+			now(),
+			$1::INTERVAL
+		) tm
+		LEFT JOIN peerdb_stats.cdc_batches
+			ON start_time >= tm AND start_time < tm + $1::INTERVAL
+			AND flow_name = $4
+		GROUP BY 1
+		ORDER BY 1
+	`, tickInterval, truncUnit, numberOfTicks, req.FlowJobName)
 	if err != nil {
 		return nil, err
 	}
+
+	var totalRows int64
 	data, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.GraphResponseItem, error) {
 		var t time.Time
 		var r int64
 		if err := row.Scan(&t, &r); err != nil {
 			return nil, err
 		}
+		totalRows += r
 		return &protos.GraphResponseItem{Time: float64(t.UnixMilli()), Rows: float64(r)}, nil
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return &protos.GraphResponse{Data: data}, nil
+	return &protos.GraphResponse{
+		Data:      data,
+		TotalRows: totalRows,
+	}, nil
 }
 
 func (h *FlowRequestHandler) InitialLoadSummary(
@@ -295,7 +336,9 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 			return nil, fmt.Errorf("unable to scan initial load partition - %s: %w", parentMirrorName, err)
 		}
 
-		var res protos.CloneTableSummary
+		res := &protos.CloneTableSummary{
+			MirrorName: parentMirrorName,
+		}
 
 		if flowName.Valid {
 			res.FlowJobName = flowName.String
@@ -337,9 +380,7 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 			res.AvgTimePerPartitionMs = int64(avgTimePerPartitionMs.Float64)
 		}
 
-		res.MirrorName = parentMirrorName
-
-		cloneStatuses = append(cloneStatuses, &res)
+		cloneStatuses = append(cloneStatuses, res)
 	}
 	return &protos.InitialLoadSummaryResponse{
 		TableSummaries: cloneStatuses,
@@ -353,7 +394,6 @@ func (h *FlowRequestHandler) qrepFlowStatus(
 	slog.Info("QRep Flow status endpoint called", slog.String(string(shared.FlowNameKey), req.FlowJobName))
 	partitionStatuses, err := h.getPartitionStatuses(ctx, req.FlowJobName)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query qrep partition - %s: %s", req.FlowJobName, err.Error()))
 		return nil, err
 	}
 
@@ -371,7 +411,8 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 	q := "SELECT partition_uuid,start_time,end_time,rows_in_partition,rows_synced FROM peerdb_stats.qrep_partitions WHERE flow_name=$1"
 	rows, err := h.pool.Query(ctx, q, flowJobName)
 	if err != nil {
-		slog.Error(fmt.Sprintf("unable to query qrep partition - %s: %s", flowJobName, err.Error()))
+		slog.Error("unable to query qrep partition",
+			slog.String("flow", flowJobName), slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query qrep partition - %s: %w", flowJobName, err)
 	}
 
@@ -386,7 +427,8 @@ func (h *FlowRequestHandler) getPartitionStatuses(
 
 	for rows.Next() {
 		if err := rows.Scan(&partitionId, &startTime, &endTime, &numRowsInPartition, &numRowsSynced); err != nil {
-			slog.Error(fmt.Sprintf("unable to scan qrep partition - %s: %s", flowJobName, err.Error()))
+			slog.Error("unable to scan qrep partition",
+				slog.String("flow", flowJobName), slog.Any("error", err))
 			return nil, fmt.Errorf("unable to scan qrep partition - %s: %w", flowJobName, err)
 		}
 
@@ -419,16 +461,15 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 	flowJobName string,
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
-	err := h.pool.QueryRow(ctx,
-		"SELECT config_proto FROM flows WHERE name = $1", flowJobName).Scan(&configBytes)
-	if err != nil {
+	if err := h.pool.QueryRow(ctx,
+		"SELECT config_proto FROM flows WHERE name = $1", flowJobName,
+	).Scan(&configBytes); err != nil {
 		slog.Error("unable to query flow config from catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
 	}
 
 	var config protos.FlowConnectionConfigs
-	err = proto.Unmarshal(configBytes, &config)
-	if err != nil {
+	if err := proto.Unmarshal(configBytes, &config); err != nil {
 		slog.Error("unable to unmarshal flow config", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}
@@ -438,9 +479,9 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 
 func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) (bool, error) {
 	var isCdc bool
-	err := h.pool.QueryRow(ctx, "SELECT exists(SELECT * FROM flows WHERE name=$1 and coalesce(query_string, '')='')",
-		flowJobName).Scan(&isCdc)
-	if err != nil {
+	if err := h.pool.QueryRow(
+		ctx, "SELECT exists(SELECT * FROM flows WHERE name=$1 and coalesce(query_string, '')='')", flowJobName,
+	).Scan(&isCdc); err != nil {
 		slog.Error("unable to query flow", slog.Any("error", err))
 		return false, fmt.Errorf("unable to query flow: %w", err)
 	}
@@ -448,7 +489,7 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 }
 
 func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
-	return internal.GetWorkflowStatus(ctx, h.temporalClient, workflowID)
+	return internal.GetWorkflowStatus(ctx, h.pool, workflowID)
 }
 
 func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
@@ -595,6 +636,38 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		CdcBatches: batches,
 		Total:      total,
 		Page:       page,
+	}, nil
+}
+
+func (h *FlowRequestHandler) TotalRowsSyncedByMirror(
+	ctx context.Context,
+	req *protos.TotalRowsSyncedByMirrorRequest,
+) (*protos.TotalRowsSyncedByMirrorResponse, error) {
+	var totalRowsCDC int64
+	var totalRowsInitialLoad int64
+	if !req.ExcludeCdc {
+		cdcErr := h.pool.QueryRow(ctx, `SELECT SUM(total_count)
+		FROM peerdb_stats.cdc_table_aggregate_counts
+		WHERE flow_name = $1`, req.FlowJobName).Scan(&totalRowsCDC)
+		if cdcErr != nil {
+			return nil, fmt.Errorf("unable to get total rows synced via CDC for mirror %s: %w", req.FlowJobName, cdcErr)
+		}
+	}
+
+	if !req.ExcludeInitialLoad {
+		err := h.pool.QueryRow(ctx, `
+		SELECT SUM(rows_in_partition) AS NumRowsSynced
+        FROM peerdb_stats.qrep_partitions
+        WHERE parent_mirror_name = $1 AND end_time IS NOT NULL`, req.FlowJobName).Scan(&totalRowsInitialLoad)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get total rows synced via CDC for mirror %s: %w", req.FlowJobName, err)
+		}
+	}
+
+	return &protos.TotalRowsSyncedByMirrorResponse{
+		TotalCountCDC:         totalRowsCDC,
+		TotalCountInitialLoad: totalRowsInitialLoad,
+		TotalCount:            totalRowsCDC + totalRowsInitialLoad,
 	}, nil
 }
 

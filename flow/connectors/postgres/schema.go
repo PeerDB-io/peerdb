@@ -2,7 +2,6 @@ package connpostgres
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
 	"github.com/jackc/pgx/v5"
@@ -99,9 +98,10 @@ func (c *PostgresConnector) GetTablesInSchema(
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }
 
-func (c *PostgresConnector) GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error) {
+func (c *PostgresConnector) GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error) {
 	rows, err := c.conn.Query(ctx, `SELECT
     DISTINCT attname AS column_name,
+    atttypid AS oid,
     format_type(atttypid, atttypmod) AS data_type,
     (pg_constraint.contype = 'p') AS is_primary_key
 	FROM pg_attribute
@@ -119,14 +119,20 @@ func (c *PostgresConnector) GetColumns(ctx context.Context, schema string, table
 		return nil, err
 	}
 
-	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (string, error) {
+	columns, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.ColumnsItem, error) {
 		var columnName pgtype.Text
+		var oid uint32
 		var datatype pgtype.Text
 		var isPkey pgtype.Bool
-		if err := rows.Scan(&columnName, &datatype, &isPkey); err != nil {
-			return "", err
+		if err := rows.Scan(&columnName, &oid, &datatype, &isPkey); err != nil {
+			return nil, err
 		}
-		return fmt.Sprintf("%s:%s:%v", columnName.String, datatype.String, isPkey.Bool), nil
+		return &protos.ColumnsItem{
+			Name:  columnName.String,
+			Type:  datatype.String,
+			IsKey: isPkey.Bool,
+			Qkind: string(c.postgresOIDToQValueKind(oid, c.customTypeMapping, version)),
+		}, nil
 	})
 	if err != nil {
 		return nil, err

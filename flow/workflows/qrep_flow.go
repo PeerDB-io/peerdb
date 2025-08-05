@@ -116,6 +116,7 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		FlowName: q.config.FlowJobName,
 		System:   q.config.System,
 		Env:      q.config.Env,
+		Version:  q.config.Version,
 	}
 
 	return workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil)
@@ -149,6 +150,8 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 				{
 					SourceTableIdentifier:      q.config.WatermarkTable,
 					DestinationTableIdentifier: q.config.DestinationTableIdentifier,
+					Exclude:                    q.config.Exclude,
+					Columns:                    q.config.Columns,
 				},
 			},
 			SyncedAtColName:   q.config.SyncedAtColName,
@@ -238,6 +241,7 @@ func (q *QRepFlowExecution) startChildWorkflow(
 			MaximumAttempts: 20,
 		},
 		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
+		WaitForCancellation:   true,
 	})
 
 	return workflow.ExecuteChildWorkflow(partFlowCtx, QRepPartitionWorkflow, q.config, partitions, q.runUUID)
@@ -323,6 +327,7 @@ func (q *QRepFlowExecution) waitForNewRows(
 	ctx = workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 		ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
+		WaitForCancellation:   true,
 	})
 	future := workflow.ExecuteChildWorkflow(ctx, QRepWaitForNewRowsWorkflow, q.config, lastPartition)
 
@@ -426,11 +431,10 @@ func setWorkflowQueries(ctx workflow.Context, state *protos.QRepFlowState) error
 	}
 
 	// Support a Query for the current status of the qrep flow.
-	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
+	_ = workflow.SetQueryHandler(ctx, "q-flow-status", func() (protos.FlowStatus, error) {
+		// no longer used, handler kept to avoid nondeterminism
 		return state.CurrentFlowStatus, nil
-	}); err != nil {
-		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
-	}
+	})
 
 	return nil
 }
@@ -482,6 +486,14 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	return nil
 }
 
+func updateStatus(ctx workflow.Context, logger log.Logger, state *protos.QRepFlowState, status protos.FlowStatus) {
+	state.CurrentFlowStatus = status
+	// update the status in the catalog only if this is the root workflow
+	if workflow.GetInfo(ctx).ParentWorkflowExecution == nil {
+		syncStatusToCatalog(ctx, logger, status)
+	}
+}
+
 func QRepFlowWorkflow(
 	ctx workflow.Context,
 	config *protos.QRepConfig,
@@ -516,7 +528,7 @@ func QRepFlowWorkflow(
 		state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED {
 		startTime := workflow.Now(ctx)
 		q.activeSignal = model.PauseSignal
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 
 		for q.activeSignal == model.PauseSignal {
 			q.logger.Info(fmt.Sprintf("mirror has been paused for %s", time.Since(startTime).Round(time.Second)))
@@ -528,7 +540,7 @@ func QRepFlowWorkflow(
 				return state, err
 			}
 		}
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_RUNNING
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_RUNNING)
 	}
 
 	maxParallelWorkers := 16
@@ -582,7 +594,7 @@ func QRepFlowWorkflow(
 
 		if config.InitialCopyOnly {
 			q.logger.Info("initial copy completed for peer flow")
-			state.CurrentFlowStatus = protos.FlowStatus_STATUS_COMPLETED
+			updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_COMPLETED)
 			return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 		}
 
@@ -612,7 +624,7 @@ func QRepFlowWorkflow(
 		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
-		state.CurrentFlowStatus = protos.FlowStatus_STATUS_PAUSED
+		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
 	}
 	return state, workflow.NewContinueAsNewError(ctx, QRepFlowWorkflow, config, state)
 }

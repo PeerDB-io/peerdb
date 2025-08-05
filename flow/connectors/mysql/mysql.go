@@ -3,7 +3,6 @@ package connmysql
 import (
 	"context"
 	"crypto/tls"
-	"crypto/x509"
 	"errors"
 	"fmt"
 	"iter"
@@ -15,20 +14,25 @@ import (
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
+	"google.golang.org/protobuf/proto"
 
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config   *protos.MySqlConfig
-	ssh      utils.SSHTunnel
-	conn     atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts chan context.Context
-	logger   log.Logger
+	config        *protos.MySqlConfig
+	ssh           utils.SSHTunnel
+	conn          atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts      chan context.Context
+	logger        log.Logger
+	rdsAuth       *utils.RDSAuth
+	serverVersion string
+	bytesRead     atomic.Int64
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -40,6 +44,17 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
+	logger := internal.LoggerFromCtx(ctx)
+	var rdsAuth *utils.RDSAuth
+	if config.AuthType == protos.MySqlAuthType_MYSQL_IAM_AUTH {
+		rdsAuth = &utils.RDSAuth{
+			AwsAuthConfig: config.AwsAuth,
+		}
+		if err := rdsAuth.VerifyAuthConfig(); err != nil {
+			logger.Error("failed to verify auth config", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to verify auth config: %w", err)
+		}
+	}
 	contexts := make(chan context.Context)
 	c := &MySqlConnector{
 		PostgresMetadata: pgMetadata,
@@ -47,7 +62,8 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		ssh:              ssh,
 		conn:             atomic.Pointer[client.Conn]{},
 		contexts:         contexts,
-		logger:           internal.LoggerFromCtx(ctx),
+		logger:           logger,
+		rdsAuth:          rdsAuth,
 	}
 	go func() {
 		ctx := context.Background()
@@ -109,35 +125,54 @@ func (c *MySqlConnector) ConnectionActive(context.Context) error {
 }
 
 func (c *MySqlConnector) Dialer() client.Dialer {
-	if c.ssh.Client == nil {
-		return (&net.Dialer{Timeout: time.Minute}).DialContext
+	var meteredDialer utils.MeteredDialer
+	if c.ssh.Client != nil {
+		meteredDialer = utils.NewMeteredDialer(&c.bytesRead, c.ssh.Client.DialContext, false)
+	} else {
+		meteredDialer = utils.NewMeteredDialer(&c.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
-	return func(ctx context.Context, network, addr string) (net.Conn, error) {
-		return c.ssh.Client.DialContext(ctx, network, addr)
-	}
+	return meteredDialer.DialContext
 }
 
 func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 	conn := c.conn.Load()
 	if conn == nil {
 		argF := []client.Option{func(conn *client.Conn) error {
-			conn.SetCapability(mysql.CLIENT_COMPRESS)
+			if c.config.Compression > 0 {
+				conn.SetCapability(mysql.CLIENT_COMPRESS)
+			}
 			if !c.config.DisableTls {
-				tlsSetting := &tls.Config{MinVersion: tls.VersionTLS13, ServerName: c.config.Host}
-				if c.config.RootCa != nil {
-					caPool := x509.NewCertPool()
-					if !caPool.AppendCertsFromPEM([]byte(*c.config.RootCa)) {
-						return errors.New("failed to parse provided root CA")
-					}
-					tlsSetting.RootCAs = caPool
+				config, err := shared.CreateTlsConfig(
+					tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+				)
+				if err != nil {
+					return err
 				}
-				conn.SetTLSConfig(tlsSetting)
+				conn.SetTLSConfig(config)
 			}
 			return nil
 		}}
+		config := c.config
+		if c.rdsAuth != nil {
+			c.logger.Info("Setting up IAM auth for MySQL")
+			host := c.config.Host
+			if c.config.TlsHost != "" {
+				host = c.config.TlsHost
+			}
+			token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
+				Host: host,
+				Port: config.Port,
+				User: config.User,
+			}, c.rdsAuth, "MYSQL")
+			if err != nil {
+				return nil, err
+			}
+			config = proto.CloneOf(config)
+			config.Password = token
+		}
 		var err error
-		conn, err = client.ConnectWithDialer(ctx, "", fmt.Sprintf("%s:%d", c.config.Host, c.config.Port),
-			c.config.User, c.config.Password, c.config.Database, c.Dialer(), argF...)
+		conn, err = client.ConnectWithDialer(ctx, "", shared.JoinHostPort(config.Host, config.Port),
+			config.User, config.Password, config.Database, c.Dialer(), argF...)
 		if err != nil {
 			return nil, err
 		}
@@ -148,6 +183,32 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 		}
 		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
 			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
+		}
+
+		// Set max_execution_time/max_statement_time to 0 (unlimited)
+		switch c.Flavor() {
+		case mysql.MySQLFlavor:
+			// set max_execution_time to unlimited
+			if _, err := conn.Execute("SET SESSION max_execution_time=0;"); err != nil {
+				var mErr *mysql.MyError
+				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+					// max_execution_time is not supported, ignore the error
+					c.logger.Warn("max_execution_time is not supported by the MySQL server, ignoring", slog.Any("error", err))
+				} else {
+					return nil, fmt.Errorf("failed to set max_execution_time to 0: %w", err)
+				}
+			}
+		case mysql.MariaDBFlavor:
+			// set max_statement_time to unlimited
+			if _, err := conn.Execute("SET SESSION max_statement_time=0;"); err != nil {
+				var mErr *mysql.MyError
+				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+					// max_statement_time is not supported, ignore the error
+					c.logger.Warn("max_statement_time is not supported by the MariaDB server, ignoring", slog.Any("error", err))
+				} else {
+					return nil, fmt.Errorf("failed to set max_statement_time to 0: %w", err)
+				}
+			}
 		}
 	}
 	return conn, nil
@@ -251,12 +312,23 @@ func (c *MySqlConnector) GetGtidModeOn(ctx context.Context) (bool, error) {
 }
 
 func (c *MySqlConnector) CompareServerVersion(ctx context.Context, version string) (int, error) {
-	defer c.watchCtx(ctx)()
-	conn, err := c.connect(ctx)
-	if err != nil {
-		return 0, err
+	if c.serverVersion == "" {
+		rr, err := c.Execute(ctx, "SELECT version()")
+		if err != nil {
+			return 0, fmt.Errorf("failed to get server version: %w", err)
+		}
+
+		c.serverVersion, err = rr.GetString(0, 0)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get server version: %w", err)
+		}
 	}
-	return conn.CompareServerVersion(version)
+
+	cmp, err := mysql.CompareServerVersions(c.serverVersion, version)
+	if err != nil {
+		return 0, fmt.Errorf("failed to compare server version: %w", err)
+	}
+	return cmp, nil
 }
 
 func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, error) {
@@ -281,12 +353,20 @@ func (c *MySqlConnector) GetMasterPos(ctx context.Context) (mysql.Position, erro
 }
 
 func (c *MySqlConnector) GetMasterGTIDSet(ctx context.Context) (mysql.GTIDSet, error) {
+	gtidOn, err := c.GetGtidModeOn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check gtid mode: %w", err)
+	}
+	if !gtidOn {
+		return nil, errors.New("gtid mode is not enabled")
+	}
+
 	var query string
 	switch c.Flavor() {
 	case mysql.MariaDBFlavor:
 		query = "select @@gtid_current_pos"
 	default:
-		query = "select @@gtid_executed"
+		query = "select @@GLOBAL.gtid_executed"
 	}
 	rr, err := c.Execute(ctx, query)
 	if err != nil {
@@ -313,4 +393,46 @@ func (c *MySqlConnector) GetVersion(ctx context.Context) (string, error) {
 		return version, nil
 	}
 	return "", errors.New("failed to connect")
+}
+
+func (c *MySqlConnector) StatActivity(
+	ctx context.Context,
+	req *protos.PostgresPeerActivityInfoRequest,
+) (*protos.PeerStatResponse, error) {
+	rs, err := c.Execute(ctx, "SELECT ID,COMMAND,STATE,TIME,INFO FROM performance_schema.processlist WHERE USER=?", c.config.User)
+	if err != nil {
+		// 42S02 is ER_NO_SUCH_TABLE
+		var myErr *mysql.MyError
+		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+			// mariadb
+			rs, err = c.Execute(ctx,
+				"SELECT PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
+					" FROM performance_schema.threads WHERE USER=?", c.config.User)
+			if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
+				rs, err = c.Execute(ctx,
+					"SELECT ID,COMMAND,STATE,TIME,INFO FROM information_schema.processlist WHERE USER=?", c.config.User)
+			}
+		}
+
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	statInfoRows := make([]*protos.StatInfo, len(rs.Values))
+	for idx, row := range rs.Values {
+		statInfoRows[idx] = &protos.StatInfo{
+			Pid:           row[0].AsInt64(),
+			WaitEvent:     string(row[1].AsString()),
+			WaitEventType: "",
+			QueryStart:    "",
+			Query:         string(row[4].AsString()),
+			Duration:      float32(row[3].AsUint64()),
+			State:         string(row[2].AsString()),
+		}
+	}
+
+	return &protos.PeerStatResponse{
+		StatData: statInfoRows,
+	}, nil
 }

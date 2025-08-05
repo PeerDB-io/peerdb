@@ -1,12 +1,13 @@
 'use client';
 import { TableMapRow } from '@/app/dto/MirrorsDTO';
+import { ColumnsItem } from '@/grpc_generated/route';
 import { Checkbox } from '@/lib/Checkbox';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
 import { Dispatch, SetStateAction } from 'react';
 
 interface ColumnProps {
-  columns: string[];
+  columns: ColumnsItem[];
   tableRow: TableMapRow;
   rows: TableMapRow[];
   setRows: Dispatch<SetStateAction<TableMapRow[]>>;
@@ -41,16 +42,16 @@ export default function ColumnBox({
   };
 
   return columns.map((column) => {
-    const [columnName, columnType, isPkeyStr] = column.split(':');
-    const isPkey = isPkeyStr === 'true';
     const partOfOrderingKey = rows
       .find((row) => row.source == tableRow.source)
       ?.columns.some(
-        (col) => col.sourceName === columnName && col.ordering <= 0
+        (col) =>
+          col.sourceName === column.name &&
+          (col.ordering > 0 || col.partitioning > 0)
       );
     return (
       <RowWithCheckbox
-        key={columnName}
+        key={column.name}
         label={
           <Label
             as='label'
@@ -60,24 +61,24 @@ export default function ColumnBox({
               alignItems: 'center',
             }}
           >
-            {columnName}
+            {column.name}
             <p
               style={{
                 marginLeft: '0.5rem',
                 color: 'gray',
               }}
             >
-              {columnType}
+              {column.type}
             </p>
           </Label>
         }
         action={
           <Checkbox
             style={{ cursor: 'pointer' }}
-            disabled={isPkey || disabled || partOfOrderingKey}
-            checked={!tableRow.exclude.has(columnName)}
+            disabled={column.isKey || disabled || partOfOrderingKey}
+            checked={!tableRow.exclude.has(column.name)}
             onCheckedChange={(state: boolean) =>
-              handleColumnExclusion(columnName, state)
+              handleColumnExclusion(column.name, state)
             }
           />
         }

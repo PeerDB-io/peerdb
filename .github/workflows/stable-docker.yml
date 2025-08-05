@@ -23,14 +23,14 @@ jobs:
       - uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        uses: docker/login-action@184bdaa0721073962dff0199f1fb9940f07167d1 # v3
         with:
           registry: ghcr.io
           username: ${{github.actor}}
           password: ${{secrets.GITHUB_TOKEN}}
 
       - name: Build (optionally publish) PeerDB Images
-        uses: depot/bake-action@58d7160c6bfa64eb85e384209e6f2f5ad17948bb # v1
+        uses: depot/bake-action@2ae2529115bba41de62b77b345de48d57eca7564 # v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
           files: ./docker-bake.hcl

@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,28 +10,31 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/pingcap/tidb/pkg/parser"
 	"github.com/pingcap/tidb/pkg/parser/ast"
 	_ "github.com/pingcap/tidb/pkg/types/parser_driver"
+	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	qmysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (c *MySqlConnector) GetTableSchema(
 	ctx context.Context,
 	env map[string]string,
+	version uint32,
 	system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
@@ -102,7 +106,7 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		if err != nil {
 			return nil, err
 		}
-		qkind, err := qkindFromMysqlColumnType(dataType)
+		qkind, err := qmysql.QkindFromMysqlColumnType(dataType)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +174,7 @@ func (c *MySqlConnector) SetupReplication(
 		if err != nil {
 			return model.SetupReplicationResult{}, fmt.Errorf("[mysql] SetupReplication failed to GetMasterPos: %w", err)
 		}
-		lastOffsetText = fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
+		lastOffsetText = posToOffsetText(pos)
 	}
 	if err := c.SetLastOffset(
 		ctx, req.FlowJobName, model.CdcCheckpoint{Text: lastOffsetText},
@@ -186,7 +190,35 @@ func (c *MySqlConnector) SetupReplConn(ctx context.Context) error {
 	return nil
 }
 
-func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
+func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSyncer, error) {
+	var tlsConfig *tls.Config
+	if !c.config.DisableTls {
+		var err error
+		tlsConfig, err = shared.CreateTlsConfig(
+			tls.VersionTLS12, c.config.RootCa, c.config.Host, c.config.TlsHost, c.config.SkipCertVerification,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+	config := c.config
+	if c.rdsAuth != nil {
+		c.logger.Info("Setting up IAM auth for MySQL replication")
+		host := c.config.Host
+		if c.config.TlsHost != "" {
+			host = c.config.TlsHost
+		}
+		token, err := utils.GetRDSToken(ctx, utils.RDSConnectionConfig{
+			Host: host,
+			Port: config.Port,
+			User: config.User,
+		}, c.rdsAuth, "MYSQL")
+		if err != nil {
+			return nil, err
+		}
+		config = proto.CloneOf(config)
+		config.Password = token
+	}
 	logger, ok := c.logger.(*slog.Logger)
 	if !ok {
 		logger = slog.Default()
@@ -195,18 +227,20 @@ func (c *MySqlConnector) startSyncer() *replication.BinlogSyncer {
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:   rand.Uint32(),
 		Flavor:     c.Flavor(),
-		Host:       c.config.Host,
-		Port:       uint16(c.config.Port),
-		User:       c.config.User,
-		Password:   c.config.Password,
+		Host:       config.Host,
+		Port:       uint16(config.Port),
+		User:       config.User,
+		Password:   config.Password,
 		Logger:     logger,
 		Dialer:     c.Dialer(),
 		UseDecimal: true,
 		ParseTime:  true,
-	})
+		TLSConfig:  tlsConfig,
+	}), nil
 }
 
 func (c *MySqlConnector) startStreaming(
+	ctx context.Context,
 	pos string,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
 	if rest, isFile := strings.CutPrefix(pos, "!f:"); isFile {
@@ -218,20 +252,24 @@ func (c *MySqlConnector) startStreaming(
 		if err != nil {
 			return nil, nil, nil, mysql.Position{}, fmt.Errorf("invalid offset in file/pos offset %s: %w", pos, err)
 		}
-		return c.startCdcStreamingFilePos(mysql.Position{Name: rest[:comma], Pos: uint32(offset)})
+		return c.startCdcStreamingFilePos(ctx, mysql.Position{Name: rest[:comma], Pos: uint32(offset)})
 	} else {
 		gset, err := mysql.ParseGTIDSet(c.Flavor(), pos)
 		if err != nil {
 			return nil, nil, nil, mysql.Position{}, err
 		}
-		return c.startCdcStreamingGtid(gset)
+		return c.startCdcStreamingGtid(ctx, gset)
 	}
 }
 
 func (c *MySqlConnector) startCdcStreamingFilePos(
+	ctx context.Context,
 	pos mysql.Position,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer := c.startSyncer()
+	syncer, err := c.startSyncer(ctx)
+	if err != nil {
+		return nil, nil, nil, mysql.Position{}, err
+	}
 	stream, err := syncer.StartSync(pos)
 	if err != nil {
 		syncer.Close()
@@ -240,9 +278,13 @@ func (c *MySqlConnector) startCdcStreamingFilePos(
 }
 
 func (c *MySqlConnector) startCdcStreamingGtid(
+	ctx context.Context,
 	gset mysql.GTIDSet,
 ) (*replication.BinlogSyncer, *replication.BinlogStreamer, mysql.GTIDSet, mysql.Position, error) {
-	syncer := c.startSyncer()
+	syncer, err := c.startSyncer(ctx)
+	if err != nil {
+		return nil, nil, nil, mysql.Position{}, err
+	}
 	stream, err := syncer.StartSyncGTID(gset)
 	if err != nil {
 		syncer.Close()
@@ -263,28 +305,6 @@ func (c *MySqlConnector) PullFlowCleanup(ctx context.Context, jobName string) er
 	return nil
 }
 
-func (c *MySqlConnector) HandleSlotInfo(
-	ctx context.Context,
-	alerter *alerting.Alerter,
-	catalogPool shared.CatalogPool,
-	alertKeys *alerting.AlertKeys,
-	slotMetricGauges otel_metrics.SlotMetricGauges,
-) error {
-	return nil
-}
-
-func (c *MySqlConnector) GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error) {
-	return nil, nil
-}
-
-func (c *MySqlConnector) AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error {
-	return nil
-}
-
-func (c *MySqlConnector) RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error {
-	return nil
-}
-
 func (c *MySqlConnector) PullRecords(
 	ctx context.Context,
 	catalogPool shared.CatalogPool,
@@ -293,32 +313,34 @@ func (c *MySqlConnector) PullRecords(
 ) error {
 	defer req.RecordStream.Close()
 
-	syncer, mystream, gset, pos, err := c.startStreaming(req.LastOffset.Text)
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, req.Env)
+	if err != nil {
+		return err
+	}
+
+	syncer, mystream, gset, pos, err := c.startStreaming(ctx, req.LastOffset.Text)
 	if err != nil {
 		return err
 	}
 	defer syncer.Close()
 
-	if gset == nil {
-		req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-	}
-
 	var skewLossReported bool
+	var updatedOffset string
 	var inTx bool
 	var recordCount uint32
+	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
+	var overtime bool
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
 		}
-		c.logger.Info(fmt.Sprintf("[finished] PullRecords streamed %d records", recordCount))
+		c.logger.Info("[mysql] PullRecords finished streaming", slog.Uint64("records", uint64(recordCount)))
 	}()
 
-	timeoutCtx := ctx
-	var cancelTimeout context.CancelFunc
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
+	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
 	defer func() {
-		if cancelTimeout != nil {
-			cancelTimeout()
-		}
+		cancelTimeout()
 	}()
 
 	addRecord := func(ctx context.Context, record model.Record[model.RecordItems]) error {
@@ -328,48 +350,92 @@ func (c *MySqlConnector) PullRecords(
 		}
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
+			cancelTimeout()
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
 		}
 		return nil
 	}
 
 	var mysqlParser *parser.Parser
-	for inTx || recordCount < req.MaxBatchSize {
-		getCtx := ctx
-		if !inTx {
-			getCtx = timeoutCtx
+	for inTx || (!overtime && recordCount < req.MaxBatchSize) {
+		var event *replication.BinlogEvent
+		// don't gamble on closed timeoutCtx.Done() being prioritized over event backlog channel
+		err := timeoutCtx.Err()
+		if err == nil {
+			event, err = mystream.GetEvent(timeoutCtx)
 		}
-		event, err := mystream.GetEvent(getCtx)
 		if err != nil {
-			if !inTx && errors.Is(err, context.DeadlineExceeded) {
-				return nil
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				c.logger.Info("[mysql] PullRecords context canceled, stopping streaming", slog.Any("error", err))
+				//nolint:govet // cancelTimeout called by defer, spurious lint
+				return ctxErr
+			} else if errors.Is(err, context.DeadlineExceeded) {
+				if recordCount == 0 {
+					// progress offset while no records read to avoid falling behind when all tables inactive
+					if updatedOffset != "" {
+						c.logger.Info("[mysql] updating inactive offset", slog.Any("offset", updatedOffset))
+						if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{Text: updatedOffset}); err != nil {
+							c.logger.Error("[mysql] failed to update offset, ignoring", slog.Any("error", err))
+						} else {
+							updatedOffset = ""
+						}
+					}
+
+					// reset timer for next offset update
+					cancelTimeout()
+					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
+				} else if inTx {
+					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
+						slog.Uint64("recordCount", uint64(recordCount)))
+					// reset timeoutCtx to a low value and wait for inTx to become false
+					cancelTimeout()
+					//nolint:govet // cancelTimeout called by defer, spurious lint
+					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Minute)
+					overtime = true
+				} else {
+					return nil
+				}
+
+				continue
+			} else {
+				c.logger.Error("[mysql] PullRecords failed to get event", slog.Any("error", err))
 			}
 			return err
 		}
 
-		if otelManager != nil {
-			otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
-		}
-
-		if gset == nil && event.Header.LogPos > 0 {
-			pos.Pos = max(pos.Pos, event.Header.LogPos)
-			req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
-		}
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
+		case *replication.GTIDEvent:
+			if ev.ImmediateCommitTimestamp > 0 {
+				otelManager.Metrics.CommitLagGauge.Record(ctx,
+					time.Now().UTC().Sub(time.UnixMicro(int64(ev.ImmediateCommitTimestamp))).Microseconds())
+			}
 		case *replication.XIDEvent:
 			if gset != nil {
 				gset = ev.GSet
-				req.RecordStream.UpdateLatestCheckpointText(gset.String())
+				updatedOffset = gset.String()
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+			} else if event.Header.LogPos > pos.Pos {
+				pos.Pos = event.Header.LogPos
+				updatedOffset = posToOffsetText(pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
 			}
 			inTx = false
 		case *replication.RotateEvent:
-			if gset == nil && event.Header.Timestamp != 0 {
+			if gset == nil && (event.Header.Timestamp != 0 || string(ev.NextLogName) != pos.Name) {
 				pos.Name = string(ev.NextLogName)
 				pos.Pos = uint32(ev.Position)
-				req.RecordStream.UpdateLatestCheckpointText(fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos))
+				updatedOffset = posToOffsetText(pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+				c.logger.Info("rotate", slog.String("name", pos.Name), slog.Uint64("pos", uint64(pos.Pos)))
 			}
 		case *replication.QueryEvent:
+			if !inTx && gset == nil && event.Header.LogPos > pos.Pos {
+				pos.Pos = event.Header.LogPos
+				updatedOffset = posToOffsetText(pos)
+				req.RecordStream.UpdateLatestCheckpointText(updatedOffset)
+			}
 			if mysqlParser == nil {
 				mysqlParser = parser.New()
 			}
@@ -394,20 +460,26 @@ func (c *MySqlConnector) PullRecords(
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
+				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 				inTx = true
+				enumMap := ev.Table.EnumStrValueMap()
+				setMap := ev.Table.SetStrValueMap()
 				getFd := func(idx int) *protos.FieldDescription {
 					if ev.Table.ColumnName != nil {
 						unsafeName := shared.UnsafeFastReadOnlyBytesToString(ev.Table.ColumnName[idx])
 						if _, excluded := exclusion[unsafeName]; !excluded {
-							for _, col := range schema.Columns {
-								if col.Name == unsafeName {
-									return col
+							schemaIdx := slices.IndexFunc(schema.Columns, func(col *protos.FieldDescription) bool {
+								return col.Name == unsafeName
+							})
+							if schemaIdx == -1 {
+								if !skewLossReported {
+									skewLossReported = true
+									c.logger.Warn("Unknown column name received, ignoring",
+										slog.String("name", string(ev.Table.ColumnName[idx])))
 								}
+							} else {
+								return schema.Columns[schemaIdx]
 							}
-						}
-						if !skewLossReported {
-							skewLossReported = true
-							c.logger.Warn("Unknown column name received, ignoring", slog.String("name", string(ev.Table.ColumnName[idx])))
 						}
 						return nil
 					}
@@ -429,11 +501,15 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
 							}
 							items.AddColumn(fd.Name, val)
+						}
+						if sourceSchemaAsDestinationColumn {
+							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 
 						if err := addRecord(ctx, &model.InsertRecord[model.RecordItems]{
@@ -462,7 +538,8 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
 							}
@@ -475,11 +552,15 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
 							}
 							newItems.AddColumn(fd.Name, val)
+						}
+						if sourceSchemaAsDestinationColumn {
+							newItems.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 
 						if err := addRecord(ctx, &model.UpdateRecord[model.RecordItems]{
@@ -509,11 +590,15 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], qvalue.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
 							}
 							items.AddColumn(fd.Name, val)
+						}
+						if sourceSchemaAsDestinationColumn {
+							items.AddColumn("_peerdb_source_schema", types.QValueString{Val: string(ev.Table.Schema)})
 						}
 
 						if err := addRecord(ctx, &model.DeleteRecord[model.RecordItems]{
@@ -566,7 +651,14 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		if spec.NewColumns != nil {
 			// these are added columns
 			for _, col := range spec.NewColumns {
-				qkind, err := qkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
+				if col.Tp == nil {
+					// ignore, can be plain ALTER TABLE ... ALTER COLUMN ... DEFAULT ...
+					c.logger.Warn("ALTER TABLE with no column type detected, ignoring",
+						slog.String("columnName", col.Name.String()),
+						slog.String("tableName", sourceTableName))
+					continue
+				}
+				qkind, err := qmysql.QkindFromMysqlColumnType(col.Tp.InfoSchemaStr())
 				if err != nil {
 					return err
 				}
@@ -586,7 +678,7 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 				}
 
 				fd := &protos.FieldDescription{
-					Name:         col.Name.String(),
+					Name:         col.Name.OrigColName(),
 					Type:         string(qkind),
 					TypeModifier: typmod,
 					Nullable:     nullable,
@@ -606,8 +698,14 @@ func (c *MySqlConnector) processAlterTableQuery(ctx context.Context, catalogPool
 		}
 	}
 	if tableSchemaDelta.AddedColumns != nil {
+		c.logger.Info("Column added detected",
+			slog.String("table", destinationTableName), slog.Any("columns", tableSchemaDelta.AddedColumns))
 		req.RecordStream.AddSchemaDelta(req.TableNameMapping, tableSchemaDelta)
 		return monitoring.AuditSchemaDelta(ctx, catalogPool.Pool, req.FlowJobName, tableSchemaDelta)
 	}
 	return nil
+}
+
+func posToOffsetText(pos mysql.Position) string {
+	return fmt.Sprintf("!f:%s,%x", pos.Name, pos.Pos)
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func cleanPostgres(ctx context.Context, conn *pgx.Conn, suffix string) error {
@@ -194,7 +195,7 @@ func (s *PostgresSource) Exec(ctx context.Context, sql string) error {
 }
 
 func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
-	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, "testflow", "testpart")
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "testflow", "testpart")
 	if err != nil {
 		return nil, err
 	}
@@ -202,6 +203,19 @@ func (s *PostgresSource) GetRows(ctx context.Context, suffix string, table strin
 	return pgQueryExecutor.ExecuteAndProcessQuery(
 		ctx,
 		fmt.Sprintf(`SELECT %s FROM e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
+	)
+}
+
+// to avoid fetching rows from "child" tables ala Postgres table inheritance
+func (s *PostgresSource) GetRowsOnly(ctx context.Context, suffix string, table string, cols string) (*model.QRecordBatch, error) {
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "testflow", "testpart")
+	if err != nil {
+		return nil, err
+	}
+
+	return pgQueryExecutor.ExecuteAndProcessQuery(
+		ctx,
+		fmt.Sprintf(`SELECT %s FROM ONLY e2e_test_%s.%s ORDER BY id`, cols, suffix, utils.QuoteIdentifier(table)),
 	)
 }
 
@@ -228,4 +242,25 @@ func RevokePermissionForTableColumns(ctx context.Context, conn *pgx.Conn, tableI
 	}
 
 	return nil
+}
+
+func (s *PostgresSource) Query(ctx context.Context, query string) (*model.QRecordBatch, error) {
+	pgQueryExecutor, err := s.PostgresConnector.NewQRepQueryExecutor(ctx, shared.InternalVersion_Latest, "testflow", "testpart")
+	if err != nil {
+		return nil, err
+	}
+
+	return pgQueryExecutor.ExecuteAndProcessQuery(ctx, query)
+}
+
+func (s *PostgresSource) GetLogCount(ctx context.Context, flowJobName, errorType, pattern string) (int, error) {
+	rows, err := s.Query(ctx, fmt.Sprintf(`
+		SELECT COUNT(*) FROM peerdb_stats.flow_errors
+		WHERE error_type='%s' AND position('%s' in flow_name) > 0
+		AND error_message ILIKE '%%%s%%'`, errorType, flowJobName, pattern))
+	if err != nil {
+		return 0, err
+	}
+
+	return int(rows.Records[0][0].Value().(int64)), nil
 }

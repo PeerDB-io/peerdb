@@ -48,6 +48,47 @@ type AlertKeys struct {
 	SlotName string
 }
 
+// doesn't take care of closing pool, needs to be done externally.
+func NewAlerter(ctx context.Context, catalogPool shared.CatalogPool, otelManager *otel_metrics.OtelManager) *Alerter {
+	if catalogPool.Pool == nil {
+		panic("catalog pool is nil for Alerter")
+	}
+	snsTopic := internal.PeerDBTelemetryAWSSNSTopicArn()
+	var snsMessageSender telemetry.Sender
+	if snsTopic != "" {
+		var err error
+		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
+			Topic: snsTopic,
+		})
+		internal.LoggerFromCtx(ctx).Info("Successfully registered sns telemetry sender")
+		if err != nil {
+			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
+		}
+	}
+
+	incidentIoURL := internal.PeerDBGetIncidentIoUrl()
+	incidentIoAuth := internal.PeerDBGetIncidentIoToken()
+	var incidentIoTelemetrySender telemetry.Sender
+	if incidentIoURL != "" && incidentIoAuth != "" {
+		var err error
+		incidentIoTelemetrySender, err = telemetry.NewIncidentIoMessageSender(ctx, telemetry.IncidentIoMessageSenderConfig{
+			URL:   incidentIoURL,
+			Token: incidentIoAuth,
+		})
+		internal.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
+		if err != nil {
+			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
+		}
+	}
+
+	return &Alerter{
+		CatalogPool:               catalogPool,
+		snsTelemetrySender:        snsMessageSender,
+		incidentIoTelemetrySender: incidentIoTelemetrySender,
+		otelManager:               otelManager,
+	}
+}
+
 func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderConfig, error) {
 	rows, err := a.CatalogPool.Query(ctx,
 		`SELECT id, service_type, service_config, enc_key_id, alert_for_mirrors
@@ -118,47 +159,6 @@ func (a *Alerter) registerSendersFromPool(ctx context.Context) ([]AlertSenderCon
 			return alertSenderConfig, fmt.Errorf("unknown service type: %s", serviceType)
 		}
 	})
-}
-
-// doesn't take care of closing pool, needs to be done externally.
-func NewAlerter(ctx context.Context, catalogPool shared.CatalogPool, otelManager *otel_metrics.OtelManager) *Alerter {
-	if catalogPool.Pool == nil {
-		panic("catalog pool is nil for Alerter")
-	}
-	snsTopic := internal.PeerDBTelemetryAWSSNSTopicArn()
-	var snsMessageSender telemetry.Sender
-	if snsTopic != "" {
-		var err error
-		snsMessageSender, err = telemetry.NewSNSMessageSenderWithNewClient(ctx, &telemetry.SNSMessageSenderConfig{
-			Topic: snsTopic,
-		})
-		internal.LoggerFromCtx(ctx).Info("Successfully registered sns telemetry sender")
-		if err != nil {
-			panic(fmt.Sprintf("unable to setup telemetry is nil for Alerter %+v", err))
-		}
-	}
-
-	incidentIoURL := internal.PeerDBGetIncidentIoUrl()
-	incidentIoAuth := internal.PeerDBGetIncidentIoToken()
-	var incidentIoTelemetrySender telemetry.Sender
-	if incidentIoURL != "" && incidentIoAuth != "" {
-		var err error
-		incidentIoTelemetrySender, err = telemetry.NewIncidentIoMessageSender(ctx, telemetry.IncidentIoMessageSenderConfig{
-			URL:   incidentIoURL,
-			Token: incidentIoAuth,
-		})
-		internal.LoggerFromCtx(ctx).Info("Successfully registered incident.io telemetry sender")
-		if err != nil {
-			panic(fmt.Sprintf("unable to setup incident.io telemetry is nil for Alerter %+v", err))
-		}
-	}
-
-	return &Alerter{
-		CatalogPool:               catalogPool,
-		snsTelemetrySender:        snsMessageSender,
-		incidentIoTelemetrySender: incidentIoTelemetrySender,
-		otelManager:               otelManager,
-	}
 }
 
 func (a *Alerter) AlertIfSlotLag(ctx context.Context, alertKeys *AlertKeys, slotInfo *protos.SlotInfo) {
@@ -433,17 +433,34 @@ func (a *Alerter) LogNonFlowEvent(ctx context.Context, eventType telemetry.Event
 	a.sendTelemetryMessage(ctx, logger, string(eventType)+":"+key, message, level)
 }
 
-// LogFlowError pushes the error to the errors table and emits a metric as well as a telemetry message
-func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
-	errorWithStack := fmt.Sprintf("%+v", inErr)
+type flowErrorType string
+
+func (f flowErrorType) String() string {
+	return string(f)
+}
+
+const (
+	flowErrorTypeWarn  flowErrorType = "warn"
+	flowErrorTypeError flowErrorType = "error"
+)
+
+// logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
+func (a *Alerter) logFlowErrorInternal(
+	ctx context.Context,
+	flowName string,
+	errorType flowErrorType,
+	inErr error,
+	loggerFunc func(string, ...any),
+) {
 	logger := internal.LoggerFromCtx(ctx)
-	logger.Error(inErr.Error(), slog.Any("stack", errorWithStack))
+	inErrWithStack := fmt.Sprintf("%+v", inErr)
+	loggerFunc(inErr.Error(), slog.String("stack", inErrWithStack))
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
-		flowName, errorWithStack, "error",
+		flowName, inErrWithStack, errorType.String(),
 	); err != nil {
 		logger.Error("failed to insert flow error", slog.Any("error", err))
-		return inErr
+		return
 	}
 
 	var tags []string
@@ -482,20 +499,48 @@ func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error
 	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
 
 	if !internal.PeerDBTelemetryErrorActionBasedAlertingEnabled() || errorClass.ErrorAction() == NotifyTelemetry {
-		a.sendTelemetryMessage(ctx, logger, flowName, errorWithStack, telemetry.ERROR, tags...)
+		// Warnings alert us just like errors until there's a customer warning system
+		a.sendTelemetryMessage(ctx, logger, flowName, inErrWithStack, telemetry.ERROR, tags...)
 	}
-	if a.otelManager != nil {
-		errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowNameKey, flowName),
-			attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
-			attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
-			attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),
-			attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
-		))
-		a.otelManager.Metrics.ErrorsEmittedCounter.Add(ctx, 1, errorAttributeSet)
-		a.otelManager.Metrics.ErrorEmittedGauge.Record(ctx, 1, errorAttributeSet)
+	loggerFunc(fmt.Sprintf("Emitting error/warning metric: '%s'", inErr.Error()),
+		slog.Any("error", inErr),
+		slog.Any("errorClass", errorClass),
+		slog.Any("errorInfo", errInfo),
+		slog.Any("stack", inErrWithStack),
+		slog.String("flowErrorType", errorType.String()),
+	)
+	errorAttributes := []attribute.KeyValue{
+		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
+		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),
+		attribute.Stringer(otel_metrics.ErrorSourceKey, errInfo.Source),
+		attribute.String(otel_metrics.ErrorCodeKey, errInfo.Code),
 	}
+	if len(errInfo.AdditionalAttributes) != 0 {
+		for k, v := range errInfo.AdditionalAttributes {
+			errorAttributes = append(errorAttributes, attribute.String(k.String(), v))
+		}
+	}
+
+	errorAttributeSet := metric.WithAttributeSet(attribute.NewSet(errorAttributes...))
+	counter := a.otelManager.Metrics.ErrorsEmittedCounter
+	gauge := a.otelManager.Metrics.ErrorEmittedGauge
+	if errorType == flowErrorTypeWarn {
+		counter = a.otelManager.Metrics.WarningEmittedCounter
+		gauge = a.otelManager.Metrics.WarningsEmittedGauge
+	}
+	counter.Add(ctx, 1, errorAttributeSet)
+	gauge.Record(ctx, 1, errorAttributeSet)
+}
+
+func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
+	logger := internal.LoggerFromCtx(ctx)
+	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeError, inErr, logger.Error)
 	return inErr
+}
+
+func (a *Alerter) LogFlowWarning(ctx context.Context, flowName string, inErr error) {
+	logger := internal.LoggerFromCtx(ctx)
+	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeWarn, inErr, logger.Warn)
 }
 
 func (a *Alerter) LogFlowEvent(ctx context.Context, flowName string, info string) {

@@ -11,8 +11,7 @@ import (
 
 func (h *FlowRequestHandler) flowExists(ctx context.Context, flowName string) (bool, error) {
 	var exists bool
-	err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM flows WHERE name = $1)", flowName).Scan(&exists)
-	if err != nil {
+	if err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM flows WHERE name = $1)", flowName).Scan(&exists); err != nil {
 		slog.Error("error checking if flow exists", slog.Any("error", err))
 		return false, err
 	}
@@ -27,12 +26,9 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 ) (*protos.CreateOrReplaceFlowTagsResponse, error) {
 	flowName := in.FlowName
 
-	exists, err := h.flowExists(ctx, flowName)
-	if err != nil {
+	if exists, err := h.flowExists(ctx, flowName); err != nil {
 		return nil, err
-	}
-
-	if !exists {
+	} else if !exists {
 		slog.Error("flow does not exist", slog.String("flow_name", flowName))
 		return nil, fmt.Errorf("flow %s does not exist", flowName)
 	}
@@ -42,8 +38,7 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 		tags[tag.Key] = tag.Value
 	}
 
-	_, err = h.pool.Exec(ctx, "UPDATE flows SET tags = $1 WHERE name = $2", tags, flowName)
-	if err != nil {
+	if _, err := h.pool.Exec(ctx, "UPDATE flows SET tags=$1, updated_at=now() WHERE name=$2", tags, flowName); err != nil {
 		slog.Error("error updating flow tags", slog.Any("error", err))
 		return nil, err
 	}
@@ -56,12 +51,9 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 func (h *FlowRequestHandler) GetFlowTags(ctx context.Context, in *protos.GetFlowTagsRequest) (*protos.GetFlowTagsResponse, error) {
 	flowName := in.FlowName
 
-	exists, err := h.flowExists(ctx, flowName)
-	if err != nil {
+	if exists, err := h.flowExists(ctx, flowName); err != nil {
 		return nil, err
-	}
-
-	if !exists {
+	} else if !exists {
 		slog.Error("flow does not exist", slog.String("flow_name", flowName))
 		return nil, fmt.Errorf("flow %s does not exist", flowName)
 	}

@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
-    fmt::Write,
+    fmt::{Debug, Write},
     fs::File,
     io,
     sync::Arc,
@@ -10,49 +10,52 @@ use std::{
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
 use bytes::{BufMut, BytesMut};
-use catalog::{kms_decrypt, Catalog, CatalogConfig};
+use catalog::{Catalog, CatalogConfig, kms_decrypt};
 use clap::Parser;
 use cursor::PeerCursors;
-use dashmap::{mapref::entry::Entry as DashEntry, DashMap};
+use dashmap::{DashMap, mapref::entry::Entry as DashEntry};
 use flow_rs::grpc::{FlowGrpcClient, PeerCreationResult};
+use futures::Sink;
 use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
-    util::{records_to_query_response, sendable_stream_to_query_response},
     QueryExecutor, QueryOutput, Schema,
+    util::{records_to_query_response, sendable_stream_to_query_response},
 };
 use peerdb_parser::{NexusParsedStatement, NexusQueryParser, NexusStatement};
 use pgwire::{
     api::{
+        ClientInfo, ClientPortalStore, PgWireServerHandlers, Type,
         auth::{
-            scram::{gen_salted_password, SASLScramAuthStartupHandler},
+            StartupHandler,
             AuthSource, LoginInfo, Password, ServerParameterProvider,
+            scram::{SASLScramAuthStartupHandler, gen_salted_password},
         },
-        copy::NoopCopyHandler,
         portal::Portal,
         query::{ExtendedQueryHandler, SimpleQueryHandler},
         results::{
             DescribePortalResponse, DescribeResponse, DescribeStatementResponse, Response, Tag,
         },
         stmt::StoredStatement,
-        ClientInfo, NoopErrorHandler, PgWireServerHandlers, Type,
+        store::PortalStore,
     },
     error::{ErrorInfo, PgWireError, PgWireResult},
+    messages::PgWireBackendMessage,
     tokio::process_socket,
 };
 use pt::{
     flow_model::QRepFlowJob,
-    peerdb_peers::{peer::Config, Peer},
+    peerdb_peers::{Peer, peer::Config},
 };
 use rand::Rng;
 use rustls_pemfile::{certs, pkcs8_private_keys};
 use rustls_pki_types::{CertificateDer, PrivateKeyDer};
-use tokio::signal::unix::{signal, SignalKind};
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
-use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
+use tokio_rustls::rustls::ServerConfig;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
 mod cursor;
 
@@ -150,7 +153,7 @@ impl NexusBackend {
     async fn check_for_mirror(catalog: &Catalog, flow_name: &str) -> PgWireResult<bool> {
         let workflow_details = catalog.flow_name_exists(flow_name).await.map_err(|err| {
             PgWireError::ApiError(
-                format!("unable to query catalog for job metadata: {:?}", err).into(),
+                format!("unable to query catalog for job metadata: {err:?}").into(),
             )
         })?;
         Ok(workflow_details)
@@ -167,7 +170,7 @@ impl NexusBackend {
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "error".to_owned(),
-                format!("mirror already exists: {:?}", flow_name),
+                format!("mirror already exists: {flow_name:?}"),
             ))))
         }
     }
@@ -188,13 +191,13 @@ impl NexusBackend {
             .create_peer(create_request)
             .await
             .map_err(|err| {
-                PgWireError::ApiError(format!("unable to check peer validity: {:?}", err).into())
+                PgWireError::ApiError(format!("unable to check peer validity: {err:?}").into())
             })?;
         if let PeerCreationResult::Failed(create_err) = create_response {
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "internal_error".to_owned(),
-                format!("failed to create peer: {}", create_err),
+                format!("failed to create peer: {create_err}"),
             )))
             .into())
         } else {
@@ -234,21 +237,11 @@ impl NexusBackend {
                         .await
                         .map_err(|err| {
                             PgWireError::ApiError(
-                                format!("unable to shutdown flow job: {:?}", err).into(),
+                                format!("unable to shutdown flow job: {err:?}").into(),
                             )
                         })?;
 
-                    let res = self.catalog.delete_flow_job_entry(flow_job_name).await;
-                    if let Err(err) = res {
-                        if *if_exists {
-                            let no_mirror_success = "NO SUCH MIRROR";
-                            return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
-                        }
-                        return Err(PgWireError::ApiError(
-                            format!("unable to delete job metadata: {:?}", err).into(),
-                        ));
-                    }
-                    let drop_mirror_success = format!("DROP MIRROR {}", flow_job_name);
+                    let drop_mirror_success = format!("DROP MIRROR {flow_job_name}");
                     Ok(vec![Response::Execution(Tag::new(&drop_mirror_success))])
                 }
                 _ => unreachable!(),
@@ -281,7 +274,7 @@ impl NexusBackend {
                                 .await
                                 .map_err(|err| {
                                     PgWireError::ApiError(
-                                        format!("unable to create mirror job entry: {:?}", err)
+                                        format!("unable to create mirror job entry: {err:?}")
                                             .into(),
                                     )
                                 })?;
@@ -399,30 +392,30 @@ impl NexusBackend {
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to get qrep flow job: {:?}", err).into(),
+                                    format!("unable to get qrep flow job: {err:?}").into(),
                                 )
                             })?
                     } {
                         let workflow_id = self.run_qrep_mirror(&job).await?;
-                        let create_mirror_success = format!("STARTED WORKFLOW {}", workflow_id);
+                        let create_mirror_success = format!("STARTED WORKFLOW {workflow_id}");
                         Ok(vec![Response::Execution(Tag::new(&create_mirror_success))])
                     } else {
                         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
                             "error".to_owned(),
-                            format!("no such mirror: {:?}", flow_job_name),
+                            format!("no such mirror: {flow_job_name:?}"),
                         ))))
                     }
                 }
                 PeerDDL::ExecutePeer { peer_name, query } => {
                     let peer = self.catalog.get_peer(peer_name).await.map_err(|err| {
                         PgWireError::ApiError(
-                            format!("unable to get peer config: {:?}", err).into(),
+                            format!("unable to get peer config: {err:?}").into(),
                         )
                     })?;
                     let executor = self.get_peer_executor(&peer).await.map_err(|err| {
                         PgWireError::ApiError(
-                            format!("unable to get peer executor: {:?}", err).into(),
+                            format!("unable to get peer executor: {err:?}").into(),
                         )
                     })?;
                     let res = executor.execute_raw(query).await?;
@@ -450,7 +443,7 @@ impl NexusBackend {
                             .await
                             .map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to query catalog for peer metadata: {:?}", err)
+                                    format!("unable to query catalog for peer metadata: {err:?}")
                                         .into(),
                                 )
                             })?;
@@ -458,9 +451,9 @@ impl NexusBackend {
                     if peer_exists != 0 {
                         let mut flow_handler = self.flow_handler.as_ref().unwrap().lock().await;
                         flow_handler.drop_peer(peer_name).await.map_err(|err| {
-                            PgWireError::ApiError(format!("unable to drop peer: {:?}", err).into())
+                            PgWireError::ApiError(format!("unable to drop peer: {err:?}").into())
                         })?;
-                        let drop_peer_success = format!("DROP PEER {}", peer_name);
+                        let drop_peer_success = format!("DROP PEER {peer_name}");
                         Ok(vec![Response::Execution(Tag::new(&drop_peer_success))])
                     } else if *if_exists {
                         let no_peer_success = "NO SUCH PEER";
@@ -469,7 +462,7 @@ impl NexusBackend {
                         Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                             "ERROR".to_owned(),
                             "error".to_owned(),
-                            format!("no such peer: {:?}", peer_name),
+                            format!("no such peer: {peer_name:?}"),
                         ))))
                     }
                 }
@@ -493,10 +486,10 @@ impl NexusBackend {
                             return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
                         }
                         return Err(PgWireError::ApiError(
-                            format!("unable to resync mirror: {:?}", err).into(),
+                            format!("unable to resync mirror: {err:?}").into(),
                         ));
                     }
-                    let resync_mirror_success = format!("RESYNC MIRROR {}", mirror_name);
+                    let resync_mirror_success = format!("RESYNC MIRROR {mirror_name}");
                     Ok(vec![Response::Execution(Tag::new(&resync_mirror_success))])
                 }
                 PeerDDL::PauseMirror {
@@ -529,10 +522,10 @@ impl NexusBackend {
                             return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
                         }
                         return Err(PgWireError::ApiError(
-                            format!("unable to pause flow job: {:?}", err).into(),
+                            format!("unable to pause flow job: {err:?}").into(),
                         ));
                     }
-                    let drop_mirror_success = format!("PAUSE MIRROR {}", flow_job_name);
+                    let drop_mirror_success = format!("PAUSE MIRROR {flow_job_name}");
                     Ok(vec![Response::Execution(Tag::new(&drop_mirror_success))])
                 }
                 PeerDDL::ResumeMirror {
@@ -565,11 +558,11 @@ impl NexusBackend {
                             return Ok(vec![Response::Execution(Tag::new(no_mirror_success))]);
                         }
                         return Err(PgWireError::ApiError(
-                            format!("unable to resume flow job: {:?}", err).into(),
+                            format!("unable to resume flow job: {err:?}").into(),
                         ));
                     }
 
-                    let resume_mirror_success = format!("RESUME MIRROR {}", flow_job_name);
+                    let resume_mirror_success = format!("RESUME MIRROR {flow_job_name}");
                     Ok(vec![Response::Execution(Tag::new(&resume_mirror_success))])
                 }
             },
@@ -582,7 +575,7 @@ impl NexusBackend {
                             Some(peer.clone()),
                             self.get_peer_executor(&peer).await.map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to get peer executor: {:?}", err).into(),
+                                    format!("unable to get peer executor: {err:?}").into(),
                                 )
                             })?,
                         )
@@ -609,7 +602,7 @@ impl NexusBackend {
                         None => self.catalog.clone(),
                         Some(peer) => self.get_peer_executor(peer).await.map_err(|err| {
                             PgWireError::ApiError(
-                                format!("unable to get peer executor: {:?}", err).into(),
+                                format!("unable to get peer executor: {err:?}").into(),
                             )
                         })?,
                     }
@@ -639,16 +632,7 @@ impl NexusBackend {
             )
             .await
             .map_err(|err| {
-                PgWireError::ApiError(format!("unable to submit job: {:?}", err).into())
-            })?;
-
-        self.catalog
-            .update_workflow_id_for_flow_job(&qrep_flow_job.name, &workflow_id)
-            .await
-            .map_err(|err| {
-                PgWireError::ApiError(
-                    format!("unable to update workflow for flow job: {:?}", err).into(),
-                )
+                PgWireError::ApiError(format!("unable to submit job: {err:?}").into())
             })?;
 
         Ok(workflow_id)
@@ -683,7 +667,7 @@ impl NexusBackend {
                         Arc::new(executor)
                     }
                     _ => {
-                        panic!("peer type not supported: {:?}", peer)
+                        panic!("peer type not supported: {peer:?}")
                     }
                 };
 
@@ -707,7 +691,7 @@ impl NexusBackend {
                         Some(Config::BigqueryConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to get peer executor: {:?}", err).into(),
+                                    format!("unable to get peer executor: {err:?}").into(),
                                 )
                             })?;
                             executor.describe(stmt).await?
@@ -715,7 +699,7 @@ impl NexusBackend {
                         Some(Config::MysqlConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to get peer executor: {:?}", err).into(),
+                                    format!("unable to get peer executor: {err:?}").into(),
                                 )
                             })?;
                             executor.describe(stmt).await?
@@ -723,7 +707,7 @@ impl NexusBackend {
                         Some(Config::PostgresConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to get peer executor: {:?}", err).into(),
+                                    format!("unable to get peer executor: {err:?}").into(),
                                 )
                             })?;
                             executor.describe(stmt).await?
@@ -731,13 +715,13 @@ impl NexusBackend {
                         Some(Config::SnowflakeConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
-                                    format!("unable to get peer executor: {:?}", err).into(),
+                                    format!("unable to get peer executor: {err:?}").into(),
                                 )
                             })?;
                             executor.describe(stmt).await?
                         }
                         _ => {
-                            panic!("peer type not supported: {:?}", peer)
+                            panic!("peer type not supported: {peer:?}")
                         }
                     },
                     QueryAssociation::Catalog => self.catalog.describe(stmt).await?,
@@ -751,13 +735,11 @@ impl NexusBackend {
 
 #[async_trait]
 impl SimpleQueryHandler for NexusBackend {
-    async fn do_query<'a, C>(
-        &self,
-        _client: &mut C,
-        sql: &'a str,
-    ) -> PgWireResult<Vec<Response<'a>>>
+    async fn do_query<'a, C>(&self, _client: &mut C, sql: &str) -> PgWireResult<Vec<Response<'a>>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let parsed = self.query_parser.parse_simple_sql(sql).await?;
         let nexus_stmt = parsed.statement;
@@ -818,11 +800,14 @@ impl ExtendedQueryHandler for NexusBackend {
     async fn do_query<'a, C>(
         &self,
         _client: &mut C,
-        portal: &'a Portal<Self::Statement>,
+        portal: &Portal<Self::Statement>,
         _max_rows: usize,
     ) -> PgWireResult<Response<'a>>
     where
-        C: ClientInfo + Unpin + Send + Sync,
+        C: ClientInfo + ClientPortalStore + Sink<PgWireBackendMessage> + Unpin + Send + Sync,
+        C::PortalStore: PortalStore<Statement = Self::Statement>,
+        C::Error: Debug,
+        PgWireError: From<<C as Sink<PgWireBackendMessage>>::Error>,
     {
         let stmt = &portal.statement.statement;
         tracing::info!("[eqp] do_query: {}", stmt.query);
@@ -1078,34 +1063,19 @@ pub struct Handlers {
 }
 
 impl PgWireServerHandlers for Handlers {
-    type StartupHandler =
-        SASLScramAuthStartupHandler<FixedPasswordAuthSource, NexusServerParameterProvider>;
-    type SimpleQueryHandler = NexusBackend;
-    type ExtendedQueryHandler = NexusBackend;
-    type CopyHandler = NoopCopyHandler;
-    type ErrorHandler = NoopErrorHandler;
-
-    fn simple_query_handler(&self) -> Arc<Self::SimpleQueryHandler> {
+    fn simple_query_handler(&self) -> Arc<impl SimpleQueryHandler> {
         self.nexus.clone()
     }
 
-    fn extended_query_handler(&self) -> Arc<Self::ExtendedQueryHandler> {
+    fn extended_query_handler(&self) -> Arc<impl ExtendedQueryHandler> {
         self.nexus.clone()
     }
 
-    fn startup_handler(&self) -> Arc<Self::StartupHandler> {
+    fn startup_handler(&self) -> Arc<impl StartupHandler> {
         Arc::new(SASLScramAuthStartupHandler::new(
             self.authenticator.0.clone(),
             self.authenticator.1.clone(),
         ))
-    }
-
-    fn copy_handler(&self) -> Arc<Self::CopyHandler> {
-        Arc::new(NoopCopyHandler)
-    }
-
-    fn error_handler(&self) -> Arc<Self::ErrorHandler> {
-        Arc::new(NoopErrorHandler)
     }
 }
 
@@ -1135,7 +1105,7 @@ pub async fn main() -> anyhow::Result<()> {
         Arc::new(NexusServerParameterProvider),
     );
 
-    let tls_acceptor = setup_tls(&args)?.map(Arc::new);
+    let tls_acceptor = setup_tls(&args)?;
 
     let peer_conns = {
         let conn_str = catalog_config.to_pg_connection_string();

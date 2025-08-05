@@ -2,15 +2,16 @@ package model
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strconv"
 
+	"github.com/hamba/avro/v2"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRecordAvroConverter struct {
@@ -47,12 +48,24 @@ func NewQRecordAvroConverter(
 	}, nil
 }
 
-func (qac *QRecordAvroConverter) Convert(ctx context.Context, env map[string]string, qrecord []qvalue.QValue) (map[string]any, error) {
+func (qac *QRecordAvroConverter) Convert(
+	ctx context.Context,
+	env map[string]string,
+	qrecord []types.QValue,
+	typeConversions map[string]types.TypeConversion,
+	numericTruncator SnapshotTableNumericTruncator,
+	format internal.BinaryFormat,
+) (map[string]any, error) {
 	m := make(map[string]any, len(qrecord))
 	for idx, val := range qrecord {
+		if typeConversion, ok := typeConversions[qac.Schema.Fields[idx].Name]; ok {
+			val = typeConversion.ValueConversion(val)
+		}
 		avroVal, err := qvalue.QValueToAvro(
-			ctx, env, val,
+			ctx, val,
 			&qac.Schema.Fields[idx], qac.TargetDWH, qac.logger, qac.UnboundedNumericAsString,
+			numericTruncator.Get(idx),
+			format,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert QValue to Avro-compatible value: %w", err)
@@ -76,19 +89,19 @@ type QRecordAvroSchema struct {
 }
 
 type QRecordAvroSchemaDefinition struct {
-	Schema string
-	Fields []qvalue.QField
+	Schema *avro.RecordSchema
+	Fields []types.QField
 }
 
 func GetAvroSchemaDefinition(
 	ctx context.Context,
 	env map[string]string,
 	dstTableName string,
-	qRecordSchema qvalue.QRecordSchema,
+	qRecordSchema types.QRecordSchema,
 	targetDWH protos.DBType,
 	avroNameMap map[string]string,
 ) (*QRecordAvroSchemaDefinition, error) {
-	avroFields := make([]QRecordAvroField, 0, len(qRecordSchema.Fields))
+	avroFields := make([]*avro.Field, 0, len(qRecordSchema.Fields))
 
 	for _, qField := range qRecordSchema.Fields {
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
@@ -97,7 +110,10 @@ func GetAvroSchemaDefinition(
 		}
 
 		if qField.Nullable {
-			avroType = []any{"null", avroType}
+			avroType, err = avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), avroType})
+			if err != nil {
+				return nil, err
+			}
 		}
 
 		avroFieldName := qField.Name
@@ -105,30 +121,25 @@ func GetAvroSchemaDefinition(
 			avroFieldName = avroNameMap[qField.Name]
 		}
 
-		avroFields = append(avroFields, QRecordAvroField{
-			Name: avroFieldName,
-			Type: avroType,
-		})
+		avroField, err := avro.NewField(avroFieldName, avroType)
+		if err != nil {
+			return nil, err
+		}
+		avroFields = append(avroFields, avroField)
 	}
 
-	avroSchema := QRecordAvroSchema{
-		Type:   "record",
-		Name:   dstTableName,
-		Fields: avroFields,
-	}
-
-	avroSchemaJSON, err := json.Marshal(avroSchema)
+	avroSchema, err := avro.NewRecordSchema(dstTableName, "", avroFields)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal Avro schema to JSON: %w", err)
+		return nil, err
 	}
 
 	return &QRecordAvroSchemaDefinition{
-		Schema: string(avroSchemaJSON),
+		Schema: avroSchema,
 		Fields: qRecordSchema.Fields,
 	}, nil
 }
 
-func ConstructColumnNameAvroFieldMap(fields []qvalue.QField) map[string]string {
+func ConstructColumnNameAvroFieldMap(fields []types.QField) map[string]string {
 	m := make(map[string]string, len(fields))
 	for i, field := range fields {
 		m[field.Name] = qvalue.ConvertToAvroCompatibleName(field.Name) + "_" + strconv.FormatInt(int64(i), 10)

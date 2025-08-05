@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -27,43 +28,65 @@ const (
 	POSTGRES_16 PGVersion = 160000
 )
 
-func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]string, error) {
+type CustomDataType struct {
+	Name  string
+	Type  byte
+	Delim byte // non-zero character for arrays
+}
+
+func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomDataType, error) {
 	rows, err := conn.Query(ctx, `
-		SELECT t.oid, t.typname as type
-		FROM pg_type t
+		SELECT t.oid, t.typname, coalesce(at.typtype, t.typtype), coalesce(at.typdelim, 0::"char")
+		FROM pg_catalog.pg_type t
 		LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
-		WHERE (t.typrelid = 0 OR (SELECT c.relkind = 'c' FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid))
-		AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_type el WHERE el.oid = t.typelem AND el.typarray = t.oid)
+		LEFT JOIN pg_catalog.pg_class c ON c.oid = t.typrelid
+		LEFT JOIN pg_catalog.pg_type at ON at.typarray = t.oid
+		WHERE t.typrelid = 0 OR c.relkind = 'c'
 		AND n.nspname NOT IN ('pg_catalog', 'information_schema');
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get customTypeMapping: %w", err)
 	}
 
-	customTypeMap := map[uint32]string{}
+	customTypeMap := map[uint32]CustomDataType{}
 	var typeID pgtype.Uint32
-	var typeName pgtype.Text
-	if _, err := pgx.ForEachRow(rows, []any{&typeID, &typeName}, func() error {
-		customTypeMap[typeID.Uint32] = typeName.String
+	var cdt CustomDataType
+	if _, err := pgx.ForEachRow(rows, []any{&typeID, &cdt.Name, &cdt.Type, &cdt.Delim}, func() error {
+		customTypeMap[typeID.Uint32] = cdt
 		return nil
 	}); err != nil {
-		return nil, fmt.Errorf("failed to scan into customTypeMapping: %w", err)
+		return nil, fmt.Errorf("failed to scan into custom type mapping: %w", err)
 	}
 	return customTypeMap, nil
 }
 
-func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
-	var hstoreOID uint32
-	err := conn.QueryRow(context.Background(), `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID)
-	if err != nil {
-		// hstore isn't present, just proceed
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
+func RegisterExtensions(ctx context.Context, conn *pgx.Conn, version uint32) error {
+	var hstoreOID *uint32
+	var vectorOID *uint32
+	var halfvecOID *uint32
+	var sparsevecOID *uint32
+	if err := conn.QueryRow(
+		ctx, "select to_regtype('hstore')::oid,to_regtype('vector')::oid,to_regtype('halfvec')::oid,to_regtype('sparsevec')::oid",
+	).Scan(&hstoreOID, &vectorOID, &halfvecOID, &sparsevecOID); err != nil {
 		return err
 	}
 
-	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
+	typeMap := conn.TypeMap()
+	if hstoreOID != nil {
+		typeMap.RegisterType(&pgtype.Type{Name: "hstore", OID: *hstoreOID, Codec: pgtype.HstoreCodec{}})
+	}
+
+	if version >= InternalVersion_PgVectorAsFloatArray {
+		if vectorOID != nil {
+			typeMap.RegisterType(&pgtype.Type{Name: "vector", OID: *vectorOID, Codec: pgvectorpgx.VectorCodec{}})
+			if halfvecOID != nil {
+				typeMap.RegisterType(&pgtype.Type{Name: "halfvec", OID: *halfvecOID, Codec: pgvectorpgx.HalfVectorCodec{}})
+			}
+			if sparsevecOID != nil {
+				typeMap.RegisterType(&pgtype.Type{Name: "sparsevec", OID: *sparsevecOID, Codec: pgvectorpgx.SparseVectorCodec{}})
+			}
+		}
+	}
 
 	return nil
 }
@@ -258,4 +281,120 @@ func (tx CatalogTx) QueryRow(ctx context.Context, sql string, args ...any) pgx.R
 
 func (tx CatalogTx) Conn() *pgx.Conn {
 	return tx.Tx.Conn()
+}
+
+const (
+	psSearch = iota
+	psSearch2
+	psQuoted
+	psQuotedEscape
+	psUnquoted
+	psUnquotedEscape
+	psN
+	psNU
+	psNUL
+	psNULL
+)
+
+// see array_in from postgres
+func ParsePgArrayStringToStringSlice(data string, delim byte) []string {
+	return ParsePgArrayToStringSlice(UnsafeFastStringToReadOnlyBytes(data), delim)
+}
+
+func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
+	var result []string
+	var sb []byte
+	ps := psSearch2
+	for _, ch := range data {
+	retry:
+		switch ps {
+		case psSearch:
+			if ch == delim {
+				result = append(result, "")
+			} else if ch == '}' {
+				ps = psSearch2
+			} else if ch == '"' {
+				ps = psQuoted
+			} else if ch == '\\' {
+				ps = psUnquotedEscape
+			} else if ch == 'N' {
+				ps = psN
+			} else if ch != '{' && ch != ' ' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r' {
+				sb = append(sb, ch)
+				ps = psUnquoted
+			}
+		case psSearch2:
+			if ch == '{' {
+				ps = psSearch
+			}
+		case psQuoted:
+			if ch == '\\' {
+				ps = psQuotedEscape
+			} else if ch == '"' {
+				ps = psUnquoted
+			} else {
+				sb = append(sb, ch)
+			}
+		case psUnquoted:
+			if ch == '\\' {
+				ps = psUnquotedEscape
+			} else if ch == '"' {
+				ps = psQuoted
+			} else if ch == delim || ch == '}' {
+				result = append(result, string(sb))
+				sb = sb[:0]
+				if ch == '}' {
+					ps = psSearch2
+				} else {
+					ps = psSearch
+				}
+			} else {
+				sb = append(sb, ch)
+			}
+		case psQuotedEscape:
+			sb = append(sb, ch)
+			ps = psQuoted
+		case psUnquotedEscape:
+			sb = append(sb, ch)
+			ps = psUnquoted
+		case psN:
+			if ch == 'U' {
+				ps = psNU
+			} else {
+				sb = append(sb, 'N')
+				ps = psUnquoted
+				goto retry
+			}
+		case psNU:
+			if ch == 'L' {
+				ps = psNUL
+			} else {
+				sb = append(sb, 'N', 'U')
+				ps = psUnquoted
+				goto retry
+			}
+		case psNUL:
+			if ch == 'L' {
+				ps = psNULL
+			} else {
+				sb = append(sb, 'N', 'U', 'L')
+				ps = psUnquoted
+				goto retry
+			}
+		case psNULL:
+			if ch == delim || ch == '}' {
+				result = append(result, "")
+				if ch == '}' {
+					ps = psSearch2
+				} else {
+					ps = psSearch
+				}
+			} else {
+				sb = append(sb, 'N', 'U', 'L', 'L')
+				ps = psUnquoted
+				goto retry
+			}
+		}
+	}
+	return result
 }

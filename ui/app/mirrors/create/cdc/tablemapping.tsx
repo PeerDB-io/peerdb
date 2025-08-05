@@ -1,6 +1,7 @@
 'use client';
 import { TableMapping } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
+import { ColumnsItem } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { SearchField } from '@/lib/SearchField';
 import { Callout } from '@tremor/react';
@@ -33,7 +34,7 @@ export default function TablePicker({
   const [allSchemas, setAllSchemas] = useState<string[]>();
   const [schemaQuery, setSchemaQuery] = useState('');
   const [tableColumns, setTableColumns] = useState<
-    { tableName: string; columns: string[] }[]
+    { tableName: string; columns: ColumnsItem[] }[]
   >([]);
   const searchedSchemas = useMemo(
     () =>
@@ -102,7 +103,7 @@ export default function TablePicker({
           />
         </div>
       </div>
-      <div style={{ maxHeight: '70vh', overflow: 'scroll' }}>
+      <div>
         {searchedSchemas ? (
           searchedSchemas.map((schema) => (
             <SchemaBox

@@ -20,6 +20,7 @@ message ColumnSetting {
   string destination_name = 2;
   string destination_type = 3;
   int32 ordering = 4;
+  int32 partitioning = 6;
   bool nullable_enabled = 5;
 }
 
@@ -30,6 +31,8 @@ message TableMapping {
   repeated string exclude = 4;
   repeated ColumnSetting columns = 5;
   TableEngine engine = 6;
+  string sharding_key = 7;
+  string policy_name = 8;
 }
 
 message SetupInput {
@@ -54,6 +57,7 @@ message FlowConnectionConfigs {
   // config for the initial load feature, along with interactions like resync and initial_snapshot_only
   bool do_initial_snapshot = 10;
   uint32 snapshot_num_rows_per_partition = 11;
+  uint32 snapshot_num_partitions_override = 26;
   string snapshot_staging_path = 12;
   // max parallel workers is per table
   uint32 snapshot_max_parallel_workers = 13;
@@ -76,6 +80,7 @@ message FlowConnectionConfigs {
   string destination_name = 23;
 
   map<string, string> env = 24;
+  uint32 version = 25;
 }
 
 message RenameTableOption {
@@ -188,6 +193,7 @@ message SetupTableSchemaBatchInput {
   TypeSystem system = 4;
   string peer_name = 5;
   repeated TableMapping table_mappings = 6;
+  uint32 version = 7;
 }
 
 message SetupNormalizedTableBatchInput {
@@ -232,18 +238,34 @@ message TIDPartitionRange {
   TID end = 2;
 }
 
+message UIntPartitionRange {
+  uint64 start = 1;
+  uint64 end = 2;
+}
+
+message ObjectIdPartitionRange {
+  string start = 1;
+  string end = 2;
+}
+
 message PartitionRange {
   // can be a timestamp range or an integer range
   oneof range {
     IntPartitionRange int_range = 1;
     TimestampPartitionRange timestamp_range = 2;
     TIDPartitionRange tid_range = 3;
+    UIntPartitionRange uint_range = 4;
+    ObjectIdPartitionRange object_id_range = 5;
   }
 }
 
 enum TableEngine {
   CH_ENGINE_REPLACING_MERGE_TREE = 0;
   CH_ENGINE_MERGE_TREE = 1;
+  CH_ENGINE_NULL = 2;
+  CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE = 3;
+  CH_ENGINE_REPLICATED_MERGE_TREE = 4;
+  CH_ENGINE_COALESCING_MERGE_TREE = 5;
 }
 
 // protos for qrep
@@ -265,6 +287,7 @@ enum TypeSystem {
 }
 
 message QRepConfig {
+  reserved 2, 3;
   string flow_job_name = 1;
 
   string destination_table_identifier = 4;
@@ -291,10 +314,9 @@ message QRepConfig {
   // if using GCS or S3 make sure your instance has the correct permissions.
   string staging_path = 12;
 
-  // This setting overrides batch_size_int and batch_duration_seconds
-  // and instead uses the number of rows per partition to determine
-  // how many rows to process per batch.
   uint32 num_rows_per_partition = 13;
+  // overrides num_rows_per_partition to skip count(*) query
+  uint32 num_partitions_override = 29;
 
   // Creates the watermark table on the destination as-is, can be used for some queries.
   bool setup_watermark_table_on_destination = 14;
@@ -316,6 +338,10 @@ message QRepConfig {
   map<string, string> env = 24;
 
   string parent_mirror_name = 25;
+  repeated string exclude = 26;
+
+  repeated ColumnSetting columns = 27;
+  uint32 version = 28;
 }
 
 message QRepPartition {
@@ -340,6 +366,7 @@ message DropFlowInput {
   FlowConnectionConfigs flow_connection_configs = 5;
   bool skip_destination_drop = 6;
   bool skip_source_drop = 7;
+  bool resync = 8;
 }
 
 message TableSchemaDelta {
@@ -351,6 +378,7 @@ message TableSchemaDelta {
 }
 
 message QRepFlowState {
+  reserved 4;
   QRepPartition last_partition = 1;
   uint64 num_partitions_processed = 2;
   bool needs_resync = 3;
@@ -369,17 +397,10 @@ message GetOpenConnectionsForUserResult {
 }
 
 // UI reads current workflow status and also requests status changes using same enum
-// UI can request STATUS_PAUSED, STATUS_RUNNING and STATUS_TERMINATED
-// STATUS_RUNNING -> STATUS_PAUSED/STATUS_TERMINATED
-// STATUS_PAUSED -> STATUS_RUNNING/STATUS_TERMINATED
-// UI can read everything except STATUS_UNKNOWN
-// terminate button should always be enabled
+// see flow/cmd/handler.go FlowStateChange
 enum FlowStatus {
-  // should never be read by UI, bail
   STATUS_UNKNOWN = 0;
-  // enable pause and terminate buttons
   STATUS_RUNNING = 1;
-  // pause button becomes resume button
   STATUS_PAUSED = 2;
   STATUS_PAUSING = 3;
   // not reachable in QRep mirrors
@@ -389,6 +410,8 @@ enum FlowStatus {
   STATUS_TERMINATING = 6;
   STATUS_TERMINATED = 7;
   STATUS_COMPLETED = 8;
+  STATUS_RESYNC = 9;
+  STATUS_FAILED = 10;
 }
 
 message CDCFlowConfigUpdate {
@@ -399,6 +422,10 @@ message CDCFlowConfigUpdate {
   repeated TableMapping removed_tables = 5;
   // updates keys in the env map, existing keys left unchanged
   map<string, string> updated_env = 6;
+  uint32 snapshot_num_rows_per_partition = 7;
+  uint32 snapshot_num_partitions_override = 10;
+  uint32 snapshot_max_parallel_workers = 8;
+  uint32 snapshot_num_tables_in_parallel = 9;
 }
 
 message QRepFlowConfigUpdate {
@@ -477,6 +504,10 @@ message StartMaintenanceFlowOutput {
   string version = 1;
 }
 
+message StartMaintenanceSignal {
+  repeated string skipped_snapshot_wait_flows = 1;
+}
+
 message EndMaintenanceFlowInput {
 }
 
@@ -490,6 +521,7 @@ message MaintenanceMirror {
   string workflow_id = 3;
   bool is_cdc = 4;
   google.protobuf.Timestamp mirror_created_at = 5;
+  google.protobuf.Timestamp mirror_updated_at = 6;
 }
 
 message MaintenanceMirrors {

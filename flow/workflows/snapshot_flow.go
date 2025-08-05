@@ -60,7 +60,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 		Env:                         s.config.Env,
 	}
 
-	res := &protos.SetupReplicationOutput{}
+	var res *protos.SetupReplicationOutput
 	if err := workflow.ExecuteActivity(ctx, snapshot.SetupReplication, setupReplicationInput).Get(ctx, &res); err != nil {
 		return nil, fmt.Errorf("failed to setup replication on source peer: %w", err)
 	}
@@ -158,12 +158,22 @@ func (s *SnapshotFlowExecution) cloneTable(
 		}
 		from = strings.Join(quotedColumns, ",")
 	}
+
+	// usually MySQL supports double quotes with ANSI_QUOTES, but Vitess doesn't
+	// Vitess currently only supports initial load so change here is enough
+	srcTableEscaped := parsedSrcTable.String()
+	if dbtype, err := getPeerType(ctx, s.config.SourceName); err != nil {
+		return err
+	} else if dbtype == protos.DBType_MYSQL {
+		srcTableEscaped = parsedSrcTable.MySQL()
+	}
+
 	var query string
 	if mapping.PartitionKey == "" {
-		query = fmt.Sprintf("SELECT %s FROM %s", from, parsedSrcTable.String())
+		query = fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
 	} else {
 		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, parsedSrcTable.String(), mapping.PartitionKey)
+			from, srcTableEscaped, mapping.PartitionKey)
 	}
 
 	numWorkers := uint32(8)
@@ -176,16 +186,20 @@ func (s *SnapshotFlowExecution) cloneTable(
 		numRowsPerPartition = s.config.SnapshotNumRowsPerPartition
 	}
 
+	numPartitionsOverride := uint32(0)
+	if s.config.SnapshotNumPartitionsOverride > 0 {
+		numPartitionsOverride = s.config.SnapshotNumPartitionsOverride
+	}
+
 	snapshotWriteMode := &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
 	}
+
 	// ensure document IDs are synchronized across initial load and CDC
 	// for the same document
-	dbtype, err := getPeerType(ctx, s.config.DestinationName)
-	if err != nil {
+	if dbtype, err := getPeerType(ctx, s.config.DestinationName); err != nil {
 		return err
-	}
-	if dbtype == protos.DBType_ELASTICSEARCH {
+	} else if dbtype == protos.DBType_ELASTICSEARCH {
 		if err := initTableSchema(); err != nil {
 			return err
 		}
@@ -206,6 +220,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		SnapshotName:               snapshotName,
 		DestinationTableIdentifier: dstName,
 		NumRowsPerPartition:        numRowsPerPartition,
+		NumPartitionsOverride:      numPartitionsOverride,
 		MaxParallelWorkers:         numWorkers,
 		StagingPath:                s.config.SnapshotStagingPath,
 		SyncedAtColName:            s.config.SyncedAtColName,
@@ -215,6 +230,9 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Script:                     s.config.Script,
 		Env:                        s.config.Env,
 		ParentMirrorName:           flowName,
+		Exclude:                    mapping.Exclude,
+		Columns:                    mapping.Columns,
+		Version:                    s.config.Version,
 	}
 
 	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
@@ -284,13 +302,21 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 			s.logger.Error("failed to close slot keep alive", slog.Any("error", err))
 		}
 	}()
+	var slotName string
+	var snapshotName string
+	var supportsTidScans bool
+	if slotInfo != nil {
+		slotName = slotInfo.SlotName
+		snapshotName = slotInfo.SnapshotName
+		supportsTidScans = slotInfo.SupportsTidScans
+	}
 
-	s.logger.Info(fmt.Sprintf("cloning %d tables in parallel", numTablesInParallel))
+	s.logger.Info("cloning tables in parallel", slog.Int("parallelism", numTablesInParallel))
 	if err := s.cloneTables(ctx,
 		SNAPSHOT_TYPE_SLOT,
-		slotInfo.SlotName,
-		slotInfo.SnapshotName,
-		slotInfo.SupportsTidScans,
+		slotName,
+		snapshotName,
+		supportsTidScans,
 		numTablesInParallel,
 	); err != nil {
 		s.logger.Error("failed to clone tables", slog.Any("error", err))

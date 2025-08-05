@@ -24,8 +24,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
@@ -94,7 +94,7 @@ func (esc *ElasticsearchConnector) CreateRawTable(ctx context.Context,
 
 // we handle schema changes by not handling them since no mapping is being enforced right now
 func (esc *ElasticsearchConnector) ReplayTableSchemaDeltas(ctx context.Context, env map[string]string,
-	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	return nil
 }
@@ -103,7 +103,7 @@ func recordItemsProcessor(items model.RecordItems) ([]byte, error) {
 	qRecordJsonMap := make(map[string]any)
 
 	for key, val := range items.ColToVal {
-		if r, ok := val.(qvalue.QValueJSON); ok { // JSON is stored as a string, fix that
+		if r, ok := val.(types.QValueJSON); ok { // JSON is stored as a string, fix that
 			qRecordJsonMap[key] = json.RawMessage(
 				shared.UnsafeFastStringToReadOnlyBytes(r.Val))
 		} else {
@@ -232,7 +232,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 			docId = base64.RawURLEncoding.EncodeToString(tablePkey.PkeyColVal[:])
 		}
 
-		err = bulkIndexer.Add(ctx, esutil.BulkIndexerItem{
+		if err := bulkIndexer.Add(ctx, esutil.BulkIndexerItem{
 			Action:     action,
 			DocumentID: docId,
 			Body:       bytes.NewReader(bodyBytes),
@@ -266,8 +266,7 @@ func (esc *ElasticsearchConnector) SyncRecords(ctx context.Context,
 					}
 				}
 			},
-		})
-		if err != nil {
+		}); err != nil {
 			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
 			return nil, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
 		}

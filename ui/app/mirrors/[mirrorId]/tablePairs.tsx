@@ -4,10 +4,20 @@ import { TableMapping } from '@/grpc_generated/flow';
 import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell } from '@/lib/Table';
 import { TableRow } from '@tremor/react';
-import { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import ColumnDisplayModal from './columnDisplayModal';
 
-export default function TablePairs({ tables }: { tables?: TableMapping[] }) {
+export default function TablePairs({
+  tables,
+  sourcePeerName,
+}: {
+  tables?: TableMapping[];
+  sourcePeerName: string;
+}) {
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedTable, setSelectedTable] = useState<TableMapping | null>(null);
+
   const shownTables: TableMapping[] | undefined = useMemo(() => {
     const shownTables = tables?.filter(
       (table: TableMapping) =>
@@ -16,6 +26,19 @@ export default function TablePairs({ tables }: { tables?: TableMapping[] }) {
     );
     return shownTables?.length ? shownTables : tables;
   }, [tables, searchQuery]);
+
+  const handleTableClick = (table: TableMapping) => {
+    console.log('Clicked table:', table);
+    console.log('Table columns:', table.columns);
+    console.log('Columns length:', table.columns?.length);
+    setSelectedTable(table);
+    setIsModalOpen(true);
+  };
+
+  const handleCloseModal = () => {
+    setIsModalOpen(false);
+    setSelectedTable(null);
+  };
 
   return (
     tables && (
@@ -40,6 +63,9 @@ export default function TablePairs({ tables }: { tables?: TableMapping[] }) {
             {shownTables?.map((table) => (
               <TableRow
                 key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
+                onClick={() => handleTableClick(table)}
+                style={{ cursor: 'pointer' }}
+                className='hover:bg-gray-50'
               >
                 <TableCell>{table.sourceTableIdentifier}</TableCell>
                 <TableCell style={{ padding: '0.5rem' }}>
@@ -49,6 +75,17 @@ export default function TablePairs({ tables }: { tables?: TableMapping[] }) {
             ))}
           </Table>
         </div>
+
+        <ColumnDisplayModal
+          isOpen={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          sourceTableIdentifier={selectedTable?.sourceTableIdentifier ?? ''}
+          destinationTableIdentifier={
+            selectedTable?.destinationTableIdentifier ?? ''
+          }
+          tableMapping={selectedTable}
+          sourcePeerName={sourcePeerName}
+        />
       </div>
     )
   );

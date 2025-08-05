@@ -7,7 +7,7 @@ use analyzer::{
 use async_trait::async_trait;
 use catalog::Catalog;
 use pgwire::{
-    api::{stmt::QueryParser, Type},
+    api::{ClientInfo, Type, stmt::QueryParser},
     error::{ErrorInfo, PgWireError, PgWireResult},
 };
 use sqlparser::{ast::Statement, dialect::PostgreSqlDialect, parser::Parser};
@@ -111,7 +111,7 @@ impl NexusQueryParser {
         let mut stmts =
             Parser::parse_sql(&DIALECT, sql).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         if stmts.len() > 1 {
-            let err_msg = format!("unsupported sql: {}, statements: {:?}", sql, stmts);
+            let err_msg = format!("unsupported sql: {sql}, statements: {stmts:?}");
             // TODO (kaushik): Better error message for this. When do we start seeing multiple statements?
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
@@ -146,11 +146,19 @@ impl NexusQueryParser {
 impl QueryParser for NexusQueryParser {
     type Statement = NexusParsedStatement;
 
-    async fn parse_sql(&self, sql: &str, _types: &[Type]) -> PgWireResult<Self::Statement> {
+    async fn parse_sql<C>(
+        &self,
+        _client: &C,
+        sql: &str,
+        _types: &[Type],
+    ) -> PgWireResult<Self::Statement>
+    where
+        C: ClientInfo + Unpin + Send + Sync,
+    {
         let mut stmts =
             Parser::parse_sql(&DIALECT, sql).map_err(|e| PgWireError::ApiError(Box::new(e)))?;
         if stmts.len() > 1 {
-            let err_msg = format!("unsupported sql: {}, statements: {:?}", sql, stmts);
+            let err_msg = format!("unsupported sql: {sql}, statements: {stmts:?}");
             Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "42P14".to_owned(),

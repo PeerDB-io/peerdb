@@ -49,7 +49,7 @@ impl CursorManager {
             PgWireError::UserError(Box::new(ErrorInfo::new(
                 "ERROR".to_owned(),
                 "fdw_error".to_owned(),
-                format!("Cursor {} does not exist", name),
+                format!("Cursor {name} does not exist"),
             )))
         })?;
 
@@ -82,7 +82,7 @@ impl CursorManager {
                 PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
                     "fdw_error".to_owned(),
-                    format!("Cursor {} does not exist", name),
+                    format!("Cursor {name} does not exist"),
                 )))
             })
             .map(|_| ())

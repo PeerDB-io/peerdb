@@ -3,6 +3,7 @@ package peerflow
 import (
 	"time"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -26,7 +27,8 @@ func GetFlowMetadataContext(
 	input *protos.FlowContextMetadataInput,
 ) (workflow.Context, error) {
 	metadataCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
-		StartToCloseTimeout: 30 * time.Second,
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumInterval: time.Minute},
 	})
 	getMetadataFuture := workflow.ExecuteLocalActivity(metadataCtx, flowable.GetFlowMetadata, input)
 	var metadata *protos.FlowContextMetadata

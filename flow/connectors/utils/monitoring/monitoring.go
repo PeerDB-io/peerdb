@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
@@ -267,11 +268,12 @@ func AppendSlotSizeInfo(
 	return nil
 }
 
-func isMySQLFullTablePartition(partition *protos.QRepPartition) bool {
+func supportsStatsForFullTablePartition(partition *protos.QRepPartition) bool {
 	if partition == nil {
 		return false
 	}
-	return partition.PartitionId == shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID
+	return partition.PartitionId == shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID ||
+		partition.PartitionId == shared_mongo.MongoFullTablePartitionId
 }
 
 func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
@@ -282,7 +284,7 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
 		return errors.New("cannot add nil partition to qrep run")
 	}
-	if partition.Range == nil && partition.FullTablePartition && !isMySQLFullTablePartition(partition) {
+	if partition.Range == nil && partition.FullTablePartition && !supportsStatsForFullTablePartition(partition) {
 		internal.LoggerFromCtx(ctx).Info("partition "+partition.PartitionId+
 			" is a full table partition. Metrics logging is skipped.",
 			slog.String(string(shared.FlowNameKey), parentMirrorName))
@@ -295,6 +297,9 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 		case *protos.PartitionRange_IntRange:
 			rangeStart = strconv.FormatInt(x.IntRange.Start, 10)
 			rangeEnd = strconv.FormatInt(x.IntRange.End, 10)
+		case *protos.PartitionRange_UintRange:
+			rangeStart = strconv.FormatUint(x.UintRange.Start, 10)
+			rangeEnd = strconv.FormatUint(x.UintRange.End, 10)
 		case *protos.PartitionRange_TimestampRange:
 			rangeStart = x.TimestampRange.Start.AsTime().String()
 			rangeEnd = x.TimestampRange.End.AsTime().String()
@@ -318,6 +323,9 @@ func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,
 				return fmt.Errorf("unable to encode TID as string: %w", err)
 			}
 			rangeEnd = rangeEndValue.(string)
+		case *protos.PartitionRange_ObjectIdRange:
+			rangeStart = x.ObjectIdRange.Start
+			rangeEnd = x.ObjectIdRange.End
 		default:
 			return fmt.Errorf("unknown range type: %v", x)
 		}
@@ -378,7 +386,7 @@ func UpdateEndTimeForPartition(ctx context.Context, pool shared.CatalogPool, run
 	return nil
 }
 
-func UpdateRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, rowsSynced int, runUUID string,
+func UpdateRowsSyncedForPartition(ctx context.Context, pool shared.CatalogPool, rowsSynced int64, runUUID string,
 	partition *protos.QRepPartition,
 ) error {
 	if _, err := pool.Exec(ctx,

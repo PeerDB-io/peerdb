@@ -12,13 +12,11 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
-var (
-	CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
-	CustomColumnNameRegex = regexp.MustCompile(`^$|^[a-zA-Z_][a-zA-Z0-9_]*$`)
-)
+var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
@@ -31,7 +29,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 
 	if underMaintenance {
 		slog.Warn("Validate request denied due to maintenance", "flowName", req.ConnectionConfigs.FlowJobName)
-		return nil, errors.New("PeerDB is under maintenance")
+		return nil, exceptions.ErrUnderMaintenance
 	}
 
 	if !req.ConnectionConfigs.Resync {
@@ -58,9 +56,6 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
 				return nil, fmt.Errorf("invalid custom column type %s", col.DestinationType)
 			}
-			if !CustomColumnNameRegex.MatchString(col.DestinationName) {
-				return nil, fmt.Errorf("invalid custom column name %s", col.DestinationName)
-			}
 		}
 	}
 
@@ -69,7 +64,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
-			return nil, errors.New("/validatecdc source peer does not support being a source peer")
+			return nil, errors.New("connector is not a supported source type")
 		}
 		err := fmt.Errorf("failed to create source connector: %w", err)
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
@@ -83,7 +78,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
 			err.Error(),
 		)
-		return nil, err
+		return nil, fmt.Errorf("failed to validate source connector %s: %w", req.ConnectionConfigs.SourceName, err)
 	}
 
 	dstConn, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
@@ -101,7 +96,8 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	res, err := srcConn.GetTableSchema(ctx, nil, req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
+	res, err := srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
+		req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get source table schema: %w", err)
 	}

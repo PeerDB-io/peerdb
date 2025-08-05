@@ -22,14 +22,16 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) str
 
 	// for a url like postgres://user:password@host:port/dbname
 	connString := fmt.Sprintf(
-		"postgres://%s:%s@%s:%d/%s?application_name=%s&client_encoding=UTF8",
+		"postgres://%s:%s@%s/%s?application_name=%s&client_encoding=UTF8",
 		pgConfig.User,
 		passwordEscaped,
-		pgConfig.Host,
-		pgConfig.Port,
+		shared.JoinHostPort(pgConfig.Host, pgConfig.Port),
 		pgConfig.Database,
 		applicationName,
 	)
+	if pgConfig.RequireTls {
+		connString += "&sslmode=require"
+	}
 	return connString
 }
 

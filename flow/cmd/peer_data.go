@@ -2,8 +2,8 @@ package cmd
 
 import (
 	"context"
-	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -13,6 +13,7 @@ import (
 	"google.golang.org/protobuf/types/descriptorpb"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -92,8 +93,9 @@ func (h *FlowRequestHandler) ListPeers(
 ) (*protos.ListPeersResponse, error) {
 	query := "SELECT name, type FROM peers"
 	if internal.PeerDBOnlyClickHouseAllowed() {
-		// only postgres, mysql, and clickhouse
-		query += " WHERE type IN (3, 7, 8)"
+		// only postgres, mysql, mongo,and clickhouse
+		query += fmt.Sprintf(" WHERE type IN (%d,%d,%d,%d)",
+			protos.DBType_POSTGRES, protos.DBType_MYSQL, protos.DBType_MONGO, protos.DBType_CLICKHOUSE)
 	}
 	rows, err := h.pool.Query(ctx, query)
 	if err != nil {
@@ -112,10 +114,11 @@ func (h *FlowRequestHandler) ListPeers(
 	sourceItems := make([]*protos.PeerListItem, 0, len(peers))
 	destinationItems := make([]*protos.PeerListItem, 0, len(peers))
 	for _, peer := range peers {
-		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL {
+		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL || peer.Type == protos.DBType_MONGO {
 			sourceItems = append(sourceItems, peer)
 		}
-		if peer.Type != protos.DBType_MYSQL && (!internal.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
+		if peer.Type != protos.DBType_MYSQL &&
+			peer.Type != protos.DBType_MONGO && (!internal.PeerDBOnlyClickHouseAllowed() || peer.Type == protos.DBType_CLICKHOUSE) {
 			destinationItems = append(destinationItems, peer)
 		}
 	}
@@ -173,7 +176,18 @@ func (h *FlowRequestHandler) GetColumns(
 		return nil, err
 	}
 	defer connectors.CloseConnector(ctx, conn)
-	return conn.GetColumns(ctx, req.SchemaName, req.TableName)
+	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	return conn.GetColumns(ctx, internalVersion, req.SchemaName, req.TableName)
+}
+
+func (h *FlowRequestHandler) GetColumnsTypeConversion(
+	ctx context.Context,
+	req *protos.ColumnsTypeConversionRequest,
+) (*protos.ColumnsTypeConversionResponse, error) {
+	return connclickhouse.GetColumnsTypeConversion()
 }
 
 func (h *FlowRequestHandler) GetSlotInfo(
@@ -241,81 +255,13 @@ func (h *FlowRequestHandler) GetStatInfo(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerStatResponse, error) {
-	peerConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
+	peerConn, err := connectors.GetByNameAs[connectors.StatActivityConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		return nil, err
 	}
 	defer connectors.CloseConnector(ctx, peerConn)
 
-	peerUser := peerConn.Config.User
-
-	rows, err := peerConn.Conn().Query(ctx, "SELECT pid, wait_event, wait_event_type, query_start::text, query,"+
-		"EXTRACT(epoch FROM(now()-query_start)) AS dur, state"+
-		" FROM pg_stat_activity WHERE "+
-		"usename=$1 AND application_name LIKE 'peerdb%';", peerUser)
-	if err != nil {
-		slog.Error("Failed to get stat info", slog.Any("error", err))
-		return nil, err
-	}
-
-	statInfoRows, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.StatInfo, error) {
-		var pid int64
-		var waitEvent sql.NullString
-		var waitEventType sql.NullString
-		var queryStart sql.NullString
-		var query sql.NullString
-		var duration sql.NullFloat64
-		// shouldn't be null
-		var state string
-
-		err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration, &state)
-		if err != nil {
-			slog.Error("Failed to scan row", slog.Any("error", err))
-			return nil, err
-		}
-
-		we := waitEvent.String
-		if !waitEvent.Valid {
-			we = ""
-		}
-
-		wet := waitEventType.String
-		if !waitEventType.Valid {
-			wet = ""
-		}
-
-		q := query.String
-		if !query.Valid {
-			q = ""
-		}
-
-		qs := queryStart.String
-		if !queryStart.Valid {
-			qs = ""
-		}
-
-		d := duration.Float64
-		if !duration.Valid {
-			d = -1
-		}
-
-		return &protos.StatInfo{
-			Pid:           pid,
-			WaitEvent:     we,
-			WaitEventType: wet,
-			QueryStart:    qs,
-			Query:         q,
-			Duration:      float32(d),
-			State:         state,
-		}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &protos.PeerStatResponse{
-		StatData: statInfoRows,
-	}, nil
+	return peerConn.StatActivity(ctx, req)
 }
 
 func (h *FlowRequestHandler) GetPublications(

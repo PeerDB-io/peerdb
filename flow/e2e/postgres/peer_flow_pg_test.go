@@ -70,7 +70,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	flowConnConfig.MaxBatchSize = 100
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 1 row into the source table
@@ -88,7 +88,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Geospatial_PG() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
+func (s PeerFlowE2ETestSuitePG) Test_Types() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_types_pg")
@@ -116,7 +116,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 	flowConnConfig.SoftDeleteColName = ""
 	flowConnConfig.SyncedAtColName = ""
 
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 			INSERT INTO %s SELECT 2,2,'\xdeadbeef',
@@ -145,18 +145,53 @@ func (s PeerFlowE2ETestSuitePG) Test_Types_PG() {
 		"c7", "c8", "c32", "c42", "c43", "c44", "c45", "c46", "c47", "c48", "c49", "c50",
 	}, ",")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize types", func() bool {
-		return s.comparePGTables(srcTableName, dstTableName, allCols) == nil
+		err := s.comparePGTables(srcTableName, dstTableName, allCols)
+		if err != nil {
+			s.t.Log("mismatch", err)
+		}
+		return err == nil
 	})
-	// c36 lost tz info so does not compare equal
+	// c36 converted to UTC, losing tz info, so does not compare equal
 	var c36 string
 	require.NoError(s.t, s.Conn().QueryRow(s.t.Context(), "select c36 from "+dstTableName).Scan(&c36))
-	require.Equal(s.t, "09:25:00+00", c36)
+	require.Equal(s.t, "06:25:00+00", c36)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
+func (s PeerFlowE2ETestSuitePG) Test_PgVector() {
+	srcTableName := "pg_pgvector"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "pg_pgvector_dst"
+
+	require.NoError(s.t, s.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id SERIAL PRIMARY KEY, v1 vector, hv halfvec, sv sparsevec)`, srcFullName)))
+	require.NoError(s.t, s.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3]','[1,2.5,3]','{1:1.5,3:3.5}/5')`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTableName),
+		TableMappings: e2e.TableMappings(s, srcTableName, dstTableName),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName, "id,v1,hv,sv")
+
+	require.NoError(s.t, s.Exec(s.t.Context(),
+		fmt.Sprintf(`insert into %s (v1,hv,sv) values ('[1.5,2,3.5]','[1,2,3.5]','{2:2.5,3:3.5}/5')`, srcFullName)))
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName, "id,v1,hv,sv")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuitePG) Test_Enums() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_enum_flow")
@@ -171,7 +206,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 		CREATE TABLE IF NOT EXISTS %s (
 			id SERIAL PRIMARY KEY,
 			my_mood mood,
-			my_null_mood mood
+			my_null_mood mood,
+			moods mood[]
 		);
 	`, srcTableName))
 	require.NoError(s.t, err)
@@ -185,11 +221,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-			INSERT INTO %s(my_mood, my_null_mood) VALUES ('happy',null)
-			`, srcTableName))
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s(my_mood, my_null_mood, moods) VALUES ('happy',null,'{happy,angry}')`, srcTableName))
 	e2e.EnvNoError(s.t, env, err)
 	s.t.Log("Inserted enums into the source table")
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize enum", func() bool {
@@ -197,7 +232,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Enums_PG() {
 	})
 
 	env.Cancel(s.t.Context())
-
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
@@ -229,7 +263,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_PG() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 10 rows into the source table
 	for i := range 10 {
@@ -262,7 +296,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast1")
-	randomString := s.attachSchemaSuffix("random_string")
 	dstTableName := s.attachSchemaSuffix("test_cpkey_toast1_dst")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -273,11 +306,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 			t TEXT,
 			t2 TEXT,
 			PRIMARY KEY(id,t)
-		);CREATE OR REPLACE FUNCTION %s( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
-	`, srcTableName, randomString))
+		);`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -291,7 +320,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	rowsTx, err := s.Conn().Begin(s.t.Context())
 	e2e.EnvNoError(s.t, env, err)
@@ -299,9 +328,8 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = rowsTx.Exec(s.t.Context(), fmt.Sprintf(`
-			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,%s(9000))
-		`, srcTableName, randomString), i, testValue)
+		_, err = rowsTx.Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))`, srcTableName), i, testValue)
 		e2e.EnvNoError(s.t, env, err)
 	}
 	s.t.Log("Inserted 10 rows into the source table")
@@ -312,8 +340,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_1_PG() {
 	_, err = rowsTx.Exec(s.t.Context(), fmt.Sprintf(`DELETE FROM %s WHERE MOD(c2,2)=$1`, srcTableName), 0)
 	e2e.EnvNoError(s.t, env, err)
 
-	err = rowsTx.Commit(s.t.Context())
-	e2e.EnvNoError(s.t, env, err)
+	e2e.EnvNoError(s.t, env, rowsTx.Commit(s.t.Context()))
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "normalize tx", func() bool {
 		return s.comparePGTables(srcTableName, dstTableName, "id,c1,c2,t,t2") == nil
@@ -327,7 +354,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 	tc := e2e.NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_cpkey_toast2")
-	randomString := s.attachSchemaSuffix("random_string")
 	dstTableName := s.attachSchemaSuffix("test_cpkey_toast2_dst")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -338,11 +364,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 			t TEXT,
 			t2 TEXT,
 			PRIMARY KEY(id,t)
-		);CREATE OR REPLACE FUNCTION %s( int ) RETURNS TEXT as $$
-		SELECT string_agg(substring('0123456789bcdfghjkmnpqrstvwxyz',
-		round(random() * 30)::integer, 1), '') FROM generate_series(1, $1);
-		$$ language sql;
-	`, srcTableName, randomString))
+		);`, srcTableName))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -356,15 +378,14 @@ func (s PeerFlowE2ETestSuitePG) Test_Composite_PKey_Toast_2_PG() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// insert 10 rows into the source table
 	for i := range 10 {
 		testValue := fmt.Sprintf("test_value_%d", i)
-		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-			INSERT INTO %s(c2,t,t2) VALUES ($1,$2,%s(9000))
-		`, srcTableName, randomString), i, testValue)
+		_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+			`INSERT INTO %s(c2,t,t2) VALUES ($1,$2,random_string(9000))`, srcTableName), i, testValue)
 		e2e.EnvNoError(s.t, env, err)
 	}
 	s.t.Log("Inserted 10 rows into the source table")
@@ -412,7 +433,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 100
 
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 1 row into the source table
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
@@ -467,7 +488,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Basic() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, config)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -544,7 +565,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_IUD_Same_Batch() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, config)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	insertTx, err := s.Conn().Begin(s.t.Context())
@@ -613,7 +634,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_UD_Same_Batch() {
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert, update and delete rows in the table.
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, config)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -688,7 +709,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Soft_Delete_Insert_After_Delete() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and delete rows in the table.
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, config)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -754,7 +775,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Supported_Mixed_Case_Table() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and delete rows in the table.
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, config)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 	// insert 20 rows into the source table
 	for i := range 10 {
@@ -801,7 +822,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Multiple_Parallel_Initial() {
 	}
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, config)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, config)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	for _, tm := range config.TableMappings {
@@ -833,7 +854,7 @@ func (s PeerFlowE2ETestSuitePG) Test_ContinueAsNew() {
 	flowConnConfig.IdleTimeoutSeconds = 10
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	for i := range 144 {
@@ -889,7 +910,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	}
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, config, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, config)
 
 	addRows := func(numRows int) {
 		for range numRows {
@@ -922,7 +943,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 	if !s.t.Failed() {
 		e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-			return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 		})
 
 		_, err = s.Conn().Exec(s.t.Context(),
@@ -946,7 +967,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		})
 
 		e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
-			return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_RUNNING
+			return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 		})
 		e2e.EnvWaitFor(s.t, env, 2*time.Minute, "normalize 18 records - first table", func() bool {
 			return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
@@ -962,54 +983,6 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 2)
 	}
 
-	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
-}
-
-func (s PeerFlowE2ETestSuitePG) Test_CustomSync() {
-	srcTableName := s.attachSchemaSuffix("test_customsync")
-	dstTableName := s.attachSchemaSuffix("test_customsync_dst")
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      s.attachSuffix("test_customsync_flow"),
-		TableNameMapping: map[string]string{srcTableName: dstTableName},
-		Destination:      s.Peer().Name,
-	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-
-	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
-			key TEXT NOT NULL,
-			value TEXT NOT NULL
-		);
-	`, srcTableName))
-
-	require.NoError(s.t, err)
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-
-	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
-	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "paused workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
-	})
-
-	e2e.SignalWorkflow(s.t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
-		NumberOfSyncs: 1,
-	})
-	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "resumed workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_RUNNING
-	})
-
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
-		"INSERT INTO %s(key, value) VALUES ('test_key', 'test_value')", srcTableName))
-	e2e.EnvNoError(s.t, env, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "paused workflow", func() bool {
-		return e2e.EnvGetFlowStatus(s.t, env) == protos.FlowStatus_STATUS_PAUSED
-	})
-
-	require.NoError(s.t, s.comparePGTables(srcTableName, dstTableName, "id,key,value"))
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
@@ -1050,7 +1023,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TypeSystem_PG() {
 	flowConnConfig.SyncedAtColName = ""
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
@@ -1096,7 +1069,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRecordScript() {
 	flowConnConfig.Script = "cdc_transform_record"
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
@@ -1145,7 +1118,7 @@ func (s PeerFlowE2ETestSuitePG) Test_TransformRowScript() {
 	flowConnConfig.Script = "cdc_transform_row"
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
@@ -1200,7 +1173,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Mixed_Case_Schema_Changes_PG() {
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
-	env := e2e.ExecutePeerflow(s.t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
 	// insert first row.
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -1257,6 +1230,65 @@ func (s PeerFlowE2ETestSuitePG) Test_Mixed_Case_Schema_Changes_PG() {
 		return s.comparePGTables(quotedSourceTableName, quotedDestTableName,
 			"id,c1") == nil
 	})
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
+	srcTableName := "pgresync"
+	srcFullName := s.attachSchemaSuffix(fmt.Sprintf("\"%s\"", tableName))
+	dstTableName := tableName
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			key TEXT NOT NULL,
+			"excludedColumn" TEXT
+		);
+	`, srcFullName))
+	require.NoError(s.t, err)
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('init','excluded')", srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix(srcTableName),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
+				DestinationTableIdentifier: dstTableName,
+				Exclude:                    []string{"excludedColumn"},
+			},
+		},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
+
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf("INSERT INTO %s (key, \"excludedColumn\") VALUES ('cdc','excluded')", srcFullName))
+	require.NoError(s.t, err)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+
+	env = e2e.ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowConnConfig.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: flowConnConfig,
+	})
+	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+
+	flowConnConfig.Resync = true
+	env = e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\"")
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }

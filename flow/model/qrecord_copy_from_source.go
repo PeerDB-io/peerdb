@@ -2,33 +2,27 @@ package model
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	geo "github.com/PeerDB-io/peerdb/flow/datatypes"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func constructArray[T any](qValue qvalue.QValue, typeName string) (*pgtype.Array[T], error) {
-	v, ok := qValue.Value().([]T)
-	if !ok {
-		return nil, fmt.Errorf("invalid %s value", typeName)
-	}
+func constructArray[T any](v []T) *pgtype.Array[T] {
 	return &pgtype.Array[T]{
 		Elements: v,
 		Dims:     []pgtype.ArrayDimension{{Length: int32(len(v)), LowerBound: 1}},
 		Valid:    true,
-	}, nil
+	}
 }
 
 type QRecordCopyFromSource struct {
 	stream        *QRecordStream
-	currentRecord []qvalue.QValue
+	currentRecord []types.QValue
 }
 
 func NewQRecordCopyFromSource(
@@ -46,6 +40,17 @@ func (src *QRecordCopyFromSource) Next() bool {
 	return ok || src.Err() != nil
 }
 
+func geoWktToWkb(wkt string) ([]byte, error) {
+	if strings.HasPrefix(wkt, "SRID=") {
+		_, wktWithoutSRID, found := strings.Cut(wkt, ";")
+		if found {
+			wkt = wktWithoutSRID
+		}
+	}
+
+	return geo.GeoToWKB(wkt)
+}
+
 func (src *QRecordCopyFromSource) Values() ([]any, error) {
 	if err := src.Err(); err != nil {
 		return nil, err
@@ -53,151 +58,122 @@ func (src *QRecordCopyFromSource) Values() ([]any, error) {
 
 	values := make([]any, len(src.currentRecord))
 	for i, qValue := range src.currentRecord {
-		if qValue.Value() == nil {
+		if qValue == nil || qValue.Value() == nil {
 			values[i] = nil
 			continue
 		}
 
 		switch v := qValue.(type) {
-		case qvalue.QValueFloat32:
+		case types.QValueFloat32:
 			values[i] = v.Val
-		case qvalue.QValueFloat64:
+		case types.QValueFloat64:
 			values[i] = v.Val
-		case qvalue.QValueInt8:
+		case types.QValueInt8:
 			values[i] = v.Val
-		case qvalue.QValueInt16:
+		case types.QValueInt16:
 			values[i] = v.Val
-		case qvalue.QValueInt32:
+		case types.QValueInt32:
 			values[i] = v.Val
-		case qvalue.QValueInt64:
+		case types.QValueInt64:
 			values[i] = v.Val
-		case qvalue.QValueUInt8:
+		case types.QValueUInt8:
 			values[i] = v.Val
-		case qvalue.QValueUInt16:
+		case types.QValueUInt16:
 			values[i] = v.Val
-		case qvalue.QValueUInt32:
+		case types.QValueUInt32:
 			values[i] = v.Val
-		case qvalue.QValueUInt64:
+		case types.QValueUInt64:
 			values[i] = v.Val
-		case qvalue.QValueBoolean:
+		case types.QValueBoolean:
 			values[i] = v.Val
-		case qvalue.QValueQChar:
+		case types.QValueQChar:
 			values[i] = rune(v.Val)
-		case qvalue.QValueString:
+		case types.QValueString:
 			values[i] = v.Val
-		case qvalue.QValueCIDR, qvalue.QValueINET, qvalue.QValueMacaddr:
-			str, ok := v.Value().(string)
-			if !ok {
-				return nil, errors.New("invalid INET/CIDR/MACADDR value")
-			}
-			values[i] = str
-		case qvalue.QValueTime:
-			values[i] = pgtype.Time{Microseconds: v.Val.UnixMicro(), Valid: true}
-		case qvalue.QValueTSTZRange:
+		case types.QValueEnum:
 			values[i] = v.Val
-		case qvalue.QValueTimestamp:
+		case types.QValueCIDR:
+			values[i] = v.Val
+		case types.QValueINET:
+			values[i] = v.Val
+		case types.QValueMacaddr:
+			values[i] = v.Val
+		case types.QValueTime:
+			values[i] = pgtype.Time{Microseconds: int64(v.Val / time.Microsecond), Valid: true}
+		case types.QValueTimeTZ:
+			values[i] = pgtype.Time{Microseconds: int64(v.Val / time.Microsecond), Valid: true}
+		case types.QValueInterval:
+			values[i] = v.Val
+		case types.QValueTimestamp:
 			values[i] = pgtype.Timestamp{Time: v.Val, Valid: true}
-		case qvalue.QValueTimestampTZ:
+		case types.QValueTimestampTZ:
 			values[i] = pgtype.Timestamptz{Time: v.Val, Valid: true}
-		case qvalue.QValueUUID:
+		case types.QValueUUID:
 			values[i] = v.Val
-		case qvalue.QValueArrayUUID:
-			a, err := constructArray[uuid.UUID](qValue, "ArrayUUID")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-		case qvalue.QValueNumeric:
+		case types.QValueNumeric:
 			values[i] = v.Val
-		case qvalue.QValueBytes:
+		case types.QValueBytes:
 			values[i] = v.Val
-		case qvalue.QValueDate:
+		case types.QValueDate:
 			values[i] = pgtype.Date{Time: v.Val, Valid: true}
-		case qvalue.QValueHStore:
+		case types.QValueHStore:
 			values[i] = v.Val
-		case qvalue.QValueGeography, qvalue.QValueGeometry, qvalue.QValuePoint:
-			geoWkt, ok := v.Value().(string)
-			if !ok {
-				return nil, errors.New("invalid Geospatial value")
-			}
-
-			if strings.HasPrefix(geoWkt, "SRID=") {
-				_, wkt, found := strings.Cut(geoWkt, ";")
-				if found {
-					geoWkt = wkt
-				}
-			}
-
-			wkb, err := geo.GeoToWKB(geoWkt)
+		case types.QValueGeography:
+			wkb, err := geoWktToWkb(v.Val)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert Geospatial value to wkb: %v", err)
+				return nil, err
 			}
-
 			values[i] = wkb
-		case qvalue.QValueArrayString:
-			a, err := constructArray[string](qValue, "ArrayString")
+		case types.QValueGeometry:
+			wkb, err := geoWktToWkb(v.Val)
 			if err != nil {
 				return nil, err
 			}
-			values[i] = a
-
-		case qvalue.QValueArrayDate, qvalue.QValueArrayTimestamp, qvalue.QValueArrayTimestampTZ:
-			a, err := constructArray[time.Time](qValue, "ArrayTime")
+			values[i] = wkb
+		case types.QValuePoint:
+			wkb, err := geoWktToWkb(v.Val)
 			if err != nil {
 				return nil, err
 			}
-			values[i] = a
-
-		case qvalue.QValueArrayInt16:
-			a, err := constructArray[int16](qValue, "ArrayInt16")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
-		case qvalue.QValueArrayInt32:
-			a, err := constructArray[int32](qValue, "ArrayInt32")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
-		case qvalue.QValueArrayInt64:
-			a, err := constructArray[int64](qValue, "ArrayInt64")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
-		case qvalue.QValueArrayFloat32:
-			a, err := constructArray[float32](qValue, "ArrayFloat32")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-
-		case qvalue.QValueArrayFloat64:
-			a, err := constructArray[float64](qValue, "ArrayFloat64")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-		case qvalue.QValueArrayBoolean:
-			a, err := constructArray[bool](qValue, "ArrayBool")
-			if err != nil {
-				return nil, err
-			}
-			values[i] = a
-		case qvalue.QValueJSON:
+			values[i] = wkb
+		case types.QValueArrayString:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayEnum:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayDate:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayInterval:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayTimestamp:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayTimestampTZ:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayInt16:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayInt32:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayInt64:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayFloat32:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayFloat64:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayBoolean:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayUUID:
+			values[i] = constructArray(v.Val)
+		case types.QValueArrayNumeric:
+			values[i] = constructArray(v.Val)
+		case types.QValueJSON:
 			if v.IsArray {
 				var arrayJ []any
-				if err := json.Unmarshal([]byte(v.Value().(string)), &arrayJ); err != nil {
+				if err := json.Unmarshal([]byte(v.Val), &arrayJ); err != nil {
 					return nil, fmt.Errorf("failed to unmarshal JSON array: %v", err)
 				}
 
 				values[i] = arrayJ
 			} else {
-				values[i] = v.Value()
+				values[i] = v.Val
 			}
 		// And so on for the other types...
 		default:

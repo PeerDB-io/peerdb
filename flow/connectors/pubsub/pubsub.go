@@ -59,8 +59,10 @@ func (c *PubSubConnector) Close() error {
 
 func (c *PubSubConnector) ConnectionActive(ctx context.Context) error {
 	topic := c.client.Topic("test")
-	_, err := topic.Exists(ctx)
-	return fmt.Errorf("pubsub connection active check failure: %w", err)
+	if _, err := topic.Exists(ctx); err != nil {
+		return fmt.Errorf("pubsub connection active check failure: %w", err)
+	}
+	return nil
 }
 
 func (c *PubSubConnector) CreateRawTable(ctx context.Context, req *protos.CreateRawTableInput) (*protos.CreateRawTableOutput, error) {
@@ -68,7 +70,7 @@ func (c *PubSubConnector) CreateRawTable(ctx context.Context, req *protos.Create
 }
 
 func (c *PubSubConnector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
 ) error {
 	return nil
 }
@@ -201,17 +203,6 @@ func (c *PubSubConnector) createPool(
 type topicCache struct {
 	cache map[string]*pubsub.Topic
 	lock  sync.RWMutex
-}
-
-func (tc *topicCache) forEach(ctx context.Context, f func(topic *pubsub.Topic)) {
-	tc.lock.RLock()
-	defer tc.lock.RUnlock()
-	for _, topicClient := range tc.cache {
-		if ctx.Err() != nil {
-			return
-		}
-		f(topicClient)
-	}
 }
 
 func (tc *topicCache) Flush(ctx context.Context) {
@@ -384,4 +375,15 @@ Loop:
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
+}
+
+func (tc *topicCache) forEach(ctx context.Context, f func(topic *pubsub.Topic)) {
+	tc.lock.RLock()
+	defer tc.lock.RUnlock()
+	for _, topicClient := range tc.cache {
+		if ctx.Err() != nil {
+			return
+		}
+		f(topicClient)
+	}
 }

@@ -23,7 +23,7 @@ impl FlowGrpcClient {
         let flow_server_addr = flow_server_addr.replace("http", "grpc");
 
         // we want addr/grpc as the grpc endpoint
-        let grpc_endpoint = format!("{}/grpc", flow_server_addr);
+        let grpc_endpoint = format!("{flow_server_addr}/grpc");
         tracing::info!("connecting to flow server at {}", grpc_endpoint);
 
         // Create a gRPC channel
@@ -47,7 +47,6 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_qrep_flow_req = pt::peerdb_route::CreateQRepFlowRequest {
             qrep_config: Some(qrep_config.clone()),
-            create_catalog_entry: false,
         };
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
         let workflow_id = response.into_inner().workflow_id;
@@ -105,8 +104,7 @@ impl FlowGrpcClient {
                 destination_table_identifier: mapping.destination_table_identifier.clone(),
                 partition_key: mapping.partition_key.clone().unwrap_or_default(),
                 exclude: mapping.exclude.clone(),
-                columns: Default::default(),
-                engine: Default::default(),
+                ..Default::default()
             })
             .collect::<Vec<_>>();
 
@@ -114,6 +112,7 @@ impl FlowGrpcClient {
         let publication_name = job.publication_name.clone();
         let replication_slot_name = job.replication_slot_name.clone();
         let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
+        let snapshot_num_partitions_override = job.snapshot_num_rows_per_partition;
         let snapshot_max_parallel_workers = job.snapshot_max_parallel_workers;
         let snapshot_num_tables_in_parallel = job.snapshot_num_tables_in_parallel;
         let Some(system) = TypeSystem::from_str_name(&job.system) else {
@@ -127,9 +126,10 @@ impl FlowGrpcClient {
             table_mappings,
             do_initial_snapshot,
             publication_name: publication_name.unwrap_or_default(),
-            snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
-            snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
-            snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
+            snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or_default(),
+            snapshot_num_partitions_override: snapshot_num_partitions_override.unwrap_or_default(),
+            snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or_default(),
+            snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or_default(),
             snapshot_staging_path: job.snapshot_staging_path.clone(),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             replication_slot_name: replication_slot_name.unwrap_or_default(),
@@ -145,6 +145,7 @@ impl FlowGrpcClient {
             system: system as i32,
             idle_timeout_seconds: job.sync_interval.unwrap_or_default(),
             env: Default::default(),
+            version: 0, // filled in by server
         };
 
         if job.disable_peerdb_columns {
@@ -289,11 +290,14 @@ impl FlowGrpcClient {
     }
 
     pub async fn resync_mirror(&mut self, flow_job_name: &str) -> anyhow::Result<()> {
-        let resync_mirror_req = pt::peerdb_route::ResyncMirrorRequest {
+        let state_change_req = pt::peerdb_route::FlowStateChangeRequest {
             flow_job_name: flow_job_name.to_owned(),
-            drop_stats: true,
+            requested_flow_state: pt::peerdb_flow::FlowStatus::StatusResync.into(),
+            flow_config_update: None,
+            drop_mirror_stats: true,
+            skip_destination_drop: false,
         };
-        self.client.resync_mirror(resync_mirror_req).await?;
+        self.client.flow_state_change(state_change_req).await?;
         Ok(())
     }
 }

@@ -10,6 +10,8 @@ const (
 	ErrorSourceKey             = "errorSource"
 	ErrorCodeKey               = "errorCode"
 	InstanceStatusKey          = "instanceStatus"
+	PeerDBVersionKey           = "peerDBVersion"
+	DeploymentVersionKey       = "deploymentVersion"
 	WorkflowTypeKey            = "workflowType"
 	BatchIdKey                 = "batchId"
 	SourcePeerType             = "sourcePeerType"
@@ -23,6 +25,7 @@ const (
 	IsTemporalLocalActivityKey = "isTemporalLocalActivity"
 	TemporalActivityTypeKey    = "temporalActivityType"
 	TemporalWorkflowTypeKey    = "temporalWorkflowType"
+	IsFlowActiveKey            = "isFlowActive"
 )
 
 const (

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 
 	"github.com/aws/smithy-go/ptr"
 	"go.temporal.io/sdk/client"
@@ -32,16 +33,19 @@ type MaintenanceCLIParams struct {
 	SkipIfK8sServiceMissing           string
 	FlowTlsEnabled                    bool
 	SkipOnApiVersionMatch             bool
+	SkipOnDeploymentVersionMatch      bool
 	SkipOnNoMirrors                   bool
 	UseMaintenanceTaskQueue           bool
 	AssumeSkippedMaintenanceWorkflows bool
 }
 
 type StartMaintenanceResult struct {
-	SkippedReason *string `json:"skippedReason,omitempty"`
-	APIVersion    string  `json:"apiVersion,omitempty"`
-	CLIVersion    string  `json:"cliVersion,omitempty"`
-	Skipped       bool    `json:"skipped,omitempty"`
+	SkippedReason    *string `json:"skippedReason,omitempty"`
+	APIVersion       string  `json:"apiVersion,omitempty"`
+	CLIVersion       string  `json:"cliVersion,omitempty"`
+	APIDeployVersion string  `json:"apiDeployVersion,omitempty"`
+	CLIDeployVersion string  `json:"cliDeployVersion,omitempty"`
+	Skipped          bool    `json:"skipped,omitempty"`
 }
 
 // MaintenanceMain is the entry point for the maintenance command, requires access to Temporal client, will exit after
@@ -135,43 +139,58 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 		if !exists {
 			slog.Info("Skipping maintenance workflow due to missing k8s service", "service", args.SkipIfK8sServiceMissing)
 			return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
-				Skipped:       true,
-				SkippedReason: ptr.String(fmt.Sprintf("K8s service %s missing", args.SkipIfK8sServiceMissing)),
-				CLIVersion:    internal.PeerDBVersionShaShort(),
+				Skipped:          true,
+				SkippedReason:    ptr.String(fmt.Sprintf("K8s service %s missing", args.SkipIfK8sServiceMissing)),
+				CLIVersion:       internal.PeerDBVersionShaShort(),
+				CLIDeployVersion: internal.PeerDBDeploymentVersion(),
 			})
 		}
 	}
-	if args.SkipOnApiVersionMatch || args.SkipOnNoMirrors {
-		if args.FlowGrpcAddress == "" {
-			return false, errors.New("flow address is required when skipping based on API")
-		}
-		slog.Info("Constructing flow client")
-		transportCredentials := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13})
-		if !args.FlowTlsEnabled {
-			transportCredentials = insecure.NewCredentials()
-		}
-		conn, err := grpc.NewClient(args.FlowGrpcAddress,
-			grpc.WithTransportCredentials(transportCredentials),
-		)
+
+	if args.SkipOnApiVersionMatch || args.SkipOnNoMirrors || args.SkipOnDeploymentVersionMatch {
+		slog.Info("Checking if API version matches")
+		peerFlowClient, err := constructFlowClient(args)
 		if err != nil {
-			return false, fmt.Errorf("unable to dial grpc flow server: %w", err)
+			return false, err
 		}
-		peerFlowClient := protos.NewFlowServiceClient(conn)
-		if args.SkipOnApiVersionMatch {
-			slog.Info("Checking if CLI version matches API version", "cliVersion", internal.PeerDBVersionShaShort())
+		// If there is a match in BOTH PeerDB version and Deployment version, then we skip the maintenance workflow
+		if args.SkipOnApiVersionMatch || args.SkipOnDeploymentVersionMatch {
+			slog.Info("Checking if CLI version matches API version",
+				"cliVersion", internal.PeerDBVersionShaShort(), "cliDeployVersion", internal.PeerDBDeploymentVersion())
 			version, err := peerFlowClient.GetVersion(ctx, &protos.PeerDBVersionRequest{})
 			if err != nil {
 				return false, err
 			}
-			slog.Info("Got version from flow", "version", version.Version)
-			if version.Version == internal.PeerDBVersionShaShort() {
-				slog.Info("Skipping maintenance workflow due to matching versions")
+			slog.Info("Got version from flow", "version", version)
+			skippedReasons := make([]string, 0, 2)
+			apiSkipped := !args.SkipOnApiVersionMatch
+			if args.SkipOnApiVersionMatch && version.Version == internal.PeerDBVersionShaShort() {
+				slog.Info("Flow API Version and Maintenance CLI version matches",
+					"apiVersion", version.Version, "cliVersion", internal.PeerDBVersionShaShort())
+				apiSkipped = true
+				skippedReasons = append(skippedReasons, fmt.Sprintf("CLI version %s matches API version %s", internal.PeerDBVersionShaShort(),
+					version.Version))
+			}
+			deploySkipped := !args.SkipOnDeploymentVersionMatch
+			if args.SkipOnDeploymentVersionMatch &&
+				(version.DeploymentVersion != nil && *version.DeploymentVersion == internal.PeerDBDeploymentVersion()) {
+				slog.Info("Flow Deployment Version and Maintenance CLI Deployment version matches",
+					"apiVersion", version.DeploymentVersion, "cliVersion", internal.PeerDBDeploymentVersion())
+				deploySkipped = true
+				skippedReasons = append(skippedReasons, fmt.Sprintf("CLI version %s matches Deployment version %s",
+					internal.PeerDBDeploymentVersion(), *version.DeploymentVersion))
+			}
+			if apiSkipped && deploySkipped {
+				slog.Info("Skipping maintenance workflow due to all versions matching",
+					"apiVersion", version.Version, "cliVersion", internal.PeerDBVersionShaShort(),
+					"deployApiVersion", version.DeploymentVersion, "cliDeployVersion", internal.PeerDBDeploymentVersion())
 				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
-					Skipped: true,
-					SkippedReason: ptr.String(fmt.Sprintf("CLI version %s matches API version %s", internal.PeerDBVersionShaShort(),
-						version.Version)),
-					APIVersion: version.Version,
-					CLIVersion: internal.PeerDBVersionShaShort(),
+					Skipped:          true,
+					SkippedReason:    ptr.String("Version Mismatch: " + strings.Join(skippedReasons, ", ")),
+					CLIVersion:       internal.PeerDBVersionShaShort(),
+					CLIDeployVersion: internal.PeerDBDeploymentVersion(),
+					APIVersion:       version.Version,
+					APIDeployVersion: ptr.ToString(version.DeploymentVersion),
 				})
 			}
 		}
@@ -194,6 +213,25 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 	return false, nil
 }
 
+func constructFlowClient(args *MaintenanceCLIParams) (protos.FlowServiceClient, error) {
+	if args.FlowGrpcAddress == "" {
+		return nil, errors.New("flow address is required")
+	}
+	slog.Info("Constructing flow client")
+	transportCredentials := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13})
+	if !args.FlowTlsEnabled {
+		transportCredentials = insecure.NewCredentials()
+	}
+	conn, err := grpc.NewClient(args.FlowGrpcAddress,
+		grpc.WithTransportCredentials(transportCredentials),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to dial grpc flow server: %w", err)
+	}
+	peerFlowClient := protos.NewFlowServiceClient(conn)
+	return peerFlowClient, nil
+}
+
 func WriteMaintenanceOutputToCatalog(ctx context.Context, result StartMaintenanceResult) error {
 	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
 	if err != nil {
@@ -201,10 +239,10 @@ func WriteMaintenanceOutputToCatalog(ctx context.Context, result StartMaintenanc
 	}
 	_, err = pool.Exec(ctx, `
 	insert into maintenance.start_maintenance_outputs
-		(cli_version, api_version, skipped, skipped_reason)
+		(cli_version, api_version, api_deploy_version, cli_deploy_version, skipped, skipped_reason)
 	values
-		($1, $2, $3, $4)
-	`, result.CLIVersion, result.APIVersion, result.Skipped, result.SkippedReason)
+		($1, $2, $3, $4, $5, $6)
+	`, result.CLIVersion, result.APIVersion, result.APIDeployVersion, result.CLIDeployVersion, result.Skipped, result.SkippedReason)
 	return err
 }
 
@@ -215,11 +253,18 @@ func ReadLastMaintenanceOutput(ctx context.Context) (*StartMaintenanceResult, er
 	}
 	var result StartMaintenanceResult
 	if err := pool.QueryRow(ctx, `
-	select cli_version, api_version, skipped, skipped_reason
+	select cli_version, api_version, api_deploy_version, cli_deploy_version, skipped, skipped_reason
 	from maintenance.start_maintenance_outputs
 	order by created_at desc
 	limit 1
-	`).Scan(&result.CLIVersion, &result.APIVersion, &result.Skipped, &result.SkippedReason); err != nil {
+	`).Scan(
+		&result.CLIVersion,
+		&result.APIVersion,
+		&result.APIDeployVersion,
+		&result.CLIDeployVersion,
+		&result.Skipped,
+		&result.SkippedReason,
+	); err != nil {
 		return nil, err
 	}
 	return &result, nil

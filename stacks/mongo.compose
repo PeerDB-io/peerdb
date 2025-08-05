@@ -1,0 +1,18 @@
+services:
+  mongodb:
+    image: mongo:8.0.10
+    container_name: mongodb-rs
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: banana
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo/keyfile:/etc/mongodb-keyfile:ro
+      - ./mongo/init-mongo.sh:/scripts/init-mongo.sh:ro
+    entrypoint: ["/scripts/init-mongo.sh"]
+
+volumes:
+  mongo_data:

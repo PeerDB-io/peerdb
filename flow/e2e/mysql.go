@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -11,7 +12,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type MySqlSource struct {
@@ -21,13 +23,19 @@ type MySqlSource struct {
 
 func SetupMySQL(t *testing.T, suffix string) (*MySqlSource, error) {
 	t.Helper()
-	return SetupMyCore(t, suffix, false, protos.MySqlReplicationMechanism_MYSQL_GTID)
-}
-
-func SetupMariaDB(t *testing.T, suffix string) (*MySqlSource, error) {
-	t.Helper()
-	t.Skip("skipping until working out how to not have port conflict in GH actions")
-	return SetupMyCore(t, suffix, true, protos.MySqlReplicationMechanism_MYSQL_GTID)
+	myVersion := os.Getenv("CI_MYSQL_VERSION")
+	if myVersion == "" {
+		t.Skip()
+	}
+	mode, isMySQL := strings.CutPrefix(myVersion, "mysql-")
+	replicationMode := protos.MySqlReplicationMechanism_MYSQL_GTID
+	if mode == "pos" {
+		replicationMode = protos.MySqlReplicationMechanism_MYSQL_FILEPOS
+	}
+	if !isMySQL && myVersion != "maria" {
+		t.Error("unknown mysql version", myVersion)
+	}
+	return SetupMyCore(t, suffix, !isMySQL, replicationMode)
 }
 
 func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism protos.MySqlReplicationMechanism) (*MySqlSource, error) {
@@ -90,6 +98,7 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 				"set global gtid_mode=off_permissive",
 				"set global gtid_mode=on_permissive",
 				"set global gtid_mode=on",
+				"set global max_connections=500",
 			} {
 				if _, err := connector.Execute(t.Context(), sql); err != nil {
 					connector.Close()
@@ -100,6 +109,18 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 		if _, err := connector.Execute(t.Context(), "do release_lock('settings')"); err != nil {
 			connector.Close()
 			return nil, err
+		}
+	} else {
+		for _, sql := range []string{
+			"set global binlog_format=row",
+			"set binlog_format=row",
+			"set global binlog_row_metadata=full",
+			"set global max_connections=500",
+		} {
+			if _, err := connector.Execute(t.Context(), sql); err != nil {
+				connector.Close()
+				return nil, err
+			}
 		}
 	}
 
@@ -123,16 +144,8 @@ func (s *MySqlSource) Teardown(t *testing.T, ctx context.Context, suffix string)
 func (s *MySqlSource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 
-	name := "mysql"
-	if s.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
-		name = "maria"
-	}
-	if s.Config.ReplicationMechanism != protos.MySqlReplicationMechanism_MYSQL_GTID {
-		name = fmt.Sprintf("%s_%s", name, s.Config.ReplicationMechanism)
-	}
-
 	peer := &protos.Peer{
-		Name: name,
+		Name: "mysql",
 		Type: protos.DBType_MYSQL,
 		Config: &protos.Peer_MysqlConfig{
 			MysqlConfig: s.Config,
@@ -157,7 +170,8 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 	}
 
 	tableName := fmt.Sprintf("e2e_test_%s.%s", suffix, table)
-	tableSchemas, err := s.GetTableSchema(ctx, nil, protos.TypeSystem_Q, []*protos.TableMapping{{SourceTableIdentifier: tableName}})
+	tableSchemas, err := s.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	if err != nil {
 		return nil, err
 	}
@@ -173,9 +187,9 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 	}
 
 	for _, row := range rs.Values {
-		record := make([]qvalue.QValue, 0, len(row))
+		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := connmysql.QValueFromMysqlFieldValue(schema.Fields[idx].Type, val)
+			qv, err := connmysql.QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val)
 			if err != nil {
 				return nil, err
 			}

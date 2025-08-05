@@ -1,9 +1,12 @@
 package shared
 
 import (
+	"net"
 	"regexp"
-	"strings"
+	"strconv"
 	"unsafe"
+
+	"golang.org/x/exp/constraints"
 )
 
 func UnsafeFastStringToReadOnlyBytes(s string) []byte {
@@ -27,7 +30,6 @@ func IsValidReplicationName(s string) bool {
 	return reLegalIdentifierLower.MatchString(s)
 }
 
-// Escape a string for use in a LIKE/ILIKE postgres query.
-func EscapeForILike(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "_", "\\_"), "%", "\\%")
+func JoinHostPort[I constraints.Integer](host string, port I) string {
+	return net.JoinHostPort(host, strconv.FormatUint(uint64(port), 10))
 }

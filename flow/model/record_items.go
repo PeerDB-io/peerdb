@@ -4,14 +4,16 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"time"
 
-	"github.com/PeerDB-io/peerdb/flow/datatypes"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type Items interface {
 	json.Marshaler
 	UpdateIfNotExists(Items) []string
+	UpdateWithBaseRecord(BaseRecord)
 	GetBytesByColName(string) ([]byte, error)
 	ToJSONWithOptions(ToJSONOptions) (string, error)
 	DeleteColName(string)
@@ -24,20 +26,30 @@ func ItemsToJSON(items Items) (string, error) {
 
 // encoding/gob cannot encode unexported fields
 type RecordItems struct {
-	ColToVal map[string]qvalue.QValue
+	ColToVal               map[string]types.QValue
+	TruncateThresholdBytes int
 }
 
 func NewRecordItems(capacity int) RecordItems {
 	return RecordItems{
-		ColToVal: make(map[string]qvalue.QValue, capacity),
+		ColToVal:               make(map[string]types.QValue, capacity),
+		TruncateThresholdBytes: 15 * 1024 * 1024,
 	}
 }
 
-func (r RecordItems) AddColumn(col string, val qvalue.QValue) {
+func NewMongoRecordItems(capacity int) RecordItems {
+	return RecordItems{
+		ColToVal: make(map[string]types.QValue, capacity),
+		// https://github.com/catfi/supercell/blob/fbea41792b1b6018886771289f1f1534376303ec/dep/linux/mongodb/mongo/bson/util/builder.h#L44
+		TruncateThresholdBytes: 16*1024*1024 + 16*1024,
+	}
+}
+
+func (r RecordItems) AddColumn(col string, val types.QValue) {
 	r.ColToVal[col] = val
 }
 
-func (r RecordItems) GetColumnValue(col string) qvalue.QValue {
+func (r RecordItems) GetColumnValue(col string) types.QValue {
 	return r.ColToVal[col]
 }
 
@@ -57,7 +69,13 @@ func (r RecordItems) UpdateIfNotExists(input_ Items) []string {
 	return updatedCols
 }
 
-func (r RecordItems) GetValueByColName(colName string) (qvalue.QValue, error) {
+func (r RecordItems) UpdateWithBaseRecord(baseRecord BaseRecord) {
+	r.AddColumn("_peerdb_origin_transaction_id", types.QValueUInt64{Val: baseRecord.GetTransactionID()})
+	r.AddColumn("_peerdb_origin_checkpoint_id", types.QValueInt64{Val: baseRecord.GetCheckpointID()})
+	r.AddColumn("_peerdb_origin_commit_time_nano", types.QValueInt64{Val: baseRecord.GetCommitTime().UnixNano()})
+}
+
+func (r RecordItems) GetValueByColName(colName string) (types.QValue, error) {
 	val, ok := r.ColToVal[colName]
 	if !ok {
 		return nil, fmt.Errorf("column name %s not found", colName)
@@ -86,20 +104,19 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 		}
 
 		switch v := qv.(type) {
-		case qvalue.QValueUUID:
+		case types.QValueUUID:
 			jsonStruct[col] = v.Val
-		case qvalue.QValueQChar:
+		case types.QValueQChar:
 			jsonStruct[col] = string(v.Val)
-		case qvalue.QValueString:
+		case types.QValueString:
 			strVal := v.Val
-
-			if len(strVal) > 15*1024*1024 {
+			if len(strVal) > r.TruncateThresholdBytes {
 				jsonStruct[col] = ""
 			} else {
 				jsonStruct[col] = strVal
 			}
-		case qvalue.QValueJSON:
-			if len(v.Val) > 15*1024*1024 {
+		case types.QValueJSON:
+			if len(v.Val) > r.TruncateThresholdBytes {
 				jsonStruct[col] = "{}"
 			} else if _, ok := opts.UnnestColumns[col]; ok {
 				var unnestStruct map[string]any
@@ -113,7 +130,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 			} else {
 				jsonStruct[col] = v.Val
 			}
-		case qvalue.QValueHStore:
+		case types.QValueHStore:
 			hstoreVal := v.Val
 
 			if !opts.HStoreAsJSON {
@@ -123,46 +140,52 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 				if err != nil {
 					return nil, fmt.Errorf("unable to convert hstore column %s to json for value %T: %w", col, v, err)
 				}
-
-				if len(jsonVal) > 15*1024*1024 {
+				if len(jsonVal) > r.TruncateThresholdBytes {
 					jsonStruct[col] = ""
 				} else {
 					jsonStruct[col] = jsonVal
 				}
 			}
 
-		case qvalue.QValueTimestamp:
+		case types.QValueTimestamp:
 			jsonStruct[col] = v.Val.Format("2006-01-02 15:04:05.999999")
-		case qvalue.QValueTimestampTZ:
+		case types.QValueTimestampTZ:
 			jsonStruct[col] = v.Val.Format("2006-01-02 15:04:05.999999-0700")
-		case qvalue.QValueDate:
+		case types.QValueDate:
 			jsonStruct[col] = v.Val.Format("2006-01-02")
-		case qvalue.QValueTime:
-			jsonStruct[col] = v.Val.Format("15:04:05.999999")
-		case qvalue.QValueTimeTZ:
-			jsonStruct[col] = v.Val.Format("15:04:05.999999")
-		case qvalue.QValueArrayDate:
+		case types.QValueTime:
+			jsonStruct[col] = time.Time{}.Add(v.Val).Format("15:04:05.999999")
+		case types.QValueTimeTZ:
+			jsonStruct[col] = time.Time{}.Add(v.Val).Format("15:04:05.999999")
+		case types.QValueArrayDate:
 			dateArr := v.Val
 			formattedDateArr := make([]string, 0, len(dateArr))
 			for _, val := range dateArr {
 				formattedDateArr = append(formattedDateArr, val.Format("2006-01-02"))
 			}
 			jsonStruct[col] = formattedDateArr
-		case qvalue.QValueNumeric:
+		case types.QValueNumeric:
 			jsonStruct[col] = v.Val.String()
-		case qvalue.QValueFloat64:
+		case types.QValueArrayNumeric:
+			numericArr := v.Val
+			strArr := make([]any, 0, len(numericArr))
+			for _, val := range numericArr {
+				strArr = append(strArr, val.String())
+			}
+			jsonStruct[col] = strArr
+		case types.QValueFloat64:
 			if math.IsNaN(v.Val) || math.IsInf(v.Val, 0) {
 				jsonStruct[col] = nil
 			} else {
 				jsonStruct[col] = v.Val
 			}
-		case qvalue.QValueFloat32:
+		case types.QValueFloat32:
 			if math.IsNaN(float64(v.Val)) || math.IsInf(float64(v.Val), 0) {
 				jsonStruct[col] = nil
 			} else {
 				jsonStruct[col] = v.Val
 			}
-		case qvalue.QValueArrayFloat64:
+		case types.QValueArrayFloat64:
 			floatArr := v.Val
 			nullableFloatArr := make([]any, 0, len(floatArr))
 			for _, val := range floatArr {
@@ -173,7 +196,7 @@ func (r RecordItems) toMap(opts ToJSONOptions) (map[string]any, error) {
 				}
 			}
 			jsonStruct[col] = nullableFloatArr
-		case qvalue.QValueArrayFloat32:
+		case types.QValueArrayFloat32:
 			floatArr := v.Val
 			nullableFloatArr := make([]any, 0, len(floatArr))
 			for _, val := range floatArr {

@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -33,14 +35,25 @@ type IncidentIoResponse struct {
 	DeduplicationKey string `json:"deduplication_key"`
 }
 
+type IncidentIoMessageSenderConfig struct {
+	URL   string
+	Token string
+}
+
 type IncidentIoMessageSender struct {
 	http   *http.Client
 	config IncidentIoMessageSenderConfig
 }
 
-type IncidentIoMessageSenderConfig struct {
-	URL   string
-	Token string
+func NewIncidentIoMessageSender(_ context.Context, config IncidentIoMessageSenderConfig) (*IncidentIoMessageSender, error) {
+	client := &http.Client{
+		Timeout: time.Second * 5,
+	}
+
+	return &IncidentIoMessageSender{
+		config: config,
+		http:   client,
+	}, nil
 }
 
 func (i *IncidentIoMessageSender) SendMessage(
@@ -75,19 +88,34 @@ func (i *IncidentIoMessageSender) SendMessage(
 
 	level := ResolveIncidentIoLevels(attributes.Level)
 
+	alertMetadata := map[string]string{
+		"alias":          deduplicationHash,
+		"deploymentUUID": attributes.DeploymentUID,
+		"entity":         attributes.DeploymentUID,
+		"level":          string(level),
+		"tags":           strings.Join(attributes.Tags, ","),
+		"type":           attributes.Type,
+	}
+
+	flowMetadata := internal.GetFlowMetadata(ctx)
+	if flowMetadata != nil {
+		maps.Copy(alertMetadata, map[string]string{
+			"flowName":            flowMetadata.FlowName,
+			"sourcePeerType":      flowMetadata.Source.Type.String(),
+			"destinationPeerType": flowMetadata.Destination.Type.String(),
+			"sourcePeerName":      flowMetadata.Source.Name,
+			"destinationPeerName": flowMetadata.Destination.Name,
+			"flowStatus":          flowMetadata.Status.String(),
+			"isResync":            strconv.FormatBool(flowMetadata.IsResync),
+		})
+	}
+
 	alert := IncidentIoAlert{
 		Title:            subject,
 		Description:      body,
 		DeduplicationKey: deduplicationHash,
 		Status:           "firing",
-		Metadata: map[string]string{
-			"alias":          deduplicationHash,
-			"deploymentUUID": attributes.DeploymentUID,
-			"entity":         attributes.DeploymentUID,
-			"level":          string(level),
-			"tags":           strings.Join(attributes.Tags, ","),
-			"type":           attributes.Type,
-		},
+		Metadata:         alertMetadata,
 	}
 
 	alertJSON, err := json.Marshal(alert)
@@ -95,7 +123,7 @@ func (i *IncidentIoMessageSender) SendMessage(
 		return "", fmt.Errorf("error serializing alert %w", err)
 	}
 
-	req, err := http.NewRequest("POST", i.config.URL, bytes.NewBuffer(alertJSON))
+	req, err := http.NewRequest(http.MethodPost, i.config.URL, bytes.NewBuffer(alertJSON))
 	if err != nil {
 		return "", err
 	}
@@ -118,21 +146,9 @@ func (i *IncidentIoMessageSender) SendMessage(
 	}
 
 	var incidentResponse IncidentIoResponse
-	err = json.Unmarshal(respBody, &incidentResponse)
-	if err != nil {
+	if err := json.Unmarshal(respBody, &incidentResponse); err != nil {
 		return "", fmt.Errorf("deserializing incident.io failed: %w", err)
 	}
 
 	return incidentResponse.Status, nil
-}
-
-func NewIncidentIoMessageSender(_ context.Context, config IncidentIoMessageSenderConfig) (*IncidentIoMessageSender, error) {
-	client := &http.Client{
-		Timeout: time.Second * 5,
-	}
-
-	return &IncidentIoMessageSender{
-		config: config,
-		http:   client,
-	}, nil
 }

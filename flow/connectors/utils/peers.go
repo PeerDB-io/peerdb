@@ -45,12 +45,6 @@ func CreatePeerNoValidate(
 			return wrongConfigResponse, nil
 		}
 		innerConfig = bqConfigObject.BigqueryConfig
-	case protos.DBType_SQLSERVER:
-		sqlServerConfigObject, ok := config.(*protos.Peer_SqlserverConfig)
-		if !ok {
-			return wrongConfigResponse, nil
-		}
-		innerConfig = sqlServerConfigObject.SqlserverConfig
 	case protos.DBType_S3:
 		s3ConfigObject, ok := config.(*protos.Peer_S3Config)
 		if !ok {
@@ -93,6 +87,12 @@ func CreatePeerNoValidate(
 			return wrongConfigResponse, nil
 		}
 		innerConfig = esConfigObject.ElasticsearchConfig
+	case protos.DBType_MONGO:
+		mongoConfigObject, ok := config.(*protos.Peer_MongoConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		innerConfig = mongoConfigObject.MongoConfig
 	default:
 		return wrongConfigResponse, nil
 	}

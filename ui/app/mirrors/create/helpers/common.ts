@@ -29,6 +29,7 @@ export const blankCDCSetting: CDCConfig = {
   doInitialSnapshot: true,
   publicationName: '',
   snapshotNumRowsPerPartition: 250000,
+  snapshotNumPartitionsOverride: 0,
   snapshotMaxParallelWorkers: 4,
   snapshotNumTablesInParallel: 1,
   snapshotStagingPath: '',
@@ -44,6 +45,7 @@ export const blankCDCSetting: CDCConfig = {
   disablePeerDBColumns: false,
   env: {},
   envString: '',
+  version: 0,
 };
 
 export const blankQRepSetting: QRepConfig = {
@@ -60,13 +62,17 @@ export const blankQRepSetting: QRepConfig = {
   writeMode: undefined,
   stagingPath: '',
   numRowsPerPartition: 100000,
+  numPartitionsOverride: 0,
   setupWatermarkTableOnDestination: false,
   dstTableFullResync: false,
   snapshotName: '',
   softDeleteColName: '_PEERDB_IS_DELETED',
-  syncedAtColName: '',
+  syncedAtColName: '_PEERDB_SYNCED_AT',
   script: '',
   system: TypeSystem.Q,
   env: {},
+  version: 0,
   parentMirrorName: '',
+  exclude: [],
+  columns: [],
 };
