@@ -459,6 +459,7 @@ func (c *MySqlConnector) PullRecords(
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
+
 			if schema != nil {
 				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 				inTx = true
@@ -614,6 +615,12 @@ func (c *MySqlConnector) PullRecords(
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return errors.New("mysql v0 replication protocol not supported")
 				}
+			}
+			if event.Header.Timestamp > 0 {
+				otelManager.Metrics.LatestConsumedBinlogEpochSecondsGauge.Record(
+					ctx,
+					int64(event.Header.Timestamp),
+				)
 			}
 		}
 	}

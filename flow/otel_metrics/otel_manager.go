@@ -56,34 +56,35 @@ const (
 )
 
 type Metrics struct {
-	SlotLagGauge                    metric.Float64Gauge
-	CurrentBatchIdGauge             metric.Int64Gauge
-	LastNormalizedBatchIdGauge      metric.Int64Gauge
-	OpenConnectionsGauge            metric.Int64Gauge
-	OpenReplicationConnectionsGauge metric.Int64Gauge
-	CommittedLSNGauge               metric.Int64Gauge
-	RestartLSNGauge                 metric.Int64Gauge
-	ConfirmedFlushLSNGauge          metric.Int64Gauge
-	IntervalSinceLastNormalizeGauge metric.Float64Gauge
-	AllFetchedBytesCounter          metric.Int64Counter
-	FetchedBytesCounter             metric.Int64Counter
-	CommitLagGauge                  metric.Int64Gauge
-	ErrorEmittedGauge               metric.Int64Gauge
-	ErrorsEmittedCounter            metric.Int64Counter
-	WarningsEmittedGauge            metric.Int64Gauge
-	WarningEmittedCounter           metric.Int64Counter
-	RecordsSyncedGauge              metric.Int64Gauge
-	RecordsSyncedCounter            metric.Int64Counter
-	SyncedTablesGauge               metric.Int64Gauge
-	InstanceStatusGauge             metric.Int64Gauge
-	MaintenanceStatusGauge          metric.Int64Gauge
-	FlowStatusGauge                 metric.Int64Gauge
-	ActiveFlowsGauge                metric.Int64Gauge
-	CPULimitsPerActiveFlowGauge     metric.Float64Gauge
-	MemoryLimitsPerActiveFlowGauge  metric.Float64Gauge
-	TotalCPULimitsGauge             metric.Float64Gauge
-	TotalMemoryLimitsGauge          metric.Float64Gauge
-	WorkloadTotalReplicasGauge      metric.Int64Gauge
+	SlotLagGauge                          metric.Float64Gauge
+	CurrentBatchIdGauge                   metric.Int64Gauge
+	LastNormalizedBatchIdGauge            metric.Int64Gauge
+	OpenConnectionsGauge                  metric.Int64Gauge
+	OpenReplicationConnectionsGauge       metric.Int64Gauge
+	CommittedLSNGauge                     metric.Int64Gauge
+	RestartLSNGauge                       metric.Int64Gauge
+	ConfirmedFlushLSNGauge                metric.Int64Gauge
+	IntervalSinceLastNormalizeGauge       metric.Float64Gauge
+	AllFetchedBytesCounter                metric.Int64Counter
+	FetchedBytesCounter                   metric.Int64Counter
+	CommitLagGauge                        metric.Int64Gauge
+	ErrorEmittedGauge                     metric.Int64Gauge
+	ErrorsEmittedCounter                  metric.Int64Counter
+	WarningsEmittedGauge                  metric.Int64Gauge
+	WarningEmittedCounter                 metric.Int64Counter
+	RecordsSyncedGauge                    metric.Int64Gauge
+	RecordsSyncedCounter                  metric.Int64Counter
+	SyncedTablesGauge                     metric.Int64Gauge
+	InstanceStatusGauge                   metric.Int64Gauge
+	MaintenanceStatusGauge                metric.Int64Gauge
+	FlowStatusGauge                       metric.Int64Gauge
+	ActiveFlowsGauge                      metric.Int64Gauge
+	CPULimitsPerActiveFlowGauge           metric.Float64Gauge
+	MemoryLimitsPerActiveFlowGauge        metric.Float64Gauge
+	TotalCPULimitsGauge                   metric.Float64Gauge
+	TotalMemoryLimitsGauge                metric.Float64Gauge
+	WorkloadTotalReplicasGauge            metric.Int64Gauge
+	LatestConsumedBinlogEpochSecondsGauge metric.Int64Gauge
 }
 
 type SlotMetricGauges struct {
