@@ -70,7 +70,7 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
 	startToCloseTimeout := 4 * 24 * time.Hour
 	if ctx.Err() != nil {
-		startToCloseTimeout = time.Minute
+		startToCloseTimeout = time.Second * 5
 	}
 	ctx, _ = workflow.NewDisconnectedContext(ctx)
 	updateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
