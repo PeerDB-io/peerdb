@@ -203,6 +203,46 @@ func processCDCFlowConfigUpdate(
 	return nil
 }
 
+func handleFlowSignalStateChange(
+	ctx workflow.Context,
+	cfg *protos.FlowConnectionConfigs,
+	state *CDCFlowWorkflowState,
+	logger log.Logger,
+	op string,
+) func(_ *protos.FlowStateChangeRequest, _ bool) {
+	return func(val *protos.FlowStateChangeRequest, _ bool) {
+		switch val.RequestedFlowState {
+		case protos.FlowStatus_STATUS_TERMINATING:
+			logger.Info("terminating CDCFlow", slog.String("operation", op))
+			state.ActiveSignal = model.TerminateSignal
+			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+			state.DropFlowInput = &protos.DropFlowInput{
+				FlowJobName:           dropCfg.FlowJobName,
+				FlowConnectionConfigs: dropCfg,
+				DropFlowStats:         val.DropMirrorStats,
+				SkipDestinationDrop:   val.SkipDestinationDrop,
+			}
+		case protos.FlowStatus_STATUS_RESYNC:
+			logger.Info("resync requested", slog.String("operation", op))
+			state.ActiveSignal = model.ResyncSignal
+			// since we are adding to TableMappings, multiple signals can lead to duplicates
+			// we should ContinueAsNew after the first signal in the selector, but just in case
+			cfg.Resync = true
+			cfg.DoInitialSnapshot = true
+			state.DropFlowInput = &protos.DropFlowInput{
+				// to be filled in just before ContinueAsNew
+				FlowJobName:           cfg.FlowJobName,
+				FlowConnectionConfigs: cfg,
+				DropFlowStats:         val.DropMirrorStats,
+				SkipDestinationDrop:   val.SkipDestinationDrop,
+				Resync:                true,
+			}
+		case protos.FlowStatus_STATUS_PAUSED:
+			logger.Info("pause requested while busy, ignoring for now", slog.String("operation", op))
+		}
+	}
+}
+
 func processTableAdditions(
 	ctx workflow.Context,
 	logger log.Logger,
@@ -225,36 +265,7 @@ func processTableAdditions(
 	addTablesSelector := workflow.NewNamedSelector(ctx, "AddTables")
 	addTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
-	flowSignalStateChangeChan.AddToSelector(addTablesSelector, func(val *protos.FlowStateChangeRequest, _ bool) {
-		if val.RequestedFlowState == protos.FlowStatus_STATUS_TERMINATING {
-			logger.Info("terminating CDCFlow during table additions")
-			state.ActiveSignal = model.TerminateSignal
-			dropCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-			state.DropFlowInput = &protos.DropFlowInput{
-				FlowJobName:           dropCfg.FlowJobName,
-				FlowConnectionConfigs: dropCfg,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-			}
-		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_RESYNC {
-			logger.Info("resync requested during table additions")
-			state.ActiveSignal = model.ResyncSignal
-			// since we are adding to TableMappings, multiple signals can lead to duplicates
-			// we should ContinueAsNew after the first signal in the selector, but just in case
-			cfg.Resync = true
-			cfg.DoInitialSnapshot = true
-			state.DropFlowInput = &protos.DropFlowInput{
-				// to be filled in just before ContinueAsNew
-				FlowJobName:           "",
-				FlowConnectionConfigs: nil,
-				DropFlowStats:         val.DropMirrorStats,
-				SkipDestinationDrop:   val.SkipDestinationDrop,
-				Resync:                true,
-			}
-		} else if val.RequestedFlowState == protos.FlowStatus_STATUS_PAUSED {
-			logger.Info("pause requested during table additions, ignoring")
-		}
-	})
+	flowSignalStateChangeChan.AddToSelector(addTablesSelector, handleFlowSignalStateChange(ctx, cfg, state, logger, "AddTables"))
 
 	logger.Info("altering publication for additional tables")
 	alterPublicationAddAdditionalTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
@@ -306,14 +317,14 @@ func processTableAdditions(
 		}
 	})
 
+	// additional tables should also be resynced, we don't know how much was done so far
+	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
+
 	for res == nil {
 		addTablesSelector.Select(ctx)
 		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 			if state.ActiveSignal == model.ResyncSignal {
-				// additional tables should also be resynced, we don't know how much was done so far
-				state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
-				state.DropFlowInput.FlowJobName = resyncCfg.FlowJobName
 				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
 			}
 			return workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
@@ -330,7 +341,6 @@ func processTableAdditions(
 
 	maps.Copy(state.SyncFlowOptions.SrcTableIdNameMapping, res.SyncFlowOptions.SrcTableIdNameMapping)
 
-	state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 	logger.Info("additional tables added to sync flow")
 	return nil
 }
@@ -341,6 +351,11 @@ func processTableRemovals(
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) error {
+	removeTablesSelector := workflow.NewNamedSelector(ctx, "RemoveTables")
+	removeTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
+	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
+	flowSignalStateChangeChan.AddToSelector(removeTablesSelector, handleFlowSignalStateChange(ctx, cfg, state, logger, "RemoveTables"))
+
 	logger.Info("altering publication for removed tables")
 	removeTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -349,42 +364,54 @@ func processTableRemovals(
 		},
 		WaitForCancellation: true,
 	})
+	var removeTablesFlowErr error
+	var done bool
 	alterPublicationRemovedTablesFuture := workflow.ExecuteActivity(
 		removeTablesCtx,
 		flowable.RemoveTablesFromPublication,
 		cfg, state.FlowConfigUpdate.RemovedTables)
-	if err := alterPublicationRemovedTablesFuture.Get(ctx, nil); err != nil {
-		logger.Error("failed to alter publication for removed tables", slog.Any("error", err))
-		return err
-	}
-	logger.Info("tables removed from publication")
+	removeTablesSelector.AddFuture(alterPublicationRemovedTablesFuture, func(f workflow.Future) {
+		if err := f.Get(ctx, nil); err != nil {
+			logger.Error("failed to alter publication for removed tables", slog.Any("error", err))
+			removeTablesFlowErr = err
+			return
+		}
+		logger.Info("tables removed from publication")
 
-	rawTableCleanupFuture := workflow.ExecuteActivity(
-		removeTablesCtx,
-		flowable.RemoveTablesFromRawTable,
-		cfg, state.FlowConfigUpdate.RemovedTables)
-	if err := rawTableCleanupFuture.Get(ctx, nil); err != nil {
-		logger.Error("failed to clean up raw table for removed tables", slog.Any("error", err))
-		return err
-	}
-	logger.Info("tables removed from raw table")
+		rawTableCleanupFuture := workflow.ExecuteActivity(
+			removeTablesCtx,
+			flowable.RemoveTablesFromRawTable,
+			cfg, state.FlowConfigUpdate.RemovedTables)
+		removeTablesSelector.AddFuture(rawTableCleanupFuture, func(f workflow.Future) {
+			if err := f.Get(ctx, nil); err != nil {
+				logger.Error("failed to clean up raw table for removed tables", slog.Any("error", err))
+				removeTablesFlowErr = err
+				return
+			}
+			logger.Info("tables removed from raw table")
 
-	removeTablesFromCatalogFuture := workflow.ExecuteActivity(
-		removeTablesCtx,
-		flowable.RemoveTablesFromCatalog,
-		cfg, state.FlowConfigUpdate.RemovedTables)
-	if err := removeTablesFromCatalogFuture.Get(ctx, nil); err != nil {
-		logger.Error("failed to clean up raw table for removed tables", "error", err)
-		return err
-	}
-	logger.Info("tables removed from catalog")
+			removeTablesFromCatalogFuture := workflow.ExecuteActivity(
+				removeTablesCtx,
+				flowable.RemoveTablesFromCatalog,
+				cfg, state.FlowConfigUpdate.RemovedTables)
+			removeTablesSelector.AddFuture(removeTablesFromCatalogFuture, func(f workflow.Future) {
+				if err := f.Get(ctx, nil); err != nil {
+					logger.Error("failed to clean up raw table for removed tables", "error", err)
+					removeTablesFlowErr = err
+					return
+				}
+				logger.Info("tables removed from catalog")
+				done = true
+			})
+		})
+	})
 
 	// remove the tables from the sync flow options
+	// do this first in case resync comes in
 	removedTables := make(map[string]struct{}, len(state.FlowConfigUpdate.RemovedTables))
 	for _, removedTable := range state.FlowConfigUpdate.RemovedTables {
 		removedTables[removedTable.SourceTableIdentifier] = struct{}{}
 	}
-
 	maps.DeleteFunc(state.SyncFlowOptions.SrcTableIdNameMapping, func(k uint32, v string) bool {
 		_, removed := removedTables[v]
 		return removed
@@ -393,6 +420,25 @@ func processTableRemovals(
 		_, removed := removedTables[tm.SourceTableIdentifier]
 		return removed
 	})
+
+	for !done {
+		removeTablesSelector.Select(ctx)
+		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
+			if state.ActiveSignal == model.ResyncSignal {
+				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state)
+				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
+			}
+			return workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
+		}
+		if err := ctx.Err(); err != nil {
+			logger.Info("CDCFlow canceled during table additions", slog.Any("error", err))
+			return err
+		}
+		if removeTablesFlowErr != nil {
+			logger.Error("failed to execute child CDCFlow for additional tables", slog.Any("error", removeTablesFlowErr))
+			return fmt.Errorf("failed to execute child CDCFlow for additional tables: %w", removeTablesFlowErr)
+		}
+	}
 
 	return nil
 }
