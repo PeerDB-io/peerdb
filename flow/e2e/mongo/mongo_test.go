@@ -158,7 +158,7 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	}
 
 	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t.Context(), tc, peerflow.CDCFlowWorkflow, flowConnConfig, nil)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
 
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,_full_document")
 
