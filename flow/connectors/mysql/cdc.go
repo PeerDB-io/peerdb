@@ -459,7 +459,6 @@ func (c *MySqlConnector) PullRecords(
 			destinationTableName := req.TableNameMapping[sourceTableName].Name
 			exclusion := req.TableNameMapping[sourceTableName].Exclude
 			schema := req.TableNameSchemaMapping[destinationTableName]
-
 			if schema != nil {
 				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
 				inTx = true
