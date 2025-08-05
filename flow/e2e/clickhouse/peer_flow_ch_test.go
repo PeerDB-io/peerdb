@@ -497,11 +497,10 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	_, err = s.Conn().Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s (key, \"includedColumn?\", \"excludedColumn?\") VALUES ('cdc','still','ex')", srcFullName))
 	require.NoError(s.t, err)
-
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
-
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
+
 	env = e2e.ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowConnConfig.FlowJobName,
 		DropFlowStats:         false,
