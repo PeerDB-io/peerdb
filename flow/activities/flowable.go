@@ -1369,8 +1369,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 }
 
 func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
-	logger := internal.LoggerFromCtx(ctx)
-	return internal.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, logger, cfg)
+	return internal.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, internal.LoggerFromCtx(ctx), cfg)
 }
 
 func (a *FlowableActivity) UpdateFlowStatusInCatalogActivity(
@@ -1379,7 +1378,7 @@ func (a *FlowableActivity) UpdateFlowStatusInCatalogActivity(
 	status protos.FlowStatus,
 ) (protos.FlowStatus, error) {
 	if _, err := a.CatalogPool.Exec(ctx, "UPDATE flows SET status=$1,updated_at=now() WHERE workflow_id=$2", status, workflowID); err != nil {
-		slog.Error("failed to update flow status", slog.Any("error", err), slog.String("flowID", workflowID))
+		internal.LoggerFromCtx(ctx).Error("failed to update flow status", slog.Any("error", err), slog.String("flowID", workflowID))
 		return status, fmt.Errorf("failed to update flow status: %w", err)
 	}
 	return status, nil
