@@ -410,8 +410,7 @@ func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 			s.t.Fatal(err)
 		}
 		var state *protos.QRepFlowState
-		err = response.Get(&state)
-		if err != nil {
+		if err := response.Get(&state); err != nil {
 			s.t.Fatal("decode failed", err)
 		}
 		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING
@@ -473,8 +472,7 @@ func (s PeerFlowE2ETestSuitePG) TestXminPause() {
 			s.t.Fatal(err)
 		}
 		var state *protos.QRepFlowState
-		err = response.Get(&state)
-		if err != nil {
+		if err := response.Get(&state); err != nil {
 			s.t.Fatal("decode failed", err)
 		}
 		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING
