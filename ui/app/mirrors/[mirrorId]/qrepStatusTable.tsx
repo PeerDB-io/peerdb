@@ -70,18 +70,13 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const totalPages = Math.ceil(partitions.length / ROWS_PER_PAGE);
 
-  const visiblePartitions = partitions.slice(
-    (currentPage - 1) * ROWS_PER_PAGE,
-    currentPage * ROWS_PER_PAGE
-  );
-
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [sortField, setSortField] = useState<'startTime' | 'endTime'>(
     'startTime'
   );
   const [sortDir, setSortDir] = useState<'asc' | 'dsc'>('dsc');
   const displayedPartitions = useMemo(() => {
-    const currentPartitions = visiblePartitions.filter(
+    const currentPartitions = partitions.filter(
       (partition: PartitionStatus) => {
         return partition.partitionId
           .toLowerCase()
@@ -101,8 +96,13 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
         return 0;
       }
     });
-    return currentPartitions;
-  }, [visiblePartitions, searchQuery, sortField, sortDir]);
+    const visiblePartitions = currentPartitions.slice(
+      (currentPage - 1) * ROWS_PER_PAGE,
+      currentPage * ROWS_PER_PAGE
+    );
+
+    return visiblePartitions;
+  }, [searchQuery, sortField, sortDir]);
 
   const handleNext = () => {
     if (currentPage < totalPages) setCurrentPage(currentPage + 1);
