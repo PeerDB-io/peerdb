@@ -304,7 +304,7 @@ func (c *EventHubConnector) processBatch(
 			}
 
 		case <-ctx.Done():
-			return 0, fmt.Errorf("[eventhub] context cancelled %w", ctx.Err())
+			return 0, fmt.Errorf("[eventhubs] context cancelled %w", ctx.Err())
 
 		case <-ticker.C:
 			err := batchPerTopic.flushAllBatches(ctx, req.FlowJobName)

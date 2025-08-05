@@ -119,7 +119,7 @@ func (c *MongoConnector) PullRecords(
 ) error {
 	defer req.RecordStream.Close()
 
-	c.logger.Info("[started] PullRecords for mirror "+req.FlowJobName,
+	c.logger.Info("[mongo] started PullRecords for mirror "+req.FlowJobName,
 		slog.Any("table_mapping", req.TableNameMapping),
 		slog.Uint64("max_batch_size", uint64(req.MaxBatchSize)),
 		slog.Duration("sync_interval", req.IdleTimeout))

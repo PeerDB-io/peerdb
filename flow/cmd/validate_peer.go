@@ -14,7 +14,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 	ctx context.Context,
 	req *protos.ValidatePeerRequest,
 ) (*protos.ValidatePeerResponse, error) {
-	ctx, cancelCtx := context.WithTimeout(ctx, time.Minute)
+	ctx, cancelCtx := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelCtx()
 	if req.Peer == nil {
 		return &protos.ValidatePeerResponse{
