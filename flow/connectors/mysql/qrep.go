@@ -121,12 +121,6 @@ func (c *MySqlConnector) GetQRepPartitions(
 		}
 
 		// Calculate the number of partitions
-		numPartitions = totalRows / numRowsPerPartition
-		if totalRows%numRowsPerPartition != 0 {
-			numPartitions++
-		}
-
-		// Calculate the number of partitions
 		adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
 		c.logger.Info("[mysql] partition details",
 			slog.Int64("totalRows", totalRows),
