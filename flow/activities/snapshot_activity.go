@@ -170,13 +170,13 @@ func (a *SnapshotActivity) LoadTableSchema(
 func (a *SnapshotActivity) GetParallelLoadKeyForTables(
 	ctx context.Context,
 	input *protos.FlowConnectionConfigs,
-) (*protos.GetParallelLoadKeyForTablesOutput, error) {
+) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
 	connector, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, nil, a.CatalogPool, input.SourceName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
 
-	output, err := connector.GetParallelLoadKeyForTables(ctx, &protos.GetParallelLoadKeyForTablesInput{
+	output, err := connector.GetParallelLoadKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
 		TableMappings: input.TableMappings,
 	})
 	if err != nil {

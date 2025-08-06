@@ -132,10 +132,10 @@ func (c *MySqlConnector) GetQRepPartitions(
 
 func (c *MySqlConnector) GetParallelLoadKeyForTables(
 	ctx context.Context,
-	input *protos.GetParallelLoadKeyForTablesInput,
-) (*protos.GetParallelLoadKeyForTablesOutput, error) {
-	return &protos.GetParallelLoadKeyForTablesOutput{
-		TableParallelLoadKeyMapping: make(map[string]string),
+	input *protos.GetDefaultPartitionKeyForTablesInput,
+) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
+	return &protos.GetDefaultPartitionKeyForTablesOutput{
+		TableDefaultPartitionKeyMapping: make(map[string]string),
 	}, nil
 }
 

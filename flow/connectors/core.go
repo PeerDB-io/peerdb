@@ -226,7 +226,8 @@ type QRepPullConnectorCore interface {
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
 	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
 
-	GetParallelLoadKeyForTables(ctx context.Context, input *protos.GetParallelLoadKeyForTablesInput) (*protos.GetParallelLoadKeyForTablesOutput, error)
+	GetParallelLoadKeyForTables(ctx context.Context,
+		input *protos.GetDefaultPartitionKeyForTablesInput) (*protos.GetDefaultPartitionKeyForTablesOutput, error)
 }
 
 type QRepPullConnector interface {

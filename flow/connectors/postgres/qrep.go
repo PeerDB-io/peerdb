@@ -71,12 +71,12 @@ func (c *PostgresConnector) GetQRepPartitions(
 
 func (c *PostgresConnector) GetParallelLoadKeyForTables(
 	ctx context.Context,
-	input *protos.GetParallelLoadKeyForTablesInput,
-) (*protos.GetParallelLoadKeyForTablesOutput, error) {
+	input *protos.GetDefaultPartitionKeyForTablesInput,
+) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
 	c.logger.Info("Evaluating if tables can perform parallel load")
 
-	output := &protos.GetParallelLoadKeyForTablesOutput{
-		TableParallelLoadKeyMapping: make(map[string]string, len(input.TableMappings)),
+	output := &protos.GetDefaultPartitionKeyForTablesOutput{
+		TableDefaultPartitionKeyMapping: make(map[string]string, len(input.TableMappings)),
 	}
 
 	pgVersion, err := shared.GetMajorVersion(ctx, c.conn)
@@ -87,7 +87,7 @@ func (c *PostgresConnector) GetParallelLoadKeyForTables(
 
 	if supportsTidScans {
 		for _, tm := range input.TableMappings {
-			output.TableParallelLoadKeyMapping[tm.SourceTableIdentifier] = "ctid"
+			output.TableDefaultPartitionKeyMapping[tm.SourceTableIdentifier] = "ctid"
 		}
 	}
 
@@ -108,7 +108,10 @@ func (c *PostgresConnector) GetParallelLoadKeyForTables(
 
 	// compressed hypertables cannot do ctid scans, so disable for them
 	// NOTE: it appears that the hypercore "TAM" may give us access to ctid scans, but that's to be removed in Timescale 2.22
-	rows, err := c.conn.Query(ctx, `SELECT hypertable_schema, hypertable_name FROM timescaledb_information.chunks WHERE is_compressed='t' GROUP BY hypertable_schema, hypertable_name;`)
+	rows, err := c.conn.Query(ctx, `SELECT hypertable_schema, hypertable_name
+		FROM timescaledb_information.chunks
+		WHERE is_compressed='t'
+		GROUP BY hypertable_schema, hypertable_name;`)
 	if err != nil {
 		return nil, fmt.Errorf("query compressed hypertables: %w", err)
 	}
@@ -129,7 +132,7 @@ func (c *PostgresConnector) GetParallelLoadKeyForTables(
 
 	for _, tm := range input.TableMappings {
 		if _, found := compressedSet[strings.ToLower(tm.SourceTableIdentifier)]; found {
-			delete(output.TableParallelLoadKeyMapping, tm.SourceTableIdentifier)
+			delete(output.TableDefaultPartitionKeyMapping, tm.SourceTableIdentifier)
 			c.logger.Warn("table is a compressed hypertable, falling back to full table partition",
 				slog.String("table", tm.SourceTableIdentifier))
 		}

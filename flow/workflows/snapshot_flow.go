@@ -259,8 +259,9 @@ func (s *SnapshotFlowExecution) cloneTables(
 		},
 	})
 
-	var res *protos.GetParallelLoadKeyForTablesOutput
-	if err := workflow.ExecuteActivity(getParallelLoadKeyForTablesCtx, snapshot.GetParallelLoadKeyForTables, s.config).Get(ctx, &res); err != nil {
+	var res *protos.GetDefaultPartitionKeyForTablesOutput
+	if err := workflow.ExecuteActivity(getParallelLoadKeyForTablesCtx,
+		snapshot.GetParallelLoadKeyForTables, s.config).Get(ctx, &res); err != nil {
 		return fmt.Errorf("failed to close slot keep alive for peer flow: %w", err)
 	}
 
@@ -274,7 +275,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 			slog.String("snapshotName", snapshotName),
 		)
 		if v.PartitionKey == "" {
-			v.PartitionKey = res.TableParallelLoadKeyMapping[source]
+			v.PartitionKey = res.TableDefaultPartitionKeyMapping[source]
 		}
 		if err := s.cloneTable(ctx, boundSelector, snapshotName, v); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))

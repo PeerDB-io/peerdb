@@ -561,10 +561,10 @@ message AdditionalContextMetadata{
   FlowOperation operation = 1;
 }
 
-message GetParallelLoadKeyForTablesInput {
+message GetDefaultPartitionKeyForTablesInput {
   repeated TableMapping table_mappings = 1;
 }
 
-message GetParallelLoadKeyForTablesOutput {
-  map<string, string> table_parallel_load_key_mapping = 1;
+message GetDefaultPartitionKeyForTablesOutput {
+  map<string, string> table_default_partition_key_mapping = 1;
 }
