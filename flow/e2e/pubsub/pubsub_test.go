@@ -10,9 +10,13 @@ import (
 	"testing"
 	"time"
 
-	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/v2"
+	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	peer_bq "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
@@ -162,10 +166,15 @@ func (s PubSubSuite) TestCreateTopic() {
 			_ = psclient.Close()
 		}()
 		require.NoError(s.t, err)
-		topic := psclient.Topic(flowName)
-		exists, err := topic.Exists(s.t.Context())
-		require.NoError(s.t, err)
-		return exists
+		topic := fmt.Sprintf("projects/%s/topics/%s", psclient.Project(), flowName)
+		if _, err := psclient.TopicAdminClient.GetTopic(s.t.Context(), &pubsubpb.GetTopicRequest{
+			Topic: topic,
+		}); err == nil {
+			return true
+		} else if status.Code(err) != codes.NotFound {
+			require.NoError(s.t, err)
+		}
+		return false
 	})
 
 	env.Cancel(s.t.Context())
@@ -202,12 +211,16 @@ func (s PubSubSuite) TestSimple() {
 	psclient, err := sa.CreatePubSubClient(s.t.Context())
 	require.NoError(s.t, err)
 	defer psclient.Close()
-	topic, err := psclient.CreateTopic(s.t.Context(), flowName)
+	topicName := fmt.Sprintf("projects/%s/topics/%s", psclient.Project(), flowName)
+	_, err = psclient.TopicAdminClient.CreateTopic(s.t.Context(), &pubsubpb.Topic{
+		Name: topicName,
+	})
 	require.NoError(s.t, err)
-	sub, err := psclient.CreateSubscription(s.t.Context(), flowName, pubsub.SubscriptionConfig{
-		Topic:             topic,
-		RetentionDuration: 10 * time.Minute,
-		ExpirationPolicy:  24 * time.Hour,
+	sub, err := psclient.SubscriptionAdminClient.CreateSubscription(s.t.Context(), &pubsubpb.Subscription{
+		Name:                     fmt.Sprintf("projects/%s/subscriptions/%s", psclient.Project(), flowName),
+		Topic:                    topicName,
+		MessageRetentionDuration: durationpb.New(10 * time.Minute),
+		ExpirationPolicy:         &pubsubpb.ExpirationPolicy{Ttl: durationpb.New(24 * time.Hour)},
 	})
 	require.NoError(s.t, err)
 
@@ -225,7 +238,8 @@ func (s PubSubSuite) TestSimple() {
 
 	msgs := make(chan *pubsub.Message)
 	go func() {
-		_ = sub.Receive(ctx, func(_ context.Context, m *pubsub.Message) {
+		subclient := psclient.Subscriber(sub.Name)
+		_ = subclient.Receive(ctx, func(_ context.Context, m *pubsub.Message) {
 			msgs <- m
 		})
 	}()
@@ -273,17 +287,20 @@ func (s PubSubSuite) TestInitialLoad() {
 	psclient, err := sa.CreatePubSubClient(s.t.Context())
 	require.NoError(s.t, err)
 	defer psclient.Close()
-	topic, err := psclient.CreateTopic(s.t.Context(), flowName)
-	require.NoError(s.t, err)
-	sub, err := psclient.CreateSubscription(s.t.Context(), flowName, pubsub.SubscriptionConfig{
-		Topic:             topic,
-		RetentionDuration: 10 * time.Minute,
-		ExpirationPolicy:  24 * time.Hour,
+	topicName := fmt.Sprintf("projects/%s/topics/%s", psclient.Project(), flowName)
+	_, err = psclient.TopicAdminClient.CreateTopic(s.t.Context(), &pubsubpb.Topic{
+		Name: topicName,
 	})
 	require.NoError(s.t, err)
-	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-		INSERT INTO %s (id, val) VALUES (1, 'testval')
-	`, srcTableName))
+	sub, err := psclient.SubscriptionAdminClient.CreateSubscription(s.t.Context(), &pubsubpb.Subscription{
+		Name:                     fmt.Sprintf("projects/%s/subscriptions/%s", psclient.Project(), flowName),
+		Topic:                    topicName,
+		MessageRetentionDuration: durationpb.New(10 * time.Minute),
+		ExpirationPolicy:         &pubsubpb.ExpirationPolicy{Ttl: durationpb.New(24 * time.Hour)},
+	})
+	require.NoError(s.t, err)
+	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(
+		`INSERT INTO %s (id, val) VALUES (1, 'testval')`, srcTableName))
 	require.NoError(s.t, err)
 
 	tc := e2e.NewTemporalClient(s.t)
@@ -295,7 +312,8 @@ func (s PubSubSuite) TestInitialLoad() {
 
 	msgs := make(chan *pubsub.Message)
 	go func() {
-		_ = sub.Receive(ctx, func(_ context.Context, m *pubsub.Message) {
+		subclient := psclient.Subscriber(sub.Name)
+		_ = subclient.Receive(ctx, func(_ context.Context, m *pubsub.Message) {
 			msgs <- m
 		})
 	}()

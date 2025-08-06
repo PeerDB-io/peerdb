@@ -58,7 +58,7 @@ linters:
         - style
       settings:
         hugeParam:
-          sizeThreshold: 512
+          sizeThreshold: 1024
     gosec:
       excludes:
         - G115

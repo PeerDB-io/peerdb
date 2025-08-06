@@ -7,7 +7,7 @@ import (
 	"reflect"
 
 	"cloud.google.com/go/bigquery"
-	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/v2"
 	"cloud.google.com/go/storage"
 	"google.golang.org/api/option"
 
