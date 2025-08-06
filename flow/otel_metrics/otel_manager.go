@@ -252,6 +252,7 @@ func (om *OtelManager) setupMetrics() error {
 	}
 
 	if om.Metrics.LatestConsumedBinlogEpochSecondsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LatestConsumedBinlogEpochSecondsGaugeName),
+		metric.WithUnit("s"),
 		metric.WithDescription("Timestamp of latest binlog event read in epoch seconds"),
 	); err != nil {
 		return err
