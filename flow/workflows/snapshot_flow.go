@@ -261,7 +261,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 
 	var res *protos.GetDefaultPartitionKeyForTablesOutput
 	if err := workflow.ExecuteActivity(getParallelLoadKeyForTablesCtx,
-		snapshot.GetParallelLoadKeyForTables, s.config).Get(ctx, &res); err != nil {
+		snapshot.GetDefaultPartitionKeyForTables, s.config).Get(ctx, &res); err != nil {
 		return fmt.Errorf("failed to close slot keep alive for peer flow: %w", err)
 	}
 

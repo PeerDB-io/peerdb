@@ -69,7 +69,7 @@ func (c *PostgresConnector) GetQRepPartitions(
 	return c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
 }
 
-func (c *PostgresConnector) GetParallelLoadKeyForTables(
+func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.GetDefaultPartitionKeyForTablesInput,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {

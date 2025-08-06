@@ -167,7 +167,7 @@ func (a *SnapshotActivity) LoadTableSchema(
 	return internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
 }
 
-func (a *SnapshotActivity) GetParallelLoadKeyForTables(
+func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.FlowConnectionConfigs,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
@@ -176,7 +176,7 @@ func (a *SnapshotActivity) GetParallelLoadKeyForTables(
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
 
-	output, err := connector.GetParallelLoadKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
+	output, err := connector.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
 		TableMappings: input.TableMappings,
 	})
 	if err != nil {

@@ -130,7 +130,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	return partitionHelper.GetPartitions(), nil
 }
 
-func (c *MySqlConnector) GetParallelLoadKeyForTables(
+func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.GetDefaultPartitionKeyForTablesInput,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {

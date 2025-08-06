@@ -135,7 +135,7 @@ func (c *MongoConnector) GetQRepPartitions(
 	return partitions, nil
 }
 
-func (c *MongoConnector) GetParallelLoadKeyForTables(
+func (c *MongoConnector) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.GetDefaultPartitionKeyForTablesInput,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
