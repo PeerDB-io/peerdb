@@ -53,7 +53,7 @@ const (
 	TotalCPULimitsGaugeName                   = "total_cpu_limits_vcores"
 	TotalMemoryLimitsGaugeName                = "total_memory_limits"
 	WorkloadTotalReplicasGaugeName            = "workload_total_replicas"
-	LatestConsumedBinlogEpochSecondsGaugeName = "latest_consumed_binlog_epoch_seconds"
+	LatestConsumedBinlogEpochSecondsGaugeName = "latest_consumed_binlog_epoch"
 )
 
 type Metrics struct {
