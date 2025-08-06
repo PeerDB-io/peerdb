@@ -244,7 +244,6 @@ func (s *SnapshotFlowExecution) cloneTables(
 	snapshotType snapshotType,
 	slotName string,
 	snapshotName string,
-	supportsTIDScans bool,
 	maxParallelClones int,
 ) error {
 	if snapshotType == SNAPSHOT_TYPE_SLOT {
@@ -253,13 +252,19 @@ func (s *SnapshotFlowExecution) cloneTables(
 		s.logger.Info("cloning tables in tx snapshot mode", slog.String("snapshot", snapshotName))
 	}
 
-	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)
+	getParallelLoadKeyForTablesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 10 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
+	})
 
-	defaultPartitionCol := "ctid"
-	if !supportsTIDScans {
-		s.logger.Info("Postgres version too old for TID scans, might use full table partitions!")
-		defaultPartitionCol = ""
+	var res *protos.GetParallelLoadKeyForTablesOutput
+	if err := workflow.ExecuteActivity(getParallelLoadKeyForTablesCtx, snapshot.GetParallelLoadKeyForTables, s.config).Get(ctx, &res); err != nil {
+		return fmt.Errorf("failed to close slot keep alive for peer flow: %w", err)
 	}
+
+	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)
 
 	for _, v := range s.config.TableMappings {
 		source := v.SourceTableIdentifier
@@ -269,7 +274,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 			slog.String("snapshotName", snapshotName),
 		)
 		if v.PartitionKey == "" {
-			v.PartitionKey = defaultPartitionCol
+			v.PartitionKey = res.TableParallelLoadKeyMapping[source]
 		}
 		if err := s.cloneTable(ctx, boundSelector, snapshotName, v); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
@@ -304,11 +309,9 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 	}()
 	var slotName string
 	var snapshotName string
-	var supportsTidScans bool
 	if slotInfo != nil {
 		slotName = slotInfo.SlotName
 		snapshotName = slotInfo.SnapshotName
-		supportsTidScans = slotInfo.SupportsTidScans
 	}
 
 	s.logger.Info("cloning tables in parallel", slog.Int("parallelism", numTablesInParallel))
@@ -316,7 +319,6 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		SNAPSHOT_TYPE_SLOT,
 		slotName,
 		snapshotName,
-		supportsTidScans,
 		numTablesInParallel,
 	); err != nil {
 		s.logger.Error("failed to clone tables", slog.Any("error", err))
@@ -411,7 +413,6 @@ func SnapshotFlowWorkflow(
 			SNAPSHOT_TYPE_TX,
 			"",
 			txnSnapshotState.SnapshotName,
-			txnSnapshotState.SupportsTIDScans,
 			numTablesInParallel,
 		); err != nil {
 			return fmt.Errorf("failed to clone tables: %w", err)

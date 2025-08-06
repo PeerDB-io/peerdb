@@ -135,6 +135,15 @@ func (c *MongoConnector) GetQRepPartitions(
 	return partitions, nil
 }
 
+func (c *MongoConnector) GetParallelLoadKeyForTables(
+	ctx context.Context,
+	input *protos.GetParallelLoadKeyForTablesInput,
+) (*protos.GetParallelLoadKeyForTablesOutput, error) {
+	return &protos.GetParallelLoadKeyForTablesOutput{
+		TableParallelLoadKeyMapping: make(map[string]string),
+	}, nil
+}
+
 func (c *MongoConnector) PullQRepRecords(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,

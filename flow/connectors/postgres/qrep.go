@@ -69,6 +69,75 @@ func (c *PostgresConnector) GetQRepPartitions(
 	return c.getNumRowsPartitions(ctx, getPartitionsTx, config, last)
 }
 
+func (c *PostgresConnector) GetParallelLoadKeyForTables(
+	ctx context.Context,
+	input *protos.GetParallelLoadKeyForTablesInput,
+) (*protos.GetParallelLoadKeyForTablesOutput, error) {
+	c.logger.Info("Evaluating if tables can perform parallel load")
+
+	output := &protos.GetParallelLoadKeyForTablesOutput{
+		TableParallelLoadKeyMapping: make(map[string]string, len(input.TableMappings)),
+	}
+
+	pgVersion, err := shared.GetMajorVersion(ctx, c.conn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to determine server version: %w", err)
+	}
+	supportsTidScans := pgVersion >= shared.POSTGRES_14
+
+	if supportsTidScans {
+		for _, tm := range input.TableMappings {
+			output.TableParallelLoadKeyMapping[tm.SourceTableIdentifier] = "ctid"
+		}
+	}
+
+	if !supportsTidScans {
+		// older versions fall back to full table partitions anyway; nothing more to do
+		c.logger.Warn("Postgres version does not support TID scans, falling back to full table partitions")
+		return output, nil
+	}
+
+	var hasTimescale bool
+	if err := c.conn.QueryRow(ctx,
+		"SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')").Scan(&hasTimescale); err != nil {
+		return nil, fmt.Errorf("failed to check for timescaledb extension: %w", err)
+	}
+	if !hasTimescale {
+		return output, nil
+	}
+
+	// compressed hypertables cannot do ctid scans, so disable for them
+	// NOTE: it appears that the hypercore "TAM" may give us access to ctid scans, but that's to be removed in Timescale 2.22
+	rows, err := c.conn.Query(ctx, `SELECT hypertable_schema, hypertable_name FROM timescaledb_information.chunks WHERE is_compressed='t' GROUP BY hypertable_schema, hypertable_name;`)
+	if err != nil {
+		return nil, fmt.Errorf("query compressed hypertables: %w", err)
+	}
+	compressedSlice, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (string, error) {
+		var schema, name string
+		if err := r.Scan(&schema, &name); err != nil {
+			return "", err
+		}
+		return strings.ToLower(fmt.Sprintf("%s.%s", schema, name)), nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get compressed hypertables: %w", err)
+	}
+	compressedSet := make(map[string]struct{}, len(compressedSlice))
+	for _, id := range compressedSlice {
+		compressedSet[id] = struct{}{}
+	}
+
+	for _, tm := range input.TableMappings {
+		if _, found := compressedSet[strings.ToLower(tm.SourceTableIdentifier)]; found {
+			delete(output.TableParallelLoadKeyMapping, tm.SourceTableIdentifier)
+			c.logger.Warn("table is a compressed hypertable, falling back to full table partition",
+				slog.String("table", tm.SourceTableIdentifier))
+		}
+	}
+
+	return output, nil
+}
+
 func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx, snapshot string) error {
 	if snapshot != "" {
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(snapshot)); err != nil {

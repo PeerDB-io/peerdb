@@ -23,8 +23,7 @@ type SlotSnapshotState struct {
 }
 
 type TxSnapshotState struct {
-	SnapshotName     string
-	SupportsTIDScans bool
+	SnapshotName string
 }
 
 type SnapshotActivity struct {
@@ -93,9 +92,8 @@ func (a *SnapshotActivity) SetupReplication(
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Replication slot and publication setup complete")
 
 	return &protos.SetupReplicationOutput{
-		SlotName:         slotInfo.SlotName,
-		SnapshotName:     slotInfo.SnapshotName,
-		SupportsTidScans: slotInfo.SupportsTIDScans,
+		SlotName:     slotInfo.SlotName,
+		SnapshotName: slotInfo.SnapshotName,
 	}, nil
 }
 
@@ -118,8 +116,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, pee
 	a.SnapshotStatesMutex.Lock()
 	if exportSnapshotOutput != nil {
 		a.TxSnapshotStates[sessionID] = TxSnapshotState{
-			SnapshotName:     exportSnapshotOutput.SnapshotName,
-			SupportsTIDScans: exportSnapshotOutput.SupportsTidScans,
+			SnapshotName: exportSnapshotOutput.SnapshotName,
 		}
 	} else {
 		a.TxSnapshotStates[sessionID] = TxSnapshotState{}
@@ -168,4 +165,23 @@ func (a *SnapshotActivity) LoadTableSchema(
 	tableName string,
 ) (*protos.TableSchema, error) {
 	return internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
+}
+
+func (a *SnapshotActivity) GetParallelLoadKeyForTables(
+	ctx context.Context,
+	input *protos.FlowConnectionConfigs,
+) (*protos.GetParallelLoadKeyForTablesOutput, error) {
+	connector, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, nil, a.CatalogPool, input.SourceName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
+	}
+
+	output, err := connector.GetParallelLoadKeyForTables(ctx, &protos.GetParallelLoadKeyForTablesInput{
+		TableMappings: input.TableMappings,
+	})
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to check if tables can parallel load: %w", err))
+	}
+
+	return output, nil
 }
