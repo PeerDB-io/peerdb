@@ -235,13 +235,13 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			stmtBuilder.WriteString(" ORDER BY tuple()")
 		}
 
-		partitionByColumns, hsaNullablePartitionKey := getOrderedPartitionByColumns(tableMapping, colNameMap, hasNullableKeyFn)
+		partitionByColumns, hasNullablePartitionKey := getOrderedPartitionByColumns(tableMapping, colNameMap, hasNullableKeyFn)
 		if len(partitionByColumns) > 0 {
 			partitionByStr := strings.Join(partitionByColumns, ",")
 			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
 		}
 
-		if hasNullableOrderKey || hsaNullablePartitionKey {
+		if hasNullableOrderKey || hasNullablePartitionKey {
 			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 		}
 
