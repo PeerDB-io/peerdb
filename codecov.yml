@@ -21,7 +21,6 @@ component_management:
   individual_components:
     - component_id: full
       paths:
-        - flow/datatypes/
-        - flow/e2eshared/
+        - flow/**
       statuses:
         - target: 100%
