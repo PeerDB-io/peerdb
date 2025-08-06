@@ -130,6 +130,53 @@ func (s MongoClickhouseSuite) Test_Simple_Flow() {
 	e2e.RequireEnvCanceled(t, env)
 }
 
+func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_simple_partitioned"
+	dstTable := "test_simple_dst_partitioned"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.TableMappings[0].PartitionKey = "_id"
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+	// insert 1000 rows into the source table for initial load
+	for i := range 1000 {
+		testKey := fmt.Sprintf("init_key_%d", i)
+		testValue := fmt.Sprintf("init_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,_full_document")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	// insert 10 rows into the source table for cdc
+	for i := range 10 {
+		testKey := fmt.Sprintf("test_key_%d", i)
+		testValue := fmt.Sprintf("test_value_%d", i)
+		res, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: testKey, Value: testValue}}, options.InsertOne())
+		require.NoError(t, err)
+		require.True(t, res.Acknowledged)
+	}
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,_full_document")
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
 func (s MongoClickhouseSuite) Test_Inconsistent_Schema() {
 	t := s.T()
 

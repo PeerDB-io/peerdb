@@ -74,4 +74,4 @@ done
 
 # Start MongoDB with auth (no fork, logs to stdout)
 echo "Starting MongoDB with authentication..."
-exec mongod --replSet rs0 --bind_ip_all --keyFile /etc/mongodb-keyfile --auth --ipv6
+exec mongod --replSet rs0 --bind_ip_all --keyFile /etc/mongodb-keyfile --auth --ipv6 --oplogMinRetentionHours 24
