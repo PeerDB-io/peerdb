@@ -3,6 +3,7 @@ package e2e_mongo
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -591,6 +592,212 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 	require.True(t, insertRes.Acknowledged)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable1, dstTable1, "_id,_full_document")
 
+	env.Cancel(t.Context())
+	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Json_Types() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_json_types"
+	dstTable := "test_json_types_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	oid, err := bson.ObjectIDFromHex("507f1f77bcf86cd799439011")
+	require.NoError(t, err)
+	decimal128, err := bson.ParseDecimal128("123.4567890987654321")
+	require.NoError(t, err)
+
+	doc := bson.D{
+		// String types
+		{Key: "string", Value: "hello"},
+		{Key: "empty_string", Value: ""},
+		{Key: "string_special", Value: "hello\nworld\t\"quoted\""},
+
+		// Boolean types
+		{Key: "bool_true", Value: true},
+		{Key: "bool_false", Value: false},
+
+		// Integer types
+		{Key: "int", Value: 42},
+		{Key: "int8", Value: int8(127)},
+		{Key: "int16", Value: int16(32767)},
+		{Key: "int32", Value: int32(2147483647)},
+		{Key: "int64", Value: int64(9223372036854775807)},
+		{Key: "uint", Value: uint(42)},
+		{Key: "uint8", Value: uint8(255)},
+		{Key: "uint16", Value: uint16(65535)},
+		{Key: "uint32", Value: uint32(4294967295)},
+
+		// Negative integers
+		{Key: "neg_int", Value: -42},
+		{Key: "neg_int8", Value: int8(-128)},
+		{Key: "neg_int16", Value: int16(-32768)},
+		{Key: "neg_int32", Value: int32(-2147483648)},
+		{Key: "neg_int64", Value: int64(-9223372036854775807)},
+
+		// Floating point types
+		{Key: "float32", Value: float32(3.14)},
+		{Key: "float64", Value: float64(3.14159265359)},
+		{Key: "neg_float32", Value: float32(-3.14)},
+		{Key: "neg_float64", Value: float64(-3.14159265359)},
+
+		// Special float values
+		{Key: "nan", Value: math.NaN()},
+		{Key: "pos_inf", Value: math.Inf(1)},
+		{Key: "neg_inf", Value: math.Inf(-1)},
+		{Key: "float32_nan", Value: float32(math.NaN())},
+		{Key: "float32_pos_inf", Value: float32(math.Inf(1))},
+		{Key: "float32_neg_inf", Value: float32(math.Inf(-1))},
+
+		// Arrays with special floats
+		{Key: "array_mixed", Value: bson.A{1, "str", true}},
+		{Key: "array_special_floats", Value: bson.A{math.NaN(), math.Inf(1), math.Inf(-1)}},
+
+		// Complex nested documents
+		{Key: "nested_doc", Value: bson.D{
+			{Key: "inner1", Value: "str"},
+			{Key: "inner2", Value: 1},
+			{Key: "inner3", Value: true},
+			{Key: "inner4", Value: bson.D{
+				{Key: "a", Value: math.NaN()},
+				{Key: "b", Value: bson.A{"hello", "world"}},
+			}},
+		}},
+
+		// Complex nested array
+		{Key: "nested_array", Value: bson.A{
+			bson.D{{Key: "inner1", Value: bson.A{
+				bson.D{{Key: "inner_inner", Value: bson.A{
+					math.NaN(), math.Inf(1), math.Inf(-1),
+				}}},
+			}}},
+			bson.D{{Key: "inner2", Value: 1.23}},
+		}},
+		{Key: "nested_array_2", Value: bson.A{
+			bson.D{{Key: "NaN", Value: math.NaN()}},
+			bson.D{{Key: "binary", Value: bson.Binary{Subtype: 0x00, Data: []byte("test")}}},
+			bson.D{{
+				Key:   "nested_arr",
+				Value: bson.A{bson.A{1}, bson.A{2}, bson.A{3}},
+			}},
+			bson.D{{
+				Key:   "nested_doc",
+				Value: bson.D{{Key: "str", Value: "hello world"}},
+			}},
+			bson.D{{Key: "timestamp", Value: bson.Timestamp{T: 1672531200, I: 1}}},
+		}},
+
+		// Other bson types
+		{Key: "object_id", Value: oid},
+		{Key: "date_time", Value: bson.DateTime(1672531200000)}, // 2023-01-01 00:00:00 UTC
+		{Key: "symbol", Value: bson.Symbol("test_symbol")},
+		{Key: "binary", Value: bson.Binary{Subtype: 0x02, Data: []byte("hello world")}},
+		{Key: "binary_empty", Value: bson.Binary{Subtype: 0x00, Data: []byte{}}},
+		{Key: "timestamp", Value: bson.Timestamp{T: 1672531200, I: 1}},
+		{Key: "regex", Value: bson.Regex{Pattern: "^test.*", Options: "i"}},
+		{Key: "decimal128", Value: decimal128},
+		{Key: "javascript", Value: bson.JavaScript("function() { return 42; }")},
+		{Key: "js_with_scope", Value: bson.CodeWithScope{Code: "function(x) { return x + y; }", Scope: bson.D{{Key: "y", Value: 10}}}},
+		{Key: "db_pointer", Value: bson.DBPointer{DB: "test_db", Pointer: oid}},
+
+		// Other bson types (not propagated)
+		{Key: "undefined_field", Value: bson.Undefined{}},
+		{Key: "null_field", Value: bson.Null{}},
+		{Key: "max_key", Value: bson.MaxKey{}},
+		{Key: "min_key", Value: bson.MinKey{}},
+	}
+
+	insertRes, err := collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,_full_document", 1)
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err = collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,_full_document", 2)
+
+	rows, err := s.GetRows(dstTable, "_id,_full_document")
+	require.NoError(t, err)
+	require.Len(t, rows.Records, 2, "Expected 2 rows in destination table")
+
+	row1 := rows.Records[0][1].Value().(string)
+	row2 := rows.Records[1][1].Value().(string)
+	for _, row := range []string{row1, row2} {
+		require.Contains(t, row, `"string":"hello"`)
+		require.Contains(t, row, `"empty_string":""`)
+		require.Contains(t, row, `"string_special":"hello\nworld\t\"quoted\""`)
+		require.Contains(t, row, `"bool_true":true`)
+		require.Contains(t, row, `"bool_false":false`)
+		require.Contains(t, row, `"int":42`)
+		require.Contains(t, row, `"int8":127`)
+		require.Contains(t, row, `"int16":32767`)
+		require.Contains(t, row, `"int32":2147483647`)
+		require.Contains(t, row, `"int64":9223372036854775807`)
+		require.Contains(t, row, `"uint":42`)
+		require.Contains(t, row, `"uint8":255`)
+		require.Contains(t, row, `"uint16":65535`)
+		require.Contains(t, row, `"uint32":4294967295`)
+		require.Contains(t, row, `"neg_int":-42`)
+		require.Contains(t, row, `"neg_int8":-128`)
+		require.Contains(t, row, `"neg_int16":-32768`)
+		require.Contains(t, row, `"neg_int32":-2147483648`)
+		require.Contains(t, row, `"neg_int64":-9223372036854775807`)
+		require.Contains(t, row, `"float32":3.14`)
+		require.Contains(t, row, `"float64":3.14159265359`)
+		require.Contains(t, row, `"neg_float32":-3.14`)
+		require.Contains(t, row, `"neg_float64":-3.14159265359`)
+		require.Contains(t, row, `"nan":"NaN"`)
+		require.Contains(t, row, `"pos_inf":"+Inf"`)
+		require.Contains(t, row, `"neg_inf":"-Inf"`)
+		require.Contains(t, row, `"float32_nan":"NaN"`)
+		require.Contains(t, row, `"float32_pos_inf":"+Inf"`)
+		require.Contains(t, row, `"float32_neg_inf":"-Inf"`)
+		// mixed array promoted common type
+		require.Contains(t, row, `"array_mixed":["1","str","true"]`)
+		require.Contains(t, row, `"array_special_floats":["NaN","+Inf","-Inf"]`)
+		require.Contains(t, row, `"nested_doc":{"inner1":"str","inner2":1,"inner3":true,"inner4":{"a":"NaN","b":["hello","world"]}}`)
+		require.Contains(t, row, `"nested_array":[{"inner1":[{"inner_inner":["NaN","+Inf","-Inf"]}]},{"inner2":1.23}]`)
+		require.Contains(t, row, `"nested_array_2":[{"NaN":"NaN"},{"binary":{"Data":"dGVzdA==","Subtype":0}},`+
+			`{"nested_arr":[[1],[2],[3]]},{"nested_doc":{"str":"hello world"}},{"timestamp":{"I":1,"T":1672531200}}]`)
+
+		require.Contains(t, row, `"object_id":"507f1f77bcf86cd799439011"`)
+		require.Contains(t, row, `"date_time":"2023-01-01T00:00:00Z"`)
+		require.Contains(t, row, `"symbol":"test_symbol"`)
+		// binary data should be base64 encoded
+		require.Contains(t, row, `"binary":{"Data":"aGVsbG8gd29ybGQ=","Subtype":2}`)
+		require.Contains(t, row, `"binary_empty":{"Data":"","Subtype":0}`)
+		require.Contains(t, row, `"timestamp":{"I":1,"T":1672531200}`)
+		require.Contains(t, row, `"regex":{"Options":"i","Pattern":"^test.*"}`)
+		// decimal12 should be converted to string
+		require.Contains(t, row, `"decimal128":"123.4567890987654321"`)
+		require.Contains(t, row, `"javascript":"function() { return 42; }"`)
+		require.Contains(t, row, `"js_with_scope":{"Code":"function(x) { return x + y; }","Scope":{"y":10}}`)
+		require.Contains(t, row, `"db_pointer":{"DB":"test_db","Pointer":"507f1f77bcf86cd799439011"}`)
+
+		// check unsupported types should not be propagated
+		require.NotContains(t, row, `"null_field"`)
+		require.NotContains(t, row, `"undefined_field"`)
+		require.NotContains(t, row, `"max_key"`)
+		require.NotContains(t, row, `"min_key"`)
+	}
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
 }

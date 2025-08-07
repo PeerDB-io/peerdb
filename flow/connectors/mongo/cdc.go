@@ -26,10 +26,10 @@ type Namespace struct {
 }
 
 type ChangeEvent struct {
-	DocumentKey   map[string]any `bson:"documentKey,omitempty"`
-	FullDocument  map[string]any `bson:"fullDocument,omitempty"`
 	Ns            Namespace      `bson:"ns"`
 	OperationType string         `bson:"operationType"`
+	DocumentKey   bson.D         `bson:"documentKey,omitempty"`
+	FullDocument  bson.D         `bson:"fullDocument,omitempty"`
 	ClusterTime   bson.Timestamp `bson:"clusterTime"`
 }
 
@@ -200,9 +200,19 @@ func (c *MongoConnector) PullRecords(
 		}
 	}
 
-	addRecordItems := func(documentKey map[string]any, fullDocument map[string]any, items *model.RecordItems) error {
-		if documentKey != nil && documentKey[DefaultDocumentKeyColumnName] != "" {
-			qValue, err := qValueStringFromKey(documentKey[DefaultDocumentKeyColumnName])
+	addRecordItems := func(documentKey bson.D, fullDocument bson.D, items *model.RecordItems) error {
+		if documentKey != nil {
+			var idValue any
+			for _, elem := range documentKey {
+				if elem.Key == DefaultDocumentKeyColumnName {
+					idValue = elem.Value
+					break
+				}
+			}
+			if idValue == nil {
+				return errors.New("document key _id not found")
+			}
+			qValue, err := qValueStringFromKey(idValue)
 			if err != nil {
 				return fmt.Errorf("failed to convert _id to string: %w", err)
 			}
