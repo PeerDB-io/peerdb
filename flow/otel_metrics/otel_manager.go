@@ -86,6 +86,7 @@ type Metrics struct {
 	TotalMemoryLimitsGauge                metric.Float64Gauge
 	WorkloadTotalReplicasGauge            metric.Int64Gauge
 	LatestConsumedBinlogEpochSecondsGauge metric.Int64Gauge
+	LatestConsumedChangeStreamEventGauge  metric.Int64Gauge
 }
 
 type SlotMetricGauges struct {
@@ -254,6 +255,12 @@ func (om *OtelManager) setupMetrics() error {
 	if om.Metrics.LatestConsumedBinlogEpochSecondsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LatestConsumedBinlogEpochSecondsGaugeName),
 		metric.WithUnit("s"),
 		metric.WithDescription("Timestamp of latest binlog event read in epoch seconds"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LatestConsumedChangeStreamEventGauge, err = om.GetOrInitInt64Gauge(BuildMetricName("latest_consumed_change_stream_event"),
+		metric.WithDescription("Timestamp of latest change stream event read in epoch seconds"),
 	); err != nil {
 		return err
 	}
