@@ -3,6 +3,7 @@ package e2e_mongo
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"testing"
@@ -546,4 +547,46 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 
 	env.Cancel(t.Context())
 	e2e.RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Json_Special_Float_Values() {
+	t := s.T()
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_json_special_floats"
+	dstTable := "test_json_special_floats_dst"
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:   e2e.AddSuffix(s, srcTable),
+		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	insertRes, err := collection.InsertOne(t.Context(), bson.D{
+		bson.E{Key: "nan", Value: math.NaN()},
+		bson.E{Key: "pos_inf", Value: math.Inf(1)},
+		bson.E{Key: "neg_inf", Value: math.Inf(-1)},
+	}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+
+	tc := e2e.NewTemporalClient(t)
+	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,_full_document")
+
+	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	insertRes, err = collection.InsertOne(t.Context(), bson.D{
+		bson.E{Key: "nan_2", Value: math.NaN()},
+		bson.E{Key: "pos_inf_2", Value: math.Inf(1)},
+		bson.E{Key: "neg_inf_2", Value: math.Inf(-1)},
+	}, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, insertRes.Acknowledged)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc", srcTable, dstTable, "_id,_full_document")
 }

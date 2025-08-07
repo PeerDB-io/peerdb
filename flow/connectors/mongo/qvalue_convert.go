@@ -16,7 +16,7 @@ func qValueStringFromKey(key any) (types.QValueString, error) {
 	return types.QValueString{Val: string(jsonb)}, nil
 }
 
-func qValueJSONFromDocument(document interface{}) (types.QValueJSON, error) {
+func qValueJSONFromDocument(document any) (types.QValueJSON, error) {
 	jsonb, err := API.Marshal(document)
 	if err != nil {
 		return types.QValueJSON{}, fmt.Errorf("error marshalling document: %w", err)

@@ -9,38 +9,63 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
-// PeerDBExtension provides custom JSON encoding for bson.D types to handle special
-// float values (NaN, +Inf, -Inf). Note: custom decoding is not implemented for this
-// extension because it is not used in the MongoDB Connector.
-type PeerDBExtension struct {
+// BsonExtension provides custom JSON encoding/decoding for MongoDB BSON types.
+// The main purpose is to handle special float values (NaN, +Inf, -Inf) in bson.D and bson.A
+// by converting them to JSON strings. Decoders are implemented to satisfy json-iterator's
+// extension interface requirements, even though decoding is not used by MongoDB Connector.
+type BsonExtension struct {
 	jsoniter.Extension
 }
 
-func (extension *PeerDBExtension) UpdateStructDescriptor(structDescriptor *jsoniter.StructDescriptor) {
+func (extension *BsonExtension) UpdateStructDescriptor(structDescriptor *jsoniter.StructDescriptor) {
 	// not used (bson documents does not contain struct)
 }
 
-func (extension *PeerDBExtension) CreateMapKeyEncoder(typ reflect2.Type) jsoniter.ValEncoder {
+func (extension *BsonExtension) CreateEncoder(typ reflect2.Type) jsoniter.ValEncoder {
 	// use default
 	return nil
 }
 
-func (extension *PeerDBExtension) CreateEncoder(typ reflect2.Type) jsoniter.ValEncoder {
+func (extension *BsonExtension) CreateDecoder(typ reflect2.Type) jsoniter.ValDecoder {
 	// use default
 	return nil
 }
 
-func (extension *PeerDBExtension) DecorateEncoder(typ reflect2.Type, encoder jsoniter.ValEncoder) jsoniter.ValEncoder {
+func (extension *BsonExtension) CreateMapKeyEncoder(typ reflect2.Type) jsoniter.ValEncoder {
+	// use default
+	return nil
+}
+
+func (extension *BsonExtension) CreateMapKeyDecoder(typ reflect2.Type) jsoniter.ValDecoder {
+	// use default
+	return nil
+}
+
+func (extension *BsonExtension) DecorateEncoder(typ reflect2.Type, encoder jsoniter.ValEncoder) jsoniter.ValEncoder {
 	if typ.String() == "bson.D" {
-		return &BsonDEncoder{}
+		return &BsonDCodec{}
+	}
+	if typ.String() == "bson.A" {
+		return &BsonACodec{}
 	}
 	// use default
 	return encoder
 }
 
-type BsonDEncoder struct{}
+func (extension *BsonExtension) DecorateDecoder(typ reflect2.Type, decoder jsoniter.ValDecoder) jsoniter.ValDecoder {
+	if typ.String() == "bson.D" {
+		return &BsonDCodec{}
+	}
+	if typ.String() == "bson.A" {
+		return &BsonACodec{}
+	}
+	// use default
+	return decoder
+}
 
-func (encoder *BsonDEncoder) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+type BsonDCodec struct{}
+
+func (codec *BsonDCodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 	d := *(*bson.D)(ptr)
 
 	stream.WriteObjectStart()
@@ -82,13 +107,67 @@ func (encoder *BsonDEncoder) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream)
 	stream.WriteObjectEnd()
 }
 
-func (encoder *BsonDEncoder) IsEmpty(ptr unsafe.Pointer) bool {
+func (codec *BsonDCodec) IsEmpty(ptr unsafe.Pointer) bool {
 	d := *(*bson.D)(ptr)
 	return len(d) == 0
 }
 
+func (codec *BsonDCodec) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
+	// Node used
+}
+
+type BsonACodec struct{}
+
+func (codec *BsonACodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	a := *(*bson.A)(ptr)
+
+	stream.WriteArrayStart()
+	for i, elem := range a {
+		if i > 0 {
+			stream.WriteMore()
+		}
+		switch v := elem.(type) {
+		case float32:
+			if math.IsNaN(float64(v)) {
+				stream.WriteString("NaN")
+			} else if math.IsInf(float64(v), 1) {
+				stream.WriteString("+Inf")
+			} else if math.IsInf(float64(v), -1) {
+				stream.WriteString("-Inf")
+			} else {
+				stream.WriteFloat32(v)
+			}
+		case float64:
+			if math.IsNaN(v) {
+				stream.WriteString("NaN")
+			} else if math.IsInf(v, 1) {
+				stream.WriteString("+Inf")
+			} else if math.IsInf(v, -1) {
+				stream.WriteString("-Inf")
+			} else {
+				stream.WriteFloat64(v)
+			}
+		default:
+			// Delegate to json-iterator's encoding system for all other types.
+			// This maintains extension behavior: if elem.Value is another bson.A,
+			// it will recursively use this custom encoder for proper NaN/Inf handling.
+			stream.WriteVal(elem)
+		}
+	}
+	stream.WriteArrayEnd()
+}
+
+func (codec *BsonACodec) IsEmpty(ptr unsafe.Pointer) bool {
+	a := *(*bson.A)(ptr)
+	return len(a) == 0
+}
+
+func (codec *BsonACodec) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
+	// Node used
+}
+
 func CreateExtendedJSONMarshaler() jsoniter.API {
 	config := jsoniter.ConfigCompatibleWithStandardLibrary
-	config.RegisterExtension(&PeerDBExtension{})
+	config.RegisterExtension(&BsonExtension{})
 	return config
 }
