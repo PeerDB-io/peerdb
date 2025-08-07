@@ -25,35 +25,36 @@ const (
 )
 
 const (
-	SlotLagGaugeName                          = "cdc_slot_lag"
-	CurrentBatchIdGaugeName                   = "current_batch_id"
-	LastNormalizedBatchIdGaugeName            = "last_normalized_batch_id"
-	OpenConnectionsGaugeName                  = "open_connections"
-	OpenReplicationConnectionsGaugeName       = "open_replication_connections"
-	CommittedLSNGaugeName                     = "committed_lsn"
-	RestartLSNGaugeName                       = "restart_lsn"
-	ConfirmedFlushLSNGaugeName                = "confirmed_flush_lsn"
-	IntervalSinceLastNormalizeGaugeName       = "interval_since_last_normalize"
-	AllFetchedBytesCounterName                = "all_fetched_bytes"
-	FetchedBytesCounterName                   = "fetched_bytes"
-	CommitLagGaugeName                        = "commit_lag"
-	ErrorEmittedGaugeName                     = "error_emitted"
-	ErrorsEmittedCounterName                  = "errors_emitted"
-	WarningEmittedGaugeName                   = "warning_emitted"
-	WarningsEmittedCounterName                = "warnings_emitted"
-	RecordsSyncedGaugeName                    = "records_synced"
-	RecordsSyncedCounterName                  = "records_synced_counter"
-	SyncedTablesGaugeName                     = "synced_tables"
-	InstanceStatusGaugeName                   = "instance_status"
-	MaintenanceStatusGaugeName                = "maintenance_status"
-	FlowStatusGaugeName                       = "flow_status"
-	ActiveFlowsGaugeName                      = "active_flows"
-	CPULimitsPerActiveFlowGaugeName           = "cpu_limits_per_active_flow_vcores"
-	MemoryLimitsPerActiveFlowGaugeName        = "memory_limits_per_active_flow"
-	TotalCPULimitsGaugeName                   = "total_cpu_limits_vcores"
-	TotalMemoryLimitsGaugeName                = "total_memory_limits"
-	WorkloadTotalReplicasGaugeName            = "workload_total_replicas"
-	LatestConsumedBinlogEpochSecondsGaugeName = "latest_consumed_binlog_epoch"
+	SlotLagGaugeName                         = "cdc_slot_lag"
+	CurrentBatchIdGaugeName                  = "current_batch_id"
+	LastNormalizedBatchIdGaugeName           = "last_normalized_batch_id"
+	OpenConnectionsGaugeName                 = "open_connections"
+	OpenReplicationConnectionsGaugeName      = "open_replication_connections"
+	CommittedLSNGaugeName                    = "committed_lsn"
+	RestartLSNGaugeName                      = "restart_lsn"
+	ConfirmedFlushLSNGaugeName               = "confirmed_flush_lsn"
+	IntervalSinceLastNormalizeGaugeName      = "interval_since_last_normalize"
+	AllFetchedBytesCounterName               = "all_fetched_bytes"
+	FetchedBytesCounterName                  = "fetched_bytes"
+	CommitLagGaugeName                       = "commit_lag"
+	ErrorEmittedGaugeName                    = "error_emitted"
+	ErrorsEmittedCounterName                 = "errors_emitted"
+	WarningEmittedGaugeName                  = "warning_emitted"
+	WarningsEmittedCounterName               = "warnings_emitted"
+	RecordsSyncedGaugeName                   = "records_synced"
+	RecordsSyncedCounterName                 = "records_synced_counter"
+	SyncedTablesGaugeName                    = "synced_tables"
+	InstanceStatusGaugeName                  = "instance_status"
+	MaintenanceStatusGaugeName               = "maintenance_status"
+	FlowStatusGaugeName                      = "flow_status"
+	ActiveFlowsGaugeName                     = "active_flows"
+	CPULimitsPerActiveFlowGaugeName          = "cpu_limits_per_active_flow_vcores"
+	MemoryLimitsPerActiveFlowGaugeName       = "memory_limits_per_active_flow"
+	TotalCPULimitsGaugeName                  = "total_cpu_limits_vcores"
+	TotalMemoryLimitsGaugeName               = "total_memory_limits"
+	WorkloadTotalReplicasGaugeName           = "workload_total_replicas"
+	LatestConsumedBinlogEventGaugeName       = "latest_consumed_binlog"
+	LatestConsumedChangeStreamEventGaugeName = "latest_consumed_change_stream_event"
 )
 
 type Metrics struct {
@@ -252,14 +253,15 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
-	if om.Metrics.LatestConsumedBinlogEpochSecondsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LatestConsumedBinlogEpochSecondsGaugeName),
+	if om.Metrics.LatestConsumedBinlogEpochSecondsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LatestConsumedBinlogEventGaugeName),
 		metric.WithUnit("s"),
 		metric.WithDescription("Timestamp of latest binlog event read in epoch seconds"),
 	); err != nil {
 		return err
 	}
 
-	if om.Metrics.LatestConsumedChangeStreamEventGauge, err = om.GetOrInitInt64Gauge(BuildMetricName("latest_consumed_change_stream_event"),
+	if om.Metrics.LatestConsumedChangeStreamEventGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LatestConsumedChangeStreamEventGaugeName),
+		metric.WithUnit("s"),
 		metric.WithDescription("Timestamp of latest change stream event read in epoch seconds"),
 	); err != nil {
 		return err
