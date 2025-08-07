@@ -10,6 +10,18 @@ import (
 )
 
 func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
+	sourceColumns := []*protos.FieldDescription{
+		{
+			Name: "my id",
+			Type: string(types.QValueKindInt32),
+		},
+		{
+			Name:     "name",
+			Type:     string(types.QValueKindString),
+			Nullable: true,
+		},
+	}
+
 	tableMappingForTest := &protos.TableMapping{
 		SourceTableIdentifier:      "test_table",
 		DestinationTableIdentifier: "test_table_ch",
@@ -33,8 +45,10 @@ func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
 		"name":  "name",
 	}
 
+	nullableKeyFn := buildIsNullableKeyFn(tableMappingForTest, sourceColumns, true)
+
 	expected := []string{"`my id`", "`name`"}
-	actual := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, colNameMap)
+	actual, allowNullableKey := getOrderedOrderByColumns(tableMappingForTest, colNameMap, sourcePkeys, nullableKeyFn)
 
 	if len(expected) != len(actual) {
 		t.Fatalf("Expected %v, got %v", expected, actual)
@@ -45,9 +59,24 @@ func Test_GetOrderByColumns_WithColMap_AndOrdering(t *testing.T) {
 			t.Fatalf("Expected %v, got %v", expected, actual)
 		}
 	}
+
+	// nullable field exists and enabled at schema level
+	require.True(t, allowNullableKey)
 }
 
 func Test_GetOrderByColumns_NoOrdering_NoColMap(t *testing.T) {
+	sourceColumns := []*protos.FieldDescription{
+		{
+			Name:     "my id",
+			Type:     string(types.QValueKindInt32),
+			Nullable: true,
+		},
+		{
+			Name: "name",
+			Type: string(types.QValueKindString),
+		},
+	}
+
 	tableMappingForTest := &protos.TableMapping{
 		SourceTableIdentifier:      "test_table",
 		DestinationTableIdentifier: "test_table_ch",
@@ -55,6 +84,7 @@ func Test_GetOrderByColumns_NoOrdering_NoColMap(t *testing.T) {
 			{
 				SourceName:      "my id",
 				DestinationName: "my id",
+				NullableEnabled: true,
 			},
 			{
 				SourceName:      "name",
@@ -63,9 +93,11 @@ func Test_GetOrderByColumns_NoOrdering_NoColMap(t *testing.T) {
 		},
 	}
 
+	nullableKeyFn := buildIsNullableKeyFn(tableMappingForTest, sourceColumns, false)
+
 	sourcePkeys := []string{"my id"}
 	expected := []string{"`my id`"}
-	actual := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, nil)
+	actual, allowNullableKey := getOrderedOrderByColumns(tableMappingForTest, nil, sourcePkeys, nullableKeyFn)
 
 	if len(expected) != len(actual) {
 		t.Fatalf("Expected %v, got %v", expected, actual)
@@ -76,9 +108,23 @@ func Test_GetOrderByColumns_NoOrdering_NoColMap(t *testing.T) {
 			t.Fatalf("Expected %v, got %v", expected, actual)
 		}
 	}
+
+	// nullable field exists and enabled at column level
+	require.True(t, allowNullableKey)
 }
 
 func Test_GetOrderByColumns_WithColMap_NoOrdering(t *testing.T) {
+	sourceColumns := []*protos.FieldDescription{
+		{
+			Name: "my id",
+			Type: string(types.QValueKindInt32),
+		},
+		{
+			Name: "name",
+			Type: string(types.QValueKindString),
+		},
+	}
+
 	tableMappingForTest := &protos.TableMapping{
 		SourceTableIdentifier:      "test_table",
 		DestinationTableIdentifier: "test_table_ch",
@@ -93,6 +139,8 @@ func Test_GetOrderByColumns_WithColMap_NoOrdering(t *testing.T) {
 			},
 		},
 	}
+
+	nullableKeyFn := buildIsNullableKeyFn(tableMappingForTest, sourceColumns, true)
 
 	sourcePkeys := []string{"my id", "name"}
 	colNameMap := map[string]string{
@@ -100,7 +148,7 @@ func Test_GetOrderByColumns_WithColMap_NoOrdering(t *testing.T) {
 		"name":  "name",
 	}
 	expected := []string{"`my id destination`", "`name`"}
-	actual := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, colNameMap)
+	actual, allowNullableKey := getOrderedOrderByColumns(tableMappingForTest, colNameMap, sourcePkeys, nullableKeyFn)
 
 	if len(expected) != len(actual) {
 		t.Fatalf("Expected %v, got %v", expected, actual)
@@ -111,9 +159,24 @@ func Test_GetOrderByColumns_WithColMap_NoOrdering(t *testing.T) {
 			t.Fatalf("Expected %v, got %v", expected, actual)
 		}
 	}
+
+	// nullable enabled but not exists
+	require.False(t, allowNullableKey)
 }
 
 func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
+	sourceColumns := []*protos.FieldDescription{
+		{
+			Name: "my id",
+			Type: string(types.QValueKindInt32),
+		},
+		{
+			Name:     "name",
+			Type:     string(types.QValueKindString),
+			Nullable: true,
+		},
+	}
+
 	tableMappingForTest := &protos.TableMapping{
 		SourceTableIdentifier:      "test_table",
 		DestinationTableIdentifier: "test_table_ch",
@@ -131,9 +194,11 @@ func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
 		},
 	}
 
+	nullableKeyFn := buildIsNullableKeyFn(tableMappingForTest, sourceColumns, false)
+
 	sourcePkeys := []string{"my id", "name"}
 	expected := []string{"`my id`", "`name`"}
-	actual := getOrderedOrderByColumns(tableMappingForTest, sourcePkeys, nil)
+	actual, allowNullableKey := getOrderedOrderByColumns(tableMappingForTest, nil, sourcePkeys, nullableKeyFn)
 
 	if len(expected) != len(actual) {
 		t.Fatalf("Expected %v, got %v", expected, actual)
@@ -144,6 +209,9 @@ func Test_GetOrderByColumns_NoColMap_WithOrdering(t *testing.T) {
 			t.Fatalf("Expected %v, got %v", expected, actual)
 		}
 	}
+
+	// nullable field exists but not enabled
+	require.False(t, allowNullableKey)
 }
 
 func TestBuildQuery_Basic(t *testing.T) {
@@ -359,6 +427,22 @@ func TestBuildQuery_WithNumParts(t *testing.T) {
 }
 
 func TestGetOrderedPartitionByColumns(t *testing.T) {
+	sourceColumns := []*protos.FieldDescription{
+		{
+			Name: "col1",
+			Type: string(types.QValueKindInt32),
+		},
+		{
+			Name:     "col2",
+			Type:     string(types.QValueKindString),
+			Nullable: true,
+		},
+		{
+			Name: "col3",
+			Type: string(types.QValueKindBoolean),
+		},
+	}
+
 	tableMapping := &protos.TableMapping{
 		SourceTableIdentifier:      "test_table",
 		DestinationTableIdentifier: "test_table_ch",
@@ -372,6 +456,7 @@ func TestGetOrderedPartitionByColumns(t *testing.T) {
 				SourceName:      "col2",
 				DestinationName: "col2",
 				Partitioning:    2,
+				NullableEnabled: true,
 			},
 			{
 				SourceName:      "col3",
@@ -386,8 +471,12 @@ func TestGetOrderedPartitionByColumns(t *testing.T) {
 		"col2": "column_two",
 	}
 
+	nullableKeyFn := buildIsNullableKeyFn(tableMapping, sourceColumns, false)
+
 	expected := []string{"`column_one`", "`column_two`"}
-	actual := getOrderedPartitionByColumns(tableMapping, colNameMap)
+	actual, hasNullablePartitionKeys := getOrderedPartitionByColumns(tableMapping, colNameMap, nullableKeyFn)
 
 	require.Equal(t, expected, actual)
+
+	require.True(t, hasNullablePartitionKeys)
 }
