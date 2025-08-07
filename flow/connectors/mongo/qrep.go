@@ -135,6 +135,15 @@ func (c *MongoConnector) GetQRepPartitions(
 	return partitions, nil
 }
 
+func (c *MongoConnector) GetDefaultPartitionKeyForTables(
+	ctx context.Context,
+	input *protos.GetDefaultPartitionKeyForTablesInput,
+) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
+	return &protos.GetDefaultPartitionKeyForTablesOutput{
+		TableDefaultPartitionKeyMapping: nil,
+	}, nil
+}
+
 func (c *MongoConnector) PullQRepRecords(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,

@@ -22,29 +22,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func (c *MySqlConnector) GetDataTypeOfWatermarkColumn(
-	ctx context.Context,
-	watermarkTableName string,
-	watermarkColumn string,
-) (types.QValueKind, byte, error) {
-	if watermarkColumn == "" {
-		return "", 0, errors.New("watermark column is not specified in the config")
-	}
-
-	query := fmt.Sprintf("SELECT `%s` FROM %s LIMIT 0", watermarkColumn, watermarkTableName)
-	rs, err := c.Execute(ctx, query)
-	if err != nil {
-		return "", 0, fmt.Errorf("failed to execute query for watermark column type: %w", err)
-	}
-
-	if len(rs.Fields) == 0 {
-		return "", 0, fmt.Errorf("no fields returned from select query: %s", query)
-	}
-
-	qk, err := qkindFromMysql(rs.Fields[0])
-	return qk, rs.Fields[0].Type, err
-}
-
 func (c *MySqlConnector) GetQRepPartitions(
 	ctx context.Context,
 	config *protos.QRepConfig,
@@ -151,6 +128,15 @@ func (c *MySqlConnector) GetQRepPartitions(
 	}
 
 	return partitionHelper.GetPartitions(), nil
+}
+
+func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
+	ctx context.Context,
+	input *protos.GetDefaultPartitionKeyForTablesInput,
+) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
+	return &protos.GetDefaultPartitionKeyForTablesOutput{
+		TableDefaultPartitionKeyMapping: nil,
+	}, nil
 }
 
 func (c *MySqlConnector) PullQRepRecords(
