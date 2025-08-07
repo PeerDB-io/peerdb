@@ -32,13 +32,3 @@ func GetWorkflowStatus(ctx context.Context, pool shared.CatalogPool,
 	}
 	return flowStatus, nil
 }
-
-func UpdateFlowStatusInCatalog(ctx context.Context, pool shared.CatalogPool,
-	workflowID string, status protos.FlowStatus,
-) (protos.FlowStatus, error) {
-	if _, err := pool.Exec(ctx, "UPDATE flows SET status=$1,updated_at=now() WHERE workflow_id=$2", status, workflowID); err != nil {
-		slog.Error("failed to update flow status", slog.Any("error", err), slog.String("flowID", workflowID))
-		return status, fmt.Errorf("failed to update flow status: %w", err)
-	}
-	return status, nil
-}
