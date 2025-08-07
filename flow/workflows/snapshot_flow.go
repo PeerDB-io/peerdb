@@ -262,7 +262,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	var res *protos.GetDefaultPartitionKeyForTablesOutput
 	if err := workflow.ExecuteActivity(getParallelLoadKeyForTablesCtx,
 		snapshot.GetDefaultPartitionKeyForTables, s.config).Get(ctx, &res); err != nil {
-		return fmt.Errorf("failed to close slot keep alive for peer flow: %w", err)
+		return fmt.Errorf("failed to get default partition keys for tables: %w", err)
 	}
 
 	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)

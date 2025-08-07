@@ -108,34 +108,23 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 
 	// compressed hypertables cannot do ctid scans, so disable for them
 	// NOTE: it appears that the hypercore "TAM" may give us access to ctid scans, but that's to be removed in Timescale 2.22
-	rows, err := c.conn.Query(ctx, `SELECT hypertable_schema, hypertable_name
+	rows, err := c.conn.Query(ctx, `SELECT DISTINCT hypertable_schema, hypertable_name
 		FROM timescaledb_information.chunks
-		WHERE is_compressed='t'
-		GROUP BY hypertable_schema, hypertable_name;`)
+		WHERE is_compressed='t';`)
 	if err != nil {
 		return nil, fmt.Errorf("query compressed hypertables: %w", err)
 	}
-	compressedSlice, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (string, error) {
-		var schema, name string
-		if err := r.Scan(&schema, &name); err != nil {
-			return "", err
-		}
-		return strings.ToLower(fmt.Sprintf("%s.%s", schema, name)), nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get compressed hypertables: %w", err)
-	}
-	compressedSet := make(map[string]struct{}, len(compressedSlice))
-	for _, id := range compressedSlice {
-		compressedSet[id] = struct{}{}
-	}
-
-	for _, tm := range input.TableMappings {
-		if _, found := compressedSet[strings.ToLower(tm.SourceTableIdentifier)]; found {
-			delete(output.TableDefaultPartitionKeyMapping, tm.SourceTableIdentifier)
+	var schema, name string
+	if _, err := pgx.ForEachRow(rows, []any{&schema, &name}, func() error {
+		if _, ok := output.TableDefaultPartitionKeyMapping[fmt.Sprintf("%s.%s", schema, name)]; ok {
+			table := fmt.Sprintf("%s.%s", schema, name)
+			delete(output.TableDefaultPartitionKeyMapping, table)
 			c.logger.Warn("table is a compressed hypertable, falling back to full table partition",
-				slog.String("table", tm.SourceTableIdentifier))
+				slog.String("table", table))
 		}
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("failed to get compressed hypertables: %w", err)
 	}
 
 	return output, nil

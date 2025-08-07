@@ -135,7 +135,7 @@ func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
 	input *protos.GetDefaultPartitionKeyForTablesInput,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
 	return &protos.GetDefaultPartitionKeyForTablesOutput{
-		TableDefaultPartitionKeyMapping: make(map[string]string),
+		TableDefaultPartitionKeyMapping: nil,
 	}, nil
 }
 
