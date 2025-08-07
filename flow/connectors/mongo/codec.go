@@ -2,6 +2,7 @@ package connmongo
 
 import (
 	"math"
+	"reflect"
 	"unsafe"
 
 	jsoniter "github.com/json-iterator/go"
@@ -42,10 +43,10 @@ func (extension *BsonExtension) CreateMapKeyDecoder(typ reflect2.Type) jsoniter.
 }
 
 func (extension *BsonExtension) DecorateEncoder(typ reflect2.Type, encoder jsoniter.ValEncoder) jsoniter.ValEncoder {
-	if typ.String() == "bson.D" {
+	if typ.Type1() == reflect.TypeFor[bson.D]() {
 		return &BsonDCodec{}
 	}
-	if typ.String() == "bson.A" {
+	if typ.Type1() == reflect.TypeFor[bson.A]() {
 		return &BsonACodec{}
 	}
 	// use default
@@ -53,10 +54,10 @@ func (extension *BsonExtension) DecorateEncoder(typ reflect2.Type, encoder jsoni
 }
 
 func (extension *BsonExtension) DecorateDecoder(typ reflect2.Type, decoder jsoniter.ValDecoder) jsoniter.ValDecoder {
-	if typ.String() == "bson.D" {
+	if typ.Type1() == reflect.TypeFor[bson.D]() {
 		return &BsonDCodec{}
 	}
-	if typ.String() == "bson.A" {
+	if typ.Type1() == reflect.TypeFor[bson.A]() {
 		return &BsonACodec{}
 	}
 	// use default
@@ -113,7 +114,7 @@ func (codec *BsonDCodec) IsEmpty(ptr unsafe.Pointer) bool {
 }
 
 func (codec *BsonDCodec) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
-	// Node used
+	// Not used
 }
 
 type BsonACodec struct{}
@@ -163,7 +164,7 @@ func (codec *BsonACodec) IsEmpty(ptr unsafe.Pointer) bool {
 }
 
 func (codec *BsonACodec) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
-	// Node used
+	// Not used
 }
 
 func CreateExtendedJSONMarshaler() jsoniter.API {

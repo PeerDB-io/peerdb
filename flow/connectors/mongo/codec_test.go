@@ -205,13 +205,13 @@ func TestMarshalDocument(t *testing.T) {
 				{Key: "inner2", Value: 1},
 				{Key: "inner3", Value: true},
 				{
-					Key: "inner3", Value: bson.D{
+					Key: "inner4", Value: bson.D{
 						{Key: "a", Value: math.NaN()},
 						{Key: "b", Value: []string{"hello", "world"}},
 					},
 				},
 			}}},
-			expected: `{"nested":{"inner1":"str","inner2":1,"inner3":true,"inner3":{"a":"NaN","b":["hello","world"]}}}`,
+			expected: `{"nested":{"inner1":"str","inner2":1,"inner3":true,"inner4":{"a":"NaN","b":["hello","world"]}}}`,
 		},
 
 		// nested bson.A
@@ -237,7 +237,32 @@ func TestMarshalDocument(t *testing.T) {
 			}}},
 			expected: `{"nested":[{"inner1":[{"inner_inner":["NaN","+Inf","-Inf"]}]},{"inner2":1.23}]}`,
 		},
-
+		{
+			desc: "complex nested bson.A",
+			input: bson.D{{Key: "complex", Value: bson.A{
+				bson.D{{Key: "NaN", Value: math.NaN()}},
+				bson.D{{Key: "binary", Value: bson.Binary{Subtype: 0x00, Data: []byte("test")}}},
+				bson.D{{
+					Key:   "nested_arr",
+					Value: bson.A{bson.A{1}, bson.A{2}, bson.A{3}},
+				}},
+				bson.D{{
+					Key:   "nested_doc",
+					Value: bson.D{{Key: "str", Value: "hello world"}},
+				}},
+				bson.D{{Key: "timestamp", Value: bson.Timestamp{T: 1672531200, I: 1}}},
+			}}},
+			expected: `{"complex":[{"NaN":"NaN"},{"binary":{"Subtype":0,"Data":"dGVzdA=="}},{"nested_arr":[[1],[2],[3]]},` +
+				`{"nested_doc":{"str":"hello world"}},{"timestamp":{"T":1672531200,"I":1}}]}`,
+		},
+		{
+			desc: "bson.A mixed",
+			input: bson.D{{Key: "mixed", Value: bson.A{
+				3.14,
+				bson.D{{Key: "num", Value: 1}},
+			}}},
+			expected: `{"mixed":[3.14,{"num":1}]}`,
+		},
 		// other bson types
 		{
 			desc: "bson.ObjectID",
@@ -301,19 +326,6 @@ func TestMarshalDocument(t *testing.T) {
 			desc:     "bson.Null",
 			input:    bson.D{{Key: "null", Value: bson.Null{}}},
 			expected: `{"null":{}}`,
-		},
-
-		// Complex nested BSON types
-		{
-			desc: "nested BSON types with special floats",
-			input: bson.D{{Key: "complex", Value: bson.D{
-				{Key: "binary", Value: bson.Binary{Subtype: 0x00, Data: []byte("test")}},
-				{Key: "array", Value: bson.A{math.NaN(), bson.D{{Key: "nested_nan", Value: math.Inf(1)}}}},
-				{Key: "timestamp", Value: bson.Timestamp{T: 1672531200, I: 1}},
-			}}},
-			expected: fmt.Sprintf(
-				`{"complex":{"binary":{"Subtype":0,"Data":"%s"},"array":["NaN",{"nested_nan":"+Inf"}],"timestamp":{"T":1672531200,"I":1}}}`,
-				base64.StdEncoding.EncodeToString([]byte("test"))),
 		},
 	}
 
