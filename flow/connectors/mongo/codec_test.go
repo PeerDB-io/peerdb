@@ -177,7 +177,16 @@ func TestMarshalDocument(t *testing.T) {
 			input:    bson.D{{Key: "a", Value: float32(math.Inf(-1))}},
 			expected: `{"a":"-Inf"}`,
 		},
-
+		{
+			desc:     "float64 from max int64",
+			input:    bson.D{{Key: "a", Value: float64(math.MaxInt64)}},
+			expected: `{"a":9223372036854776000}`,
+		},
+		{
+			desc:     "float64 from min int64",
+			input:    bson.D{{Key: "a", Value: float64(math.MinInt64)}},
+			expected: `{"a":"-9223372036854776000"}`,
+		},
 		// Null values
 		{
 			desc:     "nil",

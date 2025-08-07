@@ -10,6 +10,11 @@ import (
 	"go.mongodb.org/mongo-driver/v2/bson"
 )
 
+const (
+	BsonMinInt64AsFloat                   = float64(math.MinInt64)
+	BsonMinInt64AsStringWithPrecisionLoss = "-9223372036854776000"
+)
+
 // BsonExtension provides custom JSON encoding/decoding for MongoDB BSON types.
 // The main purpose is to handle special float values (NaN, +Inf, -Inf) in bson.D and bson.A
 // by converting them to JSON strings. Decoders are implemented to satisfy json-iterator's
@@ -95,6 +100,8 @@ func (codec *BsonDCodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 				stream.WriteString("+Inf")
 			} else if math.IsInf(v, -1) {
 				stream.WriteString("-Inf")
+			} else if v == BsonMinInt64AsFloat {
+				stream.WriteString(BsonMinInt64AsStringWithPrecisionLoss)
 			} else {
 				stream.WriteFloat64(v)
 			}
@@ -145,6 +152,8 @@ func (codec *BsonACodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 				stream.WriteString("+Inf")
 			} else if math.IsInf(v, -1) {
 				stream.WriteString("-Inf")
+			} else if v == BsonMinInt64AsFloat {
+				stream.WriteString(BsonMinInt64AsStringWithPrecisionLoss)
 			} else {
 				stream.WriteFloat64(v)
 			}

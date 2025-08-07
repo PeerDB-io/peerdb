@@ -660,6 +660,8 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		{Key: "float32_nan", Value: float32(math.NaN())},
 		{Key: "float32_pos_inf", Value: float32(math.Inf(1))},
 		{Key: "float32_neg_inf", Value: float32(math.Inf(-1))},
+		{Key: "precision_loss_float64_pos", Value: float64(math.MaxInt64)},
+		{Key: "precision_loss_float64_neg", Value: float64(math.MinInt64)},
 
 		// Arrays with special floats
 		{Key: "array_mixed", Value: bson.A{1, "str", true}},
@@ -770,6 +772,8 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		require.Contains(t, row, `"float32_nan":"NaN"`)
 		require.Contains(t, row, `"float32_pos_inf":"+Inf"`)
 		require.Contains(t, row, `"float32_neg_inf":"-Inf"`)
+		require.Contains(t, row, `"precision_loss_float64_pos":9223372036854776000`)
+		require.Contains(t, row, `"precision_loss_float64_neg":"-9223372036854776000"`)
 		// mixed array promoted common type
 		require.Contains(t, row, `"array_mixed":["1","str","true"]`)
 		require.Contains(t, row, `"array_special_floats":["NaN","+Inf","-Inf"]`)
