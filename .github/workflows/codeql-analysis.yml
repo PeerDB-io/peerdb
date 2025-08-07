@@ -11,7 +11,7 @@ on:
 jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
-    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'ubuntu-24.04' }}
+    runs-on: ${{ (matrix.language == 'swift' && 'macos-latest') || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: ${{ (matrix.language == 'swift' && 120) || 360 }}
     permissions:
       # required for all workflows
