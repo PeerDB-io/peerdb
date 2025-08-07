@@ -157,6 +157,12 @@ var (
 		// These are unclassified and should not be exposed
 		Class: "OTHER", action: NotifyTelemetry,
 	}
+	// Postgres 16.9/17.5 etc. introduced a bug where certain workloads can cause logical replication to
+	// request a memory allocation of >1GB, which is not allowed by Postgres. Fixed already, but we need to handle this error
+	// https://github.com/postgres/postgres/commit/d87d07b7ad3b782cb74566cd771ecdb2823adf6a
+	ErrorPostgresSlotMemalloc = ErrorClass{
+		Class: "ERROR_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
+	}
 )
 
 func (e ErrorClass) String() string {
@@ -320,6 +326,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(pgErr.Message,
 				"Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.") {
 				return ErrorNotifyConnectivity, pgErrorInfo
+			}
+
+			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
+				return ErrorPostgresSlotMemalloc, pgErrorInfo
 			}
 
 			// Fall through for other internal errors
