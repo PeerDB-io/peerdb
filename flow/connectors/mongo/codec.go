@@ -3,6 +3,7 @@ package connmongo
 import (
 	"math"
 	"reflect"
+	"strconv"
 	"unsafe"
 
 	jsoniter "github.com/json-iterator/go"
@@ -78,16 +79,6 @@ func (codec *BsonDCodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 		stream.WriteObjectField(elem.Key)
 
 		switch v := elem.Value.(type) {
-		case float32:
-			if math.IsNaN(float64(v)) {
-				stream.WriteString("NaN")
-			} else if math.IsInf(float64(v), 1) {
-				stream.WriteString("+Inf")
-			} else if math.IsInf(float64(v), -1) {
-				stream.WriteString("-Inf")
-			} else {
-				stream.WriteFloat32(v)
-			}
 		case float64:
 			if math.IsNaN(v) {
 				stream.WriteString("NaN")
@@ -96,7 +87,7 @@ func (codec *BsonDCodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 			} else if math.IsInf(v, -1) {
 				stream.WriteString("-Inf")
 			} else {
-				stream.WriteFloat64(v)
+				writeFloat64WithExplicitDecimal(v, stream)
 			}
 		default:
 			// Delegate to json-iterator's encoding system for all other types.
@@ -128,16 +119,6 @@ func (codec *BsonACodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 			stream.WriteMore()
 		}
 		switch v := elem.(type) {
-		case float32:
-			if math.IsNaN(float64(v)) {
-				stream.WriteString("NaN")
-			} else if math.IsInf(float64(v), 1) {
-				stream.WriteString("+Inf")
-			} else if math.IsInf(float64(v), -1) {
-				stream.WriteString("-Inf")
-			} else {
-				stream.WriteFloat32(v)
-			}
 		case float64:
 			if math.IsNaN(v) {
 				stream.WriteString("NaN")
@@ -146,7 +127,7 @@ func (codec *BsonACodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 			} else if math.IsInf(v, -1) {
 				stream.WriteString("-Inf")
 			} else {
-				stream.WriteFloat64(v)
+				writeFloat64WithExplicitDecimal(v, stream)
 			}
 		default:
 			// Delegate to json-iterator's encoding system for all other types.
@@ -171,4 +152,13 @@ func CreateExtendedJSONMarshaler() jsoniter.API {
 	config := jsoniter.ConfigCompatibleWithStandardLibrary
 	config.RegisterExtension(&BsonExtension{})
 	return config
+}
+
+func writeFloat64WithExplicitDecimal(v float64, stream *jsoniter.Stream) {
+	if v == math.Trunc(v) {
+		// use explicit decimal to hint ClickHouse to parse as float
+		stream.WriteRaw(strconv.FormatFloat(v, 'f', 1, 64))
+	} else {
+		stream.WriteFloat64(v)
+	}
 }

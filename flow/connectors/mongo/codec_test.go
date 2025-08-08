@@ -126,19 +126,9 @@ func TestMarshalDocument(t *testing.T) {
 
 		// Floating point types - normal values
 		{
-			desc:     "float32",
-			input:    bson.D{{Key: "a", Value: float32(3.14)}},
-			expected: `{"a":3.14}`,
-		},
-		{
 			desc:     "float64",
 			input:    bson.D{{Key: "a", Value: float64(3.14159265359)}},
 			expected: `{"a":3.14159265359}`,
-		},
-		{
-			desc:     "negative float32",
-			input:    bson.D{{Key: "a", Value: float32(-3.14)}},
-			expected: `{"a":-3.14}`,
 		},
 		{
 			desc:     "negative float64",
@@ -163,19 +153,14 @@ func TestMarshalDocument(t *testing.T) {
 			expected: `{"a":"-Inf"}`,
 		},
 		{
-			desc:     "float32 NaN",
-			input:    bson.D{{Key: "a", Value: float32(math.NaN())}},
-			expected: `{"a":"NaN"}`,
+			desc:     "float64 from max int64",
+			input:    bson.D{{Key: "a", Value: float64(math.MaxInt64)}},
+			expected: `{"a":9223372036854775808.0}`,
 		},
 		{
-			desc:     "float32 +Inf",
-			input:    bson.D{{Key: "a", Value: float32(math.Inf(1))}},
-			expected: `{"a":"+Inf"}`,
-		},
-		{
-			desc:     "float32 -Inf",
-			input:    bson.D{{Key: "a", Value: float32(math.Inf(-1))}},
-			expected: `{"a":"-Inf"}`,
+			desc:     "float64 from min int64",
+			input:    bson.D{{Key: "a", Value: float64(math.MinInt64)}},
+			expected: `{"a":-9223372036854775808.0}`,
 		},
 
 		// Null values

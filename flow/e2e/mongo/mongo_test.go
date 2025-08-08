@@ -648,19 +648,15 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		{Key: "neg_int64", Value: int64(-9223372036854775807)},
 
 		// Floating point types
-		{Key: "float32", Value: float32(3.14)},
 		{Key: "float64", Value: float64(3.14159265359)},
-		{Key: "neg_float32", Value: float32(-3.14)},
 		{Key: "neg_float64", Value: float64(-3.14159265359)},
+		{Key: "max_float64", Value: float64(math.MaxInt64)},
+		{Key: "min_float64", Value: float64(math.MinInt64)},
 
 		// Special float values
 		{Key: "nan", Value: math.NaN()},
 		{Key: "pos_inf", Value: math.Inf(1)},
 		{Key: "neg_inf", Value: math.Inf(-1)},
-		{Key: "float32_nan", Value: float32(math.NaN())},
-		{Key: "float32_pos_inf", Value: float32(math.Inf(1))},
-		{Key: "float32_neg_inf", Value: float32(math.Inf(-1))},
-
 		// Arrays with special floats
 		{Key: "array_mixed", Value: bson.A{1, "str", true}},
 		{Key: "array_special_floats", Value: bson.A{math.NaN(), math.Inf(1), math.Inf(-1)}},
@@ -760,16 +756,13 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		require.Contains(t, row, `"neg_int16":-32768`)
 		require.Contains(t, row, `"neg_int32":-2147483648`)
 		require.Contains(t, row, `"neg_int64":-9223372036854775807`)
-		require.Contains(t, row, `"float32":3.14`)
 		require.Contains(t, row, `"float64":3.14159265359`)
-		require.Contains(t, row, `"neg_float32":-3.14`)
 		require.Contains(t, row, `"neg_float64":-3.14159265359`)
+		require.Contains(t, row, `"max_float64":9223372036854776000`)
+		require.Contains(t, row, `"min_float64":-9223372036854776000`)
 		require.Contains(t, row, `"nan":"NaN"`)
 		require.Contains(t, row, `"pos_inf":"+Inf"`)
 		require.Contains(t, row, `"neg_inf":"-Inf"`)
-		require.Contains(t, row, `"float32_nan":"NaN"`)
-		require.Contains(t, row, `"float32_pos_inf":"+Inf"`)
-		require.Contains(t, row, `"float32_neg_inf":"-Inf"`)
 		// mixed array promoted common type
 		require.Contains(t, row, `"array_mixed":["1","str","true"]`)
 		require.Contains(t, row, `"array_special_floats":["NaN","+Inf","-Inf"]`)

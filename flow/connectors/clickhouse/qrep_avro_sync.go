@@ -289,7 +289,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 
 		if (field.Type == types.QValueKindJSON || field.Type == types.QValueKindJSONB) &&
 			qvalue.ShouldUseNativeJSONType(ctx, config.Env, s.ClickHouseConnector.chVersion) {
-			avroColName = fmt.Sprintf("JSONExtractString(%s)", avroColName)
+			avroColName = fmt.Sprintf("CAST(%s, 'JSON')", avroColName)
 		}
 
 		selectedColumnNames = append(selectedColumnNames, avroColName)
