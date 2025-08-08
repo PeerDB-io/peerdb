@@ -899,7 +899,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	logger.Info("Fetching and recording Slot Information", slog.Int("flows", len(infos)))
+	logger.Info("Recording slot size and emiting log retention where applicable", slog.Int("flows", len(infos)))
 	var wg sync.WaitGroup
 	maxParallel := 5
 	semaphore := make(chan struct{}, maxParallel)
