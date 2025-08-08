@@ -53,6 +53,7 @@ const (
 	TotalCPULimitsGaugeName             = "total_cpu_limits_vcores"
 	TotalMemoryLimitsGaugeName          = "total_memory_limits"
 	WorkloadTotalReplicasGaugeName      = "workload_total_replicas"
+	LogRetentionName                    = "log_retention"
 )
 
 type Metrics struct {
@@ -84,6 +85,7 @@ type Metrics struct {
 	TotalCPULimitsGauge             metric.Float64Gauge
 	TotalMemoryLimitsGauge          metric.Float64Gauge
 	WorkloadTotalReplicasGauge      metric.Int64Gauge
+	LogRetentionGauge               metric.Float64Gauge
 }
 
 type SlotMetricGauges struct {
@@ -245,6 +247,13 @@ func (om *OtelManager) setupMetrics() error {
 	if om.Metrics.CommitLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommitLagGaugeName),
 		metric.WithUnit("us"),
 		metric.WithDescription("Microseconds between source commit & time received"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LogRetentionGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(LogRetentionName),
+		metric.WithUnit("h"),
+		metric.WithDescription("Log retention in hours for the source data store"),
 	); err != nil {
 		return err
 	}
