@@ -82,13 +82,23 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	res, err := srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
-		req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source table schema: %w", err)
+	var tableSchemaMap map[string]*protos.TableSchema
+	if !req.ConnectionConfigs.Resync {
+		var getTableSchemaError error
+		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
+			req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
+		if getTableSchemaError != nil {
+			return nil, fmt.Errorf("failed to get source table schema: %w", getTableSchemaError)
+		}
+	} else {
+		// No need to get table schema for resync, as we will create or replace the tables
+		tableSchemaMap = make(map[string]*protos.TableSchema, len(req.ConnectionConfigs.TableMappings))
+		for _, tm := range req.ConnectionConfigs.TableMappings {
+			tableSchemaMap[tm.DestinationTableIdentifier] = &protos.TableSchema{}
+		}
 	}
 
-	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, res); err != nil {
+	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap); err != nil {
 		return nil, err
 	}
 
