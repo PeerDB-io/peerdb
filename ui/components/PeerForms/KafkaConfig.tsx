@@ -9,6 +9,7 @@ import { Switch } from '@/lib/Switch/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import ReactSelect from 'react-select';
+import { handleFieldChange } from "@/components/PeerForms/common";
 
 interface KafkaProps {
   setter: PeerSetter;
@@ -99,7 +100,7 @@ export default function KafkaForm({ setter }: KafkaProps) {
                   type={setting.type}
                   defaultValue={setting.default}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setting.stateHandler(e.target.value, setter)
+                    handleFieldChange(e, setting, setter)
                   }
                 />
                 {setting.tips && (

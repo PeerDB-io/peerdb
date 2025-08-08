@@ -237,6 +237,9 @@ message KafkaConfig {
   string sasl = 4;
   bool disable_tls = 5;
   string partitioner = 6;
+  optional string certificate = 7 [(peerdb_redacted) = true];
+  optional string private_key = 8 [(peerdb_redacted) = true];
+  optional string root_ca = 9 [(peerdb_redacted) = true];
 }
 
 enum ElasticsearchAuthType {
