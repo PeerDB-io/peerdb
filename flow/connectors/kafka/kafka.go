@@ -76,7 +76,7 @@ func NewKafkaConnector(
 		kgo.WithLogger(kgoLogger(logger)),
 	)
 	if !config.DisableTls {
-		tlsSetting := &tls.Config{MinVersion: tls.VersionTLS13}
+		tlsSetting := &tls.Config{MinVersion: tls.VersionTLS12}
 		if config.Certificate != nil || config.PrivateKey != nil {
 			if config.Certificate == nil || config.PrivateKey == nil {
 				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
