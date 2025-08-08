@@ -175,8 +175,5 @@ func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, err
 		return 0, fmt.Errorf("failed to get server status: %w", err)
 	}
 
-	if serverStatus.OplogTruncation.OplogMinRetentionHours == 0 {
-		return 0, nil // no retention set
-	}
 	return float64(serverStatus.OplogTruncation.OplogMinRetentionHours), nil
 }

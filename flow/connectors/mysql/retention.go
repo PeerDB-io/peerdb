@@ -36,9 +36,6 @@ func (c *MySqlConnector) getLogRetentionHoursForMySQL5(ctx context.Context) (flo
 		return 0, errors.New("no value returned for expire_logs_days")
 	}
 	expireLogsDays := rs.Values[0][0].AsUint64()
-	if expireLogsDays == 0 {
-		return 0, nil // no expiration set
-	}
 	return float64(expireLogsDays) * 24.0, nil // convert days to hours
 }
 
@@ -74,9 +71,5 @@ func (c *MySqlConnector) getLogRetentionHoursForMariaDB(ctx context.Context) (fl
 		return 0, errors.New("no value returned for binlog_expire_logs_seconds")
 	}
 	binlogExpireLogsSeconds := rs.Values[0][0].AsUint64()
-	if binlogExpireLogsSeconds == 0 {
-		return 0, nil
-	}
-
 	return float64(binlogExpireLogsSeconds) / 3600.0, nil
 }
