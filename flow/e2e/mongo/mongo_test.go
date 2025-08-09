@@ -650,8 +650,11 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		// Floating point types
 		{Key: "float64", Value: float64(3.14159265359)},
 		{Key: "neg_float64", Value: float64(-3.14159265359)},
-		{Key: "max_float64", Value: float64(math.MaxInt64)},
-		{Key: "min_float64", Value: float64(math.MinInt64)},
+		{Key: "float64_max_int64", Value: float64(math.MaxInt64)},
+		{Key: "float64_min_int64", Value: float64(math.MinInt64)},
+		{Key: "float64_greater_than_max_int64", Value: math.Pow(2, 65)},
+		{Key: "float64_less_than_min_int64", Value: -math.Pow(2, 65)},
+		{Key: "float64_scientific_notation", Value: 1e100},
 
 		// Special float values
 		{Key: "nan", Value: math.NaN()},
@@ -758,8 +761,11 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		require.Contains(t, row, `"neg_int64":-9223372036854775807`)
 		require.Contains(t, row, `"float64":3.14159265359`)
 		require.Contains(t, row, `"neg_float64":-3.14159265359`)
-		require.Contains(t, row, `"max_float64":9223372036854776000`)
-		require.Contains(t, row, `"min_float64":-9223372036854776000`)
+		require.Contains(t, row, `"float64_max_int64":9223372036854776000`)
+		require.Contains(t, row, `"float64_min_int64":-9223372036854776000`)
+		require.Contains(t, row, `"float64_greater_than_max_int64":36893488147419103000`)
+		require.Contains(t, row, `"float64_less_than_min_int64":-36893488147419103000`)
+		require.Contains(t, row, `"float64_scientific_notation":1e100`)
 		require.Contains(t, row, `"nan":"NaN"`)
 		require.Contains(t, row, `"pos_inf":"+Inf"`)
 		require.Contains(t, row, `"neg_inf":"-Inf"`)
