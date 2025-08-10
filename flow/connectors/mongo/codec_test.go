@@ -136,6 +136,11 @@ func TestMarshalDocument(t *testing.T) {
 			expected: `{"a":-3.14159265359}`,
 		},
 		{
+			desc:     "float64 0 fractional value",
+			input:    bson.D{{Key: "a", Value: float64(3)}},
+			expected: `{"a":3.0}`,
+		},
+		{
 			desc:     "float64 max int64",
 			input:    bson.D{{Key: "a", Value: float64(math.MaxInt64)}},
 			expected: `{"a":9223372036854775808.0}`,
@@ -201,9 +206,9 @@ func TestMarshalDocument(t *testing.T) {
 				{Key: "inner3", Value: true},
 				{
 					Key: "inner4", Value: bson.D{
-						{Key: "a", Value: math.NaN()},
-						{Key: "b", Value: []string{"hello", "world"}},
-					},
+					{Key: "a", Value: math.NaN()},
+					{Key: "b", Value: []string{"hello", "world"}},
+				},
 				},
 			}}},
 			expected: `{"nested":{"inner1":"str","inner2":1,"inner3":true,"inner4":{"a":"NaN","b":["hello","world"]}}}`,
