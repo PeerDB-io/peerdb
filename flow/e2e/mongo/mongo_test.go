@@ -765,7 +765,7 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		require.Contains(t, row, `"float64_min_int64":-9223372036854776000`)
 		require.Contains(t, row, `"float64_greater_than_max_int64":36893488147419103000`)
 		require.Contains(t, row, `"float64_less_than_min_int64":-36893488147419103000`)
-		require.Contains(t, row, `"float64_scientific_notation":1e100`)
+		require.Contains(t, row, `"float64_scientific_notation":1e+100`)
 		require.Contains(t, row, `"nan":"NaN"`)
 		require.Contains(t, row, `"pos_inf":"+Inf"`)
 		require.Contains(t, row, `"neg_inf":"-Inf"`)
