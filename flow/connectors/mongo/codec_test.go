@@ -206,9 +206,9 @@ func TestMarshalDocument(t *testing.T) {
 				{Key: "inner3", Value: true},
 				{
 					Key: "inner4", Value: bson.D{
-					{Key: "a", Value: math.NaN()},
-					{Key: "b", Value: []string{"hello", "world"}},
-				},
+						{Key: "a", Value: math.NaN()},
+						{Key: "b", Value: []string{"hello", "world"}},
+					},
 				},
 			}}},
 			expected: `{"nested":{"inner1":"str","inner2":1,"inner3":true,"inner4":{"a":"NaN","b":["hello","world"]}}}`,
