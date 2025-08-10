@@ -126,24 +126,39 @@ func TestMarshalDocument(t *testing.T) {
 
 		// Floating point types - normal values
 		{
-			desc:     "float32",
-			input:    bson.D{{Key: "a", Value: float32(3.14)}},
-			expected: `{"a":3.14}`,
-		},
-		{
 			desc:     "float64",
 			input:    bson.D{{Key: "a", Value: float64(3.14159265359)}},
 			expected: `{"a":3.14159265359}`,
 		},
 		{
-			desc:     "negative float32",
-			input:    bson.D{{Key: "a", Value: float32(-3.14)}},
-			expected: `{"a":-3.14}`,
-		},
-		{
 			desc:     "negative float64",
 			input:    bson.D{{Key: "a", Value: float64(-3.14159265359)}},
 			expected: `{"a":-3.14159265359}`,
+		},
+		{
+			desc:     "float64 0 fractional value",
+			input:    bson.D{{Key: "a", Value: float64(3)}},
+			expected: `{"a":3.0}`,
+		},
+		{
+			desc:     "float64 max int64",
+			input:    bson.D{{Key: "a", Value: float64(math.MaxInt64)}},
+			expected: `{"a":9223372036854775808.0}`,
+		},
+		{
+			desc:     "float64 min int64",
+			input:    bson.D{{Key: "a", Value: float64(math.MinInt64)}},
+			expected: `{"a":-9223372036854775808.0}`,
+		},
+		{
+			desc:     "float64 greater than max int64",
+			input:    bson.D{{Key: "a", Value: math.Pow(2, 65)}},
+			expected: `{"a":36893488147419103232.0}`,
+		},
+		{
+			desc:     "float64 less than min int64",
+			input:    bson.D{{Key: "a", Value: -math.Pow(2, 65)}},
+			expected: `{"a":-36893488147419103232.0}`,
 		},
 
 		// Special float values - NaN and Infinity (these are handled by our custom codec)
@@ -160,21 +175,6 @@ func TestMarshalDocument(t *testing.T) {
 		{
 			desc:     "float64 -Inf",
 			input:    bson.D{{Key: "a", Value: math.Inf(-1)}},
-			expected: `{"a":"-Inf"}`,
-		},
-		{
-			desc:     "float32 NaN",
-			input:    bson.D{{Key: "a", Value: float32(math.NaN())}},
-			expected: `{"a":"NaN"}`,
-		},
-		{
-			desc:     "float32 +Inf",
-			input:    bson.D{{Key: "a", Value: float32(math.Inf(1))}},
-			expected: `{"a":"+Inf"}`,
-		},
-		{
-			desc:     "float32 -Inf",
-			input:    bson.D{{Key: "a", Value: float32(math.Inf(-1))}},
 			expected: `{"a":"-Inf"}`,
 		},
 
