@@ -156,11 +156,13 @@ func CreateExtendedJSONMarshaler() jsoniter.API {
 
 // Assume (and test) that values outside of these limits will come out in scientific notation
 // and will be parsed as floats either way
-var limit = math.Pow10(21)
-var negLimit = -limit
+var (
+	floatLimit    = math.Pow10(21)
+	floatNegLimit = -floatLimit
+)
 
 func writeFloat64WithExplicitDecimal(v float64, stream *jsoniter.Stream) {
-	if v > negLimit && v < limit && v == math.Trunc(v) {
+	if v < floatLimit && v > floatNegLimit && v == math.Trunc(v) {
 		// use explicit decimal to hint ClickHouse to parse as float
 		stream.WriteRaw(strconv.FormatFloat(v, 'f', 1, 64))
 	} else {
