@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -344,4 +345,29 @@ func TestMarshalId(t *testing.T) {
 	result, err := API.Marshal(objectId)
 	require.NoError(t, err)
 	require.Equal(t, `"6893edbecb1f9508891bbb84"`, string(result))
+}
+
+// Tests that floats of all magnitudes are marshalled into a resonable length and have a signifier
+// that they're not integers
+func TestMarshalFloatLengths(t *testing.T) {
+	maxExponent := 309
+	require.Equal(t, math.Inf(1), math.Pow10(maxExponent), "exponent range should cover +Inf")
+	require.Equal(t, math.Inf(-1), -math.Pow10(maxExponent), "exponent range should cover -Inf")
+	for _, negative := range []bool{false, true} {
+		for exponent := range maxExponent + 1 {
+			value := math.Pow10(exponent)
+			if negative {
+				value = -value
+			}
+			name := fmt.Sprint(value)
+			t.Run(name, func(t *testing.T) {
+				input := bson.D{{Key: "a", Value: value}}
+				result, err := API.Marshal(input)
+				require.NoError(t, err)
+				resultStr := string(result)
+				require.Less(t, len(resultStr), 33)
+				require.True(t, strings.Contains(resultStr, ".") || strings.Contains(resultStr, "e") || strings.Contains(resultStr, "Inf"), resultStr)
+			})
+		}
+	}
 }
