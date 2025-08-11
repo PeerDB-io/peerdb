@@ -616,7 +616,7 @@ func (c *MySqlConnector) PullRecords(
 				}
 			}
 			if event.Header.Timestamp > 0 {
-				otelManager.Metrics.LatestConsumedBinlogEventGauge.Record(
+				otelManager.Metrics.LatestConsumedLogEventGauge.Record(
 					ctx,
 					int64(event.Header.Timestamp),
 				)

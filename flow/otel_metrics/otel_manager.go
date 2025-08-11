@@ -53,7 +53,8 @@ const (
 	TotalCPULimitsGaugeName             = "total_cpu_limits_vcores"
 	TotalMemoryLimitsGaugeName          = "total_memory_limits"
 	WorkloadTotalReplicasGaugeName      = "workload_total_replicas"
-	LogRetentionName                    = "log_retention"
+	LogRetentionGaugeName               = "log_retention"
+	LatestConsuemdLogEventGaugeName     = "latest_consumed_log_event"
 )
 
 type Metrics struct {
@@ -85,6 +86,7 @@ type Metrics struct {
 	TotalCPULimitsGauge             metric.Float64Gauge
 	TotalMemoryLimitsGauge          metric.Float64Gauge
 	WorkloadTotalReplicasGauge      metric.Int64Gauge
+	LatestConsumedLogEventGauge     metric.Int64Gauge
 	LogRetentionGauge               metric.Float64Gauge
 }
 
@@ -251,7 +253,14 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
-	if om.Metrics.LogRetentionGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(LogRetentionName),
+	if om.Metrics.LatestConsumedLogEventGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LatestConsuemdLogEventGaugeName),
+		metric.WithUnit("s"),
+		metric.WithDescription("Latest consumed replication log event timestamp in epoch seconds"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LogRetentionGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(LogRetentionGaugeName),
 		metric.WithUnit("h"),
 		metric.WithDescription("Log retention in hours for the source data store"),
 	); err != nil {
