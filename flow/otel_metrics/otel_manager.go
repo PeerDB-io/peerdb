@@ -507,13 +507,23 @@ func (p *panicOnFailureExporter) Export(ctx context.Context, metrics *metricdata
 func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	otlpMetricProtocol := internal.GetEnvString("OTEL_EXPORTER_OTLP_PROTOCOL",
 		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "http/protobuf"))
+	endpoint := internal.GetEnvString("OTEL_EXPORTER_OTLP_ENDPOINT",
+		internal.GetEnvString("OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", ""))
 	var metricExporter sdkmetric.Exporter
 	var err error
 	switch otlpMetricProtocol {
 	case "http/protobuf":
-		metricExporter, err = otlpmetrichttp.New(ctx)
+		if endpoint == "" {
+			endpoint = "localhost:4318"
+		}
+		metricExporter, err = otlpmetrichttp.New(ctx, otlpmetrichttp.WithEndpoint(endpoint),
+			otlpmetrichttp.WithInsecure())
 	case "grpc":
-		metricExporter, err = otlpmetricgrpc.New(ctx)
+		if endpoint == "" {
+			endpoint = "localhost:4317"
+		}
+		metricExporter, err = otlpmetricgrpc.New(ctx, otlpmetricgrpc.WithEndpoint(endpoint),
+			otlpmetricgrpc.WithInsecure())
 	default:
 		return nil, fmt.Errorf("unsupported otel metric protocol: %s", otlpMetricProtocol)
 	}
