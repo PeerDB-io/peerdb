@@ -351,8 +351,8 @@ func TestMarshalId(t *testing.T) {
 // that they're not integers
 func TestMarshalFloatLengths(t *testing.T) {
 	maxExponent := 309
-	require.Equal(t, math.Inf(1), math.Pow10(maxExponent), "exponent range should cover +Inf")
-	require.Equal(t, math.Inf(-1), -math.Pow10(maxExponent), "exponent range should cover -Inf")
+	require.Equal(t, math.Inf(1), math.Pow10(maxExponent), "exponent range should cover +Inf")   //nolint:testifylint
+	require.Equal(t, math.Inf(-1), -math.Pow10(maxExponent), "exponent range should cover -Inf") //nolint:testifylint
 	for _, negative := range []bool{false, true} {
 		for exponent := range maxExponent + 1 {
 			value := math.Pow10(exponent)
@@ -366,7 +366,11 @@ func TestMarshalFloatLengths(t *testing.T) {
 				require.NoError(t, err)
 				resultStr := string(result)
 				require.Less(t, len(resultStr), 33)
-				require.True(t, strings.Contains(resultStr, ".") || strings.Contains(resultStr, "e") || strings.Contains(resultStr, "Inf"), resultStr)
+				require.True(t,
+					strings.Contains(resultStr, ".") ||
+						strings.Contains(resultStr, "e") ||
+						strings.Contains(resultStr, "Inf"),
+					resultStr)
 			})
 		}
 	}
