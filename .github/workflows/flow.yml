@@ -46,7 +46,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.1.0@sha256:dd19f74bc9f5e66f9cc7dadea2b1aac9c904064ab639f545607226995b55b853
+        image: elasticsearch:9.1.1@sha256:272cbfbe31d87291a06bcd7cb3c7243dc8df50c04df987bc62a7c31ca9b4681a
         ports:
           - 9200:9200
         env:
@@ -54,7 +54,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       minio:
-        image: bitnami/minio:2025.7.23@sha256:8935e75fa5d11295c17171e4aa49efe390a1193cd7f12e4d21b92af9ffef09d7
+        image: bitnami/minio:2025.7.23@sha256:a70e90bb70f4732221901de53502334cef58665c6c4275a014d47adad10e1883
         ports:
           - 9999:9999
         env:
@@ -69,14 +69,14 @@ jobs:
           - 4317:4317
 
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
         with:
-          go-version: '1.24.5'
+          go-version: '1.24.6'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
@@ -189,7 +189,7 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
         id: cache-clickhouse
         with:
           path: ./clickhouse
