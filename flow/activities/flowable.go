@@ -899,7 +899,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	logger.Info("Recording slot size and emiting log retention where applicable", slog.Int("flows", len(infos)))
+	logger.Info("Recording slot size and emitting log retention where applicable", slog.Int("flows", len(infos)))
 	var wg sync.WaitGroup
 	maxParallel := 5
 	semaphore := make(chan struct{}, maxParallel)
@@ -1017,7 +1017,7 @@ func (a *FlowableActivity) emitLogRetentionHours(
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	peerName := info.config.SourceName
-	activity.RecordHeartbeat(ctx, fmt.Sprintf("checking log retention on %s", peerName))
+	activity.RecordHeartbeat(ctx, "checking log retention on "+peerName)
 	if ctx.Err() != nil {
 		return
 	}

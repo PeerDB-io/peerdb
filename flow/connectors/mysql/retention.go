@@ -60,7 +60,7 @@ func (c *MySqlConnector) getLogRetentionHoursForMariaDB(ctx context.Context) (fl
 		return 0, fmt.Errorf("failed to get server version: %w", err)
 	}
 	if cmp < 0 {
-		return 0, fmt.Errorf("mariadb version does not support binlog_expire_logs_seconds")
+		return 0, errors.New("mariadb version does not support binlog_expire_logs_seconds")
 	}
 
 	rs, err := c.Execute(ctx, "SELECT @@binlog_expire_logs_seconds")
