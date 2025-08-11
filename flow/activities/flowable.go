@@ -1028,7 +1028,8 @@ func (a *FlowableActivity) emitLogRetentionHours(
 
 	if logRetentionHours > 0 {
 		logRetentionGauge.Record(ctx, logRetentionHours)
-		logger.Info("Emitted log retention hours", slog.String("peerName", peerName))
+		logger.Info("Emitted log retention hours", slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
+		return
 	}
 
 	logger.Warn("Log retention hours is not set or is zero, skipping emission",
