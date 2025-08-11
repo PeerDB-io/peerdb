@@ -72,7 +72,7 @@ services:
       - POSTGRES_PWD=postgres
       - POSTGRES_SEEDS=catalog
       - DYNAMIC_CONFIG_FILE_PATH=config/dynamicconfig/development-sql.yaml
-    image: temporalio/auto-setup:1.28@sha256:3ee84bf3ec5494f2be6ee0c1fea3b52684e50da3ddc5f997e6fa56ad340da9a8
+    image: temporalio/auto-setup:1.28@sha256:607d68caa111338d754771efb876c92dfcdae06d056e4530bb31cd0f37406e6a
     ports:
       - 7233:7233
     volumes:
@@ -188,7 +188,7 @@ services:
       - flow-api
 
   minio:
-    image: bitnami/minio:2025.7.23@sha256:8935e75fa5d11295c17171e4aa49efe390a1193cd7f12e4d21b92af9ffef09d7
+    image: bitnami/minio:2025.7.23@sha256:a70e90bb70f4732221901de53502334cef58665c6c4275a014d47adad10e1883
     restart: unless-stopped
     volumes:
       - minio-data:/data
