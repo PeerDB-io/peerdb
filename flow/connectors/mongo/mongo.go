@@ -166,3 +166,12 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 	}
 	return clientOptions, nil
 }
+
+func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, error) {
+	serverStatus, err := peerdb_mongo.GetServerStatus(ctx, c.client)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get server status: %w", err)
+	}
+
+	return float64(serverStatus.OplogTruncation.OplogMinRetentionHours), nil
+}

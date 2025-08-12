@@ -324,7 +324,7 @@ func (c *MongoConnector) PullRecords(
 		}
 
 		clusterTimeNanos := time.Unix(int64(changeEvent.ClusterTime.T), 0).UnixNano()
-		otelManager.Metrics.LatestConsumedChangeStreamEventGauge.Record(
+		otelManager.Metrics.LatestConsumedLogEventGauge.Record(
 			ctx,
 			time.Unix(int64(changeEvent.ClusterTime.T), 0).Unix(),
 		)
