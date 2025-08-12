@@ -31,7 +31,8 @@ func CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx context.Context, logger
 }
 
 func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
-	tables []string, initialSnapshotEnabled bool, checkForCloudSMT bool, allowNonEmpty bool,
+	tables []string, existingTablesSet map[string]struct{}, initialSnapshotEnabled bool, checkForCloudSMT bool,
+	allowNonEmpty bool,
 ) error {
 	queryTables := make([]string, 0, min(len(tables), 200))
 
@@ -56,7 +57,8 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 				if err := rows.Scan(&tableName, &engine, &totalRows); err != nil {
 					return fmt.Errorf("failed to scan information for tables: %w", err)
 				}
-				if !allowNonEmpty && totalRows != 0 && initialSnapshotEnabled {
+				_, isExistingTable := existingTablesSet[tableName]
+				if !allowNonEmpty && totalRows != 0 && initialSnapshotEnabled && !isExistingTable {
 					return fmt.Errorf("table %s exists and is not empty", tableName)
 				}
 				if !slices.Contains(acceptableTableEngines, strings.TrimPrefix(engine, "Shared")) {

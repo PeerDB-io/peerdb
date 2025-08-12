@@ -48,7 +48,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 
 	if !(cfg.Resync || sourceSchemaAsDestinationColumn) {
 		if err := chvalidate.CheckIfTablesEmptyAndEngine(ctx, c.logger, c.database,
-			dstTableNames, cfg.DoInitialSnapshot, internal.PeerDBOnlyClickHouseAllowed(), initialLoadAllowNonEmptyTables,
+			dstTableNames, nil, cfg.DoInitialSnapshot, internal.PeerDBOnlyClickHouseAllowed(), initialLoadAllowNonEmptyTables,
 		); err != nil {
 			return err
 		}
