@@ -377,6 +377,18 @@ func (h *FlowRequestHandler) FlowStateChange(
 					return nil, err
 				}
 
+				state, err := h.getCDCWorkflowState(ctx, workflowID)
+				if err != nil {
+					slog.Error("unable to get cdc workflow state", logs, slog.Any("error", err))
+					return nil, fmt.Errorf("unable to get cdc workflow state: %w", err)
+				}
+				// patching config to show latest values from state
+				if state.SyncFlowOptions != nil {
+					config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
+					config.MaxBatchSize = state.SyncFlowOptions.BatchSize
+					config.TableMappings = state.SyncFlowOptions.TableMappings
+				}
+
 				config.Resync = true
 				config.DoInitialSnapshot = true
 				// validate mirror first because once the mirror is dropped, there's no going back
