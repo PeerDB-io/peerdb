@@ -2434,3 +2434,52 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_PartitionByExpr() {
+	srcTableName := "test_partition_by_expr"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_partition_by_expr"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id INT PRIMARY KEY, num INT, val TEXT NOT NULL)`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_partition_by"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			PartitionByExpr:            "num%2,val",
+			Columns: []*protos.ColumnSetting{
+				{SourceName: "id", NullableEnabled: true},
+				{SourceName: "num", NullableEnabled: true},
+				{SourceName: "val", NullableEnabled: true},
+			},
+		}},
+		Destination: s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "table setup", srcTableName, dstTableName, "id")
+
+	var partitionKey string
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	var dstTableSuffix string
+	if s.cluster {
+		dstTableSuffix = "_shard"
+	}
+	require.NoError(s.t,
+		ch.QueryRow(s.t.Context(),
+			"select partition_key from system.tables where name="+clickhouse.QuoteLiteral(dstTableName+dstTableSuffix),
+		).Scan(&partitionKey),
+	)
+	require.NoError(s.t, ch.Close())
+	require.Equal(s.t, "(num % 2, val)", partitionKey)
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
