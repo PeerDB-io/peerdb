@@ -77,7 +77,7 @@ require (
 	google.golang.org/grpc v1.74.2
 	google.golang.org/protobuf v1.36.7
 	k8s.io/apimachinery v0.33.3
-	k8s.io/client-go v0.33.3
+	k8s.io/client-go v0.33.3 // Note: v0.* are newer than v1.*
 )
 
 require (
