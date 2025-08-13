@@ -82,7 +82,6 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		); err != nil {
 			return err
 		}
-
 	}
 	return nil
 }
