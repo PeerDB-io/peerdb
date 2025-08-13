@@ -365,7 +365,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
 
-		case pgerrcode.QueryCanceled:
+		case pgerrcode.QueryCanceled, pgerrcode.DuplicateFile:
 			return ErrorRetryRecoverable, pgErrorInfo
 		}
 	}
