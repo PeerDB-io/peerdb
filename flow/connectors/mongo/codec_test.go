@@ -374,4 +374,23 @@ func TestMarshalFloatLengths(t *testing.T) {
 			})
 		}
 	}
+
+	// Test the boundary around the limit itself
+	for _, value := range []float64{
+		floatLimit, math.Nextafter(floatLimit, math.Inf(1)), math.Nextafter(floatLimit, math.Inf(-1)),
+		floatNegLimit, math.Nextafter(floatNegLimit, math.Inf(1)), math.Nextafter(floatNegLimit, math.Inf(-1)),
+	} {
+		name := fmt.Sprint(value)
+		t.Run(name, func(t *testing.T) {
+			input := bson.D{{Key: "a", Value: value}}
+			result, err := API.Marshal(input)
+			require.NoError(t, err)
+			resultStr := string(result)
+			require.Less(t, len(resultStr), 33)
+			require.True(t,
+				strings.Contains(resultStr, ".") ||
+					strings.Contains(resultStr, "e"),
+				resultStr)
+		})
+	}
 }
