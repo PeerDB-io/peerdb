@@ -92,14 +92,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		if getTableSchemaError != nil {
 			return nil, fmt.Errorf("failed to get source table schema: %w", getTableSchemaError)
 		}
-	} else {
-		// No need to get table schema for resync, as we will create or replace the tables
-		tableSchemaMap = make(map[string]*protos.TableSchema, len(req.ConnectionConfigs.TableMappings))
-		for _, tm := range req.ConnectionConfigs.TableMappings {
-			tableSchemaMap[tm.DestinationTableIdentifier] = &protos.TableSchema{}
-		}
 	}
-
 	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap); err != nil {
 		return nil, err
 	}
