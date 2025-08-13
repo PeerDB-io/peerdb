@@ -47,7 +47,6 @@ impl FlowGrpcClient {
     ) -> anyhow::Result<String> {
         let create_qrep_flow_req = pt::peerdb_route::CreateQRepFlowRequest {
             qrep_config: Some(qrep_config.clone()),
-            create_catalog_entry: false,
         };
         let response = self.client.create_q_rep_flow(create_qrep_flow_req).await?;
         let workflow_id = response.into_inner().workflow_id;
@@ -113,6 +112,7 @@ impl FlowGrpcClient {
         let publication_name = job.publication_name.clone();
         let replication_slot_name = job.replication_slot_name.clone();
         let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
+        let snapshot_num_partitions_override = job.snapshot_num_rows_per_partition;
         let snapshot_max_parallel_workers = job.snapshot_max_parallel_workers;
         let snapshot_num_tables_in_parallel = job.snapshot_num_tables_in_parallel;
         let Some(system) = TypeSystem::from_str_name(&job.system) else {
@@ -126,9 +126,10 @@ impl FlowGrpcClient {
             table_mappings,
             do_initial_snapshot,
             publication_name: publication_name.unwrap_or_default(),
-            snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or(0),
-            snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or(0),
-            snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or(0),
+            snapshot_num_rows_per_partition: snapshot_num_rows_per_partition.unwrap_or_default(),
+            snapshot_num_partitions_override: snapshot_num_partitions_override.unwrap_or_default(),
+            snapshot_max_parallel_workers: snapshot_max_parallel_workers.unwrap_or_default(),
+            snapshot_num_tables_in_parallel: snapshot_num_tables_in_parallel.unwrap_or_default(),
             snapshot_staging_path: job.snapshot_staging_path.clone(),
             cdc_staging_path: job.cdc_staging_path.clone().unwrap_or_default(),
             replication_slot_name: replication_slot_name.unwrap_or_default(),

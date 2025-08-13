@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -127,6 +128,39 @@ func TestAuroraInternalWALErrorShouldBeRecoverable(t *testing.T) {
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestNeonProjectQuotaExceededErrorShouldBeConnectivity(t *testing.T) {
+	// Simulate a Neon project quota exceeded error
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InternalError,
+		Message:  "Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(),
+		exceptions.NewPeerCreateError(fmt.Errorf("failed to create connection: failed to connect to `<user, host>: server error: `: %w", err)))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresMemoryAllocErrorShouldBeSlotMemalloc(t *testing.T) {
+	// Simulate a Postgres memory allocation error
+	err := &exceptions.PostgresWalError{
+		Msg: &pgproto3.ErrorResponse{
+			Severity: "ERROR",
+			Code:     pgerrcode.InternalError,
+			Message:  "invalid memory alloc request size 1073741824",
+		},
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
+	assert.Equal(t, ErrorPostgresSlotMemalloc, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.InternalError,
@@ -476,4 +510,46 @@ func TestNumericTruncateOrOutOfRangeWarningShouldBeLossyConversion(t *testing.T)
 			}, errInfo, "Unexpected error info")
 		})
 	}
+}
+
+func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
+	type classAndInfo struct {
+		errorClass ErrorClass
+		errInfo    ErrorInfo
+	}
+	for code, cinfo := range map[exceptions.ApplicationErrorType]classAndInfo{
+		exceptions.ApplicationErrorTypeIrrecoverableSlotMissing: {
+			errorClass: ErrorNotifyReplicationSlotMissing,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
+			},
+		},
+		exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing: {
+			errorClass: ErrorNotifyPublicationMissing,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "PUBLICATION_DOES_NOT_EXIST",
+			},
+		},
+	} {
+		t.Run(code.String(), func(t *testing.T) {
+			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError(
+				"irrecoverable error",
+				code.String(),
+				nil,
+			))
+			assert.Equal(t, cinfo.errorClass, errorClass, "Unexpected error class")
+			assert.Equal(t, cinfo.errInfo, errInfo, "Unexpected error info")
+		})
+	}
+}
+
+func TestTemporalUnknownErrorShouldBeOther(t *testing.T) {
+	errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError("irrecoverable error", "UNKNOWN_ERROR", nil))
+	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceTemporal,
+		Code:   "UNKNOWN_ERROR",
+	}, errInfo, "Unexpected error info")
 }

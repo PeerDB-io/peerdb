@@ -22,27 +22,13 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-func (c *MySqlConnector) GetDataTypeOfWatermarkColumn(
-	ctx context.Context,
-	watermarkTableName string,
-	watermarkColumn string,
-) (types.QValueKind, byte, error) {
-	if watermarkColumn == "" {
-		return "", 0, errors.New("watermark column is not specified in the config")
-	}
-
-	query := fmt.Sprintf("SELECT `%s` FROM %s LIMIT 0", watermarkColumn, watermarkTableName)
-	rs, err := c.Execute(ctx, query)
+func (c *MySqlConnector) tableRowEstimate(ctx context.Context, schema string, table string) (int64, error) {
+	rs, err := c.Execute(ctx, "select table_rows from information_schema.tables where table_schema=? and table_name=?", schema, table)
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to execute query for watermark column type: %w", err)
+		return 0, fmt.Errorf("failed to query information schema for row count estimate: %w", err)
 	}
-
-	if len(rs.Fields) == 0 {
-		return "", 0, fmt.Errorf("no fields returned from select query: %s", query)
-	}
-
-	qk, err := qkindFromMysql(rs.Fields[0])
-	return qk, rs.Fields[0].Type, err
+	defer rs.Close()
+	return rs.GetInt(0, 0)
 }
 
 func (c *MySqlConnector) GetQRepPartitions(
@@ -50,7 +36,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 	config *protos.QRepConfig,
 	last *protos.QRepPartition,
 ) ([]*protos.QRepPartition, error) {
-	if config.WatermarkColumn == "" {
+	if config.WatermarkColumn == "" || config.NumPartitionsOverride == 1 {
 		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
@@ -61,28 +47,61 @@ func (c *MySqlConnector) GetQRepPartitions(
 		}, nil
 	}
 
-	if config.NumRowsPerPartition <= 0 {
+	if config.NumPartitionsOverride == 0 && config.NumRowsPerPartition == 0 {
 		return nil, errors.New("num rows per partition must be greater than 0")
 	}
 
-	var err error
+	numPartitions := int64(config.NumPartitionsOverride)
 	numRowsPerPartition := int64(config.NumRowsPerPartition)
-	quotedWatermarkColumn := fmt.Sprintf("`%s`", config.WatermarkColumn)
 
-	whereClause := ""
-	if last != nil && last.Range != nil {
-		whereClause = fmt.Sprintf("WHERE %s > ?", quotedWatermarkColumn)
-	}
 	parsedWatermarkTable, err := utils.ParseSchemaTable(config.WatermarkTable)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	// Query to get the total number of rows in the table
-	countQuery := fmt.Sprintf("SELECT COUNT(*),MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s",
-		parsedWatermarkTable.MySQL(), config.WatermarkColumn, whereClause)
+	var minmaxQuery string
+	var minmaxHasCount bool
+	if last != nil && last.Range != nil {
+		if numPartitions == 0 {
+			minmaxHasCount = true
+			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`),COUNT(*) FROM %[1]s WHERE `%[2]s` > ?",
+				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
+		} else {
+			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s WHERE `%[2]s` > ?",
+				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
+		}
+	} else if numPartitions == 0 {
+		minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s",
+			parsedWatermarkTable.MySQL(), config.WatermarkColumn)
+
+		totalRows, err := c.tableRowEstimate(ctx, parsedWatermarkTable.Schema, parsedWatermarkTable.Table)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query for total rows: %w", err)
+		}
+
+		if totalRows == 0 {
+			c.logger.Warn("estimating no records to replicate, returning full table partition")
+			return []*protos.QRepPartition{
+				{
+					PartitionId:        shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID,
+					Range:              nil,
+					FullTablePartition: true,
+				},
+			}, nil
+		}
+
+		// Calculate the number of partitions
+		adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
+		c.logger.Info("[mysql] partition details",
+			slog.Int64("totalRowsEstimate", totalRows),
+			slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+			slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+			slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
+
+		numPartitions = adjustedPartitions.AdjustedNumPartitions
+	}
+
 	var minVal any
-	var totalRows int64
 	var rs *mysql.Result
 	if last != nil && last.Range != nil {
 		switch lastRange := last.Range.Range.(type) {
@@ -93,31 +112,38 @@ func (c *MySqlConnector) GetQRepPartitions(
 		case *protos.PartitionRange_TimestampRange:
 			minVal = lastRange.TimestampRange.End.AsTime().String()
 		}
-		c.logger.Info("querying count", slog.String("query", countQuery), slog.Any("minVal", minVal))
 
-		rs, err = c.Execute(ctx, countQuery, minVal)
+		c.logger.Info("querying min/max", slog.String("query", minmaxQuery), slog.Any("minVal", minVal))
+		rs, err = c.Execute(ctx, minmaxQuery, minVal)
 	} else {
-		rs, err = c.Execute(ctx, countQuery)
+		c.logger.Info("querying min/max", slog.String("query", minmaxQuery))
+		rs, err = c.Execute(ctx, minmaxQuery)
 	}
 	if err != nil {
 		return nil, err
 	}
 	defer rs.Close()
 
-	totalRows, err = rs.GetInt(0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query for total rows: %w", err)
-	}
+	if minmaxHasCount {
+		totalRows, err := rs.GetInt(0, 2)
+		if err != nil {
+			return nil, fmt.Errorf("failed to query for total rows: %w", err)
+		}
 
-	if totalRows == 0 {
-		c.logger.Warn("no records to replicate, returning")
-		return make([]*protos.QRepPartition, 0), nil
-	}
+		if totalRows == 0 {
+			c.logger.Warn("no records to replicate, returning")
+			return make([]*protos.QRepPartition, 0), nil
+		}
 
-	// Calculate the number of partitions
-	numPartitions := totalRows / numRowsPerPartition
-	if totalRows%numRowsPerPartition != 0 {
-		numPartitions++
+		// Calculate the number of partitions
+		adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
+		c.logger.Info("[mysql] partition details",
+			slog.Int64("totalRows", totalRows),
+			slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+			slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+			slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
+
+		numPartitions = adjustedPartitions.AdjustedNumPartitions
 	}
 
 	watermarkMyType := rs.Fields[1].Type
@@ -126,23 +152,29 @@ func (c *MySqlConnector) GetQRepPartitions(
 		return nil, fmt.Errorf("failed to convert mysql type to qvaluekind: %w", err)
 	}
 
-	c.logger.Info("queried info for partitioning",
-		slog.Int64("totalRows", totalRows), slog.Int64("numPartitions", numPartitions), slog.Int64("rowsPerPartition", numRowsPerPartition))
-
 	partitionHelper := utils.NewPartitionHelper(c.logger)
-	val1, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, rs.Values[0][1])
+	val1, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, rs.Values[0][0])
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert partition minimum to qvalue: %w", err)
 	}
-	val2, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, rs.Values[0][2])
+	val2, err := QValueFromMysqlFieldValue(watermarkQKind, watermarkMyType, rs.Values[0][1])
 	if err != nil {
-		return nil, fmt.Errorf("fialed to convert partition maximum to qvalue: %w", err)
+		return nil, fmt.Errorf("failed to convert partition maximum to qvalue: %w", err)
 	}
 	if err := partitionHelper.AddPartitionsWithRange(val1.Value(), val2.Value(), numPartitions); err != nil {
 		return nil, fmt.Errorf("failed to add partitions: %w", err)
 	}
 
 	return partitionHelper.GetPartitions(), nil
+}
+
+func (c *MySqlConnector) GetDefaultPartitionKeyForTables(
+	ctx context.Context,
+	input *protos.GetDefaultPartitionKeyForTablesInput,
+) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
+	return &protos.GetDefaultPartitionKeyForTablesOutput{
+		TableDefaultPartitionKeyMapping: nil,
+	}, nil
 }
 
 func (c *MySqlConnector) PullQRepRecords(

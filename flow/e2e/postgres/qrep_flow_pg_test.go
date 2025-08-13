@@ -195,7 +195,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
@@ -216,8 +216,8 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
 	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
 
-	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
-		s.suffix, srcTable)
+	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
+		srcSchemaQualified)
 
 	qrepConfig := e2e.CreateQRepWorkflowConfig(
 		s.t,
@@ -234,7 +234,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	qrepConfig.System = protos.TypeSystem_PG
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
@@ -269,7 +269,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
@@ -308,7 +308,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	qrepConfig.InitialCopyOnly = false
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
 		err := s.compareCounts(dstSchemaQualified, int64(numRows))
 		return err == nil
@@ -353,7 +353,7 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	)
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 }
@@ -387,7 +387,7 @@ func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 	config.InitialCopyOnly = false
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, config)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, config)
 	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
@@ -410,8 +410,7 @@ func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 			s.t.Fatal(err)
 		}
 		var state *protos.QRepFlowState
-		err = response.Get(&state)
-		if err != nil {
+		if err := response.Get(&state); err != nil {
 			s.t.Fatal("decode failed", err)
 		}
 		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING
@@ -450,7 +449,7 @@ func (s PeerFlowE2ETestSuitePG) TestXminPause() {
 	config.InitialCopyOnly = false
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunXminFlowWorkflow(s.t.Context(), tc, config)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, config)
 	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
@@ -473,8 +472,7 @@ func (s PeerFlowE2ETestSuitePG) TestXminPause() {
 			s.t.Fatal(err)
 		}
 		var state *protos.QRepFlowState
-		err = response.Get(&state)
-		if err != nil {
+		if err := response.Get(&state); err != nil {
 			s.t.Fatal("decode failed", err)
 		}
 		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_RUNNING
@@ -520,7 +518,7 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 	qrepConfig.Script = "pgtransform"
 
 	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t.Context(), tc, qrepConfig)
+	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
 		return s.compareCounts(dstSchemaQualified, int64(numRows)) == nil
 	})

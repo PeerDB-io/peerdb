@@ -408,13 +408,15 @@ func pullCore[Items model.Items](
 	if !exists.PublicationExists {
 		c.logger.Warn("publication does not exist", slog.String("name", publicationName))
 		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("publication %s does not exist, restarting workflow", slotName), "disconnect", nil)
+			fmt.Sprintf("publication %s does not exist, restarting workflow", publicationName),
+			exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(), nil)
 	}
 
 	if !exists.SlotExists {
 		c.logger.Warn("slot does not exist", slog.String("name", slotName))
 		return temporal.NewNonRetryableApplicationError(
-			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName), "disconnect", nil)
+			fmt.Sprintf("replication slot %s does not exist, restarting workflow", slotName),
+			exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(), nil)
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
@@ -1198,18 +1200,12 @@ func (c *PostgresConnector) EnsurePullability(
 }
 
 func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context, env map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
-	pgversion, err := c.MajorVersion(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("[export-snapshot] error getting PG version: %w", err)
-	}
-
 	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, env)
 	if err != nil {
 		c.logger.Error("failed to check PEERDB_SKIP_SNAPSHOT_EXPORT, proceeding with export snapshot", slog.Any("error", err))
 	} else if skipSnapshotExport {
 		return &protos.ExportTxSnapshotOutput{
-			SnapshotName:     "",
-			SupportsTidScans: pgversion >= shared.POSTGRES_13,
+			SnapshotName: "",
 		}, nil, err
 	}
 
@@ -1240,8 +1236,7 @@ func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context, env map[string
 	needRollback = false
 
 	return &protos.ExportTxSnapshotOutput{
-		SnapshotName:     snapshotName,
-		SupportsTidScans: pgversion >= shared.POSTGRES_13,
+		SnapshotName: snapshotName,
 	}, tx, err
 }
 

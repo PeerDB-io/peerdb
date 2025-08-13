@@ -188,6 +188,7 @@ export function reformattedTableMapping(
       engine: row.engine,
       shardingKey: row.shardingKey,
       policyName: row.policyName,
+      partitionByExpr: row.partitionByExpr,
     }));
 }
 
@@ -353,7 +354,6 @@ export async function handleCreateQRep(
     method: 'POST',
     body: JSON.stringify({
       qrepConfig: config,
-      createCatalogEntry: true,
     } as CreateQRepFlowRequest),
   });
   if (!res.ok) {
@@ -455,6 +455,7 @@ export async function fetchTables(
         engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
         shardingKey: '',
         policyName: '',
+        partitionByExpr: '',
       });
     }
   }

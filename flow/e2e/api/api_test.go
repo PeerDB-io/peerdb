@@ -12,9 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
@@ -26,14 +24,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
-
-func NewClient(t *testing.T) protos.FlowServiceClient {
-	t.Helper()
-
-	client, err := grpc.NewClient("0.0.0.0:8112", grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	return protos.NewFlowServiceClient(client)
-}
 
 type Suite struct {
 	protos.FlowServiceClient
@@ -170,8 +160,10 @@ func testApi[TSource e2e.SuiteSource](
 		require.NoError(t, err)
 		source, err := setup(t, suffix)
 		require.NoError(t, err)
+		client, err := e2e.NewApiClient()
+		require.NoError(t, err)
 		return Suite{
-			FlowServiceClient: NewClient(t),
+			FlowServiceClient: client,
 			t:                 t,
 			pg:                pg,
 			source:            source,
@@ -867,8 +859,7 @@ func (s Suite) TestQRep() {
 	qrepConfig.WaitBetweenBatchesSeconds = 5
 	qrepConfig.NumRowsPerPartition = 1
 	_, err = s.CreateQRepFlow(s.t.Context(), &protos.CreateQRepFlowRequest{
-		QrepConfig:         qrepConfig,
-		CreateCatalogEntry: true,
+		QrepConfig: qrepConfig,
 	})
 	require.NoError(s.t, err)
 

@@ -8,6 +8,7 @@ import (
 )
 
 func QkindFromMysqlColumnType(ct string) (types.QValueKind, error) {
+	ct, _ = strings.CutSuffix(ct, " zerofill")
 	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
 	ct, param, _ := strings.Cut(ct, "(")
 	switch strings.ToLower(ct) {

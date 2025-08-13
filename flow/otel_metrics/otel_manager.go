@@ -34,6 +34,7 @@ const (
 	RestartLSNGaugeName                 = "restart_lsn"
 	ConfirmedFlushLSNGaugeName          = "confirmed_flush_lsn"
 	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
+	AllFetchedBytesCounterName          = "all_fetched_bytes"
 	FetchedBytesCounterName             = "fetched_bytes"
 	CommitLagGaugeName                  = "commit_lag"
 	ErrorEmittedGaugeName               = "error_emitted"
@@ -47,6 +48,13 @@ const (
 	MaintenanceStatusGaugeName          = "maintenance_status"
 	FlowStatusGaugeName                 = "flow_status"
 	ActiveFlowsGaugeName                = "active_flows"
+	CPULimitsPerActiveFlowGaugeName     = "cpu_limits_per_active_flow_vcores"
+	MemoryLimitsPerActiveFlowGaugeName  = "memory_limits_per_active_flow"
+	TotalCPULimitsGaugeName             = "total_cpu_limits_vcores"
+	TotalMemoryLimitsGaugeName          = "total_memory_limits"
+	WorkloadTotalReplicasGaugeName      = "workload_total_replicas"
+	LogRetentionGaugeName               = "log_retention"
+	LatestConsumedLogEventGaugeName     = "latest_consumed_log_event"
 )
 
 type Metrics struct {
@@ -59,6 +67,7 @@ type Metrics struct {
 	RestartLSNGauge                 metric.Int64Gauge
 	ConfirmedFlushLSNGauge          metric.Int64Gauge
 	IntervalSinceLastNormalizeGauge metric.Float64Gauge
+	AllFetchedBytesCounter          metric.Int64Counter
 	FetchedBytesCounter             metric.Int64Counter
 	CommitLagGauge                  metric.Int64Gauge
 	ErrorEmittedGauge               metric.Int64Gauge
@@ -74,6 +83,11 @@ type Metrics struct {
 	ActiveFlowsGauge                metric.Int64Gauge
 	CPULimitsPerActiveFlowGauge     metric.Float64Gauge
 	MemoryLimitsPerActiveFlowGauge  metric.Float64Gauge
+	TotalCPULimitsGauge             metric.Float64Gauge
+	TotalMemoryLimitsGauge          metric.Float64Gauge
+	WorkloadTotalReplicasGauge      metric.Int64Gauge
+	LatestConsumedLogEventGauge     metric.Int64Gauge
+	LogRetentionGauge               metric.Float64Gauge
 }
 
 type SlotMetricGauges struct {
@@ -218,9 +232,16 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
+	if om.Metrics.AllFetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(AllFetchedBytesCounterName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Bytes received of CopyData over replication protocol for all tables"),
+	); err != nil {
+		return err
+	}
+
 	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
 		metric.WithUnit("By"),
-		metric.WithDescription("Bytes received of CopyData over replication slot"),
+		metric.WithDescription("Bytes received of CopyData over replication protocol for mapped tables only"),
 	); err != nil {
 		return err
 	}
@@ -228,6 +249,20 @@ func (om *OtelManager) setupMetrics() error {
 	if om.Metrics.CommitLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommitLagGaugeName),
 		metric.WithUnit("us"),
 		metric.WithDescription("Microseconds between source commit & time received"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LatestConsumedLogEventGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LatestConsumedLogEventGaugeName),
+		metric.WithUnit("s"),
+		metric.WithDescription("Latest consumed replication log event timestamp in epoch seconds"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LogRetentionGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(LogRetentionGaugeName),
+		metric.WithUnit("h"),
+		metric.WithDescription("Log retention in hours for the source data store"),
 	); err != nil {
 		return err
 	}
@@ -304,7 +339,7 @@ func (om *OtelManager) setupMetrics() error {
 	}
 
 	// Appending unit since UCUM does not support `vcores` as a unit
-	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("cpu_limits_per_active_flow_vcores"),
+	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(CPULimitsPerActiveFlowGaugeName),
 		metric.WithDescription(
 			"CPU limits per active flow. To get total CPU limits, multiply by number of active flows or do sum over all flows",
 		),
@@ -312,11 +347,30 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
-	if om.Metrics.MemoryLimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("memory_limits_per_active_flow"),
+	if om.Metrics.MemoryLimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(MemoryLimitsPerActiveFlowGaugeName),
 		metric.WithDescription(
 			"Memory per active flow. To get total memory limits, multiply by number of active flows or do sum over all flows",
 		),
 		metric.WithUnit("By"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.TotalCPULimitsGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(TotalCPULimitsGaugeName),
+		metric.WithDescription("Total CPU limits for the current workload"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.TotalMemoryLimitsGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(TotalMemoryLimitsGaugeName),
+		metric.WithDescription("Total memory limits for the current workload"),
+		metric.WithUnit("By"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.WorkloadTotalReplicasGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(WorkloadTotalReplicasGaugeName),
+		metric.WithDescription("Total number of replicas for the current workload"),
 	); err != nil {
 		return err
 	}

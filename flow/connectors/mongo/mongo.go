@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -118,9 +117,7 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 		return nil, fmt.Errorf("error parsing uri: %w", err)
 	}
 
-	if connStr.Username != "" || connStr.Password != "" ||
-		// handle the edge case where '@' or ':@' in uri but no username/password provided
-		strings.Contains(connStr.Original[len(connStr.Scheme+"://"):len(connStr.Scheme+"://")+2], "@") {
+	if connStr.HasAuthParameters() {
 		return nil, errors.New("connection string should not contain username and password")
 	}
 
@@ -168,4 +165,13 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 		return nil, fmt.Errorf("error validating client options: %w", err)
 	}
 	return clientOptions, nil
+}
+
+func (c *MongoConnector) GetLogRetentionHours(ctx context.Context) (float64, error) {
+	serverStatus, err := peerdb_mongo.GetServerStatus(ctx, c.client)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get server status: %w", err)
+	}
+
+	return float64(serverStatus.OplogTruncation.OplogMinRetentionHours), nil
 }

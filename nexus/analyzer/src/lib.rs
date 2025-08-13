@@ -257,6 +257,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let snapshot_num_partitions_override: Option<u32> = match raw_options
+                            .remove("snapshot_num_partitions_override")
+                        {
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
                         let snapshot_num_tables_in_parallel: Option<u32> = match raw_options
                             .remove("snapshot_num_tables_in_parallel")
                         {
@@ -335,6 +342,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             do_initial_copy,
                             publication_name,
                             snapshot_num_rows_per_partition,
+                            snapshot_num_partitions_override,
                             snapshot_max_parallel_workers,
                             snapshot_num_tables_in_parallel,
                             snapshot_staging_path,
@@ -385,7 +393,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             target_peer: select.target_peer.to_string().to_lowercase(),
                             query_string: select.query_string.to_string(),
                             flow_options: processed_options,
-                            description: "".to_string(), // TODO: add description
+                            description: String::new(), // TODO: add description
                             disabled,
                         };
 
@@ -851,6 +859,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("disable_tls")
                     .and_then(|s| s.parse::<bool>().ok())
                     .unwrap_or_default(),
+                certificate: opts.get("certificate").map(|s| s.to_string()),
+                private_key: opts.get("private_key").map(|s| s.to_string()),
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
             };
             Config::KafkaConfig(kafka_config)
         }

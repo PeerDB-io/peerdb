@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -54,7 +55,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 		return false, fmt.Errorf("error occurred while checking if destination ClickHouse table exists: %w", err)
 	}
 	if tableAlreadyExists && !config.IsResync {
-		c.logger.Info("[ch] destination ClickHouse table already exists, skipping", "table", destinationTableIdentifier)
+		c.logger.Info("[clickhouse] destination ClickHouse table already exists, skipping", "table", destinationTableIdentifier)
 		return true, nil
 	}
 
@@ -71,7 +72,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 
 	for _, sql := range normalizedTableCreateSQL {
 		if err := c.execWithLogging(ctx, sql); err != nil {
-			return false, fmt.Errorf("[ch] error while creating destination ClickHouse table: %w", err)
+			return false, fmt.Errorf("[clickhouse] error while creating destination ClickHouse table: %w", err)
 		}
 	}
 	return false, nil
@@ -220,7 +221,9 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	fmt.Fprintf(&stmtBuilder, " ENGINE = %s", engine)
 
 	if tmEngine != protos.TableEngine_CH_ENGINE_NULL {
-		orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
+		hasNullableKeyFn := buildIsNullableKeyFn(tableMapping, tableSchema.Columns, tableSchema.NullableEnabled)
+		orderByColumns, allowNullableKey := getOrderedOrderByColumns(
+			tableMapping, colNameMap, tableSchema.PrimaryKeyColumns, hasNullableKeyFn)
 		if sourceSchemaAsDestinationColumn {
 			orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
 		}
@@ -232,13 +235,23 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			stmtBuilder.WriteString(" ORDER BY tuple()")
 		}
 
-		partitionByColumns := getOrderedPartitionByColumns(tableMapping, colNameMap)
-		if len(partitionByColumns) > 0 {
-			partitionByStr := strings.Join(partitionByColumns, ",")
-			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
+		if tableMapping != nil && tableMapping.PartitionByExpr != "" {
+			allowNullableKey = true
+			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", tableMapping.PartitionByExpr)
+		} else {
+			partitionByColumns, hasNullablePartitionKey := getOrderedPartitionByColumns(tableMapping, colNameMap, hasNullableKeyFn)
+			if hasNullablePartitionKey {
+				allowNullableKey = true
+			}
+			if len(partitionByColumns) > 0 {
+				partitionByStr := strings.Join(partitionByColumns, ",")
+				fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
+			}
 		}
 
-		stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+		if allowNullableKey {
+			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+		}
 
 		if c.config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
@@ -265,71 +278,117 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	return result, nil
 }
 
-// Returns a list of order by columns ordered by their ordering, and puts the pkeys at the end.
-// pkeys are excluded from the order by columns.
+// getOrderedOrderByColumns returns columns to be used for ordering in destination table operations.
+// If no custom ordering is specified, return the source table's primary key columns as ordering keys.
+// If custom ordering columns are specified, return those columns sorted by their ordering value.
+// The boolean return value indicates whether ordering keys contain nullable keys.
 func getOrderedOrderByColumns(
 	tableMapping *protos.TableMapping,
-	sourcePkeys []string,
 	colNameMap map[string]string,
-) []string {
-	pkeys := make([]string, len(sourcePkeys))
-	for idx, pk := range sourcePkeys {
-		pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(pk)
-	}
-	if len(sourcePkeys) > 0 && len(colNameMap) > 0 {
-		for idx, pk := range sourcePkeys {
-			pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, pk))
-		}
-	}
-
-	orderby := make([]*protos.ColumnSetting, 0)
+	sourcePkeys []string,
+	hasNullableKeyFn func(string) bool,
+) ([]string, bool) {
+	columnOrderingMap := make(map[string]int32)
 	if tableMapping != nil {
 		for _, col := range tableMapping.Columns {
 			if col.Ordering > 0 {
-				orderby = append(orderby, col)
+				columnOrderingMap[col.SourceName] = col.Ordering
 			}
 		}
 	}
 
-	if len(orderby) == 0 {
-		return pkeys
+	// Case 1: No custom ordering - use primary keys
+	if len(columnOrderingMap) == 0 {
+		hasNullableKeys := false
+		pkeys := make([]string, len(sourcePkeys))
+		for idx, pk := range sourcePkeys {
+			if !hasNullableKeys && hasNullableKeyFn(pk) {
+				hasNullableKeys = true
+			}
+			pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, pk))
+		}
+		return pkeys, hasNullableKeys
 	}
 
-	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
-		return cmp.Compare(a.Ordering, b.Ordering)
+	// Case 2: Custom ordering specified
+	columnNames := slices.Collect(maps.Keys(columnOrderingMap))
+	slices.SortStableFunc(columnNames, func(a, b string) int {
+		return cmp.Compare(columnOrderingMap[a], columnOrderingMap[b])
 	})
 
-	orderbyColumns := make([]string, len(orderby))
-	for idx, col := range orderby {
-		orderbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col.SourceName))
+	orderbyColumns := make([]string, len(columnNames))
+	hasNullableKeys := false
+	for idx, col := range columnNames {
+		orderbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col))
+		if !hasNullableKeys && hasNullableKeyFn(col) {
+			hasNullableKeys = true
+		}
 	}
-
-	return orderbyColumns
+	return orderbyColumns, hasNullableKeys
 }
 
+// getOrderedPartitionByColumns returns columns to be used for partitioning in destination table operations.
+// If custom partitioning columns are specified, return those columns sorted by their partitioning value.
+// The boolean return value indicates whether partition keys contain nullable keys.
 func getOrderedPartitionByColumns(
 	tableMapping *protos.TableMapping,
 	colNameMap map[string]string,
-) []string {
-	partitionby := make([]*protos.ColumnSetting, 0)
+	hasNullableKeyFn func(string) bool,
+) ([]string, bool) {
+	columnPartitioningMap := make(map[string]int32)
 	if tableMapping != nil {
 		for _, col := range tableMapping.Columns {
 			if col.Partitioning > 0 {
-				partitionby = append(partitionby, col)
+				columnPartitioningMap[col.SourceName] = col.Partitioning
 			}
 		}
 	}
 
-	slices.SortStableFunc(partitionby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
-		return cmp.Compare(a.Partitioning, b.Partitioning)
+	columnNames := slices.Collect(maps.Keys(columnPartitioningMap))
+	slices.SortStableFunc(columnNames, func(a, b string) int {
+		return cmp.Compare(columnPartitioningMap[a], columnPartitioningMap[b])
 	})
 
-	partitionbyColumns := make([]string, len(partitionby))
-	for idx, col := range partitionby {
-		partitionbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col.SourceName))
+	partitionbyColumns := make([]string, len(columnNames))
+	hasNullableKeys := false
+	for idx, col := range columnNames {
+		partitionbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col))
+		if !hasNullableKeys && hasNullableKeyFn(col) {
+			hasNullableKeys = true
+		}
 	}
 
-	return partitionbyColumns
+	return partitionbyColumns, hasNullableKeys
+}
+
+func buildIsNullableKeyFn(
+	tableMapping *protos.TableMapping,
+	sourceColumns []*protos.FieldDescription,
+	tableNullableEnabled bool,
+) func(string) bool {
+	columnNullableMap := make(map[string]bool)
+	for _, col := range sourceColumns {
+		columnNullableMap[col.Name] = col.Nullable
+	}
+
+	columnNullableEnabledMap := make(map[string]bool)
+	if tableMapping != nil {
+		for _, col := range tableMapping.Columns {
+			columnNullableEnabledMap[col.SourceName] = col.NullableEnabled
+		}
+	}
+
+	isNullableEnabledFn := func(colName string) bool {
+		nullable, exists := columnNullableMap[colName]
+		if !exists {
+			return false
+		}
+		nullableEnabled := tableNullableEnabled || columnNullableEnabledMap[colName]
+
+		return nullable && nullableEnabled
+	}
+
+	return isNullableEnabledFn
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(

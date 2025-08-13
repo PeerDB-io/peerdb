@@ -98,6 +98,7 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 				"set global gtid_mode=off_permissive",
 				"set global gtid_mode=on_permissive",
 				"set global gtid_mode=on",
+				"set global max_connections=500",
 			} {
 				if _, err := connector.Execute(t.Context(), sql); err != nil {
 					connector.Close()
@@ -114,6 +115,7 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 			"set global binlog_format=row",
 			"set binlog_format=row",
 			"set global binlog_row_metadata=full",
+			"set global max_connections=500",
 		} {
 			if _, err := connector.Execute(t.Context(), sql); err != nil {
 				connector.Close()

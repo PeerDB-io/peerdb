@@ -403,6 +403,8 @@ func (c *MySqlConnector) PullRecords(
 			return err
 		}
 
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
+
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
 			if ev.ImmediateCommitTimestamp > 0 {
@@ -612,6 +614,12 @@ func (c *MySqlConnector) PullRecords(
 				case replication.WRITE_ROWS_EVENTv0, replication.UPDATE_ROWS_EVENTv0, replication.DELETE_ROWS_EVENTv0:
 					return errors.New("mysql v0 replication protocol not supported")
 				}
+			}
+			if event.Header.Timestamp > 0 {
+				otelManager.Metrics.LatestConsumedLogEventGauge.Record(
+					ctx,
+					int64(event.Header.Timestamp),
+				)
 			}
 		}
 	}

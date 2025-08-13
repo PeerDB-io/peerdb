@@ -1,36 +1,26 @@
+import { TimeAggregateType } from '@/grpc_generated/route';
 import moment from 'moment';
 
-export const enum TimeAggregateTypes {
-  ONE_MIN = '1min',
-  FIVE_MIN = '5min',
-  FIFTEEN_MIN = '15min',
-  HOUR = '1hour',
-  DAY = '1day',
-  MONTH = '1month',
-}
-
 export const timeOptions = [
-  { label: '1min', value: TimeAggregateTypes.ONE_MIN },
-  { label: '5min', value: TimeAggregateTypes.FIVE_MIN },
-  { label: '15min', value: TimeAggregateTypes.FIFTEEN_MIN },
-  { label: 'hour', value: TimeAggregateTypes.HOUR },
-  { label: 'day', value: TimeAggregateTypes.DAY },
-  { label: 'month', value: TimeAggregateTypes.MONTH },
+  { label: '5min', value: TimeAggregateType.TIME_AGGREGATE_TYPE_FIVE_MIN },
+  { label: '15min', value: TimeAggregateType.TIME_AGGREGATE_TYPE_FIFTEEN_MIN },
+  { label: '1 hour', value: TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR },
+  { label: '1 day', value: TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_DAY },
+  { label: '1 month', value: TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_MONTH },
 ];
 
 export function formatGraphLabel(
   date: Date,
-  aggregateType: TimeAggregateTypes
+  aggregateType: TimeAggregateType
 ): string {
   switch (aggregateType) {
-    case TimeAggregateTypes.ONE_MIN:
-    case TimeAggregateTypes.FIVE_MIN:
-    case TimeAggregateTypes.FIFTEEN_MIN:
-    case TimeAggregateTypes.HOUR:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_FIVE_MIN:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_FIFTEEN_MIN:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR:
       return moment(date).format('MMM Do HH:mm');
-    case TimeAggregateTypes.DAY:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_DAY:
       return moment(date).format('MMM Do');
-    case TimeAggregateTypes.MONTH:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_MONTH:
       return moment(date).format('MMM yy');
     default:
       throw new Error('Invalid aggregate type provided');

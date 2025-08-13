@@ -34,16 +34,18 @@ type EditMirrorProps = {
   params: { mirrorId: string };
 };
 
-export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
-  const defaultBatchSize = blankCDCSetting.maxBatchSize;
-  const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
-  const defaultSnapshotNumRowsPerPartition =
-    blankCDCSetting.snapshotNumRowsPerPartition;
-  const defaultSnapshotMaxParallelWorkers =
-    blankCDCSetting.snapshotMaxParallelWorkers;
-  const defaultSnapshotNumTablesInParallel =
-    blankCDCSetting.snapshotNumTablesInParallel;
+const defaultBatchSize = blankCDCSetting.maxBatchSize;
+const defaultIdleTimeout = blankCDCSetting.idleTimeoutSeconds;
+const defaultSnapshotNumRowsPerPartition =
+  blankCDCSetting.snapshotNumRowsPerPartition;
+const defaultSnapshotNumPartitionsOverride =
+  blankCDCSetting.snapshotNumPartitionsOverride;
+const defaultSnapshotMaxParallelWorkers =
+  blankCDCSetting.snapshotMaxParallelWorkers;
+const defaultSnapshotNumTablesInParallel =
+  blankCDCSetting.snapshotNumTablesInParallel;
 
+export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
@@ -55,6 +57,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
     numberOfSyncs: 0,
     updatedEnv: {},
     snapshotNumRowsPerPartition: defaultSnapshotNumRowsPerPartition,
+    snapshotNumPartitionsOverride: defaultSnapshotNumPartitionsOverride,
     snapshotMaxParallelWorkers: defaultSnapshotMaxParallelWorkers,
     snapshotNumTablesInParallel: defaultSnapshotNumTablesInParallel,
   });
@@ -78,6 +81,10 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
       snapshotNumRowsPerPartition:
         (res as MirrorStatusResponse).cdcStatus?.config
           ?.snapshotNumRowsPerPartition || defaultSnapshotNumRowsPerPartition,
+      snapshotNumPartitionsOverride:
+        (res as MirrorStatusResponse).cdcStatus?.config
+          ?.snapshotNumPartitionsOverride ||
+        defaultSnapshotNumPartitionsOverride,
       snapshotMaxParallelWorkers:
         (res as MirrorStatusResponse).cdcStatus?.config
           ?.snapshotMaxParallelWorkers || defaultSnapshotMaxParallelWorkers,
@@ -85,14 +92,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         (res as MirrorStatusResponse).cdcStatus?.config
           ?.snapshotNumTablesInParallel || defaultSnapshotNumTablesInParallel,
     });
-  }, [
-    mirrorId,
-    defaultBatchSize,
-    defaultIdleTimeout,
-    defaultSnapshotNumRowsPerPartition,
-    defaultSnapshotMaxParallelWorkers,
-    defaultSnapshotNumTablesInParallel,
-  ]);
+  }, [mirrorId]);
 
   useEffect(() => {
     fetchStateAndUpdateDeps();

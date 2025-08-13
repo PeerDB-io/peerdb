@@ -635,15 +635,6 @@ impl NexusBackend {
                 PgWireError::ApiError(format!("unable to submit job: {err:?}").into())
             })?;
 
-        self.catalog
-            .update_workflow_id_for_flow_job(&qrep_flow_job.name, &workflow_id)
-            .await
-            .map_err(|err| {
-                PgWireError::ApiError(
-                    format!("unable to update workflow for flow job: {err:?}").into(),
-                )
-            })?;
-
         Ok(workflow_id)
     }
 

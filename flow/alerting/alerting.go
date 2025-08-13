@@ -502,11 +502,13 @@ func (a *Alerter) logFlowErrorInternal(
 		// Warnings alert us just like errors until there's a customer warning system
 		a.sendTelemetryMessage(ctx, logger, flowName, inErrWithStack, telemetry.ERROR, tags...)
 	}
-	loggerFunc(fmt.Sprintf("Emitting classified error '%s'", inErr.Error()),
+	loggerFunc(fmt.Sprintf("Emitting error/warning metric: '%s'", inErr.Error()),
 		slog.Any("error", inErr),
 		slog.Any("errorClass", errorClass),
 		slog.Any("errorInfo", errInfo),
-		slog.Any("stack", inErrWithStack))
+		slog.Any("stack", inErrWithStack),
+		slog.String("flowErrorType", errorType.String()),
+	)
 	errorAttributes := []attribute.KeyValue{
 		attribute.Stringer(otel_metrics.ErrorClassKey, errorClass),
 		attribute.Stringer(otel_metrics.ErrorActionKey, errorClass.ErrorAction()),

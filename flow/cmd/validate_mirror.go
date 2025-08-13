@@ -12,8 +12,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
-	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
 var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
@@ -21,6 +21,7 @@ var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, req.ConnectionConfigs.FlowJobName)
 	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		slog.Error("unable to check maintenance mode", slog.Any("error", err))
@@ -40,9 +41,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 
 		if mirrorExists {
-			displayErr := fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
-			return nil, displayErr
+			return nil, fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
 		}
 	}
 
@@ -66,18 +65,11 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		if errors.Is(err, errors.ErrUnsupported) {
 			return nil, errors.New("connector is not a supported source type")
 		}
-		err := fmt.Errorf("failed to create source connector: %w", err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
-		return nil, err
+		return nil, fmt.Errorf("failed to create source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.ValidateMirrorSource(ctx, req.ConnectionConfigs); err != nil {
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
 		return nil, fmt.Errorf("failed to validate source connector %s: %w", req.ConnectionConfigs.SourceName, err)
 	}
 
@@ -88,24 +80,20 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		if errors.Is(err, errors.ErrUnsupported) {
 			return &protos.ValidateCDCMirrorResponse{}, nil
 		}
-		err := fmt.Errorf("failed to create destination connector: %w", err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
-		return nil, err
+		return nil, fmt.Errorf("failed to create destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	res, err := srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
-		req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source table schema: %w", err)
+	var tableSchemaMap map[string]*protos.TableSchema
+	if !req.ConnectionConfigs.Resync {
+		var getTableSchemaError error
+		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
+			req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
+		if getTableSchemaError != nil {
+			return nil, fmt.Errorf("failed to get source table schema: %w", getTableSchemaError)
+		}
 	}
-
-	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, res); err != nil {
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
+	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap); err != nil {
 		return nil, err
 	}
 

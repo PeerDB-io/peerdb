@@ -3,6 +3,7 @@ package connkafka
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -75,7 +76,26 @@ func NewKafkaConnector(
 		kgo.WithLogger(kgoLogger(logger)),
 	)
 	if !config.DisableTls {
-		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(&tls.Config{MinVersion: tls.VersionTLS13}))
+		tlsSetting := &tls.Config{MinVersion: tls.VersionTLS12}
+		if config.Certificate != nil || config.PrivateKey != nil {
+			if config.Certificate == nil || config.PrivateKey == nil {
+				return nil, errors.New("both certificate and private key must be provided if using certificate-based authentication")
+			}
+			cert, err := tls.X509KeyPair([]byte(*config.Certificate), []byte(*config.PrivateKey))
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse provided certificate: %w", err)
+			}
+			tlsSetting.Certificates = []tls.Certificate{cert}
+		}
+		if config.RootCa != nil {
+			caPool := x509.NewCertPool()
+			if !caPool.AppendCertsFromPEM([]byte(*config.RootCa)) {
+				return nil, errors.New("failed to parse provided root CA")
+			}
+			tlsSetting.RootCAs = caPool
+		}
+
+		optionalOpts = append(optionalOpts, kgo.DialTLSConfig(tlsSetting))
 	}
 	switch config.Partitioner {
 	case "LeastBackup":

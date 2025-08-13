@@ -3,6 +3,7 @@ package connmongo
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 
@@ -17,9 +18,9 @@ func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesRes
 		return nil, fmt.Errorf("failed to get databases: %w", err)
 	}
 	for _, dbName := range dbNames {
-		collNames, err := c.client.Database(dbName).ListCollectionNames(ctx, bson.D{})
+		collNames, err := c.getCollectionNames(ctx, dbName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get collections: %w", err)
+			return nil, err
 		}
 		for _, collName := range collNames {
 			tableNames = append(tableNames, fmt.Sprintf("%s.%s", dbName, collName))
@@ -41,10 +42,9 @@ func (c *MongoConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasRes
 }
 
 func (c *MongoConnector) GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error) {
-	db := c.client.Database(schema)
-	collectionNames, err := db.ListCollectionNames(ctx, bson.D{})
+	collectionNames, err := c.getCollectionNames(ctx, schema)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get collections: %w", err)
+		return nil, err
 	}
 
 	response := protos.SchemaTablesResponse{
@@ -70,19 +70,38 @@ func (c *MongoConnector) GetColumns(ctx context.Context, version uint32, schema 
 	}, nil
 }
 
+func (c *MongoConnector) getCollectionNames(ctx context.Context, databaseName string) ([]string, error) {
+	collectionNames, err := c.client.Database(databaseName).ListCollectionNames(ctx, bson.M{
+		"name": bson.M{
+			"$not": bson.Regex{
+				Pattern: "^system\\.",
+			},
+		},
+		"type": bson.M{
+			"$ne": "view",
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get collections: %w", err)
+	}
+	slices.Sort(collectionNames)
+	return collectionNames, nil
+}
+
 // Get all database names, but excluding MongoDB's default databases
 func (c *MongoConnector) getAllDatabaseNames(ctx context.Context) ([]string, error) {
-	filter := bson.M{
+	dbs, err := c.client.ListDatabaseNames(ctx, bson.M{
 		"name": bson.M{
-			"$nin": []string{"admin", "local", "config"},
+			"$not": bson.Regex{
+				Pattern: "^(admin|local|config)$",
+			},
 		},
-	}
-	dbs, err := c.client.ListDatabaseNames(ctx, filter)
+	})
 	if err != nil {
 		return nil, err
 	}
 	filteredDbNames := make([]string, 0, len(dbs))
 	filteredDbNames = append(filteredDbNames, dbs...)
-
+	slices.Sort(filteredDbNames)
 	return filteredDbNames, nil
 }

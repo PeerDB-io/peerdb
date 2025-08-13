@@ -77,13 +77,13 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		FlushInterval: 10 * time.Second,
 	})
 	if err != nil {
-		esc.logger.Error("[es] failed to initialize bulk indexer", slog.Any("error", err))
-		return 0, nil, fmt.Errorf("[es] failed to initialize bulk indexer: %w", err)
+		esc.logger.Error("[elasticsearch] failed to initialize bulk indexer", slog.Any("error", err))
+		return 0, nil, fmt.Errorf("[elasticsearch] failed to initialize bulk indexer: %w", err)
 	}
 	defer func() {
 		if !bulkIndexerHasShutdown {
 			if err := esBulkIndexer.Close(context.Background()); err != nil {
-				esc.logger.Error("[es] failed to close bulk indexer", slog.Any("error", err))
+				esc.logger.Error("[elasticsearch] failed to close bulk indexer", slog.Any("error", err))
 			}
 		}
 	}()
@@ -109,8 +109,8 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		}
 		qRecordJsonBytes, err := json.Marshal(qRecordJsonMap)
 		if err != nil {
-			esc.logger.Error("[es] failed to json.Marshal record", slog.Any("error", err))
-			return 0, nil, fmt.Errorf("[es] failed to json.Marshal record: %w", err)
+			esc.logger.Error("[elasticsearch] failed to json.Marshal record", slog.Any("error", err))
+			return 0, nil, fmt.Errorf("[elasticsearch] failed to json.Marshal record: %w", err)
 		}
 
 		if err := esBulkIndexer.Add(ctx, esutil.BulkIndexerItem{
@@ -140,12 +140,12 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 				}
 			},
 		}); err != nil {
-			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
-			return 0, nil, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
+			esc.logger.Error("[elasticsearch] failed to add record to bulk indexer", slog.Any("error", err))
+			return 0, nil, fmt.Errorf("[elasticsearch] failed to add record to bulk indexer: %w", err)
 		}
 		if bulkIndexFatalError != nil {
-			esc.logger.Error("[es] fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
-			return 0, nil, fmt.Errorf("[es] fatal error while indexing record: %w", bulkIndexFatalError)
+			esc.logger.Error("[elasticsearch] fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
+			return 0, nil, fmt.Errorf("[elasticsearch] fatal error while indexing record: %w", bulkIndexFatalError)
 		}
 
 		// update here instead of OnSuccess, if we close successfully it should match
@@ -153,23 +153,23 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	}
 
 	if err := stream.Err(); err != nil {
-		esc.logger.Error("[es] failed to get record from stream", slog.Any("error", err))
-		return 0, nil, fmt.Errorf("[es] failed to get record from stream: %w", err)
+		esc.logger.Error("[elasticsearch] failed to get record from stream", slog.Any("error", err))
+		return 0, nil, fmt.Errorf("[elasticsearch] failed to get record from stream: %w", err)
 	}
 	if err := esBulkIndexer.Close(ctx); err != nil {
-		esc.logger.Error("[es] failed to close bulk indexer", slog.Any("error", err))
-		return 0, nil, fmt.Errorf("[es] failed to close bulk indexer: %w", err)
+		esc.logger.Error("[elasticsearch] failed to close bulk indexer", slog.Any("error", err))
+		return 0, nil, fmt.Errorf("[elasticsearch] failed to close bulk indexer: %w", err)
 	}
 	bulkIndexerHasShutdown = true
 	if len(bulkIndexErrors) > 0 {
 		for _, err := range bulkIndexErrors {
-			esc.logger.Error("[es] failed to index record", slog.Any("err", err))
+			esc.logger.Error("[elasticsearch] failed to index record", slog.Any("err", err))
 		}
 	}
 
 	if err := esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-		esc.logger.Error("[es] failed to log partition info", slog.Any("error", err))
-		return 0, nil, fmt.Errorf("[es] failed to log partition info: %w", err)
+		esc.logger.Error("[elasticsearch] failed to log partition info", slog.Any("error", err))
+		return 0, nil, fmt.Errorf("[elasticsearch] failed to log partition info: %w", err)
 	}
 	return numRecords, nil, nil
 }

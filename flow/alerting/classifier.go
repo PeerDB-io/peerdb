@@ -2,6 +2,7 @@ package alerting
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -56,6 +58,7 @@ const (
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
+	ErrorSourceTemporal        ErrorSource = "temporal"
 	ErrorSourceOther           ErrorSource = "other"
 )
 
@@ -113,6 +116,9 @@ var (
 	ErrorNotifyPublicationMissing = ErrorClass{
 		Class: "NOTIFY_PUBLICATION_MISSING", action: NotifyUser,
 	}
+	ErrorNotifyReplicationSlotMissing = ErrorClass{
+		Class: "NOTIFY_REPLICATION_SLOT_MISSING", action: NotifyUser,
+	}
 	ErrorUnsupportedDatatype = ErrorClass{
 		Class: "NOTIFY_UNSUPPORTED_DATATYPE", action: NotifyUser,
 	}
@@ -150,6 +156,12 @@ var (
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
 		Class: "OTHER", action: NotifyTelemetry,
+	}
+	// Postgres 16.9/17.5 etc. introduced a bug where certain workloads can cause logical replication to
+	// request a memory allocation of >1GB, which is not allowed by Postgres. Fixed already, but we need to handle this error
+	// https://github.com/postgres/postgres/commit/d87d07b7ad3b782cb74566cd771ecdb2823adf6a
+	ErrorPostgresSlotMemalloc = ErrorClass{
+		Class: "ERROR_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
 	}
 )
 
@@ -238,6 +250,26 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var temporalErr *temporal.ApplicationError
+	if errors.As(err, &temporalErr) {
+		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
+		case exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing:
+			return ErrorNotifyPublicationMissing, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "PUBLICATION_DOES_NOT_EXIST",
+			}
+		case exceptions.ApplicationErrorTypeIrrecoverableSlotMissing:
+			return ErrorNotifyReplicationSlotMissing, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
+			}
+		}
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourceTemporal,
+			Code:   temporalErr.Type(),
+		}
+	}
+
 	var pgConnErr *pgconn.ConnectError
 	if errors.As(err, &pgConnErr) {
 		return ErrorNotifyConnectivity, ErrorInfo{
@@ -294,6 +326,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(pgErr.Message,
 				"Your account or project has exceeded the compute time quota. Upgrade your plan to increase limits.") {
 				return ErrorNotifyConnectivity, pgErrorInfo
+			}
+
+			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
+				return ErrorPostgresSlotMemalloc, pgErrorInfo
 			}
 
 			// Fall through for other internal errors
@@ -441,6 +477,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			691, // UNKNOWN_ELEMENT_OF_ENUM
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
+			if isClickHouseMvError(chException) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				unexpectedSelectRe, reErr := regexp.Compile(
@@ -454,8 +493,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				if unexpectedSelectRe.MatchString(chException.Message) {
 					return ErrorNotifyMVOrView, chErrorInfo
 				}
-			} else if isClickHouseMvError(chException) {
-				return ErrorNotifyMVOrView, chErrorInfo
 			}
 		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException, chproto.ErrCannotReadFromSocket:
 			return ErrorRetryRecoverable, chErrorInfo
@@ -539,6 +576,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				ErrorAttributeKeyTable:  numericOutOfRangeError.DestinationTable,
 				ErrorAttributeKeyColumn: numericOutOfRangeError.DestinationColumn,
 			},
+		}
+	}
+
+	var tlsCertVerificationError *tls.CertificateVerificationError
+	if errors.As(err, &tlsCertVerificationError) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "tls.CertificateVerificationError",
 		}
 	}
 

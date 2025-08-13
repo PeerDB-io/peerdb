@@ -37,7 +37,6 @@ const (
 	// Queries
 	CDCFlowStateQuery  = "q-cdc-flow-state"
 	QRepFlowStateQuery = "q-qrep-flow-state"
-	FlowStatusQuery    = "q-flow-status"
 )
 
 var MirrorNameSearchAttribute = temporal.NewSearchAttributeKeyString("MirrorName")
