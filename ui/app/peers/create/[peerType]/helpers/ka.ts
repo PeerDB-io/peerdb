@@ -61,6 +61,54 @@ export const kaSetting: PeerSetting[] = [
     tips: 'If you are using a non-TLS connection for Kafka server, check this box.',
     optional: true,
   },
+  {
+    label: 'Certificate',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          const newCurr = { ...curr } as KafkaConfig;
+          delete newCurr.certificate;
+          return newCurr;
+        });
+      } else setter((curr) => ({ ...curr, certificate: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'This is only needed if the user is authenticated via certificate.',
+  },
+  {
+    label: 'Private Key',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          const newCurr = { ...curr } as KafkaConfig;
+          delete newCurr.privateKey;
+          return newCurr;
+        });
+      } else setter((curr) => ({ ...curr, privateKey: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'This is only needed if the user is authenticated via certificate.',
+  },
+  {
+    label: 'Root Certificate',
+    stateHandler: (value, setter) => {
+      if (!value) {
+        // remove key from state if empty
+        setter((curr) => {
+          const newCurr = { ...curr } as KafkaConfig;
+          delete newCurr.rootCa;
+          return newCurr;
+        });
+      } else setter((curr) => ({ ...curr, rootCa: value as string }));
+    },
+    type: 'file',
+    optional: true,
+    tips: 'If not provided, host CA roots will be used.',
+  },
 ];
 
 export const blankKafkaSetting: KafkaConfig = {
