@@ -33,6 +33,7 @@ message TableMapping {
   TableEngine engine = 6;
   string sharding_key = 7;
   string policy_name = 8;
+  string partition_by_expr = 9;
 }
 
 message SetupInput {

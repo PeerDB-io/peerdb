@@ -222,7 +222,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 	if tmEngine != protos.TableEngine_CH_ENGINE_NULL {
 		hasNullableKeyFn := buildIsNullableKeyFn(tableMapping, tableSchema.Columns, tableSchema.NullableEnabled)
-		orderByColumns, hasNullableOrderKey := getOrderedOrderByColumns(
+		orderByColumns, allowNullableKey := getOrderedOrderByColumns(
 			tableMapping, colNameMap, tableSchema.PrimaryKeyColumns, hasNullableKeyFn)
 		if sourceSchemaAsDestinationColumn {
 			orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
@@ -235,13 +235,21 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			stmtBuilder.WriteString(" ORDER BY tuple()")
 		}
 
-		partitionByColumns, hasNullablePartitionKey := getOrderedPartitionByColumns(tableMapping, colNameMap, hasNullableKeyFn)
-		if len(partitionByColumns) > 0 {
-			partitionByStr := strings.Join(partitionByColumns, ",")
-			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
+		if tableMapping != nil && tableMapping.PartitionByExpr != "" {
+			allowNullableKey = true
+			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", tableMapping.PartitionByExpr)
+		} else {
+			partitionByColumns, hasNullablePartitionKey := getOrderedPartitionByColumns(tableMapping, colNameMap, hasNullableKeyFn)
+			if hasNullablePartitionKey {
+				allowNullableKey = true
+			}
+			if len(partitionByColumns) > 0 {
+				partitionByStr := strings.Join(partitionByColumns, ",")
+				fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
+			}
 		}
 
-		if hasNullableOrderKey || hasNullablePartitionKey {
+		if allowNullableKey {
 			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 		}
 
