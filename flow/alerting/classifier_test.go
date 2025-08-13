@@ -160,7 +160,7 @@ func TestPostgresMemoryAllocErrorShouldBeSlotMemalloc(t *testing.T) {
 		},
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
-	assert.Equal(t, ErrorPostgresSlotMemalloc, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyPostgresSlotMemalloc, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.InternalError,
