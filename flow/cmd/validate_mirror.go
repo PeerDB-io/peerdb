@@ -13,7 +13,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
-	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
 var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
@@ -40,9 +39,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		}
 
 		if mirrorExists {
-			displayErr := fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
-			return nil, displayErr
+			return nil, fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
 		}
 	}
 
@@ -66,18 +63,11 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		if errors.Is(err, errors.ErrUnsupported) {
 			return nil, errors.New("connector is not a supported source type")
 		}
-		err := fmt.Errorf("failed to create source connector: %w", err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
-		return nil, err
+		return nil, fmt.Errorf("failed to create source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.ValidateMirrorSource(ctx, req.ConnectionConfigs); err != nil {
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
 		return nil, fmt.Errorf("failed to validate source connector %s: %w", req.ConnectionConfigs.SourceName, err)
 	}
 
@@ -88,11 +78,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		if errors.Is(err, errors.ErrUnsupported) {
 			return &protos.ValidateCDCMirrorResponse{}, nil
 		}
-		err := fmt.Errorf("failed to create destination connector: %w", err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
-		return nil, err
+		return nil, fmt.Errorf("failed to create destination connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
@@ -103,9 +89,6 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 
 	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, res); err != nil {
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
 		return nil, err
 	}
 
