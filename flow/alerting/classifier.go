@@ -467,6 +467,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			691, // UNKNOWN_ELEMENT_OF_ENUM
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
+			if isClickHouseMvError(chException) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				unexpectedSelectRe, reErr := regexp.Compile(
@@ -480,8 +483,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				if unexpectedSelectRe.MatchString(chException.Message) {
 					return ErrorNotifyMVOrView, chErrorInfo
 				}
-			} else if isClickHouseMvError(chException) {
-				return ErrorNotifyMVOrView, chErrorInfo
 			}
 		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException, chproto.ErrCannotReadFromSocket:
 			return ErrorRetryRecoverable, chErrorInfo
