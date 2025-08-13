@@ -27,8 +27,8 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 		id serial primary key,
 		i8 tinyint, u8 tinyint unsigned,
 		i16 smallint, u16 smallint unsigned,
-		i24 mediumint, u24 mediumint unsigned,
-		i32 int, u32 int unsigned,
+		i24 mediumint zerofill, u24 mediumint unsigned,
+		i32 int, u32 int unsigned zerofill,
 		i64 bigint, u64 bigint unsigned,
 		d decimal(7, 6), b boolean
 	)`, srcFullName)))
