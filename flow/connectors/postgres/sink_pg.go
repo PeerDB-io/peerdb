@@ -12,13 +12,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/postgres/sanitize"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 )
 
 type PgCopyShared struct {
-	schemaLatch chan struct{}
+	schemaLatch *concurrency.Latch[[]string]
 	err         error
-	schema      []string
-	schemaSet   bool
 }
 
 type PgCopyWriter struct {
@@ -33,17 +32,13 @@ type PgCopyReader struct {
 
 func NewPgCopyPipe() (PgCopyReader, PgCopyWriter) {
 	read, write := io.Pipe()
-	schema := PgCopyShared{schemaLatch: make(chan struct{})}
+	schema := PgCopyShared{schemaLatch: concurrency.NewLatch[[]string]()}
 	return PgCopyReader{PipeReader: read, schema: &schema},
 		PgCopyWriter{PipeWriter: write, schema: &schema}
 }
 
 func (p PgCopyWriter) SetSchema(schema []string) {
-	if !p.schema.schemaSet {
-		p.schema.schema = schema
-		close(p.schema.schemaLatch)
-		p.schema.schemaSet = true
-	}
+	p.schema.schemaLatch.Set(schema)
 }
 
 func (p PgCopyWriter) ExecuteQueryWithTx(
@@ -109,8 +104,7 @@ func (p PgCopyWriter) Close(err error) {
 }
 
 func (p PgCopyReader) GetColumnNames() ([]string, error) {
-	<-p.schema.schemaLatch
-	return p.schema.schema, p.schema.err
+	return p.schema.schemaLatch.Wait(), p.schema.err
 }
 
 func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {
