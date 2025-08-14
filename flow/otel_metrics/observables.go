@@ -125,6 +125,7 @@ func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
 		activityInfo := activity.GetInfo(ctx)
 		attributes = append(attributes,
 			attribute.Bool(IsTemporalActivityKey, true),
+			attribute.Bool(IsTemporalLocalActivityKey, activityInfo.IsLocalActivity),
 			attribute.String(TemporalActivityTypeKey, activityInfo.ActivityType.Name),
 			attribute.String(TemporalWorkflowTypeKey, activityInfo.WorkflowType.Name),
 		)

@@ -1372,18 +1372,6 @@ func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context,
 	return internal.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, internal.LoggerFromCtx(ctx), cfg)
 }
 
-func (a *FlowableActivity) UpdateFlowStatusInCatalogActivity(
-	ctx context.Context,
-	workflowID string,
-	status protos.FlowStatus,
-) (protos.FlowStatus, error) {
-	if _, err := a.CatalogPool.Exec(ctx, "UPDATE flows SET status=$1,updated_at=now() WHERE workflow_id=$2", status, workflowID); err != nil {
-		internal.LoggerFromCtx(ctx).Error("failed to update flow status", slog.Any("error", err), slog.String("flowID", workflowID))
-		return status, fmt.Errorf("failed to update flow status: %w", err)
-	}
-	return status, nil
-}
-
 func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
 }
