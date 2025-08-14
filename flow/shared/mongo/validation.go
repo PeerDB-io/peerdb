@@ -2,75 +2,125 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
-	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 const (
 	MinSupportedVersion    = "5.1.0"
 	MinOplogRetentionHours = 24
+
+	ReplicaSet     = "ReplicaSet"
+	ShardedCluster = "ShardedCluster"
 )
 
-type BuildInfo struct {
-	Version string `bson:"version"`
-}
-
-type ReplSetGetStatus struct {
-	Set     string `bson:"set"`
-	MyState int    `bson:"myState"`
-}
-
-type OplogTruncation struct {
-	OplogMinRetentionHours float64 `bson:"oplogMinRetentionHours"`
-}
-
-type StorageEngine struct {
-	Name string `bson:"name"`
-}
-
-type ServerStatus struct {
-	StorageEngine   StorageEngine   `bson:"storageEngine"`
-	OplogTruncation OplogTruncation `bson:"oplogTruncation"`
-}
-
-func GetBuildInfo(ctx context.Context, client *mongo.Client) (*BuildInfo, error) {
-	singleResult := client.Database("admin").RunCommand(ctx, bson.D{bson.E{Key: "buildInfo", Value: 1}})
-	if singleResult.Err() != nil {
-		return nil, fmt.Errorf("failed to run 'buildInfo' command: %w", singleResult.Err())
+func ValidateServerCompatibility(ctx context.Context, client *mongo.Client) error {
+	buildInfo, err := GetBuildInfo(ctx, client)
+	if err != nil {
+		return err
 	}
-	var info BuildInfo
-	if err := singleResult.Decode(&info); err != nil {
-		return nil, fmt.Errorf("failed to decode BuildInfo: %w", err)
+
+	if cmp, err := CompareServerVersions(buildInfo.Version, MinSupportedVersion); err != nil {
+		return err
+	} else if cmp < 0 {
+		return fmt.Errorf("require minimum mongo version %s", MinSupportedVersion)
 	}
-	return &info, nil
+
+	validateStorageEngine := func(instanceCtx context.Context, instanceClient *mongo.Client) error {
+		ss, err := GetServerStatus(instanceCtx, instanceClient)
+		if err != nil {
+			return err
+		}
+
+		if ss.StorageEngine.Name != "wiredTiger" {
+			return errors.New("only wiredTiger storage engine is supported")
+		}
+		return nil
+	}
+
+	topologyType, err := GetTopologyType(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	if topologyType == ReplicaSet {
+		return validateStorageEngine(ctx, client)
+	} else {
+		// TODO: run validation on shard
+		return nil
+	}
 }
 
-func GetReplSetGetStatus(ctx context.Context, client *mongo.Client) (*ReplSetGetStatus, error) {
-	singleResult := client.Database("admin").RunCommand(ctx, bson.D{
-		bson.E{Key: "replSetGetStatus", Value: 1},
-	})
-	if singleResult.Err() != nil {
-		return nil, fmt.Errorf("failed to run 'replSetGetStatus' command: %w", singleResult.Err())
+func ValidateUserRoles(ctx context.Context, client *mongo.Client) error {
+	RequiredRoles := []string{"readAnyDatabase", "clusterMonitor"}
+
+	connectionStatus, err := GetConnectionStatus(ctx, client)
+	if err != nil {
+		return err
 	}
-	var status ReplSetGetStatus
-	if err := singleResult.Decode(&status); err != nil {
-		return nil, fmt.Errorf("failed to decode ReplSetGetStatus: %w", err)
+
+	hasRole := func(roles []Role, targetRole string) bool {
+		for _, role := range roles {
+			if role.Role == targetRole {
+				return true
+			}
+		}
+		return false
 	}
-	return &status, nil
+
+	for _, requiredRole := range RequiredRoles {
+		if !hasRole(connectionStatus.AuthInfo.AuthenticatedUserRoles, requiredRole) {
+			return fmt.Errorf("missing required role: %s", requiredRole)
+		}
+	}
+
+	return nil
 }
 
-func GetServerStatus(ctx context.Context, client *mongo.Client) (*ServerStatus, error) {
-	singleResult := client.Database("admin").RunCommand(ctx, bson.D{
-		bson.E{Key: "serverStatus", Value: 1},
-	})
-	if singleResult.Err() != nil {
-		return nil, fmt.Errorf("failed to run 'serverStatus' command: %w", singleResult.Err())
+func ValidateOplogRetention(ctx context.Context, client *mongo.Client) error {
+	validateOplogRetention := func(instanceCtx context.Context, instanceClient *mongo.Client) error {
+		ss, err := GetServerStatus(instanceCtx, instanceClient)
+		if err != nil {
+			return err
+		}
+		if ss.OplogTruncation.OplogMinRetentionHours == 0 ||
+			ss.OplogTruncation.OplogMinRetentionHours < MinOplogRetentionHours {
+			return fmt.Errorf("oplog retention must be set to >= 24 hours, but got %f",
+				ss.OplogTruncation.OplogMinRetentionHours)
+		}
+		return nil
 	}
-	var status ServerStatus
-	if err := singleResult.Decode(&status); err != nil {
-		return nil, fmt.Errorf("failed to decode ServerStatus: %w", err)
+
+	topology, err := GetTopologyType(ctx, client)
+	if err != nil {
+		return err
 	}
-	return &status, nil
+	if topology == ReplicaSet {
+		return validateOplogRetention(ctx, client)
+	} else {
+		// TODO: run validation on shard
+		return nil
+	}
+}
+
+func GetTopologyType(ctx context.Context, client *mongo.Client) (string, error) {
+	hello, err := GetHelloResponse(ctx, client)
+	if err != nil {
+		return "", err
+	}
+
+	// Only replica set has 'hosts' field
+	// https://www.mongodb.com/docs/manual/reference/command/hello/#mongodb-data-hello.hosts
+	if len(hello.Hosts) > 0 {
+		return ReplicaSet, nil
+	}
+
+	// Only sharded cluster has 'msg' field, and equals to 'isdbgrid'
+	// https://www.mongodb.com/docs/manual/reference/command/hello/#mongodb-data-hello.msg
+	if hello.Msg == "isdbgrid" {
+		return ShardedCluster, nil
+	}
+	return "", errors.New("topology type must be ReplicaSet or ShardedCluster")
 }
