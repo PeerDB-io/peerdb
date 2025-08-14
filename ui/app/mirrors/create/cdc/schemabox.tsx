@@ -137,6 +137,13 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
+  const updatePartitionByExpr = (source: string, partitionByExpr: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], partitionByExpr };
+    setRows(newRows);
+  };
+
   const addTableColumns = useCallback(
     (table: string) => {
       const [schemaName, tableName] = table.split('.');
@@ -228,6 +235,7 @@ export default function SchemaBox({
               row.partitionKey = existingRow.partitionKey;
               row.shardingKey = existingRow.shardingKey;
               row.policyName = existingRow.policyName;
+              row.partitionByExpr = existingRow.partitionByExpr;
               row.exclude = new Set(existingRow.exclude ?? []);
               row.destination = existingRow.destinationTableIdentifier;
               addTableColumns(row.source);
@@ -366,6 +374,7 @@ export default function SchemaBox({
                           rowGap: '0.5rem',
                           columnGap: '3rem',
                           display: row.selected ? 'flex' : 'none',
+                          flexWrap: 'wrap',
                         }}
                         key={row.source}
                       >
@@ -463,6 +472,27 @@ export default function SchemaBox({
                                   e: React.ChangeEvent<HTMLInputElement>
                                 ) =>
                                   updatePolicyName(row.source, e.target.value)
+                                }
+                              />
+                            </div>
+                            <div style={{ width: '30%', fontSize: 12 }}>
+                              Partition By Expr:
+                              <TextField
+                                disabled={row.editingDisabled}
+                                style={{
+                                  marginTop: '0.5rem',
+                                  cursor: 'pointer',
+                                }}
+                                variant='simple'
+                                placeholder='Partition By expression (optional)'
+                                value={row.partitionByExpr}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>
+                                ) =>
+                                  updatePartitionByExpr(
+                                    row.source,
+                                    e.target.value
+                                  )
                                 }
                               />
                             </div>

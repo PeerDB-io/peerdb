@@ -615,6 +615,12 @@ func (c *MySqlConnector) PullRecords(
 					return errors.New("mysql v0 replication protocol not supported")
 				}
 			}
+			if event.Header.Timestamp > 0 {
+				otelManager.Metrics.LatestConsumedLogEventGauge.Record(
+					ctx,
+					int64(event.Header.Timestamp),
+				)
+			}
 		}
 	}
 	return nil

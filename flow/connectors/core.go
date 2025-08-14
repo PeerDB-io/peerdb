@@ -225,6 +225,9 @@ type QRepPullConnectorCore interface {
 
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
 	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
+
+	GetDefaultPartitionKeyForTables(ctx context.Context,
+		input *protos.GetDefaultPartitionKeyForTablesInput) (*protos.GetDefaultPartitionKeyForTablesOutput, error)
 }
 
 type QRepPullConnector interface {
@@ -299,6 +302,12 @@ type GetVersionConnector interface {
 	Connector
 
 	GetVersion(context.Context) (string, error)
+}
+
+type GetLogRetentionConnector interface {
+	Connector
+
+	GetLogRetentionHours(ctx context.Context) (float64, error)
 }
 
 func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (protos.DBType, error) {
@@ -578,4 +587,7 @@ var (
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
 	_ GetVersionConnector = &connmysql.MySqlConnector{}
 	_ GetVersionConnector = &connmongo.MongoConnector{}
+
+	_ GetLogRetentionConnector = &connmysql.MySqlConnector{}
+	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
 )

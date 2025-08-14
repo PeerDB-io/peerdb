@@ -157,6 +157,12 @@ var (
 		// These are unclassified and should not be exposed
 		Class: "OTHER", action: NotifyTelemetry,
 	}
+	// Postgres 16.9/17.5 etc. introduced a bug where certain workloads can cause logical replication to
+	// request a memory allocation of >1GB, which is not allowed by Postgres. Fixed already, but we need to handle this error
+	// https://github.com/postgres/postgres/commit/d87d07b7ad3b782cb74566cd771ecdb2823adf6a
+	ErrorNotifyPostgresSlotMemalloc = ErrorClass{
+		Class: "NOTIFY_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
+	}
 )
 
 func (e ErrorClass) String() string {
@@ -322,6 +328,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
+			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
+				return ErrorNotifyPostgresSlotMemalloc, pgErrorInfo
+			}
+
 			// Fall through for other internal errors
 			return ErrorOther, pgErrorInfo
 
@@ -467,6 +477,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			691, // UNKNOWN_ELEMENT_OF_ENUM
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
+			if isClickHouseMvError(chException) {
+				return ErrorNotifyMVOrView, chErrorInfo
+			}
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				unexpectedSelectRe, reErr := regexp.Compile(
@@ -480,8 +493,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				if unexpectedSelectRe.MatchString(chException.Message) {
 					return ErrorNotifyMVOrView, chErrorInfo
 				}
-			} else if isClickHouseMvError(chException) {
-				return ErrorNotifyMVOrView, chErrorInfo
 			}
 		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException, chproto.ErrCannotReadFromSocket:
 			return ErrorRetryRecoverable, chErrorInfo

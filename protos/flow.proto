@@ -33,6 +33,7 @@ message TableMapping {
   TableEngine engine = 6;
   string sharding_key = 7;
   string policy_name = 8;
+  string partition_by_expr = 9;
 }
 
 message SetupInput {
@@ -156,9 +157,9 @@ message SetupReplicationInput {
 }
 
 message SetupReplicationOutput {
+  reserved 3;
   string slot_name = 1;
   string snapshot_name = 2;
-  bool supports_tid_scans = 3;
 }
 
 message CreateRawTableInput {
@@ -460,8 +461,8 @@ message IsQRepPartitionSyncedInput {
 }
 
 message ExportTxSnapshotOutput {
+  reserved 2;
   string snapshot_name = 1;
-  bool supports_tid_scans = 2;
 }
 
 enum DynconfValueType {
@@ -559,4 +560,12 @@ message FlowContextMetadata{
 
 message AdditionalContextMetadata{
   FlowOperation operation = 1;
+}
+
+message GetDefaultPartitionKeyForTablesInput {
+  repeated TableMapping table_mappings = 1;
+}
+
+message GetDefaultPartitionKeyForTablesOutput {
+  map<string, string> table_default_partition_key_mapping = 1;
 }

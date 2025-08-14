@@ -1,22 +1,23 @@
 package connmongo
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+var API = CreateExtendedJSONMarshaler()
+
 func qValueStringFromKey(key any) (types.QValueString, error) {
-	jsonb, err := json.Marshal(key)
+	jsonb, err := API.Marshal(key)
 	if err != nil {
 		return types.QValueString{}, fmt.Errorf("error marshalling key: %w", err)
 	}
 	return types.QValueString{Val: string(jsonb)}, nil
 }
 
-func qValueJSONFromDocument(document interface{}) (types.QValueJSON, error) {
-	jsonb, err := json.Marshal(document)
+func qValueJSONFromDocument(document any) (types.QValueJSON, error) {
+	jsonb, err := API.Marshal(document)
 	if err != nil {
 		return types.QValueJSON{}, fmt.Errorf("error marshalling document: %w", err)
 	}
