@@ -1412,3 +1412,11 @@ func (a *FlowableActivity) GetFlowMetadata(
 		IsResync: input.IsResync,
 	}, nil
 }
+
+func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+	return internal.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, internal.LoggerFromCtx(ctx), cfg)
+}
+
+func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
+	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
+}

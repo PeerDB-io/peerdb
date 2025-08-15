@@ -147,8 +147,9 @@ func (s ClickHouseSuite) Test_Addition_Removal() {
 	e2e.EnvWaitFor(s.t, env, 4*time.Minute, "adding table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	afterAddRunID := e2e.EnvGetRunID(s.t, env)
-	require.NotEqual(s.t, runID, afterAddRunID)
+	e2e.EnvWaitFor(s.t, env, time.Minute, "ContinueAsNew", func() bool {
+		return runID != e2e.EnvGetRunID(s.t, env)
+	})
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key") VALUES ('test')`, addedSrcTableName)))
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "first insert to added table", "test_table_add_remove_added", addedDstTableName, "id,\"key\"")
@@ -497,11 +498,10 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	_, err = s.Conn().Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s (key, \"includedColumn?\", \"excludedColumn?\") VALUES ('cdc','still','ex')", srcFullName))
 	require.NoError(s.t, err)
-
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\"")
-
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
+
 	env = e2e.ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowConnConfig.FlowJobName,
 		DropFlowStats:         false,

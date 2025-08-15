@@ -31,6 +31,16 @@ type SnapshotFlowExecution struct {
 	logger log.Logger
 }
 
+func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
+	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var dbtype protos.DBType
+	err := workflow.ExecuteActivity(checkCtx, snapshot.GetPeerType, name).Get(checkCtx, &dbtype)
+	return dbtype, err
+}
+
 func (s *SnapshotFlowExecution) setupReplication(
 	ctx workflow.Context,
 ) (*protos.SetupReplicationOutput, error) {
