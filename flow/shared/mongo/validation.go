@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -15,6 +16,8 @@ const (
 	ReplicaSet     = "ReplicaSet"
 	ShardedCluster = "ShardedCluster"
 )
+
+var RequiredRoles = [...]string{"readAnyDatabase", "clusterMonitor"}
 
 func ValidateServerCompatibility(ctx context.Context, client *mongo.Client) error {
 	buildInfo, err := GetBuildInfo(ctx, client)
@@ -54,24 +57,15 @@ func ValidateServerCompatibility(ctx context.Context, client *mongo.Client) erro
 }
 
 func ValidateUserRoles(ctx context.Context, client *mongo.Client) error {
-	RequiredRoles := []string{"readAnyDatabase", "clusterMonitor"}
-
 	connectionStatus, err := GetConnectionStatus(ctx, client)
 	if err != nil {
 		return err
 	}
 
-	hasRole := func(roles []Role, targetRole string) bool {
-		for _, role := range roles {
-			if role.Role == targetRole {
-				return true
-			}
-		}
-		return false
-	}
-
 	for _, requiredRole := range RequiredRoles {
-		if !hasRole(connectionStatus.AuthInfo.AuthenticatedUserRoles, requiredRole) {
+		if !slices.ContainsFunc(connectionStatus.AuthInfo.AuthenticatedUserRoles, func(r Role) bool {
+			return r.Role == requiredRole
+		}) {
 			return fmt.Errorf("missing required role: %s", requiredRole)
 		}
 	}

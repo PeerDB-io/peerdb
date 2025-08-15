@@ -12,7 +12,7 @@ type BuildInfo struct {
 	Version string `bson:"version"`
 }
 
-func GetBuildInfo(ctx context.Context, client *mongo.Client) (*BuildInfo, error) {
+func GetBuildInfo(ctx context.Context, client *mongo.Client) (BuildInfo, error) {
 	return runCommand[BuildInfo](ctx, client, "buildInfo")
 }
 
@@ -21,7 +21,7 @@ type ReplSetGetStatus struct {
 	MyState int    `bson:"myState"`
 }
 
-func GetReplSetGetStatus(ctx context.Context, client *mongo.Client) (*ReplSetGetStatus, error) {
+func GetReplSetGetStatus(ctx context.Context, client *mongo.Client) (ReplSetGetStatus, error) {
 	return runCommand[ReplSetGetStatus](ctx, client, "replSetGetStatus")
 }
 
@@ -38,7 +38,7 @@ type ServerStatus struct {
 	OplogTruncation OplogTruncation `bson:"oplogTruncation"`
 }
 
-func GetServerStatus(ctx context.Context, client *mongo.Client) (*ServerStatus, error) {
+func GetServerStatus(ctx context.Context, client *mongo.Client) (ServerStatus, error) {
 	return runCommand[ServerStatus](ctx, client, "serverStatus")
 }
 
@@ -55,7 +55,7 @@ type Role struct {
 	DB   string `bson:"db"`
 }
 
-func GetConnectionStatus(ctx context.Context, client *mongo.Client) (*ConnectionStatus, error) {
+func GetConnectionStatus(ctx context.Context, client *mongo.Client) (ConnectionStatus, error) {
 	return runCommand[ConnectionStatus](ctx, client, "connectionStatus")
 }
 
@@ -64,21 +64,21 @@ type HelloResponse struct {
 	Hosts []string `bson:"hosts,omitempty"`
 }
 
-func GetHelloResponse(ctx context.Context, client *mongo.Client) (*HelloResponse, error) {
+func GetHelloResponse(ctx context.Context, client *mongo.Client) (HelloResponse, error) {
 	return runCommand[HelloResponse](ctx, client, "hello")
 }
 
-func runCommand[T any](ctx context.Context, client *mongo.Client, command string) (*T, error) {
+func runCommand[T any](ctx context.Context, client *mongo.Client, command string) (T, error) {
+	var result T
 	singleResult := client.Database("admin").RunCommand(ctx, bson.D{
 		bson.E{Key: command, Value: 1},
 	})
 	if singleResult.Err() != nil {
-		return nil, fmt.Errorf("'%s' failed: %v", command, singleResult.Err())
+		return result, fmt.Errorf("'%s' failed: %v", command, singleResult.Err())
 	}
 
-	var result T
 	if err := singleResult.Decode(&result); err != nil {
-		return nil, fmt.Errorf("'%s' failed: %v", command, err)
+		return result, fmt.Errorf("'%s' failed: %v", command, err)
 	}
-	return &result, nil
+	return result, nil
 }
