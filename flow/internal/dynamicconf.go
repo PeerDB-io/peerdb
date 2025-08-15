@@ -33,9 +33,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name: "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
-		Description: "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalization, " +
-			"use with PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE",
+		Name:             "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE",
+		Description:      "Advanced setting: changes buffer size of channel PeerDB uses for queueing normalization",
 		DefaultValue:     "128",
 		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
@@ -87,14 +86,6 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_STRING,
 		Description:      "SQL to run during each WAL heartbeat",
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
-		TargetForSetting: protos.DynconfTarget_ALL,
-	},
-	{
-		Name:             "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE",
-		Description:      "Enables parallel sync (moving rows to target) and normalize (updating rows in target table)",
-		DefaultValue:     "true",
-		ValueType:        protos.DynconfValueType_BOOL,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
@@ -555,10 +546,6 @@ func PeerDBEnableWALHeartbeat(ctx context.Context, env map[string]string) (bool,
 
 func PeerDBWALHeartbeatQuery(ctx context.Context, env map[string]string) (string, error) {
 	return dynLookup(ctx, env, "PEERDB_WAL_HEARTBEAT_QUERY")
-}
-
-func PeerDBEnableParallelSyncNormalize(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_PARALLEL_SYNC_NORMALIZE")
 }
 
 func PeerDBReconnectAfterBatches(ctx context.Context, env map[string]string) (int32, error) {
