@@ -42,7 +42,6 @@ type CheckMetadataTablesResult struct {
 }
 
 type NormalizeBatchRequest struct {
-	Done    chan struct{}
 	BatchID int64
 }
 

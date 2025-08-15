@@ -330,26 +330,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if recordBatchSync.NeedsNormalize() {
-		parallel, err := internal.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
-		if err != nil {
-			return nil, err
-		}
-		var done chan struct{}
-		if !parallel {
-			done = make(chan struct{})
-		}
 		syncState.Store(shared.Ptr("normalizing"))
 		select {
-		case normRequests <- NormalizeBatchRequest{BatchID: res.CurrentSyncBatchID, Done: done}:
+		case normRequests <- NormalizeBatchRequest{BatchID: res.CurrentSyncBatchID}:
 		case <-ctx.Done():
 			return res, nil
-		}
-		if done != nil {
-			select {
-			case <-done:
-			case <-ctx.Done():
-				return res, nil
-			}
 		}
 	}
 
@@ -722,8 +707,6 @@ func (a *FlowableActivity) normalizeLoop(
 							continue retryLoop
 						}
 					}
-				} else if req.Done != nil {
-					close(req.Done)
 				}
 				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
