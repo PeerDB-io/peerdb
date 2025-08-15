@@ -8,7 +8,13 @@ import (
 )
 
 func (c *MongoConnector) ValidateCheck(ctx context.Context) error {
-	if err := shared_mongo.ValidateServerCompatibility(ctx, c.client); err != nil {
+	if err := shared_mongo.ValidateServerCompatibility(ctx, c.client, shared_mongo.Credentials{
+		Username:   c.config.Username,
+		Password:   c.config.Password,
+		DisableTls: c.config.DisableTls,
+		RootCa:     c.config.RootCa,
+		TlsHost:    c.config.TlsHost,
+	}); err != nil {
 		return err
 	}
 
@@ -24,7 +30,13 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return nil
 	}
 
-	if err := shared_mongo.ValidateOplogRetention(ctx, c.client); err != nil {
+	if err := shared_mongo.ValidateOplogRetention(ctx, c.client, shared_mongo.Credentials{
+		Username:   c.config.Username,
+		Password:   c.config.Password,
+		DisableTls: c.config.DisableTls,
+		RootCa:     c.config.RootCa,
+		TlsHost:    c.config.TlsHost,
+	}); err != nil {
 		return err
 	}
 

@@ -2,11 +2,17 @@ package mongo
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
+	"sync"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
@@ -19,7 +25,15 @@ const (
 
 var RequiredRoles = [...]string{"readAnyDatabase", "clusterMonitor"}
 
-func ValidateServerCompatibility(ctx context.Context, client *mongo.Client) error {
+type Credentials struct {
+	RootCa     *string
+	Username   string
+	Password   string
+	TlsHost    string
+	DisableTls bool
+}
+
+func ValidateServerCompatibility(ctx context.Context, client *mongo.Client, credentials Credentials) error {
 	buildInfo, err := GetBuildInfo(ctx, client)
 	if err != nil {
 		return err
@@ -51,8 +65,7 @@ func ValidateServerCompatibility(ctx context.Context, client *mongo.Client) erro
 	if topologyType == ReplicaSet {
 		return validateStorageEngine(ctx, client)
 	} else {
-		// TODO: run validation on shard
-		return nil
+		return runOnShardsInParallel(ctx, client, credentials, validateStorageEngine)
 	}
 }
 
@@ -73,7 +86,7 @@ func ValidateUserRoles(ctx context.Context, client *mongo.Client) error {
 	return nil
 }
 
-func ValidateOplogRetention(ctx context.Context, client *mongo.Client) error {
+func ValidateOplogRetention(ctx context.Context, client *mongo.Client, credentials Credentials) error {
 	validateOplogRetention := func(instanceCtx context.Context, instanceClient *mongo.Client) error {
 		ss, err := GetServerStatus(instanceCtx, instanceClient)
 		if err != nil {
@@ -94,8 +107,7 @@ func ValidateOplogRetention(ctx context.Context, client *mongo.Client) error {
 	if topology == ReplicaSet {
 		return validateOplogRetention(ctx, client)
 	} else {
-		// TODO: run validation on shard
-		return nil
+		return runOnShardsInParallel(ctx, client, credentials, validateOplogRetention)
 	}
 }
 
@@ -117,4 +129,92 @@ func GetTopologyType(ctx context.Context, client *mongo.Client) (string, error) 
 		return ShardedCluster, nil
 	}
 	return "", errors.New("topology type must be ReplicaSet or ShardedCluster")
+}
+
+func runOnShardsInParallel(
+	ctx context.Context,
+	client *mongo.Client,
+	credentials Credentials,
+	runCommand func(ctx context.Context, client *mongo.Client) error,
+) error {
+	res, err := GetListShards(ctx, client)
+	if err != nil {
+		return err
+	}
+
+	if res.Ok != 1 || len(res.Shards) == 0 {
+		return errors.New("invalid shards")
+	}
+
+	hosts := getUniqueClusterHosts(res.Shards)
+	hostsErrors := make([]error, len(hosts))
+	var wg sync.WaitGroup
+	for idx, host := range hosts {
+		wg.Add(1)
+		go func(i int, h string) {
+			defer wg.Done()
+
+			shardOpts := options.Client().
+				ApplyURI("mongodb://" + h).
+				SetDirect(true).
+				SetAuth(options.Credential{
+					Username: credentials.Username,
+					Password: credentials.Password,
+				})
+
+			if !credentials.DisableTls {
+				tlsConfig, err := shared.CreateTlsConfig(tls.VersionTLS12, credentials.RootCa, "", credentials.TlsHost, false)
+				if err != nil {
+					hostsErrors[i] = fmt.Errorf("host %s TLS config error: %w", h, err)
+					return
+				}
+				shardOpts.SetTLSConfig(tlsConfig)
+			}
+
+			shardClient, err := mongo.Connect(shardOpts)
+			if err != nil {
+				hostsErrors[i] = fmt.Errorf("host %s connect error: %w", h, err)
+				return
+			}
+			defer shardClient.Disconnect(ctx) //nolint:errcheck
+
+			if err := runCommand(ctx, shardClient); err != nil {
+				hostsErrors[i] = fmt.Errorf("host %s command error: %w", h, err)
+				return
+			}
+		}(idx, host)
+	}
+	wg.Wait()
+
+	for _, err = range hostsErrors {
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func getUniqueClusterHosts(shards []Shard) []string {
+	hostSet := make(map[string]bool)
+	for _, shard := range shards {
+		hosts := shard.Host
+		if slashIdx := strings.Index(hosts, "/"); slashIdx != -1 {
+			hosts = hosts[slashIdx+1:]
+		}
+
+		for _, host := range strings.Split(hosts, ",") {
+			host = strings.TrimSpace(host)
+			if host != "" {
+				hostSet[host] = true
+			}
+		}
+	}
+
+	hosts := make([]string, 0, len(hostSet))
+	for host := range hostSet {
+		hosts = append(hosts, host)
+	}
+
+	return hosts
 }
