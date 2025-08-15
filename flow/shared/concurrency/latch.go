@@ -5,9 +5,9 @@ import "sync"
 // Latch is a thread-safe value holder that can be set once and read many times.
 // Once Set is called, all future Wait calls will immediately return the set value.
 type Latch[T any] struct {
-	once  sync.Once
-	ready chan struct{}
 	val   T
+	ready chan struct{}
+	once  sync.Once
 }
 
 // NewLatch creates a new Latch for type T.
