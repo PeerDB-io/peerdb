@@ -68,6 +68,19 @@ func GetHelloResponse(ctx context.Context, client *mongo.Client) (HelloResponse,
 	return runCommand[HelloResponse](ctx, client, "hello")
 }
 
+type Shard struct {
+	Host string `bson:"host"`
+}
+
+type ListShards struct {
+	Shards []Shard `bson:"shards"`
+	Ok     int     `bson:"ok"`
+}
+
+func GetListShards(ctx context.Context, client *mongo.Client) (ListShards, error) {
+	return runCommand[ListShards](ctx, client, "listShards")
+}
+
 func runCommand[T any](ctx context.Context, client *mongo.Client, command string) (T, error) {
 	var result T
 	singleResult := client.Database("admin").RunCommand(ctx, bson.D{
