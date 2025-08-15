@@ -247,6 +247,8 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		"ignore_materialized_views_with_dropped_target_table": true,
 		// avoid "there is no metadata of table ..."
 		"alter_sync": uint64(1),
+		// was misbehaving, causing duplication during initial load
+		"parallel_replicas_for_cluster_engines": false,
 	}
 	if maxInsertThreads, err := internal.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
 		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
