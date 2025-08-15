@@ -413,6 +413,7 @@ enum FlowStatus {
   STATUS_COMPLETED = 8;
   STATUS_RESYNC = 9;
   STATUS_FAILED = 10;
+  STATUS_MODIFYING = 11;
 }
 
 message CDCFlowConfigUpdate {

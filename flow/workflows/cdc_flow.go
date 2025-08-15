@@ -347,6 +347,7 @@ func processTableRemovals(
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) error {
+	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_MODIFYING)
 	removeTablesSelector := workflow.NewNamedSelector(ctx, "RemoveTables")
 	removeTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
@@ -724,6 +725,7 @@ func CDCFlowWorkflow(
 		}
 
 		if cfg.Resync {
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
 			renameOpts := &protos.RenameTablesInput{
 				FlowJobName:       cfg.FlowJobName,
 				PeerName:          cfg.DestinationName,
