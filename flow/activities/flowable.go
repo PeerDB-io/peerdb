@@ -33,15 +33,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type CheckMetadataTablesResult struct {
 	NeedsSetupMetadataTables bool
-}
-
-type NormalizeBatchRequest struct {
-	BatchID int64
 }
 
 type FlowableActivity struct {
@@ -326,12 +323,6 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	normalizeBufferSize, err := internal.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
-	if err != nil {
-		connectors.CloseConnector(ctx, srcConn)
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-	}
-
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
 	if err != nil {
 		connectors.CloseConnector(ctx, srcConn)
@@ -342,7 +333,7 @@ func (a *FlowableActivity) SyncFlow(
 	// whereas normalizeDone will be closed by normalizing goroutine
 	// Wait on normalizeDone at end to not interrupt final normalize
 	syncDone := make(chan struct{})
-	normRequests := make(chan NormalizeBatchRequest, normalizeBufferSize)
+	normRequests := concurrency.NewLastChan()
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
@@ -381,6 +372,7 @@ func (a *FlowableActivity) SyncFlow(
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
 			syncState.Store(shared.Ptr("cleanup"))
 			close(syncDone)
+			normRequests.Broadcast() // signal syncDone closed
 			return errors.Join(syncErr, group.Wait())
 		} else if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
@@ -398,6 +390,8 @@ func (a *FlowableActivity) SyncFlow(
 
 	syncState.Store(shared.Ptr("cleanup"))
 	close(syncDone)
+	normRequests.Broadcast() // signal syncDone closed
+
 	waitErr := group.Wait()
 	if err := ctx.Err(); err != nil {
 		logger.Info("sync canceled", slog.Any("error", err))
@@ -414,7 +408,7 @@ func (a *FlowableActivity) syncRecords(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
-	normRequests chan<- NormalizeBatchRequest,
+	normRequests *concurrency.LastChan,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
@@ -458,7 +452,7 @@ func (a *FlowableActivity) syncPg(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
-	normRequests chan<- NormalizeBatchRequest,
+	normRequests *concurrency.LastChan,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {

@@ -29,6 +29,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -113,7 +114,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	srcConn TPull,
-	normRequests chan<- NormalizeBatchRequest,
+	normRequests *concurrency.LastChan,
 	syncingBatchID *atomic.Int64,
 	syncState *atomic.Pointer[string],
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
@@ -334,11 +335,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	if recordBatchSync.NeedsNormalize() {
 		syncState.Store(shared.Ptr("normalizing"))
-		select {
-		case normRequests <- NormalizeBatchRequest{BatchID: res.CurrentSyncBatchID}:
-		case <-ctx.Done():
-			return res, nil
-		}
+		normRequests.Update(res.CurrentSyncBatchID)
 	}
 
 	return res, nil
@@ -677,7 +674,7 @@ func (a *FlowableActivity) normalizeLoop(
 	logger log.Logger,
 	config *protos.FlowConnectionConfigs,
 	syncDone <-chan struct{},
-	normalizeRequests <-chan NormalizeBatchRequest,
+	normalizeRequests *concurrency.LastChan,
 	normalizingBatchID *atomic.Int64,
 	normalizeWaiting *atomic.Bool,
 ) {
@@ -685,19 +682,25 @@ func (a *FlowableActivity) normalizeLoop(
 
 	for {
 		normalizeWaiting.Store(true)
+		reqBatchID := normalizeRequests.Wait()
 		select {
-		case req := <-normalizeRequests:
+		case <-syncDone:
+			logger.Info("[normalize-loop] syncDone closed")
+			return
+		case <-ctx.Done():
+			logger.Info("[normalize-loop] context closed")
+			return
+		default:
 			normalizeWaiting.Store(false)
 			retryInterval := time.Minute
 		retryLoop:
 			for {
-				normalizingBatchID.Store(req.BatchID)
-				if err := a.startNormalize(ctx, config, req.BatchID); err != nil {
+				normalizingBatchID.Store(reqBatchID)
+				if err := a.startNormalize(ctx, config, reqBatchID); err != nil {
 					_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					for {
 						// update req to latest normalize request & retry
 						select {
-						case req = <-normalizeRequests:
 						case <-syncDone:
 							logger.Info("[normalize-loop] syncDone closed before retry")
 							return
@@ -707,21 +710,16 @@ func (a *FlowableActivity) normalizeLoop(
 						default:
 							time.Sleep(retryInterval)
 							retryInterval = min(retryInterval*2, 5*time.Minute)
+							reqBatchID = normalizeRequests.Load()
 							continue retryLoop
 						}
 					}
 				}
-				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
 				)))
 				break
 			}
-		case <-syncDone:
-			logger.Info("[normalize-loop] syncDone closed")
-			return
-		case <-ctx.Done():
-			logger.Info("[normalize-loop] context closed")
-			return
 		}
 	}
 }
