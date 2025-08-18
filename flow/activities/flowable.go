@@ -732,19 +732,64 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	defer shared.Interval(ctx, 20*time.Second, func() {
 		activity.RecordHeartbeat(ctx, "Running scheduled tasks")
 	})()
-	wrapWithLog := func(name string, fn func(context.Context) error) func() {
+	wrapWithLog := func(name string, fn func() error) func() {
 		return func() {
 			now := time.Now()
 			logger.Info(name + " starting")
-			if err := fn(ctx); err != nil {
+			if err := fn(); err != nil {
 				logger.Error(name+" failed", slog.Any("error", err))
 			}
 			logger.Info(name+" completed", slog.Duration("duration", time.Since(now)))
 		}
 	}
-	defer shared.Interval(ctx, 10*time.Minute, wrapWithLog("SendWALHeartbeat", a.SendWALHeartbeat))()
-	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordMetrics", a.RecordMetrics))()
-	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", a.RecordSlotSizes))()
+	var allFlows atomic.Pointer[[]flowInformation]
+	defer shared.Interval(ctx, 59*time.Second, func() {
+		rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
+		if err != nil {
+			logger.Error("failed to query all flows", slog.Any("error", err))
+			return
+		}
+
+		infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (flowInformation, error) {
+			var flowName string
+			var configProto []byte
+			var workflowID string
+			if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
+				return flowInformation{}, err
+			}
+
+			var config protos.FlowConnectionConfigs
+			if err := proto.Unmarshal(configProto, &config); err != nil {
+				return flowInformation{}, err
+			}
+
+			return flowInformation{
+				config:     &config,
+				workflowID: workflowID,
+			}, nil
+		})
+		if err != nil {
+			logger.Error("failed to process result of all flows", slog.Any("error", err))
+		}
+		allFlows.Store(&infos)
+	})
+	defer shared.Interval(ctx, 10*time.Minute, wrapWithLog("SendWALHeartbeat", func() error {
+		return a.SendWALHeartbeat(ctx)
+	}))()
+	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordMetrics", func() error {
+		infos := allFlows.Load()
+		if infos == nil {
+			return nil
+		}
+		return a.RecordMetrics(ctx, *infos)
+	}))()
+	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
+		infos := allFlows.Load()
+		if infos == nil {
+			return nil
+		}
+		return a.RecordSlotSizes(ctx, *infos)
+	}))()
 	<-ctx.Done()
 	logger.Info("Stopping scheduled tasks due to context done", slog.Any("error", ctx.Err()))
 	return nil
@@ -757,15 +802,9 @@ type flowInformation struct {
 	isActive   bool
 }
 
-func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
+func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInformation) error {
 	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Started RecordMetrics")
-	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	infos, err := a.getAllFlows(timeoutCtx)
-	if err != nil {
-		return err
-	}
 
 	maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	instanceStatus := otel_metrics.InstanceStatusReady
@@ -874,7 +913,7 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
+func (a *FlowableActivity) RecordSlotSizes(ctx context.Context, infos []flowInformation) error {
 	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Recording Slot Information")
 	slotMetricGauges := otel_metrics.SlotMetricGauges{}
@@ -884,10 +923,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
 	slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
 	slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
-	infos, err := a.getAllFlows(ctx)
-	if err != nil {
-		return err
-	}
+
 	logger.Info("Recording slot size and emitting log retention where applicable", slog.Int("flows", len(infos)))
 	for _, info := range infos {
 		if err := ctx.Err(); err != nil {
@@ -900,33 +936,6 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	}
 	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
 	return nil
-}
-
-func (a *FlowableActivity) getAllFlows(ctx context.Context) ([]flowInformation, error) {
-	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
-	if err != nil {
-		return nil, err
-	}
-
-	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (flowInformation, error) {
-		var flowName string
-		var configProto []byte
-		var workflowID string
-		if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
-			return flowInformation{}, err
-		}
-
-		var config protos.FlowConnectionConfigs
-		if err := proto.Unmarshal(configProto, &config); err != nil {
-			return flowInformation{}, err
-		}
-
-		return flowInformation{
-			config:     &config,
-			workflowID: workflowID,
-		}, nil
-	})
-	return infos, err
 }
 
 func (a *FlowableActivity) recordSlotInformation(
