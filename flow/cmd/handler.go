@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
@@ -264,14 +265,14 @@ func (h *FlowRequestHandler) shutdownFlow(
 	cancelCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	errChan := make(chan error, 1)
+	errLatch := concurrency.NewLatch[error]()
 	go func() {
-		errChan <- dropFlowHandle.Get(cancelCtx, nil)
+		errLatch.Set(dropFlowHandle.Get(cancelCtx, nil))
 	}()
 
 	select {
-	case err := <-errChan:
-		if err != nil {
+	case <-errLatch.Chan():
+		if err := errLatch.Wait(); err != nil {
 			slog.Error("DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
 			return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 		}
@@ -385,19 +386,17 @@ func (h *FlowRequestHandler) FlowStateChange(
 }
 
 func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowID, runID string) error {
-	errChan := make(chan error, 1)
-
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 
+	errLatch := concurrency.NewLatch[error]()
 	go func() {
-		err := h.temporalClient.CancelWorkflow(ctxWithTimeout, workflowID, runID)
-		errChan <- err
+		errLatch.Set(h.temporalClient.CancelWorkflow(ctxWithTimeout, workflowID, runID))
 	}()
 
 	select {
-	case err := <-errChan:
-		if err != nil {
+	case <-errLatch.Chan():
+		if err := errLatch.Wait(); err != nil {
 			slog.Error(fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
 			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 			if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
