@@ -344,7 +344,9 @@ func (a *FlowableActivity) SyncFlow(
 	syncDone := make(chan struct{})
 	normRequests := make(chan NormalizeBatchRequest, normalizeBufferSize)
 
-	group, groupCtx := errgroup.WithContext(ctx)
+	cancelCtx, cancelFunc := context.WithCancel(ctx)
+	defer cancelFunc()
+	group, groupCtx := errgroup.WithContext(cancelCtx)
 	group.Go(func() error {
 		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
@@ -381,6 +383,7 @@ func (a *FlowableActivity) SyncFlow(
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
 			syncState.Store(shared.Ptr("cleanup"))
 			close(syncDone)
+			cancelFunc()
 			return errors.Join(syncErr, group.Wait())
 		} else if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
