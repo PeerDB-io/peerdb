@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"strconv"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -704,7 +703,6 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 	// run above command for each Postgres peer
 	for _, pgPeer := range pgPeers {
-		activity.RecordHeartbeat(ctx, pgPeer.Name)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -719,7 +717,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 			}
 			defer pgConn.Close()
 			if cmdErr := pgConn.ExecuteCommand(ctx, walHeartbeatStatement); cmdErr != nil {
-				logger.Warn(fmt.Sprintf("could not send wal heartbeat to peer %s: %v", pgPeer.Name, cmdErr))
+				logger.Warn("could not send wal heartbeat to peer", slog.String("peer", pgPeer.Name), slog.Any("error", cmdErr))
 			}
 			logger.Info("sent wal heartbeat", slog.String("peer", pgPeer.Name))
 		}()
@@ -734,20 +732,64 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	defer shared.Interval(ctx, 20*time.Second, func() {
 		activity.RecordHeartbeat(ctx, "Running scheduled tasks")
 	})()
-	wrapWithLog := func(ctx context.Context, name string, fn func(context.Context) error) func() {
+	wrapWithLog := func(name string, fn func() error) func() {
 		return func() {
-			logger := internal.LoggerFromCtx(ctx)
 			now := time.Now()
 			logger.Info(name + " starting")
-			if err := fn(ctx); err != nil {
+			if err := fn(); err != nil {
 				logger.Error(name+" failed", slog.Any("error", err))
 			}
 			logger.Info(name+" completed", slog.Duration("duration", time.Since(now)))
 		}
 	}
-	defer shared.Interval(ctx, 10*time.Minute, wrapWithLog(ctx, "SendWALHeartbeat", a.SendWALHeartbeat))()
-	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog(ctx, "RecordMetrics", a.RecordMetrics))()
-	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog(ctx, "RecordSlotSizes", a.RecordSlotSizes))()
+	var allFlows atomic.Pointer[[]flowInformation]
+	defer shared.Interval(ctx, 59*time.Second, func() {
+		rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
+		if err != nil {
+			logger.Error("failed to query all flows", slog.Any("error", err))
+			return
+		}
+
+		infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (flowInformation, error) {
+			var flowName string
+			var configProto []byte
+			var workflowID string
+			if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
+				return flowInformation{}, err
+			}
+
+			var config protos.FlowConnectionConfigs
+			if err := proto.Unmarshal(configProto, &config); err != nil {
+				return flowInformation{}, err
+			}
+
+			return flowInformation{
+				config:     &config,
+				workflowID: workflowID,
+			}, nil
+		})
+		if err != nil {
+			logger.Error("failed to process result of all flows", slog.Any("error", err))
+		}
+		allFlows.Store(&infos)
+	})
+	defer shared.Interval(ctx, 10*time.Minute, wrapWithLog("SendWALHeartbeat", func() error {
+		return a.SendWALHeartbeat(ctx)
+	}))()
+	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordMetrics", func() error {
+		infos := allFlows.Load()
+		if infos == nil {
+			return nil
+		}
+		return a.RecordMetrics(ctx, *infos)
+	}))()
+	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
+		infos := allFlows.Load()
+		if infos == nil {
+			return nil
+		}
+		return a.RecordSlotSizes(ctx, *infos)
+	}))()
 	<-ctx.Done()
 	logger.Info("Stopping scheduled tasks due to context done", slog.Any("error", ctx.Err()))
 	return nil
@@ -760,15 +802,9 @@ type flowInformation struct {
 	isActive   bool
 }
 
-func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
+func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInformation) error {
 	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Started RecordMetrics")
-	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	infos, err := a.getAllFlows(timeoutCtx)
-	if err != nil {
-		return err
-	}
 
 	maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	instanceStatus := otel_metrics.InstanceStatusReady
@@ -786,24 +822,25 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
 		attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
 	)))
 	logger.Info("Emitting Instance and Flow Status", slog.Int("flows", len(infos)))
-	activeFlows := make([]*flowInformation, 0, len(infos))
+	activeFlows := make([]flowInformation, 0, len(infos))
 	for _, info := range infos {
-		func(ctx context.Context) {
-			flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-				FlowName:        info.config.FlowJobName,
-				SourceName:      info.config.SourceName,
-				DestinationName: info.config.DestinationName,
-			})
-			if err != nil {
-				logger.Error("Failed to get flow metadata", slog.Any("error", err))
-			}
-			ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-			logger = internal.LoggerFromCtx(ctx)
-			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, info.workflowID)
-			if sErr != nil {
-				logger.Error("Failed to get workflow status", slog.Any("error", sErr), slog.String("status", status.String()))
-			}
-			info.status = status
+		flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+			FlowName:        info.config.FlowJobName,
+			SourceName:      info.config.SourceName,
+			DestinationName: info.config.DestinationName,
+		})
+		if err != nil {
+			logger.Error("Failed to get flow metadata", slog.Any("error", err))
+		}
+		ctx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+		logger := internal.LoggerFromCtx(ctx)
+		status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, info.workflowID)
+		if sErr != nil {
+			logger.Error("Failed to get workflow status", slog.Any("error", sErr), slog.String("status", status.String()))
+		}
+		info.status = status
+		if info.status != protos.FlowStatus_STATUS_COMPLETED &&
+			info.status != protos.FlowStatus_STATUS_TERMINATED {
 			if _, info.isActive = activeFlowStatuses[status]; info.isActive {
 				activeFlows = append(activeFlows, info)
 			}
@@ -812,12 +849,7 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
 				attribute.String(otel_metrics.FlowStatusKey, status.String()),
 				attribute.Bool(otel_metrics.IsFlowActiveKey, info.isActive),
 			)))
-
-			if flowMetadata.Status == protos.FlowStatus_STATUS_COMPLETED ||
-				flowMetadata.Status == protos.FlowStatus_STATUS_TERMINATED {
-				return
-			}
-		}(ctx)
+		}
 	}
 	logger.Info("Finished emitting Instance and Flow Status", slog.Int("flows", len(infos)))
 	var totalCpuLimit float64
@@ -857,25 +889,22 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
 		a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(activeFlowCount))
 		if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
 			for _, info := range activeFlows {
-				func(ctx context.Context) {
-					flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-						FlowName:        info.config.FlowJobName,
-						SourceName:      info.config.SourceName,
-						DestinationName: info.config.DestinationName,
-					})
-					if err != nil {
-						logger.Error("Failed to get flow metadata", slog.Any("error", err))
-					}
-					ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-					logger = internal.LoggerFromCtx(ctx)
+				flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+					FlowName:        info.config.FlowJobName,
+					SourceName:      info.config.SourceName,
+					DestinationName: info.config.DestinationName,
+				})
+				if err != nil {
+					logger.Error("Failed to get flow metadata", slog.Any("error", err))
+				}
+				ctx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 
-					if activeFlowMemoryLimit > 0 {
-						a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
-					}
-					if activeFlowCpuLimit > 0 {
-						a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, activeFlowCpuLimit)
-					}
-				}(ctx)
+				if activeFlowMemoryLimit > 0 {
+					a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
+				}
+				if activeFlowCpuLimit > 0 {
+					a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, activeFlowCpuLimit)
+				}
 			}
 		}
 	}
@@ -884,7 +913,7 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
 	return nil
 }
 
-func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
+func (a *FlowableActivity) RecordSlotSizes(ctx context.Context, infos []flowInformation) error {
 	logger := internal.LoggerFromCtx(ctx)
 	logger.Info("Recording Slot Information")
 	slotMetricGauges := otel_metrics.SlotMetricGauges{}
@@ -894,63 +923,24 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
 	slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
 	slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
-	infos, err := a.getAllFlows(ctx)
-	if err != nil {
-		return err
-	}
-	logger.Info("Recording slot size and emitting log retention where applicable", slog.Int("flows", len(infos)))
-	var wg sync.WaitGroup
-	maxParallel := 5
-	semaphore := make(chan struct{}, maxParallel)
-	for _, info := range infos {
-		wg.Add(1)
-		go func(ctx context.Context, info *flowInformation) {
-			defer wg.Done()
-			semaphore <- struct{}{}
-			defer func() { <-semaphore }()
 
-			timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-			defer cancel()
-			a.recordSlotInformation(timeoutCtx, info, slotMetricGauges)
-			a.emitLogRetentionHours(timeoutCtx, info, a.OtelManager.Metrics.LogRetentionGauge)
-		}(ctx, info)
+	logger.Info("Recording slot size and emitting log retention where applicable", slog.Int("flows", len(infos)))
+	for _, info := range infos {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		a.recordSlotInformation(timeoutCtx, info, slotMetricGauges)
+		a.emitLogRetentionHours(timeoutCtx, info, a.OtelManager.Metrics.LogRetentionGauge)
+		cancel()
 	}
-	logger.Info("Waiting for Slot Information to be recorded", slog.Int("flows", len(infos)))
-	wg.Wait()
 	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
 	return nil
 }
 
-func (a *FlowableActivity) getAllFlows(ctx context.Context) ([]*flowInformation, error) {
-	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
-	if err != nil {
-		return nil, err
-	}
-
-	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*flowInformation, error) {
-		var flowName string
-		var configProto []byte
-		var workflowID string
-		if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
-			return nil, err
-		}
-
-		var config protos.FlowConnectionConfigs
-		if err := proto.Unmarshal(configProto, &config); err != nil {
-			return nil, err
-		}
-
-		return &flowInformation{
-			config:     &config,
-			workflowID: workflowID,
-		}, nil
-	})
-	return infos, err
-}
-
 func (a *FlowableActivity) recordSlotInformation(
 	ctx context.Context,
-	info *flowInformation,
+	info flowInformation,
 	slotMetricGauges otel_metrics.SlotMetricGauges,
 ) {
 	logger := internal.LoggerFromCtx(ctx)
@@ -978,10 +968,6 @@ func (a *FlowableActivity) recordSlotInformation(
 	}
 	peerName := info.config.SourceName
 
-	activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
-	if ctx.Err() != nil {
-		return
-	}
 	if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
 		FlowName: info.config.FlowJobName,
 		PeerName: peerName,
@@ -993,7 +979,7 @@ func (a *FlowableActivity) recordSlotInformation(
 
 func (a *FlowableActivity) emitLogRetentionHours(
 	ctx context.Context,
-	info *flowInformation,
+	info flowInformation,
 	logRetentionGauge metric.Float64Gauge,
 ) {
 	logger := internal.LoggerFromCtx(ctx)
@@ -1016,10 +1002,6 @@ func (a *FlowableActivity) emitLogRetentionHours(
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	peerName := info.config.SourceName
-	activity.RecordHeartbeat(ctx, "checking log retention on "+peerName)
-	if ctx.Err() != nil {
-		return
-	}
 	logRetentionHours, err := srcConn.GetLogRetentionHours(ctx)
 	if err != nil {
 		logger.Error("Failed to get log retention hours", slog.Any("error", err))
