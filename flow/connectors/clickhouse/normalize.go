@@ -141,7 +141,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	var stmtBuilder strings.Builder
 	var stmtBuilderDistributed strings.Builder
 	var builders []*strings.Builder
-	if c.config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL {
+	if c.config.Cluster != "" && tableMapping.ShardingKey != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL {
 		builders = []*strings.Builder{&stmtBuilder, &stmtBuilderDistributed}
 	} else {
 		builders = []*strings.Builder{&stmtBuilder}
@@ -154,7 +154,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		} else {
 			builder.WriteString("CREATE TABLE IF NOT EXISTS ")
 		}
-		if c.config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
+		if c.config.Cluster != "" && tableMapping.ShardingKey != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
 			// distributed table gets destination name, avoid naming conflict
 			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier + "_shard"))
 		} else {
@@ -253,7 +253,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 		}
 
-		if c.config.Cluster != "" {
+		if c.config.Cluster != "" && tableMapping.ShardingKey != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
 				peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
 				peerdb_clickhouse.QuoteIdentifier(c.config.Database),
