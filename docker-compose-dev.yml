@@ -43,7 +43,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:17-alpine@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa
+    image: postgres:17-alpine@sha256:3406990b6e4c7192317b6fdc5680498744f6142f01f0287f4ee0420d8c74063c
     command: -c config_file=/etc/postgresql.conf
     ports:
       - 9901:5432
@@ -207,7 +207,7 @@ services:
       - flow-api
 
   minio:
-    image: bitnami/minio:2025.7.23@sha256:a70e90bb70f4732221901de53502334cef58665c6c4275a014d47adad10e1883
+    image: bitnami/minio:2025.7.23@sha256:4707bf769bba6653d5c5653b18b619d7397b35efc6f402aebfd0a93a5309a0c0
     volumes:
       - minio-data:/data
     ports:
