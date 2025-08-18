@@ -3,13 +3,13 @@ import { PeerSetter } from '@/app/dto/PeersDTO';
 import { kaSetting } from '@/app/peers/create/[peerType]/helpers/ka';
 import SelectTheme from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
+import { handleFieldChange } from '@/components/PeerForms/common';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch/Switch';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
 import ReactSelect from 'react-select';
-import { handleFieldChange } from "@/components/PeerForms/common";
 
 interface KafkaProps {
   setter: PeerSetter;

@@ -1,9 +1,9 @@
 module github.com/PeerDB-io/peerdb/flow
 
-go 1.24.0
+go 1.25.0
 
 require (
-	cloud.google.com/go v0.121.5
+	cloud.google.com/go v0.121.6
 	cloud.google.com/go/bigquery v1.69.0
 	cloud.google.com/go/pubsub/v2 v2.0.0
 	cloud.google.com/go/storage v1.56.0
@@ -30,7 +30,7 @@ require (
 	github.com/aws/smithy-go v1.22.5
 	github.com/cockroachdb/pebble/v2 v2.0.6
 	github.com/elastic/go-elasticsearch/v8 v8.19.0
-	github.com/go-mysql-org/go-mysql v1.12.1-0.20250706035254-4a082cf9bd9a
+	github.com/go-mysql-org/go-mysql v1.13.0
 	github.com/google/uuid v1.6.0
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.1
 	github.com/hamba/avro/v2 v2.29.0
@@ -39,16 +39,16 @@ require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/joho/godotenv v1.5.1
 	github.com/json-iterator/go v1.1.12
-	github.com/lestrrat-go/httprc/v3 v3.0.0
+	github.com/lestrrat-go/httprc/v3 v3.0.1
 	github.com/lestrrat-go/jwx/v3 v3.0.10
 	github.com/modern-go/reflect2 v1.0.2
 	github.com/orcaman/concurrent-map/v2 v2.0.1
 	github.com/pgvector/pgvector-go v0.3.0
 	github.com/pingcap/tidb v0.0.0-20250130070702-43f2fb91d740
-	github.com/pingcap/tidb/pkg/parser v0.0.0-20250812121900-342a4c89a8ee
+	github.com/pingcap/tidb/pkg/parser v0.0.0-20250818173832-a657e4d06fe5
 	github.com/shopspring/decimal v1.4.0
 	github.com/slack-go/slack v0.17.3
-	github.com/snowflakedb/gosnowflake v1.15.0
+	github.com/snowflakedb/gosnowflake v1.16.0
 	github.com/stretchr/testify v1.10.0
 	github.com/twmb/franz-go v1.19.5
 	github.com/twmb/franz-go/pkg/kadm v1.16.1
@@ -57,7 +57,7 @@ require (
 	github.com/urfave/cli/v3 v3.4.1
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	github.com/yuin/gopher-lua v1.1.1
-	go.mongodb.org/mongo-driver/v2 v2.2.3
+	go.mongodb.org/mongo-driver/v2 v2.3.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.62.0
 	go.opentelemetry.io/otel v1.37.0
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc v1.37.0
@@ -70,19 +70,19 @@ require (
 	go.temporal.io/sdk/contrib/opentelemetry v0.6.0
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.41.0
-	golang.org/x/exp v0.0.0-20250811191247-51f88131bc50
+	golang.org/x/exp v0.0.0-20250813145105-42675adae3e6
 	golang.org/x/sync v0.16.0
 	google.golang.org/api v0.247.0
 	google.golang.org/genproto/googleapis/api v0.0.0-20250811230008-5f3141c8851a
 	google.golang.org/grpc v1.74.2
 	google.golang.org/protobuf v1.36.7
-	k8s.io/apimachinery v0.33.3
-	k8s.io/client-go v0.33.3 // Note: v0.* are newer than v1.*
+	k8s.io/apimachinery v0.33.4
+	k8s.io/client-go v0.33.4 // Note: v0.* are newer than v1.*
 )
 
 require (
 	cel.dev/expr v0.24.0 // indirect
-	cloud.google.com/go/auth v0.16.4 // indirect
+	cloud.google.com/go/auth v0.16.5 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.8.0 // indirect
 	cloud.google.com/go/iam v1.5.2 // indirect
@@ -100,7 +100,6 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.29.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.53.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.53.0 // indirect
-	github.com/JohnCGriffin/overflow v0.0.0-20211019200055-46fa312c352c // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/apache/arrow-go/v18 v18.4.0 // indirect
@@ -121,7 +120,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/cloudfoundry/gosigar v1.3.97 // indirect
+	github.com/cloudfoundry/gosigar v1.3.98 // indirect
 	github.com/cncf/xds/go v0.0.0-20250501225837-2ac532fd4443 // indirect
 	github.com/cockroachdb/crlib v0.0.0-20250718215705-7ff5051265b9 // indirect
 	github.com/cockroachdb/errors v1.12.0 // indirect
@@ -140,14 +139,14 @@ require (
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dvsekhvalnov/jose2go v1.8.0 // indirect
 	github.com/elastic/elastic-transport-go/v8 v8.7.0 // indirect
-	github.com/emicklei/go-restful/v3 v3.12.2 // indirect
+	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/envoyproxy/go-control-plane/envoy v1.32.4 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/facebookgo/clock v0.0.0-20150410010913-600d898af40a // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.9 // indirect
-	github.com/getsentry/sentry-go v0.35.0 // indirect
+	github.com/getsentry/sentry-go v0.35.1 // indirect
 	github.com/go-faster/city v1.0.1 // indirect
 	github.com/go-faster/errors v0.7.1 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.2 // indirect
@@ -204,7 +203,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.22 // indirect
 	github.com/pingcap/errors v0.11.5-0.20250523034308-74f78ae071ee // indirect
 	github.com/pingcap/failpoint v0.0.0-20240528011301-b51a646c7c86 // indirect
-	github.com/pingcap/kvproto v0.0.0-20250807083051-d83f0718696f // indirect
+	github.com/pingcap/kvproto v0.0.0-20250815073227-89cf1fa685b9 // indirect
 	github.com/pingcap/log v1.1.1-0.20241212030209-7e3ff8601a2a // indirect
 	github.com/pingcap/sysutil v1.0.1-0.20240311050922-ae81ee01f3a5 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
@@ -227,7 +226,7 @@ require (
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/tiancaiamao/gp v0.0.0-20230126082955-4f9e4f1ed9b5 // indirect
 	github.com/tikv/client-go/v2 v2.0.8-0.20250117034919-61e09c6539bd // indirect
-	github.com/tikv/pd/client v0.0.0-20250812210442-fc7fee6d3ec2 // indirect
+	github.com/tikv/pd/client v0.0.0-20250818071238-d0a0f38b72e3 // indirect
 	github.com/tklauser/go-sysconf v0.3.15 // indirect
 	github.com/tklauser/numcpus v0.10.0 // indirect
 	github.com/twmb/franz-go/pkg/kmsg v1.11.2 // indirect
@@ -268,9 +267,9 @@ require (
 	gopkg.in/inf.v0 v0.9.1 // indirect
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	k8s.io/api v0.33.3 // indirect
+	k8s.io/api v0.33.4 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect
-	k8s.io/kube-openapi v0.0.0-20250812141708-942b836dc350 // indirect
+	k8s.io/kube-openapi v0.0.0-20250814151709-d7b6acb124c3 // indirect
 	k8s.io/utils v0.0.0-20250604170112-4c0f3b243397 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect

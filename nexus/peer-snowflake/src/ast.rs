@@ -39,16 +39,16 @@ impl SnowflakeAst {
 
     // TODO: Snowflake does not support the Postgres INTERVAL type. In future, encode this better [via a BackendMessage]
     fn rewrite_timestamp_for_cast(&self, expr: &mut Expr) {
-        if let sqlparser::ast::Expr::Cast { data_type, .. } = expr {
-            if *data_type == DataType::Timestamp(None, TimezoneInfo::None) {
-                *data_type = DataType::SnowflakeTimestamp
-            }
+        if let sqlparser::ast::Expr::Cast { data_type, .. } = expr
+            && *data_type == DataType::Timestamp(None, TimezoneInfo::None)
+        {
+            *data_type = DataType::SnowflakeTimestamp
         }
 
-        if let sqlparser::ast::Expr::TryCast { data_type, .. } = expr {
-            if *data_type == DataType::Timestamp(None, TimezoneInfo::None) {
-                *data_type = DataType::SnowflakeTimestamp
-            }
+        if let sqlparser::ast::Expr::TryCast { data_type, .. } = expr
+            && *data_type == DataType::Timestamp(None, TimezoneInfo::None)
+        {
+            *data_type = DataType::SnowflakeTimestamp
         }
     }
 

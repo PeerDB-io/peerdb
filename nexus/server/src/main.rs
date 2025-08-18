@@ -26,8 +26,7 @@ use pgwire::{
     api::{
         ClientInfo, ClientPortalStore, PgWireServerHandlers, Type,
         auth::{
-            StartupHandler,
-            AuthSource, LoginInfo, Password, ServerParameterProvider,
+            AuthSource, LoginInfo, Password, ServerParameterProvider, StartupHandler,
             scram::{SASLScramAuthStartupHandler, gen_salted_password},
         },
         portal::Portal,
@@ -409,9 +408,7 @@ impl NexusBackend {
                 }
                 PeerDDL::ExecutePeer { peer_name, query } => {
                     let peer = self.catalog.get_peer(peer_name).await.map_err(|err| {
-                        PgWireError::ApiError(
-                            format!("unable to get peer config: {err:?}").into(),
-                        )
+                        PgWireError::ApiError(format!("unable to get peer config: {err:?}").into())
                     })?;
                     let executor = self.get_peer_executor(&peer).await.map_err(|err| {
                         PgWireError::ApiError(

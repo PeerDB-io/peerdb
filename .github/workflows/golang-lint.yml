@@ -29,12 +29,12 @@ jobs:
       - name: golangci-lint flow
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
-          version: v2.2.1
+          version: v2.4.0
           working-directory: ./flow
           args: --timeout=10m
       - name: golangci-lint e2e_cleanup
         uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
         with:
-          version: v2.2.1
+          version: v2.4.0
           working-directory: ./e2e_cleanup
           args: --timeout=10m
