@@ -682,8 +682,8 @@ func (a *FlowableActivity) normalizeLoop(
 
 	for {
 		normalizeWaiting.Store(true)
-		reqBatchID, ok := normalizeRequests.Wait()
-		if !ok {
+		ch := normalizeRequests.Wait()
+		if ch == nil {
 			logger.Info("[normalize-loop] lastChan closed")
 			return
 		}
@@ -694,8 +694,11 @@ func (a *FlowableActivity) normalizeLoop(
 		case <-ctx.Done():
 			logger.Info("[normalize-loop] context closed")
 			return
-		default:
-			normalizeWaiting.Store(false)
+		case <-ch:
+			reqBatchID := normalizeRequests.Load()
+			if reqBatchID <= normalizingBatchID.Load() {
+				continue
+			}
 			retryInterval := time.Minute
 		retryLoop:
 			for {

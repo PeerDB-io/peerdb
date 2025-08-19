@@ -19,33 +19,22 @@ func NewLastChan() *LastChan {
 func (lc *LastChan) Update(val int64) {
 	lc.val.Store(val)
 	newch := make(chan struct{})
-	ch := lc.cond.Swap(&newch)
-	if ch != nil {
+	if ch := lc.cond.Swap(&newch); ch != nil {
 		close(*ch)
 	}
 }
 
 func (lc *LastChan) Close() {
-	ch := lc.cond.Swap(nil)
-	if ch != nil {
+	if ch := lc.cond.Swap(nil); ch != nil {
 		close(*ch)
 	}
 }
 
-func (lc *LastChan) MaybeWait(old int64) (int64, bool) {
-	if val := lc.val.Load(); val != old {
-		return val, true
+func (lc *LastChan) Wait() <-chan struct{} {
+	if ch := lc.cond.Load(); ch != nil {
+		return *ch
 	}
-	return lc.Wait()
-}
-
-func (lc *LastChan) Wait() (int64, bool) {
-	ch := lc.cond.Load()
-	if ch == nil {
-		return 0, false
-	}
-	<-*ch
-	return lc.val.Load(), true
+	return nil
 }
 
 func (lc *LastChan) Load() int64 {
