@@ -117,7 +117,7 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 ) error {
 	insertBatchTablesTx, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("error while beginning transaction for inserting statistics into cdc_batch_table: %w", err)
+		return fmt.Errorf("error while beginning transaction for inserting statistics: %w", err)
 	}
 	defer shared.RollbackTx(insertBatchTablesTx, internal.LoggerFromCtx(ctx))
 
@@ -127,17 +127,6 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 		deletes := rowCounts.DeleteCount.Load()
 		totalRows := inserts + updates + deletes
 
-		// Insert into cdc_batch_table
-		if _, err := insertBatchTablesTx.Exec(ctx,
-			`INSERT INTO peerdb_stats.cdc_batch_table
-			(flow_name,batch_id,destination_table_name,num_rows,
-			insert_count,update_count,delete_count)
-			 VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING`,
-			flowJobName, batchID, destinationTableName,
-			totalRows, inserts, updates, deletes,
-		); err != nil {
-			return fmt.Errorf("error while inserting statistics into cdc_batch_table: %w", err)
-		}
 		// Update the aggregated counts table
 		query := `
 			INSERT INTO peerdb_stats.cdc_table_aggregate_counts AS stats (
@@ -415,10 +404,6 @@ func DeleteMirrorStats(ctx context.Context, logger log.Logger, pool shared.Catal
 
 	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.cdc_batches WHERE flow_name = $1`, flowJobName); err != nil {
 		return fmt.Errorf("error while deleting cdc_batches: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.cdc_batch_table WHERE flow_name = $1`, flowJobName); err != nil {
-		return fmt.Errorf("error while deleting cdc_batch_table: %w", err)
 	}
 
 	if _, err := tx.Exec(ctx, `DELETE FROM peerdb_stats.cdc_table_aggregate_counts WHERE flow_name = $1`, flowJobName); err != nil {
