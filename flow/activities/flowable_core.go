@@ -642,30 +642,34 @@ func (a *FlowableActivity) startNormalize(
 		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
-	logger.Info("normalizing batch", slog.Int64("SyncBatchID", batchID))
-	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
-		FlowJobName:            config.FlowJobName,
-		Env:                    config.Env,
-		TableNameSchemaMapping: tableNameSchemaMapping,
-		TableMappings:          config.TableMappings,
-		SoftDeleteColName:      config.SoftDeleteColName,
-		SyncedAtColName:        config.SyncedAtColName,
-		SyncBatchID:            batchID,
-		Version:                config.Version,
-	})
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName,
-			exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
-	}
-	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
-		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
-			return fmt.Errorf("failed to update end time for cdc batch: %w", err)
+	for {
+		logger.Info("normalizing batch", slog.Int64("SyncBatchID", batchID))
+		res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
+			FlowJobName:            config.FlowJobName,
+			Env:                    config.Env,
+			TableNameSchemaMapping: tableNameSchemaMapping,
+			TableMappings:          config.TableMappings,
+			SoftDeleteColName:      config.SoftDeleteColName,
+			SyncedAtColName:        config.SyncedAtColName,
+			SyncBatchID:            batchID,
+			Version:                config.Version,
+		})
+		if err != nil {
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName,
+				exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+		}
+		if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
+			if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
+				return fmt.Errorf("failed to update end time for cdc batch: %w", err)
+			}
+		}
+
+		logger.Info("normalized batches",
+			slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID), slog.Int64("SyncBatchID", batchID))
+		if res.EndBatchID >= batchID {
+			return nil
 		}
 	}
-
-	logger.Info("normalized batches", slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID))
-
-	return nil
 }
 
 // Suitable to be run as goroutine
