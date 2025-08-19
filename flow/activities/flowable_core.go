@@ -682,7 +682,11 @@ func (a *FlowableActivity) normalizeLoop(
 
 	for {
 		normalizeWaiting.Store(true)
-		reqBatchID := normalizeRequests.Wait()
+		reqBatchID, ok := normalizeRequests.Wait()
+		if !ok {
+			logger.Info("[normalize-loop] lastChan closed")
+			return
+		}
 		select {
 		case <-syncDone:
 			logger.Info("[normalize-loop] syncDone closed")

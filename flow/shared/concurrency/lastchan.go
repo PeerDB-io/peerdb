@@ -1,38 +1,51 @@
 package concurrency
 
 import (
-	"sync"
 	"sync/atomic"
 )
 
 type LastChan struct {
-	cond sync.Cond
+	cond atomic.Pointer[chan struct{}]
 	val  atomic.Int64
 }
 
 func NewLastChan() *LastChan {
-	return &LastChan{cond: sync.Cond{L: &sync.Mutex{}}}
+	lc := &LastChan{}
+	ch := make(chan struct{})
+	lc.cond.Store(&ch)
+	return lc
 }
 
 func (lc *LastChan) Update(val int64) {
 	lc.val.Store(val)
-	lc.cond.Broadcast()
+	newch := make(chan struct{})
+	ch := lc.cond.Swap(&newch)
+	if ch != nil {
+		close(*ch)
+	}
 }
 
-func (lc *LastChan) Broadcast() {
-	lc.cond.Broadcast()
+func (lc *LastChan) Close() {
+	ch := lc.cond.Swap(nil)
+	if ch != nil {
+		close(*ch)
+	}
 }
 
-func (lc *LastChan) MaybeWait(old int64) int64 {
+func (lc *LastChan) MaybeWait(old int64) (int64, bool) {
 	if val := lc.val.Load(); val != old {
-		return val
+		return val, true
 	}
 	return lc.Wait()
 }
 
-func (lc *LastChan) Wait() int64 {
-	lc.cond.Wait()
-	return lc.val.Load()
+func (lc *LastChan) Wait() (int64, bool) {
+	ch := lc.cond.Load()
+	if ch == nil {
+		return 0, false
+	}
+	<-*ch
+	return lc.val.Load(), true
 }
 
 func (lc *LastChan) Load() int64 {

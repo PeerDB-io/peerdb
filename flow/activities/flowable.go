@@ -372,7 +372,7 @@ func (a *FlowableActivity) SyncFlow(
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
 			syncState.Store(shared.Ptr("cleanup"))
 			close(syncDone)
-			normRequests.Broadcast() // signal syncDone closed
+			normRequests.Close()
 			return errors.Join(syncErr, group.Wait())
 		} else if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
@@ -390,7 +390,7 @@ func (a *FlowableActivity) SyncFlow(
 
 	syncState.Store(shared.Ptr("cleanup"))
 	close(syncDone)
-	normRequests.Broadcast() // signal syncDone closed
+	normRequests.Close()
 
 	waitErr := group.Wait()
 	if err := ctx.Err(); err != nil {
