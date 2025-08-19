@@ -816,7 +816,7 @@ func CDCFlowWorkflow(
 			}
 
 			now := workflow.Now(ctx)
-			if state.LastError.Add(24 * time.Hour).Before(now) {
+			if state.LastError.Add(1 * time.Hour).Before(now) {
 				state.ErrorCount = 0
 			}
 			state.LastError = now
@@ -831,13 +831,7 @@ func CDCFlowWorkflow(
 					slog.Any("sleepFor", sleepFor),
 				)
 			} else {
-				// cannot use shared.IsSQLStateError because temporal serialize/deserialize
-				if !temporal.IsApplicationError(err) || strings.Contains(err.Error(), "(SQLSTATE 55006)") {
-					sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
-				} else {
-					sleepFor = time.Duration(5+min(state.ErrorCount, 5)*15) * time.Minute
-				}
-
+				sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
 				logger.Error("error in sync flow", slog.Any("error", err), slog.Any("sleepFor", sleepFor))
 			}
 			mainLoopSelector.AddFuture(model.SleepFuture(ctx, sleepFor), func(_ workflow.Future) {
