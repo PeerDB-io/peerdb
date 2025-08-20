@@ -744,7 +744,8 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	}
 	var allFlows atomic.Pointer[[]flowInformation]
 	defer shared.Interval(ctx, 59*time.Second, func() {
-		rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id, updated_at FROM flows WHERE query_string IS NULL")
+		rows, err := a.CatalogPool.Query(ctx,
+			"SELECT DISTINCT ON (name) name, config_proto, workflow_id, updated_at FROM flows WHERE query_string IS NULL")
 		if err != nil {
 			logger.Error("failed to query all flows", slog.Any("error", err))
 			return
@@ -799,8 +800,8 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 
 type flowInformation struct {
 	config     *protos.FlowConnectionConfigs
-	workflowID string
 	updatedAt  time.Time
+	workflowID string
 }
 
 func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInformation) error {
@@ -849,9 +850,10 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInform
 			attribute.String(otel_metrics.FlowStatusKey, status.String()),
 			attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
 		)))
-		a.OtelManager.Metrics.DurationSinceLastFlowUpdateGauge.Record(ctx, int64(currentTime.Sub(info.updatedAt).Seconds()), metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowStatusKey, status.String()),
-		)))
+		a.OtelManager.Metrics.DurationSinceLastFlowUpdateGauge.Record(ctx, int64(currentTime.Sub(info.updatedAt).Seconds()),
+			metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowStatusKey, status.String()),
+			)))
 	}
 	logger.Info("Finished emitting Instance and Flow Status", slog.Int("flows", len(infos)))
 	var totalCpuLimit float64
