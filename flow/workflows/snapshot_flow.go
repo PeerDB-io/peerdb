@@ -183,7 +183,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		query = fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
 	} else {
 		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, srcTableEscaped, mapping.PartitionKey)
+			from, srcTableEscaped, utils.QuoteIdentifier(mapping.PartitionKey))
 	}
 
 	numWorkers := uint32(8)
