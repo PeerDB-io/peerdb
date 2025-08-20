@@ -379,6 +379,7 @@ func (a *FlowableActivity) SyncFlow(
 			syncState.Store(shared.Ptr("cleanup"))
 			close(syncDone)
 			normRequests.Close()
+			normResponses.Close()
 			return errors.Join(syncErr, group.Wait())
 		} else if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)

@@ -338,7 +338,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if recordBatchSync.NeedsNormalize() {
 		syncState.Store(shared.Ptr("normalizing"))
 		normRequests.Update(res.CurrentSyncBatchID)
-		for normResponses.Load() <= res.CurrentSyncBatchID-normBufferSize {
+		for normResponses.Load() <= res.CurrentSyncBatchID-max(normBufferSize, 0) {
 			select {
 			case <-normResponses.Wait():
 			case <-ctx.Done():
