@@ -334,12 +334,18 @@ func (a *FlowableActivity) SyncFlow(
 	// Wait on normalizeDone at end to not interrupt final normalize
 	syncDone := make(chan struct{})
 	normRequests := concurrency.NewLastChan()
+	normResponses := concurrency.NewLastChan()
+	normBufferSize, err := internal.PeerDBNormalizeBufferSize(ctx, config.Env)
+	if err != nil {
+		connectors.CloseConnector(ctx, srcConn)
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
 		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {
@@ -358,10 +364,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
 		} else {
 			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil {
@@ -391,6 +397,7 @@ func (a *FlowableActivity) SyncFlow(
 	syncState.Store(shared.Ptr("cleanup"))
 	close(syncDone)
 	normRequests.Close()
+	normResponses.Close()
 
 	waitErr := group.Wait()
 	if err := ctx.Err(); err != nil {
@@ -409,6 +416,8 @@ func (a *FlowableActivity) syncRecords(
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
 	normRequests *concurrency.LastChan,
+	normResponses *concurrency.LastChan,
+	normBufferSize int64,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
@@ -441,7 +450,8 @@ func (a *FlowableActivity) syncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, srcConn, normRequests,
+	return syncCore(ctx, a, config, options, srcConn,
+		normRequests, normResponses, normBufferSize,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
@@ -453,10 +463,13 @@ func (a *FlowableActivity) syncPg(
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
 	normRequests *concurrency.LastChan,
+	normResponses *concurrency.LastChan,
+	normBufferSize int64,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, srcConn, normRequests,
+	return syncCore(ctx, a, config, options, srcConn,
+		normRequests, normResponses, normBufferSize,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)

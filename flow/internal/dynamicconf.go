@@ -524,8 +524,8 @@ func PeerDBCDCChannelBufferSize(ctx context.Context, env map[string]string) (int
 	return dynamicConfSigned[int](ctx, env, "PEERDB_CDC_CHANNEL_BUFFER_SIZE")
 }
 
-func PeerDBNormalizeChannelBufferSize(ctx context.Context, env map[string]string) (int, error) {
-	return dynamicConfSigned[int](ctx, env, "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE")
+func PeerDBNormalizeBufferSize(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE")
 }
 
 func PeerDBGroupNormalize(ctx context.Context, env map[string]string) (bool, error) {

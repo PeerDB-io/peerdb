@@ -115,6 +115,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	options *protos.SyncFlowOptions,
 	srcConn TPull,
 	normRequests *concurrency.LastChan,
+	normResponses *concurrency.LastChan,
+	normBufferSize int64,
 	syncingBatchID *atomic.Int64,
 	syncState *atomic.Pointer[string],
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
@@ -336,6 +338,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	if recordBatchSync.NeedsNormalize() {
 		syncState.Store(shared.Ptr("normalizing"))
 		normRequests.Update(res.CurrentSyncBatchID)
+		for normResponses.Load() <= res.CurrentSyncBatchID-normBufferSize {
+			select {
+			case <-normResponses.Wait():
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
 	}
 
 	return res, nil
@@ -621,6 +630,7 @@ func (a *FlowableActivity) startNormalize(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
 	batchID int64,
+	normalizeResponses *concurrency.LastChan,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
@@ -666,6 +676,7 @@ func (a *FlowableActivity) startNormalize(
 
 		logger.Info("normalized batches",
 			slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID), slog.Int64("SyncBatchID", batchID))
+		normalizeResponses.Update(res.EndBatchID)
 		if res.EndBatchID >= batchID {
 			return nil
 		}
@@ -679,6 +690,7 @@ func (a *FlowableActivity) normalizeLoop(
 	config *protos.FlowConnectionConfigs,
 	syncDone <-chan struct{},
 	normalizeRequests *concurrency.LastChan,
+	normalizeResponses *concurrency.LastChan,
 	normalizingBatchID *atomic.Int64,
 	normalizeWaiting *atomic.Bool,
 ) {
@@ -707,7 +719,7 @@ func (a *FlowableActivity) normalizeLoop(
 		retryLoop:
 			for {
 				normalizingBatchID.Store(reqBatchID)
-				if err := a.startNormalize(ctx, config, reqBatchID); err != nil {
+				if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
 					_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					for {
 						// update req to latest normalize request & retry
