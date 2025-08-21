@@ -126,12 +126,18 @@ func (s Suite) TestFlowStatusUpdate() {
 	updates, err := s.getFlowStatusUpdates(flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	require.GreaterOrEqual(s.t, len(updates), 3, "expected at least 3 status updates")
+	require.Equal(s.t, protos.FlowStatus_STATUS_RUNNING.String(), updates[0].OldStatus,
+		"expected first old status to be running")
 	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSING.String(), updates[0].NewStatus,
-		"expected first status update to be pausing")
+		"expected first new status to be pausing")
+	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSING.String(), updates[1].OldStatus,
+		"expected second old status to be pausing")
 	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED.String(), updates[1].NewStatus,
-		"expected second status update to be paused")
+		"expected second new status to be paused")
+	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED.String(), updates[2].OldStatus,
+		"expected third old status to be paused")
 	require.Equal(s.t, protos.FlowStatus_STATUS_RUNNING.String(), updates[2].NewStatus,
-		"expected third status update to be running")
+		"expected third new status to be running")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
