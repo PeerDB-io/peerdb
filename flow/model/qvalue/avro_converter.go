@@ -224,10 +224,6 @@ func QValueToAvro(
 	unboundedNumericAsString bool, stat *NumericStat,
 	binaryFormat internal.BinaryFormat,
 ) (any, error) {
-	if value.Value() == nil && value.Kind() != types.QValueKindComposite {
-		return nil, nil
-	}
-
 	c := QValueAvroConverter{
 		QField:                   field,
 		logger:                   logger,
@@ -237,7 +233,12 @@ func QValueToAvro(
 		binaryFormat:             binaryFormat,
 	}
 
-	// if value.Kind() == types.QValueKindComposite {
+	if value.Value() == nil {
+		if value.Kind() == types.QValueKindComposite {
+			return c.processComposite(ctx, nil, binaryFormat)
+		}
+		return nil, nil
+	}
 
 	switch v := value.(type) {
 	case types.QValueInvalid:
@@ -334,9 +335,9 @@ func QValueToAvro(
 	case types.QValueArrayNumeric:
 		return c.processArrayNumeric(v.Val), nil
 	case types.QValueComposite:
-		return c.processComposite(ctx, env, v.Val, v.Fields)
+		return c.processComposite(ctx, v.Val, binaryFormat)
 	case types.QValueArrayComposite:
-		return c.processArrayComposite(ctx, env, v.Val)
+		return c.processArrayComposite(ctx, v.Val, binaryFormat)
 	default:
 		return nil, fmt.Errorf("[toavro] unsupported %T", value)
 	}
@@ -667,83 +668,30 @@ func (c *QValueAvroConverter) processArrayString(arrayData []string) any {
 // It recursively processes each field in the composite type, handling nested composites
 func (c *QValueAvroConverter) processComposite(
 	ctx context.Context,
-	env map[string]string,
 	compositeVal map[string]types.QValue,
-	fieldTypes map[string]types.QValueKind,
+	binaryFormat internal.BinaryFormat,
 ) (any, error) {
-	slog.Info("Processing composite type", slog.Any("column", c.QField.Name), slog.Any("compositeVal", compositeVal), slog.Any("fieldTypes", fieldTypes))
-
-	if compositeVal == nil {
-		// return record with nil value for each field
-		result := make(map[string]any)
-		for _, subfield := range c.QField.SubFields {
-			if subfield.Type == types.QValueKindComposite {
-				subfieldTypes := make(map[string]types.QValueKind)
-				for _, subSubField := range subfield.SubFields {
-					subfieldTypes[subSubField.Name] = subSubField.Type
-				}
-				sc := QValueAvroConverter{
-					QField:                   subfield,
-					logger:                   c.logger,
-					Stat:                     c.Stat,
-					TargetDWH:                c.TargetDWH,
-					UnboundedNumericAsString: c.UnboundedNumericAsString,
-				}
-				convertedSubfield, err := sc.processComposite(ctx, env, nil, subfieldTypes)
-				if err != nil {
-					return nil, fmt.Errorf("failed to convert composite field %s: %w", subfield.Name, err)
-				}
-				result[subfield.Name] = convertedSubfield
-			} else if subfield.Type.IsArray() {
-				result[subfield.Name] = make([]any, 0)
-			} else {
-				result[subfield.Name] = nil
-			}
-		}
-		if c.Nullable {
-			if len(result) == 0 {
-				return nil, nil // return nil for empty composite
-			}
-			return &result, nil // return record with nil values for each field
-		}
-		return result, nil
-	}
-
 	result := make(map[string]any)
-
-	// Process each field in the composite type
-	for fieldName, fieldValue := range compositeVal {
-		// Get the field type for proper conversion
-		fieldType, exists := fieldTypes[fieldName]
+	for _, subfield := range c.QField.SubFields {
+		subfieldValue, exists := compositeVal[subfield.Name]
 		if !exists {
-			// If field type is not known, try to infer from the value
-			fieldType = fieldValue.Kind()
-		}
-
-		// Create a temporary QField for this composite field
-		tempField := &types.QField{
-			Name:     fieldName,
-			Type:     fieldType,
-			Nullable: true, // Assume nullable for safety
-			// TODO: Handle precision and scale for numeric types if needed
+			subfieldValue = types.QValueNull(subfield.Type)
 		}
 
 		convertedValue, err := QValueToAvro(
-			ctx, env, fieldValue, tempField, c.TargetDWH, c.logger,
-			c.UnboundedNumericAsString, c.Stat,
+			ctx, subfieldValue, subfield, c.TargetDWH, c.logger,
+			c.UnboundedNumericAsString, c.Stat, binaryFormat,
 		)
+
 		if err != nil {
-			return nil, fmt.Errorf("failed to convert composite field %s: %w", fieldName, err)
+			return nil, fmt.Errorf("failed to convert composite field %s: %w", subfield.Name, err)
 		}
 
-		avroFieldName := ConvertToAvroCompatibleName(fieldName)
+		avroFieldName := ConvertToAvroCompatibleName(subfield.Name)
 		result[avroFieldName] = convertedValue
 	}
 
 	if c.Nullable {
-		if len(result) == 0 {
-			return nil, nil
-		}
 		return &result, nil
 	}
 
@@ -754,16 +702,15 @@ func (c *QValueAvroConverter) processComposite(
 
 func (c *QValueAvroConverter) processArrayComposite(
 	ctx context.Context,
-	env map[string]string,
 	arrayCompositeVal []types.QValueComposite,
+	binaryFormat internal.BinaryFormat,
 ) (any, error) {
-	if arrayCompositeVal == nil {
-		return make([]any, 0), nil
-	}
-
 	convertedArray := make([]any, 0, len(arrayCompositeVal))
 	for _, compositeVal := range arrayCompositeVal {
-		convertedValue, err := c.processComposite(ctx, env, compositeVal.Val, compositeVal.Fields)
+		convertedValue, err := QValueToAvro(
+			ctx, compositeVal, c.QField.SubFields[0], c.TargetDWH, c.logger,
+			c.UnboundedNumericAsString, c.Stat, binaryFormat,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to convert array composite value: %w", err)
 		}
