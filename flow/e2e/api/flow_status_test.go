@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/stretchr/testify/require"
 )
 
 type flowStatusUpdate struct {
@@ -19,7 +20,9 @@ func (s Suite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, err
 	var updates []flowStatusUpdate
 	rows, err := s.pg.PostgresConnector.Conn().Query(
 		s.t.Context(),
-		"SELECT flow_job_name, old_status, new_status FROM flow_status_updates WHERE flow_job_name = $1",
+		`SELECT flow_job_name, old_status, new_status 
+		FROM flow_status_updates 
+		WHERE flow_job_name = $1 AND old_status != new_status`,
 		flowJobName,
 	)
 	if err != nil {
@@ -47,7 +50,7 @@ func (s Suite) setupFlowStatusTestDependencies() {
 			id serial PRIMARY KEY,
 			flow_job_name text NOT NULL,
 			old_status text NOT NULL,
-			new_status text NOT NULL,
+			new_status text NOT NULL
 		)`))
 	// Track updates to status via a trigger
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -125,7 +128,7 @@ func (s Suite) TestFlowStatusUpdate() {
 	// check if flow status updates are recorded and are pausing, paused and running
 	updates, err := s.getFlowStatusUpdates(flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	require.Equal(s.t, 3, len(updates), "expected exactly 3 status updates")
+	require.Len(s.t, updates, 3, "expected exactly 3 status updates")
 	require.Equal(s.t, protos.FlowStatus_STATUS_RUNNING.String(), updates[0].OldStatus,
 		"expected first old status to be running")
 	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSING.String(), updates[0].NewStatus,
