@@ -55,7 +55,7 @@ func (s Suite) setupFlowStatusTestDependencies() {
 		`CREATE OR REPLACE FUNCTION flow_status_update_trigger() RETURNS TRIGGER AS $$
 			BEGIN
 				INSERT INTO flow_status_updates (flow_job_name, old_status, new_status)
-				VALUES (NEW.name, OLD.flow_status, NEW.flow_status);
+				VALUES (NEW.name, OLD.status, NEW.status);
 				RETURN NEW;
 			END;
 		$$ LANGUAGE plpgsql;
