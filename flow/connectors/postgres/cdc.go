@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -617,7 +619,14 @@ func PullCdcRecords[Items model.Items](
 								for _, col := range updatedCols {
 									delete(r.UnchangedToastColumns, col)
 								}
+								p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(updatedCols)),
+									metric.WithAttributeSet(attribute.NewSet(
+										attribute.Bool("backfilled", true))))
 							}
+							p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(r.UnchangedToastColumns)),
+								metric.WithAttributeSet(attribute.NewSet(
+									attribute.Bool("backfilled", false))))
+
 							if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
 								return err
 							}
