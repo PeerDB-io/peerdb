@@ -323,7 +323,6 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 	defer syncer.Close()
-	c.meter.Reset()
 	c.logger.Info("[mysql] PullRecords started streaming")
 
 	var skewLossReported bool
