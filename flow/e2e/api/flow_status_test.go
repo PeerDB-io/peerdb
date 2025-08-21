@@ -11,9 +11,9 @@ import (
 )
 
 type flowStatusUpdate struct {
-	FlowJobName string `db:"flow_job_name"`
-	OldStatus   string `db:"old_status"`
-	NewStatus   string `db:"new_status"`
+	FlowJobName string            `db:"flow_job_name"`
+	OldStatus   protos.FlowStatus `db:"old_status"`
+	NewStatus   protos.FlowStatus `db:"new_status"`
 }
 
 func (s Suite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, error) {
@@ -49,8 +49,8 @@ func (s Suite) setupFlowStatusTestDependencies() {
 		`CREATE TABLE flow_status_updates (
 			id serial PRIMARY KEY,
 			flow_job_name text NOT NULL,
-			old_status text NOT NULL,
-			new_status text NOT NULL
+			old_status integer NOT NULL,
+			new_status integer NOT NULL
 		)`))
 	// Track updates to status via a trigger
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -126,19 +126,22 @@ func (s Suite) TestFlowStatusUpdate() {
 	// check if flow status updates are recorded and are pausing, paused and running
 	updates, err := s.getFlowStatusUpdates(flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	require.Len(s.t, updates, 3, "expected exactly 3 status updates")
-	require.Equal(s.t, protos.FlowStatus_STATUS_RUNNING.String(), updates[0].OldStatus,
-		"expected first old status to be running")
-	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSING.String(), updates[0].NewStatus,
-		"expected first new status to be pausing")
-	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSING.String(), updates[1].OldStatus,
-		"expected second old status to be pausing")
-	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED.String(), updates[1].NewStatus,
-		"expected second new status to be paused")
-	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSED.String(), updates[2].OldStatus,
-		"expected third old status to be paused")
-	require.Equal(s.t, protos.FlowStatus_STATUS_RUNNING.String(), updates[2].NewStatus,
-		"expected third new status to be running")
+	// SETUP -> SNAPSHOT
+	// SNAPSHOT -> RUNNING
+	// RUNNING -> PAUSING
+	// PAUSING -> PAUSED
+	// PAUSED -> RUNNING
+	require.Len(s.t, updates, 5, "expected exactly 5 status updates")
+	require.Equal(s.t, updates[0].OldStatus, protos.FlowStatus_STATUS_SETUP)
+	require.Equal(s.t, updates[0].NewStatus, protos.FlowStatus_STATUS_SNAPSHOT)
+	require.Equal(s.t, updates[1].OldStatus, protos.FlowStatus_STATUS_SNAPSHOT)
+	require.Equal(s.t, updates[1].NewStatus, protos.FlowStatus_STATUS_RUNNING)
+	require.Equal(s.t, updates[2].OldStatus, protos.FlowStatus_STATUS_RUNNING)
+	require.Equal(s.t, updates[2].NewStatus, protos.FlowStatus_STATUS_PAUSING)
+	require.Equal(s.t, updates[3].OldStatus, protos.FlowStatus_STATUS_PAUSING)
+	require.Equal(s.t, updates[3].NewStatus, protos.FlowStatus_STATUS_PAUSED)
+	require.Equal(s.t, updates[4].OldStatus, protos.FlowStatus_STATUS_PAUSED)
+	require.Equal(s.t, updates[4].NewStatus, protos.FlowStatus_STATUS_RUNNING)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
