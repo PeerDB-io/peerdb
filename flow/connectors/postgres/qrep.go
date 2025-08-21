@@ -461,7 +461,10 @@ func corePullQRepRecords(
 		return numRecords, numBytes, err
 	}
 
-	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords), partitionIdLog)
+	c.logger.Info(fmt.Sprintf("pulled %d records", numRecords),
+		partitionIdLog,
+		slog.Int64("records", numRecords),
+		slog.Int64("bytes", numBytes))
 	return numRecords, numBytes, nil
 }
 

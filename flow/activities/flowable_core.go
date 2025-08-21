@@ -249,7 +249,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		syncBatchID += 1
 		syncingBatchID.Store(syncBatchID)
-		logger.Info("begin pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
+		logger.Info("begin pulling records for batch", slog.Int64("syncBatchID", syncBatchID))
 
 		if err := monitoring.AddCDCBatchForFlow(errCtx, a.CatalogPool, flowName, monitoring.CDCBatchInfo{
 			BatchID:     syncBatchID,
@@ -279,7 +279,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			a.Alerter.LogFlowWarning(ctx, flowName, warning)
 		}
 
-		logger.Info("finished pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
+		logger.Info("finished pulling records for batch", slog.Int64("syncBatchID", syncBatchID))
 		return nil
 	})
 
@@ -645,7 +645,7 @@ func (a *FlowableActivity) startNormalize(
 		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
-	logger.Info("normalizing batch", slog.Int64("SyncBatchID", batchID))
+	logger.Info("normalizing batch", slog.Int64("syncBatchID", batchID))
 	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 		FlowJobName:            config.FlowJobName,
 		Env:                    config.Env,

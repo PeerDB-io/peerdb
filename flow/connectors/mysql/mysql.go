@@ -32,7 +32,7 @@ type MySqlConnector struct {
 	logger        log.Logger
 	rdsAuth       *utils.RDSAuth
 	serverVersion string
-	bytesRead     atomic.Int64
+	meter         utils.Meter
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -127,9 +127,9 @@ func (c *MySqlConnector) ConnectionActive(context.Context) error {
 func (c *MySqlConnector) Dialer() client.Dialer {
 	var meteredDialer utils.MeteredDialer
 	if c.ssh.Client != nil {
-		meteredDialer = utils.NewMeteredDialer(&c.bytesRead, c.ssh.Client.DialContext, false)
+		meteredDialer = utils.NewMeteredDialer(&c.meter, c.ssh.Client.DialContext, false)
 	} else {
-		meteredDialer = utils.NewMeteredDialer(&c.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
+		meteredDialer = utils.NewMeteredDialer(&c.meter, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
 	return meteredDialer.DialContext
 }

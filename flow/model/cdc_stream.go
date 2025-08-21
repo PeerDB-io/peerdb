@@ -115,6 +115,10 @@ func (r *CDCStream[T]) GetRecords() <-chan Record[T] {
 	return r.records
 }
 
+func (r *CDCStream[T]) ChannelLen() int {
+	return len(r.records)
+}
+
 func (r *CDCStream[T]) AddSchemaDelta(
 	tableNameMapping map[string]NameAndExclude,
 	delta *protos.TableSchemaDelta,

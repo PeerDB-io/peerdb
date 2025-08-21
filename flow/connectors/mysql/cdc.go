@@ -323,18 +323,24 @@ func (c *MySqlConnector) PullRecords(
 		return err
 	}
 	defer syncer.Close()
+	c.meter.Reset()
+	c.logger.Info("[mysql] PullRecords started streaming")
 
 	var skewLossReported bool
 	var updatedOffset string
 	var inTx bool
 	var recordCount uint32
+	var bytesRead int
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
 	var overtime bool
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
 		}
-		c.logger.Info("[mysql] PullRecords finished streaming", slog.Uint64("records", uint64(recordCount)))
+		c.logger.Info("[mysql] PullRecords finished streaming",
+			slog.Uint64("records", uint64(recordCount)),
+			slog.Int("bytes", bytesRead),
+			slog.Int("channelLen", req.RecordStream.ChannelLen()))
 	}()
 
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
@@ -352,6 +358,14 @@ func (c *MySqlConnector) PullRecords(
 			req.RecordStream.SignalAsNotEmpty()
 			cancelTimeout()
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+		}
+		if recordCount%50000 == 0 {
+			c.logger.Info("[mysql] PullRecords streaming",
+				slog.Uint64("records", uint64(recordCount)),
+				slog.Int("bytes", bytesRead),
+				slog.Int("channelLen", req.RecordStream.ChannelLen()),
+				slog.Bool("inTx", inTx),
+				slog.Bool("overtime", overtime))
 		}
 		return nil
 	}
@@ -386,7 +400,9 @@ func (c *MySqlConnector) PullRecords(
 					timeoutCtx, cancelTimeout = context.WithTimeout(ctx, time.Hour)
 				} else if inTx {
 					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
-						slog.Uint64("recordCount", uint64(recordCount)))
+						slog.Uint64("records", uint64(recordCount)),
+						slog.Int("bytes", bytesRead),
+						slog.Int("channelLen", req.RecordStream.ChannelLen()))
 					// reset timeoutCtx to a low value and wait for inTx to become false
 					cancelTimeout()
 					//nolint:govet // cancelTimeout called by defer, spurious lint
@@ -461,6 +477,7 @@ func (c *MySqlConnector) PullRecords(
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
 				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
+				bytesRead += len(event.RawData)
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()

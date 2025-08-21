@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -32,10 +31,10 @@ const (
 type MongoConnector struct {
 	logger log.Logger
 	*metadataStore.PostgresMetadata
-	config    *protos.MongoConfig
-	client    *mongo.Client
-	ssh       utils.SSHTunnel
-	bytesRead atomic.Int64
+	config *protos.MongoConfig
+	client *mongo.Client
+	ssh    utils.SSHTunnel
+	meter  utils.Meter
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
@@ -59,9 +58,9 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 
 	var meteredDialer utils.MeteredDialer
 	if sshTunnel.Client != nil {
-		meteredDialer = utils.NewMeteredDialer(&mongoConnector.bytesRead, sshTunnel.Client.DialContext, true)
+		meteredDialer = utils.NewMeteredDialer(&mongoConnector.meter, sshTunnel.Client.DialContext, true)
 	} else {
-		meteredDialer = utils.NewMeteredDialer(&mongoConnector.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
+		meteredDialer = utils.NewMeteredDialer(&mongoConnector.meter, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
 
 	clientOptions, err := parseAsClientOptions(config, meteredDialer)
