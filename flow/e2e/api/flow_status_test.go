@@ -125,7 +125,7 @@ func (s Suite) TestFlowStatusUpdate() {
 	// check if flow status updates are recorded and are pausing, paused and running
 	updates, err := s.getFlowStatusUpdates(flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	require.GreaterOrEqual(s.t, len(updates), 3, "expected at least 3 status updates")
+	require.Equal(s.t, 3, len(updates), "expected exactly 3 status updates")
 	require.Equal(s.t, protos.FlowStatus_STATUS_RUNNING.String(), updates[0].OldStatus,
 		"expected first old status to be running")
 	require.Equal(s.t, protos.FlowStatus_STATUS_PAUSING.String(), updates[0].NewStatus,
