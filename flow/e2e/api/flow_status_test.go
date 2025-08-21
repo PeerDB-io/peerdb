@@ -101,7 +101,6 @@ func (s Suite) TestFlowStatusUpdate() {
 	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
 	e2e.RequireEqualTables(s.ch, "status_test", "id,val")
 
 	// pause the mirror
