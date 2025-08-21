@@ -33,15 +33,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type CheckMetadataTablesResult struct {
 	NeedsSetupMetadataTables bool
-}
-
-type NormalizeBatchRequest struct {
-	BatchID int64
 }
 
 type FlowableActivity struct {
@@ -326,12 +323,6 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	normalizeBufferSize, err := internal.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
-	if err != nil {
-		connectors.CloseConnector(ctx, srcConn)
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-	}
-
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
 	if err != nil {
 		connectors.CloseConnector(ctx, srcConn)
@@ -342,13 +333,19 @@ func (a *FlowableActivity) SyncFlow(
 	// whereas normalizeDone will be closed by normalizing goroutine
 	// Wait on normalizeDone at end to not interrupt final normalize
 	syncDone := make(chan struct{})
-	normRequests := make(chan NormalizeBatchRequest, normalizeBufferSize)
+	normRequests := concurrency.NewLastChan()
+	normResponses := concurrency.NewLastChan()
+	normBufferSize, err := internal.PeerDBNormalizeBufferSize(ctx, config.Env)
+	if err != nil {
+		connectors.CloseConnector(ctx, srcConn)
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
 		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {
@@ -367,10 +364,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
 		} else {
 			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil {
@@ -381,6 +378,8 @@ func (a *FlowableActivity) SyncFlow(
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
 			syncState.Store(shared.Ptr("cleanup"))
 			close(syncDone)
+			normRequests.Close()
+			normResponses.Close()
 			return errors.Join(syncErr, group.Wait())
 		} else if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
@@ -398,6 +397,9 @@ func (a *FlowableActivity) SyncFlow(
 
 	syncState.Store(shared.Ptr("cleanup"))
 	close(syncDone)
+	normRequests.Close()
+	normResponses.Close()
+
 	waitErr := group.Wait()
 	if err := ctx.Err(); err != nil {
 		logger.Info("sync canceled", slog.Any("error", err))
@@ -414,7 +416,9 @@ func (a *FlowableActivity) syncRecords(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
-	normRequests chan<- NormalizeBatchRequest,
+	normRequests *concurrency.LastChan,
+	normResponses *concurrency.LastChan,
+	normBufferSize int64,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
@@ -447,7 +451,8 @@ func (a *FlowableActivity) syncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, srcConn, normRequests,
+	return syncCore(ctx, a, config, options, srcConn,
+		normRequests, normResponses, normBufferSize,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
@@ -458,11 +463,14 @@ func (a *FlowableActivity) syncPg(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
-	normRequests chan<- NormalizeBatchRequest,
+	normRequests *concurrency.LastChan,
+	normResponses *concurrency.LastChan,
+	normBufferSize int64,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, srcConn, normRequests,
+	return syncCore(ctx, a, config, options, srcConn,
+		normRequests, normResponses, normBufferSize,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
@@ -744,7 +752,8 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	}
 	var allFlows atomic.Pointer[[]flowInformation]
 	defer shared.Interval(ctx, 59*time.Second, func() {
-		rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
+		rows, err := a.CatalogPool.Query(ctx,
+			"SELECT DISTINCT ON (name) name, config_proto, workflow_id, updated_at FROM flows WHERE query_string IS NULL")
 		if err != nil {
 			logger.Error("failed to query all flows", slog.Any("error", err))
 			return
@@ -754,7 +763,8 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 			var flowName string
 			var configProto []byte
 			var workflowID string
-			if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
+			var updatedAt time.Time
+			if err := rows.Scan(&flowName, &configProto, &workflowID, &updatedAt); err != nil {
 				return flowInformation{}, err
 			}
 
@@ -766,6 +776,7 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 			return flowInformation{
 				config:     &config,
 				workflowID: workflowID,
+				updatedAt:  updatedAt,
 			}, nil
 		})
 		if err != nil {
@@ -797,6 +808,7 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 
 type flowInformation struct {
 	config     *protos.FlowConnectionConfigs
+	updatedAt  time.Time
 	workflowID string
 }
 
@@ -820,6 +832,7 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInform
 		attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
 	)))
 	logger.Info("Emitting Instance and Flow Status", slog.Int("flows", len(infos)))
+	currentTime := time.Now()
 	activeFlows := make([]flowInformation, 0, len(infos))
 	for _, info := range infos {
 		flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
@@ -845,6 +858,10 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInform
 			attribute.String(otel_metrics.FlowStatusKey, status.String()),
 			attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
 		)))
+		a.OtelManager.Metrics.DurationSinceLastFlowUpdateGauge.Record(ctx, int64(currentTime.Sub(info.updatedAt).Seconds()),
+			metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowStatusKey, status.String()),
+			)))
 	}
 	logger.Info("Finished emitting Instance and Flow Status", slog.Int("flows", len(infos)))
 	var totalCpuLimit float64
