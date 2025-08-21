@@ -387,7 +387,8 @@ func (om *OtelManager) setupMetrics() error {
 	}
 
 	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
-		metric.WithDescription("Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
+		metric.WithDescription(
+			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
 	); err != nil {
 		return err
 	}
