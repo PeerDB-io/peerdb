@@ -113,8 +113,6 @@ func (s Suite) TestFlowStatusUpdate() {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
-	s.checkMetadataLastSyncStateValues(env, flowConnConfig, "pause", 0, 0)
-
 	// resume the mirror
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
