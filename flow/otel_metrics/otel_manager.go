@@ -56,6 +56,7 @@ const (
 	WorkloadTotalReplicasGaugeName       = "workload_total_replicas"
 	LogRetentionGaugeName                = "log_retention"
 	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
+	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 )
 
 type Metrics struct {
@@ -90,6 +91,7 @@ type Metrics struct {
 	WorkloadTotalReplicasGauge       metric.Int64Gauge
 	LatestConsumedLogEventGauge      metric.Int64Gauge
 	LogRetentionGauge                metric.Float64Gauge
+	UnchangedToastValuesCounter      metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -380,6 +382,12 @@ func (om *OtelManager) setupMetrics() error {
 
 	if om.Metrics.WorkloadTotalReplicasGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(WorkloadTotalReplicasGaugeName),
 		metric.WithDescription("Total number of replicas for the current workload"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
+		metric.WithDescription("Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
 	); err != nil {
 		return err
 	}
