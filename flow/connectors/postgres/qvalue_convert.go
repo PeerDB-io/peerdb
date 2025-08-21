@@ -731,66 +731,93 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			return types.QValueGeometry{Val: wkt}, nil
 		}
 	case types.QValueKindComposite:
+		return c.compositeToQValue(oid, value, customTypeMapping, version)
+	case types.QValueKindArrayComposite:
+		if value == nil {
+			return types.QValueNull(qvalueKind), nil
+		}
+
 		typ, ok := c.typeMap.TypeForOID(oid)
 		if !ok {
-			return nil, fmt.Errorf("composite type OID %d not found in typeMap", oid)
+			return nil, fmt.Errorf("array type OID %d not found in typeMap", oid)
 		}
-
-		cc, ok := typ.Codec.(*pgtype.CompositeCodec)
+		ac, ok := typ.Codec.(*pgtype.ArrayCodec)
 		if !ok {
-			return nil, fmt.Errorf("%s (%d) is not a composite type", typ.Name, oid)
+			return nil, fmt.Errorf("%s (%d) is not a array type", typ.Name, oid)
 		}
 
-		fieldTypes := make(map[string]types.QValueKind)
-
-		if value == nil {
-			for _, fld := range cc.Fields {
-				fieldTypes[fld.Name] = c.postgresOIDToQValueKind(fld.Type.OID, customTypeMapping, version)
+		values := value.([]any)
+		compositeArray := make([]types.QValueComposite, 0, len(values))
+		for i, item := range values {
+			compositeValue, err := c.compositeToQValue(ac.ElementType.OID, item, customTypeMapping, version)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse composite array element %d: %w", i, err)
 			}
-			return types.QValueComposite{
-				Val:    nil,
-				Fields: fieldTypes,
-			}, nil
+			compositeArray = append(compositeArray, compositeValue.(types.QValueComposite))
 		}
-
-		compositeMap, ok := value.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("expected map[string]any for composite type, got %T", value)
-		}
-
-		fieldMap := make(map[string]types.QValue)
-		for _, field := range cc.Fields {
-			fieldName := field.Name
-			fieldType := c.postgresOIDToQValueKind(field.Type.OID, customTypeMapping, version)
-			fieldTypes[fieldName] = fieldType
-			fieldValue := compositeMap[fieldName]
-			if fieldValue == nil {
-				fieldMap[fieldName] = nil
-			} else {
-				// Convert the field value to the appropriate type
-				convertedValue, err := c.parseFieldFromPostgresOID(
-					field.Type.OID, -1, fieldValue, customTypeMapping, // TODO: get correct typmod
-					version,
-				)
-				if err != nil {
-					return nil, fmt.Errorf("failed to parse field %s: %w", fieldName, err)
-				}
-				fieldMap[fieldName] = convertedValue
-			}
-		}
-
-		return types.QValueComposite{
-			Val:    fieldMap,
-			Fields: fieldTypes,
-		}, nil
+		return types.QValueArrayComposite{Val: compositeArray}, nil
 	default:
 		if textVal, ok := value.(string); ok {
 			return types.QValueString{Val: textVal}, nil
 		}
 	}
 
-	// parsing into pgtype failed.
 	return nil, fmt.Errorf("failed to parse value %v (%T) into QValueKind %v", value, value, qvalueKind)
+}
+
+func (c *PostgresConnector) compositeToQValue(oid uint32, value any, customTypeMapping map[uint32]shared.CustomDataType, version uint32) (types.QValue, error) {
+	typ, ok := c.typeMap.TypeForOID(oid)
+	if !ok {
+		return nil, fmt.Errorf("composite type OID %d not found in typeMap", oid)
+	}
+
+	cc, ok := typ.Codec.(*pgtype.CompositeCodec)
+	if !ok {
+		return nil, fmt.Errorf("%s (%d) is not a composite type", typ.Name, oid)
+	}
+
+	fieldTypes := make(map[string]types.QValueKind)
+
+	if value == nil {
+		for _, fld := range cc.Fields {
+			fieldTypes[fld.Name] = c.postgresOIDToQValueKind(fld.Type.OID, customTypeMapping, version)
+		}
+		return types.QValueComposite{
+			Val:    nil,
+			Fields: fieldTypes,
+		}, nil
+	}
+
+	compositeMap, ok := value.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("expected map[string]any for composite type, got %T", value)
+	}
+
+	fieldMap := make(map[string]types.QValue)
+	for _, field := range cc.Fields {
+		fieldName := field.Name
+		fieldType := c.postgresOIDToQValueKind(field.Type.OID, customTypeMapping, version)
+		fieldTypes[fieldName] = fieldType
+		fieldValue := compositeMap[fieldName]
+		if fieldValue == nil {
+			fieldMap[fieldName] = types.QValueNull(fieldType)
+		} else {
+			// Convert the field value to the appropriate type
+			convertedValue, err := c.parseFieldFromPostgresOID(
+				field.Type.OID, -1, fieldValue, customTypeMapping, // TODO: get correct typmod
+				version,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse field %s: %w", fieldName, err)
+			}
+			fieldMap[fieldName] = convertedValue
+		}
+	}
+
+	return types.QValueComposite{
+		Val:    fieldMap,
+		Fields: fieldTypes,
+	}, nil
 }
 
 func validNumericToDecimal(numVal pgtype.Numeric) (decimal.Decimal, bool) {

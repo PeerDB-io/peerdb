@@ -95,7 +95,7 @@ func (qe *QRepQueryExecutor) buildQFieldFromOID(name string, oid uint32, typeMod
 				return types.QField{
 					Name:      name,
 					Type:      ctype,
-					Nullable:  false,
+					Nullable:  true,
 					SubFields: subQFields,
 				}
 			}
@@ -106,7 +106,7 @@ func (qe *QRepQueryExecutor) buildQFieldFromOID(name string, oid uint32, typeMod
 		return types.QField{
 			Name:     name,
 			Type:     ctype,
-			Nullable: false,
+			Nullable: true,
 		}
 	} else if ctype == types.QValueKindArrayComposite {
 		if typ, ok := qe.typeMap.TypeForOID(oid); ok {
