@@ -848,6 +848,7 @@ func CDCFlowWorkflow(
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 		if state.ActiveSignal == model.PauseSignal {
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSING)
 			finished = true
 		}
 	})

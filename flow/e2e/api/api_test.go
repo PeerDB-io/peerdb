@@ -563,7 +563,10 @@ func (s Suite) TestEditTablesBeforeResync() {
 		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+	e2e.EnvWaitFor(s.t, env, 1*time.Minute, "wait for pausing state for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSING
+	})
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for paused state for add table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
