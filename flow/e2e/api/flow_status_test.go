@@ -142,7 +142,4 @@ func (s Suite) TestFlowStatusUpdate() {
 	require.Equal(s.t, updates[3].NewStatus, protos.FlowStatus_STATUS_PAUSED)
 	require.Equal(s.t, updates[4].OldStatus, protos.FlowStatus_STATUS_PAUSED)
 	require.Equal(s.t, updates[4].NewStatus, protos.FlowStatus_STATUS_RUNNING)
-
-	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
 }
