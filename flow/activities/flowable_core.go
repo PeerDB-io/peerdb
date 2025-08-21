@@ -675,7 +675,7 @@ func (a *FlowableActivity) startNormalize(
 		}
 
 		logger.Info("normalized batches",
-			slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID), slog.Int64("SyncBatchID", batchID))
+			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
 		normalizeResponses.Update(res.EndBatchID)
 		if res.EndBatchID >= batchID {
 			return nil

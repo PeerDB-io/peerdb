@@ -450,8 +450,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
 	c.logger.Info("[clickhouse-cdc] inserting batch...",
-		slog.Int64("StartBatchID", normBatchID),
-		slog.Int64("EndBatchID", endBatchID),
+		slog.Int64("startBatchID", normBatchID),
+		slog.Int64("endBatchID", endBatchID),
 		slog.Int("connections", parallelNormalize))
 
 	numParts, err := internal.PeerDBClickHouseNormalizationParts(ctx, req.Env)
@@ -464,8 +464,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	// there is no other indication of progress, so we log every 5 minutes.
 	periodicLogger := shared.Interval(ctx, 5*time.Minute, func() {
 		c.logger.Info("[clickhouse-cdc] inserting batch...",
-			slog.Int64("StartBatchID", normBatchID),
-			slog.Int64("EndBatchID", endBatchID),
+			slog.Int64("startBatchID", normBatchID),
+			slog.Int64("endBatchID", endBatchID),
 			slog.Int("connections", parallelNormalize))
 	})
 	defer periodicLogger()
@@ -492,8 +492,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 			for insertIntoSelectQuery := range queries {
 				c.logger.Info("executing INSERT command to ClickHouse table",
-					slog.Int64("syncBatchId", endBatchID),
-					slog.Int64("normalizeBatchId", normBatchID),
+					slog.Int64("syncBatchID", endBatchID),
+					slog.Int64("normalizeBatchID", normBatchID),
 					slog.String("destinationTable", insertIntoSelectQuery.TableName),
 					slog.String("query", insertIntoSelectQuery.Query),
 					slog.Int("parallelWorker", i))
