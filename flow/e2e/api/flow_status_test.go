@@ -45,15 +45,16 @@ func (s Suite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, err
 }
 
 func (s Suite) setupFlowStatusTestDependencies() {
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
+	_, err := s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
 		`CREATE TABLE flow_status_updates (
 			id serial PRIMARY KEY,
 			flow_job_name text NOT NULL,
 			old_status integer NOT NULL,
 			new_status integer NOT NULL
-		)`))
+		)`)
+	require.NoError(s.t, err)
 	// Track updates to status via a trigger
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
+	_, err = s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
 		// create trigger
 		`CREATE OR REPLACE FUNCTION flow_status_update_trigger() RETURNS TRIGGER AS $$
 			BEGIN
@@ -66,7 +67,8 @@ func (s Suite) setupFlowStatusTestDependencies() {
 		AFTER UPDATE OF status ON flows
 		FOR EACH ROW
 		EXECUTE FUNCTION flow_status_update_trigger();`,
-	))
+	)
+	require.NoError(s.t, err)
 }
 
 func (s Suite) cleanupFlowStatusTestDependencies() {
