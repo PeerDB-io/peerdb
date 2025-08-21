@@ -1,6 +1,7 @@
 package e2e_api
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -72,13 +73,16 @@ func (s Suite) setupFlowStatusTestDependencies() {
 }
 
 func (s Suite) cleanupFlowStatusTestDependencies() {
-	_, err := s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
 		"DROP TRIGGER IF EXISTS flow_status_update ON flows;")
 	require.NoError(s.t, err)
-	_, err = s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
+	_, err = s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
 		"DROP FUNCTION IF EXISTS flow_status_update_trigger();")
 	require.NoError(s.t, err)
-	_, err = s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
+	_, err = s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
 		"DROP TABLE IF EXISTS flow_status_updates;")
 	require.NoError(s.t, err)
 }
