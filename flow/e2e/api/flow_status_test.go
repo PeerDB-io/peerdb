@@ -79,7 +79,8 @@ func (s Suite) cleanupFlowStatusTestDependencies() {
 }
 
 func (s Suite) TestFlowStatusUpdate() {
-	defer s.cleanupFlowStatusTestDependencies()
+	s.t.Parallel()
+	s.t.Cleanup(s.cleanupFlowStatusTestDependencies)
 	s.setupFlowStatusTestDependencies()
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "status_test"))))
