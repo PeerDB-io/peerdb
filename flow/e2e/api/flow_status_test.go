@@ -72,12 +72,15 @@ func (s Suite) setupFlowStatusTestDependencies() {
 }
 
 func (s Suite) cleanupFlowStatusTestDependencies() {
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		"DROP TRIGGER IF EXISTS flow_status_update ON flows;"))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		"DROP FUNCTION IF EXISTS flow_status_update_trigger();"))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		"DROP TABLE IF EXISTS flow_status_updates;"))
+	_, err := s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
+		"DROP TRIGGER IF EXISTS flow_status_update ON flows;")
+	require.NoError(s.t, err)
+	_, err = s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
+		"DROP FUNCTION IF EXISTS flow_status_update_trigger();")
+	require.NoError(s.t, err)
+	_, err = s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
+		"DROP TABLE IF EXISTS flow_status_updates;")
+	require.NoError(s.t, err)
 }
 
 func (s Suite) TestFlowStatusUpdate() {
