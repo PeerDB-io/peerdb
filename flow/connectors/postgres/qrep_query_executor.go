@@ -34,7 +34,7 @@ func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, version ui
 func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, version uint32,
 	snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
+	if _, err := c.fetchCustomTypeMapping(ctx, version); err != nil {
 		c.logger.Error("[pg_query_executor] failed to fetch custom type mapping", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to fetch custom type mapping: %w", err)
 	}
