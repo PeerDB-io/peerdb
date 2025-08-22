@@ -94,11 +94,12 @@ func (a *MaintenanceActivity) WaitForRunningSnapshotsAndIntermediateStates(
 }
 
 var waitStatuses map[protos.FlowStatus]struct{} = map[protos.FlowStatus]struct{}{
-	protos.FlowStatus_STATUS_SNAPSHOT: {},
-	protos.FlowStatus_STATUS_SETUP:    {},
-	protos.FlowStatus_STATUS_RESYNC:   {},
-	protos.FlowStatus_STATUS_UNKNOWN:  {},
-	protos.FlowStatus_STATUS_PAUSING:  {},
+	protos.FlowStatus_STATUS_SNAPSHOT:  {},
+	protos.FlowStatus_STATUS_SETUP:     {},
+	protos.FlowStatus_STATUS_RESYNC:    {},
+	protos.FlowStatus_STATUS_UNKNOWN:   {},
+	protos.FlowStatus_STATUS_PAUSING:   {},
+	protos.FlowStatus_STATUS_MODIFYING: {},
 }
 
 func (a *MaintenanceActivity) checkAndWaitIfNeeded(
