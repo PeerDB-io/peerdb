@@ -92,7 +92,7 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		OnFatalError: func(err error) {
 			slog.Error("Peerflow Worker failed", slog.Any("error", err))
 		},
-		MaxHeartbeatThrottleInterval: 15 * time.Second,
+		MaxHeartbeatThrottleInterval: 10 * time.Second,
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 
