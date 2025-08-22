@@ -101,7 +101,7 @@ func (qe *QRepQueryExecutor) buildQFieldFromOID(name string, oid uint32, typeMod
 			}
 		}
 		qe.logger.Error("[pg_query_executor] type not found for oid or not a composite type",
-			slog.String("type_oid", fmt.Sprintf("%d", oid)),
+			slog.Uint64("type_oid", uint64(oid)),
 			slog.String("type_name", name))
 		return types.QField{
 			Name:     name,
@@ -123,7 +123,7 @@ func (qe *QRepQueryExecutor) buildQFieldFromOID(name string, oid uint32, typeMod
 			}
 		}
 		qe.logger.Error("[pg_query_executor] type not found for oid or not an array composite type",
-			slog.String("type_oid", fmt.Sprintf("%d", oid)),
+			slog.Uint64("type_oid", uint64(oid)),
 			slog.String("type_name", name))
 		return types.QField{
 			Name:     name,
