@@ -161,11 +161,11 @@ func (c *MongoConnector) PullQRepRecords(
 
 	stream.SetSchema(GetDefaultSchema())
 
-	c.bytesRead.Store(0)
+	c.totalBytesRead.Store(0)
+	c.deltaBytesRead.Store(0)
 	shutDown := shared.Interval(ctx, time.Minute, func() {
-		if read := c.bytesRead.Swap(0); read != 0 {
-			otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
-		}
+		read := c.deltaBytesRead.Swap(0)
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	})
 	defer shutDown()
 
@@ -185,6 +185,8 @@ func (c *MongoConnector) PullQRepRecords(
 	if config.NumRowsPerPartition == 0 || config.NumRowsPerPartition > math.MaxInt32 {
 		batchSize = math.MaxInt32
 	}
+
+	c.logger.Info("[mongo] pulling records start")
 
 	// MongoDb will use the lesser of batchSize and 16MiB
 	// https://www.mongodb.com/docs/manual/reference/method/cursor.batchsize/
@@ -206,6 +208,12 @@ func (c *MongoConnector) PullQRepRecords(
 		}
 		stream.Records <- record
 		totalRecords += 1
+		if totalRecords%50000 == 0 {
+			c.logger.Info("[mongo] pulling records",
+				slog.Int64("records", totalRecords),
+				slog.Int64("bytes", c.totalBytesRead.Load()),
+				slog.Int("channelLen", len(stream.Records)))
+		}
 	}
 	close(stream.Records)
 	if err := cursor.Err(); err != nil {
@@ -222,7 +230,11 @@ func (c *MongoConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("cursor error: %w", err)
 	}
 
-	return totalRecords, c.bytesRead.Swap(0), nil
+	c.logger.Info("[mongo] pulled records",
+		slog.Int64("records", totalRecords),
+		slog.Int64("bytes", c.totalBytesRead.Load()),
+		slog.Int("channelLen", len(stream.Records)))
+	return totalRecords, c.deltaBytesRead.Swap(0), nil
 }
 
 func GetDefaultSchema() types.QRecordSchema {

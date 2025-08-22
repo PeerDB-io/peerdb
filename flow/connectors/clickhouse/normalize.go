@@ -450,8 +450,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
 	c.logger.Info("[clickhouse-cdc] inserting batch...",
-		slog.Int64("StartBatchID", normBatchID),
-		slog.Int64("EndBatchID", endBatchID),
+		slog.Int64("startBatchID", normBatchID),
+		slog.Int64("endBatchID", endBatchID),
 		slog.Int("connections", parallelNormalize))
 
 	numParts, err := internal.PeerDBClickHouseNormalizationParts(ctx, req.Env)
@@ -464,8 +464,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	// there is no other indication of progress, so we log every 5 minutes.
 	periodicLogger := shared.Interval(ctx, 5*time.Minute, func() {
 		c.logger.Info("[clickhouse-cdc] inserting batch...",
-			slog.Int64("StartBatchID", normBatchID),
-			slog.Int64("EndBatchID", endBatchID),
+			slog.Int64("startBatchID", normBatchID),
+			slog.Int64("endBatchID", endBatchID),
 			slog.Int("connections", parallelNormalize))
 	})
 	defer periodicLogger()
@@ -492,16 +492,18 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 			for insertIntoSelectQuery := range queries {
 				c.logger.Info("executing INSERT command to ClickHouse table",
-					slog.Int64("syncBatchId", endBatchID),
-					slog.Int64("normalizeBatchId", normBatchID),
+					slog.Int64("syncBatchID", endBatchID),
+					slog.Int64("normalizeBatchID", normBatchID),
 					slog.String("destinationTable", insertIntoSelectQuery.TableName),
-					slog.String("query", insertIntoSelectQuery.Query))
+					slog.String("query", insertIntoSelectQuery.Query),
+					slog.Int("parallelWorker", i))
 
 				if err := c.execWithConnection(errCtx, chConn, insertIntoSelectQuery.Query); err != nil {
 					c.logger.Error("[clickhouse] error while inserting into target clickhouse table",
 						slog.String("table", insertIntoSelectQuery.TableName),
 						slog.Int64("syncBatchID", endBatchID),
 						slog.Int64("normalizeBatchID", normBatchID),
+						slog.Int("parallelWorker", i),
 						slog.Any("error", err))
 					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", insertIntoSelectQuery.TableName, err)
 				}
@@ -510,13 +512,19 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					c.logger.Info("[clickhouse] set last normalized batch id for table",
 						slog.String("table", insertIntoSelectQuery.TableName),
 						slog.Int64("syncBatchID", endBatchID),
-						slog.Int64("lastNormalizedBatchID", normBatchID))
+						slog.Int64("lastNormalizedBatchID", normBatchID),
+						slog.Int("parallelWorker", i))
 					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, insertIntoSelectQuery.TableName, endBatchID)
 					if err != nil {
 						return fmt.Errorf("error while setting last synced batch id for table %s: %w", insertIntoSelectQuery.TableName, err)
 					}
 				}
 			}
+
+			c.logger.Info("executed INSERT commands to ClickHouse",
+				slog.Int64("syncBatchID", req.SyncBatchID),
+				slog.Int64("normalizeBatchID", normBatchID),
+				slog.Int("parallelWorker", i))
 			return nil
 		})
 	}

@@ -252,7 +252,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		syncBatchID += 1
 		syncingBatchID.Store(syncBatchID)
-		logger.Info("begin pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
+		logger.Info("begin pulling records for batch", slog.Int64("syncBatchID", syncBatchID))
 
 		if err := monitoring.AddCDCBatchForFlow(errCtx, a.CatalogPool, flowName, monitoring.CDCBatchInfo{
 			BatchID:     syncBatchID,
@@ -282,7 +282,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			a.Alerter.LogFlowWarning(ctx, flowName, warning)
 		}
 
-		logger.Info("finished pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
+		logger.Info("finished pulling records for batch", slog.Int64("syncBatchID", syncBatchID))
 		return nil
 	})
 
@@ -653,7 +653,7 @@ func (a *FlowableActivity) startNormalize(
 	}
 
 	for {
-		logger.Info("normalizing batch", slog.Int64("SyncBatchID", batchID))
+		logger.Info("normalizing batch", slog.Int64("syncBatchID", batchID))
 		res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 			FlowJobName:            config.FlowJobName,
 			Env:                    config.Env,
@@ -675,7 +675,7 @@ func (a *FlowableActivity) startNormalize(
 		}
 
 		logger.Info("normalized batches",
-			slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID), slog.Int64("SyncBatchID", batchID))
+			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
 		normalizeResponses.Update(res.EndBatchID)
 		if res.EndBatchID >= batchID {
 			return nil

@@ -105,7 +105,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 ) (int64, int64, error) {
 	var numRows int64
 	var numBytes int64
-	const logPerRows = 10000
+	const logPerRows = 50000
 
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
@@ -125,12 +125,19 @@ func (qe *QRepQueryExecutor) processRowsStream(
 		}
 
 		if numRows%logPerRows == 0 {
-			qe.logger.Info("processing row stream", slog.String("cursor", cursorName),
-				slog.Int64("records", numRows), slog.Int64("bytes", numBytes))
+			qe.logger.Info("processing row stream",
+				slog.String("cursor", cursorName),
+				slog.Int64("records", numRows),
+				slog.Int64("bytes", numBytes),
+				slog.Int("channelLen", len(stream.Records)))
 		}
 	}
 
-	qe.logger.Info("processed row stream", slog.String("cursor", cursorName), slog.Int64("records", numRows), slog.Int64("bytes", numBytes))
+	qe.logger.Info("processed row stream",
+		slog.String("cursor", cursorName),
+		slog.Int64("records", numRows),
+		slog.Int64("bytes", numBytes),
+		slog.Int("channelLen", len(stream.Records)))
 	return numRows, numBytes, nil
 }
 

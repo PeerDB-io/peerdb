@@ -25,14 +25,15 @@ import (
 
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
-	config        *protos.MySqlConfig
-	ssh           utils.SSHTunnel
-	conn          atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts      chan context.Context
-	logger        log.Logger
-	rdsAuth       *utils.RDSAuth
-	serverVersion string
-	bytesRead     atomic.Int64
+	config         *protos.MySqlConfig
+	ssh            utils.SSHTunnel
+	conn           atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
+	contexts       chan context.Context
+	logger         log.Logger
+	rdsAuth        *utils.RDSAuth
+	serverVersion  string
+	totalBytesRead atomic.Int64
+	deltaBytesRead atomic.Int64
 }
 
 func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlConnector, error) {
@@ -127,9 +128,9 @@ func (c *MySqlConnector) ConnectionActive(context.Context) error {
 func (c *MySqlConnector) Dialer() client.Dialer {
 	var meteredDialer utils.MeteredDialer
 	if c.ssh.Client != nil {
-		meteredDialer = utils.NewMeteredDialer(&c.bytesRead, c.ssh.Client.DialContext, false)
+		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.ssh.Client.DialContext, false)
 	} else {
-		meteredDialer = utils.NewMeteredDialer(&c.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
+		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
 	return meteredDialer.DialContext
 }
