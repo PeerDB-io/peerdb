@@ -18,6 +18,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
@@ -55,6 +56,7 @@ const (
 	ErrorSourceClickHouse      ErrorSource = "clickhouse"
 	ErrorSourcePostgres        ErrorSource = "postgres"
 	ErrorSourceMySQL           ErrorSource = "mysql"
+	ErrorSourceMongoDB         ErrorSource = "mongodb"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -415,6 +417,26 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
+		}
+	}
+
+	var mongoErr driver.Error
+	if errors.As(err, &mongoErr) {
+		// https://www.mongodb.com/docs/manual/reference/error-codes/
+		mongoErrorInfo := ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   strconv.Itoa(int(mongoErr.Code)),
+		}
+
+		if mongoErr.RetryableRead() {
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+
+		switch mongoErr.Code {
+		case 13: // Unauthorized
+			return ErrorNotifyConnectivity, mongoErrorInfo
+		default:
+			return ErrorOther, mongoErrorInfo
 		}
 	}
 
