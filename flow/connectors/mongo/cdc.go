@@ -147,8 +147,8 @@ func (c *MongoConnector) PullRecords(
 		return err
 	}
 
-	c.bytesRead.Store(0)
-	lastFetchedBytes := int64(0)
+	c.totalBytesRead.Store(0)
+	c.deltaBytesRead.Store(0)
 	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		if isResumeTokenNotFoundError(err) && resumeToken != nil {
@@ -175,7 +175,7 @@ func (c *MongoConnector) PullRecords(
 		}
 		c.logger.Info("[mongo] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", c.bytesRead.Load()),
+			slog.Int64("bytes", c.totalBytesRead.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()))
 	}()
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
@@ -183,19 +183,17 @@ func (c *MongoConnector) PullRecords(
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 
 	reportBytesShutdown := shared.Interval(ctx, time.Second*10, func() {
-		delta := c.bytesRead.Load() - lastFetchedBytes
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, delta)
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, delta)
-		lastFetchedBytes += delta
+		read := c.deltaBytesRead.Swap(0)
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	})
 
 	defer func() {
 		cancelTimeout()
 		reportBytesShutdown()
-		delta := c.bytesRead.Load() - lastFetchedBytes
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, delta)
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, delta)
-		lastFetchedBytes += delta
+		read := c.deltaBytesRead.Swap(0)
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	}()
 
 	checkpoint := func() {
@@ -257,7 +255,7 @@ func (c *MongoConnector) PullRecords(
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mongo] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
-				slog.Int64("bytes", c.bytesRead.Load()),
+				slog.Int64("bytes", c.totalBytesRead.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()))
 		}
 		return nil

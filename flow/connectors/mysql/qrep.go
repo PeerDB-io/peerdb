@@ -192,8 +192,8 @@ func (c *MySqlConnector) PullQRepRecords(
 
 	c.logger.Info("[mysql] pulling records start")
 
-	c.bytesRead.Store(0)
-	lastFetchedBytes := int64(0)
+	c.totalBytesRead.Store(0)
+	c.deltaBytesRead.Store(0)
 	totalRecords := int64(0)
 	onResult := func(rs *mysql.Result) error {
 		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields)
@@ -222,7 +222,7 @@ func (c *MySqlConnector) PullQRepRecords(
 		if totalRecords%50000 == 0 {
 			c.logger.Info("[mysql] pulling records",
 				slog.Int64("records", totalRecords),
-				slog.Int64("bytes", c.bytesRead.Load()),
+				slog.Int64("bytes", c.totalBytesRead.Load()),
 				slog.Int("channelLen", len(stream.Records)))
 		}
 
@@ -230,9 +230,8 @@ func (c *MySqlConnector) PullQRepRecords(
 	}
 
 	shutDown := shared.Interval(ctx, time.Minute, func() {
-		delta := c.bytesRead.Load() - lastFetchedBytes
-		otelManager.Metrics.FetchedBytesCounter.Add(ctx, delta)
-		lastFetchedBytes += delta
+		read := c.deltaBytesRead.Swap(0)
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	})
 	defer shutDown()
 
@@ -275,10 +274,9 @@ func (c *MySqlConnector) PullQRepRecords(
 	close(stream.Records)
 	c.logger.Info("[mysql] pulled records",
 		slog.Int64("records", totalRecords),
-		slog.Int64("bytes", c.bytesRead.Load()),
+		slog.Int64("bytes", c.totalBytesRead.Load()),
 		slog.Int("channelLen", len(stream.Records)))
-	remainingFetchedBytes := c.bytesRead.Load() - lastFetchedBytes
-	return totalRecords, remainingFetchedBytes, nil
+	return totalRecords, c.deltaBytesRead.Swap(0), nil
 }
 
 func BuildQuery(logger log.Logger, query string, start string, end string) (string, error) {

@@ -32,10 +32,11 @@ const (
 type MongoConnector struct {
 	logger log.Logger
 	*metadataStore.PostgresMetadata
-	config    *protos.MongoConfig
-	client    *mongo.Client
-	ssh       utils.SSHTunnel
-	bytesRead atomic.Int64
+	config         *protos.MongoConfig
+	client         *mongo.Client
+	ssh            utils.SSHTunnel
+	totalBytesRead atomic.Int64
+	deltaBytesRead atomic.Int64
 }
 
 func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoConnector, error) {
@@ -45,7 +46,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		return nil, err
 	}
 
-	mongoConnector := &MongoConnector{
+	mc := &MongoConnector{
 		PostgresMetadata: pgMetadata,
 		config:           config,
 		logger:           logger,
@@ -55,13 +56,13 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ssh tunnel: %w", err)
 	}
-	mongoConnector.ssh = sshTunnel
+	mc.ssh = sshTunnel
 
 	var meteredDialer utils.MeteredDialer
 	if sshTunnel.Client != nil {
-		meteredDialer = utils.NewMeteredDialer(&mongoConnector.bytesRead, sshTunnel.Client.DialContext, true)
+		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, sshTunnel.Client.DialContext, true)
 	} else {
-		meteredDialer = utils.NewMeteredDialer(&mongoConnector.bytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
+		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
 
 	clientOptions, err := parseAsClientOptions(config, meteredDialer)
@@ -73,9 +74,9 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	if err != nil {
 		return nil, err
 	}
-	mongoConnector.client = client
+	mc.client = client
 
-	return mongoConnector, nil
+	return mc, nil
 }
 
 func (c *MongoConnector) Close() error {
