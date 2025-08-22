@@ -55,7 +55,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	var rawDistributedName string
 	rawTableName := c.GetRawTableName(req.FlowJobName)
 	engine := "MergeTree()"
-	if c.config.Replicated {
+	if c.Config.Replicated {
 		engine = fmt.Sprintf(
 			"ReplicatedMergeTree('%s%s','{replica}')",
 			zooPathPrefix,
@@ -80,8 +80,8 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		if err := c.execWithLogging(ctx,
 			fmt.Sprintf(createRawDistributedSQL, peerdb_clickhouse.QuoteIdentifier(rawDistributedName), onCluster,
 				rawColumns,
-				peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
-				peerdb_clickhouse.QuoteIdentifier(c.config.Database),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Database),
 				peerdb_clickhouse.QuoteIdentifier(rawTableName)),
 		); err != nil {
 			return nil, fmt.Errorf("unable to create raw table: %w", err)
@@ -195,7 +195,7 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			}
 
 			// Distributed table isn't created for null tables, no need to alter shard tables that don't exist
-			if c.config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
+			if c.Config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
 				if err := c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
 						peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName+"_shard"), onCluster,
@@ -236,7 +236,7 @@ func (c *ClickHouseConnector) RenameTables(
 			continue
 		}
 
-		resyncTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.CurrentName)
+		resyncTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, renameRequest.CurrentName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if resync table %s exists: %w", renameRequest.CurrentName, err)
 		}
@@ -246,7 +246,7 @@ func (c *ClickHouseConnector) RenameTables(
 			continue
 		}
 
-		originalTableExists, err := c.checkIfTableExists(ctx, c.config.Database, renameRequest.NewName)
+		originalTableExists, err := c.checkIfTableExists(ctx, c.Config.Database, renameRequest.NewName)
 		if err != nil {
 			return nil, fmt.Errorf("unable to check if table %s exists: %w", renameRequest.NewName, err)
 		}
@@ -323,7 +323,7 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 	ctx context.Context,
 	req *protos.RemoveTablesFromRawTableInput,
 ) error {
-	if c.config.Cluster != "" {
+	if c.Config.Cluster != "" {
 		// this operation isn't crucial, okay to skip
 		c.logger.Info("skipping raw table cleanup of tables, DELETE not supported on Distributed table engine",
 			slog.Any("tables", req.DestinationTableNames))

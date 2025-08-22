@@ -31,7 +31,7 @@ type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
 	database      clickhouse.Conn
 	logger        log.Logger
-	config        *protos.ClickhouseConfig
+	Config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
 	chVersion     *chproto.Version
 }
@@ -103,7 +103,7 @@ func NewClickHouseConnector(
 	connector := &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
-		config:           config,
+		Config:           config,
 		logger:           logger,
 		credsProvider: &utils.ClickHouseS3Credentials{
 			Provider:   credentialsProvider,
@@ -163,7 +163,7 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
-	if err := ValidateClickHouseHost(ctx, c.config.Host, allowedDomains); err != nil {
+	if err := ValidateClickHouseHost(ctx, c.Config.Host, allowedDomains); err != nil {
 		return err
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
@@ -490,8 +490,8 @@ func (c *ClickHouseConnector) GetTableSchema(
 }
 
 func (c *ClickHouseConnector) onCluster() string {
-	if c.config.Cluster != "" {
-		return " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(c.config.Cluster)
+	if c.Config.Cluster != "" {
+		return " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster)
 	}
 	return ""
 }

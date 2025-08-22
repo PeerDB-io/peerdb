@@ -50,7 +50,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	destinationTableIdentifier string,
 	sourceTableSchema *protos.TableSchema,
 ) (bool, error) {
-	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, destinationTableIdentifier)
+	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTableIdentifier)
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if destination ClickHouse table exists: %w", err)
 	}
@@ -99,7 +99,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 	switch tmEngine {
 	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
-		if c.config.Replicated {
+		if c.Config.Replicated {
 			engine = fmt.Sprintf(
 				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s)",
 				zooPathPrefix,
@@ -110,7 +110,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
 		}
 	case protos.TableEngine_CH_ENGINE_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
-		if c.config.Replicated {
+		if c.Config.Replicated {
 			engine = fmt.Sprintf(
 				"ReplicatedMergeTree('%s%s','{replica}')",
 				zooPathPrefix,
@@ -120,7 +120,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			engine = "MergeTree()"
 		}
 	case protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE:
-		if c.config.Replicated {
+		if c.Config.Replicated {
 			engine = fmt.Sprintf(
 				"ReplicatedCoalescingMergeTree('%s%s','{replica}')",
 				zooPathPrefix,
@@ -141,7 +141,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	var stmtBuilder strings.Builder
 	var stmtBuilderDistributed strings.Builder
 	var builders []*strings.Builder
-	if c.config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL {
+	if c.Config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL {
 		builders = []*strings.Builder{&stmtBuilder, &stmtBuilderDistributed}
 	} else {
 		builders = []*strings.Builder{&stmtBuilder}
@@ -154,14 +154,14 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		} else {
 			builder.WriteString("CREATE TABLE IF NOT EXISTS ")
 		}
-		if c.config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
+		if c.Config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
 			// distributed table gets destination name, avoid naming conflict
 			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier + "_shard"))
 		} else {
 			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
 		}
-		if c.config.Cluster != "" {
-			fmt.Fprintf(builder, " ON CLUSTER %s", peerdb_clickhouse.QuoteIdentifier(c.config.Cluster))
+		if c.Config.Cluster != "" {
+			fmt.Fprintf(builder, " ON CLUSTER %s", peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster))
 		}
 		builder.WriteString(" (")
 
@@ -253,10 +253,10 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 		}
 
-		if c.config.Cluster != "" {
+		if c.Config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
-				peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
-				peerdb_clickhouse.QuoteIdentifier(c.config.Database),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Database),
 				peerdb_clickhouse.QuoteIdentifier(tableIdentifier+"_shard"),
 			)
 			if tableMapping.ShardingKey != "" {
@@ -483,7 +483,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				chConn = c.database
 			} else {
 				var err error
-				chConn, err = Connect(errCtx, req.Env, c.config)
+				chConn, err = Connect(errCtx, req.Env, c.Config)
 				if err != nil {
 					return err
 				}
@@ -560,7 +560,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				req.Env,
 				rawTbl,
 				c.chVersion,
-				c.config.Cluster != "",
+				c.Config.Cluster != "",
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {

@@ -2423,9 +2423,11 @@ func (s ClickHouseSuite) Test_PartitionBy() {
 		dstTableSuffix = "_shard"
 	}
 	require.NoError(s.t,
-		ch.QueryRow(s.t.Context(),
-			"select partition_key,sorting_key from system.tables where name="+clickhouse.QuoteLiteral(dstTableName+dstTableSuffix),
-		).Scan(&partitionKey, &sortingKey),
+		ch.QueryRow(s.t.Context(), fmt.Sprintf(
+			"select partition_key,sorting_key from system.tables where database=%s and name=%s",
+			clickhouse.QuoteLiteral(s.connector.Config.Database),
+			clickhouse.QuoteLiteral(dstTableName+dstTableSuffix),
+		)).Scan(&partitionKey, &sortingKey),
 	)
 	require.NoError(s.t, ch.Close())
 	require.Equal(s.t, "num", partitionKey)
@@ -2473,9 +2475,11 @@ func (s ClickHouseSuite) Test_PartitionByExpr() {
 		dstTableSuffix = "_shard"
 	}
 	require.NoError(s.t,
-		ch.QueryRow(s.t.Context(),
-			"select partition_key from system.tables where name="+clickhouse.QuoteLiteral(dstTableName+dstTableSuffix),
-		).Scan(&partitionKey),
+		ch.QueryRow(s.t.Context(), fmt.Sprintf(
+			"select partition_key from system.tables where database=%s and name=%s",
+			clickhouse.QuoteLiteral(s.connector.Config.Database),
+			clickhouse.QuoteLiteral(dstTableName+dstTableSuffix),
+		)).Scan(&partitionKey),
 	)
 	require.NoError(s.t, ch.Close())
 	require.Equal(s.t, "(num % 2, val)", partitionKey)
