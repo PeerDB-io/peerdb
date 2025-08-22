@@ -148,7 +148,6 @@ func (c *MongoConnector) PullRecords(
 	}
 
 	c.totalBytesRead.Store(0)
-	c.deltaBytesRead.Store(0)
 	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		if isResumeTokenNotFoundError(err) && resumeToken != nil {
