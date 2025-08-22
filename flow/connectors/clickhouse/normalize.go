@@ -674,7 +674,6 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 	batchIdToLoad := max(lastSyncedBatchIdInRawTable, normBatchID)
 	c.logger.Info("[clickhouse] pushing s3 data to raw table",
 		slog.Int64("BatchID", batchIdToLoad),
-		slog.String("flowJobName", flowJobName),
 		slog.Int64("syncBatchID", syncBatchID))
 
 	for s := batchIdToLoad + 1; s <= syncBatchID; s++ {
@@ -682,8 +681,7 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}
 		c.logger.Info("[clickhouse] setting last batch id in raw table",
-			slog.Int64("BatchID", s),
-			slog.String("flowJobName", flowJobName))
+			slog.Int64("BatchID", s))
 		if err := c.SetLastBatchIDInRawTable(ctx, flowJobName, s); err != nil {
 			c.logger.Error("[clickhouse] error while setting last batch id in raw table",
 				slog.Int64("BatchID", s), slog.Any("error", err))
