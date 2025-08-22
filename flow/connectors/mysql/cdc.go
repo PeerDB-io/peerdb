@@ -219,10 +219,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		config = proto.CloneOf(config)
 		config.Password = token
 	}
-	logger, ok := c.logger.(*slog.Logger)
-	if !ok {
-		logger = slog.Default()
-	}
+
 	//nolint:gosec
 	return replication.NewBinlogSyncer(replication.BinlogSyncerConfig{
 		ServerID:   rand.Uint32(),
@@ -231,7 +228,7 @@ func (c *MySqlConnector) startSyncer(ctx context.Context) (*replication.BinlogSy
 		Port:       uint16(config.Port),
 		User:       config.User,
 		Password:   config.Password,
-		Logger:     logger,
+		Logger:     internal.SlogLoggerFromCtx(ctx),
 		Dialer:     c.Dialer(),
 		UseDecimal: true,
 		ParseTime:  true,

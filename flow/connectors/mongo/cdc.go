@@ -87,8 +87,7 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 	}
 	defer changeStream.Close(ctx)
 
-	c.logger.Info("SetupReplication started, waiting for initial resume token",
-		slog.String("flowJobName", input.FlowJobName))
+	c.logger.Info("SetupReplication started, waiting for initial resume token")
 	var resumeToken bson.Raw
 	for {
 		resumeToken = changeStream.ResumeToken()

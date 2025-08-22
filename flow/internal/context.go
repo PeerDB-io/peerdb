@@ -108,15 +108,27 @@ func LoggerFromCtx(ctx context.Context) log.Logger {
 		logger = log.NewStructuredLogger(slog.Default())
 	}
 
-	flowName, hasName := ctx.Value(shared.FlowNameKey).(string)
-	if hasName {
+	if flowName, hasName := ctx.Value(shared.FlowNameKey).(string); hasName {
 		logger = log.With(logger, string(shared.FlowNameKey), flowName)
 	}
-
 	if flowMetadata := GetFlowMetadata(ctx); flowMetadata != nil {
 		logger = log.With(logger, string(FlowMetadataKey), flowMetadata)
 	}
 	logger = log.With(logger, string(AdditionalMetadataKey), GetAdditionalMetadata(ctx))
+
+	return logger
+}
+
+func SlogLoggerFromCtx(ctx context.Context) *slog.Logger {
+	logger := slog.Default()
+
+	if flowName, hasName := ctx.Value(shared.FlowNameKey).(string); hasName {
+		logger = logger.With(slog.String(string(shared.FlowNameKey), flowName))
+	}
+	if flowMetadata := GetFlowMetadata(ctx); flowMetadata != nil {
+		logger = logger.With(slog.Any(string(FlowMetadataKey), flowMetadata))
+	}
+	logger = logger.With(slog.Any(string(AdditionalMetadataKey), GetAdditionalMetadata(ctx)))
 
 	return logger
 }

@@ -290,7 +290,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	ctx context.Context,
 	req *protos.FlowStateChangeRequest,
 ) (*protos.FlowStateChangeResponse, error) {
-	logs := slog.String("flowJobName", req.FlowJobName)
+	logs := slog.String(string(shared.FlowNameKey), req.FlowJobName)
 	slog.Info("FlowStateChange called", logs, slog.Any("req", req))
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
 		slog.Error("unable to check maintenance mode", logs, slog.Any("error", err))
