@@ -161,11 +161,12 @@ func (c *MongoConnector) PullQRepRecords(
 
 	stream.SetSchema(GetDefaultSchema())
 
-	c.meter.Reset()
+	c.bytesRead.Store(0)
+	lastFetchedBytes := int64(0)
 	shutDown := shared.Interval(ctx, time.Minute, func() {
-		if read := c.meter.DeltaBytesRead(); read != 0 {
-			otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
-		}
+		delta := c.bytesRead.Load() - lastFetchedBytes
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, delta)
+		lastFetchedBytes += delta
 	})
 	defer shutDown()
 
@@ -211,7 +212,7 @@ func (c *MongoConnector) PullQRepRecords(
 		if totalRecords%50000 == 0 {
 			c.logger.Info("[mongo] pulling records",
 				slog.Int64("records", totalRecords),
-				slog.Int64("bytes", c.meter.TotalBytesRead()),
+				slog.Int64("bytes", c.bytesRead.Load()),
 				slog.Int("channelLen", len(stream.Records)))
 		}
 	}
@@ -232,10 +233,10 @@ func (c *MongoConnector) PullQRepRecords(
 
 	c.logger.Info("[mongo] pulled records",
 		slog.Int64("records", totalRecords),
-		slog.Int64("bytes", c.meter.TotalBytesRead()),
+		slog.Int64("bytes", c.bytesRead.Load()),
 		slog.Int("channelLen", len(stream.Records)))
-
-	return totalRecords, c.meter.DeltaBytesRead(), nil
+	remainingFetchedBytes := c.bytesRead.Load() - lastFetchedBytes
+	return totalRecords, remainingFetchedBytes, nil
 }
 
 func GetDefaultSchema() types.QRecordSchema {
