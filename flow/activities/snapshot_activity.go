@@ -179,6 +179,7 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
+	defer connectors.CloseConnector(ctx, connector)
 
 	output, err := connector.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
 		TableMappings: input.TableMappings,
