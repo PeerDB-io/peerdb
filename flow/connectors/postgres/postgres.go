@@ -141,7 +141,7 @@ func ParseConfig(connectionString string, pgConfig *protos.PostgresConfig) (*pgx
 	return connConfig, nil
 }
 
-func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uint32]shared.CustomDataType, error) {
+func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context, version uint32) (map[uint32]shared.CustomDataType, error) {
 	if c.customTypeMapping == nil {
 		customTypeMapping, err := shared.GetCustomDataTypes(ctx, c.conn)
 		if err != nil {
@@ -149,6 +149,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 		}
 		c.customTypeMapping = customTypeMapping
 
+		if version >= shared.InternalVersion_CompositeTypeAsTuple {
 		var compositeTypeNames []string
 		for _, typeData := range customTypeMapping {
 			if typeData.Type == 'c' && typeData.Delim == 0 { // Only composite types
@@ -162,6 +163,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 			return nil, fmt.Errorf("failed to load composite types: %w", err)
 		}
 		c.typeMap.RegisterTypes(types)
+	}
 	}
 	return c.customTypeMapping, nil
 }
@@ -1011,7 +1013,7 @@ func (c *PostgresConnector) getTableSchemaForTable(
 	if err != nil {
 		return nil, err
 	}
-	customTypeMapping, err := c.fetchCustomTypeMapping(ctx)
+	customTypeMapping, err := c.fetchCustomTypeMapping(ctx, version)
 	if err != nil {
 		return nil, err
 	}

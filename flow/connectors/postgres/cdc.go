@@ -746,7 +746,7 @@ func processMessage[Items model.Items](
 	if err != nil {
 		return nil, fmt.Errorf("error parsing logical message: %w", err)
 	}
-	customTypeMapping, err := p.fetchCustomTypeMapping(ctx)
+	customTypeMapping, err := p.fetchCustomTypeMapping(ctx, p.internalVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -970,7 +970,7 @@ func processRelationMessage[Items model.Items](
 			slog.Uint64("relId", uint64(currRel.RelationID)))
 		return nil, nil
 	}
-	customTypeMapping, err := p.fetchCustomTypeMapping(ctx)
+	customTypeMapping, err := p.fetchCustomTypeMapping(ctx, p.internalVersion)
 	if err != nil {
 		return nil, err
 	}
