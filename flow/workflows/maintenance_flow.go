@@ -114,7 +114,7 @@ func startMaintenance(ctx workflow.Context, logger log.Logger) (*protos.StartMai
 			var snapshotWaitCancelCtx workflow.Context
 			snapshotWaitCancelCtx, cancelCurrentChild = workflow.WithCancel(snapshotWaitCtx)
 			waitSnapshotsFuture := workflow.ExecuteActivity(snapshotWaitCancelCtx,
-				maintenance.WaitForRunningSnapshots,
+				maintenance.WaitForRunningSnapshotsAndIntermediateStates,
 				skippedFlows,
 			)
 			if err := waitSnapshotsFuture.Get(snapshotWaitCancelCtx, nil); err != nil {
