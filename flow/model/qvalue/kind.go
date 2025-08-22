@@ -91,7 +91,7 @@ func ToDWHColumnType(
 			colType = "JSON"
 		} else if kind == types.QValueKindComposite {
 			colType = "Tuple("
-			if column.Composite == nil || len(column.Composite) == 0 {
+			if len(column.Composite) == 0 {
 				return "", fmt.Errorf("composite type is nil or empty for column %s", column.Name)
 			}
 			for _, subfield := range column.Composite {
@@ -110,10 +110,11 @@ func ToDWHColumnType(
 			}
 			colType = strings.TrimSuffix(colType, ", ") + ")"
 		} else if kind == types.QValueKindArrayComposite {
-			if column.Composite == nil || len(column.Composite) != 1 {
+			if len(column.Composite) != 1 {
 				return "", fmt.Errorf("composite array type %s must have exactly 1 subfield", column.Name)
 			}
-			elementType, err := ToDWHColumnType(ctx, types.QValueKind(column.Composite[0].Type), env, dwhType, dwhVersion, column.Composite[0], nullableEnabled)
+			elementType, err := ToDWHColumnType(ctx, types.QValueKind(column.Composite[0].Type),
+				env, dwhType, dwhVersion, column.Composite[0], nullableEnabled)
 			if err != nil {
 				return "", fmt.Errorf("failed to get DWH column type for composite field %s: %w", column.Composite[0].Name, err)
 			}

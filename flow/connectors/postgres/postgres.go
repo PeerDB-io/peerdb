@@ -150,20 +150,20 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context, version 
 		c.customTypeMapping = customTypeMapping
 
 		if version >= shared.InternalVersion_CompositeTypeAsTuple {
-		var compositeTypeNames []string
-		for _, typeData := range customTypeMapping {
-			if typeData.Type == 'c' && typeData.Delim == 0 { // Only composite types
-				compositeTypeNames = append(compositeTypeNames, typeData.Name)
+			var compositeTypeNames []string
+			for _, typeData := range customTypeMapping {
+				if typeData.Type == 'c' && typeData.Delim == 0 { // Only composite types
+					compositeTypeNames = append(compositeTypeNames, typeData.Name)
+				}
 			}
+			types, err := c.conn.LoadTypes(ctx, compositeTypeNames)
+			if err != nil {
+				c.logger.Error("failed to load composite types",
+					slog.Any("error", err), slog.Any("composite_type_names", compositeTypeNames))
+				return nil, fmt.Errorf("failed to load composite types: %w", err)
+			}
+			c.typeMap.RegisterTypes(types)
 		}
-		types, err := c.conn.LoadTypes(ctx, compositeTypeNames)
-		if err != nil {
-			c.logger.Error("failed to load composite types",
-				slog.Any("error", err), slog.Any("composite_type_names", compositeTypeNames))
-			return nil, fmt.Errorf("failed to load composite types: %w", err)
-		}
-		c.typeMap.RegisterTypes(types)
-	}
 	}
 	return c.customTypeMapping, nil
 }
@@ -941,11 +941,12 @@ func (c *PostgresConnector) GetSelectedColumns(
 }
 
 func (c *PostgresConnector) getCompositeTypeDetails(ctx context.Context, system protos.TypeSystem, version uint32,
-	customTypeMapping map[uint32]shared.CustomDataType, OID uint32) ([]*protos.FieldDescription, error) {
+	customTypeMapping map[uint32]shared.CustomDataType, oid uint32,
+) ([]*protos.FieldDescription, error) {
 	result := make([]*protos.FieldDescription, 0)
-	subfields, err := shared.GetCompositeDataTypeDetails(ctx, c.conn, OID)
+	subfields, err := shared.GetCompositeDataTypeDetails(ctx, c.conn, oid)
 	if err != nil {
-		return nil, fmt.Errorf("error getting composite data type details for %d: %w", OID, err)
+		return nil, fmt.Errorf("error getting composite data type details for %d: %w", oid, err)
 	}
 	for _, subfield := range subfields {
 		var subColType string

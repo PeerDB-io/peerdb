@@ -765,7 +765,12 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	return nil, fmt.Errorf("failed to parse value %v (%T) into QValueKind %v", value, value, qvalueKind)
 }
 
-func (c *PostgresConnector) compositeToQValue(oid uint32, value any, customTypeMapping map[uint32]shared.CustomDataType, version uint32) (types.QValue, error) {
+func (c *PostgresConnector) compositeToQValue(
+	oid uint32,
+	value any,
+	customTypeMapping map[uint32]shared.CustomDataType,
+	version uint32,
+) (types.QValue, error) {
 	typ, ok := c.typeMap.TypeForOID(oid)
 	if !ok {
 		return nil, fmt.Errorf("composite type OID %d not found in typeMap", oid)

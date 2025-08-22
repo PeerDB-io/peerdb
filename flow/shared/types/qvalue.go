@@ -862,9 +862,11 @@ type QValueArrayComposite struct {
 func (QValueArrayComposite) Kind() QValueKind {
 	return QValueKindArrayComposite
 }
+
 func (v QValueArrayComposite) Value() any {
 	return v.Val
 }
+
 func (v QValueArrayComposite) LValue(ls *lua.LState) lua.LValue {
 	table := ls.NewTable()
 	for i, composite := range v.Val {

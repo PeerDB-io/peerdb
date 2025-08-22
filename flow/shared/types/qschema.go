@@ -8,10 +8,10 @@ import (
 type QField struct {
 	Name      string
 	Type      QValueKind
+	SubFields []*QField
 	Precision int16
 	Scale     int16
 	Nullable  bool
-	SubFields []*QField // For composite types, this holds the sub-fields
 }
 
 type QRecordSchema struct {
