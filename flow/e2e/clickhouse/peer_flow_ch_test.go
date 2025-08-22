@@ -1197,11 +1197,56 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{"66073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
 		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
 		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[];`, srcFullName))
-
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 3", srcTableName, dstTableName,
 		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Composite_Types_CH() {
+	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_composite"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_composite"
+	createType := "CREATE TYPE complex AS (r double precision, i double precision)"
+	if _, err := s.Conn().Exec(s.t.Context(), createType); err != nil &&
+		!shared.IsSQLStateError(err, pgerrcode.DuplicateObject, pgerrcode.UniqueViolation) {
+		require.NoError(s.t, err)
+	}
+
+	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE %[1]s (
+			id serial primary key,
+			item complex,
+			items complex[]
+		);INSERT INTO %[1]s VALUES (ROW(42,-1.5),ARRAY[ROW(2,71),ROW(3,14)]);`, srcFullName))
+	require.NoError(s.t, err)
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_test_composite"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "eq init", srcTableName, dstTableName, "id,item,items")
+
+	_, err = s.Conn().Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s VALUES (ROW(-2,-1),ARRAY[ROW(7,1),ROW(1,4)]);`, srcFullName))
+	require.NoError(s.t, err)
+	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "eq cdc", srcTableName, dstTableName, "id,item,items")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
