@@ -51,7 +51,7 @@ const (
 	DeploymentUIDKey ContextKey = "deploymentUid"
 )
 
-const FetchAndChannelSize = 256 * 1024
+const FetchAndChannelSize = 128 * 1024
 
 func Ptr[T any](x T) *T {
 	return &x
