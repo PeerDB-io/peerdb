@@ -141,7 +141,32 @@ func SlogLoggerFromCtx(ctx context.Context) *slog.Logger {
 			slog.String("Namespace", activityInfo.WorkflowNamespace),
 			slog.String("TaskQueue", activityInfo.TaskQueue),
 			slog.String("WorkflowType", activityInfo.WorkflowType.Name),
-		)
+		if activityInfo != nil {
+			activityTypeName := ""
+			if activityInfo.ActivityType != nil {
+				activityTypeName = activityInfo.ActivityType.Name
+			}
+			runID := ""
+			workflowID := ""
+			if activityInfo.WorkflowExecution != nil {
+				runID = activityInfo.WorkflowExecution.RunID
+				workflowID = activityInfo.WorkflowExecution.ID
+			}
+			workflowTypeName := ""
+			if activityInfo.WorkflowType != nil {
+				workflowTypeName = activityInfo.WorkflowType.Name
+			}
+			logger = logger.With(
+				slog.String("ActivityID", activityInfo.ActivityID),
+				slog.String("ActivityType", activityTypeName),
+				slog.Int64("Attempt", int64(activityInfo.Attempt)),
+				slog.String("RunID", runID),
+				slog.String("WorkflowID", workflowID),
+				slog.String("Namespace", activityInfo.WorkflowNamespace),
+				slog.String("TaskQueue", activityInfo.TaskQueue),
+				slog.String("WorkflowType", workflowTypeName),
+			)
+		}
 	}
 
 	return logger
