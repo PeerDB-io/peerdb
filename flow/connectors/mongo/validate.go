@@ -8,11 +8,11 @@ import (
 )
 
 func (c *MongoConnector) ValidateCheck(ctx context.Context) error {
-	if err := shared_mongo.ValidateServerCompatibility(ctx, c.client); err != nil {
+	if err := shared_mongo.ValidateUserRoles(ctx, c.client); err != nil {
 		return err
 	}
 
-	if err := shared_mongo.ValidateUserRoles(ctx, c.client); err != nil {
+	if err := shared_mongo.ValidateServerCompatibility(ctx, c.client); err != nil {
 		return err
 	}
 
