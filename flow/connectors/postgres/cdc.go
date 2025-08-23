@@ -470,6 +470,8 @@ func PullCdcRecords[Items model.Items](
 	}
 
 	records := req.RecordStream
+	var totalRecords int64
+	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
 	// clientXLogPos is the last checkpoint id, we need to ack that we have processed
 	// until clientXLogPos each time we send a standby status update.
 	var clientXLogPos pglogrepl.LSN
@@ -480,20 +482,26 @@ func PullCdcRecords[Items model.Items](
 		}
 	}
 
-	var standByLastLogged time.Time
-	// Remove exceptions.PrimaryKeyModifiedError and its classification when this is removed
-	cdcRecordsStorage, err := utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
+	// Remove exceptions.PrimaryKeyModifiedError and its classification when cdc store is removed
+	var cdcRecordsStorage *utils.CDCStore[Items]
+	cdcStoreEnabled, err := internal.PeerDBCDCStoreEnabled(ctx, req.Env)
 	if err != nil {
 		return err
 	}
-	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	if cdcStoreEnabled {
+		cdcRecordsStorage, err = utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
+		if err != nil {
+			return err
+		}
+	}
+
 	pullStart := time.Now()
 	defer func() {
-		if cdcRecordsStorage.IsEmpty() {
+		if totalRecords == 0 {
 			records.SignalAsEmpty()
 		}
 		logger.Info("[finished] PullRecords",
-			slog.Int("records", cdcRecordsStorage.Len()),
+			slog.Int64("records", totalRecords),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
 			slog.Int("channelLen", records.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
@@ -513,7 +521,7 @@ func PullCdcRecords[Items model.Items](
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
 		logger.Info("pulling records",
-			slog.Int("records", cdcRecordsStorage.Len()),
+			slog.Int64("records", totalRecords),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
 			slog.Int("channelLen", records.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
@@ -521,25 +529,28 @@ func PullCdcRecords[Items model.Items](
 	})
 	defer shutdown()
 
+	var standByLastLogged time.Time
 	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
 	pkmRequiresResponse := false
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
-		if err := cdcRecordsStorage.Set(key, rec); err != nil {
-			return err
+		if cdcRecordsStorage != nil {
+			if err := cdcRecordsStorage.Set(key, rec); err != nil {
+				return err
+			}
 		}
 		if err := records.AddRecord(ctx, rec); err != nil {
 			return err
 		}
 
-		if cdcRecordsStorage.Len() == 1 {
+		if totalRecords == 1 {
 			records.SignalAsNotEmpty()
 			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
-		if cdcRecordsStorage.Len()%50000 == 0 {
+		if totalRecords%50000 == 0 {
 			logger.Info("pulling records",
-				slog.Int("records", cdcRecordsStorage.Len()),
+				slog.Int64("records", totalRecords),
 				slog.Int64("bytes", totalFetchedBytes.Load()),
 				slog.Int("channelLen", records.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
@@ -555,7 +566,7 @@ func PullCdcRecords[Items model.Items](
 	lastEmptyBatchPkmSentTime := time.Now()
 	for {
 		if pkmRequiresResponse {
-			if cdcRecordsStorage.IsEmpty() && int64(clientXLogPos) > req.ConsumedOffset.Load() {
+			if totalRecords == 0 && int64(clientXLogPos) > req.ConsumedOffset.Load() {
 				err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos)
 				if err != nil {
 					return err
@@ -570,7 +581,7 @@ func PullCdcRecords[Items model.Items](
 
 			if time.Since(standByLastLogged) > 10*time.Second {
 				logger.Info("Sent Standby status message",
-					slog.Int("records", cdcRecordsStorage.Len()),
+					slog.Int64("records", totalRecords),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()),
 					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
@@ -580,9 +591,9 @@ func PullCdcRecords[Items model.Items](
 		}
 
 		if p.commitLock == nil {
-			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
+			if totalRecords >= int64(req.MaxBatchSize) {
 				logger.Info("batch filled, returning currently accumulated records",
-					slog.Int("records", cdcRecordsStorage.Len()),
+					slog.Int64("records", totalRecords),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()),
 					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
@@ -591,7 +602,7 @@ func PullCdcRecords[Items model.Items](
 
 			if waitingForCommit {
 				logger.Info("commit received, returning currently accumulated records",
-					slog.Int("records", cdcRecordsStorage.Len()),
+					slog.Int64("records", totalRecords),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()),
 					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
@@ -601,19 +612,19 @@ func PullCdcRecords[Items model.Items](
 
 		// if we are past the next standby deadline (?)
 		if time.Now().After(nextStandbyMessageDeadline) {
-			if !cdcRecordsStorage.IsEmpty() {
-				logger.Info("standby deadline reached", slog.Int("records", cdcRecordsStorage.Len()))
+			if totalRecords != 0 {
+				logger.Info("standby deadline reached", slog.Int64("records", totalRecords))
 
 				if p.commitLock == nil {
 					logger.Info("no commit lock, returning currently accumulated records",
-						slog.Int("records", cdcRecordsStorage.Len()),
+						slog.Int64("records", totalRecords),
 						slog.Int64("bytes", totalFetchedBytes.Load()),
 						slog.Int("channelLen", records.ChannelLen()),
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					return nil
 				} else {
 					logger.Info("commit lock, waiting for commit to return records",
-						slog.Int("records", cdcRecordsStorage.Len()),
+						slog.Int64("records", totalRecords),
 						slog.Int64("bytes", totalFetchedBytes.Load()),
 						slog.Int("channelLen", records.ChannelLen()),
 						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
@@ -627,7 +638,7 @@ func PullCdcRecords[Items model.Items](
 
 		var receiveCtx context.Context
 		var cancel context.CancelFunc
-		if cdcRecordsStorage.IsEmpty() {
+		if totalRecords == 0 {
 			receiveCtx, cancel = context.WithCancel(ctx)
 		} else {
 			receiveCtx, cancel = context.WithDeadline(ctx, nextStandbyMessageDeadline)
@@ -646,7 +657,7 @@ func PullCdcRecords[Items model.Items](
 		if err != nil && p.commitLock == nil {
 			if pgconn.Timeout(err) {
 				logger.Info("Stand-by deadline reached, returning currently accumulated records",
-					slog.Int("records", cdcRecordsStorage.Len()),
+					slog.Int64("records", totalRecords),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()),
 					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
@@ -715,19 +726,19 @@ func PullCdcRecords[Items model.Items](
 								return err
 							}
 
-							latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
-							if err != nil {
-								return err
-							}
-							if ok {
-								// iterate through unchanged toast cols and set them in new record
-								updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
-								for _, col := range updatedCols {
-									delete(r.UnchangedToastColumns, col)
+							if cdcRecordsStorage != nil {
+								if latestRecord, found, err := cdcRecordsStorage.Get(tablePkeyVal); err != nil {
+									return err
+								} else if found {
+									// iterate through unchanged toast cols and set them in new record
+									updatedCols := r.NewItems.UpdateIfNotExists(latestRecord.GetItems())
+									for _, col := range updatedCols {
+										delete(r.UnchangedToastColumns, col)
+									}
+									p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(updatedCols)),
+										metric.WithAttributeSet(attribute.NewSet(
+											attribute.Bool("backfilled", true))))
 								}
-								p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(updatedCols)),
-									metric.WithAttributeSet(attribute.NewSet(
-										attribute.Bool("backfilled", true))))
 							}
 							p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(r.UnchangedToastColumns)),
 								metric.WithAttributeSet(attribute.NewSet(
@@ -766,16 +777,19 @@ func PullCdcRecords[Items model.Items](
 								return err
 							}
 
-							latestRecord, ok, err := cdcRecordsStorage.Get(tablePkeyVal)
-							if err != nil {
-								return err
-							}
-							if ok {
-								r.Items = latestRecord.GetItems()
-								if updateRecord, ok := latestRecord.(*model.UpdateRecord[Items]); ok {
-									r.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+							backfilled := false
+							if cdcRecordsStorage != nil {
+								if latestRecord, found, err := cdcRecordsStorage.Get(tablePkeyVal); err != nil {
+									return err
+								} else if found {
+									r.Items = latestRecord.GetItems()
+									if updateRecord, ok := latestRecord.(*model.UpdateRecord[Items]); ok {
+										r.UnchangedToastColumns = updateRecord.UnchangedToastColumns
+										backfilled = true
+									}
 								}
-							} else {
+							}
+							if !backfilled {
 								// there is nothing to backfill the items in the delete record with,
 								// so don't update the row with this record
 								// add sentinel value to prevent update statements from selecting
@@ -800,9 +814,9 @@ func PullCdcRecords[Items model.Items](
 						}
 
 					case *model.MessageRecord[Items]:
-						// if cdc store empty, we can move lsn,
+						// if there were no records, we can move lsn,
 						// otherwise push to records so destination can ack once all previous messages processed
-						if cdcRecordsStorage.IsEmpty() {
+						if totalRecords == 0 {
 							if int64(clientXLogPos) > req.ConsumedOffset.Load() {
 								if err := p.updateConsumedOffset(ctx, logger, req.FlowJobName, req.ConsumedOffset, clientXLogPos); err != nil {
 									return err
