@@ -71,7 +71,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_BOOL,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
-	}, {
+	},
+	{
 		Name:             "PEERDB_CDC_DISK_SPILL_RECORDS_THRESHOLD",
 		Description:      "CDC: number of records beyond which records are written to disk instead",
 		DefaultValue:     "1000000",
