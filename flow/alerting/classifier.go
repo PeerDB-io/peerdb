@@ -165,6 +165,9 @@ var (
 	ErrorNotifyPostgresSlotMemalloc = ErrorClass{
 		Class: "NOTIFY_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
 	}
+	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
+		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
+	}
 )
 
 func (e ErrorClass) String() string {
@@ -435,6 +438,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		switch mongoErr.Code {
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 286: // ChangeStreamHistoryLost
+			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
 		default:
 			return ErrorOther, mongoErrorInfo
 		}
