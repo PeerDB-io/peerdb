@@ -216,11 +216,9 @@ func (h *FlowRequestHandler) CreateImportS3(
 ) (*protos.CreateImportS3Response, error) {
 	workflowID := fmt.Sprintf("%s-import-%s", req.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
-		ID:        workflowID,
-		TaskQueue: peerdbenv.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue),
-		SearchAttributes: map[string]interface{}{
-			shared.MirrorNameSearchAttribute: req.FlowJobName,
-		},
+		ID:                    workflowID,
+		TaskQueue:             internal.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue),
+		TypedSearchAttributes: shared.NewSearchAttributes(req.FlowJobName),
 	}
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.S3Workflow, req); err != nil {
 		slog.Error("unable to start import workflow",
