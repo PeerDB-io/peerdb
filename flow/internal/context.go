@@ -132,6 +132,10 @@ func SlogLoggerFromCtx(ctx context.Context) *slog.Logger {
 
 	if activity.IsActivity(ctx) {
 		activityInfo := activity.GetInfo(ctx)
+		var workflowTypeName string
+		if activityInfo.WorkflowType != nil {
+			workflowTypeName = activityInfo.WorkflowType.Name
+		}
 		logger = logger.With(
 			slog.String("ActivityID", activityInfo.ActivityID),
 			slog.String("ActivityType", activityInfo.ActivityType.Name),
@@ -140,33 +144,27 @@ func SlogLoggerFromCtx(ctx context.Context) *slog.Logger {
 			slog.String("WorkflowID", activityInfo.WorkflowExecution.ID),
 			slog.String("Namespace", activityInfo.WorkflowNamespace),
 			slog.String("TaskQueue", activityInfo.TaskQueue),
-			slog.String("WorkflowType", activityInfo.WorkflowType.Name),
-		if activityInfo != nil {
-			activityTypeName := ""
-			if activityInfo.ActivityType != nil {
-				activityTypeName = activityInfo.ActivityType.Name
-			}
-			runID := ""
-			workflowID := ""
-			if activityInfo.WorkflowExecution != nil {
-				runID = activityInfo.WorkflowExecution.RunID
-				workflowID = activityInfo.WorkflowExecution.ID
-			}
-			workflowTypeName := ""
-			if activityInfo.WorkflowType != nil {
-				workflowTypeName = activityInfo.WorkflowType.Name
-			}
-			logger = logger.With(
-				slog.String("ActivityID", activityInfo.ActivityID),
-				slog.String("ActivityType", activityTypeName),
-				slog.Int64("Attempt", int64(activityInfo.Attempt)),
-				slog.String("RunID", runID),
-				slog.String("WorkflowID", workflowID),
-				slog.String("Namespace", activityInfo.WorkflowNamespace),
-				slog.String("TaskQueue", activityInfo.TaskQueue),
-				slog.String("WorkflowType", workflowTypeName),
-			)
+			slog.String("WorkflowType", workflowTypeName),
+		)
+	}
+
+	if activity.IsActivity(ctx) {
+		activityInfo := activity.GetInfo(ctx)
+
+		workflowTypeName := ""
+		if activityInfo.WorkflowType != nil {
+			workflowTypeName = activityInfo.WorkflowType.Name
 		}
+		logger = logger.With(
+			slog.String("ActivityID", activityInfo.ActivityID),
+			slog.String("ActivityType", activityInfo.ActivityType.Name),
+			slog.Int64("Attempt", int64(activityInfo.Attempt)),
+			slog.String("RunID", activityInfo.WorkflowExecution.RunID),
+			slog.String("WorkflowID", activityInfo.WorkflowExecution.ID),
+			slog.String("Namespace", activityInfo.WorkflowNamespace),
+			slog.String("TaskQueue", activityInfo.TaskQueue),
+			slog.String("WorkflowType", workflowTypeName),
+		)
 	}
 
 	return logger
