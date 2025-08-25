@@ -72,9 +72,13 @@ func ScheduledTasksWorkflow(ctx workflow.Context) error {
 			MaximumInterval: 1 * time.Minute,
 		},
 	})
-	scheduledTasksFuture := workflow.ExecuteActivity(ctx, flowable.ScheduledTasks)
-	if err := scheduledTasksFuture.Get(ctx, nil); err != nil {
-		return err
+	for {
+		scheduledTasksFuture := workflow.ExecuteActivity(ctx, flowable.ScheduledTasks)
+		if err := scheduledTasksFuture.Get(ctx, nil); err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 	}
-	return ctx.Err()
 }
