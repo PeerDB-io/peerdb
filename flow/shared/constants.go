@@ -18,6 +18,7 @@ const (
 const (
 	InternalVersion_First uint32 = iota
 	InternalVersion_PgVectorAsFloatArray
+	InternalVersion_CompositeTypeAsTuple
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1

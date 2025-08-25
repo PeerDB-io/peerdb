@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/big"
@@ -53,12 +54,10 @@ func ConvertToAvroCompatibleName(columnName string) string {
 func GetAvroSchemaFromQValueKind(
 	ctx context.Context,
 	env map[string]string,
-	kind types.QValueKind,
+	qField types.QField,
 	targetDWH protos.DBType,
-	precision int16,
-	scale int16,
 ) (avro.Schema, error) {
-	switch kind {
+	switch qField.Type {
 	case types.QValueKindString, types.QValueKindEnum, types.QValueKindQChar, types.QValueKindCIDR,
 		types.QValueKindINET, types.QValueKindMacaddr:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
@@ -94,7 +93,7 @@ func GetAvroSchemaFromQValueKind(
 		}
 		return avro.NewPrimitiveSchema(avro.Bytes, nil), nil
 	case types.QValueKindNumeric:
-		return getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
+		return getAvroNumericSchema(ctx, env, targetDWH, qField.Precision, qField.Scale)
 	case types.QValueKindInt256:
 		return avro.NewFixedSchema("int256", "", 32, nil)
 	case types.QValueKindUInt256:
@@ -116,6 +115,44 @@ func GetAvroSchemaFromQValueKind(
 		return avro.NewPrimitiveSchema(avro.Long, avro.NewPrimitiveLogicalSchema(avro.TimestampMicros)), nil
 	case types.QValueKindHStore, types.QValueKindJSON, types.QValueKindJSONB:
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
+	case types.QValueKindComposite:
+		if len(qField.SubFields) == 0 {
+			return nil, errors.New("composite subfields are required for composite type but none provided")
+		}
+
+		avroFields := make([]*avro.Field, 0, len(qField.SubFields))
+		for _, field := range qField.SubFields {
+			fieldSchema, err := GetAvroSchemaFromQValueKind(
+				ctx, env, *field, targetDWH)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get avro schema for composite field %s: %w", field.Name, err)
+			}
+
+			if field.Nullable {
+				fieldSchema, err = avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), fieldSchema})
+				if err != nil {
+					return nil, fmt.Errorf("failed to create nullable union for composite field %s: %w", field.Name, err)
+				}
+			}
+
+			avroField, err := avro.NewField(ConvertToAvroCompatibleName(field.Name), fieldSchema)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create avro field for composite field %s: %w", field.Name, err)
+			}
+			avroFields = append(avroFields, avroField)
+		}
+
+		return avro.NewRecordSchema(qField.Name, "", avroFields)
+	case types.QValueKindArrayComposite:
+		if len(qField.SubFields) != 1 {
+			return nil, errors.New("array composite subfields must contain exactly one field definition")
+		}
+		fieldSchema, err := GetAvroSchemaFromQValueKind(
+			ctx, env, *qField.SubFields[0], targetDWH)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get avro schema for array composite field %s: %w", qField.Name, err)
+		}
+		return avro.NewArraySchema(fieldSchema), nil
 	case types.QValueKindArrayFloat32:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.Float, nil)), nil
 	case types.QValueKindArrayFloat64:
@@ -141,7 +178,7 @@ func GetAvroSchemaFromQValueKind(
 	case types.QValueKindArrayString, types.QValueKindArrayEnum:
 		return avro.NewArraySchema(avro.NewPrimitiveSchema(avro.String, nil)), nil
 	case types.QValueKindArrayNumeric:
-		numericSchema, err := getAvroNumericSchema(ctx, env, targetDWH, precision, scale)
+		numericSchema, err := getAvroNumericSchema(ctx, env, targetDWH, qField.Precision, qField.Scale)
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +187,7 @@ func GetAvroSchemaFromQValueKind(
 		// lets attempt to do invalid as a string
 		return avro.NewPrimitiveSchema(avro.String, nil), nil
 	default:
-		return nil, fmt.Errorf("unsupported types.QValueKind type: %s", kind)
+		return nil, fmt.Errorf("unsupported types.QValueKind type: %s", qField.Type)
 	}
 }
 
@@ -188,10 +225,6 @@ func QValueToAvro(
 	unboundedNumericAsString bool, stat *NumericStat,
 	binaryFormat internal.BinaryFormat,
 ) (any, error) {
-	if value.Value() == nil {
-		return nil, nil
-	}
-
 	c := QValueAvroConverter{
 		QField:                   field,
 		logger:                   logger,
@@ -199,6 +232,13 @@ func QValueToAvro(
 		TargetDWH:                targetDWH,
 		UnboundedNumericAsString: unboundedNumericAsString,
 		binaryFormat:             binaryFormat,
+	}
+
+	if value.Value() == nil {
+		if value.Kind() == types.QValueKindComposite {
+			return c.processComposite(ctx, nil, binaryFormat)
+		}
+		return nil, nil
 	}
 
 	switch v := value.(type) {
@@ -295,6 +335,10 @@ func QValueToAvro(
 		return c.processArrayUUID(v.Val), nil
 	case types.QValueArrayNumeric:
 		return c.processArrayNumeric(v.Val), nil
+	case types.QValueComposite:
+		return c.processComposite(ctx, v.Val, binaryFormat)
+	case types.QValueArrayComposite:
+		return c.processArrayComposite(ctx, v.Val, binaryFormat)
 	default:
 		return nil, fmt.Errorf("[toavro] unsupported %T", value)
 	}
@@ -619,6 +663,66 @@ func (c *QValueAvroConverter) processArrayFloat64(arrayData []float64) any {
 
 func (c *QValueAvroConverter) processArrayString(arrayData []string) any {
 	return arrayData
+}
+
+// processComposite converts a composite type (PostgreSQL user-defined type) to Avro format
+// It recursively processes each field in the composite type, handling nested composites
+func (c *QValueAvroConverter) processComposite(
+	ctx context.Context,
+	compositeVal map[string]types.QValue,
+	binaryFormat internal.BinaryFormat,
+) (any, error) {
+	result := make(map[string]any)
+	for _, subfield := range c.QField.SubFields {
+		subfieldValue, exists := compositeVal[subfield.Name]
+		if !exists {
+			subfieldValue = types.QValueNull(subfield.Type)
+		}
+
+		convertedValue, err := QValueToAvro(
+			ctx, subfieldValue, subfield, c.TargetDWH, c.logger,
+			c.UnboundedNumericAsString, c.Stat, binaryFormat,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert composite field %s: %w", subfield.Name, err)
+		}
+
+		avroFieldName := ConvertToAvroCompatibleName(subfield.Name)
+		result[avroFieldName] = convertedValue
+	}
+
+	if c.Nullable {
+		return &result, nil
+	}
+
+	slog.Info("Converted composite type to Avro format", slog.Any("result", result))
+
+	return result, nil
+}
+
+func (c *QValueAvroConverter) processArrayComposite(
+	ctx context.Context,
+	arrayCompositeVal []types.QValueComposite,
+	binaryFormat internal.BinaryFormat,
+) (any, error) {
+	convertedArray := make([]any, 0, len(arrayCompositeVal))
+	for _, compositeVal := range arrayCompositeVal {
+		convertedValue, err := QValueToAvro(
+			ctx, compositeVal, c.QField.SubFields[0], c.TargetDWH, c.logger,
+			c.UnboundedNumericAsString, c.Stat, binaryFormat,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert array composite value: %w", err)
+		}
+		convertedArray = append(convertedArray, convertedValue)
+	}
+	if c.Nullable {
+		if len(convertedArray) == 0 {
+			return nil, nil
+		}
+		return &convertedArray, nil
+	}
+	return convertedArray, nil
 }
 
 func TruncateNumeric(
