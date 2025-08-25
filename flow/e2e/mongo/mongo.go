@@ -13,6 +13,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 type MongoSource struct {
@@ -62,7 +63,7 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 	}
 
 	recordBatch := &model.QRecordBatch{
-		Schema:  connmongo.GetDefaultSchema(),
+		Schema:  connmongo.GetDefaultSchema(shared.IntervalVersion_MongoDBFullDocumentColumnToDoc),
 		Records: nil,
 	}
 

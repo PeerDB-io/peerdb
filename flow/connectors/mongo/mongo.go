@@ -26,7 +26,8 @@ import (
 
 const (
 	DefaultDocumentKeyColumnName  = "_id"
-	DefaultFullDocumentColumnName = "_full_document"
+	DefaultFullDocumentColumnName = "doc"
+	LegacyFullDocumentColumnName  = "_full_document"
 )
 
 type MongoConnector struct {
