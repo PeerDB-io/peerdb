@@ -18,6 +18,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
@@ -55,6 +56,7 @@ const (
 	ErrorSourceClickHouse      ErrorSource = "clickhouse"
 	ErrorSourcePostgres        ErrorSource = "postgres"
 	ErrorSourceMySQL           ErrorSource = "mysql"
+	ErrorSourceMongoDB         ErrorSource = "mongodb"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -162,6 +164,9 @@ var (
 	// https://github.com/postgres/postgres/commit/d87d07b7ad3b782cb74566cd771ecdb2823adf6a
 	ErrorNotifyPostgresSlotMemalloc = ErrorClass{
 		Class: "NOTIFY_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
+	}
+	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
+		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
 )
 
@@ -415,6 +420,28 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
+		}
+	}
+
+	var mongoErr driver.Error
+	if errors.As(err, &mongoErr) {
+		// https://www.mongodb.com/docs/manual/reference/error-codes/
+		mongoErrorInfo := ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   strconv.Itoa(int(mongoErr.Code)),
+		}
+
+		if mongoErr.RetryableRead() {
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+
+		switch mongoErr.Code {
+		case 13: // Unauthorized
+			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 286: // ChangeStreamHistoryLost
+			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
+		default:
+			return ErrorOther, mongoErrorInfo
 		}
 	}
 
