@@ -112,7 +112,7 @@ impl FlowGrpcClient {
         let publication_name = job.publication_name.clone();
         let replication_slot_name = job.replication_slot_name.clone();
         let snapshot_num_rows_per_partition = job.snapshot_num_rows_per_partition;
-        let snapshot_num_partitions_override = job.snapshot_num_rows_per_partition;
+        let snapshot_num_partitions_override = job.snapshot_num_partitions_override;
         let snapshot_max_parallel_workers = job.snapshot_max_parallel_workers;
         let snapshot_num_tables_in_parallel = job.snapshot_num_tables_in_parallel;
         let Some(system) = TypeSystem::from_str_name(&job.system) else {
