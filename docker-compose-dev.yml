@@ -207,7 +207,7 @@ services:
       - flow-api
 
   minio:
-    image: bitnami/minio:2025.7.23@sha256:4707bf769bba6653d5c5653b18b619d7397b35efc6f402aebfd0a93a5309a0c0
+    image: bitnami/minio:2025.7.23@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
     volumes:
       - minio-data:/data
     ports:
