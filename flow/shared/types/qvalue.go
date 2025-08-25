@@ -833,3 +833,48 @@ func (v QValueArrayNumeric) LValue(ls *lua.LState) lua.LValue {
 		return shared.LuaDecimal.New(ls, x)
 	})
 }
+
+type QValueComposite struct {
+	Val    map[string]QValue     // Field name -> field value mapping
+	Fields map[string]QValueKind // Field name -> field type mapping for schema info
+}
+
+func (QValueComposite) Kind() QValueKind {
+	return QValueKindComposite
+}
+
+func (v QValueComposite) Value() any {
+	return v.Val
+}
+
+func (v QValueComposite) LValue(ls *lua.LState) lua.LValue {
+	table := ls.NewTable()
+	for fieldName, fieldValue := range v.Val {
+		table.RawSetString(fieldName, fieldValue.LValue(ls))
+	}
+	return table
+}
+
+type QValueArrayComposite struct {
+	Val []QValueComposite
+}
+
+func (QValueArrayComposite) Kind() QValueKind {
+	return QValueKindArrayComposite
+}
+
+func (v QValueArrayComposite) Value() any {
+	return v.Val
+}
+
+func (v QValueArrayComposite) LValue(ls *lua.LState) lua.LValue {
+	table := ls.NewTable()
+	for i, composite := range v.Val {
+		compositeTable := ls.NewTable()
+		for fieldName, fieldValue := range composite.Val {
+			compositeTable.RawSetString(fieldName, fieldValue.LValue(ls))
+		}
+		table.RawSetInt(i+1, compositeTable) // Lua tables are 1-indexed
+	}
+	return table
+}

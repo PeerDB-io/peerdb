@@ -3,6 +3,7 @@ package qvalue
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 
@@ -88,12 +89,42 @@ func ToDWHColumnType(
 			colType = fmt.Sprintf("Array(%s)", colType)
 		} else if (kind == types.QValueKindJSON || kind == types.QValueKindJSONB) && ShouldUseNativeJSONType(ctx, env, dwhVersion) {
 			colType = "JSON"
+		} else if kind == types.QValueKindComposite {
+			colType = "Tuple("
+			if len(column.Composite) == 0 {
+				return "", fmt.Errorf("composite type is nil or empty for column %s", column.Name)
+			}
+			for _, subfield := range column.Composite {
+				if subfield == nil {
+					return "", fmt.Errorf("composite field is nil for column %s", column.Name)
+				}
+				// Clickhouse does not support Nullable(Tuple(...)) so we use Tuple(Nullable(...), Nullable(...), ...)
+				if nullableEnabled && column.Nullable {
+					subfield.Nullable = true
+				}
+				subfieldType, err := ToDWHColumnType(ctx, types.QValueKind(subfield.Type), env, dwhType, dwhVersion, subfield, nullableEnabled)
+				if err != nil {
+					return "", fmt.Errorf("failed to get DWH column type for composite field %s: %w", subfield.Name, err)
+				}
+				colType += fmt.Sprintf("%s %s, ", subfield.Name, subfieldType)
+			}
+			colType = strings.TrimSuffix(colType, ", ") + ")"
+		} else if kind == types.QValueKindArrayComposite {
+			if len(column.Composite) != 1 {
+				return "", fmt.Errorf("composite array type %s must have exactly 1 subfield", column.Name)
+			}
+			elementType, err := ToDWHColumnType(ctx, types.QValueKind(column.Composite[0].Type),
+				env, dwhType, dwhVersion, column.Composite[0], nullableEnabled)
+			if err != nil {
+				return "", fmt.Errorf("failed to get DWH column type for composite field %s: %w", column.Composite[0].Name, err)
+			}
+			colType = fmt.Sprintf("Array(%s)", elementType)
 		} else if val, ok := types.QValueKindToClickHouseTypeMap[kind]; ok {
 			colType = val
 		} else {
 			colType = "String"
 		}
-		if nullableEnabled && column.Nullable && !kind.IsArray() {
+		if nullableEnabled && column.Nullable && !kind.IsArray() && kind != types.QValueKindComposite {
 			if colType == "LowCardinality(String)" {
 				colType = "LowCardinality(Nullable(String))"
 			} else {
