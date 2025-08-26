@@ -181,7 +181,8 @@ export const cdcSettings: MirrorSetting[] = [
     default: false,
     type: 'switch',
     required: false,
-    helpfulLink: 'https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree#is_deleted'
+    helpfulLink:
+      'https://clickhouse.com/docs/engines/table-engines/mergetree-family/replacingmergetree#is_deleted',
   },
   {
     label: 'Initial Copy Only',
