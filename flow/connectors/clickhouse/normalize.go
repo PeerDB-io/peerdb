@@ -568,6 +568,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				rawTbl,
 				c.chVersion,
 				c.Config.Cluster != "",
+				req.SoftDeleteColName,
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
