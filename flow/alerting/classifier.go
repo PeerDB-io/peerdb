@@ -513,7 +513,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException, chproto.ErrCannotReadFromSocket:
+		case chproto.ErrQueryWasCancelled,
+			chproto.ErrPocoException,
+			chproto.ErrCannotReadFromSocket,
+			517: // CANNOT_ASSIGN_ALTER
 			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {
