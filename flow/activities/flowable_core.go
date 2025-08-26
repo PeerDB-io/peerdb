@@ -144,7 +144,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	lastOffset, err := func() (model.CdcCheckpoint, error) {
 		// special case pg-pg replication, where offsets are stored on destination instead of catalog
 		if _, isPg := any(srcConn).(*connpostgres.PostgresConnector); isPg {
-			dstPgConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
+			dstPgConn, err := connectors.GetByNameAndForPeerAs[*connpostgres.PostgresConnector](
+				ctx, config.Env, a.CatalogPool, config.DestinationName, protos.DBType_POSTGRES)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
 					return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector to get last offset: %w", err)
