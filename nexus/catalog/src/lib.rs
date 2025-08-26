@@ -34,7 +34,7 @@ pub struct Catalog {
 
 pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
     let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
-    let config = aws_config::defaults(BehaviorVersion::v2025_01_17())
+    let config = aws_config::defaults(BehaviorVersion::v2025_08_07())
         .region(region_provider)
         .load()
         .await;
