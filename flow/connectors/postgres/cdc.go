@@ -18,6 +18,8 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/pgvector/pgvector-go"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
 
 	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
@@ -436,12 +438,18 @@ func PullCdcRecords[Items model.Items](
 		}
 	}()
 
+	logger.Info("pulling records start")
+
 	shutdown := shared.Interval(ctx, time.Minute, func() {
 		logger.Info("pulling records", slog.Int("records", cdcRecordsStorage.Len()))
 	})
 	defer shutdown()
 
 	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
+
+	pkmRequiresResponse := false
+	waitingForCommit := false
+	fetchedBytes := 0
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
 		if err := cdcRecordsStorage.Set(logger, key, rec); err != nil {
@@ -456,11 +464,15 @@ func PullCdcRecords[Items model.Items](
 			nextStandbyMessageDeadline = time.Now().Add(req.IdleTimeout)
 			logger.Info(fmt.Sprintf("pushing the standby deadline to %s", nextStandbyMessageDeadline))
 		}
+		if cdcRecordsStorage.Len()%50000 == 0 {
+			logger.Info("pulling records",
+				slog.Int("records", cdcRecordsStorage.Len()),
+				slog.Int("bytes", fetchedBytes),
+				slog.Int("channelLen", records.ChannelLen()),
+				slog.Bool("waitingForCommit", waitingForCommit))
+		}
 		return nil
 	}
-
-	pkmRequiresResponse := false
-	waitingForCommit := false
 
 	pkmEmptyBatchThrottleThresholdSeconds, err := internal.PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx, req.Env)
 	if err != nil {
@@ -484,19 +496,28 @@ func PullCdcRecords[Items model.Items](
 
 			if time.Since(standByLastLogged) > 10*time.Second {
 				logger.Info("Sent Standby status message",
-					slog.Int("records", cdcRecordsStorage.Len()))
+					slog.Int("records", cdcRecordsStorage.Len()),
+					slog.Int("bytes", fetchedBytes),
+					slog.Int("channelLen", records.ChannelLen()),
+					slog.Bool("waitingForCommit", waitingForCommit))
 				standByLastLogged = time.Now()
 			}
 		}
 
 		if p.commitLock == nil {
 			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
+				logger.Info("batch filled, returning currently accumulated records",
+					slog.Int("records", cdcRecordsStorage.Len()),
+					slog.Int("bytes", fetchedBytes),
+					slog.Int("channelLen", records.ChannelLen()))
 				return nil
 			}
 
 			if waitingForCommit {
 				logger.Info("commit received, returning currently accumulated records",
-					slog.Int("records", cdcRecordsStorage.Len()))
+					slog.Int("records", cdcRecordsStorage.Len()),
+					slog.Int("bytes", fetchedBytes),
+					slog.Int("channelLen", records.ChannelLen()))
 				return nil
 			}
 		}
@@ -508,11 +529,15 @@ func PullCdcRecords[Items model.Items](
 
 				if p.commitLock == nil {
 					logger.Info("no commit lock, returning currently accumulated records",
-						slog.Int("records", cdcRecordsStorage.Len()))
+						slog.Int("records", cdcRecordsStorage.Len()),
+						slog.Int("bytes", fetchedBytes),
+						slog.Int("channelLen", records.ChannelLen()))
 					return nil
 				} else {
 					logger.Info("commit lock, waiting for commit to return records",
-						slog.Int("records", cdcRecordsStorage.Len()))
+						slog.Int("records", cdcRecordsStorage.Len()),
+						slog.Int("bytes", fetchedBytes),
+						slog.Int("channelLen", records.ChannelLen()))
 					waitingForCommit = true
 				}
 			} else {
@@ -542,7 +567,9 @@ func PullCdcRecords[Items model.Items](
 		if err != nil && p.commitLock == nil {
 			if pgconn.Timeout(err) {
 				logger.Info("Stand-by deadline reached, returning currently accumulated records",
-					slog.Int("records", cdcRecordsStorage.Len()))
+					slog.Int("records", cdcRecordsStorage.Len()),
+					slog.Int("bytes", fetchedBytes),
+					slog.Int("channelLen", records.ChannelLen()))
 				return nil
 			} else {
 				return fmt.Errorf("ReceiveMessage failed: %w", err)
@@ -589,6 +616,7 @@ func PullCdcRecords[Items model.Items](
 
 				if rec != nil {
 					p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
+					fetchedBytes += len(msg.Data)
 					tableName := rec.GetDestinationTableName()
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:
@@ -617,7 +645,14 @@ func PullCdcRecords[Items model.Items](
 								for _, col := range updatedCols {
 									delete(r.UnchangedToastColumns, col)
 								}
+								p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(updatedCols)),
+									metric.WithAttributeSet(attribute.NewSet(
+										attribute.Bool("backfilled", true))))
 							}
+							p.otelManager.Metrics.UnchangedToastValuesCounter.Add(ctx, int64(len(r.UnchangedToastColumns)),
+								metric.WithAttributeSet(attribute.NewSet(
+									attribute.Bool("backfilled", false))))
+
 							if err := addRecordWithKey(tablePkeyVal, rec); err != nil {
 								return err
 							}

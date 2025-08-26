@@ -167,6 +167,10 @@ func (a *SnapshotActivity) LoadTableSchema(
 	return internal.LoadTableSchemaFromCatalog(ctx, a.CatalogPool, flowName, tableName)
 }
 
+func (a *SnapshotActivity) GetPeerType(ctx context.Context, name string) (protos.DBType, error) {
+	return connectors.LoadPeerType(ctx, a.CatalogPool, name)
+}
+
 func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
 	input *protos.FlowConnectionConfigs,
@@ -175,6 +179,7 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
+	defer connectors.CloseConnector(ctx, connector)
 
 	output, err := connector.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
 		TableMappings: input.TableMappings,

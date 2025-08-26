@@ -193,6 +193,9 @@ func (s *ClickHouseAvroSyncMethod) pushDataToS3(
 		return nil, 0, err
 	}
 
+	s.logger.Info("writing avro chunks to S3 start",
+		slog.String("partitionId", partition.PartitionId))
+
 	var avroFiles []utils.AvroFile
 	var totalRecords int64
 
@@ -356,9 +359,19 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 					slog.Uint64("numParts", numParts),
 					slog.Int("chunkIdx", chunkIdx),
 					slog.Any("error", err))
-				return exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.config.Database)
+				return exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.Config.Database)
 			}
+			s.logger.Info("inserted part",
+				slog.Uint64("part", i),
+				slog.Uint64("numParts", numParts),
+				slog.Int("chunkIdx", chunkIdx),
+				slog.Int("totalChunks", len(avroFiles)))
 		}
+
+		s.logger.Info("processed chunk",
+			slog.Int("chunkIdx", chunkIdx),
+			slog.Int("totalChunks", len(avroFiles)),
+			slog.String("avroFilePath", avroFile.FilePath))
 	}
 
 	return nil

@@ -295,6 +295,10 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 	}
 
 	awsConfig, err := config.LoadDefaultConfig(ctx, func(options *config.LoadOptions) error {
+		options.CredentialsCacheOptions = func(options *aws.CredentialsCacheOptions) {
+			options.ExpiryWindow = time.Hour
+			options.ExpiryWindowJitterFrac = 0
+		}
 		return nil
 	})
 	if err != nil {

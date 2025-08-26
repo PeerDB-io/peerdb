@@ -50,7 +50,7 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	destinationTableIdentifier string,
 	sourceTableSchema *protos.TableSchema,
 ) (bool, error) {
-	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, destinationTableIdentifier)
+	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTableIdentifier)
 	if err != nil {
 		return false, fmt.Errorf("error occurred while checking if destination ClickHouse table exists: %w", err)
 	}
@@ -99,7 +99,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 	switch tmEngine {
 	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
-		if c.config.Replicated {
+		if c.Config.Replicated {
 			engine = fmt.Sprintf(
 				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s)",
 				zooPathPrefix,
@@ -110,7 +110,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
 		}
 	case protos.TableEngine_CH_ENGINE_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
-		if c.config.Replicated {
+		if c.Config.Replicated {
 			engine = fmt.Sprintf(
 				"ReplicatedMergeTree('%s%s','{replica}')",
 				zooPathPrefix,
@@ -120,7 +120,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			engine = "MergeTree()"
 		}
 	case protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE:
-		if c.config.Replicated {
+		if c.Config.Replicated {
 			engine = fmt.Sprintf(
 				"ReplicatedCoalescingMergeTree('%s%s','{replica}')",
 				zooPathPrefix,
@@ -141,7 +141,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	var stmtBuilder strings.Builder
 	var stmtBuilderDistributed strings.Builder
 	var builders []*strings.Builder
-	if c.config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL {
+	if c.Config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL {
 		builders = []*strings.Builder{&stmtBuilder, &stmtBuilderDistributed}
 	} else {
 		builders = []*strings.Builder{&stmtBuilder}
@@ -154,14 +154,14 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		} else {
 			builder.WriteString("CREATE TABLE IF NOT EXISTS ")
 		}
-		if c.config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
+		if c.Config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
 			// distributed table gets destination name, avoid naming conflict
 			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier + "_shard"))
 		} else {
 			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
 		}
-		if c.config.Cluster != "" {
-			fmt.Fprintf(builder, " ON CLUSTER %s", peerdb_clickhouse.QuoteIdentifier(c.config.Cluster))
+		if c.Config.Cluster != "" {
+			fmt.Fprintf(builder, " ON CLUSTER %s", peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster))
 		}
 		builder.WriteString(" (")
 
@@ -253,10 +253,10 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
 		}
 
-		if c.config.Cluster != "" {
+		if c.Config.Cluster != "" {
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
-				peerdb_clickhouse.QuoteIdentifier(c.config.Cluster),
-				peerdb_clickhouse.QuoteIdentifier(c.config.Database),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Database),
 				peerdb_clickhouse.QuoteIdentifier(tableIdentifier+"_shard"),
 			)
 			if tableMapping.ShardingKey != "" {
@@ -409,14 +409,23 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID, req.Env, req.Version); err != nil {
+	endBatchID := req.SyncBatchID
+	groupBatches, err := internal.PeerDBGroupNormalize(ctx, req.Env)
+	if err != nil {
+		c.logger.Error("failed to lookup PEERDB_GROUP_NORMALIZE, only normalizing 1 batch")
+	}
+	if !groupBatches {
+		endBatchID = min(endBatchID, normBatchID+1)
+	}
+
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, endBatchID, req.Env, req.Version); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
 		ctx,
 		req.FlowJobName,
-		req.SyncBatchID,
+		endBatchID,
 		normBatchID,
 		req.TableNameSchemaMapping,
 	)
@@ -441,8 +450,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
 	c.logger.Info("[clickhouse-cdc] inserting batch...",
-		slog.Int64("StartBatchID", normBatchID),
-		slog.Int64("EndBatchID", req.SyncBatchID),
+		slog.Int64("startBatchID", normBatchID),
+		slog.Int64("endBatchID", endBatchID),
 		slog.Int("connections", parallelNormalize))
 
 	numParts, err := internal.PeerDBClickHouseNormalizationParts(ctx, req.Env)
@@ -455,8 +464,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	// there is no other indication of progress, so we log every 5 minutes.
 	periodicLogger := shared.Interval(ctx, 5*time.Minute, func() {
 		c.logger.Info("[clickhouse-cdc] inserting batch...",
-			slog.Int64("StartBatchID", normBatchID),
-			slog.Int64("EndBatchID", req.SyncBatchID),
+			slog.Int64("startBatchID", normBatchID),
+			slog.Int64("endBatchID", endBatchID),
 			slog.Int("connections", parallelNormalize))
 	})
 	defer periodicLogger()
@@ -474,7 +483,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				chConn = c.database
 			} else {
 				var err error
-				chConn, err = Connect(errCtx, req.Env, c.config)
+				chConn, err = Connect(errCtx, req.Env, c.Config)
 				if err != nil {
 					return err
 				}
@@ -483,16 +492,18 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 			for insertIntoSelectQuery := range queries {
 				c.logger.Info("executing INSERT command to ClickHouse table",
-					slog.Int64("syncBatchId", req.SyncBatchID),
-					slog.Int64("normalizeBatchId", normBatchID),
+					slog.Int64("syncBatchID", endBatchID),
+					slog.Int64("normalizeBatchID", normBatchID),
 					slog.String("destinationTable", insertIntoSelectQuery.TableName),
-					slog.String("query", insertIntoSelectQuery.Query))
+					slog.String("query", insertIntoSelectQuery.Query),
+					slog.Int("parallelWorker", i))
 
 				if err := c.execWithConnection(errCtx, chConn, insertIntoSelectQuery.Query); err != nil {
 					c.logger.Error("[clickhouse] error while inserting into target clickhouse table",
 						slog.String("table", insertIntoSelectQuery.TableName),
-						slog.Int64("syncBatchID", req.SyncBatchID),
+						slog.Int64("syncBatchID", endBatchID),
 						slog.Int64("normalizeBatchID", normBatchID),
+						slog.Int("parallelWorker", i),
 						slog.Any("error", err))
 					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", insertIntoSelectQuery.TableName, err)
 				}
@@ -500,14 +511,20 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				if insertIntoSelectQuery.Part == numParts-1 {
 					c.logger.Info("[clickhouse] set last normalized batch id for table",
 						slog.String("table", insertIntoSelectQuery.TableName),
-						slog.Int64("syncBatchID", req.SyncBatchID),
-						slog.Int64("lastNormalizedBatchID", normBatchID))
-					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, insertIntoSelectQuery.TableName, req.SyncBatchID)
+						slog.Int64("syncBatchID", endBatchID),
+						slog.Int64("lastNormalizedBatchID", normBatchID),
+						slog.Int("parallelWorker", i))
+					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, insertIntoSelectQuery.TableName, endBatchID)
 					if err != nil {
 						return fmt.Errorf("error while setting last synced batch id for table %s: %w", insertIntoSelectQuery.TableName, err)
 					}
 				}
 			}
+
+			c.logger.Info("executed INSERT commands to ClickHouse",
+				slog.Int64("syncBatchID", req.SyncBatchID),
+				slog.Int64("normalizeBatchID", normBatchID),
+				slog.Int("parallelWorker", i))
 			return nil
 		})
 	}
@@ -521,11 +538,11 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 		c.logger.Info("[clickhouse] last normalized batch id for table",
 			"table", tbl, "lastNormalizedBatchID", normalizeBatchIDForTable,
-			"syncBatchID", req.SyncBatchID)
+			"syncBatchID", endBatchID)
 		batchIdToLoadForTable := max(normBatchID, normalizeBatchIDForTable)
-		if batchIdToLoadForTable >= req.SyncBatchID {
+		if batchIdToLoadForTable >= endBatchID {
 			c.logger.Info("[clickhouse] table already synced to destination for this batch, skipping",
-				"table", tbl, "batchIdToLoadForTable", batchIdToLoadForTable, "syncBatchID", req.SyncBatchID)
+				"table", tbl, "batchIdToLoadForTable", batchIdToLoadForTable, "syncBatchID", endBatchID)
 			continue
 		}
 
@@ -535,7 +552,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				numPart,
 				req.TableNameSchemaMapping,
 				req.TableMappings,
-				req.SyncBatchID,
+				endBatchID,
 				batchIdToLoadForTable,
 				numParts,
 				enablePrimaryUpdate,
@@ -543,14 +560,14 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				req.Env,
 				rawTbl,
 				c.chVersion,
-				c.config.Cluster != "",
+				c.Config.Cluster != "",
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
 				close(queries)
 				c.logger.Error("[clickhouse] error while building insert into select query",
 					slog.String("table", tbl),
-					slog.Int64("syncBatchID", req.SyncBatchID),
+					slog.Int64("syncBatchID", endBatchID),
 					slog.Int64("normalizeBatchID", normBatchID),
 					slog.Any("error", err))
 				return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
@@ -576,14 +593,14 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
-	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID); err != nil {
-		c.logger.Error("[clickhouse] error while updating normalize batch id", slog.Int64("BatchID", req.SyncBatchID), slog.Any("error", err))
+	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endBatchID); err != nil {
+		c.logger.Error("[clickhouse] error while updating normalize batch id", slog.Int64("BatchID", endBatchID), slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 
 	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
-		EndBatchID:   req.SyncBatchID,
+		EndBatchID:   endBatchID,
 	}, nil
 }
 
@@ -657,7 +674,6 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 	batchIdToLoad := max(lastSyncedBatchIdInRawTable, normBatchID)
 	c.logger.Info("[clickhouse] pushing s3 data to raw table",
 		slog.Int64("BatchID", batchIdToLoad),
-		slog.String("flowJobName", flowJobName),
 		slog.Int64("syncBatchID", syncBatchID))
 
 	for s := batchIdToLoad + 1; s <= syncBatchID; s++ {
@@ -665,8 +681,7 @@ func (c *ClickHouseConnector) copyAvroStagesToDestination(
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
 		}
 		c.logger.Info("[clickhouse] setting last batch id in raw table",
-			slog.Int64("BatchID", s),
-			slog.String("flowJobName", flowJobName))
+			slog.Int64("BatchID", s))
 		if err := c.SetLastBatchIDInRawTable(ctx, flowJobName, s); err != nil {
 			c.logger.Error("[clickhouse] error while setting last batch id in raw table",
 				slog.Int64("BatchID", s), slog.Any("error", err))

@@ -72,8 +72,8 @@ func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.
 		StartToCloseTimeout: 1 * time.Minute,
 	})
 
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateFlowStatusInCatalogActivity,
-		workflow.GetInfo(ctx).WorkflowExecution.ID, status)
+	updateFuture := workflow.ExecuteLocalActivity(updateCtx,
+		updateFlowStatusInCatalogActivity, workflow.GetInfo(ctx).WorkflowExecution.ID, status)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
@@ -130,14 +130,13 @@ func uploadConfigToCatalog(
 	ctx workflow.Context,
 	cfg *protos.FlowConnectionConfigs,
 ) {
-	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+	updateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
 	})
 
-	logger := workflow.GetLogger(ctx)
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx, updateCDCConfigInCatalogActivity, logger, cfg)
+	updateFuture := workflow.ExecuteActivity(updateCtx, flowable.UpdateCDCConfigInCatalogActivity, cfg)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
-		logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
+		workflow.GetLogger(ctx).Warn("Failed to update CDC config in catalog", slog.Any("error", err))
 	}
 }
 
@@ -178,24 +177,21 @@ func processCDCFlowConfigUpdate(
 
 	tablesAreAdded := len(flowConfigUpdate.AdditionalTables) > 0
 	tablesAreRemoved := len(flowConfigUpdate.RemovedTables) > 0
-	if !tablesAreAdded && !tablesAreRemoved {
-		syncStateToConfigProtoInCatalog(ctx, cfg, state)
-		return nil
-	}
+	if tablesAreAdded || tablesAreRemoved {
+		logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
 
-	logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
-
-	if tablesAreAdded {
-		if err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
-			logger.Error("failed to process additional tables", slog.Any("error", err))
-			return err
+		if tablesAreAdded {
+			if err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
+				logger.Error("failed to process additional tables", slog.Any("error", err))
+				return err
+			}
 		}
-	}
 
-	if tablesAreRemoved {
-		if err := processTableRemovals(ctx, logger, cfg, state); err != nil {
-			logger.Error("failed to process removed tables", slog.Any("error", err))
-			return err
+		if tablesAreRemoved {
+			if err := processTableRemovals(ctx, logger, cfg, state); err != nil {
+				logger.Error("failed to process removed tables", slog.Any("error", err))
+				return err
+			}
 		}
 	}
 
@@ -351,6 +347,7 @@ func processTableRemovals(
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) error {
+	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_MODIFYING)
 	removeTablesSelector := workflow.NewNamedSelector(ctx, "RemoveTables")
 	removeTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
@@ -560,7 +557,7 @@ func CDCFlowWorkflow(
 			}
 		}
 
-		logger.Info(fmt.Sprintf("mirror has been resumed after %s", time.Since(startTime).Round(time.Second)))
+		logger.Info("mirror resumed", slog.Duration("after", time.Since(startTime)))
 		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
@@ -728,6 +725,7 @@ func CDCFlowWorkflow(
 		}
 
 		if cfg.Resync {
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
 			renameOpts := &protos.RenameTablesInput{
 				FlowJobName:       cfg.FlowJobName,
 				PeerName:          cfg.DestinationName,
@@ -820,7 +818,7 @@ func CDCFlowWorkflow(
 			}
 
 			now := workflow.Now(ctx)
-			if state.LastError.Add(24 * time.Hour).Before(now) {
+			if state.LastError.Add(1 * time.Hour).Before(now) {
 				state.ErrorCount = 0
 			}
 			state.LastError = now
@@ -835,13 +833,7 @@ func CDCFlowWorkflow(
 					slog.Any("sleepFor", sleepFor),
 				)
 			} else {
-				// cannot use shared.IsSQLStateError because temporal serialize/deserialize
-				if !temporal.IsApplicationError(err) || strings.Contains(err.Error(), "(SQLSTATE 55006)") {
-					sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
-				} else {
-					sleepFor = time.Duration(5+min(state.ErrorCount, 5)*15) * time.Minute
-				}
-
+				sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
 				logger.Error("error in sync flow", slog.Any("error", err), slog.Any("sleepFor", sleepFor))
 			}
 			mainLoopSelector.AddFuture(model.SleepFuture(ctx, sleepFor), func(_ workflow.Future) {
@@ -858,6 +850,7 @@ func CDCFlowWorkflow(
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 		if state.ActiveSignal == model.PauseSignal {
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSING)
 			finished = true
 		}
 	})

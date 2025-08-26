@@ -21,7 +21,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
+	connmetadata "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils/monitoring"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -29,6 +29,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
@@ -113,7 +114,9 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	srcConn TPull,
-	normRequests chan<- NormalizeBatchRequest,
+	normRequests *concurrency.LastChan,
+	normResponses *concurrency.LastChan,
+	normBufferSize int64,
 	syncingBatchID *atomic.Int64,
 	syncState *atomic.Pointer[string],
 	adaptStream func(*model.CDCStream[Items]) (*model.CDCStream[Items], error),
@@ -139,17 +142,20 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	lastOffset, err := func() (model.CdcCheckpoint, error) {
-		if myConn, isMy := any(srcConn).(*connmysql.MySqlConnector); isMy {
-			return myConn.GetLastOffset(ctx, config.FlowJobName)
-		} else {
-			dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+		// special case pg-pg replication, where offsets are stored on destination instead of catalog
+		if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
+			dstPgConn, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
 			if err != nil {
-				return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector: %w", err)
+				if !errors.Is(err, errors.ErrUnsupported) {
+					return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector to get last offset: %w", err)
+				}
+				// else fallthrough to loading from catalog
+			} else {
+				return dstPgConn.GetLastOffset(ctx, config.FlowJobName)
 			}
-			defer connectors.CloseConnector(ctx, dstConn)
-
-			return dstConn.GetLastOffset(ctx, config.FlowJobName)
 		}
+		pgMetadata := connmetadata.NewPostgresMetadataFromCatalog(logger, a.CatalogPool)
+		return pgMetadata.GetLastOffset(ctx, flowName)
 	}()
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, flowName, err)
@@ -246,7 +252,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		syncBatchID += 1
 		syncingBatchID.Store(syncBatchID)
-		logger.Info("begin pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
+		logger.Info("begin pulling records for batch", slog.Int64("syncBatchID", syncBatchID))
 
 		if err := monitoring.AddCDCBatchForFlow(errCtx, a.CatalogPool, flowName, monitoring.CDCBatchInfo{
 			BatchID:     syncBatchID,
@@ -276,7 +282,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 			a.Alerter.LogFlowWarning(ctx, flowName, warning)
 		}
 
-		logger.Info("finished pulling records for batch", slog.Int64("SyncBatchID", syncBatchID))
+		logger.Info("finished pulling records for batch", slog.Int64("syncBatchID", syncBatchID))
 		return nil
 	})
 
@@ -330,25 +336,13 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 
 	if recordBatchSync.NeedsNormalize() {
-		parallel, err := internal.PeerDBEnableParallelSyncNormalize(ctx, config.Env)
-		if err != nil {
-			return nil, err
-		}
-		var done chan struct{}
-		if !parallel {
-			done = make(chan struct{})
-		}
 		syncState.Store(shared.Ptr("normalizing"))
-		select {
-		case normRequests <- NormalizeBatchRequest{BatchID: res.CurrentSyncBatchID, Done: done}:
-		case <-ctx.Done():
-			return res, nil
-		}
-		if done != nil {
+		normRequests.Update(res.CurrentSyncBatchID)
+		for normResponses.Load() <= res.CurrentSyncBatchID-max(normBufferSize, 0) {
 			select {
-			case <-done:
+			case <-normResponses.Wait():
 			case <-ctx.Done():
-				return res, nil
+				return nil, ctx.Err()
 			}
 		}
 	}
@@ -636,6 +630,7 @@ func (a *FlowableActivity) startNormalize(
 	ctx context.Context,
 	config *protos.FlowConnectionConfigs,
 	batchID int64,
+	normalizeResponses *concurrency.LastChan,
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
@@ -657,30 +652,35 @@ func (a *FlowableActivity) startNormalize(
 		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
-	logger.Info("normalizing batch", slog.Int64("SyncBatchID", batchID))
-	res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
-		FlowJobName:            config.FlowJobName,
-		Env:                    config.Env,
-		TableNameSchemaMapping: tableNameSchemaMapping,
-		TableMappings:          config.TableMappings,
-		SoftDeleteColName:      config.SoftDeleteColName,
-		SyncedAtColName:        config.SyncedAtColName,
-		SyncBatchID:            batchID,
-		Version:                config.Version,
-	})
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName,
-			exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
-	}
-	if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
-		if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
-			return fmt.Errorf("failed to update end time for cdc batch: %w", err)
+	for {
+		logger.Info("normalizing batch", slog.Int64("syncBatchID", batchID))
+		res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
+			FlowJobName:            config.FlowJobName,
+			Env:                    config.Env,
+			TableNameSchemaMapping: tableNameSchemaMapping,
+			TableMappings:          config.TableMappings,
+			SoftDeleteColName:      config.SoftDeleteColName,
+			SyncedAtColName:        config.SyncedAtColName,
+			SyncBatchID:            batchID,
+			Version:                config.Version,
+		})
+		if err != nil {
+			return a.Alerter.LogFlowError(ctx, config.FlowJobName,
+				exceptions.NewNormalizationError(fmt.Errorf("failed to normalize records: %w", err)))
+		}
+		if _, dstPg := dstConn.(*connpostgres.PostgresConnector); dstPg {
+			if err := monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID); err != nil {
+				return fmt.Errorf("failed to update end time for cdc batch: %w", err)
+			}
+		}
+
+		logger.Info("normalized batches",
+			slog.Int64("startBatchID", res.StartBatchID), slog.Int64("endBatchID", res.EndBatchID), slog.Int64("syncBatchID", batchID))
+		normalizeResponses.Update(res.EndBatchID)
+		if res.EndBatchID >= batchID {
+			return nil
 		}
 	}
-
-	logger.Info("normalized batches", slog.Int64("StartBatchID", res.StartBatchID), slog.Int64("EndBatchID", res.EndBatchID))
-
-	return nil
 }
 
 // Suitable to be run as goroutine
@@ -689,7 +689,8 @@ func (a *FlowableActivity) normalizeLoop(
 	logger log.Logger,
 	config *protos.FlowConnectionConfigs,
 	syncDone <-chan struct{},
-	normalizeRequests <-chan NormalizeBatchRequest,
+	normalizeRequests *concurrency.LastChan,
+	normalizeResponses *concurrency.LastChan,
 	normalizingBatchID *atomic.Int64,
 	normalizeWaiting *atomic.Bool,
 ) {
@@ -697,19 +698,32 @@ func (a *FlowableActivity) normalizeLoop(
 
 	for {
 		normalizeWaiting.Store(true)
+		ch := normalizeRequests.Wait()
+		if ch == nil {
+			logger.Info("[normalize-loop] lastChan closed")
+			return
+		}
 		select {
-		case req := <-normalizeRequests:
-			normalizeWaiting.Store(false)
+		case <-syncDone:
+			logger.Info("[normalize-loop] syncDone closed")
+			return
+		case <-ctx.Done():
+			logger.Info("[normalize-loop] context closed")
+			return
+		case <-ch:
+			reqBatchID := normalizeRequests.Load()
+			if reqBatchID <= normalizingBatchID.Load() {
+				continue
+			}
 			retryInterval := time.Minute
 		retryLoop:
 			for {
-				normalizingBatchID.Store(req.BatchID)
-				if err := a.startNormalize(ctx, config, req.BatchID); err != nil {
+				normalizingBatchID.Store(reqBatchID)
+				if err := a.startNormalize(ctx, config, reqBatchID, normalizeResponses); err != nil {
 					_ = a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 					for {
 						// update req to latest normalize request & retry
 						select {
-						case req = <-normalizeRequests:
 						case <-syncDone:
 							logger.Info("[normalize-loop] syncDone closed before retry")
 							return
@@ -719,23 +733,16 @@ func (a *FlowableActivity) normalizeLoop(
 						default:
 							time.Sleep(retryInterval)
 							retryInterval = min(retryInterval*2, 5*time.Minute)
+							reqBatchID = normalizeRequests.Load()
 							continue retryLoop
 						}
 					}
-				} else if req.Done != nil {
-					close(req.Done)
 				}
-				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, req.BatchID, metric.WithAttributeSet(attribute.NewSet(
+				a.OtelManager.Metrics.LastNormalizedBatchIdGauge.Record(ctx, reqBatchID, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, config.FlowJobName),
 				)))
 				break
 			}
-		case <-syncDone:
-			logger.Info("[normalize-loop] syncDone closed")
-			return
-		case <-ctx.Done():
-			logger.Info("[normalize-loop] context closed")
-			return
 		}
 	}
 }

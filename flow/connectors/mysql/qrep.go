@@ -190,7 +190,11 @@ func (c *MySqlConnector) PullQRepRecords(
 		return 0, 0, fmt.Errorf("failed to get schema for watermark table %s: %w", config.WatermarkTable, err)
 	}
 
-	var totalRecords int64
+	c.logger.Info("[mysql] pulling records start")
+
+	c.totalBytesRead.Store(0)
+	c.deltaBytesRead.Store(0)
+	totalRecords := int64(0)
 	onResult := func(rs *mysql.Result) error {
 		schema, err := QRecordSchemaFromMysqlFields(tableSchema, rs.Fields)
 		if err != nil {
@@ -215,14 +219,19 @@ func (c *MySqlConnector) PullQRepRecords(
 			record = append(record, qv)
 		}
 		stream.Records <- record
+		if totalRecords%50000 == 0 {
+			c.logger.Info("[mysql] pulling records",
+				slog.Int64("records", totalRecords),
+				slog.Int64("bytes", c.totalBytesRead.Load()),
+				slog.Int("channelLen", len(stream.Records)))
+		}
+
 		return nil
 	}
 
-	c.bytesRead.Store(0)
 	shutDown := shared.Interval(ctx, time.Minute, func() {
-		if read := c.bytesRead.Swap(0); read != 0 {
-			otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
-		}
+		read := c.deltaBytesRead.Swap(0)
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	})
 	defer shutDown()
 
@@ -263,7 +272,11 @@ func (c *MySqlConnector) PullQRepRecords(
 	}
 
 	close(stream.Records)
-	return totalRecords, c.bytesRead.Swap(0), nil
+	c.logger.Info("[mysql] pulled records",
+		slog.Int64("records", totalRecords),
+		slog.Int64("bytes", c.totalBytesRead.Load()),
+		slog.Int("channelLen", len(stream.Records)))
+	return totalRecords, c.deltaBytesRead.Swap(0), nil
 }
 
 func BuildQuery(logger log.Logger, query string, start string, end string) (string, error) {

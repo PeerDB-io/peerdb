@@ -498,8 +498,8 @@ func (a *Alerter) logFlowErrorInternal(
 	errorClass, errInfo := GetErrorClass(ctx, inErr)
 	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
 
-	if !internal.PeerDBTelemetryErrorActionBasedAlertingEnabled() || errorClass.ErrorAction() == NotifyTelemetry {
-		// Warnings alert us just like errors until there's a customer warning system
+	// Only send alerts to telemetry sender (incident.io) if the env is enabled
+	if internal.PeerDBTelemetrySenderSendErrorAlertsEnabled() {
 		a.sendTelemetryMessage(ctx, logger, flowName, inErrWithStack, telemetry.ERROR, tags...)
 	}
 	loggerFunc(fmt.Sprintf("Emitting error/warning metric: '%s'", inErr.Error()),

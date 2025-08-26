@@ -36,7 +36,7 @@ type ChangeEvent struct {
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
 	_ map[string]string,
-	_ uint32,
+	internalVersion uint32,
 	_ protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
@@ -47,8 +47,12 @@ func (c *MongoConnector) GetTableSchema(
 		TypeModifier: -1,
 		Nullable:     false,
 	}
+	fullDocumentColumnName := DefaultFullDocumentColumnName
+	if internalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+		fullDocumentColumnName = LegacyFullDocumentColumnName
+	}
 	dataFieldDescription := &protos.FieldDescription{
-		Name:         DefaultFullDocumentColumnName,
+		Name:         fullDocumentColumnName,
 		Type:         string(types.QValueKindJSON),
 		TypeModifier: -1,
 		Nullable:     false,
@@ -87,8 +91,7 @@ func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.Set
 	}
 	defer changeStream.Close(ctx)
 
-	c.logger.Info("SetupReplication started, waiting for initial resume token",
-		slog.String("flowJobName", input.FlowJobName))
+	c.logger.Info("SetupReplication started, waiting for initial resume token")
 	var resumeToken bson.Raw
 	for {
 		resumeToken = changeStream.ResumeToken()
@@ -119,6 +122,11 @@ func (c *MongoConnector) PullRecords(
 ) error {
 	defer req.RecordStream.Close()
 
+	fullDocumentColumnName := DefaultFullDocumentColumnName
+	if req.InternalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+		fullDocumentColumnName = LegacyFullDocumentColumnName
+	}
+
 	c.logger.Info("[mongo] started PullRecords for mirror "+req.FlowJobName,
 		slog.Any("table_mapping", req.TableNameMapping),
 		slog.Uint64("max_batch_size", uint64(req.MaxBatchSize)),
@@ -147,6 +155,7 @@ func (c *MongoConnector) PullRecords(
 		return err
 	}
 
+	c.totalBytesRead.Store(0)
 	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		if isResumeTokenNotFoundError(err) && resumeToken != nil {
@@ -171,14 +180,17 @@ func (c *MongoConnector) PullRecords(
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
 		}
-		c.logger.Info("[mongo] PullRecords finished streaming", slog.Uint64("records", uint64(recordCount)))
+		c.logger.Info("[mongo] PullRecords finished streaming",
+			slog.Uint64("records", uint64(recordCount)),
+			slog.Int64("bytes", c.totalBytesRead.Load()),
+			slog.Int("channelLen", req.RecordStream.ChannelLen()))
 	}()
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 
 	reportBytesShutdown := shared.Interval(ctx, time.Second*10, func() {
-		read := c.bytesRead.Swap(0)
+		read := c.deltaBytesRead.Swap(0)
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	})
@@ -186,7 +198,7 @@ func (c *MongoConnector) PullRecords(
 	defer func() {
 		cancelTimeout()
 		reportBytesShutdown()
-		read := c.bytesRead.Swap(0)
+		read := c.deltaBytesRead.Swap(0)
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 	}()
@@ -226,14 +238,14 @@ func (c *MongoConnector) PullRecords(
 			if err != nil {
 				return fmt.Errorf("failed to convert full document to JSON: %w", err)
 			}
-			items.AddColumn(DefaultFullDocumentColumnName, qValue)
+			items.AddColumn(fullDocumentColumnName, qValue)
 		} else {
 			// `fullDocument` field will not exist in the following scenarios:
 			// 1) operationType is 'delete'
 			// 2) document is deleted / collection is dropped in between update and lookup
 			// 3) update changes the values for at least one of the fields in that collection's
 			//    shard key (although sharding is not supported today)
-			items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
+			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
 		}
 		return nil
 	}
@@ -246,6 +258,12 @@ func (c *MongoConnector) PullRecords(
 		if recordCount == 1 {
 			req.RecordStream.SignalAsNotEmpty()
 			timeoutCtx, cancelTimeout = context.WithTimeout(ctx, req.IdleTimeout)
+		}
+		if recordCount%50000 == 0 {
+			c.logger.Info("[mongo] PullRecords streaming",
+				slog.Uint64("records", uint64(recordCount)),
+				slog.Int64("bytes", c.totalBytesRead.Load()),
+				slog.Int("channelLen", req.RecordStream.ChannelLen()))
 		}
 		return nil
 	}

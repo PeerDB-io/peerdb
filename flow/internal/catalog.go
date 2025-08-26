@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -23,7 +24,15 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (shared.CatalogPool, e
 	if pool == nil {
 		var err error
 		catalogConnectionString := GetCatalogConnectionStringFromEnv(ctx)
-		pool, err = pgxpool.New(ctx, catalogConnectionString)
+		config, err := pgxpool.ParseConfig(catalogConnectionString)
+		if err != nil {
+			return shared.CatalogPool{},
+				exceptions.NewCatalogError(fmt.Errorf("unable to parse catalog connection string: %w", err))
+		}
+		config.MinConns = 1
+		config.MaxConns = 3
+		config.MaxConnIdleTime = time.Second
+		pool, err = pgxpool.NewWithConfig(ctx, config)
 		if err != nil {
 			return shared.CatalogPool{Pool: pool},
 				exceptions.NewCatalogError(fmt.Errorf("unable to establish connection with catalog: %w", err))

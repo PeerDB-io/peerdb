@@ -18,6 +18,7 @@ const (
 const (
 	InternalVersion_First uint32 = iota
 	InternalVersion_PgVectorAsFloatArray
+	IntervalVersion_MongoDBFullDocumentColumnToDoc
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
@@ -51,7 +52,7 @@ const (
 	DeploymentUIDKey ContextKey = "deploymentUid"
 )
 
-const FetchAndChannelSize = 256 * 1024
+const FetchAndChannelSize = 128 * 1024
 
 func Ptr[T any](x T) *T {
 	return &x

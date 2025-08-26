@@ -3,24 +3,22 @@ package connmongo
 import (
 	"context"
 	"fmt"
-	"slices"
-
-	"go.mongodb.org/mongo-driver/v2/bson"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 )
 
 func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
 	tableNames := make([]string, 0)
 
-	dbNames, err := c.getAllDatabaseNames(ctx)
+	dbNames, err := shared_mongo.GetDatabaseNames(ctx, c.client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get databases: %w", err)
 	}
 	for _, dbName := range dbNames {
-		collNames, err := c.getCollectionNames(ctx, dbName)
+		collNames, err := shared_mongo.GetCollectionNames(ctx, c.client, dbName)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get collections: %w", err)
 		}
 		for _, collName := range collNames {
 			tableNames = append(tableNames, fmt.Sprintf("%s.%s", dbName, collName))
@@ -32,7 +30,7 @@ func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesRes
 }
 
 func (c *MongoConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error) {
-	dbNames, err := c.getAllDatabaseNames(ctx)
+	dbNames, err := shared_mongo.GetDatabaseNames(ctx, c.client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get databases: %w", err)
 	}
@@ -42,9 +40,9 @@ func (c *MongoConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasRes
 }
 
 func (c *MongoConnector) GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error) {
-	collectionNames, err := c.getCollectionNames(ctx, schema)
+	collectionNames, err := shared_mongo.GetCollectionNames(ctx, c.client, schema)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get collections: %w", err)
 	}
 
 	response := protos.SchemaTablesResponse{
@@ -68,40 +66,4 @@ func (c *MongoConnector) GetColumns(ctx context.Context, version uint32, schema 
 	return &protos.TableColumnsResponse{
 		Columns: []*protos.ColumnsItem{},
 	}, nil
-}
-
-func (c *MongoConnector) getCollectionNames(ctx context.Context, databaseName string) ([]string, error) {
-	collectionNames, err := c.client.Database(databaseName).ListCollectionNames(ctx, bson.M{
-		"name": bson.M{
-			"$not": bson.Regex{
-				Pattern: "^system\\.",
-			},
-		},
-		"type": bson.M{
-			"$ne": "view",
-		},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get collections: %w", err)
-	}
-	slices.Sort(collectionNames)
-	return collectionNames, nil
-}
-
-// Get all database names, but excluding MongoDB's default databases
-func (c *MongoConnector) getAllDatabaseNames(ctx context.Context) ([]string, error) {
-	dbs, err := c.client.ListDatabaseNames(ctx, bson.M{
-		"name": bson.M{
-			"$not": bson.Regex{
-				Pattern: "^(admin|local|config)$",
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	filteredDbNames := make([]string, 0, len(dbs))
-	filteredDbNames = append(filteredDbNames, dbs...)
-	slices.Sort(filteredDbNames)
-	return filteredDbNames, nil
 }

@@ -49,6 +49,10 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		qe.logger.Info("[pg_query_executor] declared cursor", slog.String("cursorQuery", cursorQuery), slog.Any("args", args))
 	}
 
+	qe.logger.Info("[pg_query_executor] fetching rows start",
+		slog.String("query", query),
+		slog.Int("channelLen", len(stream.Records)))
+
 	var totalNumRows int64
 	var totalNumBytes int64
 	for {
@@ -58,7 +62,11 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 			return totalNumRows, totalNumBytes, err
 		}
 
-		qe.logger.Info("[pg_query_executor] fetched rows", slog.Int64("rows", numRows), slog.String("query", query))
+		qe.logger.Info("[pg_query_executor] fetched rows",
+			slog.String("query", query),
+			slog.Int64("rows", numRows),
+			slog.Int64("bytes", numBytes),
+			slog.Int("channelLen", len(stream.Records)))
 		totalNumRows += numRows
 		totalNumBytes += numBytes
 
@@ -67,14 +75,17 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		}
 	}
 
-	qe.logger.Info("Committing transaction")
+	qe.logger.Info("[pg_query_executor] committing transaction")
 	if err := tx.Commit(ctx); err != nil {
 		qe.logger.Error("[pg_query_executor] failed to commit transaction", slog.Any("error", err))
 		return totalNumRows, totalNumBytes, fmt.Errorf("[pg_query_executor] failed to commit transaction: %w", err)
 	}
 
 	qe.logger.Info("[pg_query_executor] committed transaction for query",
-		slog.String("query", query), slog.Int64("rows", totalNumRows), slog.Int64("bytes", totalNumBytes))
+		slog.String("query", query),
+		slog.Int64("rows", totalNumRows),
+		slog.Int64("bytes", totalNumBytes),
+		slog.Int("channelLen", len(stream.Records)))
 	return totalNumRows, totalNumBytes, nil
 }
 

@@ -32,10 +32,9 @@ impl BigqueryAst {
             name: ObjectName(v),
             ..
         }) = e
+            && self.is_timestamp_returning_function(&v[0].value)
         {
-            if self.is_timestamp_returning_function(&v[0].value) {
-                return true;
-            }
+            return true;
         }
 
         if let Expr::Interval { .. } = e {
@@ -74,20 +73,19 @@ impl BigqueryAst {
         });
 
         let _ = visit_function_arg_mut(query, |node| {
-            if let FunctionArgExpr::Expr(arg_expr) = node {
-                if let Expr::Cast {
+            if let FunctionArgExpr::Expr(arg_expr) = node
+                && let Expr::Cast {
                     data_type: DataType::Array(_),
                     ..
                 } = arg_expr
-                {
-                    let list =
-                        flatten_expr_to_in_list(arg_expr).expect("failed to flatten in function");
-                    let rewritten_array = Array {
-                        elem: list,
-                        named: true,
-                    };
-                    *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
-                }
+            {
+                let list =
+                    flatten_expr_to_in_list(arg_expr).expect("failed to flatten in function");
+                let rewritten_array = Array {
+                    elem: list,
+                    named: true,
+                };
+                *node = FunctionArgExpr::Expr(Expr::Array(rewritten_array));
             }
 
             ControlFlow::<()>::Continue(())
@@ -154,37 +152,37 @@ impl BigqueryAst {
             change + to DATE_ADD
             change - to DATE_SUB
             */
-            if let Expr::BinaryOp { left, op, right } = node {
-                if self.is_timestamp_expr(left.as_ref()) || self.is_timestamp_expr(right.as_ref()) {
-                    if let BinaryOperator::Minus = op {
-                        *node = Expr::Function(Function {
-                            name: ObjectName(vec![Ident::new("DATE_SUB".to_string())]),
-                            args: vec![
-                                FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
-                                FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
-                            ],
-                            null_treatment: None,
-                            filter: None,
-                            over: None,
-                            distinct: false,
-                            special: false,
-                            order_by: vec![],
-                        })
-                    } else if let BinaryOperator::Plus = op {
-                        *node = Expr::Function(Function {
-                            name: ObjectName(vec![Ident::new("DATE_ADD".to_string())]),
-                            args: vec![
-                                FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
-                                FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
-                            ],
-                            null_treatment: None,
-                            filter: None,
-                            over: None,
-                            distinct: false,
-                            special: false,
-                            order_by: vec![],
-                        })
-                    }
+            if let Expr::BinaryOp { left, op, right } = node
+                && (self.is_timestamp_expr(left.as_ref()) || self.is_timestamp_expr(right.as_ref()))
+            {
+                if let BinaryOperator::Minus = op {
+                    *node = Expr::Function(Function {
+                        name: ObjectName(vec![Ident::new("DATE_SUB".to_string())]),
+                        args: vec![
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
+                        ],
+                        null_treatment: None,
+                        filter: None,
+                        over: None,
+                        distinct: false,
+                        special: false,
+                        order_by: vec![],
+                    })
+                } else if let BinaryOperator::Plus = op {
+                    *node = Expr::Function(Function {
+                        name: ObjectName(vec![Ident::new("DATE_ADD".to_string())]),
+                        args: vec![
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(*left.clone())),
+                            FunctionArg::Unnamed(FunctionArgExpr::Expr(*right.clone())),
+                        ],
+                        null_treatment: None,
+                        filter: None,
+                        over: None,
+                        distinct: false,
+                        special: false,
+                        order_by: vec![],
+                    })
                 }
             }
             if let Expr::Function(Function {
@@ -192,19 +190,18 @@ impl BigqueryAst {
                 args: a,
                 ..
             }) = node
+                && v[0].value.eq_ignore_ascii_case("date_trunc")
             {
-                if v[0].value.eq_ignore_ascii_case("date_trunc") {
-                    let mut date_part = a[0].to_string();
-                    let date_expression = &a[1];
-                    a[0] = date_expression.clone();
-                    date_part.remove(0);
-                    date_part.pop();
-                    let tmp = Expr::Identifier(Ident {
-                        value: date_part,
-                        quote_style: None,
-                    });
-                    a[1] = FunctionArg::Unnamed(FunctionArgExpr::Expr(tmp));
-                }
+                let mut date_part = a[0].to_string();
+                let date_expression = &a[1];
+                a[0] = date_expression.clone();
+                date_part.remove(0);
+                date_part.pop();
+                let tmp = Expr::Identifier(Ident {
+                    value: date_part,
+                    quote_style: None,
+                });
+                a[1] = FunctionArg::Unnamed(FunctionArgExpr::Expr(tmp));
             }
 
             ControlFlow::<()>::Continue(())
@@ -237,15 +234,14 @@ impl BigqueryAst {
                 compare_op,
                 right,
             } = node
+                && matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq)
             {
-                if matches!(compare_op, BinaryOperator::Eq | BinaryOperator::NotEq) {
-                    let list = flatten_expr_to_in_list(right).expect("failed to flatten");
-                    *node = Expr::InList {
-                        expr: left.clone(),
-                        list,
-                        negated: matches!(compare_op, BinaryOperator::NotEq),
-                    };
-                }
+                let list = flatten_expr_to_in_list(right).expect("failed to flatten");
+                *node = Expr::InList {
+                    expr: left.clone(),
+                    list,
+                    negated: matches!(compare_op, BinaryOperator::NotEq),
+                };
             }
 
             ControlFlow::<()>::Continue(())

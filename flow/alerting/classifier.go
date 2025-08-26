@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
@@ -18,6 +16,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
@@ -55,6 +54,7 @@ const (
 	ErrorSourceClickHouse      ErrorSource = "clickhouse"
 	ErrorSourcePostgres        ErrorSource = "postgres"
 	ErrorSourceMySQL           ErrorSource = "mysql"
+	ErrorSourceMongoDB         ErrorSource = "mongodb"
 	ErrorSourcePostgresCatalog ErrorSource = "postgres_catalog"
 	ErrorSourceSSH             ErrorSource = "ssh_tunnel"
 	ErrorSourceNet             ErrorSource = "net"
@@ -160,8 +160,12 @@ var (
 	// Postgres 16.9/17.5 etc. introduced a bug where certain workloads can cause logical replication to
 	// request a memory allocation of >1GB, which is not allowed by Postgres. Fixed already, but we need to handle this error
 	// https://github.com/postgres/postgres/commit/d87d07b7ad3b782cb74566cd771ecdb2823adf6a
-	ErrorPostgresSlotMemalloc = ErrorClass{
-		Class: "ERROR_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
+	ErrorNotifyPostgresSlotMemalloc = ErrorClass{
+		Class: "NOTIFY_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
+	}
+	// Mongo specific, equivalent to slot invalidation in Postgres
+	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
+		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
 )
 
@@ -329,7 +333,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
-				return ErrorPostgresSlotMemalloc, pgErrorInfo
+				return ErrorNotifyPostgresSlotMemalloc, pgErrorInfo
 			}
 
 			// Fall through for other internal errors
@@ -365,7 +369,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
 
-		case pgerrcode.QueryCanceled:
+		case pgerrcode.QueryCanceled, pgerrcode.DuplicateFile:
 			return ErrorRetryRecoverable, pgErrorInfo
 		}
 	}
@@ -413,8 +417,32 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, myErrorInfo
 			}
 			return ErrorOther, myErrorInfo
+		case 1146: // ER_NO_SUCH_TABLE
+			return ErrorNotifySourceTableMissing, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
+		}
+	}
+
+	var mongoErr driver.Error
+	if errors.As(err, &mongoErr) {
+		// https://www.mongodb.com/docs/manual/reference/error-codes/
+		mongoErrorInfo := ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   strconv.Itoa(int(mongoErr.Code)),
+		}
+
+		if mongoErr.RetryableRead() {
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+
+		switch mongoErr.Code {
+		case 13: // Unauthorized
+			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 286: // ChangeStreamHistoryLost
+			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
+		default:
+			return ErrorOther, mongoErrorInfo
 		}
 	}
 
@@ -482,19 +510,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
-				unexpectedSelectRe, reErr := regexp.Compile(
-					fmt.Sprintf(`FROM\s+(%s\.)?%s`,
-						regexp.QuoteMeta(qrepSyncError.DestinationDatabase), regexp.QuoteMeta(qrepSyncError.DestinationTable)))
-				if reErr != nil {
-					slog.Error("regexp compilation error while checking for err", "err", reErr, "original_err", err)
-					return ErrorOther, chErrorInfo
-				}
-				// Select query from destination table in QRepSync errors = MV error
-				if unexpectedSelectRe.MatchString(chException.Message) {
-					return ErrorNotifyMVOrView, chErrorInfo
-				}
+				// could cause false positives, but should be rare
+				return ErrorNotifyMVOrView, chErrorInfo
 			}
-		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException, chproto.ErrCannotReadFromSocket:
+		case chproto.ErrQueryWasCancelled,
+			chproto.ErrPocoException,
+			chproto.ErrCannotReadFromSocket,
+			517: // CANNOT_ASSIGN_ALTER
 			return ErrorRetryRecoverable, chErrorInfo
 		default:
 			if isClickHouseMvError(chException) {

@@ -66,7 +66,7 @@ func (a *MaintenanceActivity) getMirrorStatus(ctx context.Context, mirror *proto
 	return internal.GetWorkflowStatus(ctx, a.CatalogPool, mirror.WorkflowId)
 }
 
-func (a *MaintenanceActivity) WaitForRunningSnapshots(
+func (a *MaintenanceActivity) WaitForRunningSnapshotsAndIntermediateStates(
 	ctx context.Context,
 	skippedFlows map[string]struct{},
 ) (*protos.MaintenanceMirrors, error) {
@@ -82,7 +82,7 @@ func (a *MaintenanceActivity) WaitForRunningSnapshots(
 			slog.Warn("Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
 			continue
 		}
-		lastStatus, err := a.checkAndWaitIfSnapshot(ctx, mirror, 2*time.Minute)
+		lastStatus, err := a.checkAndWaitIfNeeded(ctx, mirror, 2*time.Minute)
 		if err != nil {
 			return nil, err
 		}
@@ -93,7 +93,16 @@ func (a *MaintenanceActivity) WaitForRunningSnapshots(
 	return mirrors, nil
 }
 
-func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
+var waitStatuses map[protos.FlowStatus]struct{} = map[protos.FlowStatus]struct{}{
+	protos.FlowStatus_STATUS_SNAPSHOT:  {},
+	protos.FlowStatus_STATUS_SETUP:     {},
+	protos.FlowStatus_STATUS_RESYNC:    {},
+	protos.FlowStatus_STATUS_UNKNOWN:   {},
+	protos.FlowStatus_STATUS_PAUSING:   {},
+	protos.FlowStatus_STATUS_MODIFYING: {},
+}
+
+func (a *MaintenanceActivity) checkAndWaitIfNeeded(
 	ctx context.Context,
 	mirror *protos.MaintenanceMirror,
 	logEvery time.Duration,
@@ -110,9 +119,11 @@ func (a *MaintenanceActivity) checkAndWaitIfSnapshot(
 	flowStatus, err := RunEveryIntervalUntilFinish(ctx, func() (bool, protos.FlowStatus, error) {
 		activity.RecordHeartbeat(ctx, fmt.Sprintf("Waiting for mirror %s to be ready", mirror.MirrorName))
 		mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
-		if err != nil || mirrorStatus == protos.FlowStatus_STATUS_SNAPSHOT || mirrorStatus == protos.FlowStatus_STATUS_SETUP ||
-			mirrorStatus == protos.FlowStatus_STATUS_RESYNC || mirrorStatus == protos.FlowStatus_STATUS_UNKNOWN {
+		if err != nil {
 			return false, mirrorStatus, err
+		}
+		if _, isWait := waitStatuses[mirrorStatus]; isWait {
+			return false, mirrorStatus, nil
 		}
 		return true, mirrorStatus, nil
 	}, 10*time.Second, fmt.Sprintf("Waiting for mirror %s to be ready", mirror.MirrorName), logEvery, true)

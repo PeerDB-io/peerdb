@@ -31,6 +31,16 @@ type SnapshotFlowExecution struct {
 	logger log.Logger
 }
 
+func getPeerType(wCtx workflow.Context, name string) (protos.DBType, error) {
+	checkCtx := workflow.WithActivityOptions(wCtx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+	})
+
+	var dbtype protos.DBType
+	err := workflow.ExecuteActivity(checkCtx, snapshot.GetPeerType, name).Get(checkCtx, &dbtype)
+	return dbtype, err
+}
+
 func (s *SnapshotFlowExecution) setupReplication(
 	ctx workflow.Context,
 ) (*protos.SetupReplicationOutput, error) {
@@ -173,7 +183,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		query = fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
 	} else {
 		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, srcTableEscaped, mapping.PartitionKey)
+			from, srcTableEscaped, utils.QuoteIdentifier(mapping.PartitionKey))
 	}
 
 	numWorkers := uint32(8)

@@ -25,69 +25,73 @@ const (
 )
 
 const (
-	SlotLagGaugeName                    = "cdc_slot_lag"
-	CurrentBatchIdGaugeName             = "current_batch_id"
-	LastNormalizedBatchIdGaugeName      = "last_normalized_batch_id"
-	OpenConnectionsGaugeName            = "open_connections"
-	OpenReplicationConnectionsGaugeName = "open_replication_connections"
-	CommittedLSNGaugeName               = "committed_lsn"
-	RestartLSNGaugeName                 = "restart_lsn"
-	ConfirmedFlushLSNGaugeName          = "confirmed_flush_lsn"
-	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
-	AllFetchedBytesCounterName          = "all_fetched_bytes"
-	FetchedBytesCounterName             = "fetched_bytes"
-	CommitLagGaugeName                  = "commit_lag"
-	ErrorEmittedGaugeName               = "error_emitted"
-	ErrorsEmittedCounterName            = "errors_emitted"
-	WarningEmittedGaugeName             = "warning_emitted"
-	WarningsEmittedCounterName          = "warnings_emitted"
-	RecordsSyncedGaugeName              = "records_synced"
-	RecordsSyncedCounterName            = "records_synced_counter"
-	SyncedTablesGaugeName               = "synced_tables"
-	InstanceStatusGaugeName             = "instance_status"
-	MaintenanceStatusGaugeName          = "maintenance_status"
-	FlowStatusGaugeName                 = "flow_status"
-	ActiveFlowsGaugeName                = "active_flows"
-	CPULimitsPerActiveFlowGaugeName     = "cpu_limits_per_active_flow_vcores"
-	MemoryLimitsPerActiveFlowGaugeName  = "memory_limits_per_active_flow"
-	TotalCPULimitsGaugeName             = "total_cpu_limits_vcores"
-	TotalMemoryLimitsGaugeName          = "total_memory_limits"
-	WorkloadTotalReplicasGaugeName      = "workload_total_replicas"
-	LogRetentionGaugeName               = "log_retention"
-	LatestConsumedLogEventGaugeName     = "latest_consumed_log_event"
+	SlotLagGaugeName                     = "cdc_slot_lag"
+	CurrentBatchIdGaugeName              = "current_batch_id"
+	LastNormalizedBatchIdGaugeName       = "last_normalized_batch_id"
+	OpenConnectionsGaugeName             = "open_connections"
+	OpenReplicationConnectionsGaugeName  = "open_replication_connections"
+	CommittedLSNGaugeName                = "committed_lsn"
+	RestartLSNGaugeName                  = "restart_lsn"
+	ConfirmedFlushLSNGaugeName           = "confirmed_flush_lsn"
+	IntervalSinceLastNormalizeGaugeName  = "interval_since_last_normalize"
+	AllFetchedBytesCounterName           = "all_fetched_bytes"
+	FetchedBytesCounterName              = "fetched_bytes"
+	CommitLagGaugeName                   = "commit_lag"
+	ErrorEmittedGaugeName                = "error_emitted"
+	ErrorsEmittedCounterName             = "errors_emitted"
+	WarningEmittedGaugeName              = "warning_emitted"
+	WarningsEmittedCounterName           = "warnings_emitted"
+	RecordsSyncedGaugeName               = "records_synced"
+	RecordsSyncedCounterName             = "records_synced_counter"
+	SyncedTablesGaugeName                = "synced_tables"
+	InstanceStatusGaugeName              = "instance_status"
+	MaintenanceStatusGaugeName           = "maintenance_status"
+	FlowStatusGaugeName                  = "flow_status"
+	DurationSinceLastFlowUpdateGaugeName = "duration_since_last_flow_update"
+	ActiveFlowsGaugeName                 = "active_flows"
+	CPULimitsPerActiveFlowGaugeName      = "cpu_limits_per_active_flow_vcores"
+	MemoryLimitsPerActiveFlowGaugeName   = "memory_limits_per_active_flow"
+	TotalCPULimitsGaugeName              = "total_cpu_limits_vcores"
+	TotalMemoryLimitsGaugeName           = "total_memory_limits"
+	WorkloadTotalReplicasGaugeName       = "workload_total_replicas"
+	LogRetentionGaugeName                = "log_retention"
+	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
+	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 )
 
 type Metrics struct {
-	SlotLagGauge                    metric.Float64Gauge
-	CurrentBatchIdGauge             metric.Int64Gauge
-	LastNormalizedBatchIdGauge      metric.Int64Gauge
-	OpenConnectionsGauge            metric.Int64Gauge
-	OpenReplicationConnectionsGauge metric.Int64Gauge
-	CommittedLSNGauge               metric.Int64Gauge
-	RestartLSNGauge                 metric.Int64Gauge
-	ConfirmedFlushLSNGauge          metric.Int64Gauge
-	IntervalSinceLastNormalizeGauge metric.Float64Gauge
-	AllFetchedBytesCounter          metric.Int64Counter
-	FetchedBytesCounter             metric.Int64Counter
-	CommitLagGauge                  metric.Int64Gauge
-	ErrorEmittedGauge               metric.Int64Gauge
-	ErrorsEmittedCounter            metric.Int64Counter
-	WarningsEmittedGauge            metric.Int64Gauge
-	WarningEmittedCounter           metric.Int64Counter
-	RecordsSyncedGauge              metric.Int64Gauge
-	RecordsSyncedCounter            metric.Int64Counter
-	SyncedTablesGauge               metric.Int64Gauge
-	InstanceStatusGauge             metric.Int64Gauge
-	MaintenanceStatusGauge          metric.Int64Gauge
-	FlowStatusGauge                 metric.Int64Gauge
-	ActiveFlowsGauge                metric.Int64Gauge
-	CPULimitsPerActiveFlowGauge     metric.Float64Gauge
-	MemoryLimitsPerActiveFlowGauge  metric.Float64Gauge
-	TotalCPULimitsGauge             metric.Float64Gauge
-	TotalMemoryLimitsGauge          metric.Float64Gauge
-	WorkloadTotalReplicasGauge      metric.Int64Gauge
-	LatestConsumedLogEventGauge     metric.Int64Gauge
-	LogRetentionGauge               metric.Float64Gauge
+	SlotLagGauge                     metric.Float64Gauge
+	CurrentBatchIdGauge              metric.Int64Gauge
+	LastNormalizedBatchIdGauge       metric.Int64Gauge
+	OpenConnectionsGauge             metric.Int64Gauge
+	OpenReplicationConnectionsGauge  metric.Int64Gauge
+	CommittedLSNGauge                metric.Int64Gauge
+	RestartLSNGauge                  metric.Int64Gauge
+	ConfirmedFlushLSNGauge           metric.Int64Gauge
+	IntervalSinceLastNormalizeGauge  metric.Float64Gauge
+	AllFetchedBytesCounter           metric.Int64Counter
+	FetchedBytesCounter              metric.Int64Counter
+	CommitLagGauge                   metric.Int64Gauge
+	ErrorEmittedGauge                metric.Int64Gauge
+	ErrorsEmittedCounter             metric.Int64Counter
+	WarningsEmittedGauge             metric.Int64Gauge
+	WarningEmittedCounter            metric.Int64Counter
+	RecordsSyncedGauge               metric.Int64Gauge
+	RecordsSyncedCounter             metric.Int64Counter
+	SyncedTablesGauge                metric.Int64Gauge
+	InstanceStatusGauge              metric.Int64Gauge
+	MaintenanceStatusGauge           metric.Int64Gauge
+	FlowStatusGauge                  metric.Int64Gauge
+	DurationSinceLastFlowUpdateGauge metric.Int64Gauge
+	ActiveFlowsGauge                 metric.Int64Gauge
+	CPULimitsPerActiveFlowGauge      metric.Float64Gauge
+	MemoryLimitsPerActiveFlowGauge   metric.Float64Gauge
+	TotalCPULimitsGauge              metric.Float64Gauge
+	TotalMemoryLimitsGauge           metric.Float64Gauge
+	WorkloadTotalReplicasGauge       metric.Int64Gauge
+	LatestConsumedLogEventGauge      metric.Int64Gauge
+	LogRetentionGauge                metric.Float64Gauge
+	UnchangedToastValuesCounter      metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -332,6 +336,13 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
+	if om.Metrics.DurationSinceLastFlowUpdateGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(DurationSinceLastFlowUpdateGaugeName),
+		metric.WithUnit("s"),
+		metric.WithDescription("Duration since last flow update in seconds"),
+	); err != nil {
+		return err
+	}
+
 	if om.Metrics.ActiveFlowsGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(ActiveFlowsGaugeName),
 		metric.WithDescription("Number of active flows"),
 	); err != nil {
@@ -371,6 +382,13 @@ func (om *OtelManager) setupMetrics() error {
 
 	if om.Metrics.WorkloadTotalReplicasGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(WorkloadTotalReplicasGaugeName),
 		metric.WithDescription("Total number of replicas for the current workload"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
+		metric.WithDescription(
+			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
 	); err != nil {
 		return err
 	}

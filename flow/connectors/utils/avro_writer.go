@@ -138,7 +138,7 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 	uploader := manager.NewUploader(s3svc, func(u *manager.Uploader) {
 		if partSize > 0 {
 			u.PartSize = partSize
-			if partSize > 268435455 { // 256MiB
+			if partSize > 256*1024*1024 {
 				u.Concurrency = 1
 			}
 		}
@@ -158,6 +158,8 @@ func (p *peerDBOCFWriter) WriteRecordsToS3(
 		logger.Error("failed to write records to OCF", slog.Any("error", writeOcfError))
 		return AvroFile{}, writeOcfError
 	}
+
+	logger.Info("finished s3 upload")
 
 	return AvroFile{
 		StorageLocation: AvroS3Storage,
@@ -240,10 +242,15 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		return 0, err
 	}
 
+	logger.Info("writing records to OCF start",
+		slog.Int("channelLen", len(p.stream.Records)))
+
 	numRows := atomic.Int64{}
 
 	shutdown := shared.Interval(ctx, time.Minute, func() {
-		logger.Info(fmt.Sprintf("written %d records to OCF", numRows.Load()))
+		logger.Info("written records to OCF",
+			slog.Int64("records", numRows.Load()),
+			slog.Int("channelLen", len(p.stream.Records)))
 	})
 	defer shutdown()
 
@@ -270,6 +277,8 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 			numRows.Add(1)
 		}
 	}
+
+	logger.Info("finished writing records to OCF", slog.Int64("records", numRows.Load()))
 
 	if err := p.stream.Err(); err != nil {
 		logger.Error("Failed to get record from stream", slog.Any("error", err))

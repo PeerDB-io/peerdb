@@ -222,7 +222,7 @@ func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, of
 }
 
 func (p *PostgresMetadata) FinishBatch(ctx context.Context, jobName string, syncBatchID int64, offset model.CdcCheckpoint) error {
-	p.logger.Info("finishing batch", "SyncBatchID", syncBatchID, "offset", offset)
+	p.logger.Info("finishing batch", "syncBatchID", syncBatchID, "offset", offset)
 	if _, err := p.pool.Exec(ctx, `
 		INSERT INTO `+lastSyncStateTableName+` (job_name, last_offset, last_text, sync_batch_id)
 		VALUES ($1, $2, $3, $4)

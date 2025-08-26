@@ -36,7 +36,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:17-alpine@sha256:6567bca8d7bc8c82c5922425a0baee57be8402df92bae5eacad5f01ae9544daa
+    image: postgres:17-alpine@sha256:3406990b6e4c7192317b6fdc5680498744f6142f01f0287f4ee0420d8c74063c
     command: -c config_file=/etc/postgresql.conf
     restart: unless-stopped
     ports:
@@ -116,7 +116,7 @@ services:
 
   flow-api:
     container_name: flow_api
-    image: ghcr.io/peerdb-io/flow-api:stable-v0.30.9
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.32.1
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -132,7 +132,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.30.9
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.32.1
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -142,7 +142,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
-    image: ghcr.io/peerdb-io/flow-worker:stable-v0.30.9
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.32.1
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -155,7 +155,7 @@ services:
   peerdb:
     container_name: peerdb-server
     stop_signal: SIGINT
-    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.30.9
+    image: ghcr.io/peerdb-io/peerdb-server:stable-v0.32.1
     restart: unless-stopped
     environment:
       <<: *catalog-config
@@ -171,7 +171,7 @@ services:
 
   peerdb-ui:
     container_name: peerdb-ui
-    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.30.9
+    image: ghcr.io/peerdb-io/peerdb-ui:stable-v0.32.1
     restart: unless-stopped
     ports:
       - 3000:3000
@@ -188,7 +188,7 @@ services:
       - flow-api
 
   minio:
-    image: bitnami/minio:2025.7.23@sha256:a70e90bb70f4732221901de53502334cef58665c6c4275a014d47adad10e1883
+    image: bitnami/minio:2025.7.23@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
     restart: unless-stopped
     volumes:
       - minio-data:/data

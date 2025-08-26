@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -160,7 +161,7 @@ func TestPostgresMemoryAllocErrorShouldBeSlotMemalloc(t *testing.T) {
 		},
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
-	assert.Equal(t, ErrorPostgresSlotMemalloc, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyPostgresSlotMemalloc, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.InternalError,
@@ -551,5 +552,36 @@ func TestTemporalUnknownErrorShouldBeOther(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceTemporal,
 		Code:   "UNKNOWN_ERROR",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate a MongoDB shutdown in progress error (quiesce mode)
+	err := driver.Error{
+		Code:    91,
+		Message: "connection pool for <host>:<port> was cleared because another operation failed with",
+		Name:    "ShutdownInProgress",
+		Wrapped: errors.New("the server is in quiesce mode and will shut down"),
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "91",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestMongoUnauthorizedErrorShouldBeConnectivity(t *testing.T) {
+	// Simulate a MongoDB unauthorized error
+	err := driver.Error{
+		Code:    13,
+		Message: "Command getMore requires authentication",
+		Name:    "Unauthorized",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMongoDB,
+		Code:   "13",
 	}, errInfo, "Unexpected error info")
 }
