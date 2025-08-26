@@ -16,15 +16,6 @@ func GetBuildInfo(ctx context.Context, client *mongo.Client) (BuildInfo, error) 
 	return runCommand[BuildInfo](ctx, client, "buildInfo")
 }
 
-type ReplSetGetStatus struct {
-	Set     string `bson:"set"`
-	MyState int    `bson:"myState"`
-}
-
-func GetReplSetGetStatus(ctx context.Context, client *mongo.Client) (ReplSetGetStatus, error) {
-	return runCommand[ReplSetGetStatus](ctx, client, "replSetGetStatus")
-}
-
 type OplogTruncation struct {
 	OplogMinRetentionHours float64 `bson:"oplogMinRetentionHours"`
 }
