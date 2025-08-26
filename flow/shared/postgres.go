@@ -47,6 +47,7 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomD
 	if err != nil {
 		return nil, fmt.Errorf("failed to get customTypeMapping: %w", err)
 	}
+	defer rows.Close()
 
 	customTypeMap := map[uint32]CustomDataType{}
 	var typeID pgtype.Uint32
@@ -58,6 +59,74 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomD
 		return nil, fmt.Errorf("failed to scan into custom type mapping: %w", err)
 	}
 	return customTypeMap, nil
+}
+
+type CompositeField struct {
+	Name         string
+	Type         pgtype.Type
+	TypeModifier int32
+	NotNull      bool
+}
+
+func GetCompositeDataTypeDetails(ctx context.Context, conn *pgx.Conn, dataTypeOID uint32) ([]CompositeField, error) {
+	rows, err := conn.Query(ctx, fmt.Sprintf(`
+		SELECT
+			att.attnum                              AS ordinal_position,
+			att.attname                             AS field,
+			att.atttypid                            AS field_type_oid,
+			pt.typname                              AS field_type_name,
+			att.atttypmod       					AS type_modifier,  
+			att.attnotnull                          AS not_null,
+			pg_catalog.col_description(att.attrelid,
+									att.attnum)  AS comment
+		FROM   pg_type       ct
+		JOIN   pg_class      cls ON cls.oid = ct.typrelid
+		JOIN   pg_attribute  att ON att.attrelid = cls.oid
+		JOIN   pg_type       pt  ON pt.oid  = att.atttypid
+		WHERE  ct.oid = '%d'
+		AND  att.attnum  > 0          -- skip system columns
+		AND  NOT att.attisdropped
+		ORDER  BY att.attnum;
+		`, dataTypeOID))
+	if err != nil {
+		return nil, fmt.Errorf("failed to get composite type details for oid %d: %w", dataTypeOID, err)
+	}
+	defer rows.Close()
+	var ordinal pgtype.Uint32
+	var field pgtype.Text
+	var fieldTypeOID pgtype.Uint32
+	var fieldTypeName pgtype.Text
+	var typeModifier int32
+	var notNull pgtype.Bool
+	var comment pgtype.Text
+	result := make([]CompositeField, 0)
+	for rows.Next() {
+		if err := rows.Scan(&ordinal, &field, &fieldTypeOID, &fieldTypeName, &typeModifier, &notNull, &comment); err != nil {
+			return nil, fmt.Errorf("failed to scan composite type details for oid %d: %w", dataTypeOID, err)
+		}
+		if fieldTypeOID.Uint32 == 0 {
+			return nil, fmt.Errorf("field type OID is zero for field %s in composite type oid %d", field.String, dataTypeOID)
+		}
+		if field.String == "" {
+			return nil, fmt.Errorf("field name is empty for field with OID %d in composite type oid %d", fieldTypeOID.Uint32, dataTypeOID)
+		}
+		result = append(result, CompositeField{
+			Name: field.String,
+			Type: pgtype.Type{
+				Name: fieldTypeName.String,
+				OID:  fieldTypeOID.Uint32,
+			},
+			TypeModifier: typeModifier,
+			NotNull:      notNull.Bool,
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error while iterating over composite type details for oid %d: %w", dataTypeOID, err)
+	}
+	if len(result) == 0 {
+		return nil, fmt.Errorf("no fields found for composite type %d", dataTypeOID)
+	}
+	return result, nil
 }
 
 func RegisterExtensions(ctx context.Context, conn *pgx.Conn, version uint32) error {
