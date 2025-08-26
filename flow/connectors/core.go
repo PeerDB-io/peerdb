@@ -485,6 +485,22 @@ func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalo
 	return GetAs[T](ctx, env, peer)
 }
 
+func GetPostgresConnectorByName(
+	ctx context.Context,
+	env map[string]string,
+	catalogPool shared.CatalogPool,
+	name string,
+) (*connpostgres.PostgresConnector, error) {
+	peer, err := LoadPeer(ctx, catalogPool, name)
+	if err != nil {
+		return nil, err
+	}
+	if peer.Type != protos.DBType_POSTGRES {
+		return nil, errors.ErrUnsupported
+	}
+	return GetAs[*connpostgres.PostgresConnector](ctx, env, peer)
+}
+
 func CloseConnector(ctx context.Context, conn Connector) {
 	if err := conn.Close(); err != nil {
 		internal.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
