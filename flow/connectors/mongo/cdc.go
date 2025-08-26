@@ -36,7 +36,7 @@ type ChangeEvent struct {
 func (c *MongoConnector) GetTableSchema(
 	ctx context.Context,
 	_ map[string]string,
-	_ uint32,
+	internalVersion uint32,
 	_ protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
@@ -47,8 +47,12 @@ func (c *MongoConnector) GetTableSchema(
 		TypeModifier: -1,
 		Nullable:     false,
 	}
+	fullDocumentColumnName := DefaultFullDocumentColumnName
+	if internalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+		fullDocumentColumnName = LegacyFullDocumentColumnName
+	}
 	dataFieldDescription := &protos.FieldDescription{
-		Name:         DefaultFullDocumentColumnName,
+		Name:         fullDocumentColumnName,
 		Type:         string(types.QValueKindJSON),
 		TypeModifier: -1,
 		Nullable:     false,
@@ -117,6 +121,11 @@ func (c *MongoConnector) PullRecords(
 	req *model.PullRecordsRequest[model.RecordItems],
 ) error {
 	defer req.RecordStream.Close()
+
+	fullDocumentColumnName := DefaultFullDocumentColumnName
+	if req.InternalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+		fullDocumentColumnName = LegacyFullDocumentColumnName
+	}
 
 	c.logger.Info("[mongo] started PullRecords for mirror "+req.FlowJobName,
 		slog.Any("table_mapping", req.TableNameMapping),
@@ -229,14 +238,14 @@ func (c *MongoConnector) PullRecords(
 			if err != nil {
 				return fmt.Errorf("failed to convert full document to JSON: %w", err)
 			}
-			items.AddColumn(DefaultFullDocumentColumnName, qValue)
+			items.AddColumn(fullDocumentColumnName, qValue)
 		} else {
 			// `fullDocument` field will not exist in the following scenarios:
 			// 1) operationType is 'delete'
 			// 2) document is deleted / collection is dropped in between update and lookup
 			// 3) update changes the values for at least one of the fields in that collection's
 			//    shard key (although sharding is not supported today)
-			items.AddColumn(DefaultFullDocumentColumnName, types.QValueJSON{Val: "{}"})
+			items.AddColumn(fullDocumentColumnName, types.QValueJSON{Val: "{}"})
 		}
 		return nil
 	}

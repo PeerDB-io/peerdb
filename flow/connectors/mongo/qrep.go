@@ -159,7 +159,7 @@ func (c *MongoConnector) PullQRepRecords(
 	}
 	collection := c.client.Database(parseWatermarkTable.Schema).Collection(parseWatermarkTable.Table)
 
-	stream.SetSchema(GetDefaultSchema())
+	stream.SetSchema(GetDefaultSchema(config.Version))
 
 	c.totalBytesRead.Store(0)
 	c.deltaBytesRead.Store(0)
@@ -237,7 +237,11 @@ func (c *MongoConnector) PullQRepRecords(
 	return totalRecords, c.deltaBytesRead.Swap(0), nil
 }
 
-func GetDefaultSchema() types.QRecordSchema {
+func GetDefaultSchema(internalVersion uint32) types.QRecordSchema {
+	fullDocumentColumnName := DefaultFullDocumentColumnName
+	if internalVersion < shared.IntervalVersion_MongoDBFullDocumentColumnToDoc {
+		fullDocumentColumnName = LegacyFullDocumentColumnName
+	}
 	schema := make([]types.QField, 0, 2)
 	schema = append(schema,
 		types.QField{
@@ -246,7 +250,7 @@ func GetDefaultSchema() types.QRecordSchema {
 			Nullable: false,
 		},
 		types.QField{
-			Name:     DefaultFullDocumentColumnName,
+			Name:     fullDocumentColumnName,
 			Type:     types.QValueKindJSON,
 			Nullable: false,
 		})
