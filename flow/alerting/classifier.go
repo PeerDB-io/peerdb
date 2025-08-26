@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
-	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
@@ -165,6 +163,7 @@ var (
 	ErrorNotifyPostgresSlotMemalloc = ErrorClass{
 		Class: "NOTIFY_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
 	}
+	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
@@ -418,6 +417,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, myErrorInfo
 			}
 			return ErrorOther, myErrorInfo
+		case 1146: // ER_NO_SUCH_TABLE
+			return ErrorNotifySourceTableMissing, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
 		}
@@ -509,17 +510,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
-				unexpectedSelectRe, reErr := regexp.Compile(
-					fmt.Sprintf(`FROM\s+(%s\.)?%s`,
-						regexp.QuoteMeta(qrepSyncError.DestinationDatabase), regexp.QuoteMeta(qrepSyncError.DestinationTable)))
-				if reErr != nil {
-					slog.Error("regexp compilation error while checking for err", "err", reErr, "original_err", err)
-					return ErrorOther, chErrorInfo
-				}
-				// Select query from destination table in QRepSync errors = MV error
-				if unexpectedSelectRe.MatchString(chException.Message) {
-					return ErrorNotifyMVOrView, chErrorInfo
-				}
+				// could cause false positives, but should be rare
+				return ErrorNotifyMVOrView, chErrorInfo
 			}
 		case chproto.ErrQueryWasCancelled, chproto.ErrPocoException, chproto.ErrCannotReadFromSocket:
 			return ErrorRetryRecoverable, chErrorInfo
