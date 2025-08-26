@@ -485,17 +485,15 @@ func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalo
 	return GetAs[T](ctx, env, peer)
 }
 
-func GetByNameAndForPeerAs[T Connector](ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string, expectedType protos.DBType) (T, error) {
+func GetPostgresConnectorByName(ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string) (*connpostgres.PostgresConnector, error) {
 	peer, err := LoadPeer(ctx, catalogPool, name)
 	if err != nil {
-		var none T
-		return none, err
+		return nil, err
 	}
-	if peer.Type != expectedType {
-		var none T
-		return none, errors.ErrUnsupported
+	if peer.Type != protos.DBType_POSTGRES {
+		return nil, errors.ErrUnsupported
 	}
-	return GetAs[T](ctx, env, peer)
+	return GetAs[*connpostgres.PostgresConnector](ctx, env, peer)
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {
