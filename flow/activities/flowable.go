@@ -1031,6 +1031,7 @@ func (a *FlowableActivity) emitLogRetentionHours(
 
 var activeFlowStatuses = map[protos.FlowStatus]struct{}{
 	protos.FlowStatus_STATUS_RUNNING:   {},
+	protos.FlowStatus_STATUS_PAUSED: {},
 	protos.FlowStatus_STATUS_PAUSING:   {},
 	protos.FlowStatus_STATUS_SETUP:     {},
 	protos.FlowStatus_STATUS_SNAPSHOT:  {},
