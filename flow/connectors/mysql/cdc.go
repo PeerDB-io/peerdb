@@ -410,7 +410,7 @@ func (c *MySqlConnector) PullRecords(
 				} else if inTx {
 					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 						slog.Uint64("records", uint64(recordCount)),
-						slog.Int64("bytes", fetchedBytes.Load()),
+						slog.Int64("bytes", totalFetchedBytes.Load()),
 						slog.Int("channelLen", req.RecordStream.ChannelLen()))
 					// reset timeoutCtx to a low value and wait for inTx to become false
 					cancelTimeout()
