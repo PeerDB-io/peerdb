@@ -29,9 +29,8 @@ func GetCatalogConnectionPoolFromEnv(ctx context.Context) (shared.CatalogPool, e
 			return shared.CatalogPool{},
 				exceptions.NewCatalogError(fmt.Errorf("unable to parse catalog connection string: %w", err))
 		}
-		config.MinConns = 1
 		config.MaxConns = 3
-		config.MaxConnIdleTime = time.Second
+		config.MaxConnIdleTime = 90 * time.Second
 		pool, err = pgxpool.NewWithConfig(ctx, config)
 		if err != nil {
 			return shared.CatalogPool{Pool: pool},
