@@ -8,6 +8,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -50,7 +51,42 @@ func (c *ClickHouseConnector) CleanupQRepFlow(ctx context.Context, config *proto
 	return c.dropStage(ctx, config.StagingPath, config.FlowJobName)
 }
 
-func (c *ClickHouseConnector) AvroImport(ctx context.Context, config *protos.CreateImportS3Request, urls map[string][]string) error {
+func (c *ClickHouseConnector) AvroImport(ctx context.Context, config *protos.CreateImportS3Request, urls map[string][]func() (string, error)) error {
+	type Job struct {
+		f             func() (string, error)
+		mapping       *protos.TableMapping
+		engineOrderBy string
+	}
+
+	processJob := func(ctx context.Context, job Job) error {
+		uri, err := job.f()
+		if err != nil {
+			return fmt.Errorf("import failed to retrieve uri from exporter: %w", err)
+		}
+		return c.SyncFromAvroUrl(ctx, uri, job.mapping.DestinationTableIdentifier, job.engineOrderBy)
+	}
+
+	groupCtx := ctx
+	var jobs chan Job
+	var group *errgroup.Group
+	if config.ParallelImports > 1 {
+		group, groupCtx = errgroup.WithContext(ctx)
+		for range config.ParallelImports {
+			group.Go(func() error {
+				for {
+					select {
+					case <-groupCtx.Done():
+						return groupCtx.Err()
+					case job := <-jobs:
+						if err := processJob(groupCtx, job); err != nil {
+							return err
+						}
+					}
+				}
+			})
+		}
+	}
+
 	for _, mapping := range config.TableMappings {
 		var engineOrderBy string
 		if mapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE {
@@ -62,14 +98,27 @@ func (c *ClickHouseConnector) AvroImport(ctx context.Context, config *protos.Cre
 		if mapping.PartitionKey != "" {
 			engineOrderBy += fmt.Sprintf(" ORDER BY (`%s`)", mapping.PartitionKey)
 		}
-		for _, uri := range urls[mapping.SourceTableIdentifier] {
-			if err := c.SyncFromAvroUrl(ctx, uri, mapping.DestinationTableIdentifier, engineOrderBy); err != nil {
-				return err
+		for _, f := range urls[mapping.SourceTableIdentifier] {
+			if group != nil && engineOrderBy == "" {
+				select {
+				case jobs <- Job{f: f, mapping: mapping, engineOrderBy: engineOrderBy}:
+				case <-groupCtx.Done():
+					return groupCtx.Err()
+				}
+			} else {
+				if err := processJob(groupCtx, Job{
+					f:             f,
+					mapping:       mapping,
+					engineOrderBy: engineOrderBy,
+				}); err != nil {
+					return err
+				}
+				engineOrderBy = ""
 			}
-			engineOrderBy = ""
 		}
 	}
-	return nil
+
+	return group.Wait()
 }
 
 func (c *ClickHouseConnector) SyncFromAvroUrl(

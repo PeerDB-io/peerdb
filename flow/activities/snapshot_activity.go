@@ -196,6 +196,7 @@ func (a *SnapshotActivity) S3Export(ctx context.Context, config *protos.CreateIm
 	if err != nil {
 		return err
 	}
+	defer connectors.CloseConnector(ctx, src)
 	uris, err := src.AvroExport(ctx, config)
 	if err != nil {
 		return err
@@ -210,5 +211,6 @@ func (a *SnapshotActivity) S3Export(ctx context.Context, config *protos.CreateIm
 	if err != nil {
 		return err
 	}
+	defer connectors.CloseConnector(ctx, dst)
 	return dst.AvroImport(ctx, config, uris)
 }

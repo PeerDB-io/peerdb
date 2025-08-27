@@ -30,6 +30,7 @@ message CreateImportS3Request {
   string destination_name = 4;
   repeated peerdb_flow.TableMapping table_mappings = 5;
   map<string, string> env = 6;
+  int32 parallel_imports = 7;
 }
 
 message CreateImportS3Response {

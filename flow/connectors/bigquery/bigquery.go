@@ -961,7 +961,7 @@ func (c *BigQueryConnector) generateV4GetObjectSignedURL(bucket string, object s
 	})
 }
 
-func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.CreateImportS3Request) (map[string][]string, error) {
+func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.CreateImportS3Request) (map[string][]func() (string, error), error) {
 	jobs := make([]*bigquery.Job, 0, len(config.TableMappings))
 	for _, mapping := range config.TableMappings {
 		uri := fmt.Sprintf("%s/%s/*.avro", config.CdcStagingPath, url.PathEscape(mapping.SourceTableIdentifier))
@@ -985,7 +985,7 @@ func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.Creat
 		}
 	}
 
-	ret := make(map[string][]string, len(config.TableMappings))
+	ret := make(map[string][]func() (string, error), len(config.TableMappings))
 	for _, mapping := range config.TableMappings {
 		it := c.storageClient.Bucket(strings.TrimPrefix(config.CdcStagingPath, "gs://")).Objects(ctx, &storage.Query{
 			Prefix:    mapping.SourceTableIdentifier + "/",
@@ -999,11 +999,9 @@ func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.Creat
 				}
 				return nil, err
 			}
-			u, err := c.generateV4GetObjectSignedURL(object.Bucket, object.Name)
-			if err != nil {
-				return nil, err
-			}
-			ret[mapping.SourceTableIdentifier] = append(ret[mapping.SourceTableIdentifier], u)
+			ret[mapping.SourceTableIdentifier] = append(ret[mapping.SourceTableIdentifier], func() (string, error) {
+				return c.generateV4GetObjectSignedURL(object.Bucket, object.Name)
+			})
 		}
 	}
 

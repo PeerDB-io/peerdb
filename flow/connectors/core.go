@@ -284,14 +284,14 @@ type AvroExportS3Connector interface {
 	Connector
 
 	// Export list of tables to S3
-	AvroExport(context.Context, *protos.CreateImportS3Request) (map[string][]string, error)
+	AvroExport(context.Context, *protos.CreateImportS3Request) (map[string][]func() (string, error), error)
 }
 
 type AvroImportS3Connector interface {
 	Connector
 
 	// Import list of paths
-	AvroImport(context.Context, *protos.CreateImportS3Request, map[string][]string) error
+	AvroImport(context.Context, *protos.CreateImportS3Request, map[string][]func() (string, error)) error
 }
 
 type RawTableConnector interface {
