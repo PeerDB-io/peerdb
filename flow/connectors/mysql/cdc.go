@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -326,18 +327,30 @@ func (c *MySqlConnector) PullRecords(
 	var updatedOffset string
 	var inTx bool
 	var recordCount uint32
-	var bytesRead int
+
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
 	var overtime bool
+	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
 		}
 		c.logger.Info("[mysql] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int("bytes", bytesRead),
+			slog.Int64("bytes", totalFetchedBytes.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()))
 	}()
+
+	defer func() {
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+	}()
+	shutdown := shared.Interval(ctx, time.Minute, func() {
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		c.logger.Info("pulling records", slog.Int64("bytes", totalFetchedBytes.Load()))
+	})
+	defer shutdown()
 
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
@@ -358,7 +371,7 @@ func (c *MySqlConnector) PullRecords(
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mysql] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
-				slog.Int("bytes", bytesRead),
+				slog.Int64("bytes", totalFetchedBytes.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Bool("inTx", inTx),
 				slog.Bool("overtime", overtime))
@@ -397,7 +410,7 @@ func (c *MySqlConnector) PullRecords(
 				} else if inTx {
 					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 						slog.Uint64("records", uint64(recordCount)),
-						slog.Int("bytes", bytesRead),
+						slog.Int64("bytes", fetchedBytes.Load()),
 						slog.Int("channelLen", req.RecordStream.ChannelLen()))
 					// reset timeoutCtx to a low value and wait for inTx to become false
 					cancelTimeout()
@@ -415,7 +428,7 @@ func (c *MySqlConnector) PullRecords(
 			return err
 		}
 
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
+		allFetchedBytes.Add(int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
@@ -473,7 +486,8 @@ func (c *MySqlConnector) PullRecords(
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
 				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
-				bytesRead += len(event.RawData)
+				fetchedBytes.Add(int64(len(event.RawData)))
+				totalFetchedBytes.Add(int64(len(event.RawData)))
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()
