@@ -58,7 +58,9 @@ const dropStyle = css<BaseStyleProps>`
   --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
   --text-color: ${({ theme }) => theme.colors.destructive.text.lowContrast};
   --background-color-default: ${({ theme, $loading }) =>
-    $loading ? theme.colors.destructive.surface.selected : theme.colors.destructive.surface.normal};
+    $loading
+      ? theme.colors.destructive.surface.selected
+      : theme.colors.destructive.surface.normal};
   --background-color-hover: ${({ theme }) =>
     theme.colors.destructive.surface.hovered};
   --background-color-focus: transparent;
@@ -92,7 +94,9 @@ const peerSolidStyle = css<BaseStyleProps>`
   --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
   --text-color: ${({ theme }) => theme.colors.base.text.highContrast};
   --background-color-default: ${({ theme, $loading }) =>
-    $loading ? theme.colors.base.surface.selected : theme.colors.base.surface.normal};
+    $loading
+      ? theme.colors.base.surface.selected
+      : theme.colors.base.surface.normal};
   --background-color-hover: ${({ theme }) => theme.colors.base.surface.hovered};
   --background-color-focus: ${({ theme }) => theme.colors.accent.fill.normal};
 `;
@@ -142,7 +146,9 @@ const warningSolidStyle = css<BaseStyleProps>`
   --focus-border-color: ${({ theme }) => theme.colors.accent.border.normal};
   --text-color: ${({ theme }) => theme.colors.special.fixed.white};
   --background-color-default: ${({ theme, $loading }) =>
-    $loading ? theme.colors.warning.fill.hovered : theme.colors.warning.fill.normal};
+    $loading
+      ? theme.colors.warning.fill.hovered
+      : theme.colors.warning.fill.normal};
   --background-color-hover: ${({ theme }) => theme.colors.warning.fill.hovered};
   --background-color-focus: ${({ theme }) => theme.colors.warning.fill.normal};
 `;

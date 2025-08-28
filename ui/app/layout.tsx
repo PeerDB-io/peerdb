@@ -19,7 +19,9 @@ export default function RootLayout({
     <html lang='en' className={initialTheme}>
       <body>
         <StyledComponentsRegistry>
-          <AppThemeProvider initialTheme={initialTheme}>{children}</AppThemeProvider>
+          <AppThemeProvider initialTheme={initialTheme}>
+            {children}
+          </AppThemeProvider>
         </StyledComponentsRegistry>
       </body>
     </html>

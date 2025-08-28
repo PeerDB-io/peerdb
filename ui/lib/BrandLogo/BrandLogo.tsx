@@ -4,7 +4,7 @@ import styled from 'styled-components';
 
 const StyledSVG = styled.svg`
   .logo-mark {
-    fill: #30A46C;
+    fill: #30a46c;
   }
   .logo-text {
     fill: ${({ theme }) => theme.colors.base.text.highContrast};

@@ -28,7 +28,10 @@ const GlobalStyle = createGlobalStyle`
   }
 `;
 
-export function AppThemeProvider({ children, initialTheme = 'light' }: PropsWithChildren<{ initialTheme?: 'light' | 'dark' }>) {
+export function AppThemeProvider({
+  children,
+  initialTheme = 'light',
+}: PropsWithChildren<{ initialTheme?: 'light' | 'dark' }>) {
   return (
     <ThemeProvider initialTheme={initialTheme}>
       <GlobalStyle />

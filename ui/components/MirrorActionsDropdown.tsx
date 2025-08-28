@@ -7,8 +7,7 @@ import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { useEffect, useState } from 'react';
-import { CSSProperties } from 'styled-components';
-import { useTheme as useStyledTheme } from 'styled-components';
+import { CSSProperties, useTheme as useStyledTheme } from 'styled-components';
 import PauseOrResumeButton from './PauseOrResumeButton';
 
 type MirrorActionsProps = {
@@ -61,10 +60,7 @@ export default function MirrorActions({
           width: '10rem',
         }}
       >
-        <Button
-          onClick={handleButtonClick}
-          variant='normal'
-        >
+        <Button onClick={handleButtonClick} variant='normal'>
           Actions <Icon name='arrow_drop_down' />
         </Button>
         {showOptions && (

@@ -1,13 +1,14 @@
-import { Theme } from 'react-select';
 import { appThemeColors } from '@/lib/AppTheme/appThemeColors';
 import { appThemeColorsDark } from '@/lib/AppTheme/appThemeColorsDark';
+import { Theme } from 'react-select';
 
 // Create theme function based on whether we're in dark mode
 export default function SelectTheme(theme: Theme) {
   // Check if the page is in dark mode based on the root element's class
-  const isDark = typeof window !== 'undefined' && 
+  const isDark =
+    typeof window !== 'undefined' &&
     document.documentElement.classList.contains('dark');
-  
+
   const colors = isDark ? appThemeColorsDark : appThemeColors;
 
   return {

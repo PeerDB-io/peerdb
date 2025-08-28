@@ -156,7 +156,7 @@ export const appThemeColorsDark = {
   select: {
     primary: '#30A46C',
     primary25: '#113B23',
-    neutral0: '#1A1A1A', // menu background  
+    neutral0: '#1A1A1A', // menu background
     neutral80: '#FFFFFF', // text color
   },
 } as const;

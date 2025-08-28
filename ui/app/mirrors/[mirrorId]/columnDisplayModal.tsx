@@ -164,7 +164,11 @@ export default function ColumnDisplayModal({
                   return (
                     <TableRow
                       key={column.name}
-                      className={isExcluded ? 'opacity-60 bg-gray-50 dark:bg-gray-800' : ''}
+                      className={
+                        isExcluded
+                          ? 'opacity-60 bg-gray-50 dark:bg-gray-800'
+                          : ''
+                      }
                     >
                       <TableCell className={isExcluded ? 'line-through' : ''}>
                         {column.name}

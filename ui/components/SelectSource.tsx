@@ -5,8 +5,8 @@ import { Button } from '@/lib/Button/Button';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import Image from 'next/image';
 import Link from 'next/link';
-import useSWR from 'swr';
 import { useTheme as useStyledTheme } from 'styled-components';
+import useSWR from 'swr';
 import { DBTypeToImageMapping } from './PeerComponent';
 
 // label corresponds to PeerType
@@ -39,7 +39,7 @@ function SourceLabel({ label, url }: { label: string; url?: string }) {
 
 export default function SelectSource() {
   const theme = useStyledTheme();
-  
+
   const gridContainerStyle = {
     display: 'flex',
     gap: '20px',
@@ -50,7 +50,7 @@ export default function SelectSource() {
     padding: '20px',
     marginTop: '20px',
   } as const;
-  
+
   const gridHeaderStyle = {
     position: 'absolute',
     top: '-15px',

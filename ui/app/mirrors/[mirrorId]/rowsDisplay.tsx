@@ -43,7 +43,10 @@ export default function RowsDisplay({
         <Icon name={show ? 'arrow_drop_up' : 'arrow_drop_down'} />
       </Button>
       {show && (
-        <div style={{ width: '30%', marginTop: '1.5rem' }} className='[&_p]:text-gray-700 dark:[&_p]:text-gray-300'>
+        <div
+          style={{ width: '30%', marginTop: '1.5rem' }}
+          className='[&_p]:text-gray-700 dark:[&_p]:text-gray-300'
+        >
           <BarList valueFormatter={RowDataFormatter} data={rowsHero} />
         </div>
       )}

@@ -182,9 +182,7 @@ export default function DropDialog({
         )}
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
-            <Button variant='normal'>
-              Cancel
-            </Button>
+            <Button variant='normal'>Cancel</Button>
           </DialogClose>
           <Button
             onClick={() => handleDelete()}
