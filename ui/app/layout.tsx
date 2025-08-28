@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import { AppThemeProvider, StyledComponentsRegistry } from '../lib/AppTheme';
 
 export const metadata: Metadata = {
@@ -10,11 +11,15 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // Read theme from cookie during SSR
+  const cookieStore = cookies();
+  const themeCookie = cookieStore.get('peerdb-theme');
+  const initialTheme = themeCookie?.value === 'dark' ? 'dark' : 'light';
   return (
-    <html lang='en'>
+    <html lang='en' className={initialTheme}>
       <body>
         <StyledComponentsRegistry>
-          <AppThemeProvider>{children}</AppThemeProvider>
+          <AppThemeProvider initialTheme={initialTheme}>{children}</AppThemeProvider>
         </StyledComponentsRegistry>
       </body>
     </html>

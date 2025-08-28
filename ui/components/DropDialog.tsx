@@ -182,16 +182,15 @@ export default function DropDialog({
         )}
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
-            <Button style={{ backgroundColor: '#6c757d', color: 'white' }}>
+            <Button variant='normal'>
               Cancel
             </Button>
           </DialogClose>
           <Button
             onClick={() => handleDelete()}
+            variant='destructiveSolid'
             style={{
               marginLeft: '1rem',
-              backgroundColor: '#dc3545',
-              color: 'white',
             }}
           >
             {loading ? <BarLoader /> : 'Delete'}

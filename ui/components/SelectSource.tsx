@@ -6,10 +6,12 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import Image from 'next/image';
 import Link from 'next/link';
 import useSWR from 'swr';
+import { useTheme as useStyledTheme } from 'styled-components';
 import { DBTypeToImageMapping } from './PeerComponent';
 
 // label corresponds to PeerType
 function SourceLabel({ label, url }: { label: string; url?: string }) {
+  const theme = useStyledTheme();
   const peerLogo = DBTypeToImageMapping(label);
   return (
     <Button
@@ -18,9 +20,9 @@ function SourceLabel({ label, url }: { label: string; url?: string }) {
       style={{
         justifyContent: 'space-between',
         padding: '0.5rem',
-        backgroundColor: 'white',
+        backgroundColor: theme.colors.base.surface.normal,
         borderRadius: '1rem',
-        border: '1px solid rgba(0,0,0,0.1)',
+        border: `1px solid ${theme.colors.base.border.subtle}`,
       }}
     >
       <Image
@@ -35,32 +37,34 @@ function SourceLabel({ label, url }: { label: string; url?: string }) {
   );
 }
 
-const gridContainerStyle = {
-  display: 'flex',
-  gap: '20px',
-  flexWrap: 'wrap',
-  border: '1px solid #e5e7eb',
-  borderRadius: '20px',
-  position: 'relative',
-  padding: '20px',
-  marginTop: '20px',
-} as const;
-const gridHeaderStyle = {
-  position: 'absolute',
-  top: '-15px',
-  height: '30px',
-  display: 'flex',
-  alignItems: 'center',
-  color: 'black',
-  backgroundColor: 'white',
-  border: '1px solid #e5e7eb',
-  borderRadius: '15px',
-  marginLeft: '10px',
-  paddingLeft: '10px',
-  paddingRight: '10px',
-} as const;
-
 export default function SelectSource() {
+  const theme = useStyledTheme();
+  
+  const gridContainerStyle = {
+    display: 'flex',
+    gap: '20px',
+    flexWrap: 'wrap',
+    border: `1px solid ${theme.colors.base.border.subtle}`,
+    borderRadius: '20px',
+    position: 'relative',
+    padding: '20px',
+    marginTop: '20px',
+  } as const;
+  
+  const gridHeaderStyle = {
+    position: 'absolute',
+    top: '-15px',
+    height: '30px',
+    display: 'flex',
+    alignItems: 'center',
+    color: theme.colors.base.text.highContrast,
+    backgroundColor: theme.colors.base.background.normal,
+    border: `1px solid ${theme.colors.base.border.subtle}`,
+    borderRadius: '15px',
+    marginLeft: '10px',
+    paddingLeft: '10px',
+    paddingRight: '10px',
+  } as const;
   const { data: dbTypes, isLoading } = useSWR<
     [string, ...Array<string | { label: string; url: string }>][]
   >('/api/peer-types', fetcher);

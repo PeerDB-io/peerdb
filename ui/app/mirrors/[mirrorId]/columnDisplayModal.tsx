@@ -93,7 +93,7 @@ export default function ColumnDisplayModal({
     <Dialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog.Portal>
         <Dialog.Overlay className='fixed inset-0 z-50' />
-        <Dialog.Content className='fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden z-50'>
+        <Dialog.Content className='fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-gray-900 rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] overflow-hidden z-50'>
           {/* Header */}
           <div className='flex items-center justify-between p-6 border-b'>
             <div>
@@ -164,7 +164,7 @@ export default function ColumnDisplayModal({
                   return (
                     <TableRow
                       key={column.name}
-                      className={isExcluded ? 'opacity-60 bg-gray-50' : ''}
+                      className={isExcluded ? 'opacity-60 bg-gray-50 dark:bg-gray-800' : ''}
                     >
                       <TableCell className={isExcluded ? 'line-through' : ''}>
                         {column.name}
@@ -180,11 +180,11 @@ export default function ColumnDisplayModal({
                       </TableCell>
                       <TableCell>
                         {isExcluded ? (
-                          <Label className='text-red-600 font-medium'>
+                          <Label className='text-red-600 dark:text-red-400 font-medium'>
                             Excluded
                           </Label>
                         ) : (
-                          <Label className='text-green-600 font-medium'>
+                          <Label className='text-green-600 dark:text-green-400 font-medium'>
                             Included
                           </Label>
                         )}
@@ -196,7 +196,7 @@ export default function ColumnDisplayModal({
             )}
 
             {!loading && !error && excludedColumns.size > 0 && (
-              <div className='text-xs text-gray-500 pt-4 border-t mt-4'>
+              <div className='text-xs text-gray-500 dark:text-gray-400 pt-4 border-t mt-4'>
                 <Label variant='body' colorName='lowContrast'>
                   <strong>Note:</strong> Excluded columns are shown with
                   strikethrough text and grayed out. They appear at the bottom

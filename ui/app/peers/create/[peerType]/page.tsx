@@ -222,7 +222,7 @@ export default function CreateConfig({
             Back
           </Button>
           <Button
-            style={{ backgroundColor: 'wheat' }}
+            variant='warningSolid'
             onClick={() =>
               handleValidate(getDBType(), config, notifyErr, setLoading, name)
             }

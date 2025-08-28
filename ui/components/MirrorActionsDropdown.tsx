@@ -8,6 +8,7 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { useEffect, useState } from 'react';
 import { CSSProperties } from 'styled-components';
+import { useTheme as useStyledTheme } from 'styled-components';
 import PauseOrResumeButton from './PauseOrResumeButton';
 
 type MirrorActionsProps = {
@@ -17,29 +18,30 @@ type MirrorActionsProps = {
   isNotPaused: boolean;
 };
 
-const menuStyle: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  position: 'absolute',
-  top: '50px',
-  right: '0',
-  backgroundColor: 'white',
-  border: '1px solid #ccc',
-  borderRadius: '5px',
-  boxShadow: '0 0 5px rgba(0,0,0,0.2)',
-};
-
 export default function MirrorActions({
   mirrorName,
   editLink,
   canResync,
   isNotPaused,
 }: MirrorActionsProps) {
+  const theme = useStyledTheme();
   const [mirrorStatus, setMirrorStatus] = useState<FlowStatus>();
   const [mounted, setMounted] = useState(false);
 
   const [showOptions, setShowOptions] = useState(false);
   const handleButtonClick = () => setShowOptions(!showOptions);
+
+  const menuStyle: CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'absolute',
+    top: '50px',
+    right: '0',
+    backgroundColor: theme.colors.base.surface.normal,
+    border: `1px solid ${theme.colors.base.border.normal}`,
+    borderRadius: '5px',
+    boxShadow: '0 0 5px rgba(0,0,0,0.2)',
+  };
 
   useEffect(() => {
     getMirrorState(mirrorName).then((res: MirrorStatusResponse) => {
@@ -61,7 +63,7 @@ export default function MirrorActions({
       >
         <Button
           onClick={handleButtonClick}
-          style={{ backgroundColor: '#F8F8F8' }}
+          variant='normal'
         >
           Actions <Icon name='arrow_drop_down' />
         </Button>

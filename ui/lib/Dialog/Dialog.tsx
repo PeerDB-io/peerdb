@@ -34,7 +34,6 @@ export function Dialog({
             left: '50%',
             top: '50%',
             transform: 'translate(-0%, -50%)',
-            boxShadow: '0px 2px 3px rgba(0,0,0,0.2)',
           }}
         >
           {children}

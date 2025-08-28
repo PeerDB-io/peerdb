@@ -3,6 +3,7 @@
 import { fetcher } from '@/app/utils/swr';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import Logout from '@/components/Logout';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
   GetDynamicSettingsResponse,
   InstanceInfoResponse,
@@ -162,10 +163,15 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
                 }
               />
             </div>
+            <div style={centerFlexStyle}>
+              <ThemeToggle showLabel={true} />
+            </div>
             {props.showLogout && <Logout />}
           </>
         ) : (
-          <></>
+          <div style={centerFlexStyle}>
+            <ThemeToggle showLabel={false} />
+          </div>
         )
       }
       bottomLabel={
