@@ -168,7 +168,9 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
             </div>
             {props.showLogout && <Logout />}
           </>
-        ) : undefined
+        ) : (
+          <></>
+        )
       }
       bottomLabel={
         <div>
