@@ -148,6 +148,29 @@ func (s ClickHouseSuite) CreateRMTTable(tableName string, columns []TestClickHou
 	return ch.Exec(s.t.Context(), createTableQuery)
 }
 
+// CheckHardDeletionInRMT does a SELECT COUNT(*) FINAL without filtering on _peerdb_is_deleted
+// It assumes that all rows have been hard deleted and checks that the count is 0.
+func (s ClickHouseSuite) CheckHardDeletionInRMT(table string) error {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+
+	var count int
+	err = ch.QueryRow(
+		s.t.Context(),
+		fmt.Sprintf(`SELECT COUNT(*) FROM %s FINAL`, table),
+	).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count != 0 {
+		return fmt.Errorf("expected 0 rows after hard deletion, got %d", count)
+	}
+	return nil
+}
+
 func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch, error) {
 	peer := s.Peer()
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, peer.GetClickhouseConfig())
