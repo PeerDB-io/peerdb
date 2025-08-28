@@ -104,7 +104,7 @@ export default function ResyncDialog({ mirrorName }: ResyncDialogProps) {
         </div>
         <div style={{ display: 'flex', marginTop: '1rem' }}>
           <DialogClose>
-            <Button style={{ backgroundColor: '#6c757d', color: 'white' }}>
+            <Button variant='normal'>
               {msg.color === 'positive' ? 'Close' : 'Cancel'}
             </Button>
           </DialogClose>

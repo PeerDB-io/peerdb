@@ -11,7 +11,7 @@ import { SearchField } from '@/lib/SearchField';
 import { Table, TableCell, TableRow } from '@/lib/Table';
 import { useMemo, useState } from 'react';
 import ReactSelect from 'react-select';
-import SelectTheme from '../styles/select';
+import { useSelectTheme } from '../styles/select';
 
 function PeerRow({ peer }: { peer: PeerListItem }) {
   return (
@@ -35,6 +35,7 @@ function PeerRow({ peer }: { peer: PeerListItem }) {
 }
 
 export default function PeersTable({ peers }: { peers: PeerListItem[] }) {
+  const selectTheme = useSelectTheme();
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [filteredType, setFilteredType] = useState<DBType | undefined>(
     undefined
@@ -76,7 +77,7 @@ export default function PeersTable({ peers }: { peers: PeerListItem[] }) {
                 setFilteredType(val?.value);
               }}
               defaultValue={allTypesOption}
-              theme={SelectTheme}
+              theme={selectTheme}
             />
             <SearchField
               placeholder='Search by peer name'
