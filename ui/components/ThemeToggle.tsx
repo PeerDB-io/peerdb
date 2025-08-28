@@ -45,37 +45,19 @@ const IconWrapper = styled.span`
   user-select: none;
 `;
 
-const Container = styled.div`
-  display: flex;
-  align-items: center;
-  gap: ${({ theme }) => theme.spacing.medium};
-`;
-
-const Label = styled.span`
-  ${({ theme }) => theme.text.regular.body};
-  color: ${({ theme }) => theme.colors.base.text.highContrast};
-`;
-
-interface ThemeToggleProps {
-  showLabel?: boolean;
-}
-
-export function ThemeToggle({ showLabel = false }: ThemeToggleProps) {
+export function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
 
   return (
-    <Container>
-      {showLabel && <Label>{isDark ? 'Dark' : 'Light'} Mode</Label>}
-      <ToggleButton
-        onClick={toggleTheme}
-        aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-        title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
-      >
-        <ToggleSlider $isDark={isDark}>
-          <IconWrapper>{isDark ? '🌙' : '☀️'}</IconWrapper>
-        </ToggleSlider>
-      </ToggleButton>
-    </Container>
+    <ToggleButton
+      onClick={toggleTheme}
+      aria-label={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+      title={`Switch to ${isDark ? 'light' : 'dark'} mode`}
+    >
+      <ToggleSlider $isDark={isDark}>
+        <IconWrapper>{isDark ? '🌙' : '☀️'}</IconWrapper>
+      </ToggleSlider>
+    </ToggleButton>
   );
 }

@@ -140,6 +140,9 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
         sidebarState === 'open' ? (
           <>
             <div style={centerFlexStyle}>
+              <ThemeToggle />
+            </div>
+            <div style={centerFlexStyle}>
               <RowWithSelect
                 label={<Label>Timezone:</Label>}
                 action={
@@ -163,16 +166,9 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
                 }
               />
             </div>
-            <div style={centerFlexStyle}>
-              <ThemeToggle showLabel={true} />
-            </div>
             {props.showLogout && <Logout />}
           </>
-        ) : (
-          <div style={centerFlexStyle}>
-            <ThemeToggle showLabel={false} />
-          </div>
-        )
+        ) : undefined
       }
       bottomLabel={
         <div>
