@@ -11,7 +11,7 @@ jobs:
   build:
     strategy:
       matrix:
-        runner: [blacksmith-16vcpu-ubuntu-2404]
+        runner: [blacksmith-4vcpu-ubuntu-2404]
         postgres-version: [13, 14, 15, 16, 17]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
