@@ -69,6 +69,12 @@ jobs:
           - 4317:4317
 
     steps:
+      - name: Expand local port range to prevent exhaustion
+        run: |
+          sudo sysctl -w net.ipv4.ip_local_port_range="15000 65000"
+          sudo sysctl -w net.ipv4.tcp_fin_timeout=30
+          sudo sysctl -w net.ipv4.tcp_tw_reuse=1
+
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: generate or hydrate protos
