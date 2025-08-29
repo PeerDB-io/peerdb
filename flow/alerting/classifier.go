@@ -465,7 +465,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		} else {
 			return ErrorRetryRecoverable, ErrorInfo{
 				Source: ErrorSourceOther,
-				Code:   "Unknown",
+				Code:   "UNKNOWN",
 			}
 		}
 	}
