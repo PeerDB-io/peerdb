@@ -539,7 +539,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	if errors.Is(err, net.ErrClosed) {
+	if errors.Is(err, net.ErrClosed) || strings.HasSuffix(err.Error(), "use of closed network connection") {
 		return ErrorIgnoreConnTemporary, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "net.ErrClosed",
