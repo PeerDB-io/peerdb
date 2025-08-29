@@ -157,7 +157,7 @@ func (s ClickHouseSuite) CheckHardDeletionInRMT(table string) error {
 	}
 	defer ch.Close()
 
-	var count int
+	var count uint64
 	err = ch.QueryRow(
 		s.t.Context(),
 		fmt.Sprintf(`SELECT COUNT(*) FROM %s FINAL`, table),
