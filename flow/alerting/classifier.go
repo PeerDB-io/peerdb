@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -86,6 +87,11 @@ type ErrorInfo struct {
 type ErrorClass struct {
 	Class  string
 	action ErrorAction
+}
+
+type RetryableError interface {
+	error
+	Retryable() bool
 }
 
 var (
@@ -446,11 +452,21 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var mongoPoolErr exceptions.MongoRetryablePoolError
-	if errors.As(err, &mongoPoolErr) && mongoPoolErr.Retryable() {
-		return ErrorRetryRecoverable, ErrorInfo{
-			Source: ErrorSourceMongoDB,
-			Code:   "MONGO_RETRYABLE_POOL_ERROR",
+	// MongoDB exposes `RetryablePoolError` interface but does not guarantee Error() implementation.
+	// To avoid `errors.As()` from panicking, we define our own interface here instead and check
+	// PkgPath for hints it's coming from MongoDB driver.
+	var retryableError RetryableError
+	if errors.As(err, &retryableError) && retryableError.Retryable() {
+		if strings.Contains(reflect.TypeOf(err).PkgPath(), "go.mongodb.org/mongo-driver/v2/x/mongo/driver") {
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourceMongoDB,
+				Code:   "MONGO_RETRYABLE_POOL_ERROR",
+			}
+		} else {
+			return ErrorRetryRecoverable, ErrorInfo{
+				Source: ErrorSourceOther,
+				Code:   "Unknown",
+			}
 		}
 	}
 
