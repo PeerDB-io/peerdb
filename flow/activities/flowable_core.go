@@ -214,7 +214,8 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		if err := errGroup.Wait(); err != nil {
 			// don't log flow error for "replState changed" and "slot is already active"
 			var applicationError *temporal.ApplicationError
-			if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") || shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
+			if !((errors.As(err, &applicationError) && applicationError.Type() == "desync") ||
+				shared.IsSQLStateError(err, pgerrcode.ObjectInUse)) {
 				_ = a.Alerter.LogFlowError(ctx, flowName, err)
 			}
 			if temporal.IsApplicationError(err) {
