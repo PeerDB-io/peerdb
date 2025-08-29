@@ -446,6 +446,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var mongoPoolErr exceptions.MongoRetryablePoolError
+	if errors.As(err, &mongoPoolErr) && mongoPoolErr.Retryable() {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "MONGO_RETRYABLE_POOL_ERROR",
+		}
+	}
+
 	var chException *clickhouse.Exception
 	if errors.As(err, &chException) {
 		chErrorInfo := ErrorInfo{
