@@ -222,7 +222,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 		// add is_deleted and version columns
 		fmt.Fprintf(builder, "%s %s, %s %s)",
-			peerdb_clickhouse.QuoteIdentifier(isDeletedColumn), isDeletedColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
+			peerdb_clickhouse.QuoteIdentifier(isDeletedColumn), isDeletedColType,
+			peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
 	}
 
 	fmt.Fprintf(&stmtBuilder, " ENGINE = %s", engine)

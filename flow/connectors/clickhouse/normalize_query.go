@@ -15,21 +15,21 @@ import (
 )
 
 type NormalizeQueryGenerator struct {
-	env                             map[string]string
-	tableNameSchemaMapping          map[string]*protos.TableSchema
 	chVersion                       *chproto.Version
+	tableNameSchemaMapping          map[string]*protos.TableSchema
+	env                             map[string]string
+	rawTableName                    string
 	Query                           string
 	TableName                       string
-	rawTableName                    string
+	isDeletedColName                string
 	tableMappings                   []*protos.TableMapping
-	Part                            uint64
 	batchIDToLoadForTable           int64
-	numParts                        uint64
 	syncBatchID                     int64
+	Part                            uint64
+	numParts                        uint64
 	enablePrimaryUpdate             bool
 	sourceSchemaAsDestinationColumn bool
 	cluster                         bool
-	isDeletedColName                string
 }
 
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
