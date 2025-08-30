@@ -11,7 +11,7 @@ jobs:
   build:
     strategy:
       matrix:
-        runner: [ubuntu-latest]
+        runner: [blacksmith-4vcpu-ubuntu-2404]
         postgres-version: [13, 14, 15, 16, 17]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
@@ -31,6 +31,8 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+
+      - uses: dtolnay/rust-toolchain@stable
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
