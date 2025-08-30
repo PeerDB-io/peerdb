@@ -151,6 +151,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 				}
 				// else fallthrough to loading from catalog
 			} else {
+				defer connectors.CloseConnector(ctx, dstPgConn)
 				return dstPgConn.GetLastOffset(ctx, config.FlowJobName)
 			}
 		}
