@@ -159,6 +159,9 @@ var (
 	ErrorLossyConversion = ErrorClass{
 		Class: "WARNING_LOSSY_CONVERSION", action: NotifyUser,
 	}
+	ErrorUnsupportedSchemaChange = ErrorClass{
+		Class: "ERROR_UNSUPPORTED_SCHEMA_CHANGE", action: NotifyUser,
+	}
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
 		Class: "OTHER", action: NotifyTelemetry,
@@ -642,6 +645,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				ErrorAttributeKeyTable:  numericTruncatedError.DestinationTable,
 				ErrorAttributeKeyColumn: numericTruncatedError.DestinationColumn,
 			},
+		}
+	}
+
+	var incompatibleColumnTypeError *exceptions.MySQLIncompatibleColumnTypeError
+	if errors.As(err, &incompatibleColumnTypeError) {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
 		}
 	}
 

@@ -528,7 +528,7 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
 								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
@@ -565,7 +565,7 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
 								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
@@ -579,7 +579,7 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
 								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err
@@ -617,7 +617,7 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
 								types.QValueKind(fd.Type), val)
 							if err != nil {
 								return err

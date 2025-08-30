@@ -18,6 +18,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -354,9 +355,11 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 }
 
 func QValueFromMysqlRowEvent(
-	mytype byte, enums []string, sets []string,
-	qkind types.QValueKind, val any,
+	ev *replication.TableMapEvent, idx int,
+	enums []string, sets []string, qkind types.QValueKind, val any,
 ) (types.QValue, error) {
+	mytype := ev.ColumnType[idx]
+
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
 	case nil:
@@ -494,5 +497,7 @@ func QValueFromMysqlRowEvent(
 			return types.QValueTimestamp{Val: tm.UTC()}, nil
 		}
 	}
-	return nil, fmt.Errorf("unexpected type %T for mysql type %d, qkind %s", val, mytype, qkind)
+	return nil, exceptions.NewIncompatibleColumnTypeError(
+		fmt.Sprintf("unexpected type %T for mysql type %d, qkind %s in %s.%s",
+			val, mytype, qkind, string(ev.Schema), string(ev.Table)))
 }
