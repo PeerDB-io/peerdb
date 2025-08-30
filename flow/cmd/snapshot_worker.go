@@ -69,6 +69,7 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 	}
 
 	w.RegisterWorkflow(peerflow.SnapshotFlowWorkflow)
+	w.RegisterWorkflow(peerflow.S3Workflow)
 	// explicitly not initializing mutex, in line with design
 	w.RegisterActivity(&activities.SnapshotActivity{
 		SlotSnapshotStates: make(map[string]activities.SlotSnapshotState),
