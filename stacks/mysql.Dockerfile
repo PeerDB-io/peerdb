@@ -1,7 +1,7 @@
 # How to use:
 # 1. Build the image: docker build -f mysql.Dockerfile --tag 'bin_mysql' .
 # 2. Run the container: docker run --name alala -e MYSQL_ROOT_PASSWORD=<some password> -p 3306:3306 -d bin_mysql
-FROM mysql:9.4.0@sha256:a776e89aad2d425c248ccfb840115aaa52883499ff36512db4d503b11aae455a
+FROM mysql:9.4.0@sha256:439bfb4044dc59ade76c4e5c4065c02e5ba4d4007db32c40ac58d55c03069916
 
 # Copy the sample configuration file into the container
 COPY stacks/mysql/my.cnf.sample /etc/mysql/my.cnf
