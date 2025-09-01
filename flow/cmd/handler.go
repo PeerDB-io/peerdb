@@ -210,6 +210,27 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}, nil
 }
 
+func (h *FlowRequestHandler) CreateImportS3(
+	ctx context.Context,
+	req *protos.CreateImportS3Request,
+) (*protos.CreateImportS3Response, error) {
+	workflowID := fmt.Sprintf("%s-import-%s", req.FlowJobName, uuid.New())
+	workflowOptions := client.StartWorkflowOptions{
+		ID:                    workflowID,
+		TaskQueue:             internal.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue),
+		TypedSearchAttributes: shared.NewSearchAttributes(req.FlowJobName),
+	}
+	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.S3Workflow, req); err != nil {
+		slog.Error("unable to start import workflow",
+			slog.Any("error", err), slog.String("flowName", req.FlowJobName))
+		return nil, fmt.Errorf("unable to start import workflow: %w", err)
+	}
+
+	return &protos.CreateImportS3Response{
+		WorkflowId: workflowID,
+	}, nil
+}
+
 func (h *FlowRequestHandler) shutdownFlow(
 	ctx context.Context,
 	flowJobName string,

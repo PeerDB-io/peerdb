@@ -7,6 +7,7 @@ import (
 func RegisterFlowWorkerWorkflows(w worker.WorkflowRegistry) {
 	w.RegisterWorkflow(CDCFlowWorkflow)
 	w.RegisterWorkflow(DropFlowWorkflow)
+	w.RegisterWorkflow(S3Workflow)
 	w.RegisterWorkflow(SetupFlowWorkflow)
 	w.RegisterWorkflow(QRepFlowWorkflow)
 	w.RegisterWorkflow(QRepWaitForNewRowsWorkflow)
