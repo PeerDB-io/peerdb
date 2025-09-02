@@ -365,6 +365,16 @@ func (s ClickHouseSuite) queryRawTable(conn clickhouse.Conn, table string, cols 
 	)
 }
 
+func (s *ClickHouseSuite) RunInsertIntoExistingDestinationTable(tableName string, insertCommand string) error {
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	if err != nil {
+		return err
+	}
+	defer ch.Close()
+
+	return ch.Exec(s.t.Context(), insertCommand)
+}
+
 func SetupSuite[TSource e2e.SuiteSource](
 	t *testing.T,
 	cluster bool,

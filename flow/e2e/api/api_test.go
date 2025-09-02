@@ -1182,3 +1182,89 @@ func (s Suite) TestQRep() {
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
 }
+
+func (s Suite) TestTableAdditionWithoutInitialLoad() {
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "original"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "added"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "original"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "added"))))
+
+	// Create destination added table beforehand
+	require.NoError(s.t, s.ch.CreateRMTTable("added", []e2e_clickhouse.TestClickHouseColumn{
+		{Name: "id", Type: "Int32"},
+		{Name: "val", Type: "String"},
+		{Name: "_peerdb_is_deleted", Type: "Int8"},
+		{Name: "_peerdb_synced_at", Type: "DateTime"},
+		{Name: "_peerdb_version", Type: "Int64"},
+	}, "id"),
+	)
+	// insert a row into destination added table beforehand
+	require.NoError(s.t, s.ch.RunInsertIntoExistingDestinationTable("added", "INSERT INTO added (id, val, _peerdb_is_deleted, _peerdb_synced_at, _peerdb_version) VALUES (1, 'first', 0, now(), 0)"))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      "edit_tables_no_initial_load_" + s.suffix,
+		TableNameMapping: map[string]string{e2e.AttachSchema(s, "original"): "original"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = false
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	tc := e2e.NewTemporalClient(s.t)
+	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	e2e.RequireEqualTables(s.ch, "original", "id,val")
+	// add table
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					AdditionalTables: []*protos.TableMapping{
+						{
+							SourceTableIdentifier:      e2e.AttachSchema(s, "added"),
+							DestinationTableIdentifier: "added",
+						},
+					},
+					SkipInitialSnapshotForTableAdditions: true,
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+			e2e.AttachSchema(s, "added"),
+			e2e.AttachSchema(s, "original"),
+		})
+		if err != nil {
+			return false
+		}
+
+		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// No initial load should have happened for added table, so only the pre-existing row should be there
+	e2e.RequireEqualTables(s.ch, "added", "id,val")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
