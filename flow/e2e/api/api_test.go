@@ -1206,12 +1206,12 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 	require.NoError(s.t, s.ch.RunInsertIntoExistingDestinationTable("added", "INSERT INTO added (id, val, _peerdb_is_deleted, _peerdb_synced_at, _peerdb_version) VALUES (1, 'first', 0, now(), 0)"))
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      "edit_tables_no_initial_load_" + s.suffix,
+		FlowJobName:      "added_tables_no_initial_load_" + s.suffix,
 		TableNameMapping: map[string]string{e2e.AttachSchema(s, "original"): "original"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-	flowConnConfig.DoInitialSnapshot = false
+	flowConnConfig.DoInitialSnapshot = true
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
