@@ -1203,7 +1203,14 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 	}, "id"),
 	)
 	// insert a row into destination added table beforehand
-	require.NoError(s.t, s.ch.RunInsertIntoExistingDestinationTable("added", "INSERT INTO added (id, val, _peerdb_is_deleted, _peerdb_synced_at, _peerdb_version) VALUES (1, 'first', 0, now(), 0)"))
+	require.NoError(
+		s.t,
+		s.ch.RunInsertIntoExistingDestinationTable(
+			"added",
+			"INSERT INTO added (id, val, _peerdb_is_deleted, _peerdb_synced_at, _peerdb_version) "+
+				"VALUES (1, 'first', 0, now(), 0)",
+		),
+	)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      "added_tables_no_initial_load_" + s.suffix,
