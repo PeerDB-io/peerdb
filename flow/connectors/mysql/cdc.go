@@ -324,6 +324,7 @@ func (c *MySqlConnector) PullRecords(
 	c.logger.Info("[mysql] PullRecords started streaming")
 
 	var skewLossReported bool
+	var coercionReported bool
 	var updatedOffset string
 	var inTx bool
 	var recordCount uint32
@@ -529,7 +530,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val)
+								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -566,7 +567,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val)
+								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -580,7 +581,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val)
+								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -618,7 +619,7 @@ func (c *MySqlConnector) PullRecords(
 								continue
 							}
 							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val)
+								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}

@@ -3,6 +3,7 @@ package connmysql
 import (
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/bits"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -355,7 +357,7 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 
 func QValueFromMysqlRowEvent(
 	mytype byte, enums []string, sets []string,
-	qkind types.QValueKind, val any,
+	qkind types.QValueKind, val any, logger log.Logger, coercionReported *bool,
 ) (types.QValue, error) {
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
@@ -514,34 +516,74 @@ func QValueFromMysqlRowEvent(
 					strings.EqualFold(val, "on") || strings.EqualFold(val, "yes") || strings.EqualFold(val, "1"),
 			}, nil
 		case types.QValueKindInt8:
-			v, _ := strconv.ParseInt(val, 10, 8)
+			v, err := strconv.ParseInt(val, 10, 8)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueInt8{Val: int8(v)}, nil
 		case types.QValueKindInt16:
-			v, _ := strconv.ParseInt(val, 10, 16)
+			v, err := strconv.ParseInt(val, 10, 16)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueInt16{Val: int16(v)}, nil
 		case types.QValueKindInt32:
-			v, _ := strconv.ParseInt(val, 10, 32)
+			v, err := strconv.ParseInt(val, 10, 32)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueInt32{Val: int32(v)}, nil
 		case types.QValueKindInt64:
-			v, _ := strconv.ParseInt(val, 10, 64)
+			v, err := strconv.ParseInt(val, 10, 64)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueInt64{Val: v}, nil
 		case types.QValueKindUInt8:
-			v, _ := strconv.ParseUint(val, 10, 8)
+			v, err := strconv.ParseUint(val, 10, 8)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueUInt8{Val: uint8(v)}, nil
 		case types.QValueKindUInt16:
-			v, _ := strconv.ParseUint(val, 10, 16)
+			v, err := strconv.ParseUint(val, 10, 16)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueUInt16{Val: uint16(v)}, nil
 		case types.QValueKindUInt32:
-			v, _ := strconv.ParseUint(val, 10, 32)
+			v, err := strconv.ParseUint(val, 10, 32)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueUInt32{Val: uint32(v)}, nil
 		case types.QValueKindUInt64:
-			v, _ := strconv.ParseUint(val, 10, 64)
+			v, err := strconv.ParseUint(val, 10, 64)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueUInt64{Val: v}, nil
 		case types.QValueKindFloat32:
-			v, _ := strconv.ParseFloat(val, 32)
+			v, err := strconv.ParseFloat(val, 32)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueFloat32{Val: float32(v)}, nil
 		case types.QValueKindFloat64:
-			v, _ := strconv.ParseFloat(val, 64)
+			v, err := strconv.ParseFloat(val, 64)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
 			return types.QValueFloat64{Val: v}, nil
 		}
 	}
