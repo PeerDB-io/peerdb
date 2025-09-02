@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -442,6 +441,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
+		// some driver errors do not provide error code, such as `poolClearedError`, so we check label instead
+		for _, label := range mongoErr.Labels {
+			if label == driver.TransientTransactionError {
+				return ErrorRetryRecoverable, mongoErrorInfo
+			}
+		}
+
+		// some error codes are defined to be retryable by the driver, so we retry them
+		var retryableError RetryableError
+		if errors.As(mongoErr, &retryableError) && retryableError.Retryable() {
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+
 		switch mongoErr.Code {
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
@@ -449,24 +461,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
 		default:
 			return ErrorOther, mongoErrorInfo
-		}
-	}
-
-	// MongoDB exposes `RetryablePoolError` interface but does not guarantee Error() implementation.
-	// To avoid `errors.As()` from panicking, we define our own interface here instead and check
-	// PkgPath for hints it's coming from MongoDB driver.
-	var retryableError RetryableError
-	if errors.As(err, &retryableError) && retryableError.Retryable() {
-		if strings.Contains(reflect.TypeOf(err).PkgPath(), "go.mongodb.org/mongo-driver/v2/x/mongo/driver") {
-			return ErrorRetryRecoverable, ErrorInfo{
-				Source: ErrorSourceMongoDB,
-				Code:   "MONGO_RETRYABLE_POOL_ERROR",
-			}
-		} else {
-			return ErrorRetryRecoverable, ErrorInfo{
-				Source: ErrorSourceOther,
-				Code:   "UNKNOWN",
-			}
 		}
 	}
 
