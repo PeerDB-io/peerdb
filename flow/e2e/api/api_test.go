@@ -609,6 +609,9 @@ func (s Suite) TestHardDelete() {
 
 	require.NoError(s.t, s.ch.CheckHardDeletionInRMT("original"))
 	require.NoError(s.t, s.ch.CheckHardDeletionInRMT("added"))
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
 }
 
 func (s Suite) TestEditTablesBeforeResync() {
