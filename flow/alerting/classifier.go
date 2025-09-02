@@ -338,6 +338,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
+			// Handle Neon's custom WAL reading error
+			if strings.Contains(pgErr.Message, "server closed the connection unexpectedly") && pgErr.Routine == "NeonWALPageRead" {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
 				return ErrorNotifyPostgresSlotMemalloc, pgErrorInfo
 			}
