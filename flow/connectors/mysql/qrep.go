@@ -279,13 +279,11 @@ func BuildQuery(logger log.Logger, query string, start string, end string) (stri
 		return "", err
 	}
 
-	data := map[string]any{
+	buf := new(bytes.Buffer)
+	if err := tmpl.Execute(buf, map[string]string{
 		"start": start,
 		"end":   end,
-	}
-
-	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, data); err != nil {
+	}); err != nil {
 		return "", err
 	}
 	res := buf.String()
