@@ -286,6 +286,8 @@ func (p *PartitionHelper) AddPartitionsWithRange(start any, end any, numPartitio
 	partition, err := p.getPartitionForStartAndEnd(start, end)
 	if err != nil {
 		return err
+	} else if partition == nil {
+		return nil
 	}
 
 	switch r := partition.Range.Range.(type) {
