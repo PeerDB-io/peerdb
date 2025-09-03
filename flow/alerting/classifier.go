@@ -312,6 +312,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.AdminShutdown, pgerrcode.IdleSessionTimeout:
 			return ErrorNotifyTerminate, pgErrorInfo
 
+		case pgerrcode.UndefinedFile:
+			// Handle WAL segment removed errors
+			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 		case pgerrcode.InternalError:
 			// Handle reorderbuffer spill file and stale file handle errors
 			if strings.HasPrefix(pgErr.Message, "could not read from reorderbuffer spill file") ||
