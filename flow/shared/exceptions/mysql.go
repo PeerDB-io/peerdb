@@ -5,17 +5,18 @@ import "fmt"
 type MySQLIncompatibleColumnTypeError struct {
 	TableName  string
 	ColumnName string
-	columnType byte
 	dataType   string
+	columnType byte
 }
 
 func NewIncompatibleColumnTypeError(
-	tableName string, columnName string, columnType byte, dataType string) MySQLIncompatibleColumnTypeError {
+	tableName string, columnName string, columnType byte, dataType string,
+) MySQLIncompatibleColumnTypeError {
 	return MySQLIncompatibleColumnTypeError{
 		TableName:  tableName,
 		ColumnName: columnName,
-		columnType: columnType,
 		dataType:   dataType,
+		columnType: columnType,
 	}
 }
 
