@@ -344,7 +344,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// Handle Neon's custom WAL reading error
-			if strings.Contains(pgErr.Message, "server closed the connection unexpectedly") && pgErr.Routine == "NeonWALPageRead" {
+			if pgErr.Routine == "NeonWALPageRead" && strings.Contains(pgErr.Message, "server closed the connection unexpectedly") {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
