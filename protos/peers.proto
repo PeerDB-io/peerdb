@@ -56,6 +56,7 @@ message BigqueryConfig {
   string auth_provider_x509_cert_url = 9;
   string client_x509_cert_url = 10;
   string dataset_id = 11;
+  optional bool use_as_source_only = 12;
 }
 
 message PubSubConfig {

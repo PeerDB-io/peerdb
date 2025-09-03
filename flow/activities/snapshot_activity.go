@@ -191,6 +191,16 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	return output, nil
 }
 
+// kuba question - should this be generic S3Export or more use case specific GCS related export job?
+// I think this could be split into three activities:
+// - export BigQuery to GCS
+// - list GCS files (it can be done only after export is done - maybe there is no need to split it?)
+// - import S3 (it takes list of files, creates signed urls and imports them to destination)
+// For sure having "import S3" separated is useful as it solves a problem of retrying EXPORT
+// but first two could be one activity since they are blocking
+// Should import S3 be chunked? What is the approach for other connectors?
+//
+// Should AvroImport be able to remove objects after import?
 func (a *SnapshotActivity) S3Export(ctx context.Context, config *protos.CreateImportS3Request) error {
 	src, err := connectors.GetByNameAs[connectors.AvroExportS3Connector](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {

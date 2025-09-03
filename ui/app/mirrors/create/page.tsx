@@ -22,13 +22,15 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import ReactSelect, { SingleValue } from 'react-select';
 import { ToastContainer } from 'react-toastify';
-import { CDCConfig, MirrorType, TableMapRow } from '../../dto/MirrorsDTO';
+import { CDCConfig, MirrorType, S3ImportConfig, TableMapRow } from '../../dto/MirrorsDTO';
 import CDCConfigForm from './cdc/cdc';
 import {
   handleCreateCDC,
   handleCreateQRep,
+  handleCreateS3Import,
   handleValidateCDC,
 } from './handlers';
+import S3ImportConfigForm from './s3import/s3import';
 import { cdcSettings } from './helpers/cdc';
 import { blankCDCSetting, blankQRepSetting } from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
@@ -70,6 +72,13 @@ export default function CreateMirrors() {
   const [validating, setValidating] = useState<boolean>(false);
   const [qrepConfig, setQrepConfig] = useState<QRepConfig>(blankQRepSetting);
   const [cdcConfig, setCdcConfig] = useState<CDCConfig>(blankCDCSetting);
+  const [s3ImportConfig, setS3ImportConfig] = useState<S3ImportConfig>({
+    cdcStagingPath: '',
+    parallelImports: 1,
+    sourceName: '',
+    destinationName: '',
+    envString: '',
+  });
   const [sourceType, setSourceType] = useState<DBType>(DBType.UNRECOGNIZED);
   const [destinationType, setDestinationType] = useState<DBType>(
     DBType.UNRECOGNIZED
@@ -98,6 +107,10 @@ export default function CreateMirrors() {
       ...curr,
       sourceName: peer.name,
     }));
+    setS3ImportConfig((curr) => ({
+      ...curr,
+      sourceName: peer.name,
+    }));
     setSourceType(peer.type);
   }, []);
 
@@ -108,6 +121,10 @@ export default function CreateMirrors() {
       destinationName: peer.name,
     }));
     setCdcConfig((curr) => ({
+      ...curr,
+      destinationName: peer.name,
+    }));
+    setS3ImportConfig((curr) => ({
       ...curr,
       destinationName: peer.name,
     }));
@@ -288,6 +305,15 @@ export default function CreateMirrors() {
               rows={rows}
               setRows={setRows}
             />
+          ) : mirrorType === MirrorType.S3Import ? (
+            <S3ImportConfigForm
+              config={s3ImportConfig}
+              setter={setS3ImportConfig}
+              sourceType={sourceType}
+              destinationType={destinationType}
+              rows={rows}
+              setRows={setRows}
+            />
           ) : (
             <QRepConfigForm
               settings={qrepSettings}
@@ -330,26 +356,38 @@ export default function CreateMirrors() {
                 style={styles.MirrorButtonStyle}
                 variant='normalSolid'
                 disabled={creating}
-                onClick={() =>
-                  mirrorType === MirrorType.CDC
-                    ? handleCreateCDC(
-                        mirrorName,
-                        rows,
-                        cdcConfig,
-                        destinationType,
-                        setCreating,
-                        listMirrorsPage
-                      )
-                    : handleCreateQRep(
-                        mirrorName,
-                        qrepQuery,
-                        qrepConfig,
-                        destinationType,
-                        setCreating,
-                        listMirrorsPage,
-                        mirrorType === MirrorType.XMin // for handling xmin specific
-                      )
-                }
+                onClick={() => {
+                  if (mirrorType === MirrorType.CDC) {
+                    handleCreateCDC(
+                      mirrorName,
+                      rows,
+                      cdcConfig,
+                      destinationType,
+                      setCreating,
+                      listMirrorsPage
+                    );
+                  } else if (mirrorType === MirrorType.S3Import) {
+                    handleCreateS3Import(
+                      mirrorName,
+                      rows,
+                      s3ImportConfig,
+                      sourceType,
+                      destinationType,
+                      setCreating,
+                      listMirrorsPage
+                    );
+                  } else {
+                    handleCreateQRep(
+                      mirrorName,
+                      qrepQuery,
+                      qrepConfig,
+                      destinationType,
+                      setCreating,
+                      listMirrorsPage,
+                      mirrorType === MirrorType.XMin
+                    );
+                  }
+                }}
               >
                 {creating ? (
                   <ProgressCircle variant='determinate_progress_circle' />

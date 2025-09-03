@@ -607,6 +607,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("dataset_id")
                     .ok_or_else(|| anyhow::anyhow!("missing dataset_id in peer options"))?
                     .to_string(),
+                use_as_source_only: opts
+                    .get("use_as_source_only")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
             };
             Config::BigqueryConfig(bq_config)
         }

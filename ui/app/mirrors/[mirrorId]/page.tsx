@@ -11,6 +11,7 @@ import { LayoutMain } from '@/lib/Layout';
 import { useCallback, useEffect, useState } from 'react';
 import { CDCMirror } from './cdc';
 import { getMirrorState } from './handlers';
+import { ImportMirror } from './import';
 import NoMirror from './nomirror';
 import QrepGraph from './qrepGraph';
 import QRepStatusButtons from './qrepStatusButtons';
@@ -115,6 +116,24 @@ export default function ViewMirror({ params: { mirrorId } }: EditMirrorProps) {
           flowJobName={mirrorId}
           partitions={mirrorState.qrepStatus.partitions}
         />
+      </LayoutMain>
+    );
+  } else {
+    // Check if this might be an Import mirror (no specific status type yet)
+    // For now, show the Import component for any mirror that's not CDC or QRep
+    return (
+      <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingRight: '2rem',
+          }}
+        >
+          <Header variant='title2'>{mirrorId}</Header>
+        </div>
+        <ImportMirror status={mirrorState} />
       </LayoutMain>
     );
   }

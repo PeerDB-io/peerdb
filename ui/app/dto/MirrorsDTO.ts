@@ -4,10 +4,19 @@ export enum MirrorType {
   CDC = 'CDC',
   QRep = 'Query Replication',
   XMin = 'XMin',
+  S3Import = 'S3 Import',
 }
 
 export type CDCConfig = FlowConnectionConfigs & {
   disablePeerDBColumns: boolean;
+  envString: string;
+};
+
+export type S3ImportConfig = {
+  cdcStagingPath: string;
+  parallelImports: number;
+  sourceName: string;
+  destinationName: string;
   envString: string;
 };
 

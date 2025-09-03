@@ -12,4 +12,5 @@ export const blankBigquerySetting: BigqueryConfig = {
   authProviderX509CertUrl: '',
   clientX509CertUrl: '',
   datasetId: '',
+  useAsSourceOnly: false,
 };

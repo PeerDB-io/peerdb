@@ -6,14 +6,12 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"golang.org/x/sync/errgroup"
-
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 func (*ClickHouseConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {
@@ -53,9 +51,9 @@ func (c *ClickHouseConnector) CleanupQRepFlow(ctx context.Context, config *proto
 
 func (c *ClickHouseConnector) AvroImport(ctx context.Context, config *protos.CreateImportS3Request, urls map[string][]func() (string, error)) error {
 	type Job struct {
-		f             func() (string, error)
-		mapping       *protos.TableMapping
-		engineOrderBy string
+		f         func() (string, error)
+		mapping   *protos.TableMapping
+		engineDDL string
 	}
 
 	processJob := func(ctx context.Context, job Job) error {
@@ -63,81 +61,76 @@ func (c *ClickHouseConnector) AvroImport(ctx context.Context, config *protos.Cre
 		if err != nil {
 			return fmt.Errorf("import failed to retrieve uri from exporter: %w", err)
 		}
-		return c.SyncFromAvroUrl(ctx, uri, job.mapping.DestinationTableIdentifier, job.engineOrderBy)
+		return c.SyncFromAvroUrl(ctx, uri, job.mapping.DestinationTableIdentifier, job.engineDDL)
 	}
 
-	groupCtx := ctx
-	var jobs chan Job
-	var group *errgroup.Group
-	if config.ParallelImports > 1 {
-		group, groupCtx = errgroup.WithContext(ctx)
-		for range config.ParallelImports {
-			group.Go(func() error {
-				for {
-					select {
-					case <-groupCtx.Done():
-						return groupCtx.Err()
-					case job := <-jobs:
-						if err := processJob(groupCtx, job); err != nil {
-							return err
-						}
-					}
-				}
-			})
-		}
-	}
+	//groupCtx := ctx
+	//var jobs chan Job
+
+	//group, groupCtx := errgroup.WithContext(ctx)
+	//for range config.ParallelImports {
+	//	group.Go(func() error {
+	//		for {
+	//			select {
+	//			case <-groupCtx.Done():
+	//				return groupCtx.Err()
+	//			case job := <-jobs:
+	//				if err := processJob(groupCtx, job); err != nil {
+	//					return err
+	//				}
+	//			}
+	//		}
+	//	})
+	//}
+
+	// kuba todo: parallel imports breaks table insertion as table creation is not synchronized
 
 	for _, mapping := range config.TableMappings {
-		var engineOrderBy string
+		var engineDDL string
 		if mapping.Engine == protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE {
-			engineOrderBy = "ReplacingMergeTree"
+			engineDDL = "ReplacingMergeTree"
 		} else {
-			engineOrderBy = "MergeTree"
+			engineDDL = "MergeTree"
 		}
 
 		if mapping.PartitionKey != "" {
-			engineOrderBy += fmt.Sprintf(" ORDER BY (`%s`)", mapping.PartitionKey)
+			engineDDL += fmt.Sprintf(" ORDER BY (`%s`)", mapping.PartitionKey)
+		} else {
+			engineDDL += " ORDER BY tuple()" // kuba todo: does it make sense with ReplacingMergeTree?
 		}
+
 		for _, f := range urls[mapping.SourceTableIdentifier] {
-			if group != nil && engineOrderBy == "" {
-				select {
-				case jobs <- Job{f: f, mapping: mapping, engineOrderBy: engineOrderBy}:
-				case <-groupCtx.Done():
-					return groupCtx.Err()
-				}
-			} else {
-				if err := processJob(groupCtx, Job{
-					f:             f,
-					mapping:       mapping,
-					engineOrderBy: engineOrderBy,
-				}); err != nil {
-					return err
-				}
-				engineOrderBy = ""
+			if err := processJob(ctx, Job{
+				f:         f,
+				mapping:   mapping,
+				engineDDL: engineDDL,
+			}); err != nil {
+				return err
 			}
+			engineDDL = "" // only first one has engine ddl for table creation
 		}
 	}
 
-	return group.Wait()
+	return nil
 }
 
 func (c *ClickHouseConnector) SyncFromAvroUrl(
 	ctx context.Context,
 	avroFileUrl string,
 	destinationTableIdentifier string,
-	engine string,
+	engineDDL string,
 ) error {
 	var query string
-	if engine == "" {
+	if engineDDL == "" {
 		query = fmt.Sprintf("INSERT INTO TABLE %s (*) SELECT * FROM url(?,'Avro')", destinationTableIdentifier)
 	} else {
 		// https://github.com/ClickHouse/ClickHouse/issues/35408
 		query = fmt.Sprintf("CREATE TABLE %s ENGINE = %s SETTINGS allow_nullable_key = true EMPTY AS SELECT * FROM url(?,'Avro')",
-			destinationTableIdentifier, engine)
+			destinationTableIdentifier, engineDDL)
 	}
 
 	if err := c.database.Exec(ctx, query, avroFileUrl); err != nil {
-		if engine == "" {
+		if engineDDL == "" {
 			c.logger.Error("[ch] Failed to insert into select", slog.Any("error", err))
 			return err
 		} else {
@@ -146,7 +139,7 @@ func (c *ClickHouseConnector) SyncFromAvroUrl(
 		}
 	}
 
-	if engine != "" {
+	if engineDDL != "" {
 		// populate data now
 		return c.SyncFromAvroUrl(ctx, avroFileUrl, destinationTableIdentifier, "")
 	}

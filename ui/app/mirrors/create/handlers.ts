@@ -14,6 +14,7 @@ import {
   AllTablesResponse,
   ColumnsTypeConversionResponse,
   CreateCDCFlowRequest,
+  CreateImportS3Request,
   CreateQRepFlowRequest,
   PeerPublicationsResponse,
   PeerSchemasResponse,
@@ -22,7 +23,9 @@ import {
 } from '@/grpc_generated/route';
 import { Dispatch, SetStateAction } from 'react';
 
-import { CDCConfig, TableMapRow } from '../../dto/MirrorsDTO';
+import { CDCConfig, S3ImportConfig, TableMapRow } from '../../dto/MirrorsDTO';
+
+type RouteCallback = () => void;
 
 import {
   cdcSchema,
@@ -540,4 +543,98 @@ export async function fetchPublications(peerName: string) {
     }
   ).then((res) => res.json());
   return publicationsRes.publicationNames;
+}
+
+function S3ImportCheck(
+  flowJobName: string,
+  rows: TableMapRow[],
+  config: S3ImportConfig,
+  sourceType: DBType,
+  destinationType: DBType
+): string {
+  const flowNameValid = flowNameSchema.safeParse(flowJobName);
+  if (!flowNameValid.success) {
+    return flowNameValid.error.issues[0].message;
+  }
+
+  if (!config.cdcStagingPath || config.cdcStagingPath.trim() === '') {
+    return 'GCS Staging Path is required';
+  }
+
+  if (!config.cdcStagingPath.startsWith('gs://')) {
+    return 'GCS Staging Path must start with gs://';
+  }
+
+  // // Source peer must be BigQuery (supports AvroExportS3Connector via GCS)
+  // if (sourceType !== DBType.BIGQUERY) {
+  //   return 'S3 Import requires BigQuery as the source peer';
+  // }
+  //
+  // // Destination peer must be ClickHouse (supports AvroImportS3Connector)
+  // if (destinationType !== DBType.CLICKHOUSE) {
+  //   return 'S3 Import requires ClickHouse as the destination peer';
+  // }
+
+  if (config.parallelImports < 1 || config.parallelImports > 32) {
+    return 'Parallel imports must be between 1 and 32';
+  }
+
+  const selectedTables = rows.filter((row) => row?.selected === true && row?.canMirror === true);
+  if (selectedTables.length === 0) {
+    return 'At least one table must be selected for import';
+  }
+
+  return '';
+}
+
+export async function handleCreateS3Import(
+  flowJobName: string,
+  rows: TableMapRow[],
+  config: S3ImportConfig,
+  sourceType: DBType,
+  destinationType: DBType,
+  setLoading: Dispatch<SetStateAction<boolean>>,
+  route: RouteCallback
+) {
+  const err = S3ImportCheck(flowJobName, rows, config, sourceType, destinationType);
+  if (err) {
+    notifyErr(err);
+    return;
+  }
+
+  const tableMapping = reformattedTableMapping(rows);
+  let env: { [key: string]: string } = {};
+
+  if (config.envString) {
+    try {
+      env = JSON.parse(config.envString);
+    } catch (err: any) {
+      notifyErr('Invalid environment variables JSON: ' + err.message);
+      return;
+    }
+  }
+
+  const request: CreateImportS3Request = {
+    flowJobName,
+    cdcStagingPath: config.cdcStagingPath,
+    sourceName: config.sourceName,
+    destinationName: config.destinationName,
+    tableMappings: tableMapping,
+    env,
+    parallelImports: config.parallelImports,
+  };
+
+  setLoading(true);
+  const res = await fetch('/api/v1/flows/import/create', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+  if (!res.ok) {
+    setLoading(false);
+    notifyErr((await res.json()).message || 'Unable to create S3 Import mirror.');
+    return;
+  }
+  setLoading(false);
+  notifyErr('S3 Import Mirror created successfully', true);
+  route();
 }

@@ -25,7 +25,7 @@ message CreateQRepFlowResponse {
 
 message CreateImportS3Request {
   string flow_job_name = 1;
-  string cdc_staging_path = 2;
+  string cdc_staging_path = 2; // should we rename it to s3Url?
   string source_name = 3;
   string destination_name = 4;
   repeated peerdb_flow.TableMapping table_mappings = 5;

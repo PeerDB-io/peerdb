@@ -2,6 +2,7 @@
 
 import NewButton from '@/components/NewButton';
 import { ListMirrorsResponse } from '@/grpc_generated/route';
+import { DBType } from '@/grpc_generated/peers';
 import { Header } from '@/lib/Header';
 import { Label } from '@/lib/Label';
 import { LayoutMain } from '@/lib/Layout';
@@ -10,7 +11,7 @@ import { ProgressCircle } from '@/lib/ProgressCircle';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { fetcher } from '../utils/swr';
-import { CDCFlows, QRepFlows } from './tables';
+import { CDCFlows, ImportFlows, QRepFlows } from './tables';
 
 export default function Mirrors() {
   const {
@@ -23,7 +24,15 @@ export default function Mirrors() {
   );
 
   const cdcFlows = flows?.mirrors?.filter((flow) => flow.isCdc);
-  const qrepFlows = flows?.mirrors?.filter((flow) => !flow.isCdc);
+  const nonCdcFlows = flows?.mirrors?.filter((flow) => !flow.isCdc);
+  
+  // Separate Import flows (BigQuery → ClickHouse) from QRep flows
+  const importFlows = nonCdcFlows?.filter((flow) => 
+    flow.sourceType === DBType.BIGQUERY && flow.destinationType === DBType.CLICKHOUSE
+  );
+  const qrepFlows = nonCdcFlows?.filter((flow) => 
+    !(flow.sourceType === DBType.BIGQUERY && flow.destinationType === DBType.CLICKHOUSE)
+  );
 
   return (
     <LayoutMain alignSelf='flex-start' justifySelf='flex-start' width='full'>
@@ -38,7 +47,7 @@ export default function Mirrors() {
         </Header>
         <Label>
           Mirrors are used to replicate data from one peer to another. PeerDB
-          supports three modes of replication.
+          supports four modes of replication.
           <br></br>
           Begin moving data in minutes by following the simple
           <Label
@@ -65,6 +74,11 @@ export default function Mirrors() {
       {!isLoading && (
         <Panel>
           <CDCFlows cdcFlows={cdcFlows} />
+        </Panel>
+      )}
+      {!isLoading && (
+        <Panel className='mt-10'>
+          <ImportFlows importFlows={importFlows} />
         </Panel>
       )}
       {!isLoading && (

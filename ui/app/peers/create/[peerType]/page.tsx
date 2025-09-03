@@ -16,6 +16,7 @@ import TitleCase from '@/app/utils/titlecase';
 import ElasticsearchConfigForm from '@/components/PeerForms/ElasticsearchConfigForm';
 import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig';
 import {
+  BigqueryConfig,
   ElasticsearchConfig,
   EventHubGroupConfig,
   MongoConfig,
@@ -97,7 +98,7 @@ export default function CreateConfig({
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':
-        return <BigqueryForm setter={setConfig} />;
+        return <BigqueryForm setter={setConfig} config={config as BigqueryConfig} />;
       case 'CLICKHOUSE':
         return (
           <ClickHouseForm settings={clickhouseSetting} setter={setConfig} />

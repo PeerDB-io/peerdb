@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	"log/slog"
 	"net/url"
 	"reflect"
@@ -50,13 +51,14 @@ func NewBigQueryServiceAccount(bqConfig *protos.BigqueryConfig) (*utils.GcpServi
 
 type BigQueryConnector struct {
 	*metadataStore.PostgresMetadata
-	logger        log.Logger
-	bqConfig      *protos.BigqueryConfig
-	client        *bigquery.Client
-	storageClient *storage.Client
-	catalogPool   shared.CatalogPool
-	datasetID     string
-	projectID     string
+	logger          log.Logger
+	bqConfig        *protos.BigqueryConfig
+	client          *bigquery.Client
+	storageClient   *storage.Client
+	catalogPool     shared.CatalogPool
+	datasetID       string
+	projectID       string
+	useAsSourceOnly bool
 }
 
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
@@ -108,6 +110,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 		storageClient:    storageClient,
 		catalogPool:      catalogPool,
 		logger:           logger,
+		useAsSourceOnly:  config.GetUseAsSourceOnly(),
 	}, nil
 }
 
@@ -115,10 +118,33 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 // 1. Creates a table
 // 2. Inserts one row into the table
 // 3. Deletes the table
+//
+// todo kuba
+// Does this check makes sense for BigQuery as a source only?
+// It makes service account more privileged than it needs to be for export.
 func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
+	dataset := c.client.DatasetInProject(c.projectID, c.datasetID)
+
+	if c.useAsSourceOnly {
+		// using BigQuery as destination peer requires more privileges
+		// for a source only peer this is not needed, so we can check if we can
+		// query for tables
+
+		it := dataset.Tables(ctx)
+
+		_, err := it.Next()
+
+		if err != nil && !errors.Is(err, iterator.Done) {
+			return fmt.Errorf("unable to validate listing tables within dataset: %w. "+
+				"Please check if bigquery.tables.list permission has been granted", err)
+		}
+
+		return nil
+	}
+
 	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
 
-	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
+	newTable := dataset.Table(dummyTable)
 
 	createErr := newTable.Create(ctx, &bigquery.TableMetadata{
 		Schema: []*bigquery.FieldSchema{
@@ -962,15 +988,23 @@ func (c *BigQueryConnector) generateV4GetObjectSignedURL(bucket string, object s
 }
 
 func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.CreateImportS3Request) (map[string][]func() (string, error), error) {
+	bucketUrl, err := url.Parse(config.CdcStagingPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse CDC staging path %s: %w", config.CdcStagingPath, err)
+	}
+
 	jobs := make([]*bigquery.Job, 0, len(config.TableMappings))
 	for _, mapping := range config.TableMappings {
-		uri := fmt.Sprintf("%s/%s/*.avro", config.CdcStagingPath, url.PathEscape(mapping.SourceTableIdentifier))
-		gcsRef := bigquery.NewGCSReference(uri)
+		tableBucketUrl := bucketUrl.JoinPath(fmt.Sprintf("%s/*.avro", url.PathEscape(mapping.SourceTableIdentifier)))
+
+		gcsRef := bigquery.NewGCSReference(tableBucketUrl.String())
 		gcsRef.DestinationFormat = bigquery.Avro
 		gcsRef.AvroOptions = &bigquery.AvroOptions{UseAvroLogicalTypes: true}
 		gcsRef.Compression = bigquery.Deflate
 
-		extractor := c.client.DatasetInProject(c.projectID, c.datasetID).Table(mapping.SourceTableIdentifier).ExtractorTo(gcsRef)
+		datasetID, tableName := shared.SplitDatasetTableWithDefault(mapping.SourceTableIdentifier, c.datasetID)
+
+		extractor := c.client.DatasetInProject(c.projectID, datasetID).Table(tableName).ExtractorTo(gcsRef)
 		job, err := extractor.Run(ctx)
 		if err != nil {
 			return nil, err
@@ -985,10 +1019,19 @@ func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.Creat
 		}
 	}
 
+	// kuba question: can we start iterating over buckets straight without waiting for jobs to finish?
+	// ok - no, we cannot since objects are sorted lexicographically
+	// maybe we can optimize this later by iterating per each job and then iterating over objects in that prefix
+	// is it worth of it at all
+
 	ret := make(map[string][]func() (string, error), len(config.TableMappings))
 	for _, mapping := range config.TableMappings {
-		it := c.storageClient.Bucket(strings.TrimPrefix(config.CdcStagingPath, "gs://")).Objects(ctx, &storage.Query{
-			Prefix:    mapping.SourceTableIdentifier + "/",
+		tableBucketUrl := bucketUrl.JoinPath(mapping.SourceTableIdentifier + "/")
+		bucketName := tableBucketUrl.Host
+		bucketPrefix := tableBucketUrl.Path
+
+		it := c.storageClient.Bucket(bucketName).Objects(ctx, &storage.Query{
+			Prefix:    bucketPrefix[1:], // remove leading slash
 			Delimiter: "/",
 		})
 		for {
@@ -1006,6 +1049,181 @@ func (c *BigQueryConnector) AvroExport(ctx context.Context, config *protos.Creat
 	}
 
 	return ret, nil
+}
+
+func (c *BigQueryConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
+	dataset := c.client.DatasetInProject(c.projectID, c.datasetID)
+	it := dataset.Tables(ctx)
+
+	var tables []string
+	for {
+		table, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate tables: %w", err)
+		}
+
+		// Return table name in format "dataset.table"
+		tableFullName := fmt.Sprintf("%s.%s", c.datasetID, table.TableID)
+		tables = append(tables, tableFullName)
+	}
+
+	return &protos.AllTablesResponse{
+		Tables: tables,
+	}, nil
+}
+
+// bigQueryTypeToPeerDBType maps BigQuery field types to PeerDB type strings
+func bigQueryTypeToPeerDBType(fieldType bigquery.FieldType) string {
+	switch fieldType {
+	case bigquery.StringFieldType:
+		return string(types.QValueKindString)
+	case bigquery.IntegerFieldType:
+		return string(types.QValueKindInt64)
+	case bigquery.FloatFieldType:
+		return string(types.QValueKindFloat64)
+	case bigquery.BooleanFieldType:
+		return string(types.QValueKindBoolean)
+	case bigquery.TimestampFieldType:
+		return string(types.QValueKindTimestampTZ)
+	case bigquery.DateFieldType:
+		return string(types.QValueKindDate)
+	case bigquery.DateTimeFieldType:
+		return string(types.QValueKindTimestamp)
+	case bigquery.TimeFieldType:
+		return string(types.QValueKindTime)
+	case bigquery.NumericFieldType:
+		return string(types.QValueKindNumeric)
+	case bigquery.BigNumericFieldType:
+		return string(types.QValueKindNumeric)
+	case bigquery.BytesFieldType:
+		return string(types.QValueKindBytes)
+	case bigquery.JSONFieldType:
+		return string(types.QValueKindJSONB)
+	case bigquery.GeographyFieldType:
+		return string(types.QValueKindGeography)
+	case bigquery.RecordFieldType:
+		return string(types.QValueKindJSONB) // Treat records as JSON
+	default:
+		return string(types.QValueKindString) // Default to string for unknown types
+	}
+}
+
+func (c *BigQueryConnector) GetColumns(ctx context.Context, _ uint32, schema string, table string) (*protos.TableColumnsResponse, error) {
+	// Use the provided schema if given, otherwise use the connector's default dataset
+	datasetID := schema
+	if datasetID == "" {
+		datasetID = c.datasetID
+	}
+
+	tableRef := c.client.DatasetInProject(c.projectID, datasetID).Table(table)
+	metadata, err := tableRef.Metadata(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get table metadata for %s.%s: %w", datasetID, table, err)
+	}
+
+	var columns []*protos.ColumnsItem
+	for _, field := range metadata.Schema {
+		// Map BigQuery field types to PeerDB types
+		columnType := bigQueryTypeToPeerDBType(field.Type)
+
+		columns = append(columns, &protos.ColumnsItem{
+			Name:  field.Name,
+			Type:  string(field.Type), // Use BigQuery's native type string
+			IsKey: false,              // BigQuery doesn't have traditional primary keys, would need to check constraints
+			Qkind: columnType,         // Use mapped PeerDB type for qkind
+		})
+	}
+
+	return &protos.TableColumnsResponse{
+		Columns: columns,
+	}, nil
+}
+
+func (c *BigQueryConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error) {
+	// List all datasets in the project
+	it := c.client.Datasets(ctx)
+
+	var schemas []string
+	for {
+		dataset, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate datasets: %w", err)
+		}
+
+		schemas = append(schemas, dataset.DatasetID)
+	}
+
+	return &protos.PeerSchemasResponse{
+		Schemas: schemas,
+	}, nil
+}
+
+func (c *BigQueryConnector) GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error) {
+	// Use the provided schema (dataset) or default to the connector's dataset
+	datasetID := schema
+	if datasetID == "" {
+		datasetID = c.datasetID
+	}
+
+	dataset := c.client.DatasetInProject(c.projectID, datasetID)
+	it := dataset.Tables(ctx)
+
+	var tables []*protos.TableResponse
+	for {
+		table, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("failed to iterate tables in dataset %s: %w", datasetID, err)
+		}
+
+		// Get table metadata to determine size
+		metadata, err := table.Metadata(ctx)
+		if err != nil {
+			c.logger.Warn("failed to get table metadata", slog.String("table", table.TableID), slog.Any("error", err))
+			// Continue without size information
+			tables = append(tables, &protos.TableResponse{
+				TableName: table.TableID,
+				CanMirror: true, // BigQuery tables can generally be mirrored
+				TableSize: "Unknown",
+			})
+			continue
+		}
+
+		// Format table size
+		var tableSize string
+		if metadata.NumBytes > 0 {
+			// Convert bytes to human-readable format
+			if metadata.NumBytes < 1024 {
+				tableSize = fmt.Sprintf("%d B", metadata.NumBytes)
+			} else if metadata.NumBytes < 1024*1024 {
+				tableSize = fmt.Sprintf("%.1f KB", float64(metadata.NumBytes)/1024)
+			} else if metadata.NumBytes < 1024*1024*1024 {
+				tableSize = fmt.Sprintf("%.1f MB", float64(metadata.NumBytes)/(1024*1024))
+			} else {
+				tableSize = fmt.Sprintf("%.1f GB", float64(metadata.NumBytes)/(1024*1024*1024))
+			}
+		} else {
+			tableSize = "0 B"
+		}
+
+		tables = append(tables, &protos.TableResponse{
+			TableName: table.TableID,
+			CanMirror: true, // BigQuery tables can generally be mirrored
+			TableSize: tableSize,
+		})
+	}
+
+	return &protos.SchemaTablesResponse{
+		Tables: tables,
+	}, nil
 }
 
 type datasetTable struct {

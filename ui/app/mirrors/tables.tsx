@@ -98,6 +98,82 @@ export function CDCFlows({ cdcFlows }: { cdcFlows: ListMirrorsItem[] }) {
   );
 }
 
+// import flows table for S3 Import mirrors
+export function ImportFlows({ importFlows }: { importFlows: ListMirrorsItem[] }) {
+  if (importFlows?.length === 0) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          rowGap: '1rem',
+          width: 'fit-content',
+        }}
+      >
+        <Label variant='headline'>S3 Import (BigQuery → ClickHouse)</Label>
+        <NewButton
+          targetPage={`/mirrors/create?type=${MirrorType.S3Import}`}
+          buttonText='Create your first S3 Import mirror'
+        />
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Label variant='headline'>S3 Import (BigQuery → ClickHouse)</Label>
+      <div style={{ ...tableStyle, maxHeight: '35vh' }}>
+        <Table
+          header={
+            <TableRow>
+              {['Name', 'Source', 'Destination', 'Start Time', ''].map(
+                (heading, index) => (
+                  <TableCell as='th' key={index}>
+                    <Label as='label' style={{ fontWeight: 'bold' }}>
+                      {heading}
+                    </Label>
+                  </TableCell>
+                )
+              )}
+            </TableRow>
+          }
+        >
+          {importFlows.map((flow) => (
+            <TableRow key={flow.id}>
+              <TableCell>
+                <MirrorLink flowName={flow.name} />
+              </TableCell>
+              <TableCell>
+                <PeerButton
+                  peerName={flow.sourceName}
+                  peerType={flow.sourceType}
+                />
+              </TableCell>
+              <TableCell>
+                <PeerButton
+                  peerName={flow.destinationName}
+                  peerType={flow.destinationType}
+                />
+              </TableCell>
+              <TableCell>
+                <TimeLabel timeVal={new Date(flow.createdAt)} />
+              </TableCell>
+              <TableCell>
+                <DropDialog
+                  mode='MIRROR'
+                  dropArgs={{
+                    flowJobName: flow.name,
+                  }}
+                />
+              </TableCell>
+            </TableRow>
+          ))}
+        </Table>
+      </div>
+    </>
+  );
+}
+
 // query replication flows table like CDC flows table
 export function QRepFlows({
   qrepFlows,

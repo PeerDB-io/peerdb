@@ -7,14 +7,17 @@ import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { TextField } from '@/lib/TextField';
 import { Tooltip } from '@/lib/Tooltip';
+import { Switch } from '@/lib/Switch';
 import Link from 'next/link';
 import { useState } from 'react';
 
 interface BQProps {
   setter: PeerSetter;
+  config?: BigqueryConfig;
 }
 export default function BigqueryForm(props: BQProps) {
   const [datasetID, setDatasetID] = useState<string>('');
+  const [useAsSourceOnly, setUseAsSourceOnly] = useState<boolean>(props.config?.useAsSourceOnly ?? false);
   const handleJSONFile = (file: File) => {
     if (file) {
       const reader = new FileReader();
@@ -40,6 +43,7 @@ export default function BigqueryForm(props: BQProps) {
           authProviderX509CertUrl: bqJson.auth_provider_x509_cert_url,
           clientX509CertUrl: bqJson.client_x509_cert_url,
           datasetId: datasetID,
+          useAsSourceOnly: useAsSourceOnly,
         };
         props.setter(bqConfig);
       };
@@ -81,7 +85,7 @@ export default function BigqueryForm(props: BQProps) {
             variant='simple'
             type='file'
             style={{ border: 'none', height: 'auto' }}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            onChange={(e) =>
               e.target.files && handleJSONFile(e.target.files[0])
             }
           />
@@ -125,6 +129,29 @@ export default function BigqueryForm(props: BQProps) {
               link='https://cloud.google.com/bigquery/docs/datasets'
             />
           </div>
+        }
+      />
+
+      <RowWithTextField
+        label={
+          <Label>
+            Use as source only
+            <InfoPopover
+              tips='When enabled, this BigQuery peer can only be used as a source for data replication, not as a target.'
+            />
+          </Label>
+        }
+        action={
+          <Switch
+            checked={useAsSourceOnly}
+            onCheckedChange={(checked: boolean) => {
+              setUseAsSourceOnly(checked);
+              props.setter((curr) => ({
+                ...curr,
+                useAsSourceOnly: checked,
+              }));
+            }}
+          />
         }
       />
     </>

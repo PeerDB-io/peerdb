@@ -350,6 +350,7 @@ export const bqSchema = z.object({
     })
     .min(1, { message: 'Dataset ID must be non-empty' })
     .max(1024, 'DatasetID must be less than 1025 characters'),
+  useAsSourceOnly: z.boolean().optional(),
 });
 
 export function chSchema(hostDomains: string[]) {

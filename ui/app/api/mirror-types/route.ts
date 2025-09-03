@@ -16,6 +16,12 @@ export async function GET(_: NextRequest) {
         'Query Replication allows you to specify a set of rows to be synced via a SELECT query. Useful for replicating views and tables without primary keys.',
       link: 'https://docs.peerdb.io/usecases/Streaming%20Query%20Replication/overview',
     },
+    {
+      title: MirrorType.S3Import,
+      description:
+        'Transfer data from BigQuery to ClickHouse via Google Cloud Storage. BigQuery exports data as Avro files to GCS, then ClickHouse imports the data.',
+      link: 'https://docs.peerdb.io/usecases/Real-time%20CDC/overview',
+    },
   ];
   const xminCard = {
     title: MirrorType.XMin,
