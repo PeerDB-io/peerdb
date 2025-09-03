@@ -560,7 +560,7 @@ func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
 	err := driver.Error{
 		Message: "connection pool for <host>:<port> was cleared because another operation failed with",
 		Labels:  []string{driver.TransientTransactionError},
-		Wrapped: errors.New("the server is in quiesce mode and shut down"),
+		Wrapped: errors.New("the server is in quiesce mode and will shut down"),
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
 	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
