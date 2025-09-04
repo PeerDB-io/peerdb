@@ -236,6 +236,7 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 	}
 	if currentPartition == nil {
 		// should only happen when partition column entirely nil, okay to ignore initial load in this case
+		p.logger.Warn("null partition, skipping", slog.Any("start", start), slog.Any("end", end))
 		return nil
 	}
 
@@ -291,6 +292,7 @@ func (p *PartitionHelper) AddPartitionsWithRange(start any, end any, numPartitio
 	if err != nil {
 		return err
 	} else if partition == nil {
+		p.logger.Warn("null partition range, skipping", slog.Any("start", start), slog.Any("end", end))
 		return nil
 	}
 
