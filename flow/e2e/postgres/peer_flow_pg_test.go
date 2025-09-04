@@ -13,6 +13,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
@@ -934,11 +935,12 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 		return s.comparePGTables(srcTable1Name, dstTable1Name, "id,t") == nil
 	})
 
-	workflowState := e2e.EnvGetWorkflowState(s.t, env)
-	assert.EqualValues(s.t, 7, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
-	assert.EqualValues(s.t, 6, workflowState.SyncFlowOptions.BatchSize)
-	assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 1)
-	assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 1)
+	updatedConfig, err := internal.FetchConfigFromDB(config.FlowJobName)
+	require.NoError(s.t, err)
+	assert.EqualValues(s.t, 7, updatedConfig.IdleTimeoutSeconds)
+	assert.EqualValues(s.t, 6, updatedConfig.MaxBatchSize)
+	assert.Len(s.t, updatedConfig.TableMappings, 1)
+	assert.Len(s.t, updatedConfig.SrcTableIdNameMapping, 1)
 
 	if !s.t.Failed() {
 		e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
@@ -976,11 +978,12 @@ func (s PeerFlowE2ETestSuitePG) Test_Dynamic_Mirror_Config_Via_Signals() {
 			return s.comparePGTables(srcTable2Name, dstTable2Name, "id,t") == nil
 		})
 
-		workflowState = e2e.EnvGetWorkflowState(s.t, env)
-		assert.EqualValues(s.t, 14, workflowState.SyncFlowOptions.IdleTimeoutSeconds)
-		assert.EqualValues(s.t, 12, workflowState.SyncFlowOptions.BatchSize)
-		assert.Len(s.t, workflowState.SyncFlowOptions.TableMappings, 2)
-		assert.Len(s.t, workflowState.SyncFlowOptions.SrcTableIdNameMapping, 2)
+		updatedConfig, err = internal.FetchConfigFromDB(config.FlowJobName)
+		require.NoError(s.t, err)
+		assert.EqualValues(s.t, 14, updatedConfig.IdleTimeoutSeconds)
+		assert.EqualValues(s.t, 12, updatedConfig.MaxBatchSize)
+		assert.Len(s.t, updatedConfig.TableMappings, 2)
+		assert.Len(s.t, updatedConfig.SrcTableIdNameMapping, 2)
 	}
 
 	env.Cancel(s.t.Context())

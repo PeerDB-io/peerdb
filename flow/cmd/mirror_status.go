@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 func (h *FlowRequestHandler) ListMirrors(
@@ -136,23 +135,6 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 	if err != nil {
 		slog.Error("unable to query flow config from catalog", slog.Any("error", err))
 		return nil, err
-	}
-	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
-	if err != nil {
-		slog.Error("unable to get the workflow ID of mirror", slog.Any("error", err))
-		return nil, err
-	}
-	state, err := h.getCDCWorkflowState(ctx, workflowID)
-	if err != nil {
-		slog.Error("unable to get the state of mirror", slog.Any("error", err))
-		return nil, err
-	}
-
-	// patching config to show latest values from state
-	if state.SyncFlowOptions != nil {
-		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
-		config.MaxBatchSize = state.SyncFlowOptions.BatchSize
-		config.TableMappings = state.SyncFlowOptions.TableMappings
 	}
 
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
@@ -462,7 +444,7 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
 	if err := h.pool.QueryRow(ctx,
-		"SELECT config_proto FROM flows WHERE name = $1", flowJobName,
+		"SELECT config_proto FROM flows WHERE name = $1 LIMIT 1", flowJobName,
 	).Scan(&configBytes); err != nil {
 		slog.Error("unable to query flow config from catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
@@ -490,24 +472,6 @@ func (h *FlowRequestHandler) isCDCFlow(ctx context.Context, flowJobName string) 
 
 func (h *FlowRequestHandler) getWorkflowStatus(ctx context.Context, workflowID string) (protos.FlowStatus, error) {
 	return internal.GetWorkflowStatus(ctx, h.pool, workflowID)
-}
-
-func (h *FlowRequestHandler) getCDCWorkflowState(ctx context.Context,
-	workflowID string,
-) (*peerflow.CDCFlowWorkflowState, error) {
-	res, err := h.temporalClient.QueryWorkflow(ctx, workflowID, "", shared.CDCFlowStateQuery)
-	if err != nil {
-		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
-		return nil,
-			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
-	}
-	var state peerflow.CDCFlowWorkflowState
-	if err := res.Get(&state); err != nil {
-		slog.Error(fmt.Sprintf("failed to get state in workflow with ID %s: %s", workflowID, err.Error()))
-		return nil,
-			fmt.Errorf("failed to get state in workflow with ID %s: %w", workflowID, err)
-	}
-	return &state, nil
 }
 
 func (h *FlowRequestHandler) getMirrorCreatedAt(ctx context.Context, flowJobName string) (*time.Time, error) {
