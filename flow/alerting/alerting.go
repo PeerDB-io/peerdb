@@ -16,6 +16,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
@@ -481,6 +482,10 @@ func (a *Alerter) logFlowErrorInternal(
 	var myErr *mysql.MyError
 	if errors.As(inErr, &myErr) {
 		tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
+	}
+	var mongoErr *driver.Error
+	if errors.As(inErr, &mongoErr) {
+		tags = append(tags, fmt.Sprintf("mongocode:%d", mongoErr.Code))
 	}
 	var chErr *clickhouse.Exception
 	if errors.As(inErr, &chErr) {
