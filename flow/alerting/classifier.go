@@ -159,11 +159,7 @@ var (
 		Class: "WARNING_LOSSY_CONVERSION", action: NotifyUser,
 	}
 	ErrorUnsupportedSchemaChange = ErrorClass{
-		Class: "ERROR_UNSUPPORTED_SCHEMA_CHANGE", action: NotifyUser,
-	}
-	ErrorOther = ErrorClass{
-		// These are unclassified and should not be exposed
-		Class: "OTHER", action: NotifyTelemetry,
+		Class: "NOTIFY_UNSUPPORTED_SCHEMA_CHANGE", action: NotifyUser,
 	}
 	// Postgres 16.9/17.5 etc. introduced a bug where certain workloads can cause logical replication to
 	// request a memory allocation of >1GB, which is not allowed by Postgres. Fixed already, but we need to handle this error
@@ -174,6 +170,10 @@ var (
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
+	}
+	ErrorOther = ErrorClass{
+		// These are unclassified and should not be exposed
+		Class: "OTHER", action: NotifyTelemetry,
 	}
 )
 
