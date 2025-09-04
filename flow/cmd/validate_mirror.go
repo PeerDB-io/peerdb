@@ -92,6 +92,16 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		if getTableSchemaError != nil {
 			return nil, fmt.Errorf("failed to get source table schema: %w", getTableSchemaError)
 		}
+		for _, tableMapping := range req.ConnectionConfigs.TableMappings {
+			srcTableName := tableMapping.SourceTableIdentifier
+			if schema, ok := tableSchemaMap[srcTableName]; ok {
+				for _, fd := range schema.Columns {
+					if fd.Name == tableMapping.PartitionKey && fd.Nullable {
+						return nil, fmt.Errorf("partition key can not be NULLABLE, nullable column %s detected", tableMapping.PartitionKey)
+					}
+				}
+			}
+		}
 	}
 	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap); err != nil {
 		return nil, err
