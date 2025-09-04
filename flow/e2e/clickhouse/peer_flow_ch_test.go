@@ -2425,7 +2425,55 @@ func (s ClickHouseSuite) Test_Partition_Key_Empty() {
 
 	var partitionCount int
 	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
-	require.GreaterOrEqual(s.t, partitionCount, 0, "expected no partitions to be created")
+	require.Zero(s.t, partitionCount, "expected no partitions to be created")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// edge case: min/max will be null. initial load should skip these for now, & not panic
+func (s ClickHouseSuite) Test_Partition_Key_Null() {
+	srcTableName := "test_partition_key_null"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_partition_key_null"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id INT PRIMARY KEY,
+		myname TEXT NOT NULL,
+		updated_at TIMESTAMP)`, srcFullName)))
+
+	for i := 1; i <= 100; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf(`INSERT INTO %s (id,myname) VALUES (%d,'init_%d')`, srcFullName, i, i)))
+	}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_partition_key_null"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			PartitionKey:               "updated_at",
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	countRow := s.Conn().QueryRow(s.t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+
+	var partitionCount int
+	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
+	require.Zero(s.t, partitionCount, "expected no partitions to be created")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
