@@ -451,7 +451,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			Code:   strconv.Itoa(int(mongoErr.Code)),
 		}
 
-		if mongoErr.RetryableRead() {
+		var retryablePoolErr driver.RetryablePoolError
+		if mongoErr.RetryableRead() || (errors.As(mongoErr, &retryablePoolErr) && retryablePoolErr.Retryable()) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
