@@ -415,6 +415,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1049, // ER_BAD_DB_ERROR
 			1051, // ER_BAD_TABLE_ERROR
 			1053, // ER_SERVER_SHUTDOWN
+			1094, // ER_NO_SUCH_THREAD
 			1102, // ER_WRONG_DB_NAME
 			1103, // ER_WRONG_TABLE_NAME
 			1109, // ER_UNKNOWN_TABLE
