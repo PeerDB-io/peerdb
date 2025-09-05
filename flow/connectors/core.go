@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
 
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
@@ -308,7 +309,13 @@ func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName 
 	row := catalogPool.QueryRow(ctx, "SELECT type FROM peers WHERE name = $1", peerName)
 	var dbtype protos.DBType
 	err := row.Scan(&dbtype)
-	return dbtype, err
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, fmt.Errorf("peer not found: %s", peerName)
+		}
+		return 0, fmt.Errorf("failed to load peer type for %s: %w", peerName, err)
+	}
+	return dbtype, nil
 }
 
 func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]protos.DBType, error) {
@@ -318,19 +325,31 @@ func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerName
 
 	rows, err := catalogPool.Query(ctx, "SELECT name, type FROM peers WHERE name = ANY($1)", peerNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query peer types: %w", err)
 	}
-	defer rows.Close()
 
-	peerTypes := make(map[string]protos.DBType)
-	for rows.Next() {
-		var peerName string
-		var dbtype protos.DBType
-		if err := rows.Scan(&peerName, &dbtype); err != nil {
-			return nil, err
-		}
+	peerTypes := make(map[string]protos.DBType, len(peerNames))
+	var peerName string
+	var dbtype protos.DBType
+	if _, err := pgx.ForEachRow(rows, []any{&peerName, &dbtype}, func() error {
 		peerTypes[peerName] = dbtype
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("error querying peer rows: %w", err)
 	}
+
+	// Verify all requested peers were found
+	var missingPeers []string
+	for _, peerName := range peerNames {
+		if _, found := peerTypes[peerName]; !found {
+			missingPeers = append(missingPeers, peerName)
+		}
+	}
+
+	if len(missingPeers) > 0 {
+		return nil, fmt.Errorf("peers not found: %v", missingPeers)
+	}
+
 	return peerTypes, nil
 }
 
