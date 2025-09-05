@@ -9,7 +9,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-func RequestLoggingMiddleWare() grpc.UnaryServerInterceptor {
+func RequestLoggingMiddleware() grpc.UnaryServerInterceptor {
 	if !internal.PeerDBRAPIRequestLoggingEnabled() {
 		slog.Info("Request Logging Interceptor is disabled")
 		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
