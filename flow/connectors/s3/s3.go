@@ -81,7 +81,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	streamReq := model.NewRecordsToStreamRequest(
 		req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID, false, protos.DBType_S3,
 	)
-	recordStream, err := utils.RecordsToRawTableStream(streamReq, nil)
+	recordStream, err := utils.RecordsToRawTableStream(streamReq, nil, 1<<17)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}

@@ -119,7 +119,11 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		protos.DBType_CLICKHOUSE,
 	)
 	numericTruncator := model.NewStreamNumericTruncator(req.TableMappings, peerdb_clickhouse.NumericDestinationTypes)
-	stream, err := utils.RecordsToRawTableStream(streamReq, numericTruncator)
+	recordsStreamChannelSize, err := internal.PeerDBRecordsStreamChannelSize(ctx, req.Env)
+	if err != nil {
+		return nil, err
+	}
+	stream, err := utils.RecordsToRawTableStream(streamReq, numericTruncator, recordsStreamChannelSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}

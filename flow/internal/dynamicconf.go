@@ -257,6 +257,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
 	},
 	{
+		Name:             "PEERDB_RECORDS_STREAM_CHANNEL_SIZE",
+		Description:      "TESTING",
+		DefaultValue:     "131072",
+		ValueType:        protos.DynconfValueType_INT,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_ENABLE_JSON",
 		Description:      "Map JSON datatype from source to JSON in ClickHouse instead of String",
 		DefaultValue:     "false",
@@ -603,6 +611,10 @@ func PeerDBClickHouseParallelNormalize(ctx context.Context, env map[string]strin
 
 func PeerDBEnableClickHouseNumericAsString(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_CLICKHOUSE_UNBOUNDED_NUMERIC_AS_STRING")
+}
+
+func PeerDBRecordsStreamChannelSize(ctx context.Context, env map[string]string) (int, error) {
+	return dynamicConfSigned[int](ctx, env, "PEERDB_RECORDS_STREAM_CHANNEL_SIZE")
 }
 
 func PeerDBEnableClickHouseJSON(ctx context.Context, env map[string]string) (bool, error) {
