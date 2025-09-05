@@ -842,6 +842,7 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInform
 		})
 		if err != nil {
 			logger.Error("Failed to get flow metadata", slog.Any("error", err))
+			return err
 		}
 		ctx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 		logger := internal.LoggerFromCtx(ctx)
@@ -908,6 +909,7 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInform
 				})
 				if err != nil {
 					logger.Error("Failed to get flow metadata", slog.Any("error", err))
+					return err
 				}
 				ctx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 
@@ -963,6 +965,7 @@ func (a *FlowableActivity) recordSlotInformation(
 	})
 	if err != nil {
 		logger.Error("Failed to get flow metadata", slog.Any("error", err))
+		return
 	}
 	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
@@ -1002,6 +1005,7 @@ func (a *FlowableActivity) emitLogRetentionHours(
 	})
 	if err != nil {
 		logger.Error("Failed to get flow metadata", slog.Any("error", err))
+		return
 	}
 	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 	srcConn, err := connectors.GetByNameAs[connectors.GetLogRetentionConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
