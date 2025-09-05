@@ -15,7 +15,7 @@ func LogError(logger log.Logger, err error) error {
 
 var _ slog.Handler = SlogHandler{}
 
-var fields = []ContextKey{FlowNameKey, PartitionIDKey}
+var fields = []ContextKey{FlowNameKey, PartitionIDKey, RequestIdKey}
 
 type SlogHandler struct {
 	slog.Handler
