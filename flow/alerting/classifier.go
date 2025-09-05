@@ -493,12 +493,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
-		case chproto.ErrCannotInsertNullInOrdinaryColumn,
-			chproto.ErrNotImplemented,
-			chproto.ErrTooManyParts:
-			if isClickHouseMvError(chException) {
-				return ErrorNotifyMVOrView, chErrorInfo
-			}
 		case chproto.ErrUnknownDatabase:
 			return ErrorNotifyConnectivity, chErrorInfo
 		case chproto.ErrKeeperException,
@@ -538,9 +532,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			691, // UNKNOWN_ELEMENT_OF_ENUM
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
-			if isClickHouseMvError(chException) {
-				return ErrorNotifyMVOrView, chErrorInfo
-			}
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				// could cause false positives, but should be rare
@@ -549,15 +540,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case chproto.ErrQueryWasCancelled,
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
+			chproto.ErrSocketTimeout,
 			517: // CANNOT_ASSIGN_ALTER
 			return ErrorRetryRecoverable, chErrorInfo
-		default:
-			if isClickHouseMvError(chException) {
-				return ErrorNotifyMVOrView, chErrorInfo
+		case chproto.ErrTimeoutExceeded:
+			if strings.HasSuffix(chException.Message, "distributed_ddl_task_timeout") {
+				return ErrorRetryRecoverable, chErrorInfo
 			}
 		}
 		var normalizationErr *exceptions.NormalizationError
-		if errors.As(err, &normalizationErr) {
+		if isClickHouseMvError(chException) {
+			return ErrorNotifyMVOrView, chErrorInfo
+		} else if errors.As(err, &normalizationErr) {
 			// notify if normalization hits error on destination
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
