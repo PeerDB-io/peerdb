@@ -750,13 +750,12 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 			logger.Info(name+" completed", slog.Duration("duration", time.Since(now)))
 		}
 	}
-	var allFlows atomic.Pointer[[]flowInformation]
-	defer shared.Interval(ctx, 59*time.Second, func() {
+
+	queryFlowsInfo := func() ([]flowInformation, error) {
 		rows, err := a.CatalogPool.Query(ctx,
 			"SELECT DISTINCT ON (name) name, config_proto, workflow_id, updated_at FROM flows WHERE query_string IS NULL")
 		if err != nil {
-			logger.Error("failed to query all flows", slog.Any("error", err))
-			return
+			return []flowInformation{}, err
 		}
 
 		infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (flowInformation, error) {
@@ -779,8 +778,26 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 				updatedAt:  updatedAt,
 			}, nil
 		})
+		return infos, err
+	}
+
+	// final metrics recording before workflow exits (but don't sweat it if it fails)
+	defer func() {
+		infos, _ := queryFlowsInfo()
+		if infos == nil {
+			return
+		}
+		finalCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = a.RecordMetrics(finalCtx, infos)
+		_ = a.RecordSlotSizes(finalCtx, infos)
+	}()
+
+	var allFlows atomic.Pointer[[]flowInformation]
+	defer shared.Interval(ctx, 59*time.Second, func() {
+		infos, err := queryFlowsInfo()
 		if err != nil {
-			logger.Error("failed to process result of all flows", slog.Any("error", err))
+			logger.Error("failed to query flows info", slog.Any("error", err))
 		}
 		allFlows.Store(&infos)
 	})()
@@ -803,6 +820,7 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	}))()
 	<-ctx.Done()
 	logger.Info("Stopping scheduled tasks due to context done", slog.Any("error", ctx.Err()))
+
 	return nil
 }
 
