@@ -14,9 +14,11 @@ func RequestIdMiddleware() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		md, _ := metadata.FromIncomingContext(ctx)
 		requestIds := md.Get(shared.RequestIdKey.String())
-		requestId := uuid.NewString()
-		if requestIds != nil {
+		var requestId string
+		if len(requestIds) > 0 {
 			requestId = requestIds[0]
+		} else {
+			requestId = uuid.NewString()
 		}
 		return handler(context.WithValue(ctx, shared.RequestIdKey, requestId), req)
 	}
