@@ -105,6 +105,8 @@ export default function CDCConfigForm({
           destinationType.toString() === DBType[DBType.BIGQUERY] ||
           destinationType.toString() === DBType[DBType.SNOWFLAKE]
         )) ||
+      (label.includes('hard delete') &&
+        !(destinationType.toString() === DBType[DBType.CLICKHOUSE])) ||
       (!scriptingEnabled &&
         label.includes('script') &&
         destinationType.toString() === DBType[DBType.CLICKHOUSE])

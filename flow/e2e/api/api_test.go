@@ -528,6 +528,92 @@ func (s Suite) TestDropCompleted() {
 	})
 }
 
+// TestHardDelete tests the hard deletion functionality where
+// PeerDB includes the _peerdb_is_deleted column in the ReplacingMergeTree params of ClickHouse
+func (s Suite) TestHardDelete() {
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key)", e2e.AttachSchema(s, "original"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id) values (1)", e2e.AttachSchema(s, "original"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key)", e2e.AttachSchema(s, "added"))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id) values (1)", e2e.AttachSchema(s, "added"))))
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName:      "hard_delete_" + s.suffix,
+		TableNameMapping: map[string]string{e2e.AttachSchema(s, "original"): "original"},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SoftDeleteColName = "_peerdb_is_deleted" // sets up hard delete
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	tc := e2e.NewTemporalClient(s.t)
+	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+	e2e.RequireEqualTables(s.ch, "original", "id")
+
+	// DELETE id=1
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("DELETE FROM %s WHERE id = 1", e2e.AttachSchema(s, "original"))))
+
+	e2e.EnvWaitForEqualTables(env, s.ch, "delete original", "original", "id")
+	// Add table "added"
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
+	})
+	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
+	})
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
+		FlowConfigUpdate: &protos.FlowConfigUpdate{
+			Update: &protos.FlowConfigUpdate_CdcFlowConfigUpdate{
+				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
+					AdditionalTables: []*protos.TableMapping{
+						{
+							SourceTableIdentifier:      e2e.AttachSchema(s, "added"),
+							DestinationTableIdentifier: "added",
+						},
+					},
+				},
+			},
+		},
+	})
+	require.NoError(s.t, err)
+	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
+		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
+			e2e.AttachSchema(s, "added"),
+			e2e.AttachSchema(s, "original"),
+		})
+		if err != nil {
+			return false
+		}
+		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// DELETE id=1
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("DELETE FROM %s WHERE id = 1", e2e.AttachSchema(s, "added"))))
+
+	e2e.EnvWaitForEqualTables(env, s.ch, "delete added", "added", "id")
+
+	require.NoError(s.t, s.ch.CheckHardDeletionInRMT("original"))
+	require.NoError(s.t, s.ch.CheckHardDeletionInRMT("added"))
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
 func (s Suite) TestEditTablesBeforeResync() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "original"))))
