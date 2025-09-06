@@ -1416,7 +1416,7 @@ func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, e
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
 }
 
-func (a *FlowableActivity) UpdateFlowStatusInCatalogActivity(
+func (a *FlowableActivity) UpdateFlowStatusInCatalogLocalActivity(
 	ctx context.Context,
 	workflowID string,
 	status protos.FlowStatus,
