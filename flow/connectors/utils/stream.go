@@ -16,7 +16,7 @@ import (
 func RecordsToRawTableStream[Items model.Items](
 	req *model.RecordsToStreamRequest[Items], numericTruncator model.StreamNumericTruncator,
 ) (*model.QRecordStream, error) {
-	recordStream := model.NewQRecordStream(1 << 17)
+	recordStream := model.NewQRecordStream(1024)
 	recordStream.SetSchema(types.QRecordSchema{
 		Fields: []types.QField{
 			{
