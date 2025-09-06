@@ -73,7 +73,7 @@ func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.
 	})
 
 	updateFuture := workflow.ExecuteLocalActivity(updateCtx,
-		updateFlowStatusInCatalogActivity, workflow.GetInfo(ctx).WorkflowExecution.ID, status)
+		flowable.UpdateFlowStatusInCatalogLocalActivity, workflow.GetInfo(ctx).WorkflowExecution.ID, status)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
