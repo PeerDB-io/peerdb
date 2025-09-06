@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	jsoniter "github.com/json-iterator/go"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -107,13 +108,15 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	var numBytes int64
 	const logPerRows = 50000
 
+	jsonApi := createExtendedJSONUnmarshaler()
+
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
 			qe.logger.Info("Context canceled, exiting processRowsStream early")
 			return numRows, numBytes, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, fieldDescriptions)
+		record, err := qe.mapRowToQRecord(rows, fieldDescriptions, jsonApi)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -316,16 +319,68 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 func (qe *QRepQueryExecutor) mapRowToQRecord(
 	row pgx.Rows,
 	fds []pgconn.FieldDescription,
+	jsonApi jsoniter.API,
 ) ([]types.QValue, error) {
-	// make vals an empty array of QValue of size len(fds)
-	record := make([]types.QValue, len(fds))
+	rawValues := row.RawValues()
+	values := make([]any, len(fds))
+	for i, fd := range fds {
+		buf := rawValues[i]
 
-	values, err := row.Values()
-	if err != nil {
-		qe.logger.Error("[pg_query_executor] failed to get values from row", slog.Any("error", err))
-		return nil, fmt.Errorf("failed to scan row: %w", err)
+		if buf == nil {
+			values[i] = nil
+			continue
+		}
+
+		// Special handling for JSON types
+		switch fd.DataTypeOID {
+		case pgtype.JSONOID, pgtype.JSONBOID:
+			if err := jsonApi.Unmarshal(buf, &values[i]); err != nil {
+				qe.logger.Error("[pg_query_executor] failed to unmarshal json", slog.Any("error", err))
+				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+			}
+		case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
+			textArr := &pgtype.FlatArray[pgtype.Text]{}
+			if err := qe.conn.TypeMap().Scan(fd.DataTypeOID, fd.Format, buf, textArr); err != nil {
+				return nil, fmt.Errorf("failed to scan json array: %w", err)
+			}
+
+			arr := make([]any, len(*textArr))
+			for j, text := range *textArr {
+				if text.Valid {
+					if err := jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
+						qe.logger.Error("[pg_query_executor] failed to unmarshal json array element", slog.Any("error", err))
+						return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+					}
+				} else {
+					arr[j] = nil
+				}
+			}
+			values[i] = arr
+
+		default:
+			if dt, ok := qe.conn.TypeMap().TypeForOID(fd.DataTypeOID); ok {
+				value, err := dt.Codec.DecodeValue(qe.conn.TypeMap(), fd.DataTypeOID, fd.Format, buf)
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode value: %w", err)
+				}
+				values[i] = value
+			} else {
+				// Unknown type - treat as text or binary based on format
+				switch fd.Format {
+				case pgtype.TextFormatCode:
+					values[i] = string(buf)
+				case pgtype.BinaryFormatCode:
+					newBuf := make([]byte, len(buf))
+					copy(newBuf, buf)
+					values[i] = newBuf
+				default:
+					return nil, fmt.Errorf("unknown format code: %d", fd.Format)
+				}
+			}
+		}
 	}
 
+	record := make([]types.QValue, len(fds))
 	for i, fd := range fds {
 		tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, fd.TypeModifier, values[i], qe.customTypeMapping, qe.version)
 		if err != nil {
