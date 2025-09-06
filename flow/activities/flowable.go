@@ -849,7 +849,7 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInform
 		if sErr != nil {
 			logger.Error("Failed to get workflow status", slog.Any("error", sErr), slog.String("status", status.String()))
 		}
-		_, isActive := activeFlowStatuses[status]
+		_, isActive := ActiveFlowStatuses[status]
 		if isActive {
 			activeFlows = append(activeFlows, info)
 		}
@@ -1029,7 +1029,7 @@ func (a *FlowableActivity) emitLogRetentionHours(
 		slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
 }
 
-var activeFlowStatuses = map[protos.FlowStatus]struct{}{
+var ActiveFlowStatuses = map[protos.FlowStatus]struct{}{
 	protos.FlowStatus_STATUS_RUNNING:   {},
 	protos.FlowStatus_STATUS_PAUSED:    {},
 	protos.FlowStatus_STATUS_PAUSING:   {},
