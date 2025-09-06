@@ -77,6 +77,11 @@ func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
+
+	recordFuture := workflow.ExecuteLocalActivity(updateCtx, flowable.RecordFlowStatusActivity, status)
+	if err := recordFuture.Get(updateCtx, nil); err != nil {
+		logger.Warn("Failed to record flow status metrics", slog.Any("error", err))
+	}
 }
 
 func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Logger, newStatus protos.FlowStatus) {
