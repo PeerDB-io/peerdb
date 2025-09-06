@@ -1,7 +1,6 @@
 package peerflow
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,7 +12,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -142,11 +140,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		status = protos.FlowStatus_STATUS_RESYNC
 	}
 	logger := workflow.GetLogger(ctx)
-	otelManager, err := otel_metrics.NewOtelManager(context.Background(), otel_metrics.FlowWorkerServiceName, true)
-	if err != nil {
-		return fmt.Errorf("unable to create otel manager: %w", err)
-	}
-	syncStatusToCatalog(ctx, logger, otelManager, status)
+	syncStatusToCatalog(ctx, logger, status)
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
 	logger.Info("performing cleanup for flow",
@@ -162,7 +156,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		contextMetadataInput.IsResync = input.Resync
 	}
 
-	ctx, err = GetFlowMetadataContext(ctx, contextMetadataInput)
+	ctx, err := GetFlowMetadataContext(ctx, contextMetadataInput)
 	if err != nil {
 		return fmt.Errorf("failed to get flow metadata context: %w", err)
 	}

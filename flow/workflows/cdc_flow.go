@@ -1,7 +1,6 @@
 package peerflow
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -20,7 +19,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
@@ -46,9 +44,7 @@ type CDCFlowWorkflowState struct {
 }
 
 // returns a new empty PeerFlowState
-func NewCDCFlowWorkflowState(
-	ctx workflow.Context, logger log.Logger, otelManager *otel_metrics.OtelManager, cfg *protos.FlowConnectionConfigs,
-) *CDCFlowWorkflowState {
+func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflowState {
 	tableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		tableMappings = append(tableMappings, proto.CloneOf(tableMapping))
@@ -67,11 +63,11 @@ func NewCDCFlowWorkflowState(
 		SnapshotMaxParallelWorkers:    cfg.SnapshotMaxParallelWorkers,
 		SnapshotNumTablesInParallel:   cfg.SnapshotNumTablesInParallel,
 	}
-	syncStatusToCatalog(ctx, logger, otelManager, state.CurrentFlowStatus)
+	syncStatusToCatalog(ctx, logger, state.CurrentFlowStatus)
 	return &state
 }
 
-func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, otelManager *otel_metrics.OtelManager, status protos.FlowStatus) {
+func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
 	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
@@ -81,18 +77,11 @@ func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, otelManager *o
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
-
-	if otelManager != nil {
-		sendFuture := workflow.ExecuteLocalActivity(updateCtx, emitFlowStatusToOtelActivity, status)
-		_ = sendFuture.Get(updateCtx, nil)
-	}
 }
 
-func (s *CDCFlowWorkflowState) updateStatus(
-	ctx workflow.Context, logger log.Logger, otelManager *otel_metrics.OtelManager, newStatus protos.FlowStatus,
-) {
+func (s *CDCFlowWorkflowState) updateStatus(ctx workflow.Context, logger log.Logger, newStatus protos.FlowStatus) {
 	s.CurrentFlowStatus = newStatus
-	syncStatusToCatalog(ctx, logger, otelManager, s.CurrentFlowStatus)
+	syncStatusToCatalog(ctx, logger, s.CurrentFlowStatus)
 }
 
 func GetUUID(ctx workflow.Context) string {
@@ -154,7 +143,6 @@ func uploadConfigToCatalog(
 func processCDCFlowConfigUpdate(
 	ctx workflow.Context,
 	logger log.Logger,
-	otelManager *otel_metrics.OtelManager,
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 	mirrorNameSearch temporal.SearchAttributes,
@@ -193,14 +181,14 @@ func processCDCFlowConfigUpdate(
 		logger.Info("processing CDCFlowConfigUpdate", slog.Any("updatedState", flowConfigUpdate))
 
 		if tablesAreAdded {
-			if err := processTableAdditions(ctx, logger, otelManager, cfg, state, mirrorNameSearch); err != nil {
+			if err := processTableAdditions(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
 				logger.Error("failed to process additional tables", slog.Any("error", err))
 				return err
 			}
 		}
 
 		if tablesAreRemoved {
-			if err := processTableRemovals(ctx, logger, otelManager, cfg, state); err != nil {
+			if err := processTableRemovals(ctx, logger, cfg, state); err != nil {
 				logger.Error("failed to process removed tables", slog.Any("error", err))
 				return err
 			}
@@ -254,7 +242,6 @@ func handleFlowSignalStateChange(
 func processTableAdditions(
 	ctx workflow.Context,
 	logger log.Logger,
-	otelManager *otel_metrics.OtelManager,
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 	mirrorNameSearch temporal.SearchAttributes,
@@ -269,7 +256,7 @@ func processTableAdditions(
 		syncStateToConfigProtoInCatalog(ctx, cfg, state)
 		return nil
 	}
-	state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_SNAPSHOT)
+	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
 
 	addTablesSelector := workflow.NewNamedSelector(ctx, "AddTables")
 	addTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
@@ -357,11 +344,10 @@ func processTableAdditions(
 func processTableRemovals(
 	ctx workflow.Context,
 	logger log.Logger,
-	otelManager *otel_metrics.OtelManager,
 	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) error {
-	state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_MODIFYING)
+	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_MODIFYING)
 	removeTablesSelector := workflow.NewNamedSelector(ctx, "RemoveTables")
 	removeTablesSelector.AddReceive(ctx.Done(), func(_ workflow.ReceiveChannel, _ bool) {})
 	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
@@ -488,12 +474,8 @@ func CDCFlowWorkflow(
 	}
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
-	otelManager, err := otel_metrics.NewOtelManager(context.Background(), otel_metrics.FlowWorkerServiceName, true)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create otel manager: %w", err)
-	}
 	if state == nil {
-		state = NewCDCFlowWorkflowState(ctx, logger, otelManager, cfg)
+		state = NewCDCFlowWorkflowState(ctx, logger, cfg)
 	}
 
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
@@ -547,7 +529,7 @@ func CDCFlowWorkflow(
 		})
 		addCdcPropertiesSignalListener(ctx, logger, selector, state)
 		startTime := workflow.Now(ctx)
-		state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_PAUSED)
+		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSED)
 
 		for state.ActiveSignal == model.PauseSignal {
 			// only place we block on receive, so signal processing is immediate
@@ -556,7 +538,7 @@ func CDCFlowWorkflow(
 				selector.Select(ctx)
 			}
 			if err := ctx.Err(); err != nil {
-				state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_TERMINATED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return state, err
 			}
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
@@ -564,8 +546,8 @@ func CDCFlowWorkflow(
 			}
 
 			if state.FlowConfigUpdate != nil {
-				if err := processCDCFlowConfigUpdate(ctx, logger, otelManager, cfg, state, mirrorNameSearch); err != nil {
-					state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_FAILED)
+				if err := processCDCFlowConfigUpdate(ctx, logger, cfg, state, mirrorNameSearch); err != nil {
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 					return state, err
 				}
 				logger.Info("wiping flow state after state update processing")
@@ -576,7 +558,7 @@ func CDCFlowWorkflow(
 		}
 
 		logger.Info("mirror resumed", slog.Duration("after", time.Since(startTime)))
-		state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_RUNNING)
+		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
 
@@ -585,7 +567,7 @@ func CDCFlowWorkflow(
 
 	for {
 		if err := ctx.Err(); err != nil {
-			state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_TERMINATED)
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 			return state, err
 		}
 
@@ -687,17 +669,17 @@ func CDCFlowWorkflow(
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
-				state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_TERMINATED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 			if setupFlowError != nil {
-				state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_FAILED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute setup workflow: %w", setupFlowError)
 			}
 		}
 
 		state.SyncFlowOptions.SrcTableIdNameMapping = setupFlowOutput.SrcTableIdNameMapping
-		state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_SNAPSHOT)
+		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_SNAPSHOT)
 
 		// next part of the setup is to snapshot-initial-copy and setup replication slots.
 		snapshotFlowID := GetChildWorkflowID("snapshot-flow", cfg.FlowJobName, originalRunID)
@@ -733,17 +715,17 @@ func CDCFlowWorkflow(
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
 			if err := ctx.Err(); err != nil {
-				state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_TERMINATED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 			if snapshotError != nil {
-				state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_FAILED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 				return state, fmt.Errorf("failed to execute snapshot workflow: %w", snapshotError)
 			}
 		}
 
 		if cfg.Resync {
-			state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_RESYNC)
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RESYNC)
 			renameOpts := &protos.RenameTablesInput{
 				FlowJobName:       cfg.FlowJobName,
 				PeerName:          cfg.DestinationName,
@@ -793,11 +775,11 @@ func CDCFlowWorkflow(
 					return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 				}
 				if err := ctx.Err(); err != nil {
-					state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_TERMINATED)
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 					return nil, err
 				}
 				if renameTablesError != nil {
-					state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_FAILED)
+					state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_FAILED)
 					return state, renameTablesError
 				}
 			}
@@ -806,10 +788,10 @@ func CDCFlowWorkflow(
 		// if initial_copy_only is opted for, we end the flow here.
 		if cfg.InitialSnapshotOnly {
 			logger.Info("initial snapshot only, ending flow")
-			state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_COMPLETED)
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_COMPLETED)
 		} else {
 			logger.Info("executed setup flow and snapshot flow, start running")
-			state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_RUNNING)
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 		}
 		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
 	}
@@ -868,7 +850,7 @@ func CDCFlowWorkflow(
 	flowSignalChan.AddToSelector(mainLoopSelector, func(val model.CDCFlowSignal, _ bool) {
 		state.ActiveSignal = model.FlowSignalHandler(state.ActiveSignal, val, logger)
 		if state.ActiveSignal == model.PauseSignal {
-			state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_PAUSING)
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_PAUSING)
 			finished = true
 		}
 	})
@@ -901,7 +883,7 @@ func CDCFlowWorkflow(
 
 	addCdcPropertiesSignalListener(ctx, logger, mainLoopSelector, state)
 
-	state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_RUNNING)
+	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 	for {
 		mainLoopSelector.Select(ctx)
 		for ctx.Err() == nil && mainLoopSelector.HasPending() {
@@ -909,7 +891,7 @@ func CDCFlowWorkflow(
 		}
 		if err := ctx.Err(); err != nil {
 			logger.Info("mirror canceled", slog.Any("error", err))
-			state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_TERMINATED)
+			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 			return state, err
 		}
 
@@ -928,7 +910,7 @@ func CDCFlowWorkflow(
 
 			if err := ctx.Err(); err != nil {
 				logger.Info("mirror canceled", slog.Any("error", err))
-				state.updateStatus(ctx, logger, otelManager, protos.FlowStatus_STATUS_TERMINATED)
+				state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_TERMINATED)
 				return nil, err
 			}
 
