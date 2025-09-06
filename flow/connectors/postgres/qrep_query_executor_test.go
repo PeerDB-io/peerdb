@@ -223,7 +223,7 @@ func TestSupportedDataTypes(t *testing.T) {
 	expectedDuration := time.Duration(savedTime.Hour())*time.Hour +
 		time.Duration(savedTime.Minute())*time.Minute +
 		time.Duration(savedTime.Second())*time.Second +
-		time.Duration(savedTime.Nanosecond())*time.Nanosecond
+		time.Duration(savedTime.Nanosecond()/1000)*time.Microsecond
 	require.Equal(t, expectedDuration, actualTz2)
 
 	actualTz3 := record[12].Value().(time.Duration)
