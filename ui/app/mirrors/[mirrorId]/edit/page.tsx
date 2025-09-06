@@ -60,6 +60,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
     snapshotNumPartitionsOverride: defaultSnapshotNumPartitionsOverride,
     snapshotMaxParallelWorkers: defaultSnapshotMaxParallelWorkers,
     snapshotNumTablesInParallel: defaultSnapshotNumTablesInParallel,
+    skipInitialSnapshotForTableAdditions: false,
   });
   const { push } = useRouter();
 
@@ -91,6 +92,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
       snapshotNumTablesInParallel:
         (res as MirrorStatusResponse).cdcStatus?.config
           ?.snapshotNumTablesInParallel || defaultSnapshotNumTablesInParallel,
+      skipInitialSnapshotForTableAdditions: false,
     });
   }, [mirrorId]);
 
