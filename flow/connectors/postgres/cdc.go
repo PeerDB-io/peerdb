@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/pgvector/pgvector-go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -59,6 +60,7 @@ type PostgresCDCSource struct {
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
+	jsonApi                                  jsoniter.API
 }
 
 type PostgresCDCConfig struct {
@@ -91,6 +93,8 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		schemaNameForRelID = make(map[uint32]string, len(cdcConfig.TableNameSchemaMapping))
 	}
 
+	jsonApi := createExtendedJSONUnmarshaler()
+
 	return &PostgresCDCSource{
 		PostgresConnector:                        c,
 		srcTableIDNameMapping:                    cdcConfig.SrcTableIDNameMapping,
@@ -110,6 +114,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
+		jsonApi:                                  jsonApi,
 	}, nil
 }
 
@@ -306,7 +311,49 @@ func (p *PostgresCDCSource) decodeColumnData(
 ) (types.QValue, error) {
 	var parsedData any
 	var err error
-	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
+
+	// Special handling for JSON types to use relaxed number parsing
+	if dataType == pgtype.JSONOID || dataType == pgtype.JSONBOID {
+		jsonData := data
+		// For JSONB in binary format, skip the version byte
+		if formatCode == pgtype.BinaryFormatCode {
+			if dataType == pgtype.JSONBOID {
+				if len(data) == 0 {
+					return nil, fmt.Errorf("jsonb too short")
+				}
+				if data[0] != 1 {
+					return nil, fmt.Errorf("unknown jsonb version number %d", data[0])
+				}
+				jsonData = data[1:]
+			}
+		} else if formatCode != pgtype.TextFormatCode {
+			return nil, fmt.Errorf("unknown format code for json: %d", formatCode)
+		}
+
+		if err := p.jsonApi.Unmarshal(jsonData, &parsedData); err != nil {
+			p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+		}
+		return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
+		textArr := &pgtype.FlatArray[pgtype.Text]{}
+		if err := p.typeMap.Scan(dataType, formatCode, data, textArr); err != nil {
+			return nil, fmt.Errorf("failed to scan json array: %w", err)
+		}
+
+		arr := make([]any, len(*textArr))
+		for j, text := range *textArr {
+			if text.Valid {
+				if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
+					p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+				}
+			} else {
+				arr[j] = nil
+			}
+		}
+		return p.parseFieldFromPostgresOID(dataType, typmod, arr, customTypeMapping, p.internalVersion)
+	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
 			// below is required to decode above types to string

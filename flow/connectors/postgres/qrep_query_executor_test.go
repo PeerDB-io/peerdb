@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -74,6 +75,9 @@ func TestSupportedDataTypes(t *testing.T) {
 	defer conn.Close(ctx)
 	defer teardownDB(t, conn, schemaName)
 
+	relaxedNumberStr := "1" + strings.Repeat("0", 1000)
+	jsonPayload := fmt.Sprintf(`{"key": "value", "relaxedNumber": %s}`, relaxedNumberStr)
+
 	// Create a table that contains every data type we want to test
 	query := fmt.Sprintf(`
 	CREATE TABLE %s.test(
@@ -84,7 +88,6 @@ func TestSupportedDataTypes(t *testing.T) {
 		col_float8 DOUBLE PRECISION,
 		col_text TEXT,
 		col_bytea BYTEA,
-		col_json JSON,
 		col_uuid UUID,
 		col_timestamp TIMESTAMP,
 		col_numeric NUMERIC,
@@ -92,7 +95,15 @@ func TestSupportedDataTypes(t *testing.T) {
 		col_tz2 TIME WITH TIME ZONE,
 		col_tz3 TIME WITHOUT TIME ZONE,
 		col_tz4 TIMESTAMP WITHOUT TIME ZONE,
-		col_date DATE
+		col_date DATE,
+		col_json JSON,
+		col_json_null JSON,
+		col_jsonb JSONB,
+		col_jsonb_null JSONB,
+		col_json_arr JSON[],
+		col_json_arr_null JSON[],
+		col_jsonb_arr JSONB[],
+		col_jsonb_arr_null JSONB[]
 	);`, utils.QuoteIdentifier(schemaName))
 
 	_, err := conn.Exec(ctx, query)
@@ -108,7 +119,6 @@ func TestSupportedDataTypes(t *testing.T) {
 		col_float8,
 		col_text,
 		col_bytea,
-		col_json,
 		col_uuid,
 		col_timestamp,
 		col_numeric,
@@ -116,8 +126,16 @@ func TestSupportedDataTypes(t *testing.T) {
 		col_tz2,
 		col_tz3,
 		col_tz4,
-		col_date
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`, utils.QuoteIdentifier(schemaName))
+		col_date,
+		col_json,
+		col_json_null,
+		col_jsonb,
+		col_jsonb_null,
+		col_json_arr,
+		col_json_arr_null,
+		col_jsonb_arr,
+		col_jsonb_arr_null
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`, utils.QuoteIdentifier(schemaName))
 
 	savedTime := time.Now().UTC()
 	savedUUID := uuid.New()
@@ -125,22 +143,29 @@ func TestSupportedDataTypes(t *testing.T) {
 	_, err = conn.Exec(
 		t.Context(),
 		query,
-		true,               // col_bool
-		int32(2),           // col_int4
-		int64(3),           // col_int8
-		float32(1.1),       // col_float4
-		float64(2.2),       // col_float8
-		"text",             // col_text
-		[]byte("bytea"),    // col_bytea
-		`{"key": "value"}`, // col_json
-		savedUUID,          // col_uuid
-		savedTime,          // col_timestamp
-		"123.456",          // col_numeric
-		savedTime,          // col_tz
-		savedTime,          // col_tz2
-		savedTime,          // col_tz3
-		savedTime,          // col_tz4
-		savedTime,          // col_date
+		true,                    // col_bool
+		int32(2),                // col_int4
+		int64(3),                // col_int8
+		float32(1.1),            // col_float4
+		float64(2.2),            // col_float8
+		"text",                  // col_text
+		[]byte("bytea"),         // col_bytea
+		savedUUID,               // col_uuid
+		savedTime,               // col_timestamp
+		"123.456",               // col_numeric
+		savedTime,               // col_tz
+		savedTime,               // col_tz2
+		savedTime,               // col_tz3
+		savedTime,               // col_tz4
+		savedTime,               // col_date
+		jsonPayload,             // col_json
+		nil,                     // col_json_null
+		jsonPayload,             // col_jsonb
+		nil,                     // col_jsonb_null
+		[]any{jsonPayload, nil}, // col_json_arr
+		nil,                     // col_json_arr_null
+		[]any{jsonPayload, nil}, // col_jsonb_arr
+		nil,                     // col_jsonb_arr_null
 	)
 	require.NoError(t, err, "error while inserting into test table")
 
@@ -180,17 +205,68 @@ func TestSupportedDataTypes(t *testing.T) {
 	expectedBytea := []byte("bytea")
 	require.Equal(t, expectedBytea, record[6].Value(), "expected 'bytea'")
 
-	require.JSONEq(t, `{"key":"value"}`, record[7].Value().(string), "expected '{\"key\":\"value\"}'")
-
-	actualUUID := record[8].Value().(uuid.UUID)
+	actualUUID := record[7].Value().(uuid.UUID)
 	require.Equal(t, savedUUID[:], actualUUID[:], "expected savedUUID: %v", savedUUID)
-	actualTime := record[9].Value().(time.Time)
+
+	actualTime := record[8].Value().(time.Time)
 	require.Equal(t, savedTime.Truncate(time.Second),
 		actualTime.Truncate(time.Second), "expected savedTime: %v", savedTime)
 
 	expectedNumeric := "123.456"
-	actualNumeric := record[10].Value().(decimal.Decimal).String()
+	actualNumeric := record[9].Value().(decimal.Decimal).String()
 	require.Equal(t, expectedNumeric, actualNumeric, "expected 123.456")
+
+	actualTz := record[10].Value().(time.Time)
+	require.Equal(t, savedTime.Truncate(time.Second).Local(), actualTz.Truncate(time.Second))
+
+	actualTz2 := record[11].Value().(time.Duration)
+	expectedDuration := time.Duration(savedTime.Hour())*time.Hour +
+		time.Duration(savedTime.Minute())*time.Minute +
+		time.Duration(savedTime.Second())*time.Second +
+		time.Duration(savedTime.Nanosecond())*time.Nanosecond
+	require.Equal(t, expectedDuration, actualTz2)
+
+	actualTz3 := record[12].Value().(time.Duration)
+	require.Equal(t, expectedDuration, actualTz3)
+
+	actualTz4 := record[13].Value().(time.Time)
+	require.Equal(t, savedTime.Truncate(time.Second), actualTz4.Truncate(time.Second))
+
+	dateValue := record[14].Value().(time.Time)
+	require.Equal(t, savedTime.Truncate(24*time.Hour),
+		dateValue.Truncate(24*time.Hour), "expected date portion of savedTime")
+
+	actualJson := record[15].Value().(string)
+	require.True(t, strings.HasPrefix(actualJson, "{"))
+	require.Contains(t, actualJson, `"key":"value"`)
+	require.Contains(t, actualJson, `"relaxedNumber":"`+relaxedNumberStr+`"`)
+	require.True(t, strings.HasSuffix(actualJson, "}"))
+
+	require.Nil(t, record[16].Value(), "expected null for col_json_null")
+
+	actualJsonb := record[17].Value().(string)
+	require.True(t, strings.HasPrefix(actualJsonb, "{"))
+	require.Contains(t, actualJsonb, `"key":"value"`)
+	require.Contains(t, actualJsonb, `"relaxedNumber":"`+relaxedNumberStr+`"`)
+	require.True(t, strings.HasSuffix(actualJsonb, "}"))
+
+	require.Nil(t, record[18].Value(), "expected null for col_jsonb_null")
+
+	actualJsonArr := record[19].Value().(string)
+	require.True(t, strings.HasPrefix(actualJsonArr, "[{"))
+	require.Contains(t, actualJsonArr, `"key":"value"`)
+	require.Contains(t, actualJsonArr, `"relaxedNumber":"`+relaxedNumberStr+`"`)
+	require.True(t, strings.HasSuffix(actualJsonArr, `},null]`))
+
+	require.Nil(t, record[20].Value(), "expected null for col_json_arr_null")
+
+	actualJsonbArr := record[21].Value().(string)
+	require.True(t, strings.HasPrefix(actualJsonbArr, "[{"))
+	require.Contains(t, actualJsonbArr, `"key":"value"`)
+	require.Contains(t, actualJsonbArr, `"relaxedNumber":"`+relaxedNumberStr+`"`)
+	require.True(t, strings.HasSuffix(actualJsonbArr, `},null]`))
+
+	require.Nil(t, record[22].Value(), "expected null for col_jsonb_arr_null")
 }
 
 func TestStringDataTypes(t *testing.T) {
