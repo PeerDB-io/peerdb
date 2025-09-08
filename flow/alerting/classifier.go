@@ -371,10 +371,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
 			}
-		case pgerrcode.SerializationFailure, pgerrcode.DeadlockDetected:
-			if strings.Contains(pgErr.Message, "canceling statement due to conflict with recovery") {
-				return ErrorNotifyConnectivity, pgErrorInfo
-			}
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?
 			pgerrcode.ConnectionException,
@@ -388,7 +384,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
 
-		case pgerrcode.QueryCanceled, pgerrcode.DuplicateFile:
+		case pgerrcode.QueryCanceled, pgerrcode.DuplicateFile, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure:
 			return ErrorRetryRecoverable, pgErrorInfo
 		}
 	}
