@@ -11,8 +11,8 @@ type MySQLIncompatibleColumnTypeError struct {
 
 func NewIncompatibleColumnTypeError(
 	tableName string, columnName string, columnType byte, dataType string,
-) MySQLIncompatibleColumnTypeError {
-	return MySQLIncompatibleColumnTypeError{
+) *MySQLIncompatibleColumnTypeError {
+	return &MySQLIncompatibleColumnTypeError{
 		TableName:  tableName,
 		ColumnName: columnName,
 		dataType:   dataType,
