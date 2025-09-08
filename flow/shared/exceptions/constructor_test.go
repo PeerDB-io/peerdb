@@ -10,6 +10,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// Tests that constructors return pointers, so that matching into a pointer like we do in the classifier works
 func TestErrorConstructorsShouldReturnPointers(t *testing.T) {
 	cfg := &packages.Config{
 		Mode: packages.NeedFiles | packages.NeedSyntax,
