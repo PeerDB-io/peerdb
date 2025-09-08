@@ -596,7 +596,7 @@ func QValueFromMysqlRowEvent(
 	tableName := string(ev.Table)
 	columnName := string(ev.ColumnName[idx])
 
-	err := exceptions.NewIncompatibleColumnTypeError(
+	err := exceptions.NewMySQLIncompatibleColumnTypeError(
 		fmt.Sprintf("%s.%s", schemaName, tableName), columnName, mytype, fmt.Sprintf("%T", val))
 	logger.Warn(err.Error())
 	return nil, err

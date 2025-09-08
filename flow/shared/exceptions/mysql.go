@@ -9,7 +9,7 @@ type MySQLIncompatibleColumnTypeError struct {
 	columnType byte
 }
 
-func NewIncompatibleColumnTypeError(
+func NewMySQLIncompatibleColumnTypeError(
 	tableName string, columnName string, columnType byte, dataType string,
 ) *MySQLIncompatibleColumnTypeError {
 	return &MySQLIncompatibleColumnTypeError{
