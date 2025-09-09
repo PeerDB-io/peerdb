@@ -242,43 +242,26 @@ func TestSupportedDataTypes(t *testing.T) {
 	require.Equal(t, savedTime.Truncate(24*time.Hour),
 		dateValue.Truncate(24*time.Hour), "expected date portion of savedTime")
 
-	actualJson := record[15].Value().(string)
-	require.True(t, strings.HasPrefix(actualJson, "{"))
-	require.Contains(t, actualJson, `"key":"value"`)
-	require.Contains(t, actualJson, `"relaxedNumber":"`+relaxedNumberStr+`"`)
-	require.True(t, strings.HasSuffix(actualJson, "}"))
-
+	expectedJSON := fmt.Sprintf(`{"key":"value","relaxedNumber":"%s"}`, relaxedNumberStr)
+	require.JSONEq(t, expectedJSON, record[15].Value().(string), "col_json")
 	require.Nil(t, record[16].Value(), "expected null for col_json_null")
-
-	actualJsonb := record[17].Value().(string)
-	require.True(t, strings.HasPrefix(actualJsonb, "{"))
-	require.Contains(t, actualJsonb, `"key":"value"`)
-	require.Contains(t, actualJsonb, `"relaxedNumber":"`+relaxedNumberStr+`"`)
-	require.True(t, strings.HasSuffix(actualJsonb, "}"))
-
+	require.JSONEq(t, expectedJSON, record[17].Value().(string), "col_jsonb")
 	require.Nil(t, record[18].Value(), "expected null for col_jsonb_null")
 
-	actualJsonArr := record[19].Value().(string)
-	require.True(t, strings.HasPrefix(actualJsonArr, "[{"))
-	require.Contains(t, actualJsonArr, `"key":"value"`)
-	require.Contains(t, actualJsonArr, `"relaxedNumber":"`+relaxedNumberStr+`"`)
-	require.True(t, strings.HasSuffix(actualJsonArr, `},null]`))
+	expectedJSONArr := fmt.Sprintf(`[{"key":"value","relaxedNumber":"%s"},null]`, relaxedNumberStr)
+	actualJSONArr := record[19].Value().(string)
+	require.JSONEq(t, expectedJSONArr, actualJSONArr, "col_json_arr")
+	actualJSONArrEmpty := record[20].Value().(string)
+	require.JSONEq(t, "[]", actualJSONArrEmpty, "expected empty JSON array for col_json_arr_empty")
+	actualJSONArrNull := record[21].Value()
+	require.Nil(t, actualJSONArrNull, "expected null for col_json_arr_null")
 
-	actualJsonArrEmpty := record[20].Value().(string)
-	require.Equal(t, "[]", actualJsonArrEmpty, "expected empty JSON array for col_json_arr_empty")
-
-	require.Nil(t, record[21].Value(), "expected null for col_json_arr_null")
-
-	actualJsonbArr := record[22].Value().(string)
-	require.True(t, strings.HasPrefix(actualJsonbArr, "[{"))
-	require.Contains(t, actualJsonbArr, `"key":"value"`)
-	require.Contains(t, actualJsonbArr, `"relaxedNumber":"`+relaxedNumberStr+`"`)
-	require.True(t, strings.HasSuffix(actualJsonbArr, `},null]`))
-
-	actualJsonbArrEmpty := record[23].Value().(string)
-	require.Equal(t, "[]", actualJsonbArrEmpty, "expected empty JSONB array for col_jsonb_arr_empty")
-
-	require.Nil(t, record[24].Value(), "expected null for col_jsonb_arr_null")
+	actualJSONBArr := record[22].Value().(string)
+	require.JSONEq(t, expectedJSONArr, actualJSONBArr, "col_jsonb_arr")
+	actualJSONBArrEmpty := record[23].Value().(string)
+	require.JSONEq(t, "[]", actualJSONBArrEmpty, "expected empty JSON array for col_jsonb_arr_empty")
+	actualJSONBArrNull := record[24].Value()
+	require.Nil(t, actualJSONBArrNull, "expected null for col_jsonb_arr_null")
 }
 
 func TestStringDataTypes(t *testing.T) {

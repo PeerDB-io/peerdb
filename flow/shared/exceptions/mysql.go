@@ -8,8 +8,8 @@ type MySQLIncompatibleColumnTypeError struct {
 	TableName  string
 	ColumnName string
 	dataType   string
-	columnType byte
 	qkind      string
+	columnType byte
 }
 
 func NewMySQLIncompatibleColumnTypeError(
@@ -19,8 +19,8 @@ func NewMySQLIncompatibleColumnTypeError(
 		TableName:  tableName,
 		ColumnName: columnName,
 		dataType:   dataType,
-		columnType: columnType,
 		qkind:      qkind,
+		columnType: columnType,
 	}
 }
 
