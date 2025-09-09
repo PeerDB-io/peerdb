@@ -120,7 +120,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
 		PeerName:               config.SourceName,
 		FlowJobName:            s.cdcFlowName,
-		SourceTableIdentifiers: []string{},
+		SourceTableIdentifiers: nil,
 		CheckConstraints:       checkConstraints,
 	}
 
