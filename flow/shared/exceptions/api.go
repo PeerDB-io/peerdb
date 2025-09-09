@@ -52,6 +52,10 @@ func NewAlreadyExistsApiError(msg string, details ...*rpc.ErrorInfo) error {
 	return convertToStatus(codes.AlreadyExists, msg, details...)
 }
 
+func NewNotFoundApiError(msg string, details ...*rpc.ErrorInfo) error {
+	return convertToStatus(codes.NotFound, msg, details...)
+}
+
 // Below is an example of how to create and use rpc.ErrorInfo
 // Follow the grpc guidelines and use constant keys for ErrorInfo fields and metadata keys
 // E.g. NewClickHousePeerErrorInfo(map[string]string{

@@ -11,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -45,13 +47,13 @@ func (h *FlowRequestHandler) ListMirrors(
 			&item.DestinationName, &item.DestinationType,
 			&createdAt, &item.IsCdc,
 		); err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to scan mirror: %v", err))
 		}
 		item.CreatedAt = float64(createdAt.UnixMilli())
 		return &item, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect mirrors: %v", err))
 	}
 	return &protos.ListMirrorsResponse{
 		Mirrors: mirrors,
@@ -69,29 +71,32 @@ func (h *FlowRequestHandler) MirrorStatus(
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		slog.Error("unable to get the workflow ID of mirror", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to get the workflow ID of mirror %s: %w", req.FlowJobName, err)
+		if _, ok := status.FromError(err); ok {
+			return nil, err
+		}
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to get the workflow ID of mirror %s: %v", req.FlowJobName, err))
 	}
 
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
 		slog.Error("unable to get the running status of mirror", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to get the running status of mirror %s: %w", req.FlowJobName, err)
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to get the running status of mirror %s: %v", req.FlowJobName, err))
 	}
 
 	createdAt, err := h.getMirrorCreatedAt(ctx, req.FlowJobName)
 	if err != nil {
-		return nil, fmt.Errorf("unable to get the creation time of mirror %s: %w", req.FlowJobName, err)
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to get the creation time of mirror %s: %v", req.FlowJobName, err))
 	}
 
 	if req.IncludeFlowInfo {
 		if cdcFlow, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 			slog.Error("unable to determine if mirror is cdc", slog.Any("error", err))
-			return nil, fmt.Errorf("unable to determine if mirror %s is of type CDC: %w", req.FlowJobName, err)
+			return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to determine if mirror %s is of type CDC: %v", req.FlowJobName, err))
 		} else if cdcFlow {
 			cdcStatus, err := h.cdcFlowStatus(ctx, req)
 			if err != nil {
 				slog.Error("unable to obtain CDC information for mirror", slog.Any("error", err))
-				return nil, fmt.Errorf("unable to obtain CDC information for mirror %s: %w", req.FlowJobName, err)
+				return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to obtain CDC information for mirror %s: %v", req.FlowJobName, err))
 			}
 
 			return &protos.MirrorStatusResponse{
@@ -106,7 +111,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 			qrepStatus, err := h.qrepFlowStatus(ctx, req)
 			if err != nil {
 				slog.Error("unable to obtain qrep information for mirror", slog.Any("error", err))
-				return nil, fmt.Errorf("unable to obtain snapshot information for mirror %s: %w", req.FlowJobName, err)
+				return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to obtain snapshot information for mirror %s: %v", req.FlowJobName, err))
 			}
 
 			return &protos.MirrorStatusResponse{
@@ -254,7 +259,7 @@ func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequ
 		ORDER BY 1
 	`, tickInterval, truncUnit, numberOfTicks, req.FlowJobName)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query cdc graph: %v", err))
 	}
 
 	var totalRows int64
@@ -268,7 +273,7 @@ func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequ
 		return &protos.GraphResponseItem{Time: float64(t.UnixMilli()), Rows: float64(r)}, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect cdc graph: %v", err))
 	}
 
 	return &protos.GraphResponse{
@@ -314,7 +319,7 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 	if err != nil {
 		slog.Error("unable to query initial load partition",
 			slog.String(string(shared.FlowNameKey), parentMirrorName), slog.Any("error", err))
-		return nil, fmt.Errorf("unable to query initial load partition - %s: %w", parentMirrorName, err)
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to query initial load partition - %s: %v", parentMirrorName, err))
 	}
 
 	defer rows.Close()
@@ -333,7 +338,7 @@ func (h *FlowRequestHandler) InitialLoadSummary(
 			&numRowsSynced,
 			&avgTimePerPartitionMs,
 		); err != nil {
-			return nil, fmt.Errorf("unable to scan initial load partition - %s: %w", parentMirrorName, err)
+			return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to scan initial load partition - %s: %v", parentMirrorName, err))
 		}
 
 		res := &protos.CloneTableSummary{
@@ -557,7 +562,7 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 	rows, err := h.pool.Query(ctx, q, queryArgs...)
 	if err != nil {
 		slog.Error(fmt.Sprintf("unable to query cdc batches - %s: %s", req.FlowJobName, err.Error()))
-		return nil, fmt.Errorf("unable to query cdc batches - %s: %w", req.FlowJobName, err)
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to query cdc batches - %s: %v", req.FlowJobName, err))
 	}
 
 	batches, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.CDCBatch, error) {
@@ -596,7 +601,7 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		return &batch, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to collect cdc batches - %s: %v", req.FlowJobName, err))
 	}
 
 	if batches == nil {
@@ -624,7 +629,7 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		"select count(distinct batch_id) from peerdb_stats.cdc_batches where flow_name=$1 and start_time is not null",
 		req.FlowJobName,
 	).Scan(&total); err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to query cdc batches - %s: %v", req.FlowJobName, err))
 	}
 
 	var page int32
@@ -650,7 +655,7 @@ func (h *FlowRequestHandler) TotalRowsSyncedByMirror(
 		FROM peerdb_stats.cdc_table_aggregate_counts
 		WHERE flow_name = $1`, req.FlowJobName).Scan(&totalRowsCDC)
 		if cdcErr != nil {
-			return nil, fmt.Errorf("unable to get total rows synced via CDC for mirror %s: %w", req.FlowJobName, cdcErr)
+			return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to get total rows synced via CDC for mirror %s: %v", req.FlowJobName, cdcErr))
 		}
 	}
 
@@ -660,7 +665,7 @@ func (h *FlowRequestHandler) TotalRowsSyncedByMirror(
         FROM peerdb_stats.qrep_partitions
         WHERE parent_mirror_name = $1 AND end_time IS NOT NULL`, req.FlowJobName).Scan(&totalRowsInitialLoad)
 		if err != nil {
-			return nil, fmt.Errorf("unable to get total rows synced via CDC for mirror %s: %w", req.FlowJobName, err)
+			return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to get total rows synced via CDC for mirror %s: %v", req.FlowJobName, err))
 		}
 	}
 
@@ -685,7 +690,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 		WHERE flow_name = $1
 		ORDER BY destination_table_name`, req.FlowJobName)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query cdc table total counts: %v", err))
 	}
 
 	var totalCount protos.CDCRowCounts
@@ -717,7 +722,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 		return tableCount, err
 	})
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect cdc table total counts: %v", err))
 	}
 
 	if tableCounts == nil {
@@ -742,11 +747,11 @@ func (h *FlowRequestHandler) ListMirrorNames(
 		where flow_name not like 'clone_%'
 		order by flow_name`)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query mirror names: %v", err))
 	}
 	names, err := pgx.CollectRows[string](rows, pgx.RowTo)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect mirror names: %v", err))
 	}
 	return &protos.ListMirrorNamesResponse{
 		Names: names,
@@ -804,19 +809,19 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 	order by id %s
 	limit %d%s`, whereClause, sortOrderBy, req.NumPerPage, offsetClause), whereArgs...)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query mirror logs: %v", err))
 	}
 	mirrorErrors, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.MirrorLog, error) {
 		var log protos.MirrorLog
 		var errorTimestamp time.Time
 		if err := rows.Scan(&log.Id, &log.FlowName, &log.ErrorMessage, &log.ErrorType, &errorTimestamp); err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to scan mirror log: %v", err))
 		}
 		log.ErrorTimestamp = float64(errorTimestamp.UnixMilli())
 		return &log, nil
 	})
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect mirror logs: %v", err))
 	}
 	if sortOrderBy == "" {
 		slices.Reverse(mirrorErrors)
@@ -833,12 +838,12 @@ func (h *FlowRequestHandler) ListMirrorLogs(
 				len(countWhereArgs), countWhereClause),
 			countWhereArgs...,
 		).Scan(&total, &rowsBehind); err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query mirror logs count: %v", err))
 		}
 	} else if err := h.pool.QueryRow(
 		ctx, "select count(*) from peerdb_stats.flow_errors"+countWhereClause, countWhereArgs...,
 	).Scan(&total); err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query mirror logs count: %v", err))
 	}
 
 	page := req.Page

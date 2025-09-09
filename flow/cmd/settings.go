@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"slices"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func (h *FlowRequestHandler) GetDynamicSettings(
@@ -19,7 +21,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 	rows, err := h.pool.Query(ctx, "select config_name,config_value from dynamic_settings")
 	if err != nil {
 		slog.Error("[GetDynamicConfigs] failed to query settings", slog.Any("error", err))
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query settings: %v", err))
 	}
 	settings := slices.Clone(internal.DynamicSettings[:])
 	var name string
@@ -33,7 +35,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		return nil
 	}); err != nil {
 		slog.Error("[GetDynamicConfigs] failed to collect rows", slog.Any("error", err))
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect rows: %v", err))
 	}
 
 	if internal.PeerDBOnlyClickHouseAllowed() {
@@ -57,7 +59,7 @@ func (h *FlowRequestHandler) PostDynamicSetting(
 	err := internal.UpdateDynamicSetting(ctx, h.pool, req.Name, req.Value)
 	if err != nil {
 		slog.Error("[PostDynamicConfig] failed to execute update setting", slog.Any("error", err))
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to update setting: %v", err))
 	}
 	return &protos.PostDynamicSettingResponse{}, nil
 }
