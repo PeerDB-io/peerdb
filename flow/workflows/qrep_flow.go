@@ -221,9 +221,8 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 	})
 
 	q.logger.Info("replicating partition batch", slog.Int64("BatchID", int64(partitions.BatchId)))
-	if err := workflow.ExecuteActivity(ctx,
-		flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
-		return fmt.Errorf("failed to replicate partition: %w", err)
+	if err := workflow.ExecuteActivity(ctx, flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
+		return err
 	}
 
 	return nil
