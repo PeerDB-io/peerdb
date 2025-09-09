@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/pgvector/pgvector-go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -55,6 +56,7 @@ type PostgresCDCSource struct {
 	otelManager                              *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
+	jsonApi                                  jsoniter.API
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
@@ -91,6 +93,8 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		schemaNameForRelID = make(map[uint32]string, len(cdcConfig.TableNameSchemaMapping))
 	}
 
+	jsonApi := createExtendedJSONUnmarshaler()
+
 	return &PostgresCDCSource{
 		PostgresConnector:                        c,
 		srcTableIDNameMapping:                    cdcConfig.SrcTableIDNameMapping,
@@ -106,6 +110,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		otelManager:                              cdcConfig.OtelManager,
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
+		jsonApi:                                  jsonApi,
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
@@ -306,7 +311,42 @@ func (p *PostgresCDCSource) decodeColumnData(
 ) (types.QValue, error) {
 	var parsedData any
 	var err error
-	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
+
+	// Special handling for JSON types to use relaxed number parsing
+	if dataType == pgtype.JSONOID || dataType == pgtype.JSONBOID {
+		var text pgtype.Text
+		if err := p.typeMap.Scan(dataType, formatCode, data, &text); err != nil {
+			p.logger.Error("[pg_cdc] failed to scan json", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to scan json: %w", err)
+		}
+		if text.Valid {
+			if err := p.jsonApi.UnmarshalFromString(text.String, &parsedData); err != nil {
+				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
+				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+			}
+			return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+		}
+		return types.QValueNull(types.QValueKindJSON), nil
+	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
+		textArr := &pgtype.FlatArray[pgtype.Text]{}
+		if err := p.typeMap.Scan(dataType, formatCode, data, textArr); err != nil {
+			p.logger.Error("[pg_cdc] failed to scan json array", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to scan json array: %w", err)
+		}
+
+		arr := make([]any, len(*textArr))
+		for j, text := range *textArr {
+			if text.Valid {
+				if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
+					p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+				}
+			} else {
+				arr[j] = nil
+			}
+		}
+		return p.parseFieldFromPostgresOID(dataType, typmod, arr, customTypeMapping, p.internalVersion)
+	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
 			// below is required to decode above types to string
