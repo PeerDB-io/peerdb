@@ -186,6 +186,7 @@ message ClickhouseConfig{
   optional S3Config s3 = 16;
   string cluster = 17;
   bool replicated = 18;
+  bool disable_clickhouse_validation = 19;
 }
 
 message SqlServerConfig {

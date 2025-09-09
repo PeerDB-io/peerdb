@@ -29,11 +29,12 @@ import (
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
-	database      clickhouse.Conn
-	logger        log.Logger
-	Config        *protos.ClickhouseConfig
-	credsProvider *utils.ClickHouseS3Credentials
-	chVersion     *chproto.Version
+	database                    clickhouse.Conn
+	logger                      log.Logger
+	Config                      *protos.ClickhouseConfig
+	credsProvider               *utils.ClickHouseS3Credentials
+	chVersion                   *chproto.Version
+	disableClickHouseValidation bool
 }
 
 func NewClickHouseConnector(
@@ -109,7 +110,8 @@ func NewClickHouseConnector(
 			Provider:   credentialsProvider,
 			BucketPath: awsBucketPath,
 		},
-		chVersion: &clickHouseVersion.Version,
+		chVersion:                   &clickHouseVersion.Version,
+		disableClickHouseValidation: config.DisableClickhouseValidation,
 	}
 
 	if credentials.AWS.SessionToken != "" {
@@ -161,6 +163,16 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 
 // Performs some checks on the ClickHouse peer to ensure it will work for mirrors
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
+	// validate s3 stage
+	if err := ValidateS3(ctx, c.credsProvider); err != nil {
+		return fmt.Errorf("failed to validate intermediate S3 bucket: %w", err)
+	}
+
+	if c.disableClickHouseValidation {
+		c.logger.Info("skipping ClickHouse validation as disable_validation is set to true")
+		return nil
+	}
+
 	// validate clickhouse host
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
 	if err := ValidateClickHouseHost(ctx, c.Config.Host, allowedDomains); err != nil {
@@ -204,11 +216,6 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// drop the table
 	if err := c.exec(ctx, "DROP TABLE IF EXISTS "+validateDummyTableName); err != nil {
 		return fmt.Errorf("failed to drop validation table %s: %w", validateDummyTableName, err)
-	}
-
-	// validate s3 stage
-	if err := ValidateS3(ctx, c.credsProvider); err != nil {
-		return fmt.Errorf("failed to validate S3 bucket: %w", err)
 	}
 
 	return nil
