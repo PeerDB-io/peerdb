@@ -133,6 +133,7 @@ services:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
       PEERDB_ALLOWED_TARGETS:
       PEERDB_CLICKHOUSE_ALLOWED_DOMAINS:
+      PEERDB_API_REQUEST_LOGGING_ENABLED: true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
