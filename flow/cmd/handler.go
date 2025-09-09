@@ -130,7 +130,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	cfg := req.ConnectionConfigs
 	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to get internal version: %v", err))
 	}
 	cfg.Version = internalVersion
 
@@ -152,7 +152,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	if err := h.createCdcJobEntry(ctx, req, workflowID); err != nil {
 		slog.Error("unable to create flow job entry", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to create flow job entry: %v", err))
 	}
 
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {

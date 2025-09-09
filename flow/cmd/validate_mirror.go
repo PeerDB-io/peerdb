@@ -23,7 +23,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		slog.Error("unable to check maintenance mode", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
+		return nil, exceptions.NewInternalApiError(fmt.Sprintf("unable to load dynamic config: %v", err))
 	}
 
 	if underMaintenance {
@@ -35,23 +35,26 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {
 			slog.Error("/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
-			return nil, existCheckErr
+			return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to check if mirror name exists: %v", existCheckErr))
 		}
 
 		if mirrorExists {
-			return nil, fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
+			return nil, exceptions.NewAlreadyExistsApiError("mirror with name %s already exists: "+req.ConnectionConfigs.FlowJobName,
+				exceptions.NewMirrorErrorInfo(map[string]string{
+					exceptions.ErrorMetadataOffendingField: "flow_job_name",
+				}))
 		}
 	}
 
 	if req.ConnectionConfigs == nil {
 		slog.Error("/validatecdc connection configs is nil")
-		return nil, errors.New("connection configs is nil")
+		return nil, exceptions.NewInvalidArgumentApiError("connection configs is nil")
 	}
 
 	for _, tm := range req.ConnectionConfigs.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
-				return nil, fmt.Errorf("invalid custom column type %s", col.DestinationType)
+				return nil, exceptions.NewInvalidArgumentApiError(fmt.Sprintf("invalid custom column type %s", col.DestinationType))
 			}
 		}
 	}
@@ -61,14 +64,14 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
-			return nil, errors.New("connector is not a supported source type")
+			return nil, exceptions.NewUnimplementedApiError("connector is not a supported source type")
 		}
-		return nil, fmt.Errorf("failed to create source connector: %w", err)
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to create source connector: %s", err))
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.ValidateMirrorSource(ctx, req.ConnectionConfigs); err != nil {
-		return nil, fmt.Errorf("failed to validate source connector %s: %w", req.ConnectionConfigs.SourceName, err)
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to validate source connector %s: %v", req.ConnectionConfigs.SourceName, err))
 	}
 
 	dstConn, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
@@ -76,9 +79,9 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
-			return &protos.ValidateCDCMirrorResponse{}, nil
+			return nil, exceptions.NewUnimplementedApiError("connector is not a supported destination type")
 		}
-		return nil, fmt.Errorf("failed to create destination connector: %w", err)
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to create destination connector: %v", err))
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
@@ -88,11 +91,11 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
 			req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
 		if getTableSchemaError != nil {
-			return nil, fmt.Errorf("failed to get source table schema: %w", getTableSchemaError)
+			return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get source table schema: %v", getTableSchemaError))
 		}
 	}
 	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap); err != nil {
-		return nil, err
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to validate destination connector %s: %v", req.ConnectionConfigs.DestinationName, err))
 	}
 
 	return &protos.ValidateCDCMirrorResponse{}, nil

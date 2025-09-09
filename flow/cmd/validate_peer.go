@@ -7,6 +7,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func (h *FlowRequestHandler) ValidatePeer(
@@ -19,14 +20,14 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer provided",
-		}, nil
+		}, exceptions.NewInvalidArgumentApiError("no peer provided")
 	}
 
 	if req.Peer.Name == "" {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer name provided",
-		}, nil
+		}, exceptions.NewInvalidArgumentApiError("no peer name provided")
 	}
 
 	conn, err := connectors.GetConnector(ctx, nil, req.Peer)
@@ -35,7 +36,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: displayErr,
-		}, nil
+		}, exceptions.NewFailedPreconditionApiError(displayErr)
 	}
 	defer conn.Close()
 
@@ -45,7 +46,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 			return &protos.ValidatePeerResponse{
 				Status:  protos.ValidatePeerStatus_INVALID,
 				Message: displayErr,
-			}, nil
+			}, exceptions.NewFailedPreconditionApiError(displayErr)
 		}
 	}
 
@@ -54,7 +55,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: displayErr,
-		}, nil
+		}, exceptions.NewFailedPreconditionApiError(displayErr)
 	}
 
 	return &protos.ValidatePeerResponse{
