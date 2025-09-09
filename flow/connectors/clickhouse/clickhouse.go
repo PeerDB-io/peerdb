@@ -169,7 +169,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	}
 
 	if c.disableClickHouseValidation {
-		c.logger.Info("skipping ClickHouse validation as disable_validation is set to true")
+		c.logger.Warn("skipping ClickHouse validation as disable_clickhouse_validation is set to true")
 		return nil
 	}
 
