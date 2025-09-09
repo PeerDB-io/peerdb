@@ -53,13 +53,13 @@ func (h *FlowRequestHandler) GetPeerInfo(
 	versionConnector, err := connectors.GetAs[connectors.GetVersionConnector](ctx, nil, peer)
 	if err != nil {
 		if !errors.Is(err, errors.ErrUnsupported) {
-			slog.Error("failed to get version connector", slog.Any("error", err))
+			slog.ErrorContext(ctx, "failed to get version connector", slog.Any("error", err))
 		}
 	} else {
 		defer connectors.CloseConnector(ctx, versionConnector)
 		version, err = versionConnector.GetVersion(ctx)
 		if err != nil {
-			slog.Error("failed to get version", slog.Any("error", err))
+			slog.ErrorContext(ctx, "failed to get version", slog.Any("error", err))
 		}
 	}
 
@@ -107,7 +107,7 @@ func (h *FlowRequestHandler) ListPeers(
 	}
 	rows, err := h.pool.Query(ctx, query)
 	if err != nil {
-		slog.Error("failed to query for peers", slog.Any("error", err))
+		slog.ErrorContext(ctx, "failed to query for peers", slog.Any("error", err))
 		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query for peers: %v", err))
 	}
 	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.PeerListItem, error) {
@@ -115,7 +115,7 @@ func (h *FlowRequestHandler) ListPeers(
 		return &peer, row.Scan(&peer.Name, &peer.Type)
 	})
 	if err != nil {
-		slog.Error("failed to collect peers", slog.Any("error", err))
+		slog.ErrorContext(ctx, "failed to collect peers", slog.Any("error", err))
 		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect peers: %v", err))
 	}
 
@@ -204,14 +204,14 @@ func (h *FlowRequestHandler) GetSlotInfo(
 ) (*protos.PeerSlotResponse, error) {
 	pgConnector, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
-		slog.Error("Failed to create postgres connector", slog.Any("error", err))
+		slog.ErrorContext(ctx, "Failed to create postgres connector", slog.Any("error", err))
 		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get postgres connector: %v", err))
 	}
 	defer connectors.CloseConnector(ctx, pgConnector)
 
 	slotInfo, err := pgConnector.GetSlotInfo(ctx, "")
 	if err != nil {
-		slog.Error("Failed to get slot info", slog.Any("error", err))
+		slog.ErrorContext(ctx, "Failed to get slot info", slog.Any("error", err))
 		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get slot info: %v", err))
 	}
 
@@ -284,13 +284,13 @@ func (h *FlowRequestHandler) GetPublications(
 
 	rows, err := peerConn.Conn().Query(ctx, "select pubname from pg_publication;")
 	if err != nil {
-		slog.Info("failed to fetch publications", slog.Any("error", err))
+		slog.InfoContext(ctx, "failed to fetch publications", slog.Any("error", err))
 		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to fetch publications: %v", err))
 	}
 
 	publications, err := pgx.CollectRows[string](rows, pgx.RowTo)
 	if err != nil {
-		slog.Info("failed to fetch publications", slog.Any("error", err))
+		slog.InfoContext(ctx, "failed to fetch publications", slog.Any("error", err))
 		return nil, exceptions.NewInvalidArgumentApiError(fmt.Sprintf("failed to collect publications: %v", err))
 	}
 	return &protos.PeerPublicationsResponse{PublicationNames: publications}, nil

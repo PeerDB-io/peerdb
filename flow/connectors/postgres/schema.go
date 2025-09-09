@@ -92,7 +92,7 @@ func (c *PostgresConnector) GetTablesInSchema(
 		}, nil
 	})
 	if err != nil {
-		slog.Info("failed to fetch publications", slog.Any("error", err))
+		slog.InfoContext(ctx, "failed to fetch publications", slog.Any("error", err))
 		return nil, err
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil

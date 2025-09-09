@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"google.golang.org/genproto/googleapis/api/annotations"
 	"google.golang.org/grpc"
@@ -17,34 +18,36 @@ import (
 const grpcFullServiceName = "peerdb_route.FlowService"
 
 func RequestLoggingMiddleware() grpc.UnaryServerInterceptor {
-	httpMethodMapping := buildHttpMethodMapping()
 	if !internal.PeerDBRAPIRequestLoggingEnabled() {
 		slog.Info("Request Logging Interceptor is disabled")
 		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 			return handler(ctx, req)
 		}
 	}
+	httpMethodMapping := buildHttpMethodMapping()
 	slog.Info("Setting up request logging middleware")
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		var httpMethod string
 		if method, exists := httpMethodMapping[info.FullMethod]; exists {
 			httpMethod = method
 		}
-
-		slog.Info("Received gRPC request",
+		startTime := time.Now()
+		slog.InfoContext(ctx, "Received gRPC request",
 			slog.String("method", info.FullMethod),
 			slog.String("httpMethod", httpMethod))
 
 		resp, err := handler(ctx, req)
 		if err != nil {
-			slog.Error("gRPC request failed",
+			slog.ErrorContext(ctx, "gRPC request failed",
 				slog.String("method", info.FullMethod),
 				slog.String("httpMethod", httpMethod),
-				slog.Any("error", err))
+				slog.Any("error", err),
+				slog.Duration("duration", time.Since(startTime)))
 		} else {
-			slog.Info("gRPC request completed successfully",
+			slog.InfoContext(ctx, "gRPC request completed successfully",
 				slog.String("method", info.FullMethod),
-				slog.String("httpMethod", httpMethod))
+				slog.String("httpMethod", httpMethod),
+				slog.Duration("duration", time.Since(startTime)))
 		}
 		return resp, err
 	}

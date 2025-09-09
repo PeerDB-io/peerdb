@@ -169,7 +169,7 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 		}
 
 		if _, err := hubClient.CreateOrUpdate(ctx, resourceGroup, namespace, name.Eventhub, opts, nil); err != nil {
-			slog.Error("failed to create event hub", slog.Any("error", err))
+			slog.ErrorContext(ctx, "failed to create event hub", slog.Any("error", err))
 			return err
 		}
 

@@ -160,7 +160,7 @@ func main() {
 
 				// Start HTTP server with pprof endpoints
 				go func() {
-					slog.Info("Starting pprof HTTP server", slog.String("address", pprofAddr))
+					slog.InfoContext(ctx, "Starting pprof HTTP server", slog.String("address", pprofAddr))
 
 					server := &http.Server{
 						Addr:         pprofAddr,

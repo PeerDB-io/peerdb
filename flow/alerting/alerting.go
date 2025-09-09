@@ -505,7 +505,7 @@ func (a *Alerter) logFlowErrorInternal(
 	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
 
 	// Only send alerts to telemetry sender (incident.io) if the env is enabled
-	if internal.PeerDBTelemetrySenderSendErrorAlertsEnabled() {
+	if internal.PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx) {
 		a.sendTelemetryMessage(ctx, logger, flowName, inErrWithStack, telemetry.ERROR, tags...)
 	}
 	loggerFunc(fmt.Sprintf("Emitting error/warning metric: '%s'", errError),

@@ -75,21 +75,21 @@ func (a *MaintenanceActivity) WaitForRunningSnapshotsAndIntermediateStates(
 		return nil, err
 	}
 
-	slog.Info("Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
+	slog.InfoContext(ctx, "Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
 
 	for _, mirror := range mirrors.Mirrors {
 		if _, shouldSkip := skippedFlows[mirror.MirrorName]; shouldSkip {
-			slog.Warn("Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
+			slog.WarnContext(ctx, "Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
 			continue
 		}
 		lastStatus, err := a.checkAndWaitIfNeeded(ctx, mirror, 2*time.Minute)
 		if err != nil {
 			return nil, err
 		}
-		slog.Info("Finished checking and waiting for snapshot",
+		slog.InfoContext(ctx, "Finished checking and waiting for snapshot",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
 	}
-	slog.Info("Finished checking and waiting for all mirrors to finish snapshot")
+	slog.InfoContext(ctx, "Finished checking and waiting for all mirrors to finish snapshot")
 	return mirrors, nil
 }
 
@@ -111,7 +111,7 @@ func (a *MaintenanceActivity) checkAndWaitIfNeeded(
 	targetCheckTime := mirror.MirrorCreatedAt.AsTime().Add(30 * time.Second)
 	now := time.Now()
 	if now.Before(targetCheckTime) {
-		slog.Info("Mirror was created less than 30 seconds ago, waiting for it to be ready before checking for snapshot",
+		slog.InfoContext(ctx, "Mirror was created less than 30 seconds ago, waiting for it to be ready before checking for snapshot",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
 		time.Sleep(targetCheckTime.Sub(now))
 	}
@@ -131,7 +131,7 @@ func (a *MaintenanceActivity) checkAndWaitIfNeeded(
 }
 
 func (a *MaintenanceActivity) EnableMaintenanceMode(ctx context.Context) error {
-	slog.Info("Enabling maintenance mode")
+	slog.InfoContext(ctx, "Enabling maintenance mode")
 	return internal.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, true)
 }
 
@@ -312,14 +312,14 @@ func (a *MaintenanceActivity) ResumeMirror(ctx context.Context, mirror *protos.M
 	}
 
 	if mirrorStatus != protos.FlowStatus_STATUS_PAUSED {
-		slog.Error("Cannot resume mirror that is not paused",
+		slog.ErrorContext(ctx, "Cannot resume mirror that is not paused",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "status", mirrorStatus.String())
 		return nil
 	}
 
 	// There can also be "workflow already completed" errors, what should we do in that case?
 	if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.NoopSignal); err != nil {
-		slog.Error("Error signaling mirror to resume for maintenance",
+		slog.ErrorContext(ctx, "Error signaling mirror to resume for maintenance",
 			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "error", err)
 		return err
 	}
@@ -327,7 +327,7 @@ func (a *MaintenanceActivity) ResumeMirror(ctx context.Context, mirror *protos.M
 }
 
 func (a *MaintenanceActivity) DisableMaintenanceMode(ctx context.Context) error {
-	slog.Info("Disabling maintenance mode")
+	slog.InfoContext(ctx, "Disabling maintenance mode")
 	return internal.UpdatePeerDBMaintenanceModeEnabled(ctx, a.CatalogPool, false)
 }
 
@@ -344,7 +344,7 @@ func (a *MaintenanceActivity) BackgroundAlerter(ctx context.Context) error {
 		case <-heartbeatTicker.C:
 			activity.RecordHeartbeat(ctx, "Maintenance Workflow is still running")
 		case <-alertTicker.C:
-			slog.Warn("Maintenance Workflow is still running")
+			slog.WarnContext(ctx, "Maintenance Workflow is still running")
 			a.Alerter.LogNonFlowWarning(ctx, telemetry.MaintenanceWait, "Waiting", "Maintenance mode is still running")
 			a.OtelManager.Metrics.MaintenanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.WorkflowTypeKey, activity.GetInfo(ctx).WorkflowType.Name),
@@ -385,7 +385,7 @@ func RunEveryIntervalUntilFinish[T any](
 				return lastResult, err
 			}
 		case <-logTicker.C:
-			slog.Info(logMessage, "lastResult", lastResult)
+			slog.InfoContext(ctx, logMessage, "lastResult", lastResult)
 		}
 	}
 }

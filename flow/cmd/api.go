@@ -58,28 +58,28 @@ func recryptDatabase(
 	keys := internal.PeerDBEncKeys(ctx)
 	if newKeyID == "" {
 		if len(keys) == 0 {
-			slog.Warn("Encryption disabled. This is not recommended.")
+			slog.WarnContext(ctx, "Encryption disabled. This is not recommended.")
 		} else {
-			slog.Warn("Encryption disabled, decrypting any currently encrypted configs. This is not recommended.")
+			slog.WarnContext(ctx, "Encryption disabled, decrypting any currently encrypted configs. This is not recommended.")
 		}
 	}
 
 	key, err := keys.Get(newKeyID)
 	if err != nil {
-		slog.Warn("recrypt failed to find key, skipping", slog.Any("error", err))
+		slog.WarnContext(ctx, "recrypt failed to find key, skipping", slog.Any("error", err))
 		return
 	}
 
 	tx, err := catalogPool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
-		slog.Warn("recrypt failed to start transaction, skipping", slog.Any("error", err))
+		slog.WarnContext(ctx, "recrypt failed to start transaction, skipping", slog.Any("error", err))
 		return
 	}
 	defer shared.RollbackTx(tx, slog.Default())
 
 	rows, err := tx.Query(ctx, selectSql, newKeyID)
 	if err != nil {
-		slog.Warn("recrypt failed to query, skipping", slog.String("tag", tag), slog.Any("error", err))
+		slog.WarnContext(ctx, "recrypt failed to query, skipping", slog.String("tag", tag), slog.Any("error", err))
 		return
 	}
 	var todo []RecryptItem
@@ -88,52 +88,52 @@ func recryptDatabase(
 	var oldKeyID string
 	for rows.Next() {
 		if err := rows.Scan(&id, &options, &oldKeyID); err != nil {
-			slog.Warn("recrypt failed to scan, skipping", slog.String("tag", tag), slog.Any("error", err))
+			slog.WarnContext(ctx, "recrypt failed to scan, skipping", slog.String("tag", tag), slog.Any("error", err))
 			continue
 		}
 
 		oldKey, err := keys.Get(oldKeyID)
 		if err != nil {
-			slog.Warn("recrypt failed to find key, skipping",
+			slog.WarnContext(ctx, "recrypt failed to find key, skipping",
 				slog.String("tag", tag), slog.Any("error", err), slog.String("enc_key_id", oldKeyID))
 			continue
 		}
 
 		options, err = oldKey.Decrypt(options)
 		if err != nil {
-			slog.Warn("recrypt failed to decrypt, skipping",
+			slog.WarnContext(ctx, "recrypt failed to decrypt, skipping",
 				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(id)))
 			continue
 		}
 
 		options, err = key.Encrypt(options)
 		if err != nil {
-			slog.Warn("recrypt failed to encrypt, skipping",
+			slog.WarnContext(ctx, "recrypt failed to encrypt, skipping",
 				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(id)))
 			continue
 		}
 
-		slog.Info("recrypting",
+		slog.InfoContext(ctx, "recrypting",
 			slog.String("tag", tag), slog.Int64("id", int64(id)), slog.String("oldKey", oldKeyID), slog.String("newKey", newKeyID))
 		todo = append(todo, RecryptItem{id: id, options: options})
 	}
 	if err := rows.Err(); err != nil {
-		slog.Warn("recrypt iteration failed, skipping", slog.String("tag", tag), slog.Any("error", err))
+		slog.WarnContext(ctx, "recrypt iteration failed, skipping", slog.String("tag", tag), slog.Any("error", err))
 		return
 	}
 
 	for _, item := range todo {
 		if _, err := tx.Exec(ctx, updateSql, item.id, item.options, newKeyID); err != nil {
-			slog.Warn("recrypt failed to update, ignoring",
+			slog.WarnContext(ctx, "recrypt failed to update, ignoring",
 				slog.String("tag", tag), slog.Any("error", err), slog.Int64("id", int64(item.id)))
 			return
 		}
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		slog.Warn("recrypt failed to commit transaction, skipping", slog.String("tag", tag), slog.Any("error", err))
+		slog.WarnContext(ctx, "recrypt failed to commit transaction, skipping", slog.String("tag", tag), slog.Any("error", err))
 	}
-	slog.Info("recrypt finished", slog.String("tag", tag))
+	slog.InfoContext(ctx, "recrypt finished", slog.String("tag", tag))
 }
 
 // setupGRPCGatewayServer sets up the grpc-gateway mux
@@ -173,9 +173,9 @@ func killExistingScheduleFlows(
 	if err != nil {
 		return fmt.Errorf("unable to list workflows: %w", err)
 	}
-	slog.Info("Requesting cancellation of pre-existing scheduler flows")
+	slog.InfoContext(ctx, "Requesting cancellation of pre-existing scheduler flows")
 	for _, workflow := range listRes.Executions {
-		slog.Info("Cancelling workflow", slog.String("workflowId", workflow.Execution.WorkflowId))
+		slog.InfoContext(ctx, "Cancelling workflow", slog.String("workflowId", workflow.Execution.WorkflowId))
 		if err := tc.CancelWorkflow(
 			ctx, workflow.Execution.WorkflowId, workflow.Execution.RunId,
 		); err != nil && err.Error() != "workflow execution already completed" {
@@ -186,11 +186,13 @@ func killExistingScheduleFlows(
 }
 
 func APIMain(ctx context.Context, args *APIServerParams) error {
+	logger := slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil)))
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
-		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Logger:    logger,
 	}
+	slog.SetDefault(logger)
 
 	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowApiServiceName, args.EnableOtelMetrics)
 	if metricsErr != nil {
@@ -268,7 +270,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	slog.Info("Starting API server on port", slog.Uint64("port", uint64(args.Port)))
+	slog.InfoContext(ctx, "Starting API server on port", slog.Uint64("port", uint64(args.Port)))
 	go func() {
 		if err := grpcServer.Serve(lis); err != nil {
 			log.Fatalf("failed to serve: %v", err)
@@ -280,7 +282,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to setup gateway server: %w", err)
 	}
 
-	slog.Info("Starting API gateway", slog.Uint64("port", uint64(args.GatewayPort)))
+	slog.InfoContext(ctx, "Starting API gateway", slog.Uint64("port", uint64(args.GatewayPort)))
 	go func() {
 		if err := gateway.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("failed to serve http: %v", err)
@@ -305,7 +307,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 
 	<-ctx.Done()
 	grpcServer.GracefulStop()
-	slog.Info("Server has been shut down gracefully. Exiting...")
+	slog.InfoContext(ctx, "Server has been shut down gracefully. Exiting...")
 
 	return nil
 }

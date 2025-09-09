@@ -664,7 +664,7 @@ func generateCreateTableSQLForNormalizedTable(
 			ctx, qvKind, config.Env, protos.DBType_SNOWFLAKE, nil, column, tableSchema.NullableEnabled,
 		)
 		if err != nil {
-			slog.Warn(fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
+			slog.WarnContext(ctx, fmt.Sprintf("failed to convert column type %s to snowflake type", genericColumnType),
 				slog.Any("error", err))
 			continue
 		}

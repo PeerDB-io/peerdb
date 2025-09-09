@@ -20,7 +20,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 ) (*protos.GetDynamicSettingsResponse, error) {
 	rows, err := h.pool.Query(ctx, "select config_name,config_value from dynamic_settings")
 	if err != nil {
-		slog.Error("[GetDynamicConfigs] failed to query settings", slog.Any("error", err))
+		slog.ErrorContext(ctx, "[GetDynamicConfigs] failed to query settings", slog.Any("error", err))
 		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query settings: %v", err))
 	}
 	settings := slices.Clone(internal.DynamicSettings[:])
@@ -34,7 +34,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		}
 		return nil
 	}); err != nil {
-		slog.Error("[GetDynamicConfigs] failed to collect rows", slog.Any("error", err))
+		slog.ErrorContext(ctx, "[GetDynamicConfigs] failed to collect rows", slog.Any("error", err))
 		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect rows: %v", err))
 	}
 
@@ -58,7 +58,7 @@ func (h *FlowRequestHandler) PostDynamicSetting(
 ) (*protos.PostDynamicSettingResponse, error) {
 	err := internal.UpdateDynamicSetting(ctx, h.pool, req.Name, req.Value)
 	if err != nil {
-		slog.Error("[PostDynamicConfig] failed to execute update setting", slog.Any("error", err))
+		slog.ErrorContext(ctx, "[PostDynamicConfig] failed to execute update setting", slog.Any("error", err))
 		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to update setting: %v", err))
 	}
 	return &protos.PostDynamicSettingResponse{}, nil
