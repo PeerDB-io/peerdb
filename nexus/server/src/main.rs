@@ -184,6 +184,7 @@ impl NexusBackend {
                 config: peer.config.clone(),
             }),
             allow_update: false,
+            disable_validation: false,
         };
 
         let create_response = flow_handler
