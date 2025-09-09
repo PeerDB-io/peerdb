@@ -186,13 +186,11 @@ func killExistingScheduleFlows(
 }
 
 func APIMain(ctx context.Context, args *APIServerParams) error {
-	logger := slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil)))
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
-		Logger:    logger,
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
 	}
-	slog.SetDefault(logger)
 
 	metricsProvider, metricsErr := otel_metrics.SetupTemporalMetricsProvider(ctx, otel_metrics.FlowApiServiceName, args.EnableOtelMetrics)
 	if metricsErr != nil {
