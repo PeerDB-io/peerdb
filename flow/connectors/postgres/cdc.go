@@ -56,11 +56,11 @@ type PostgresCDCSource struct {
 	otelManager                              *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
+	jsonApi                                  jsoniter.API
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
 	internalVersion                          uint32
-	jsonApi                                  jsoniter.API
 }
 
 type PostgresCDCConfig struct {
@@ -110,11 +110,11 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		otelManager:                              cdcConfig.OtelManager,
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
+		jsonApi:                                  jsonApi,
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
 		internalVersion:                          cdcConfig.InternalVersion,
-		jsonApi:                                  jsonApi,
 	}, nil
 }
 
@@ -314,30 +314,23 @@ func (p *PostgresCDCSource) decodeColumnData(
 
 	// Special handling for JSON types to use relaxed number parsing
 	if dataType == pgtype.JSONOID || dataType == pgtype.JSONBOID {
-		jsonData := data
-		// For JSONB in binary format, skip the version byte
-		if formatCode == pgtype.BinaryFormatCode {
-			if dataType == pgtype.JSONBOID {
-				if len(data) == 0 {
-					return nil, fmt.Errorf("jsonb too short")
-				}
-				if data[0] != 1 {
-					return nil, fmt.Errorf("unknown jsonb version number %d", data[0])
-				}
-				jsonData = data[1:]
+		var text pgtype.Text
+		if err := p.typeMap.Scan(dataType, formatCode, data, &text); err != nil {
+			p.logger.Error("[pg_cdc] failed to scan json", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to scan json: %w", err)
+		}
+		if text.Valid {
+			if err := p.jsonApi.UnmarshalFromString(text.String, &parsedData); err != nil {
+				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
+				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
-		} else if formatCode != pgtype.TextFormatCode {
-			return nil, fmt.Errorf("unknown format code for json: %d", formatCode)
+			return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
 		}
-
-		if err := p.jsonApi.Unmarshal(jsonData, &parsedData); err != nil {
-			p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
-			return nil, fmt.Errorf("failed to unmarshal json: %w", err)
-		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+		return types.QValueNull(types.QValueKindJSON), nil
 	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
 		textArr := &pgtype.FlatArray[pgtype.Text]{}
 		if err := p.typeMap.Scan(dataType, formatCode, data, textArr); err != nil {
+			p.logger.Error("[pg_cdc] failed to scan json array", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to scan json array: %w", err)
 		}
 

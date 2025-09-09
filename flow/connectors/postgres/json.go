@@ -10,16 +10,17 @@ import (
 type relaxedNumberDecoder struct{}
 
 func (d *relaxedNumberDecoder) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
+	anyPtr := (*any)(ptr)
 	switch iter.WhatIsNext() {
 	case jsoniter.NumberValue:
 		numberToken := iter.ReadNumber()
 		if val, err := numberToken.Float64(); err == nil {
-			*(*any)(ptr) = val
+			*anyPtr = val
 		} else {
-			*(*any)(ptr) = numberToken.String()
+			*anyPtr = numberToken.String()
 		}
 	default:
-		*(*any)(ptr) = iter.Read()
+		*anyPtr = iter.Read()
 	}
 }
 

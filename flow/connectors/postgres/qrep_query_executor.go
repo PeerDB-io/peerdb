@@ -323,9 +323,9 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 ) ([]types.QValue, error) {
 	rawValues := row.RawValues()
 	values := make([]any, len(fds))
+	// Simulate the behavior of rows.Values() with a carveout for JSON
 	for i, fd := range fds {
 		buf := rawValues[i]
-
 		if buf == nil {
 			values[i] = nil
 			continue
@@ -341,6 +341,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 		case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
 			textArr := &pgtype.FlatArray[pgtype.Text]{}
 			if err := qe.conn.TypeMap().Scan(fd.DataTypeOID, fd.Format, buf, textArr); err != nil {
+				qe.logger.Error("[pg_query_executor] failed to to scan json array", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to scan json array: %w", err)
 			}
 
@@ -361,6 +362,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			if dt, ok := qe.conn.TypeMap().TypeForOID(fd.DataTypeOID); ok {
 				value, err := dt.Codec.DecodeValue(qe.conn.TypeMap(), fd.DataTypeOID, fd.Format, buf)
 				if err != nil {
+					qe.logger.Error("[pg_query_executor] failed to decode value", slog.Any("error", err))
 					return nil, fmt.Errorf("failed to decode value: %w", err)
 				}
 				values[i] = value
@@ -374,6 +376,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 					copy(newBuf, buf)
 					values[i] = newBuf
 				default:
+					qe.logger.Error("[pg_query_executor] unknown format code", slog.Int("format", int(fd.Format)))
 					return nil, fmt.Errorf("unknown format code: %d", fd.Format)
 				}
 			}

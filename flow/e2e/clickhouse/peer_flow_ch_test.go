@@ -1104,7 +1104,8 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		c39 TXID_SNAPSHOT,c40 UUID, c41 mood[], c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
 		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[], c52 UUID[],
 		c53 NUMERIC(16,2)[], c54 NUMERIC[], c55 NUMERIC(16,2)[], c56 NUMERIC[], c57 INTERVAL[],
-		c58 JSON, c59 JSON, c60 JSONB, c61 JSONB, c62 JSON[], c63 JSON[], c64 JSONB[], c65 JSONB[]);
+		c58 JSON, c59 JSON, c60 JSONB, c61 JSONB, c62 JSON[], c63 JSON[], c64 JSON[], c65 JSONB[],
+		c66 JSONB[], c67 JSONB[]);
 		INSERT INTO %[1]s SELECT 2,2,b'1',b'101',
 		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
@@ -1129,8 +1130,8 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
 		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[],
 		'%[2]s'::json, null::json, '%[2]s'::jsonb, null::jsonb,
-		ARRAY['%[2]s'::json, null]::json[], null::json[],
-		ARRAY['%[2]s'::jsonb, null]::jsonb[], null::jsonb[];`,
+		ARRAY['%[2]s'::json, null]::json[], ARRAY[]::json[], null::json[],
+		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`,
 		srcFullName, jsonPayload))
 	require.NoError(s.t, err)
 
@@ -1147,26 +1148,33 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c63,c65")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,"+
+			"c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c64,c67")
 
-	// Verify JSON values  
+	// Verify JSON values
 	expectedJSON := fmt.Sprintf(`{"key":123,"relaxedNumber":"%s"}`, relaxedNumberStr)
 	expectedJSONArray := fmt.Sprintf(`[{"key":123,"relaxedNumber":"%s"},null]`, relaxedNumberStr)
-	rows, err := s.GetRows(dstTableName, "c58,c60,c62,c64")
+	rows, err := s.GetRows(dstTableName, "c58,c60,c62,c63,c65,c66")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 1, "expected 1 row")
 	c58Str, ok := rows.Records[0][0].Value().(string)
 	require.True(s.t, ok, "c58 should be a string")
-	require.Equal(s.t, expectedJSON, c58Str, "c58 should have exact JSON with quoted number")
+	require.JSONEq(s.t, expectedJSON, c58Str, "c58 should have exact JSON with quoted number")
 	c60Str, ok := rows.Records[0][1].Value().(string)
 	require.True(s.t, ok, "c60 should be a string")
-	require.Equal(s.t, expectedJSON, c60Str, "c60 should have exact JSON with quoted number")
+	require.JSONEq(s.t, expectedJSON, c60Str, "c60 should have exact JSON with quoted number")
 	c62Str, ok := rows.Records[0][2].Value().(string)
 	require.True(s.t, ok, "c62 should be a string")
-	require.Equal(s.t, expectedJSONArray, c62Str, "c62 should have exact JSON array with quoted number")
-	c64Str, ok := rows.Records[0][3].Value().(string)
-	require.True(s.t, ok, "c64 should be a string")
-	require.Equal(s.t, expectedJSONArray, c64Str, "c64 should have exact JSON array with quoted number")
+	require.JSONEq(s.t, expectedJSONArray, c62Str, "c62 should have exact JSON array with quoted number")
+	c63Str, ok := rows.Records[0][3].Value().(string)
+	require.True(s.t, ok, "c63 should be a string")
+	require.JSONEq(s.t, "[]", c63Str, "c63 should be empty JSON array")
+	c65Str, ok := rows.Records[0][4].Value().(string)
+	require.True(s.t, ok, "c65 should be a string")
+	require.JSONEq(s.t, expectedJSONArray, c65Str, "c65 should have exact JSON array with quoted number")
+	c66Str, ok := rows.Records[0][5].Value().(string)
+	require.True(s.t, ok, "c66 should be a string")
+	require.JSONEq(s.t, "[]", c66Str, "c66 should be empty JSON array")
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %[1]s SELECT 3,2,b'1',b'101',
@@ -1193,33 +1201,42 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{2.2, 2.23, null}'::numeric(16,2)[], '{2.2, 2.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
 		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[],
 		'%[2]s'::json, null::json, '%[2]s'::jsonb, null::jsonb,
-		ARRAY['%[2]s'::json, null]::json[], null::json[],
-		ARRAY['%[2]s'::jsonb, null]::jsonb[], null::jsonb[];`, srcFullName, jsonPayload))
+		ARRAY['%[2]s'::json, null]::json[], ARRAY[]::json[], null::json[],
+		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`, srcFullName, jsonPayload))
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c63,c65")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,"+
+			"c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c64,c67")
 
 	// Verify JSON values after CDC
-	rows, err = s.GetRows(dstTableName, "c58,c60,c62,c64")
+	rows, err = s.GetRows(dstTableName, "c58,c60,c62,c63,c65,c66")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 2, "expected 2 rows after CDC")
 	for i := range 2 {
 		c58Str, ok := rows.Records[i][0].Value().(string)
 		require.True(s.t, ok, "c58 should be a string in row %d", i)
-		require.Equal(s.t, expectedJSON, c58Str, "c58 should have exact JSON with quoted number in row %d", i)
+		require.JSONEqf(s.t, expectedJSON, c58Str, "c58 should have exact JSON with quoted number in row %d", i)
 
 		c60Str, ok := rows.Records[i][1].Value().(string)
 		require.True(s.t, ok, "c60 should be a string in row %d", i)
-		require.Equal(s.t, expectedJSON, c60Str, "c60 should have exact JSON with quoted number in row %d", i)
+		require.JSONEqf(s.t, expectedJSON, c60Str, "c60 should have exact JSON with quoted number in row %d", i)
 
 		c62Str, ok := rows.Records[i][2].Value().(string)
 		require.True(s.t, ok, "c62 should be a string in row %d", i)
-		require.Equal(s.t, expectedJSONArray, c62Str, "c62 should have exact JSON array with quoted number in row %d", i)
+		require.JSONEqf(s.t, expectedJSONArray, c62Str, "c62 should have exact JSON array with quoted number in row %d", i)
 
-		c64Str, ok := rows.Records[i][3].Value().(string)
-		require.True(s.t, ok, "c64 should be a string in row %d", i)
-		require.Equal(s.t, expectedJSONArray, c64Str, "c64 should have exact JSON array with quoted number in row %d", i)
+		c63Str, ok := rows.Records[i][3].Value().(string)
+		require.True(s.t, ok, "c63 should be a string in row %d", i)
+		require.JSONEqf(s.t, "[]", c63Str, "c63 should be empty JSON array in row %d", i)
+
+		c65Str, ok := rows.Records[i][4].Value().(string)
+		require.True(s.t, ok, "c65 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSONArray, c65Str, "c65 should have exact JSON array with quoted number in row %d", i)
+
+		c66Str, ok := rows.Records[i][5].Value().(string)
+		require.True(s.t, ok, "c66 should be a string in row %d", i)
+		require.JSONEqf(s.t, "[]", c66Str, "c66 should be empty JSON array in row %d", i)
 	}
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -1249,34 +1266,43 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
 		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[],
 		'%[2]s'::json, null::json, '%[2]s'::jsonb, null::jsonb,
-		ARRAY['%[2]s'::json, null]::json[], null::json[],
-		ARRAY['%[2]s'::jsonb, null]::jsonb[], null::jsonb[];`, srcFullName, jsonPayload))
+		ARRAY['%[2]s'::json, null]::json[], ARRAY[]::json[], null::json[],
+		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`, srcFullName, jsonPayload))
 
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 3", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c63,c65")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,"+
+			"c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c64,c67")
 
 	// Verify JSON values after final updates
-	rows, err = s.GetRows(dstTableName, "c58,c60,c62,c64")
+	rows, err = s.GetRows(dstTableName, "c58,c60,c62,c63,c65,c66")
 	require.NoError(s.t, err)
 	require.Len(s.t, rows.Records, 3, "expected 3 rows after final updates")
 	for i := range 3 {
 		c58Str, ok := rows.Records[i][0].Value().(string)
 		require.True(s.t, ok, "c58 should be a string in row %d", i)
-		require.Equal(s.t, expectedJSON, c58Str, "c58 should have exact JSON with quoted number in row %d", i)
+		require.JSONEqf(s.t, expectedJSON, c58Str, "c58 should have exact JSON with quoted number in row %d", i)
 
 		c60Str, ok := rows.Records[i][1].Value().(string)
 		require.True(s.t, ok, "c60 should be a string in row %d", i)
-		require.Equal(s.t, expectedJSON, c60Str, "c60 should have exact JSON with quoted number in row %d", i)
+		require.JSONEqf(s.t, expectedJSON, c60Str, "c60 should have exact JSON with quoted number in row %d", i)
 
 		c62Str, ok := rows.Records[i][2].Value().(string)
 		require.True(s.t, ok, "c62 should be a string in row %d", i)
-		require.Equal(s.t, expectedJSONArray, c62Str, "c62 should have exact JSON array with quoted number in row %d", i)
+		require.JSONEqf(s.t, expectedJSONArray, c62Str, "c62 should have exact JSON array with quoted number in row %d", i)
 
-		c64Str, ok := rows.Records[i][3].Value().(string)
-		require.True(s.t, ok, "c64 should be a string in row %d", i)
-		require.Equal(s.t, expectedJSONArray, c64Str, "c64 should have exact JSON array with quoted number in row %d", i)
+		c63Str, ok := rows.Records[i][3].Value().(string)
+		require.True(s.t, ok, "c63 should be a string in row %d", i)
+		require.JSONEqf(s.t, "[]", c63Str, "c63 should be empty JSON array in row %d", i)
+
+		c65Str, ok := rows.Records[i][4].Value().(string)
+		require.True(s.t, ok, "c65 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSONArray, c65Str, "c65 should have exact JSON array with quoted number in row %d", i)
+
+		c66Str, ok := rows.Records[i][5].Value().(string)
+		require.True(s.t, ok, "c66 should be a string in row %d", i)
+		require.JSONEqf(s.t, "[]", c66Str, "c66 should be empty JSON array in row %d", i)
 	}
 
 	env.Cancel(s.t.Context())

@@ -101,8 +101,10 @@ func TestSupportedDataTypes(t *testing.T) {
 		col_jsonb JSONB,
 		col_jsonb_null JSONB,
 		col_json_arr JSON[],
+		col_json_arr_empty JSON[],
 		col_json_arr_null JSON[],
 		col_jsonb_arr JSONB[],
+		col_jsonb_arr_empty JSONB[],
 		col_jsonb_arr_null JSONB[]
 	);`, utils.QuoteIdentifier(schemaName))
 
@@ -132,10 +134,12 @@ func TestSupportedDataTypes(t *testing.T) {
 		col_jsonb,
 		col_jsonb_null,
 		col_json_arr,
+		col_json_arr_empty,
 		col_json_arr_null,
 		col_jsonb_arr,
+		col_jsonb_arr_empty,
 		col_jsonb_arr_null
-	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`, utils.QuoteIdentifier(schemaName))
+	) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`, utils.QuoteIdentifier(schemaName))
 
 	savedTime := time.Now().UTC()
 	savedUUID := uuid.New()
@@ -163,8 +167,10 @@ func TestSupportedDataTypes(t *testing.T) {
 		jsonPayload,             // col_jsonb
 		nil,                     // col_jsonb_null
 		[]any{jsonPayload, nil}, // col_json_arr
+		[]any{},                 // col_json_arr_empty
 		nil,                     // col_json_arr_null
 		[]any{jsonPayload, nil}, // col_jsonb_arr
+		[]any{},                 // col_jsonb_arr_empty
 		nil,                     // col_jsonb_arr_null
 	)
 	require.NoError(t, err, "error while inserting into test table")
@@ -258,15 +264,21 @@ func TestSupportedDataTypes(t *testing.T) {
 	require.Contains(t, actualJsonArr, `"relaxedNumber":"`+relaxedNumberStr+`"`)
 	require.True(t, strings.HasSuffix(actualJsonArr, `},null]`))
 
-	require.Nil(t, record[20].Value(), "expected null for col_json_arr_null")
+	actualJsonArrEmpty := record[20].Value().(string)
+	require.Equal(t, "[]", actualJsonArrEmpty, "expected empty JSON array for col_json_arr_empty")
 
-	actualJsonbArr := record[21].Value().(string)
+	require.Nil(t, record[21].Value(), "expected null for col_json_arr_null")
+
+	actualJsonbArr := record[22].Value().(string)
 	require.True(t, strings.HasPrefix(actualJsonbArr, "[{"))
 	require.Contains(t, actualJsonbArr, `"key":"value"`)
 	require.Contains(t, actualJsonbArr, `"relaxedNumber":"`+relaxedNumberStr+`"`)
 	require.True(t, strings.HasSuffix(actualJsonbArr, `},null]`))
 
-	require.Nil(t, record[22].Value(), "expected null for col_jsonb_arr_null")
+	actualJsonbArrEmpty := record[23].Value().(string)
+	require.Equal(t, "[]", actualJsonbArrEmpty, "expected empty JSONB array for col_jsonb_arr_empty")
+
+	require.Nil(t, record[24].Value(), "expected null for col_jsonb_arr_null")
 }
 
 func TestStringDataTypes(t *testing.T) {
