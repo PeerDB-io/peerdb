@@ -80,7 +80,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
-			return nil, exceptions.NewUnimplementedApiError("connector is not a supported destination type")
+			return &protos.ValidateCDCMirrorResponse{}, nil
 		}
 		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to create destination connector: %v", err))
 	}

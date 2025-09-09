@@ -450,7 +450,7 @@ func (s Suite) TestMySQLRDSBinlogValidation() {
 	require.Error(s.t, err)
 	st, ok := status.FromError(err)
 	require.True(s.t, ok)
-	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
 	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
 		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset", st.Message())
 
@@ -460,7 +460,7 @@ func (s Suite) TestMySQLRDSBinlogValidation() {
 	require.Error(s.t, err)
 	st, ok = status.FromError(err)
 	require.True(s.t, ok)
-	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
 	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
 		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1", st.Message())
 
@@ -496,7 +496,7 @@ func (s Suite) TestMongoDBOplogRetentionValidation() {
 	require.Error(s.t, err)
 	st, ok := status.FromError(err)
 	require.True(s.t, ok)
-	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
 	require.Contains(s.t, st.Message(), "oplog retention must be set to >= 24 hours")
 
 	// test retention hours (>= 24 hours) validation success
@@ -597,12 +597,14 @@ func (s Suite) TestMySQLFlavorSwap() {
 		Peer: peer,
 	})
 
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
 	if my.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		require.Error(s.t, err)
+		grpcStatus, ok := status.FromError(err)
+		require.True(s.t, ok, "expected error to be gRPC status")
+		require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
 		require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
 		require.Equal(s.t,
-			"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", response.Message)
+			"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", grpcStatus.Message())
 	}
 }
 

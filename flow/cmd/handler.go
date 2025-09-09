@@ -409,7 +409,8 @@ func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowI
 			}
 		}
 	case <-time.After(1 * time.Minute):
-		slog.ErrorContext(ctx, "Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
+		slog.ErrorContext(ctx, "Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.",
+			slog.String("workflowId", workflowID))
 		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 		if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
