@@ -140,7 +140,7 @@ func (c *MySqlConnector) EnsurePullability(
 	return nil, nil
 }
 
-func (c *MySqlConnector) ExportTxSnapshot(context.Context, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *MySqlConnector) ExportTxSnapshot(context.Context, string, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
 	// https://dev.mysql.com/doc/refman/8.4/en/replication-howto-masterstatus.html
 	return nil, nil, nil
 }

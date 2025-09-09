@@ -30,7 +30,11 @@ import {
   handleValidateCDC,
 } from './handlers';
 import { cdcSettings } from './helpers/cdc';
-import { blankCDCSetting, blankQRepSetting } from './helpers/common';
+import {
+  blankCDCSetting,
+  blankQRepSetting,
+  cdcSourceDefaults,
+} from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
@@ -99,6 +103,15 @@ export default function CreateMirrors() {
       sourceName: peer.name,
     }));
     setSourceType(peer.type);
+
+    // todo: not sure if that could be the best of doing that
+    const typeDefaults = cdcSourceDefaults[peer.type];
+    if (typeDefaults) {
+      setCdcConfig((curr) => ({
+        ...curr,
+        ...typeDefaults,
+      }));
+    }
   }, []);
 
   const setDestinationPeer = useCallback((peer: SingleValue<PeerListItem>) => {
