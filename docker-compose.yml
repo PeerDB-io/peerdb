@@ -116,12 +116,7 @@ services:
 
   flow-api:
     container_name: flow_api
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-api
-      args:
-        PEERDB_VERSION_SHA_SHORT: ${PEERDB_VERSION_SHA_SHORT:-}
+    image: ghcr.io/peerdb-io/flow-api:stable-v0.32.1
     restart: unless-stopped
     ports:
       - 8112:8112
@@ -137,10 +132,7 @@ services:
 
   flow-snapshot-worker:
     container_name: flow-snapshot-worker
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-snapshot-worker
+    image: ghcr.io/peerdb-io/flow-snapshot-worker:stable-v0.32.1
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
@@ -150,10 +142,7 @@ services:
 
   flow-worker:
     container_name: flow-worker
-    build:
-      context: .
-      dockerfile: stacks/flow.Dockerfile
-      target: flow-worker
+    image: ghcr.io/peerdb-io/flow-worker:stable-v0.32.1
     restart: unless-stopped
     environment:
       <<: [*catalog-config, *flow-worker-env, *minio-config]
