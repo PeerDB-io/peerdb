@@ -428,11 +428,17 @@ func PullCdcRecords[Items model.Items](
 	if err != nil {
 		return err
 	}
+	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	pullStart := time.Now()
 	defer func() {
 		if cdcRecordsStorage.IsEmpty() {
 			records.SignalAsEmpty()
 		}
-		logger.Info("[finished] PullRecords", slog.Int("records", cdcRecordsStorage.Len()))
+		logger.Info("[finished] PullRecords",
+			slog.Int("records", cdcRecordsStorage.Len()),
+			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int("channelLen", records.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 		if err := cdcRecordsStorage.Close(); err != nil {
 			logger.Warn("failed to clean up records storage", slog.Any("error", err))
 		}
@@ -440,7 +446,6 @@ func PullCdcRecords[Items model.Items](
 
 	logger.Info("pulling records start")
 
-	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
 	waitingForCommit := false
 	defer func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
@@ -453,6 +458,7 @@ func PullCdcRecords[Items model.Items](
 			slog.Int("records", cdcRecordsStorage.Len()),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
 			slog.Int("channelLen", records.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
 			slog.Bool("waitingForCommit", waitingForCommit))
 	})
 	defer shutdown()
@@ -478,6 +484,7 @@ func PullCdcRecords[Items model.Items](
 				slog.Int("records", cdcRecordsStorage.Len()),
 				slog.Int64("bytes", totalFetchedBytes.Load()),
 				slog.Int("channelLen", records.ChannelLen()),
+				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
 				slog.Bool("waitingForCommit", waitingForCommit))
 		}
 		return nil
@@ -508,6 +515,7 @@ func PullCdcRecords[Items model.Items](
 					slog.Int("records", cdcRecordsStorage.Len()),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()),
+					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
 					slog.Bool("waitingForCommit", waitingForCommit))
 				standByLastLogged = time.Now()
 			}
@@ -518,7 +526,8 @@ func PullCdcRecords[Items model.Items](
 				logger.Info("batch filled, returning currently accumulated records",
 					slog.Int("records", cdcRecordsStorage.Len()),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
-					slog.Int("channelLen", records.ChannelLen()))
+					slog.Int("channelLen", records.ChannelLen()),
+					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 				return nil
 			}
 
@@ -526,7 +535,8 @@ func PullCdcRecords[Items model.Items](
 				logger.Info("commit received, returning currently accumulated records",
 					slog.Int("records", cdcRecordsStorage.Len()),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
-					slog.Int("channelLen", records.ChannelLen()))
+					slog.Int("channelLen", records.ChannelLen()),
+					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 				return nil
 			}
 		}
@@ -540,13 +550,15 @@ func PullCdcRecords[Items model.Items](
 					logger.Info("no commit lock, returning currently accumulated records",
 						slog.Int("records", cdcRecordsStorage.Len()),
 						slog.Int64("bytes", totalFetchedBytes.Load()),
-						slog.Int("channelLen", records.ChannelLen()))
+						slog.Int("channelLen", records.ChannelLen()),
+						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					return nil
 				} else {
 					logger.Info("commit lock, waiting for commit to return records",
 						slog.Int("records", cdcRecordsStorage.Len()),
 						slog.Int64("bytes", totalFetchedBytes.Load()),
-						slog.Int("channelLen", records.ChannelLen()))
+						slog.Int("channelLen", records.ChannelLen()),
+						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					waitingForCommit = true
 				}
 			} else {
@@ -578,7 +590,8 @@ func PullCdcRecords[Items model.Items](
 				logger.Info("Stand-by deadline reached, returning currently accumulated records",
 					slog.Int("records", cdcRecordsStorage.Len()),
 					slog.Int64("bytes", totalFetchedBytes.Load()),
-					slog.Int("channelLen", records.ChannelLen()))
+					slog.Int("channelLen", records.ChannelLen()),
+					slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 				return nil
 			} else {
 				return fmt.Errorf("ReceiveMessage failed: %w", err)
