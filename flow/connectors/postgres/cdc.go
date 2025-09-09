@@ -441,6 +441,7 @@ func PullCdcRecords[Items model.Items](
 	logger.Info("pulling records start")
 
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	waitingForCommit := false
 	defer func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
@@ -448,15 +449,16 @@ func PullCdcRecords[Items model.Items](
 	shutdown := shared.Interval(ctx, time.Minute, func() {
 		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
-		logger.Info("pulling records", slog.Int("records", cdcRecordsStorage.Len()),
-			slog.Int64("bytes", totalFetchedBytes.Load()))
+		logger.Info("pulling records",
+			slog.Int("records", cdcRecordsStorage.Len()),
+			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int("channelLen", records.ChannelLen()),
+			slog.Bool("waitingForCommit", waitingForCommit))
 	})
 	defer shutdown()
 
 	nextStandbyMessageDeadline := time.Now().Add(req.IdleTimeout)
-
 	pkmRequiresResponse := false
-	waitingForCommit := false
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
 		if err := cdcRecordsStorage.Set(logger, key, rec); err != nil {
