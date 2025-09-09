@@ -70,6 +70,7 @@ message ValidatePeerRequest { peerdb_peers.Peer peer = 1; }
 message CreatePeerRequest {
   peerdb_peers.Peer peer = 1;
   bool allow_update = 2;
+  bool disable_validation = 3;
 }
 
 message DropPeerRequest { string peer_name = 1; }

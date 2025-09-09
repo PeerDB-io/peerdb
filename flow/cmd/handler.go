@@ -418,15 +418,17 @@ func (h *FlowRequestHandler) CreatePeer(
 	ctx context.Context,
 	req *protos.CreatePeerRequest,
 ) (*protos.CreatePeerResponse, error) {
-	status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
-	if validateErr != nil {
-		return nil, validateErr
-	}
-	if status.Status != protos.ValidatePeerStatus_VALID {
-		return &protos.CreatePeerResponse{
-			Status:  protos.CreatePeerStatus_FAILED,
-			Message: status.Message,
-		}, nil
+	if !req.DisableValidation {
+		status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
+		if validateErr != nil {
+			return nil, validateErr
+		}
+		if status.Status != protos.ValidatePeerStatus_VALID {
+			return &protos.CreatePeerResponse{
+				Status:  protos.CreatePeerStatus_FAILED,
+				Message: status.Message,
+			}, nil
+		}
 	}
 
 	return utils.CreatePeerNoValidate(ctx, h.pool, req.Peer, req.AllowUpdate)
