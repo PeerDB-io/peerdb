@@ -114,7 +114,7 @@ func (h *FlowRequestHandler) ListPeers(
 	sourceItems := make([]*protos.PeerListItem, 0, len(peers))
 	destinationItems := make([]*protos.PeerListItem, 0, len(peers))
 	for _, peer := range peers {
-		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL || peer.Type == protos.DBType_MONGO {
+		if peer.Type == protos.DBType_POSTGRES || peer.Type == protos.DBType_MYSQL || peer.Type == protos.DBType_MONGO || peer.Type == protos.DBType_BIGQUERY {
 			sourceItems = append(sourceItems, peer)
 		}
 		if peer.Type != protos.DBType_MYSQL &&
