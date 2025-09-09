@@ -33,11 +33,14 @@ func TestErrorConstructorsShouldReturnPointers(t *testing.T) {
 						returnType := fn.Type.Results.List[0].Type
 						// If it's not a pointer (*Ident), it's a violation
 						if _, isPointer := returnType.(*ast.StarExpr); !isPointer {
-							pos := pkg.Fset.Position(fn.Pos())
-							assert.Fail(
-								t, "Error constructor should return pointer",
-								"%s:%s should return *%s",
-								pos.Filename, fn.Name.Name, strings.TrimPrefix(fn.Name.Name, "New"))
+							// Although we are ok if the return type is error
+							if ident, isIdent := returnType.(*ast.Ident); !(isIdent && ident.Name == "error") {
+								pos := pkg.Fset.Position(fn.Pos())
+								assert.Fail(
+									t, "Error constructor should return pointer",
+									"%s:%s should return *%s",
+									pos.Filename, fn.Name.Name, strings.TrimPrefix(fn.Name.Name, "New"))
+							}
 						}
 					}
 				}

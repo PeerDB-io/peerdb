@@ -26,8 +26,10 @@ func (h *FlowRequestHandler) GetScripts(ctx context.Context, req *protos.GetScri
 		err := row.Scan(&script.Id, &script.Lang, &script.Name, &sourceBytes)
 		if err == nil {
 			script.Source = string(sourceBytes)
+		} else {
+			err = exceptions.NewInternalApiError(fmt.Sprintf("failed to scan script: %v", err))
 		}
-		return script, exceptions.NewInternalApiError(fmt.Sprintf("failed to scan script: %v", err))
+		return script, err
 	})
 	if err != nil {
 		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect scripts: %v", err))
