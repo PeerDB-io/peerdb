@@ -29,10 +29,10 @@ export default function RowsDisplay({
         alignItems: 'center',
       }}
     >
-      <h4 className='text-tremor-default text-tremor-content dark:text-dark-tremor-content'>
+      <h4 className='text-tremor-default text-gray-600 dark:text-gray-300'>
         Rows Synced
       </h4>
-      <p className='text-tremor-metric text-tremor-content-strong dark:text-dark-tremor-content-strong font-semibold'>
+      <p className='text-tremor-metric text-gray-900 dark:text-white font-semibold'>
         {RowDataFormatter(totalRowsData.totalCount.valueOf())}
       </p>
       <Button
@@ -43,7 +43,10 @@ export default function RowsDisplay({
         <Icon name={show ? 'arrow_drop_up' : 'arrow_drop_down'} />
       </Button>
       {show && (
-        <div style={{ width: '30%', marginTop: '1.5rem' }}>
+        <div
+          style={{ width: '30%', marginTop: '1.5rem' }}
+          className='[&_p]:text-gray-700 dark:[&_p]:text-gray-300'
+        >
           <BarList valueFormatter={RowDataFormatter} data={rowsHero} />
         </div>
       )}

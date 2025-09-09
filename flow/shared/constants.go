@@ -29,6 +29,10 @@ type (
 	TaskQueueID string
 )
 
+func (c ContextKey) String() string {
+	return string(c)
+}
+
 const (
 	// Task Queues
 	PeerFlowTaskQueue        TaskQueueID = "peer-flow-task-queue"
@@ -50,6 +54,7 @@ const (
 	FlowNameKey      ContextKey = "flowName"
 	PartitionIDKey   ContextKey = "partitionId"
 	DeploymentUIDKey ContextKey = "deploymentUid"
+	RequestIdKey     ContextKey = "x-peerdb-request-id"
 )
 
 const FetchAndChannelSize = 128 * 1024

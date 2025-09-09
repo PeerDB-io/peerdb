@@ -52,7 +52,7 @@ func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.
 	})
 
 	updateFuture := workflow.ExecuteLocalActivity(updateCtx,
-		updateFlowStatusInCatalogActivity, workflow.GetInfo(ctx).WorkflowExecution.ID, status)
+		flowable.UpdateFlowStatusInCatalogLocalActivity, workflow.GetInfo(ctx).WorkflowExecution.ID, status)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
@@ -85,10 +85,18 @@ func updateFlowConfigWithLatestSettings(
 	if flowConfigUpdate != nil {
 		cloneCfg.MaxBatchSize = flowConfigUpdate.BatchSize
 		cloneCfg.IdleTimeoutSeconds = flowConfigUpdate.IdleTimeout
-		cloneCfg.SnapshotNumRowsPerPartition = flowConfigUpdate.SnapshotNumRowsPerPartition
-		cloneCfg.SnapshotNumPartitionsOverride = flowConfigUpdate.SnapshotNumPartitionsOverride
-		cloneCfg.SnapshotMaxParallelWorkers = flowConfigUpdate.SnapshotMaxParallelWorkers
-		cloneCfg.SnapshotNumTablesInParallel = flowConfigUpdate.SnapshotNumTablesInParallel
+    if flowConfigUpdate.SnapshotNumRowsPerPartition > 0 {
+			cloneCfg.SnapshotNumRowsPerPartition = flowConfigUpdate.SnapshotNumRowsPerPartition
+    }
+    if flowConfigUpdate.SnapshotNumPartitionsOverride > 0 {
+			cloneCfg.SnapshotNumPartitionsOverride = flowConfigUpdate.SnapshotNumPartitionsOverride
+    }
+    if flowConfigUpdate.SnapshotMaxParallelWorkers > 0 {
+			cloneCfg.SnapshotMaxParallelWorkers = flowConfigUpdate.SnapshotMaxParallelWorkers
+  	}
+    if flowConfigUpdate.SnapshotNumTablesInParallel > 0 {
+			cloneCfg.SnapshotNumTablesInParallel = flowConfigUpdate.SnapshotNumTablesInParallel
+		}
 	}
 	return cloneCfg
 }

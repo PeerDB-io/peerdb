@@ -47,6 +47,7 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
       <TabList
         color='neutral'
         style={{ display: 'flex', justifyContent: 'space-around' }}
+        className='[&_button]:text-gray-600 dark:[&_button]:text-gray-300 [&_button:hover]:text-gray-900 dark:[&_button:hover]:text-white [&_button[data-state=active]]:text-gray-900 dark:[&_button[data-state=active]]:text-white'
       >
         <Tab>Overview</Tab>
         <Tab>Sync Status</Tab>

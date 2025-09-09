@@ -189,14 +189,6 @@ func (s *SnapshotFlowExecution) cloneTable(
 		srcTableEscaped = parsedSrcTable.MySQL()
 	}
 
-	var query string
-	if mapping.PartitionKey == "" {
-		query = fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
-	} else {
-		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
-			from, srcTableEscaped, utils.QuoteIdentifier(mapping.PartitionKey))
-	}
-
 	numWorkers := uint32(8)
 	if config.SnapshotMaxParallelWorkers > 0 {
 		numWorkers = config.SnapshotMaxParallelWorkers
@@ -214,6 +206,14 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	snapshotWriteMode := &protos.QRepWriteMode{
 		WriteType: protos.QRepWriteType_QREP_WRITE_MODE_APPEND,
+	}
+
+	var query string
+	if mapping.PartitionKey == "" || numPartitionsOverride == 1 {
+		query = fmt.Sprintf("SELECT %s FROM %s", from, srcTableEscaped)
+	} else {
+		query = fmt.Sprintf("SELECT %s FROM %s WHERE %s BETWEEN {{.start}} AND {{.end}}",
+			from, srcTableEscaped, utils.QuoteIdentifier(mapping.PartitionKey))
 	}
 
 	// ensure document IDs are synchronized across initial load and CDC

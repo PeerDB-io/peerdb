@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"regexp"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -101,11 +99,10 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 }
 
 func (h *FlowRequestHandler) CheckIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {
-	var nameExists pgtype.Bool
-	err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT * FROM flows WHERE name = $1)", mirrorName).Scan(&nameExists)
-	if err != nil {
-		return false, fmt.Errorf("failed to check if mirror name exists: %v", err)
+	var nameExists bool
+	if err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT * FROM flows WHERE name = $1)", mirrorName).Scan(&nameExists); err != nil {
+		return false, fmt.Errorf("failed to check if mirror name exists: %w", err)
 	}
 
-	return nameExists.Bool, nil
+	return nameExists, nil
 }

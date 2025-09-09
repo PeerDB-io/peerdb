@@ -763,7 +763,7 @@ func BuildQuery(logger log.Logger, query string, flowJobName string) (string, er
 	}
 
 	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, map[string]any{
+	if err := tmpl.Execute(buf, map[string]string{
 		"start": "$1",
 		"end":   "$2",
 	}); err != nil {

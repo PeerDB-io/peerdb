@@ -3,10 +3,14 @@ package e2e_mongo
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
@@ -85,4 +89,48 @@ func (s *MongoSource) GetRows(ctx context.Context, suffix, table, cols string) (
 
 func GetTestDatabase(suffix string) string {
 	return "e2e_test_" + suffix
+}
+
+func SetupMongo(t *testing.T, suffix string) (*MongoSource, error) {
+	t.Helper()
+
+	mongoAdminUri := os.Getenv("CI_MONGO_ADMIN_URI")
+	require.NotEmpty(t, mongoAdminUri, "missing CI_MONGO_ADMIN_URI env var")
+	mongoAdminUsername := os.Getenv("CI_MONGO_ADMIN_USERNAME")
+	require.NotEmpty(t, mongoAdminUsername, "missing CI_MONGO_ADMIN_USERNAME env var")
+	mongoAdminPassword := os.Getenv("CI_MONGO_ADMIN_PASSWORD")
+	require.NotEmpty(t, mongoAdminPassword, "missing CI_MONGO_ADMIN_PASSWORD env var")
+	adminClient, err := mongo.Connect(options.Client().
+		ApplyURI(mongoAdminUri).
+		SetAppName("Mongo admin client").
+		SetCompressors([]string{"zstd", "snappy"}).
+		SetReadPreference(readpref.Primary()).
+		SetAuth(options.Credential{
+			Username: mongoAdminUsername,
+			Password: mongoAdminPassword,
+		}))
+	require.NoError(t, err, "failed to setup mongo admin client")
+
+	mongoUri := os.Getenv("CI_MONGO_URI")
+	require.NotEmpty(t, mongoUri, "missing CI_MONGO_URI env var")
+	mongoUsername := os.Getenv("CI_MONGO_USERNAME")
+	require.NotEmpty(t, mongoUsername, "missing CI_MONGO_USERNAME env var")
+	mongoPassword := os.Getenv("CI_MONGO_PASSWORD")
+	require.NotEmpty(t, mongoPassword, "missing CI_MONGO_PASSWORD env var")
+
+	mongoConfig := &protos.MongoConfig{
+		Uri:        mongoUri,
+		Username:   mongoUsername,
+		Password:   mongoPassword,
+		DisableTls: true,
+	}
+
+	mongoConn, err := connmongo.NewMongoConnector(t.Context(), mongoConfig)
+	require.NoError(t, err, "failed to setup mongo connector")
+
+	testDb := GetTestDatabase(suffix)
+	db := adminClient.Database(testDb)
+	_ = db.Drop(t.Context())
+
+	return &MongoSource{conn: mongoConn, config: mongoConfig, adminClient: adminClient}, err
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import SelectTheme from '@/app/styles/select';
 import LogsTable from '@/components/LogsTable';
 import { ListMirrorNamesResponse } from '@/grpc_generated/route';
 import { ProgressCircle } from '@/lib/ProgressCircle';
@@ -47,6 +48,7 @@ export default function LogsView() {
               setMirrorName(selectedOption?.value ?? '')
             }
             placeholder='Filter by mirror'
+            theme={SelectTheme}
           />
         </div>
         <div style={{ width: 'fit-content' }}>
@@ -60,6 +62,7 @@ export default function LogsView() {
               setLogLevel(selectedOption?.value ?? 'all')
             }
             placeholder='Filter by log type'
+            theme={SelectTheme}
           />
         </div>
       </div>

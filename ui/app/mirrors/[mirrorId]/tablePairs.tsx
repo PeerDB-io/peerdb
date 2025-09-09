@@ -65,7 +65,7 @@ export default function TablePairs({
                 key={`${table.sourceTableIdentifier}.${table.destinationTableIdentifier}`}
                 onClick={() => handleTableClick(table)}
                 style={{ cursor: 'pointer' }}
-                className='hover:bg-gray-50'
+                className='hover:bg-gray-50 dark:hover:bg-gray-800'
               >
                 <TableCell>{table.sourceTableIdentifier}</TableCell>
                 <TableCell style={{ padding: '0.5rem' }}>

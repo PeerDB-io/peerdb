@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/jackc/pgx/v5/pgtype"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/pgvector/pgvector-go"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -55,6 +56,7 @@ type PostgresCDCSource struct {
 	otelManager                              *otel_metrics.OtelManager
 	hushWarnUnhandledMessageType             map[pglogrepl.MessageType]struct{}
 	hushWarnUnknownTableDetected             map[uint32]struct{}
+	jsonApi                                  jsoniter.API
 	flowJobName                              string
 	handleInheritanceForNonPartitionedTables bool
 	originMetadataAsDestinationColumn        bool
@@ -91,6 +93,8 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		schemaNameForRelID = make(map[uint32]string, len(cdcConfig.TableNameSchemaMapping))
 	}
 
+	jsonApi := createExtendedJSONUnmarshaler()
+
 	return &PostgresCDCSource{
 		PostgresConnector:                        c,
 		srcTableIDNameMapping:                    cdcConfig.SrcTableIDNameMapping,
@@ -106,6 +110,7 @@ func (c *PostgresConnector) NewPostgresCDCSource(ctx context.Context, cdcConfig 
 		otelManager:                              cdcConfig.OtelManager,
 		hushWarnUnhandledMessageType:             make(map[pglogrepl.MessageType]struct{}),
 		hushWarnUnknownTableDetected:             make(map[uint32]struct{}),
+		jsonApi:                                  jsonApi,
 		flowJobName:                              cdcConfig.FlowJobName,
 		handleInheritanceForNonPartitionedTables: cdcConfig.HandleInheritanceForNonPartitionedTables,
 		originMetadataAsDestinationColumn:        cdcConfig.OriginMetaAsDestinationColumn,
@@ -306,7 +311,42 @@ func (p *PostgresCDCSource) decodeColumnData(
 ) (types.QValue, error) {
 	var parsedData any
 	var err error
-	if dt, ok := p.typeMap.TypeForOID(dataType); ok {
+
+	// Special handling for JSON types to use relaxed number parsing
+	if dataType == pgtype.JSONOID || dataType == pgtype.JSONBOID {
+		var text pgtype.Text
+		if err := p.typeMap.Scan(dataType, formatCode, data, &text); err != nil {
+			p.logger.Error("[pg_cdc] failed to scan json", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to scan json: %w", err)
+		}
+		if text.Valid {
+			if err := p.jsonApi.UnmarshalFromString(text.String, &parsedData); err != nil {
+				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
+				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+			}
+			return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+		}
+		return types.QValueNull(types.QValueKindJSON), nil
+	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
+		textArr := &pgtype.FlatArray[pgtype.Text]{}
+		if err := p.typeMap.Scan(dataType, formatCode, data, textArr); err != nil {
+			p.logger.Error("[pg_cdc] failed to scan json array", slog.Any("error", err))
+			return nil, fmt.Errorf("failed to scan json array: %w", err)
+		}
+
+		arr := make([]any, len(*textArr))
+		for j, text := range *textArr {
+			if text.Valid {
+				if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
+					p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))
+					return nil, fmt.Errorf("failed to unmarshal json array element: %w", err)
+				}
+			} else {
+				arr[j] = nil
+			}
+		}
+		return p.parseFieldFromPostgresOID(dataType, typmod, arr, customTypeMapping, p.internalVersion)
+	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
 			// below is required to decode above types to string
@@ -440,8 +480,16 @@ func PullCdcRecords[Items model.Items](
 
 	logger.Info("pulling records start")
 
+	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	defer func() {
+		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
+		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+	}()
 	shutdown := shared.Interval(ctx, time.Minute, func() {
-		logger.Info("pulling records", slog.Int("records", cdcRecordsStorage.Len()))
+		p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
+		p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		logger.Info("pulling records", slog.Int("records", cdcRecordsStorage.Len()),
+			slog.Int64("bytes", totalFetchedBytes.Load()))
 	})
 	defer shutdown()
 
@@ -449,7 +497,6 @@ func PullCdcRecords[Items model.Items](
 
 	pkmRequiresResponse := false
 	waitingForCommit := false
-	fetchedBytes := 0
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
 		if err := cdcRecordsStorage.Set(logger, key, rec); err != nil {
@@ -467,7 +514,7 @@ func PullCdcRecords[Items model.Items](
 		if cdcRecordsStorage.Len()%50000 == 0 {
 			logger.Info("pulling records",
 				slog.Int("records", cdcRecordsStorage.Len()),
-				slog.Int("bytes", fetchedBytes),
+				slog.Int64("bytes", totalFetchedBytes.Load()),
 				slog.Int("channelLen", records.ChannelLen()),
 				slog.Bool("waitingForCommit", waitingForCommit))
 		}
@@ -497,7 +544,7 @@ func PullCdcRecords[Items model.Items](
 			if time.Since(standByLastLogged) > 10*time.Second {
 				logger.Info("Sent Standby status message",
 					slog.Int("records", cdcRecordsStorage.Len()),
-					slog.Int("bytes", fetchedBytes),
+					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()),
 					slog.Bool("waitingForCommit", waitingForCommit))
 				standByLastLogged = time.Now()
@@ -508,7 +555,7 @@ func PullCdcRecords[Items model.Items](
 			if cdcRecordsStorage.Len() >= int(req.MaxBatchSize) {
 				logger.Info("batch filled, returning currently accumulated records",
 					slog.Int("records", cdcRecordsStorage.Len()),
-					slog.Int("bytes", fetchedBytes),
+					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()))
 				return nil
 			}
@@ -516,7 +563,7 @@ func PullCdcRecords[Items model.Items](
 			if waitingForCommit {
 				logger.Info("commit received, returning currently accumulated records",
 					slog.Int("records", cdcRecordsStorage.Len()),
-					slog.Int("bytes", fetchedBytes),
+					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()))
 				return nil
 			}
@@ -530,13 +577,13 @@ func PullCdcRecords[Items model.Items](
 				if p.commitLock == nil {
 					logger.Info("no commit lock, returning currently accumulated records",
 						slog.Int("records", cdcRecordsStorage.Len()),
-						slog.Int("bytes", fetchedBytes),
+						slog.Int64("bytes", totalFetchedBytes.Load()),
 						slog.Int("channelLen", records.ChannelLen()))
 					return nil
 				} else {
 					logger.Info("commit lock, waiting for commit to return records",
 						slog.Int("records", cdcRecordsStorage.Len()),
-						slog.Int("bytes", fetchedBytes),
+						slog.Int64("bytes", totalFetchedBytes.Load()),
 						slog.Int("channelLen", records.ChannelLen()))
 					waitingForCommit = true
 				}
@@ -568,7 +615,7 @@ func PullCdcRecords[Items model.Items](
 			if pgconn.Timeout(err) {
 				logger.Info("Stand-by deadline reached, returning currently accumulated records",
 					slog.Int("records", cdcRecordsStorage.Len()),
-					slog.Int("bytes", fetchedBytes),
+					slog.Int64("bytes", totalFetchedBytes.Load()),
 					slog.Int("channelLen", records.ChannelLen()))
 				return nil
 			} else {
@@ -580,7 +627,7 @@ func PullCdcRecords[Items model.Items](
 		case *pgproto3.ErrorResponse:
 			return shared.LogError(logger, exceptions.NewPostgresWalError(errors.New("received error response"), msg))
 		case *pgproto3.CopyData:
-			p.otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
+			allFetchedBytes.Add(int64(len(msg.Data)))
 			switch msg.Data[0] {
 			case pglogrepl.PrimaryKeepaliveMessageByteID:
 				pkm, err := pglogrepl.ParsePrimaryKeepaliveMessage(msg.Data[1:])
@@ -615,8 +662,8 @@ func PullCdcRecords[Items model.Items](
 				}
 
 				if rec != nil {
-					p.otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(msg.Data)))
-					fetchedBytes += len(msg.Data)
+					fetchedBytes.Add(int64(len(msg.Data)))
+					totalFetchedBytes.Add(int64(len(msg.Data)))
 					tableName := rec.GetDestinationTableName()
 					switch r := rec.(type) {
 					case *model.UpdateRecord[Items]:
