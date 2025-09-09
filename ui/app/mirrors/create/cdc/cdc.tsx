@@ -7,7 +7,7 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { CDCConfig, TableMapRow } from '../../../dto/MirrorsDTO';
-import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
+import { fetchPublications, IsEventhubsPeer, IsQueuePeer } from '../handlers';
 import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
 import CDCField from './fields';
 import TablePicker from './tablemapping';
@@ -46,9 +46,24 @@ export default function CDCConfigForm({
     setScriptingEnabled(data);
   };
 
+  const adjustedSettings = useMemo(
+    () =>
+      settings!.map((setting) => {
+        if (sourceType.toString() === DBType[DBType.BIGQUERY]) {
+          if (setting.label == 'Snapshot Staging Path') {
+            setting.advanced = undefined;
+            setting.required = true;
+          }
+        }
+
+        return setting;
+      }),
+    [settings, sourceType]
+  );
+
   const normalSettings = useMemo(
     () =>
-      settings!.filter(
+      adjustedSettings!.filter(
         (setting) =>
           !(
             (IsQueuePeer(destinationType) &&
@@ -60,7 +75,7 @@ export default function CDCConfigForm({
   );
 
   const advancedSettings = useMemo(() => {
-    return settings!
+    return adjustedSettings!
       .map((setting) => {
         if (
           IsQueuePeer(destinationType) &&
@@ -76,42 +91,104 @@ export default function CDCConfigForm({
       .filter((setting) => setting !== undefined);
   }, [settings, destinationType, setter]);
 
-  const paramDisplayCondition = (setting: MirrorSetting) => {
-    const label = setting.label.toLowerCase();
-    if (
-      (label === 'publication name' &&
-        sourceType.toString() !== DBType[DBType.POSTGRES]) ||
-      (label.includes('snapshot') && mirrorConfig.doInitialSnapshot !== true) ||
-      (label === 'replication slot name' &&
-        (mirrorConfig.doInitialSnapshot === true ||
-          sourceType.toString() !== DBType[DBType.POSTGRES])) ||
-      (label.includes('staging path') &&
-        !(
-          destinationType.toString() === DBType[DBType.BIGQUERY] ||
-          destinationType.toString() === DBType[DBType.SNOWFLAKE]
-        )) ||
-      (IsEventhubsPeer(destinationType) &&
-        (label.includes('initial copy') ||
-          label.includes('initial load') ||
-          label.includes('snapshot'))) ||
-      ((sourceType.toString() !== DBType[DBType.POSTGRES] ||
-        destinationType.toString() !== DBType[DBType.POSTGRES]) &&
-        label.includes('type system')) ||
-      (destinationType.toString() !== DBType[DBType.BIGQUERY] &&
-        label.includes('column name')) ||
-      (label.includes('soft delete') &&
-        !(
-          destinationType.toString() === DBType[DBType.POSTGRES] ||
-          destinationType.toString() === DBType[DBType.BIGQUERY] ||
-          destinationType.toString() === DBType[DBType.SNOWFLAKE]
-        )) ||
-      (!scriptingEnabled &&
-        label.includes('script') &&
-        destinationType.toString() === DBType[DBType.CLICKHOUSE])
-    ) {
+  const isPostgresSource = () =>
+    sourceType.toString() === DBType[DBType.POSTGRES];
+  const isPostgresDestination = () =>
+    destinationType.toString() === DBType[DBType.POSTGRES];
+  const isBigQuerySource = () =>
+    sourceType.toString() === DBType[DBType.BIGQUERY];
+  const isBigQueryDestination = () =>
+    destinationType.toString() === DBType[DBType.BIGQUERY];
+  const isSnowflakeDestination = () =>
+    destinationType.toString() === DBType[DBType.SNOWFLAKE];
+  const isClickhouseDestination = () =>
+    destinationType.toString() === DBType[DBType.CLICKHOUSE];
+
+  const supportsStagingPath = () =>
+    isBigQuerySource() || isBigQueryDestination() || isSnowflakeDestination();
+  const supportsSoftDelete = () =>
+    isPostgresDestination() ||
+    isBigQueryDestination() ||
+    isSnowflakeDestination();
+
+  const shouldHidePublicationName = (label: string) => {
+    return label === 'publication name' && !isPostgresSource();
+  };
+
+  const shouldHideSnapshotSettings = (label: string) => {
+    return label.includes('snapshot') && !mirrorConfig.doInitialSnapshot;
+  };
+
+  const shouldHideReplicationSlot = (label: string) => {
+    return (
+      label === 'replication slot name' &&
+      (mirrorConfig.doInitialSnapshot || !isPostgresSource())
+    );
+  };
+
+  const shouldHideStagingPath = (label: string) => {
+    return label.includes('staging path') && !supportsStagingPath();
+  };
+
+  const shouldHideEventhubsSettings = (label: string) => {
+    return (
+      IsEventhubsPeer(destinationType) &&
+      (label.includes('initial copy') ||
+        label.includes('initial load') ||
+        label.includes('snapshot'))
+    );
+  };
+
+  const shouldHideTypeSystem = (label: string) => {
+    const isPostgresToPostgres = isPostgresSource() && isPostgresDestination();
+    return !isPostgresToPostgres && label.includes('type system');
+  };
+
+  const shouldHideColumnName = (label: string) => {
+    return !isBigQueryDestination() && label.includes('column name');
+  };
+
+  const shouldHideSoftDelete = (label: string) => {
+    return label.includes('soft delete') && !supportsSoftDelete();
+  };
+
+  const shouldHideClickhouseScript = (label: string) => {
+    return (
+      !scriptingEnabled && label.includes('script') && isClickhouseDestination()
+    );
+  };
+
+  const shouldHideBigQuerySourceIncompatibleFields = (label: string) => {
+    if (!isBigQuerySource()) {
       return false;
     }
-    return true;
+
+    return (
+      label.startsWith('initial copy') || // only initial copy is supported. Values are opt-in by default for BigQuery source.
+      label.includes('cdc') || // CDC is not supported
+      label.includes('sync interval')
+    ); // sync interval is not applicable
+  };
+
+  const paramDisplayCondition = (setting: MirrorSetting) => {
+    const label = setting.label.toLowerCase();
+
+    // List of conditions that would hide the setting
+    const hideConditions = [
+      shouldHidePublicationName(label),
+      shouldHideSnapshotSettings(label),
+      shouldHideReplicationSlot(label),
+      shouldHideStagingPath(label),
+      shouldHideEventhubsSettings(label),
+      shouldHideTypeSystem(label),
+      shouldHideColumnName(label),
+      shouldHideSoftDelete(label),
+      shouldHideClickhouseScript(label),
+      shouldHideBigQuerySourceIncompatibleFields(label),
+    ];
+
+    // Show the setting if none of the hide conditions are true
+    return !hideConditions.some((condition) => condition);
   };
 
   useEffect(() => {

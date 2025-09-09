@@ -118,7 +118,7 @@ func (a *FlowableActivity) EnsurePullability(
 	config *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, config.PeerName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName) // todo: I assume this was mistake before to expect CDCPullConnector
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
@@ -507,7 +507,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	if err := monitoring.InitializeQRepRun(ctx, logger, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName); err != nil {
 		return nil, err
 	}
-	srcConn, err := connectors.GetByNameAs[connectors.QRepPullConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
+	srcConn, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep pull connector: %w", err))
 	}
@@ -563,34 +563,50 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 
 	for _, p := range partitions.Partitions {
 		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
+
 		var err error
-		switch config.System {
-		case protos.TypeSystem_Q:
-			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
-			outstream := stream
-			if config.Script != "" {
-				ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
-					a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
-				}))
-				if err != nil {
-					return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				}
-				if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
-					outstream = pua.AttachToStream(ls, fn, stream)
-				}
+
+		isDownloadableObjectStream := true // todo: determine based on connectors
+		if isDownloadableObjectStream {
+			bufferSize := 10
+			if config.MaxParallelWorkers > 0 {
+				bufferSize = int(config.MaxParallelWorkers) * 2 // buffer size is double the number of workers
 			}
-			err = replicateQRepPartition(ctx, a, config, p, runUUID, stream, outstream,
-				connectors.QRepPullConnector.PullQRepRecords,
-				connectors.QRepSyncConnector.SyncQRepRecords,
+
+			stream := model.NewQObjectStream(bufferSize)
+			err = replicateQRepPartition(ctx, a, config, p, runUUID, stream, stream,
+				connectors.QRepPullObjectsConnector.PullQRepObjects,
+				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
 			)
-		case protos.TypeSystem_PG:
-			read, write := connpostgres.NewPgCopyPipe()
-			err = replicateQRepPartition(ctx, a, config, p, runUUID, write, read,
-				connectors.QRepPullPgConnector.PullPgQRepRecords,
-				connectors.QRepSyncPgConnector.SyncPgQRepRecords,
-			)
-		default:
-			err = fmt.Errorf("unknown type system %d", config.System)
+		} else {
+			switch config.System {
+			case protos.TypeSystem_Q:
+				stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+				outstream := stream
+				if config.Script != "" {
+					ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+						a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+					}))
+					if err != nil {
+						return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+					}
+					if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
+						outstream = pua.AttachToStream(ls, fn, stream)
+					}
+				}
+				err = replicateQRepPartition(ctx, a, config, p, runUUID, stream, outstream,
+					connectors.QRepPullConnector.PullQRepRecords,
+					connectors.QRepSyncConnector.SyncQRepRecords,
+				)
+			case protos.TypeSystem_PG:
+				read, write := connpostgres.NewPgCopyPipe()
+				err = replicateQRepPartition(ctx, a, config, p, runUUID, write, read,
+					connectors.QRepPullPgConnector.PullPgQRepRecords,
+					connectors.QRepSyncPgConnector.SyncPgQRepRecords,
+				)
+			default:
+				err = fmt.Errorf("unknown type system %d", config.System)
+			}
 		}
 
 		if err != nil {
@@ -642,7 +658,7 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 
 func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropFlowActivityInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, req.PeerName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
 		var notFound *exceptions.NotFoundError
 		if errors.As(err, &notFound) {

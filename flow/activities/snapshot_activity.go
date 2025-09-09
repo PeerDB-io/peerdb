@@ -96,18 +96,18 @@ func (a *SnapshotActivity) SetupReplication(
 	}, nil
 }
 
-func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, peer string, env map[string]string) error {
+func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flowName string, peer string, env map[string]string) error {
 	shutdown := heartbeatRoutine(ctx, func() string {
 		return "maintaining transaction snapshot"
 	})
 	defer shutdown()
-	conn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, peer)
+	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, peer) // todo: it was CDCPullConnector before, but didn't use any of its methods
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, sessionID, err)
 	}
 	defer connectors.CloseConnector(ctx, conn)
 
-	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, env)
+	exportSnapshotOutput, tx, err := conn.ExportTxSnapshot(ctx, flowName, env)
 	if err != nil {
 		return err
 	}

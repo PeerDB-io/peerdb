@@ -26,8 +26,6 @@ func main() {
 	appCtx, appClose := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer appClose()
 
-	slog.SetDefault(slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))))
-
 	temporalHostPortFlag := &cli.StringFlag{
 		Name:    "temporal-host-port",
 		Value:   "localhost:7233",
@@ -45,6 +43,13 @@ func main() {
 		Value:   false, // Default is off
 		Usage:   "Enable OpenTelemetry metrics for the application",
 		Sources: cli.EnvVars("ENABLE_OTEL_METRICS"),
+	}
+
+	prettyLoggingFlag := &cli.BoolFlag{
+		Name:    "pretty-logging",
+		Value:   false,
+		Usage:   "Enable human-readable logging instead of JSON",
+		Sources: cli.EnvVars("PRETTY_LOGGING"),
 	}
 
 	pprofPortFlag := &cli.Uint16Flag{
@@ -151,6 +156,14 @@ func main() {
 	app := &cli.Command{
 		Name: "PeerDB Flows CLI",
 		Before: func(ctx context.Context, clicmd *cli.Command) (context.Context, error) {
+			var handler slog.Handler
+			if clicmd.Bool(prettyLoggingFlag.Name) {
+				handler = slog.NewTextHandler(os.Stdout, nil)
+			} else {
+				handler = slog.NewJSONHandler(os.Stdout, nil)
+			}
+			slog.SetDefault(slog.New(shared.NewSlogHandler(handler)))
+
 			if clicmd.Bool(profilingFlag.Name) {
 				// Enable mutex and block profiling
 				runtime.SetMutexProfileFraction(5)
@@ -177,6 +190,7 @@ func main() {
 		Flags: []cli.Flag{
 			profilingFlag,
 			pprofPortFlag,
+			prettyLoggingFlag,
 		},
 		Commands: []*cli.Command{
 			{
