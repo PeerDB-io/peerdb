@@ -36,7 +36,7 @@ x-flow-worker-env: &flow-worker-env
 services:
   catalog:
     container_name: catalog
-    image: postgres:17-alpine@sha256:3406990b6e4c7192317b6fdc5680498744f6142f01f0287f4ee0420d8c74063c
+    image: postgres:17-alpine@sha256:d93aaac29e4e7525c29b6f6b9ec982a0950c1ab408f6fa9af67705c651f0a8c4
     command: -c config_file=/etc/postgresql.conf
     restart: unless-stopped
     ports:
@@ -110,7 +110,7 @@ services:
       - TEMPORAL_ADDRESS=temporal:7233
       - TEMPORAL_CORS_ORIGINS=http://localhost:3000
       - TEMPORAL_CSRF_COOKIE_INSECURE=true
-    image: temporalio/ui:2.39.0@sha256:b768f87f18b59663a6749e98a2f7782c266e8e4e4749f92248e2ba41d6330d3f
+    image: temporalio/ui:2.40.0@sha256:a98ed66e330cc5b6b432fe174d97dee47d745fa72a1938cf1f6b781dfc335477
     ports:
       - 8085:8080
 
