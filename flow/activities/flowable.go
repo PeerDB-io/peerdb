@@ -515,7 +515,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get partitions from source: %w", err))
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 	if len(partitions) > 0 {
 		if err := monitoring.InitializeQRepRun(

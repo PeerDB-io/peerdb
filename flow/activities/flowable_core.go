@@ -468,7 +468,11 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+			if temporal.IsApplicationError(err) {
+				return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			} else {
+				return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+			}
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
@@ -581,7 +585,11 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		var warnings shared.QRepWarnings
 		rowsSynced, warnings, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+			if temporal.IsApplicationError(err) {
+				return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+			} else {
+				return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+			}
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)

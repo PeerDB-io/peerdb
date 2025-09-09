@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -191,7 +192,12 @@ func (q *QRepFlowExecution) getPartitions(
 
 	var partitions *protos.QRepParitionResult
 	if err := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID).Get(ctx, &partitions); err != nil {
-		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
+		var applicationError temporal.ApplicationError
+		if errors.Is(err, &applicationError) {
+			return nil, err
+		} else {
+			return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
+		}
 	}
 
 	q.logger.Info("partitions to replicate", slog.Int("num_partitions", len(partitions.Partitions)))
@@ -579,7 +585,12 @@ func QRepFlowWorkflow(
 		q.logger.Info("fetching partitions to replicate for peer flow")
 		partitions, err := q.getPartitions(ctx, state.LastPartition)
 		if err != nil {
-			return state, fmt.Errorf("failed to get partitions: %w", err)
+			var applicationError temporal.ApplicationError
+			if errors.Is(err, &applicationError) {
+				return state, err
+			} else {
+				return state, fmt.Errorf("failed to get partitions: %w", err)
+			}
 		}
 
 		q.logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))

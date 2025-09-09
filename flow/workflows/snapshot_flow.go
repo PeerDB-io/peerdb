@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -295,7 +296,12 @@ func (s *SnapshotFlowExecution) cloneTables(
 
 	if err := boundSelector.Wait(ctx); err != nil {
 		s.logger.Error("failed to clone some tables", "error", err)
-		return err
+		applicationError := &temporal.ApplicationError{}
+		if errors.As(err, &applicationError) {
+			return applicationError
+		} else {
+			return err
+		}
 	}
 
 	s.logger.Info("finished cloning tables")
@@ -333,7 +339,12 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		numTablesInParallel,
 	); err != nil {
 		s.logger.Error("failed to clone tables", slog.Any("error", err))
-		return fmt.Errorf("failed to clone tables: %w", err)
+		applicationError := &temporal.ApplicationError{}
+		if errors.As(err, &applicationError) {
+			return applicationError
+		} else {
+			return fmt.Errorf("failed to clone tables: %w", err)
+		}
 	}
 
 	return nil
@@ -426,10 +437,20 @@ func SnapshotFlowWorkflow(
 			txnSnapshotState.SnapshotName,
 			numTablesInParallel,
 		); err != nil {
-			return fmt.Errorf("failed to clone tables: %w", err)
+			applicationError := &temporal.ApplicationError{}
+			if errors.As(err, &applicationError) {
+				return applicationError
+			} else {
+				return fmt.Errorf("failed to clone tables: %w", err)
+			}
 		}
 	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
-		return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+		applicationError := &temporal.ApplicationError{}
+		if errors.As(err, &applicationError) {
+			return applicationError
+		} else {
+			return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+		}
 	}
 
 	return nil
