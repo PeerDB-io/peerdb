@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -43,10 +42,11 @@ func (h *FlowRequestHandler) GetPeerInfo(
 	defer cancelCtx()
 	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
 	if err != nil {
-		if _, ok := status.FromError(err); ok {
-			return nil, err
+		var errNotFound *exceptions.ErrNotFound
+		if errors.As(err, &errNotFound) {
+			return nil, exceptions.NewNotFoundApiError(err)
 		}
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to load peer: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to load peer: %w", err))
 	}
 
 	var version string
@@ -84,10 +84,11 @@ func (h *FlowRequestHandler) GetPeerType(
 	defer cancelCtx()
 	peer, err := connectors.LoadPeer(ctx, h.pool, req.PeerName)
 	if err != nil {
-		if _, ok := status.FromError(err); ok {
-			return nil, err
+		var errNotFound *exceptions.ErrNotFound
+		if errors.As(err, &errNotFound) {
+			return nil, exceptions.NewNotFoundApiError(err)
 		}
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to load peer: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to load peer: %w", err))
 	}
 
 	return &protos.PeerTypeResponse{
@@ -108,7 +109,7 @@ func (h *FlowRequestHandler) ListPeers(
 	rows, err := h.pool.Query(ctx, query)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to query for peers", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to query for peers: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to query for peers: %w", err))
 	}
 	peers, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.PeerListItem, error) {
 		var peer protos.PeerListItem
@@ -116,7 +117,7 @@ func (h *FlowRequestHandler) ListPeers(
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to collect peers", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect peers: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to collect peers: %w", err))
 	}
 
 	sourceItems := make([]*protos.PeerListItem, 0, len(peers))
@@ -144,7 +145,7 @@ func (h *FlowRequestHandler) GetSchemas(
 ) (*protos.PeerSchemasResponse, error) {
 	conn, err := connectors.GetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
-		return nil, exceptions.NewInvalidArgumentApiError(fmt.Sprintf("failed to get schema connector: %v", err))
+		return nil, exceptions.NewInvalidArgumentApiError(fmt.Errorf("failed to get schema connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, conn)
 	return conn.GetSchemas(ctx)
@@ -156,7 +157,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 ) (*protos.SchemaTablesResponse, error) {
 	conn, err := connectors.GetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
-		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get schema connector: %v", err))
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to get schema connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, conn)
 	return conn.GetTablesInSchema(ctx, req.SchemaName, req.CdcEnabled)
@@ -169,7 +170,7 @@ func (h *FlowRequestHandler) GetAllTables(
 ) (*protos.AllTablesResponse, error) {
 	conn, err := connectors.GetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
-		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get schema connector: %v", err))
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to get schema connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, conn)
 	return conn.GetAllTables(ctx)
@@ -181,12 +182,12 @@ func (h *FlowRequestHandler) GetColumns(
 ) (*protos.TableColumnsResponse, error) {
 	conn, err := connectors.GetByNameAs[connectors.GetSchemaConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
-		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get schema connector: %v", err))
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to get schema connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, conn)
 	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, nil)
 	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to get internal version: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to get internal version: %w", err))
 	}
 	return conn.GetColumns(ctx, internalVersion, req.SchemaName, req.TableName)
 }
@@ -205,14 +206,14 @@ func (h *FlowRequestHandler) GetSlotInfo(
 	pgConnector, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to create postgres connector", slog.Any("error", err))
-		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get postgres connector: %v", err))
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to get postgres connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, pgConnector)
 
 	slotInfo, err := pgConnector.GetSlotInfo(ctx, "")
 	if err != nil {
 		slog.ErrorContext(ctx, "Failed to get slot info", slog.Any("error", err))
-		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get slot info: %v", err))
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to get slot info: %w", err))
 	}
 
 	return &protos.PeerSlotResponse{
@@ -233,7 +234,7 @@ func (h *FlowRequestHandler) GetSlotLagHistory(
 			and updated_at > (now()-$3::INTERVAL)
 		order by random() limit 720`, req.PeerName, req.SlotName, req.TimeSince)
 	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to get slot lag history: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to get slot lag history: %w", err))
 	}
 	points, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.SlotLagPoint, error) {
 		var updatedAt time.Time
@@ -253,7 +254,7 @@ func (h *FlowRequestHandler) GetSlotLagHistory(
 		}, nil
 	})
 	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect slot lag history: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to collect slot lag history: %w", err))
 	}
 
 	return &protos.GetSlotLagHistoryResponse{Data: points}, nil
@@ -265,7 +266,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 ) (*protos.PeerStatResponse, error) {
 	peerConn, err := connectors.GetByNameAs[connectors.StatActivityConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
-		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get stat activity connector: %v", err))
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to get stat activity connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, peerConn)
 
@@ -278,20 +279,20 @@ func (h *FlowRequestHandler) GetPublications(
 ) (*protos.PeerPublicationsResponse, error) {
 	peerConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, h.pool, req.PeerName)
 	if err != nil {
-		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to get postgres connector: %v", err))
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to get postgres connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, peerConn)
 
 	rows, err := peerConn.Conn().Query(ctx, "select pubname from pg_publication;")
 	if err != nil {
 		slog.InfoContext(ctx, "failed to fetch publications", slog.Any("error", err))
-		return nil, exceptions.NewFailedPreconditionApiError(fmt.Sprintf("failed to fetch publications: %v", err))
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to fetch publications: %w", err))
 	}
 
 	publications, err := pgx.CollectRows[string](rows, pgx.RowTo)
 	if err != nil {
 		slog.InfoContext(ctx, "failed to fetch publications", slog.Any("error", err))
-		return nil, exceptions.NewInvalidArgumentApiError(fmt.Sprintf("failed to collect publications: %v", err))
+		return nil, exceptions.NewInvalidArgumentApiError(fmt.Errorf("failed to collect publications: %w", err))
 	}
 	return &protos.PeerPublicationsResponse{PublicationNames: publications}, nil
 }

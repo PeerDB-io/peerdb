@@ -28,10 +28,10 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 	flowName := in.FlowName
 
 	if exists, err := h.flowExists(ctx, flowName); err != nil {
-		return nil, exceptions.NewInternalApiError(err.Error())
+		return nil, exceptions.NewInternalApiError(err)
 	} else if !exists {
 		slog.ErrorContext(ctx, "flow does not exist", slog.String("flow_name", flowName))
-		return nil, exceptions.NewNotFoundApiError(fmt.Sprintf("flow %s does not exist", flowName))
+		return nil, exceptions.NewNotFoundApiError(fmt.Errorf("flow %s does not exist", flowName))
 	}
 
 	tags := make(map[string]string, len(in.Tags))
@@ -41,7 +41,7 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 
 	if _, err := h.pool.Exec(ctx, "UPDATE flows SET tags=$1, updated_at=now() WHERE name=$2", tags, flowName); err != nil {
 		slog.ErrorContext(ctx, "error updating flow tags", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(err.Error())
+		return nil, exceptions.NewInternalApiError(err)
 	}
 
 	return &protos.CreateOrReplaceFlowTagsResponse{
@@ -53,16 +53,16 @@ func (h *FlowRequestHandler) GetFlowTags(ctx context.Context, in *protos.GetFlow
 	flowName := in.FlowName
 
 	if exists, err := h.flowExists(ctx, flowName); err != nil {
-		return nil, exceptions.NewInternalApiError(err.Error())
+		return nil, exceptions.NewInternalApiError(err)
 	} else if !exists {
 		slog.ErrorContext(ctx, "flow does not exist", slog.String("flow_name", flowName))
-		return nil, exceptions.NewNotFoundApiError(fmt.Sprintf("flow %s does not exist", flowName))
+		return nil, exceptions.NewNotFoundApiError(fmt.Errorf("flow %s does not exist", flowName))
 	}
 
 	tags, err := alerting.GetTags(ctx, h.pool, flowName)
 	if err != nil {
 		slog.ErrorContext(ctx, "error getting flow tags", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("error getting flow tags: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("error getting flow tags: %w", err))
 	}
 
 	protosTags := make([]*protos.FlowTag, 0, len(tags))

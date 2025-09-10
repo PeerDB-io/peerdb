@@ -1,6 +1,7 @@
 package exceptions
 
 import (
+	"errors"
 	"log/slog"
 
 	"github.com/gogo/googleapis/google/rpc"
@@ -9,10 +10,10 @@ import (
 	"google.golang.org/protobuf/protoadapt"
 )
 
-var ErrUnderMaintenance = NewUnavailableApiError("PeerDB is under maintenance. Please retry in a few minutes")
+var ErrUnderMaintenance = NewUnavailableApiError(errors.New("PeerDB is under maintenance. Please retry in a few minutes"))
 
-func convertToStatus(c codes.Code, msg string, details ...*rpc.ErrorInfo) error {
-	errorStatus := status.New(c, msg)
+func convertToStatus(c codes.Code, err error, details ...*rpc.ErrorInfo) error {
+	errorStatus := status.New(c, err.Error())
 	if len(details) == 0 {
 		return errorStatus.Err()
 	}
@@ -28,32 +29,32 @@ func convertToStatus(c codes.Code, msg string, details ...*rpc.ErrorInfo) error 
 	return richStatus.Err()
 }
 
-func NewInvalidArgumentApiError(msg string, details ...*rpc.ErrorInfo) error {
-	return convertToStatus(codes.InvalidArgument, msg, details...)
+func NewInvalidArgumentApiError(err error, details ...*rpc.ErrorInfo) error {
+	return convertToStatus(codes.InvalidArgument, err, details...)
 }
 
-func NewFailedPreconditionApiError(msg string, details ...*rpc.ErrorInfo) error {
-	return convertToStatus(codes.FailedPrecondition, msg, details...)
+func NewFailedPreconditionApiError(err error, details ...*rpc.ErrorInfo) error {
+	return convertToStatus(codes.FailedPrecondition, err, details...)
 }
 
-func NewInternalApiError(msg string, details ...*rpc.ErrorInfo) error {
-	return convertToStatus(codes.Internal, msg, details...)
+func NewInternalApiError(err error, details ...*rpc.ErrorInfo) error {
+	return convertToStatus(codes.Internal, err, details...)
 }
 
-func NewUnavailableApiError(msg string, details ...*rpc.ErrorInfo) error {
-	return convertToStatus(codes.Unavailable, msg, details...)
+func NewUnavailableApiError(err error, details ...*rpc.ErrorInfo) error {
+	return convertToStatus(codes.Unavailable, err, details...)
 }
 
-func NewUnimplementedApiError(msg string, details ...*rpc.ErrorInfo) error {
-	return convertToStatus(codes.Unimplemented, msg, details...)
+func NewUnimplementedApiError(err error, details ...*rpc.ErrorInfo) error {
+	return convertToStatus(codes.Unimplemented, err, details...)
 }
 
-func NewAlreadyExistsApiError(msg string, details ...*rpc.ErrorInfo) error {
-	return convertToStatus(codes.AlreadyExists, msg, details...)
+func NewAlreadyExistsApiError(err error, details ...*rpc.ErrorInfo) error {
+	return convertToStatus(codes.AlreadyExists, err, details...)
 }
 
-func NewNotFoundApiError(msg string, details ...*rpc.ErrorInfo) error {
-	return convertToStatus(codes.NotFound, msg, details...)
+func NewNotFoundApiError(err error, details ...*rpc.ErrorInfo) error {
+	return convertToStatus(codes.NotFound, err, details...)
 }
 
 // Below is an example of how to create and use rpc.ErrorInfo

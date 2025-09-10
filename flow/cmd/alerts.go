@@ -15,7 +15,7 @@ import (
 func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.GetAlertConfigsRequest) (*protos.GetAlertConfigsResponse, error) {
 	rows, err := h.pool.Query(ctx, "SELECT id,service_type,service_config,enc_key_id,alert_for_mirrors from peerdb_stats.alerting_config")
 	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to get alert configs: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to get alert configs: %w", err))
 	}
 
 	configs, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.AlertConfig, error) {
@@ -23,17 +23,17 @@ func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.Ge
 		var encKeyID string
 		config := &protos.AlertConfig{}
 		if err := row.Scan(&config.Id, &config.ServiceType, &serviceConfigPayload, &encKeyID, &config.AlertForMirrors); err != nil {
-			return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to scan alert config: %v", err))
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to scan alert config: %w", err))
 		}
 		serviceConfig, err := internal.Decrypt(ctx, encKeyID, serviceConfigPayload)
 		if err != nil {
-			return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to decrypt alert config: %v", err))
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to decrypt alert config: %w", err))
 		}
 		config.ServiceConfig = string(serviceConfig)
 		return config, nil
 	})
 	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to collect alert configs: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to collect alert configs: %w", err))
 	}
 
 	return &protos.GetAlertConfigsResponse{Configs: configs}, nil
@@ -42,11 +42,11 @@ func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.Ge
 func (h *FlowRequestHandler) PostAlertConfig(ctx context.Context, req *protos.PostAlertConfigRequest) (*protos.PostAlertConfigResponse, error) {
 	key, err := internal.PeerDBCurrentEncKey(ctx)
 	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to get current enc key: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to get current enc key: %w", err))
 	}
 	serviceConfig, err := key.Encrypt(shared.UnsafeFastStringToReadOnlyBytes(req.Config.ServiceConfig))
 	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to encrypt alert config: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to encrypt alert config: %w", err))
 	}
 
 	if req.Config.Id == -1 {
@@ -81,7 +81,7 @@ func (h *FlowRequestHandler) PostAlertConfig(ctx context.Context, req *protos.Po
 		req.Config.AlertForMirrors,
 		req.Config.Id,
 	); err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to update alert config: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to update alert config: %w", err))
 	}
 	return &protos.PostAlertConfigResponse{Id: req.Config.Id}, nil
 }
@@ -91,7 +91,7 @@ func (h *FlowRequestHandler) DeleteAlertConfig(
 	req *protos.DeleteAlertConfigRequest,
 ) (*protos.DeleteAlertConfigResponse, error) {
 	if _, err := h.pool.Exec(ctx, "delete from peerdb_stats.alerting_config where id = $1", req.Id); err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Sprintf("failed to delete alert config: %v", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to delete alert config: %w", err))
 	}
 	return &protos.DeleteAlertConfigResponse{}, nil
 }
