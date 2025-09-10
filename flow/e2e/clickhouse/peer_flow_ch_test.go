@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -477,8 +478,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(
-			strings.ToLower(tableName), "-", "_")),
+		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + qvalue.ConvertToAvroCompatibleName(tableName)),
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
 			DestinationTableIdentifier: dstTableName,
