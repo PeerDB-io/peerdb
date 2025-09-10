@@ -728,7 +728,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 		totalCount.UpdatesCount += tableCount.Counts.UpdatesCount
 		totalCount.DeletesCount += tableCount.Counts.DeletesCount
 
-		return tableCount, exceptions.NewInternalApiError(fmt.Errorf("failed to scan cdc table total counts: %w", err))
+		return tableCount, nil
 	})
 	if err != nil {
 		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to collect cdc table total counts: %w", err))
