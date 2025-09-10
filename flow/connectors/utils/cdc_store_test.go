@@ -2,7 +2,6 @@ package utils
 
 import (
 	"crypto/rand"
-	"log/slog"
 	"testing"
 	"time"
 

@@ -140,7 +140,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if !cfg.Resync {
 		if _, err := h.ValidateCDCMirror(ctx, req); err != nil {
 			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
-			return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("invalid mirror: %w", err))
+			// ValidateCDCMirror already returns a grpc error
+			//nopeertest:grpcReturn
+			return nil, fmt.Errorf("invalid mirror: %w", err)
 		}
 	}
 
@@ -363,7 +365,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 					ConnectionConfigs: config,
 				}); err != nil {
-					return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("invalid mirror: %w", err))
+					// ValidateCDCMirror already returns a grpc error
+					//nopeertest:grpcReturn
+					return nil, fmt.Errorf("invalid mirror: %w", err)
 				}
 				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 			}
