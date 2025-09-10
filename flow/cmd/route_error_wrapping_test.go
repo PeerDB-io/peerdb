@@ -3,6 +3,7 @@ package cmd
 import (
 	"go/ast"
 	"go/token"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -64,7 +65,7 @@ func isFlowRequestHandlerMethod(fn *ast.FuncDecl) bool {
 	recv := fn.Recv.List[0]
 	if starExpr, ok := recv.Type.(*ast.StarExpr); ok {
 		if ident, ok := starExpr.X.(*ast.Ident); ok {
-			return ident.Name == "FlowRequestHandler"
+			return ident.Name == reflect.TypeOf(*new(FlowRequestHandler)).Name()
 		}
 	}
 	return false
