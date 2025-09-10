@@ -171,6 +171,9 @@ var (
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
+	ErrorNotifyWALSegmentRemoved = ErrorClass{
+		Class: "NOTIFY_WAL_SEGMENT_REMOVED", action: NotifyUser,
+	}
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
 		Class: "OTHER", action: NotifyTelemetry,
@@ -318,7 +321,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.UndefinedFile:
 			// Handle WAL segment removed errors
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
-				return ErrorRetryRecoverable, pgErrorInfo
+				return ErrorNotifyWALSegmentRemoved, pgErrorInfo
 			}
 
 		case pgerrcode.InternalError:
@@ -348,7 +351,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 			// Handle Neon's custom WAL reading error
 			if pgErr.Routine == "NeonWALPageRead" && strings.Contains(pgErr.Message, "server closed the connection unexpectedly") {
-				return ErrorRetryRecoverable, pgErrorInfo
+				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
 			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
@@ -652,6 +655,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  incompatibleColumnTypeError.TableName,
 				ErrorAttributeKeyColumn: incompatibleColumnTypeError.ColumnName,
+			},
+		}
+	}
+
+	var postgresPrimaryKeyModifiedError *exceptions.PrimaryKeyModifiedError
+	if errors.As(err, &postgresPrimaryKeyModifiedError) {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  postgresPrimaryKeyModifiedError.TableName,
+				ErrorAttributeKeyColumn: postgresPrimaryKeyModifiedError.ColumnName,
 			},
 		}
 	}
