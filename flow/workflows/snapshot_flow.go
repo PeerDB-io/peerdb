@@ -246,8 +246,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Version:                    s.config.Version,
 	}
 
-	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
-	return nil
+	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
 }
 
 func (s *SnapshotFlowExecution) cloneTables(
@@ -290,18 +289,13 @@ func (s *SnapshotFlowExecution) cloneTables(
 		}
 		if err := s.cloneTable(ctx, boundSelector, snapshotName, v); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
-			continue
+			return err
 		}
 	}
 
 	if err := boundSelector.Wait(ctx); err != nil {
 		s.logger.Error("failed to clone some tables", "error", err)
-		applicationError := &temporal.ApplicationError{}
-		if errors.As(err, &applicationError) {
-			return applicationError
-		} else {
-			return err
-		}
+		return err
 	}
 
 	s.logger.Info("finished cloning tables")
@@ -437,20 +431,10 @@ func SnapshotFlowWorkflow(
 			txnSnapshotState.SnapshotName,
 			numTablesInParallel,
 		); err != nil {
-			applicationError := &temporal.ApplicationError{}
-			if errors.As(err, &applicationError) {
-				return applicationError
-			} else {
-				return fmt.Errorf("failed to clone tables: %w", err)
-			}
+			return fmt.Errorf("failed to clone tables: %w", err)
 		}
 	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
-		applicationError := &temporal.ApplicationError{}
-		if errors.As(err, &applicationError) {
-			return applicationError
-		} else {
-			return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
-		}
+		return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
 	}
 
 	return nil

@@ -216,7 +216,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 			BackoffCoefficient:     2.,
 			MaximumInterval:        10 * time.Minute,
 			MaximumAttempts:        0,
-			NonRetryableErrorTypes: nil,
+			NonRetryableErrorTypes: []string{"snapshot"},
 		},
 	})
 

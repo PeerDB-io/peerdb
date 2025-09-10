@@ -20,9 +20,15 @@ func NewBoundSelector(ctx workflow.Context, selectorName string, limit int) *Bou
 	}
 }
 
-func (s *BoundSelector) SpawnChild(ctx workflow.Context, w any, futureCallback func(workflow.Future), args ...any) {
+func (s *BoundSelector) SpawnChild(ctx workflow.Context, w any, futureCallback func(workflow.Future), args ...any) error {
+	if len(s.ferrors) > 0 {
+		return errors.Join(s.ferrors...)
+	}
 	if s.limit > 0 && s.count >= s.limit {
 		s.waitOne(ctx)
+		if len(s.ferrors) > 0 {
+			return errors.Join(s.ferrors...)
+		}
 	}
 
 	future := workflow.ExecuteChildWorkflow(ctx, w, args...)
@@ -36,10 +42,11 @@ func (s *BoundSelector) SpawnChild(ctx workflow.Context, w any, futureCallback f
 		})
 	}
 	s.count += 1
+	return errors.Join(s.ferrors...)
 }
 
 func (s *BoundSelector) Wait(ctx workflow.Context) error {
-	for s.count > 0 {
+	for s.count > 0 && len(s.ferrors) == 0 {
 		s.waitOne(ctx)
 	}
 
