@@ -19,7 +19,23 @@ message CreateQRepFlowRequest {
   peerdb_flow.QRepConfig qrep_config = 1;
 }
 
-message CreateQRepFlowResponse { string workflow_id = 1; }
+message CreateQRepFlowResponse {
+  string workflow_id = 1;
+}
+
+message CreateImportS3Request {
+  string flow_job_name = 1;
+  string cdc_staging_path = 2;
+  string source_name = 3;
+  string destination_name = 4;
+  repeated peerdb_flow.TableMapping table_mappings = 5;
+  map<string, string> env = 6;
+  int32 parallel_imports = 7;
+}
+
+message CreateImportS3Response {
+  string workflow_id = 1;
+}
 
 message AlertConfig {
   int32 id = 1;
@@ -531,6 +547,13 @@ service FlowService {
     option (google.api.http) = {
       post : "/v1/flows/qrep/create",
       body : "*"
+    };
+  }
+
+  rpc CreateImportS3(CreateImportS3Request) returns (CreateImportS3Response) {
+    option (google.api.http) = {
+      post: "/v1/flows/import/create",
+      body: "*"
     };
   }
 
