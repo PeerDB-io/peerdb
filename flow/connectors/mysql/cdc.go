@@ -332,6 +332,7 @@ func (c *MySqlConnector) PullRecords(
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
 	var overtime bool
 	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
@@ -339,7 +340,8 @@ func (c *MySqlConnector) PullRecords(
 		c.logger.Info("[mysql] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
 			slog.Int64("bytes", totalFetchedBytes.Load()),
-			slog.Int("channelLen", req.RecordStream.ChannelLen()))
+			slog.Int("channelLen", req.RecordStream.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
 
 	defer func() {
@@ -349,7 +351,11 @@ func (c *MySqlConnector) PullRecords(
 	shutdown := shared.Interval(ctx, time.Minute, func() {
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
-		c.logger.Info("pulling records", slog.Int64("bytes", totalFetchedBytes.Load()))
+		c.logger.Info("[mysql] pulling records",
+			slog.Uint64("records", uint64(recordCount)),
+			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int("channelLen", req.RecordStream.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	})
 	defer shutdown()
 
@@ -374,6 +380,7 @@ func (c *MySqlConnector) PullRecords(
 				slog.Uint64("records", uint64(recordCount)),
 				slog.Int64("bytes", totalFetchedBytes.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
+				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
 				slog.Bool("inTx", inTx),
 				slog.Bool("overtime", overtime))
 		}
@@ -412,7 +419,8 @@ func (c *MySqlConnector) PullRecords(
 					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 						slog.Uint64("records", uint64(recordCount)),
 						slog.Int64("bytes", totalFetchedBytes.Load()),
-						slog.Int("channelLen", req.RecordStream.ChannelLen()))
+						slog.Int("channelLen", req.RecordStream.ChannelLen()),
+						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					// reset timeoutCtx to a low value and wait for inTx to become false
 					cancelTimeout()
 					//nolint:govet // cancelTimeout called by defer, spurious lint
