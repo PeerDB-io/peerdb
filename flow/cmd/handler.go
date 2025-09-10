@@ -304,7 +304,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		slog.ErrorContext(ctx, "[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
-		var errNotFound *exceptions.ErrNotFound
+		var errNotFound *exceptions.NotFoundError
 		if errors.As(err, &errNotFound) {
 			return nil, exceptions.NewNotFoundApiError(fmt.Errorf("flow %s not found", req.FlowJobName))
 		}
@@ -409,7 +409,8 @@ func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowI
 			}
 		}
 	case <-time.After(1 * time.Minute):
-		slog.ErrorContext(ctx, "Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
+		slog.ErrorContext(ctx,
+			"Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
 		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 		if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
@@ -477,7 +478,7 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	var workflowID string
 	if err := h.pool.QueryRow(ctx, q, flowJobName).Scan(&workflowID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return "", exceptions.NewErrNotFound(fmt.Errorf("flow job %s not found", flowJobName))
+			return "", exceptions.NewNotFoundError(fmt.Errorf("flow job %s not found", flowJobName))
 		}
 		return "", fmt.Errorf("unable to get workflowID for flow job %s: %w", flowJobName, err)
 	}

@@ -1,17 +1,17 @@
 package exceptions
 
-type ErrNotFound struct {
+type NotFoundError struct {
 	error
 }
 
-func NewErrNotFound(err error) *ErrNotFound {
-	return &ErrNotFound{error: err}
+func NewNotFoundError(err error) *NotFoundError {
+	return &NotFoundError{error: err}
 }
 
-func (e *ErrNotFound) Error() string {
-	return "ErrNotFound: " + e.error.Error()
+func (e *NotFoundError) Error() string {
+	return "NotFoundError: " + e.error.Error()
 }
 
-func (e *ErrNotFound) Unwrap() error {
+func (e *NotFoundError) Unwrap() error {
 	return e.error
 }

@@ -74,7 +74,7 @@ func (h *FlowRequestHandler) MirrorStatus(
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
 		slog.ErrorContext(ctx, "unable to get the workflow ID of mirror", slog.Any("error", err))
-		var errNotFound *exceptions.ErrNotFound
+		var errNotFound *exceptions.NotFoundError
 		if errors.As(err, &errNotFound) {
 			return nil, exceptions.NewNotFoundApiError(fmt.Errorf("flow %s not found", req.FlowJobName))
 		}
