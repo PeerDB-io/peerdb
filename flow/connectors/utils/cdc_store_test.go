@@ -58,7 +58,7 @@ func TestSingleRecord(t *testing.T) {
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	key, rec := genKeyAndRec(t)
-	require.NoError(t, cdcRecordsStore.Set(slog.Default(), key, rec))
+	require.NoError(t, cdcRecordsStore.Set(key, rec))
 	// should not spill into DB
 	require.Len(t, cdcRecordsStore.inMemoryRecords, 1)
 	require.Nil(t, cdcRecordsStore.pebbleDB)
