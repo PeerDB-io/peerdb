@@ -240,11 +240,8 @@ func (q *QRepFlowExecution) startChildWorkflow(
 ) workflow.ChildWorkflowFuture {
 	wid := q.getPartitionWorkflowID(ctx)
 	partFlowCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:        wid,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
+		WorkflowID:            wid,
+		ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
 		WaitForCancellation:   true,
 	})

@@ -702,11 +702,9 @@ func CDCFlowWorkflow(
 
 		taskQueue := internal.PeerFlowTaskQueueName(shared.SnapshotFlowTaskQueue)
 		childSnapshotFlowOpts := workflow.ChildWorkflowOptions{
-			WorkflowID:        snapshotFlowID,
-			ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-			RetryPolicy: &temporal.RetryPolicy{
-				MaximumAttempts: 20,
-			},
+			WorkflowID:            snapshotFlowID,
+			ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
+			RetryPolicy:           &temporal.RetryPolicy{MaximumAttempts: 1},
 			TaskQueue:             taskQueue,
 			TypedSearchAttributes: mirrorNameSearch,
 			WaitForCancellation:   true,

@@ -36,6 +36,7 @@ type SnapshotActivity struct {
 
 // closes the slot signal
 func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName string) error {
+	activity.RecordHeartbeat(ctx, "???")
 	a.SnapshotStatesMutex.Lock()
 	defer a.SnapshotStatesMutex.Unlock()
 
@@ -81,13 +82,12 @@ func (a *SnapshotActivity) SetupReplication(
 	}
 
 	a.SnapshotStatesMutex.Lock()
-	defer a.SnapshotStatesMutex.Unlock()
-
 	a.SlotSnapshotStates[config.FlowJobName] = SlotSnapshotState{
 		slotConn:     slotInfo.Conn,
 		snapshotName: slotInfo.SnapshotName,
 		connector:    conn,
 	}
+	a.SnapshotStatesMutex.Unlock()
 
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Replication slot and publication setup complete")
 

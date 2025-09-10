@@ -87,7 +87,8 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	s.logger.Info("closing slot keep alive for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		ScheduleToStartTimeout: time.Minute,
+		StartToCloseTimeout:    10 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
@@ -128,6 +129,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
 		TaskQueue:           taskQueue,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 
 	var tableSchema *protos.TableSchema
@@ -312,9 +314,7 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		return fmt.Errorf("failed to setup replication: %w", err)
 	}
 	defer func() {
-		dCtx, cancel := workflow.NewDisconnectedContext(sessionCtx)
-		defer cancel()
-		if err := s.closeSlotKeepAlive(dCtx); err != nil {
+		if err := s.closeSlotKeepAlive(sessionCtx); err != nil {
 			s.logger.Error("failed to close slot keep alive", slog.Any("error", err))
 		}
 	}()
@@ -333,7 +333,7 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 		numTablesInParallel,
 	); err != nil {
 		s.logger.Error("failed to clone tables", slog.Any("error", err))
-		applicationError := &temporal.ApplicationError{}
+		var applicationError *temporal.ApplicationError
 		if errors.As(err, &applicationError) {
 			return applicationError
 		} else {
@@ -431,7 +431,12 @@ func SnapshotFlowWorkflow(
 			txnSnapshotState.SnapshotName,
 			numTablesInParallel,
 		); err != nil {
-			return fmt.Errorf("failed to clone tables: %w", err)
+			var applicationError *temporal.ApplicationError
+			if errors.As(err, &applicationError) {
+				return applicationError
+			} else {
+				return fmt.Errorf("failed to clone tables: %w", err)
+			}
 		}
 	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
 		return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
