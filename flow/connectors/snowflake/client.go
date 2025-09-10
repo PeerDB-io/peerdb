@@ -117,7 +117,7 @@ func (c *SnowflakeConnector) processRows(rows *sql.Rows) (*model.QRecordBatch, e
 
 		qValues := make([]types.QValue, len(values))
 		for i, val := range values {
-			qv, err := toQValue(qfields[i].Type, val)
+			qv, err := c.toQValue(qfields[i].Type, val)
 			if err != nil {
 				c.logger.Error("failed to convert value", slog.Any("error", err))
 				return nil, err
@@ -158,7 +158,7 @@ func (c *SnowflakeConnector) ExecuteAndProcessQuery(
 	return c.processRows(rows)
 }
 
-func toQValue(kind types.QValueKind, val any) (types.QValue, error) {
+func (c *SnowflakeConnector) toQValue(kind types.QValueKind, val any) (types.QValue, error) {
 	if val == nil {
 		return types.QValueNull(kind), nil
 	}
@@ -259,7 +259,7 @@ func toQValue(kind types.QValueKind, val any) (types.QValue, error) {
 		vraw := val.(*any)
 		vstring, ok := (*vraw).(string)
 		if !ok {
-			slog.Warn("A parsed JSON value was not a string. Likely a null field value")
+			c.logger.Warn("A parsed JSON value was not a string. Likely a null field value")
 		}
 
 		return types.QValueJSON{Val: vstring}, nil

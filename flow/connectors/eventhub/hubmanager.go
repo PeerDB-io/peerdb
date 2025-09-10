@@ -147,7 +147,7 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 		return fmt.Errorf("eventhub namespace '%s' not registered", name.NamespaceName)
 	}
 
-	hubClient, err := m.getEventHubMgmtClient(cfg.SubscriptionId)
+	hubClient, err := m.getEventHubMgmtClient(ctx, cfg.SubscriptionId)
 	if err != nil {
 		return fmt.Errorf("failed to get event hub client: %v", err)
 	}
@@ -169,7 +169,7 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 		}
 
 		if _, err := hubClient.CreateOrUpdate(ctx, resourceGroup, namespace, name.Eventhub, opts, nil); err != nil {
-			slog.Error("failed to create event hub", slog.Any("error", err))
+			slog.ErrorContext(ctx, "failed to create event hub", slog.Any("error", err))
 			return err
 		}
 
@@ -181,11 +181,11 @@ func (m *EventHubManager) EnsureEventHubExists(ctx context.Context, name ScopedE
 	return nil
 }
 
-func (m *EventHubManager) getEventHubMgmtClient(subID string) (*armeventhub.EventHubsClient, error) {
+func (m *EventHubManager) getEventHubMgmtClient(ctx context.Context, subID string) (*armeventhub.EventHubsClient, error) {
 	if subID == "" {
 		envSubID := internal.GetEnvString("AZURE_SUBSCRIPTION_ID", "")
 		if envSubID == "" {
-			slog.Error("couldn't find AZURE_SUBSCRIPTION_ID in environment")
+			slog.ErrorContext(ctx, "couldn't find AZURE_SUBSCRIPTION_ID in environment")
 			return nil, errors.New("couldn't find AZURE_SUBSCRIPTION_ID in environment")
 		}
 		subID = envSubID
@@ -193,7 +193,7 @@ func (m *EventHubManager) getEventHubMgmtClient(subID string) (*armeventhub.Even
 
 	hubClient, err := armeventhub.NewEventHubsClient(subID, m.creds, nil)
 	if err != nil {
-		slog.Error("failed to get event hub client", slog.Any("error", err))
+		slog.ErrorContext(ctx, "failed to get event hub client", slog.Any("error", err))
 		return nil, err
 	}
 

@@ -363,6 +363,9 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 	var encPeerOptions []byte
 	var encKeyID string
 	if err := row.Scan(&peer.Type, &encPeerOptions, &encKeyID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, exceptions.NewNotFoundError(errors.New("peer not found " + peerName))
+		}
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 

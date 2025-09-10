@@ -793,7 +793,7 @@ func (c *PostgresConnector) StatActivity(
 		" FROM pg_stat_activity WHERE "+
 		"usename=$1 AND application_name LIKE 'peerdb%';", c.Config.User)
 	if err != nil {
-		slog.Error("Failed to get stat info", slog.Any("error", err))
+		slog.ErrorContext(ctx, "Failed to get stat info", slog.Any("error", err))
 		return nil, err
 	}
 
@@ -808,7 +808,7 @@ func (c *PostgresConnector) StatActivity(
 		var state string
 
 		if err := rows.Scan(&pid, &waitEvent, &waitEventType, &queryStart, &query, &duration, &state); err != nil {
-			slog.Error("Failed to scan row", slog.Any("error", err))
+			slog.ErrorContext(ctx, "Failed to scan row", slog.Any("error", err))
 			return nil, err
 		}
 

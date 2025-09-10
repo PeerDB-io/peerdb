@@ -46,10 +46,10 @@ type AvroFile struct {
 	NumRecords      int64               `json:"numRecords"`
 }
 
-func (l *AvroFile) Cleanup() {
+func (l *AvroFile) Cleanup(ctx context.Context) {
 	if l.StorageLocation == AvroLocalStorage {
 		if err := os.Remove(l.FilePath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("unable to delete temporary Avro file", slog.Any("error", err))
+			slog.WarnContext(ctx, "unable to delete temporary Avro file", slog.Any("error", err))
 		}
 	}
 }

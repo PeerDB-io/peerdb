@@ -98,7 +98,7 @@ func (c *S3Connector) writeToAvroFile(
 	if err != nil {
 		return 0, fmt.Errorf("failed to write records to S3: %w", err)
 	}
-	defer avroFile.Cleanup()
+	defer avroFile.Cleanup(ctx)
 
 	return avroFile.NumRecords, nil
 }

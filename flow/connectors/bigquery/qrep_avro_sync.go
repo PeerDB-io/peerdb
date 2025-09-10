@@ -397,7 +397,7 @@ func (s *QRepAvroSyncMethod) writeToStage(
 			return 0, fmt.Errorf("failed to write records to local Avro file: %w", err)
 		}
 	}
-	defer avroFile.Cleanup()
+	defer avroFile.Cleanup(ctx)
 
 	if avroFile.NumRecords == 0 {
 		return 0, nil

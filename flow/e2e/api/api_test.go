@@ -201,16 +201,17 @@ func (s Suite) TestGetVersion() {
 func (s Suite) TestPostgresValidation_WrongPassword() {
 	config := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
 	config.Password = "wrong"
-	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
+	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: &protos.Peer{
 			Name:   "testfail",
 			Type:   protos.DBType_POSTGRES,
 			Config: &protos.Peer_PostgresConfig{PostgresConfig: config},
 		},
 	})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
+	require.Error(s.t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(s.t, ok, "expected error to be gRPC status")
+	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
 }
 
 func (s Suite) TestPostgresValidation_Pass() {
@@ -449,7 +450,7 @@ func (s Suite) TestMySQLRDSBinlogValidation() {
 	require.Error(s.t, err)
 	st, ok := status.FromError(err)
 	require.True(s.t, ok)
-	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
 	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
 		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset", st.Message())
 
@@ -459,7 +460,7 @@ func (s Suite) TestMySQLRDSBinlogValidation() {
 	require.Error(s.t, err)
 	st, ok = status.FromError(err)
 	require.True(s.t, ok)
-	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
 	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
 		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1", st.Message())
 
@@ -495,7 +496,7 @@ func (s Suite) TestMongoDBOplogRetentionValidation() {
 	require.Error(s.t, err)
 	st, ok := status.FromError(err)
 	require.True(s.t, ok)
-	require.Equal(s.t, codes.Unknown, st.Code())
+	require.Equal(s.t, codes.FailedPrecondition, st.Code())
 	require.Contains(s.t, st.Message(), "oplog retention must be set to >= 24 hours")
 
 	// test retention hours (>= 24 hours) validation success
@@ -538,22 +539,24 @@ func (s Suite) TestMongoDBUserRolesValidation() {
 		{Key: "pwd", Value: pass},
 		{Key: "roles", Value: bson.A{}},
 	}).Err())
-	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Contains(s.t, response.Message, "missing required role: readAnyDatabase")
+	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
+	require.Error(s.t, err)
+	grpcStatus, ok := status.FromError(err)
+	require.True(s.t, ok, "expected error to be gRPC status")
+	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
+	require.Contains(s.t, grpcStatus.Message(), "missing required role: readAnyDatabase")
 
 	// case 2: user with only `readAnyDatabase` role (missing `clusterMonitor`)
 	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
 		bson.E{Key: "grantRolesToUser", Value: user},
 		bson.E{Key: "roles", Value: bson.A{"readAnyDatabase"}},
 	}).Err())
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Contains(s.t, response.Message, "missing required role: clusterMonitor")
+	_, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
+	require.Error(s.t, err)
+	grpcStatus, ok = status.FromError(err)
+	require.True(s.t, ok, "expected error to be gRPC status")
+	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
+	require.Contains(s.t, grpcStatus.Message(), "missing required role: clusterMonitor")
 
 	// case 3: user with only `clusterMonitor` role (missing `readAnyDatabase`)
 	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
@@ -564,18 +567,19 @@ func (s Suite) TestMongoDBUserRolesValidation() {
 		bson.E{Key: "grantRolesToUser", Value: user},
 		bson.E{Key: "roles", Value: bson.A{"clusterMonitor"}},
 	}).Err())
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
-	require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
-	require.Contains(s.t, response.Message, "missing required role: readAnyDatabase")
+	_, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
+	require.Error(s.t, err)
+	grpcStatus, ok = status.FromError(err)
+	require.True(s.t, ok, "expected error to be gRPC status")
+	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
+	require.Contains(s.t, grpcStatus.Message(), "missing required role: readAnyDatabase")
 
 	// case 4: user with both `readAnyDatabase` and `clusterMonitor` roles
 	require.NoError(s.t, adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
 		bson.E{Key: "grantRolesToUser", Value: user},
 		bson.E{Key: "roles", Value: bson.A{"readAnyDatabase", "clusterMonitor"}},
 	}).Err())
-	response, err = s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
+	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{Peer: peer})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
@@ -593,12 +597,14 @@ func (s Suite) TestMySQLFlavorSwap() {
 		Peer: peer,
 	})
 
-	require.NoError(s.t, err)
-	require.NotNil(s.t, response)
 	if my.Config.Flavor != protos.MySqlFlavor_MYSQL_MARIA {
+		require.Error(s.t, err)
+		grpcStatus, ok := status.FromError(err)
+		require.True(s.t, ok, "expected error to be gRPC status")
+		require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
 		require.Equal(s.t, protos.ValidatePeerStatus_INVALID, response.Status)
 		require.Equal(s.t,
-			"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", response.Message)
+			"failed to validate peer mysql: server appears to be MySQL but flavor is set to MariaDB", grpcStatus.Message())
 	}
 }
 

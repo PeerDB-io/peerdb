@@ -82,6 +82,8 @@ require (
 
 require golang.org/x/tools v0.36.0
 
+require github.com/gogo/googleapis v1.4.1
+
 require (
 	cel.dev/expr v0.24.0 // indirect
 	cloud.google.com/go/auth v0.16.5 // indirect

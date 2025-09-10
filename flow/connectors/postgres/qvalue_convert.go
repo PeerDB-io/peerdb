@@ -724,6 +724,9 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		wkbString, ok := value.(string)
 		wkt, err := datatypes.GeoValidate(wkbString)
 		if err != nil || !ok {
+			if err != nil {
+				c.logger.Warn("failure during GeoValidate", slog.Any("error", err))
+			}
 			return types.QValueNull(types.QValueKindGeography), nil
 		} else if qvalueKind == types.QValueKindGeography {
 			return types.QValueGeography{Val: wkt}, nil

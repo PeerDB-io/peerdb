@@ -33,6 +33,7 @@ func encVal(val any) ([]byte, error) {
 }
 
 type cdcStore[Items model.Items] struct {
+	logger                    log.Logger
 	inMemoryRecords           map[model.TableWithPkey]model.Record[Items]
 	pebbleDB                  *pebble.DB
 	flowJobName               string
@@ -40,8 +41,8 @@ type cdcStore[Items model.Items] struct {
 	thresholdReason           string
 	memStats                  []metrics.Sample
 	memThresholdBytes         uint64
-	numRecords                atomic.Int32
 	numRecordsSwitchThreshold int
+	numRecords                atomic.Int32
 }
 
 func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, flowJobName string) (*cdcStore[Items], error) {
@@ -70,6 +71,7 @@ func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, 
 		}(),
 		thresholdReason: "",
 		memStats:        []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}},
+		logger:          internal.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -170,14 +172,15 @@ func (c *cdcStore[T]) diskSpillThresholdsExceeded() bool {
 	return false
 }
 
-func (c *cdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.Record[T]) error {
+// TODO remove logger from here and use c.logger instead
+func (c *cdcStore[T]) Set(key model.TableWithPkey, rec model.Record[T]) error {
 	if key.TableName != "" {
 		_, ok := c.inMemoryRecords[key]
 		if ok || !c.diskSpillThresholdsExceeded() {
 			c.inMemoryRecords[key] = rec
 		} else {
 			if c.pebbleDB == nil {
-				logger.Info(c.thresholdReason,
+				c.logger.Info(c.thresholdReason,
 					slog.String(string(shared.FlowNameKey), c.flowJobName))
 				if err := c.initPebbleDB(); err != nil {
 					return err
@@ -227,7 +230,7 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 		}
 		defer func() {
 			if err := closer.Close(); err != nil {
-				slog.Warn("failed to close database",
+				c.logger.Warn("failed to close database",
 					slog.Any("error", err),
 					slog.String("flowName", c.flowJobName))
 			}
