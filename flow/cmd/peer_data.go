@@ -34,6 +34,13 @@ func redactProto(message proto.Message) {
 	})
 }
 
+func wrapErrorAsFailedPrecondition[T any](value T, err error) (T, error) {
+	if err != nil {
+		return value, exceptions.NewFailedPreconditionApiError(err)
+	}
+	return value, nil
+}
+
 func (h *FlowRequestHandler) GetPeerInfo(
 	ctx context.Context,
 	req *protos.PeerInfoRequest,
@@ -148,7 +155,7 @@ func (h *FlowRequestHandler) GetSchemas(
 		return nil, exceptions.NewInvalidArgumentApiError(fmt.Errorf("failed to get schema connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, conn)
-	return conn.GetSchemas(ctx)
+	return wrapErrorAsFailedPrecondition(conn.GetSchemas(ctx))
 }
 
 func (h *FlowRequestHandler) GetTablesInSchema(
@@ -160,7 +167,7 @@ func (h *FlowRequestHandler) GetTablesInSchema(
 		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to get schema connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, conn)
-	return conn.GetTablesInSchema(ctx, req.SchemaName, req.CdcEnabled)
+	return wrapErrorAsFailedPrecondition(conn.GetTablesInSchema(ctx, req.SchemaName, req.CdcEnabled))
 }
 
 // Returns list of tables across schema in schema.table format
@@ -173,7 +180,7 @@ func (h *FlowRequestHandler) GetAllTables(
 		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to get schema connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, conn)
-	return conn.GetAllTables(ctx)
+	return wrapErrorAsFailedPrecondition(conn.GetAllTables(ctx))
 }
 
 func (h *FlowRequestHandler) GetColumns(
@@ -189,14 +196,14 @@ func (h *FlowRequestHandler) GetColumns(
 	if err != nil {
 		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to get internal version: %w", err))
 	}
-	return conn.GetColumns(ctx, internalVersion, req.SchemaName, req.TableName)
+	return wrapErrorAsFailedPrecondition(conn.GetColumns(ctx, internalVersion, req.SchemaName, req.TableName))
 }
 
 func (h *FlowRequestHandler) GetColumnsTypeConversion(
 	ctx context.Context,
 	req *protos.ColumnsTypeConversionRequest,
 ) (*protos.ColumnsTypeConversionResponse, error) {
-	return connclickhouse.GetColumnsTypeConversion()
+	return wrapErrorAsFailedPrecondition(connclickhouse.GetColumnsTypeConversion())
 }
 
 func (h *FlowRequestHandler) GetSlotInfo(

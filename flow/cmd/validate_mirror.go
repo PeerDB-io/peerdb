@@ -32,7 +32,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	}
 
 	if !req.ConnectionConfigs.Resync {
-		mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
+		mirrorExists, existCheckErr := h.checkIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {
 			slog.ErrorContext(ctx, "/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
 			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to check if mirror name exists: %w", existCheckErr))
@@ -104,7 +104,7 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	return &protos.ValidateCDCMirrorResponse{}, nil
 }
 
-func (h *FlowRequestHandler) CheckIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {
+func (h *FlowRequestHandler) checkIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {
 	var nameExists bool
 	if err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT * FROM flows WHERE name = $1)", mirrorName).Scan(&nameExists); err != nil {
 		return false, fmt.Errorf("failed to check if mirror name exists: %w", err)
