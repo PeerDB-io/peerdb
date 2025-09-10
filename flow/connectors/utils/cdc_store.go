@@ -33,6 +33,7 @@ func encVal(val any) ([]byte, error) {
 }
 
 type cdcStore[Items model.Items] struct {
+	logger                    log.Logger
 	inMemoryRecords           map[model.TableWithPkey]model.Record[Items]
 	pebbleDB                  *pebble.DB
 	flowJobName               string
@@ -40,9 +41,8 @@ type cdcStore[Items model.Items] struct {
 	thresholdReason           string
 	memStats                  []metrics.Sample
 	memThresholdBytes         uint64
-	numRecords                atomic.Int32
 	numRecordsSwitchThreshold int
-	logger                    log.Logger
+	numRecords                atomic.Int32
 }
 
 func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, flowJobName string) (*cdcStore[Items], error) {

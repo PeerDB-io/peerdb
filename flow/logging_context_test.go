@@ -75,8 +75,7 @@ func analyzeSlogUsage(t *testing.T, pkg *packages.Package, file *ast.File) []str
 	var violations []string
 
 	ast.Inspect(file, func(n ast.Node) bool {
-		switch node := n.(type) {
-		case *ast.CallExpr:
+		if node, ok := n.(*ast.CallExpr); ok {
 			if violation := checkSlogCall(pkg, node); violation != "" {
 				violations = append(violations, violation)
 			}
@@ -120,7 +119,8 @@ func checkSlogCall(pkg *packages.Package, call *ast.CallExpr) string {
 	pos := pkg.Fset.Position(call.Pos())
 
 	// No context or struct logger available
-	return formatLoggingViolation(pos, methodName, "slog."+contextMethod+"(ctx, ...) instead or re-use the logger on current struct (if available)")
+	return formatLoggingViolation(pos, methodName,
+		"slog."+contextMethod+"(ctx, ...) instead or re-use the logger on current struct (if available)")
 }
 
 // formatLoggingViolation formats a logging violation message

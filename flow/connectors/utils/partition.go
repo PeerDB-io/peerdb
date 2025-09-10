@@ -28,80 +28,6 @@ type PartitionRangeForComparison struct {
 	rangeTypeToCompare PartitionRangeType
 }
 
-// Function to compare the end of a partition with the start of another
-func (p *PartitionHelper) comparePartitionRanges(
-	previousPartition PartitionRangeForComparison,
-	currentPartition PartitionRangeForComparison,
-) int {
-	if previousPartition.partitionRange == nil || currentPartition.partitionRange == nil {
-		p.logger.Warn("one of the partition ranges is nil, cannot compare")
-		return 0
-	}
-	switch pr := previousPartition.partitionRange.Range.(type) {
-	case *protos.PartitionRange_IntRange:
-		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_IntRange)
-		if !ok {
-			return 0
-		}
-		getVal := func(r *protos.IntPartitionRange, t PartitionRangeType) int64 {
-			if t == PartitionEndRangeType {
-				return r.End
-			}
-			return r.Start
-		}
-		prevVal := getVal(pr.IntRange, previousPartition.rangeTypeToCompare)
-		currVal := getVal(cr.IntRange, currentPartition.rangeTypeToCompare)
-		return cmp.Compare(prevVal, currVal)
-	case *protos.PartitionRange_UintRange:
-		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_UintRange)
-		if !ok {
-			return 0
-		}
-		getVal := func(r *protos.UIntPartitionRange, t PartitionRangeType) uint64 {
-			if t == PartitionEndRangeType {
-				return r.End
-			}
-			return r.Start
-		}
-		prevVal := getVal(pr.UintRange, previousPartition.rangeTypeToCompare)
-		currVal := getVal(cr.UintRange, currentPartition.rangeTypeToCompare)
-		return cmp.Compare(prevVal, currVal)
-	case *protos.PartitionRange_TimestampRange:
-		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_TimestampRange)
-		if !ok {
-			return 0
-		}
-		getTime := func(r *protos.TimestampPartitionRange, t PartitionRangeType) time.Time {
-			if t == PartitionEndRangeType {
-				return r.End.AsTime()
-			}
-			return r.Start.AsTime()
-		}
-		prevVal := getTime(pr.TimestampRange, previousPartition.rangeTypeToCompare)
-		currVal := getTime(cr.TimestampRange, currentPartition.rangeTypeToCompare)
-		return prevVal.Compare(currVal)
-	case *protos.PartitionRange_TidRange:
-		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_TidRange)
-		if !ok {
-			return 0
-		}
-		getTuple := func(r *protos.TIDPartitionRange, t PartitionRangeType) *protos.TID {
-			if t == PartitionEndRangeType {
-				return r.End
-			}
-			return r.Start
-		}
-		prevTuple := getTuple(pr.TidRange, previousPartition.rangeTypeToCompare)
-		currTuple := getTuple(cr.TidRange, currentPartition.rangeTypeToCompare)
-		if c := cmp.Compare(prevTuple.BlockNumber, currTuple.BlockNumber); c != 0 {
-			return c
-		}
-		return cmp.Compare(prevTuple.OffsetNumber, currTuple.OffsetNumber)
-	default:
-		return 0
-	}
-}
-
 // Function to adjust start value
 func adjustStartValueOfPartition(prevRange *protos.PartitionRange, currentRange *protos.PartitionRange) {
 	if prevRange == nil || currentRange == nil {
@@ -225,6 +151,80 @@ func NewPartitionHelper(logger log.Logger) *PartitionHelper {
 	return &PartitionHelper{
 		logger:     logger,
 		partitions: make([]*protos.QRepPartition, 0),
+	}
+}
+
+// Function to compare the end of a partition with the start of another
+func (p *PartitionHelper) comparePartitionRanges(
+	previousPartition PartitionRangeForComparison,
+	currentPartition PartitionRangeForComparison,
+) int {
+	if previousPartition.partitionRange == nil || currentPartition.partitionRange == nil {
+		p.logger.Warn("one of the partition ranges is nil, cannot compare")
+		return 0
+	}
+	switch pr := previousPartition.partitionRange.Range.(type) {
+	case *protos.PartitionRange_IntRange:
+		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_IntRange)
+		if !ok {
+			return 0
+		}
+		getVal := func(r *protos.IntPartitionRange, t PartitionRangeType) int64 {
+			if t == PartitionEndRangeType {
+				return r.End
+			}
+			return r.Start
+		}
+		prevVal := getVal(pr.IntRange, previousPartition.rangeTypeToCompare)
+		currVal := getVal(cr.IntRange, currentPartition.rangeTypeToCompare)
+		return cmp.Compare(prevVal, currVal)
+	case *protos.PartitionRange_UintRange:
+		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_UintRange)
+		if !ok {
+			return 0
+		}
+		getVal := func(r *protos.UIntPartitionRange, t PartitionRangeType) uint64 {
+			if t == PartitionEndRangeType {
+				return r.End
+			}
+			return r.Start
+		}
+		prevVal := getVal(pr.UintRange, previousPartition.rangeTypeToCompare)
+		currVal := getVal(cr.UintRange, currentPartition.rangeTypeToCompare)
+		return cmp.Compare(prevVal, currVal)
+	case *protos.PartitionRange_TimestampRange:
+		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_TimestampRange)
+		if !ok {
+			return 0
+		}
+		getTime := func(r *protos.TimestampPartitionRange, t PartitionRangeType) time.Time {
+			if t == PartitionEndRangeType {
+				return r.End.AsTime()
+			}
+			return r.Start.AsTime()
+		}
+		prevVal := getTime(pr.TimestampRange, previousPartition.rangeTypeToCompare)
+		currVal := getTime(cr.TimestampRange, currentPartition.rangeTypeToCompare)
+		return prevVal.Compare(currVal)
+	case *protos.PartitionRange_TidRange:
+		cr, ok := currentPartition.partitionRange.Range.(*protos.PartitionRange_TidRange)
+		if !ok {
+			return 0
+		}
+		getTuple := func(r *protos.TIDPartitionRange, t PartitionRangeType) *protos.TID {
+			if t == PartitionEndRangeType {
+				return r.End
+			}
+			return r.Start
+		}
+		prevTuple := getTuple(pr.TidRange, previousPartition.rangeTypeToCompare)
+		currTuple := getTuple(cr.TidRange, currentPartition.rangeTypeToCompare)
+		if c := cmp.Compare(prevTuple.BlockNumber, currTuple.BlockNumber); c != 0 {
+			return c
+		}
+		return cmp.Compare(prevTuple.OffsetNumber, currTuple.OffsetNumber)
+	default:
+		return 0
 	}
 }
 
