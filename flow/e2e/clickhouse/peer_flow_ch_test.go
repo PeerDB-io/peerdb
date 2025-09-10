@@ -552,13 +552,11 @@ func (s ClickHouseSuite) Test_WeirdTable_MixedCase() {
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Question() {
-	s.t.SkipNow() // TODO fix avro errors by sanitizing names
 	s.WeirdTable("whatIsTable?")
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {
-	s.t.SkipNow() // TODO fix avro errors by sanitizing names
-	s.WeirdTable("table-group")
+	s.WeirdTable("table-group%c%i%t%i%z%e%n")
 }
 
 // large NUMERICs (precision >76) are mapped to String on CH, test
