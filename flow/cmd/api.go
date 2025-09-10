@@ -205,7 +205,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to create Temporal client: %w", err)
 	}
 
-	authGrpcMiddleware, err := middleware.AuthGrpcMiddleware([]string{
+	authGrpcMiddleware, err := middleware.AuthGrpcMiddleware(ctx, []string{
 		grpc_health_v1.Health_Check_FullMethodName,
 		grpc_health_v1.Health_Watch_FullMethodName,
 	})
@@ -213,7 +213,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return err
 	}
 
-	requestLoggingMiddleware := middleware.RequestLoggingMiddleware()
+	requestLoggingMiddleware := middleware.RequestLoggingMiddleware(ctx)
 
 	serverOptions := []grpc.ServerOption{
 		// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged

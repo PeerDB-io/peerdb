@@ -31,7 +31,7 @@ func TestRouteHandlersWrapErrors(t *testing.T) {
 
 	// Known route handler methods that should wrap errors
 	// These correspond to the methods defined in the FlowServiceServer interface
-	routeHandlerMethods := middleware.BuildHttpMethodMapping()
+	routeHandlerMethods := middleware.BuildHttpMethodMapping(t.Context())
 
 	var violations []string
 
@@ -66,7 +66,7 @@ func isFlowRequestHandlerMethod(fn *ast.FuncDecl) bool {
 	recv := fn.Recv.List[0]
 	if starExpr, ok := recv.Type.(*ast.StarExpr); ok {
 		if ident, ok := starExpr.X.(*ast.Ident); ok {
-			return ident.Name == reflect.TypeOf(*new(FlowRequestHandler)).Name()
+			return ident.Name == reflect.TypeOf(FlowRequestHandler{}).Name()
 		}
 	}
 	return false

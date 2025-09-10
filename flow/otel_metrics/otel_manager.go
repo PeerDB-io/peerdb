@@ -134,7 +134,7 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		Int64CountersCache: make(map[string]metric.Int64Counter),
 	}
-	if err := otelManager.setupMetrics(); err != nil {
+	if err := otelManager.setupMetrics(ctx); err != nil {
 		return nil, err
 	}
 	return &otelManager, nil
@@ -181,8 +181,8 @@ func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64Co
 	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
 }
 
-func (om *OtelManager) setupMetrics() error {
-	slog.Debug("Setting up all metrics")
+func (om *OtelManager) setupMetrics(ctx context.Context) error {
+	slog.DebugContext(ctx, "Setting up all metrics")
 	var err error
 	if om.Metrics.SlotLagGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(SlotLagGaugeName),
 		metric.WithUnit("MiBy"),
@@ -328,7 +328,7 @@ func (om *OtelManager) setupMetrics() error {
 	); err != nil {
 		return err
 	}
-	slog.Debug("Finished setting up all metrics")
+	slog.DebugContext(ctx, "Finished setting up all metrics")
 
 	if om.Metrics.FlowStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(FlowStatusGaugeName),
 		metric.WithDescription("Status of the flow, always emits a 1 metric with different `flowStatus` value for different statuses"),
@@ -409,9 +409,9 @@ func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*reso
 	)
 }
 
-func temporalMetricsFilteringView() sdkmetric.View {
+func temporalMetricsFilteringView(ctx context.Context) sdkmetric.View {
 	exportListString := internal.GetPeerDBOtelTemporalMetricsExportListEnv()
-	slog.Info("Found export list for temporal metrics", slog.String("exportList", exportListString))
+	slog.InfoContext(ctx, "Found export list for temporal metrics", slog.String("exportList", exportListString))
 	// Special case for exporting all metrics
 	if exportListString == "__ALL__" {
 		return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
@@ -535,7 +535,7 @@ func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, enabled, temporalMetricsFilteringView())
+	return setupMetricsProvider(ctx, otelResource, enabled, temporalMetricsFilteringView(ctx))
 }
 
 func SetupComponentMetricsProvider(

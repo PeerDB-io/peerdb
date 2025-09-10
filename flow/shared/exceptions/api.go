@@ -23,7 +23,8 @@ func convertToStatus(c codes.Code, err error, details ...*rpc.ErrorInfo) error {
 	}
 	richStatus, err := errorStatus.WithDetails(convertedDetails...)
 	if err != nil {
-		slog.Error("Failed to convert to grpc proto error", "error", err)
+		// This cannot happen because we control all calls to convertToStatus and only pass code != OK and allow only rpc.ErrorInfo in details
+		slog.Default().Error("Failed to convert to grpc proto error", "error", err)
 		return errorStatus.Err()
 	}
 	return richStatus.Err()

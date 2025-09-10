@@ -18,15 +18,15 @@ import (
 
 var GrpcFullServiceName = protos.FlowService_ServiceDesc.ServiceName
 
-func RequestLoggingMiddleware() grpc.UnaryServerInterceptor {
-	if !internal.PeerDBRAPIRequestLoggingEnabled() {
-		slog.Info("Request Logging Interceptor is disabled")
+func RequestLoggingMiddleware(ctx context.Context) grpc.UnaryServerInterceptor {
+	if !internal.PeerDBRAPIRequestLoggingEnabled(ctx) {
+		slog.InfoContext(ctx, "Request Logging Interceptor is disabled")
 		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 			return handler(ctx, req)
 		}
 	}
-	httpMethodMapping := BuildHttpMethodMapping()
-	slog.Info("Setting up request logging middleware")
+	httpMethodMapping := BuildHttpMethodMapping(ctx)
+	slog.InfoContext(ctx, "Setting up request logging middleware")
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		var httpMethod string
 		if method, exists := httpMethodMapping[info.FullMethod]; exists {
@@ -54,17 +54,17 @@ func RequestLoggingMiddleware() grpc.UnaryServerInterceptor {
 	}
 }
 
-func BuildHttpMethodMapping() map[string]string {
+func BuildHttpMethodMapping(ctx context.Context) map[string]string {
 	mapping := make(map[string]string)
 
 	desc, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(GrpcFullServiceName))
 	if err != nil {
-		slog.Warn("failed to find descriptor for "+GrpcFullServiceName, slog.Any("error", err))
+		slog.WarnContext(ctx, "failed to find descriptor for "+GrpcFullServiceName, slog.Any("error", err))
 		return nil
 	}
 	serviceDesc, ok := desc.(protoreflect.ServiceDescriptor)
 	if !ok {
-		slog.Warn(string(desc.FullName()) + " is not a service descriptor")
+		slog.WarnContext(ctx, string(desc.FullName())+" is not a service descriptor")
 		return nil
 	}
 	for i := range serviceDesc.Methods().Len() {

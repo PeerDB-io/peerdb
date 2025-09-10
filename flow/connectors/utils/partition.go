@@ -29,12 +29,12 @@ type PartitionRangeForComparison struct {
 }
 
 // Function to compare the end of a partition with the start of another
-func comparePartitionRanges(
+func (p *PartitionHelper) comparePartitionRanges(
 	previousPartition PartitionRangeForComparison,
 	currentPartition PartitionRangeForComparison,
 ) int {
 	if previousPartition.partitionRange == nil || currentPartition.partitionRange == nil {
-		slog.Warn("one of the partition ranges is nil, cannot compare")
+		p.logger.Warn("one of the partition ranges is nil, cannot compare")
 		return 0
 	}
 	switch pr := previousPartition.partitionRange.Range.(type) {
@@ -248,7 +248,7 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 	// Skip partition if it's fully contained within the previous one
 	// If it's not fully contained but overlaps, adjust the start
 	if prevPartition != nil {
-		prevEndCompareStart := comparePartitionRanges(
+		prevEndCompareStart := p.comparePartitionRanges(
 			PartitionRangeForComparison{
 				partitionRange:     prevPartition.Range,
 				rangeTypeToCompare: PartitionEndRangeType,
@@ -258,7 +258,7 @@ func (p *PartitionHelper) AddPartition(start any, end any) error {
 				rangeTypeToCompare: PartitionStartRangeType,
 			})
 		if prevEndCompareStart >= 0 {
-			prevEndCompareEnd := comparePartitionRanges(
+			prevEndCompareEnd := p.comparePartitionRanges(
 				PartitionRangeForComparison{
 					partitionRange:     prevPartition.Range,
 					rangeTypeToCompare: PartitionEndRangeType,

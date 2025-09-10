@@ -382,6 +382,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 		case types.QValueKindGeography, types.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
 			if err != nil {
+				p.logger.Warn("failure during GeoValidate", slog.Any("error", err))
 				return types.QValueNull(customQKind), nil
 			} else if customQKind == types.QValueKindGeography {
 				return types.QValueGeography{Val: wkt}, nil
@@ -500,7 +501,7 @@ func PullCdcRecords[Items model.Items](
 	waitingForCommit := false
 
 	addRecordWithKey := func(key model.TableWithPkey, rec model.Record[Items]) error {
-		if err := cdcRecordsStorage.Set(logger, key, rec); err != nil {
+		if err := cdcRecordsStorage.Set(key, rec); err != nil {
 			return err
 		}
 		if err := records.AddRecord(ctx, rec); err != nil {

@@ -24,12 +24,11 @@ func (h *FlowRequestHandler) GetScripts(ctx context.Context, req *protos.GetScri
 		script := &protos.Script{}
 		var sourceBytes []byte
 		err := row.Scan(&script.Id, &script.Lang, &script.Name, &sourceBytes)
-		if err == nil {
-			script.Source = string(sourceBytes)
-		} else {
-			err = exceptions.NewInternalApiError(fmt.Errorf("failed to scan script: %w", err))
+		if err != nil {
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to query scripts: %w", err))
 		}
-		return script, exceptions.NewInternalApiError(fmt.Errorf("failed to scan script: %w", err))
+		script.Source = string(sourceBytes)
+		return script, nil
 	})
 	if err != nil {
 		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to collect scripts: %w", err))
