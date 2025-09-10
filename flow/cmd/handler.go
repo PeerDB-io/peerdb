@@ -427,7 +427,8 @@ func (h *FlowRequestHandler) CreatePeer(
 	if !req.DisableValidation {
 		status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
 		if validateErr != nil {
-			// h.ValidatePeer already returns standard grpc errors
+			// ValidatePeer returns proper grpc errors
+			//nopeertest:grpcReturn
 			return nil, validateErr
 		}
 		if status.Status != protos.ValidatePeerStatus_VALID {
@@ -438,7 +439,11 @@ func (h *FlowRequestHandler) CreatePeer(
 		}
 	}
 
-	return utils.CreatePeerNoValidate(ctx, h.pool, req.Peer, req.AllowUpdate)
+	created, err := utils.CreatePeerNoValidate(ctx, h.pool, req.Peer, req.AllowUpdate)
+	if err != nil {
+		return nil, exceptions.NewInternalApiError(err)
+	}
+	return created, nil
 }
 
 func (h *FlowRequestHandler) DropPeer(

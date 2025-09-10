@@ -12,10 +12,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
-const grpcFullServiceName = "peerdb_route.FlowService"
+var GrpcFullServiceName = protos.FlowService_ServiceDesc.ServiceName
 
 func RequestLoggingMiddleware() grpc.UnaryServerInterceptor {
 	if !internal.PeerDBRAPIRequestLoggingEnabled() {
@@ -24,7 +25,7 @@ func RequestLoggingMiddleware() grpc.UnaryServerInterceptor {
 			return handler(ctx, req)
 		}
 	}
-	httpMethodMapping := buildHttpMethodMapping()
+	httpMethodMapping := BuildHttpMethodMapping()
 	slog.Info("Setting up request logging middleware")
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		var httpMethod string
@@ -53,12 +54,12 @@ func RequestLoggingMiddleware() grpc.UnaryServerInterceptor {
 	}
 }
 
-func buildHttpMethodMapping() map[string]string {
+func BuildHttpMethodMapping() map[string]string {
 	mapping := make(map[string]string)
 
-	desc, err := protoregistry.GlobalFiles.FindDescriptorByName(grpcFullServiceName)
+	desc, err := protoregistry.GlobalFiles.FindDescriptorByName(protoreflect.FullName(GrpcFullServiceName))
 	if err != nil {
-		slog.Warn("failed to find descriptor for "+grpcFullServiceName, slog.Any("error", err))
+		slog.Warn("failed to find descriptor for "+GrpcFullServiceName, slog.Any("error", err))
 		return nil
 	}
 	serviceDesc, ok := desc.(protoreflect.ServiceDescriptor)

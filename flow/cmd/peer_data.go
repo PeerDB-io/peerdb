@@ -277,7 +277,7 @@ func (h *FlowRequestHandler) GetStatInfo(
 	}
 	defer connectors.CloseConnector(ctx, peerConn)
 
-	return peerConn.StatActivity(ctx, req)
+	return wrapErrorAsFailedPrecondition(peerConn.StatActivity(ctx, req))
 }
 
 func (h *FlowRequestHandler) GetPublications(

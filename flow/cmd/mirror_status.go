@@ -536,6 +536,7 @@ func (h *FlowRequestHandler) getMirrorCreatedAt(ctx context.Context, flowJobName
 }
 
 func (h *FlowRequestHandler) GetCDCBatches(ctx context.Context, req *protos.GetCDCBatchesRequest) (*protos.GetCDCBatchesResponse, error) {
+	//nopeertest:grpcReturn
 	return h.CDCBatches(ctx, req)
 }
 
@@ -727,7 +728,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 		totalCount.UpdatesCount += tableCount.Counts.UpdatesCount
 		totalCount.DeletesCount += tableCount.Counts.DeletesCount
 
-		return tableCount, err
+		return tableCount, exceptions.NewInternalApiError(fmt.Errorf("failed to scan cdc table total counts: %w", err))
 	})
 	if err != nil {
 		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to collect cdc table total counts: %w", err))
