@@ -348,7 +348,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 			// Handle Neon's custom WAL reading error
 			if pgErr.Routine == "NeonWALPageRead" && strings.Contains(pgErr.Message, "server closed the connection unexpectedly") {
-				return ErrorRetryRecoverable, pgErrorInfo
+				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
 			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
@@ -652,6 +652,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  incompatibleColumnTypeError.TableName,
 				ErrorAttributeKeyColumn: incompatibleColumnTypeError.ColumnName,
+			},
+		}
+	}
+
+	var postgresPrimaryKeyModifiedError *exceptions.PrimaryKeyModifiedError
+	if errors.As(err, &postgresPrimaryKeyModifiedError) {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  postgresPrimaryKeyModifiedError.TableName,
+				ErrorAttributeKeyColumn: postgresPrimaryKeyModifiedError.ColumnName,
 			},
 		}
 	}

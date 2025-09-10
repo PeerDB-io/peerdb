@@ -464,6 +464,7 @@ func PullCdcRecords[Items model.Items](
 	}
 
 	var standByLastLogged time.Time
+	// Remove exceptions.PrimaryKeyModifiedError and its classification when this is removed
 	cdcRecordsStorage, err := utils.NewCDCStore[Items](ctx, req.Env, p.flowJobName)
 	if err != nil {
 		return err
