@@ -408,7 +408,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error getting PG version: %w", err)
 		}
 
-		c.logger.Info(fmt.Sprintf("Creating replication slot '%s'", slot))
+		c.logger.Info("Creating replication slot", slog.String("slot", slot))
 		opts := pglogrepl.CreateReplicationSlotOptions{
 			Temporary: false,
 			Mode:      pglogrepl.LogicalReplication,
@@ -418,7 +418,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			conn.Close(ctx)
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error creating replication slot: %w", err)
 		}
-		c.logger.Info(fmt.Sprintf("Created replication slot '%s'", slot))
+		c.logger.Info("Created replication slot", slog.String("slot", slot))
 
 		if skipSnapshotExport {
 			conn.Close(ctx)
@@ -436,7 +436,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 			SupportsTIDScans: pgversion >= shared.POSTGRES_13,
 		}, nil
 	} else {
-		c.logger.Info(fmt.Sprintf("Replication slot '%s' already exists", slot))
+		c.logger.Info("Replication slot already exists", slog.String("slot", slot))
 		var err error
 		if doInitialCopy {
 			err = shared.ErrSlotAlreadyExists

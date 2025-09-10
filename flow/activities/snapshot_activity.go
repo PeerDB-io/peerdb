@@ -71,7 +71,7 @@ func (a *SnapshotActivity) SetupReplication(
 	if err != nil {
 		connectors.CloseConnector(ctx, conn)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("slot error: %w", err))
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	} else if slotInfo.Conn == nil && slotInfo.SlotName == "" {
 		connectors.CloseConnector(ctx, conn)
 		logger.Info("replication setup without slot")

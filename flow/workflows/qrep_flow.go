@@ -283,7 +283,7 @@ func (q *QRepFlowExecution) processPartitions(
 	// wait for all the child workflows to complete
 	for _, future := range partitionWorkflows {
 		if err := future.Get(ctx, nil); err != nil {
-			return fmt.Errorf("failed to wait for child workflow: %w", err)
+			return err
 		}
 	}
 

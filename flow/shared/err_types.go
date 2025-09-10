@@ -1,9 +1,13 @@
 package shared
 
-import "errors"
+import (
+	"errors"
+
+	"go.temporal.io/sdk/temporal"
+)
 
 var (
-	ErrSlotAlreadyExists error = errors.New("slot already exists")
+	ErrSlotAlreadyExists error = temporal.NewNonRetryableApplicationError("slot already exists", "snapshot", nil)
 	ErrTableDoesNotExist error = errors.New("table does not exist")
 )
 
