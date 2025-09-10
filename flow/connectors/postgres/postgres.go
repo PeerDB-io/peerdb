@@ -448,10 +448,15 @@ func pullCore[Items model.Items](
 		return fmt.Errorf("failed to get get setting for originMetaAsDestinationColumn: %w", err)
 	}
 
+	cfgFromDB, err := internal.FetchConfigFromDB(req.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("unable to query flow config from catalog: %w", err)
+	}
+
 	cdc, err := c.NewPostgresCDCSource(ctx, &PostgresCDCConfig{
 		CatalogPool:                              catalogPool,
 		OtelManager:                              otelManager,
-		SrcTableIDNameMapping:                    req.SrcTableIDNameMapping,
+		SrcTableIDNameMapping:                    cfgFromDB.SrcTableIdNameMapping,
 		TableNameMapping:                         req.TableNameMapping,
 		TableNameSchemaMapping:                   req.TableNameSchemaMapping,
 		RelationMessageMapping:                   c.relationMessageMapping,
