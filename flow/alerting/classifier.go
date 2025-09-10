@@ -171,9 +171,6 @@ var (
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
-	ErrorNotifyWALSegmentRemoved = ErrorClass{
-		Class: "NOTIFY_WAL_SEGMENT_REMOVED", action: NotifyUser,
-	}
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
 		Class: "OTHER", action: NotifyTelemetry,
@@ -321,7 +318,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.UndefinedFile:
 			// Handle WAL segment removed errors
 			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
-				return ErrorNotifyWALSegmentRemoved, pgErrorInfo
+				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
 		case pgerrcode.InternalError:
