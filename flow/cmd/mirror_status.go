@@ -36,7 +36,10 @@ func (h *FlowRequestHandler) ListMirrors(
 	join peers sp on sp.id = f.source_peer
 	join peers dp on dp.id = f.destination_peer`)
 	if err != nil {
-		return nil, err
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &protos.ListMirrorsResponse{}, nil
+		}
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to query mirrors: %w", err))
 	}
 	mirrors, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.ListMirrorsItem, error) {
 		var item protos.ListMirrorsItem
@@ -270,7 +273,7 @@ func (h *FlowRequestHandler) CDCGraph(ctx context.Context, req *protos.GraphRequ
 		var t time.Time
 		var r int64
 		if err := row.Scan(&t, &r); err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to scan row: %w", err))
 		}
 		totalRows += r
 		return &protos.GraphResponseItem{Time: float64(t.UnixMilli()), Rows: float64(r)}, nil
@@ -577,7 +580,7 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		var endLSN pgtype.Numeric
 		if err := rows.Scan(&batchID, &startTime, &endTime, &numRows, &startLSN, &endLSN); err != nil {
 			slog.ErrorContext(ctx, fmt.Sprintf("unable to scan cdc batches - %s: %s", req.FlowJobName, err.Error()))
-			return nil, fmt.Errorf("unable to scan cdc batches - %s: %w", req.FlowJobName, err)
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to scan cdc batches - %s: %w", req.FlowJobName, err))
 		}
 
 		var batch protos.CDCBatch
@@ -625,7 +628,7 @@ func (h *FlowRequestHandler) CDCBatches(ctx context.Context, req *protos.GetCDCB
 		if err := h.pool.QueryRow(ctx, fmt.Sprintf(`select count(distinct batch_id), count(distinct batch_id) filter (where batch_id%c$2)
 			from peerdb_stats.cdc_batches where flow_name=$1 and start_time is not null`, op), req.FlowJobName, firstId,
 		).Scan(&total, &rowsBehind); err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to query cdc batches - %s: %w", req.FlowJobName, err))
 		}
 	} else if err := h.pool.QueryRow(
 		ctx,
@@ -712,7 +715,7 @@ func (h *FlowRequestHandler) CDCTableTotalCounts(
 			&tableCount.Counts.DeletesCount,
 			&totalRows)
 		if err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to scan cdc table total counts: %w", err))
 		}
 
 		// Use the pre-calculated total count

@@ -69,7 +69,7 @@ func (h *FlowRequestHandler) PostAlertConfig(ctx context.Context, req *protos.Po
 			key.ID,
 			req.Config.AlertForMirrors,
 		).Scan(&id); err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to insert alert config: %w", err))
 		}
 		return &protos.PostAlertConfigResponse{Id: id}, nil
 	} else if _, err := h.pool.Exec(

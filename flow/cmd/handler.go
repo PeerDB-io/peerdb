@@ -140,7 +140,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	if !cfg.Resync {
 		if _, err := h.ValidateCDCMirror(ctx, req); err != nil {
 			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
-			return nil, fmt.Errorf("invalid mirror: %w", err)
+			return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("invalid mirror: %w", err))
 		}
 	}
 
@@ -158,7 +158,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
 		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to start PeerFlow workflow: %w", err))
 	}
 
 	return &protos.CreateCDCFlowResponse{
@@ -363,7 +363,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 					ConnectionConfigs: config,
 				}); err != nil {
-					return nil, err
+					return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("invalid mirror: %w", err))
 				}
 				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 			}
@@ -426,13 +426,14 @@ func (h *FlowRequestHandler) CreatePeer(
 	if !req.DisableValidation {
 		status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
 		if validateErr != nil {
+			// h.ValidatePeer already returns standard grpc errors
 			return nil, validateErr
 		}
 		if status.Status != protos.ValidatePeerStatus_VALID {
 			return &protos.CreatePeerResponse{
 				Status:  protos.CreatePeerStatus_FAILED,
 				Message: status.Message,
-			}, nil
+			}, exceptions.NewFailedPreconditionApiError(errors.New(status.Message))
 		}
 	}
 
@@ -557,7 +558,7 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 	case protos.MaintenanceStatus_MAINTENANCE_STATUS_START:
 		workflowRun, err := peerflow.RunStartMaintenanceWorkflow(ctx, h.temporalClient, &protos.StartMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(err)
 		}
 		return &protos.MaintenanceResponse{
 			WorkflowId: workflowRun.GetID(),
@@ -566,7 +567,7 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 	case protos.MaintenanceStatus_MAINTENANCE_STATUS_END:
 		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, h.temporalClient, &protos.EndMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(err)
 		}
 		return &protos.MaintenanceResponse{
 			WorkflowId: workflowRun.GetID(),

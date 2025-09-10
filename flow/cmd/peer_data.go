@@ -243,7 +243,7 @@ func (h *FlowRequestHandler) GetSlotLagHistory(
 		var restartLSN string
 		var confirmedFlushLSN string
 		if err := row.Scan(&updatedAt, &slotSize, &redoLSN, &restartLSN, &confirmedFlushLSN); err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to scan slot lag history: %w", err))
 		}
 		return &protos.SlotLagPoint{
 			Time:         float64(updatedAt.UnixMilli()),
