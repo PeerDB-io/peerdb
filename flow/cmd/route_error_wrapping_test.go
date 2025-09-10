@@ -39,7 +39,8 @@ func TestRouteHandlersWrapErrors(t *testing.T) {
 		ast.Inspect(file, func(n ast.Node) bool {
 			if fn, ok := n.(*ast.FuncDecl); ok {
 				// Check if this is a FlowRequestHandler method that should wrap errors
-				if _, isHandler := routeHandlerMethods["/"+middleware.GrpcFullServiceName+"/"+fn.Name.Name]; isHandler && isFlowRequestHandlerMethod(fn) {
+				if _, isHandler := routeHandlerMethods["/"+middleware.GrpcFullServiceName+"/"+fn.Name.Name]; isHandler &&
+					isFlowRequestHandlerMethod(fn) {
 					t.Logf("Testing function: %s", fn.Name.Name)
 					violations = append(violations, analyzeRouteHandlerErrorWrapping(t, pkg, fn)...)
 				} else {
@@ -73,6 +74,7 @@ func isFlowRequestHandlerMethod(fn *ast.FuncDecl) bool {
 
 // analyzeRouteHandlerErrorWrapping analyzes a route handler method for proper error wrapping
 func analyzeRouteHandlerErrorWrapping(t *testing.T, pkg *packages.Package, fn *ast.FuncDecl) []string {
+	t.Helper()
 	var violations []string
 
 	// Check if function returns an error
@@ -105,6 +107,7 @@ func analyzeRouteHandlerErrorWrapping(t *testing.T, pkg *packages.Package, fn *a
 
 // hasNoPeerTestComment checks if a return statement has the //nopeertest:grpcReturn comment on the line before
 func hasNoPeerTestComment(t *testing.T, pkg *packages.Package, ret *ast.ReturnStmt, fn *ast.FuncDecl) bool {
+	t.Helper()
 	pos := pkg.Fset.Position(ret.Pos())
 
 	// Find the source file
