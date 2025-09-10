@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	MinSupportedVersion    = "5.1.0"
+	MinSupportedVersion    = "4.4.0"
 	MinOplogRetentionHours = 24
 
 	ReplicaSet     = "ReplicaSet"
