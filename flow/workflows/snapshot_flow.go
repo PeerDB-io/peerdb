@@ -428,8 +428,10 @@ func SnapshotFlowWorkflow(
 		); err != nil {
 			return fmt.Errorf("failed to clone tables: %w", err)
 		}
-	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
-		return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+	} else if config.DoInitialSnapshot {
+		if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
+			return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+		}
 	}
 
 	return nil
