@@ -1117,7 +1117,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 			option.CurrentName,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load schema to rename tables: %w", err)
+			return nil, fmt.Errorf("failed to load table definition to rename table %s: %w", option.CurrentName, err)
 		}
 		tableNameSchemaMapping[option.CurrentName] = schema
 	}
