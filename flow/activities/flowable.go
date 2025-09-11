@@ -1420,7 +1420,7 @@ func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, e
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
 }
 
-func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, flowJobName string, status protos.FlowStatus) error {
+func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos.FlowStatus) error {
 	_, isActive := activeFlowStatuses[status]
 	a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 		attribute.String(otel_metrics.FlowStatusKey, status.String()),

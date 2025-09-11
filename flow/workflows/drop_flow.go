@@ -164,7 +164,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
-	}), flowable.ReportStatusMetric, input.FlowJobName, status).Get(ctx, nil)
+	}), flowable.ReportStatusMetric, status).Get(ctx, nil)
 
 	if input.FlowConnectionConfigs != nil {
 		if input.DropFlowStats {
