@@ -1419,20 +1419,3 @@ func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context,
 func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
 }
-
-func (a *FlowableActivity) UpdateFlowStatusInCatalogLocalActivity(
-	ctx context.Context,
-	workflowID string,
-	status protos.FlowStatus,
-) (protos.FlowStatus, error) {
-	status, err := internal.UpdateFlowStatusInCatalog(ctx, a.CatalogPool, workflowID, status)
-	if err != nil {
-		return status, err
-	}
-	_, isActive := activeFlowStatuses[status]
-	a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-		attribute.String(otel_metrics.FlowStatusKey, status.String()),
-		attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
-	)))
-	return status, nil
-}
