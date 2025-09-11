@@ -1184,14 +1184,33 @@ func (s Suite) TestQRep() {
 }
 
 func (s Suite) TestTableAdditionWithoutInitialLoad() {
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "original"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "added"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "original"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "added"))))
+	var cols string
+	switch s.source.(type) {
+	case *e2e.PostgresSource, *e2e.MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "original"))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "added"))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "original"))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "added"))))
+		cols = "id,val"
+	case *e2e_mongo.MongoSource:
+		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
+			Database(e2e.Schema(s)).Collection("original").
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		res, err = s.Source().(*e2e_mongo.MongoSource).AdminClient().
+			Database(e2e.Schema(s)).Collection("added").
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      "added_tables_no_initial_load_" + s.suffix,
@@ -1210,7 +1229,7 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	e2e.RequireEqualTables(s.ch, "original", "id,val")
+	e2e.RequireEqualTables(s.ch, "original", cols)
 	// add table
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
@@ -1251,12 +1270,24 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 	})
 
 	// No initial load should have happened for added table, so it should be empty on ClickHouse
-	e2e.RequireEmptyDestinationTable(s.ch, "added", "id")
+	e2e.RequireEmptyDestinationTable(s.ch, "added", cols)
 
 	// cdc should occur for added table still, so insert row into added table to test cdc
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "added"))))
-	e2e.EnvWaitForCount(env, s.ch, "test cdc of cdc_only table addition", "added", "id", 1)
+
+	switch s.source.(type) {
+	case *e2e.PostgresSource, *e2e.MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "added"))))
+	case *e2e_mongo.MongoSource:
+		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
+			Database(e2e.Schema(s)).Collection("added").
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
+	e2e.EnvWaitForCount(env, s.ch, "test cdc of cdc_only table addition", "added", cols, 1)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
