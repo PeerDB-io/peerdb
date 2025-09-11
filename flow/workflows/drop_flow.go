@@ -161,6 +161,11 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		return fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
 
+	_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+	}), flowable.ReportStatusMetric, input.FlowJobName, status).Get(ctx, nil)
+
 	if input.FlowConnectionConfigs != nil {
 		if input.DropFlowStats {
 			dropStatsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
