@@ -210,13 +210,12 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 			BackoffCoefficient:     2.,
 			MaximumInterval:        10 * time.Minute,
 			MaximumAttempts:        0,
-			NonRetryableErrorTypes: nil,
+			NonRetryableErrorTypes: []string{"snapshot"},
 		},
 	})
 
 	q.logger.Info("replicating partition batch", slog.Int64("BatchID", int64(partitions.BatchId)))
-	if err := workflow.ExecuteActivity(ctx,
-		flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
+	if err := workflow.ExecuteActivity(ctx, flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
 		return fmt.Errorf("failed to replicate partition: %w", err)
 	}
 
@@ -235,11 +234,8 @@ func (q *QRepFlowExecution) startChildWorkflow(
 ) workflow.ChildWorkflowFuture {
 	wid := q.getPartitionWorkflowID(ctx)
 	partFlowCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:        wid,
-		ParentClosePolicy: enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
-		RetryPolicy: &temporal.RetryPolicy{
-			MaximumAttempts: 20,
-		},
+		WorkflowID:            wid,
+		ParentClosePolicy:     enums.PARENT_CLOSE_POLICY_REQUEST_CANCEL,
 		TypedSearchAttributes: shared.NewSearchAttributes(q.config.FlowJobName),
 		WaitForCancellation:   true,
 	})

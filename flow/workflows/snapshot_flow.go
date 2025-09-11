@@ -86,7 +86,7 @@ func (s *SnapshotFlowExecution) closeSlotKeepAlive(
 	s.logger.Info("closing slot keep alive for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 15 * time.Minute,
+		StartToCloseTimeout: 10 * time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
@@ -127,6 +127,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		WorkflowID:          childWorkflowID,
 		WorkflowTaskTimeout: 5 * time.Minute,
 		TaskQueue:           taskQueue,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	})
 
 	var tableSchema *protos.TableSchema
@@ -245,8 +246,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 		Version:                    s.config.Version,
 	}
 
-	boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
-	return nil
+	return boundSelector.SpawnChild(childCtx, QRepFlowWorkflow, nil, config, nil)
 }
 
 func (s *SnapshotFlowExecution) cloneTables(
@@ -289,7 +289,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 		}
 		if err := s.cloneTable(ctx, boundSelector, snapshotName, v); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
-			continue
+			return err
 		}
 	}
 

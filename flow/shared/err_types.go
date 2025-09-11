@@ -1,10 +1,15 @@
 package shared
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"go.temporal.io/sdk/temporal"
+)
 
 var (
-	ErrSlotAlreadyExists error = errors.New("slot already exists")
-	ErrTableDoesNotExist error = errors.New("table does not exist")
+	ErrSlotAlreadyExists error = temporal.NewNonRetryableApplicationError("slot already exists", "snapshot", nil)
+	ErrTableDoesNotExist error = temporal.NewNonRetryableApplicationError("table does not exist", "snapshot", nil)
 )
 
 type ErrType string
@@ -31,3 +36,13 @@ func SkipSendingToIncidentIo(errTags []string) bool {
 }
 
 type QRepWarnings []error
+
+func WrapError(s string, err error) error {
+	var applicationError *temporal.ApplicationError
+
+	if errors.As(err, &applicationError) {
+		return temporal.NewNonRetryableApplicationError(s, applicationError.Type(), applicationError)
+	} else {
+		return fmt.Errorf("%s: %w", s, err)
+	}
+}

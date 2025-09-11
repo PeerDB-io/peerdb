@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"go.temporal.io/sdk/log"
+	"go.temporal.io/sdk/temporal"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
@@ -133,6 +134,9 @@ func (c *PostgresConnector) GetDefaultPartitionKeyForTables(
 func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.Tx, snapshot string) error {
 	if snapshot != "" {
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(snapshot)); err != nil {
+			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
+				return temporal.NewNonRetryableApplicationError("failed to set transaction snapshot", "snapshot", err)
+			}
 			return fmt.Errorf("failed to set transaction snapshot: %w", err)
 		}
 	}

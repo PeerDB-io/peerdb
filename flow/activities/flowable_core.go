@@ -447,7 +447,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 
 		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, partition, stream)
 		if err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("[qrep] failed to pull records: %w", err))
+			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", err)
 		}
 
 		// for Postgres source, reports all bytes fetched from source
@@ -468,7 +468,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, errCtx, config, partition, outstream)
 		if err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)
@@ -528,7 +528,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		var numBytes int64
 		numRecords, numBytes, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
 		if pullErr != nil {
-			logger.Warn(fmt.Sprintf("[xmin] failed to pull records: %v", pullErr))
+			logger.Warn("[xmin] failed to pull records", slog.Any("error", pullErr))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
 		}
 
@@ -581,7 +581,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		var warnings shared.QRepWarnings
 		rowsSynced, warnings, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to sync records: %w", err))
+			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)
 		}
 		for _, warning := range warnings {
 			a.Alerter.LogFlowWarning(ctx, config.FlowJobName, warning)

@@ -71,7 +71,7 @@ func (a *SnapshotActivity) SetupReplication(
 	if err != nil {
 		connectors.CloseConnector(ctx, conn)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("slot error: %w", err))
+		return nil, a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "slot error", err)
 	} else if slotInfo.Conn == nil && slotInfo.SlotName == "" {
 		connectors.CloseConnector(ctx, conn)
 		logger.Info("replication setup without slot")
@@ -81,13 +81,12 @@ func (a *SnapshotActivity) SetupReplication(
 	}
 
 	a.SnapshotStatesMutex.Lock()
-	defer a.SnapshotStatesMutex.Unlock()
-
 	a.SlotSnapshotStates[config.FlowJobName] = SlotSnapshotState{
 		slotConn:     slotInfo.Conn,
 		snapshotName: slotInfo.SnapshotName,
 		connector:    conn,
 	}
+	a.SnapshotStatesMutex.Unlock()
 
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Replication slot and publication setup complete")
 
