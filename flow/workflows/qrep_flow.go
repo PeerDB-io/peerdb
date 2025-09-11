@@ -1,7 +1,6 @@
 package peerflow
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
