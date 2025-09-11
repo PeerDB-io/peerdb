@@ -375,6 +375,24 @@ func (s ClickHouseSuite) RunInsertIntoExistingDestinationTable(tableName string,
 	return ch.Exec(s.t.Context(), insertCommand)
 }
 
+func (s ClickHouseSuite) CheckTableIsEmpty(table string) (bool, error) {
+	peer := s.Peer()
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, peer.GetClickhouseConfig())
+	if err != nil {
+		return false, err
+	}
+	defer ch.Close()
+
+	var count int64
+	if err := ch.QueryRow(
+		s.t.Context(),
+		fmt.Sprintf("SELECT count(*) FROM %s", table),
+	).Scan(&count); err != nil {
+		return false, err
+	}
+	return count == 0, nil
+}
+
 func SetupSuite[TSource e2e.SuiteSource](
 	t *testing.T,
 	cluster bool,

@@ -1193,25 +1193,6 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "added"))))
 
-	// Create destination added table beforehand
-	require.NoError(s.t, s.ch.CreateRMTTable("added", []e2e_clickhouse.TestClickHouseColumn{
-		{Name: "id", Type: "Int32"},
-		{Name: "val", Type: "String"},
-		{Name: "_peerdb_is_deleted", Type: "Int8"},
-		{Name: "_peerdb_synced_at", Type: "DateTime"},
-		{Name: "_peerdb_version", Type: "Int64"},
-	}, "id"),
-	)
-	// insert a row into destination added table beforehand
-	require.NoError(
-		s.t,
-		s.ch.RunInsertIntoExistingDestinationTable(
-			"added",
-			"INSERT INTO added (id, val, _peerdb_is_deleted, _peerdb_synced_at, _peerdb_version) "+
-				"VALUES (1, 'first', 0, now(), 0)",
-		),
-	)
-
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      "added_tables_no_initial_load_" + s.suffix,
 		TableNameMapping: map[string]string{e2e.AttachSchema(s, "original"): "original"},
@@ -1269,8 +1250,13 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 
-	// No initial load should have happened for added table, so only the pre-existing row should be there
-	e2e.RequireEqualTables(s.ch, "added", "id,val")
+	// No initial load should have happened for added table, so it should be empty on ClickHouse
+	e2e.RequireEmptyDestinationTable(s.ch, "added", "id")
+
+	// cdc should occur for added table still, so insert row into added table to test cdc
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "added"))))
+	e2e.EnvWaitForCount(env, s.ch, "test cdc of cdc_only table addition", "added", "id", 1)
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

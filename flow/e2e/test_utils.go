@@ -99,6 +99,16 @@ func RequireEqualTables(suite RowSource, table string, cols string) {
 	RequireEqualTablesWithNames(suite, table, table, cols)
 }
 
+func RequireEmptyDestinationTable(suite RowSource, dstTable string, cols string) {
+	t := suite.T()
+	t.Helper()
+
+	rows, err := suite.GetRows(dstTable, cols)
+	require.NoError(t, err)
+
+	require.Empty(t, rows.Records)
+}
+
 func RequireEqualTablesWithNames(suite RowSource, srcTable string, dstTable string, cols string) {
 	t := suite.T()
 	t.Helper()
