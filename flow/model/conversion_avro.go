@@ -128,6 +128,9 @@ func GetAvroSchemaDefinition(
 		avroFields = append(avroFields, avroField)
 	}
 
+	if targetDWH == protos.DBType_CLICKHOUSE {
+		dstTableName = qvalue.ConvertToAvroCompatibleName(dstTableName)
+	}
 	avroSchema, err := avro.NewRecordSchema(dstTableName, "", avroFields)
 	if err != nil {
 		return nil, err
