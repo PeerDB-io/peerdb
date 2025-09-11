@@ -132,11 +132,12 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 		}).
 		// always use compression
 		SetCompressors([]string{"zstd", "snappy"}).
+		SetDialer(&meteredDialer)
+
 		// read concern could be set in the connection string with "readConcernLevel=[local|available|majority|...]"
 		if connStr.ReadConcernLevel == "" {
 			clientOptions.SetReadConcern(readconcern.Majority())
 		}
-		SetDialer(&meteredDialer)
 
 	switch config.ReadPreference {
 	case protos.ReadPreference_PRIMARY:
