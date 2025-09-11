@@ -35,7 +35,7 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
 				return 0, 0, temporal.NewNonRetryableApplicationError("failed to set transaction snapshot", "snapshot", err)
 			}
-			return 0, 0, err
+			return 0, 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
 

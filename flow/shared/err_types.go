@@ -1,6 +1,9 @@
 package shared
 
 import (
+	"errors"
+	"fmt"
+
 	"go.temporal.io/sdk/temporal"
 )
 
@@ -33,3 +36,13 @@ func SkipSendingToIncidentIo(errTags []string) bool {
 }
 
 type QRepWarnings []error
+
+func WrapError(s string, err error) error {
+	var applicationError *temporal.ApplicationError
+
+	if errors.As(err, &applicationError) {
+		return temporal.NewNonRetryableApplicationError(s, applicationError.Type(), applicationError)
+	} else {
+		return fmt.Errorf("%s: %w", s, err)
+	}
+}

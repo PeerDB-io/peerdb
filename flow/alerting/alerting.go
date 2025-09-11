@@ -538,6 +538,13 @@ func (a *Alerter) logFlowErrorInternal(
 	gauge.Record(ctx, 1, errorAttributeSet)
 }
 
+func (a *Alerter) LogFlowWrappedError(ctx context.Context, flowName string, s string, inErr error) error {
+	logger := internal.LoggerFromCtx(ctx)
+	err := shared.WrapError(s, inErr)
+	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeError, err, logger.Error)
+	return err
+}
+
 func (a *Alerter) LogFlowError(ctx context.Context, flowName string, inErr error) error {
 	logger := internal.LoggerFromCtx(ctx)
 	a.logFlowErrorInternal(ctx, flowName, flowErrorTypeError, inErr, logger.Error)

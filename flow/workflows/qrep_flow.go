@@ -192,12 +192,7 @@ func (q *QRepFlowExecution) getPartitions(
 
 	var partitions *protos.QRepParitionResult
 	if err := workflow.ExecuteActivity(ctx, flowable.GetQRepPartitions, q.config, last, q.runUUID).Get(ctx, &partitions); err != nil {
-		var applicationError temporal.ApplicationError
-		if errors.Is(err, &applicationError) {
-			return nil, err
-		} else {
-			return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
-		}
+		return nil, fmt.Errorf("failed to fetch partitions to replicate: %w", err)
 	}
 
 	q.logger.Info("partitions to replicate", slog.Int("num_partitions", len(partitions.Partitions)))
@@ -222,7 +217,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 
 	q.logger.Info("replicating partition batch", slog.Int64("BatchID", int64(partitions.BatchId)))
 	if err := workflow.ExecuteActivity(ctx, flowable.ReplicateQRepPartitions, q.config, partitions, q.runUUID).Get(ctx, nil); err != nil {
-		return err
+		return fmt.Errorf("failed to replicate partition: %w", err)
 	}
 
 	return nil
@@ -280,7 +275,7 @@ func (q *QRepFlowExecution) processPartitions(
 	// wait for all the child workflows to complete
 	for _, future := range partitionWorkflows {
 		if err := future.Get(ctx, nil); err != nil {
-			return err
+			return fmt.Errorf("failed to wait for child workflow: %w", err)
 		}
 	}
 
@@ -581,12 +576,7 @@ func QRepFlowWorkflow(
 		q.logger.Info("fetching partitions to replicate for peer flow")
 		partitions, err := q.getPartitions(ctx, state.LastPartition)
 		if err != nil {
-			var applicationError temporal.ApplicationError
-			if errors.Is(err, &applicationError) {
-				return state, err
-			} else {
-				return state, fmt.Errorf("failed to get partitions: %w", err)
-			}
+			return state, fmt.Errorf("failed to get partitions: %w", err)
 		}
 
 		q.logger.Info(fmt.Sprintf("%d partitions to replicate", len(partitions.Partitions)))

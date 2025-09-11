@@ -36,7 +36,6 @@ type SnapshotActivity struct {
 
 // closes the slot signal
 func (a *SnapshotActivity) CloseSlotKeepAlive(ctx context.Context, flowJobName string) error {
-	activity.RecordHeartbeat(ctx, "???")
 	a.SnapshotStatesMutex.Lock()
 	defer a.SnapshotStatesMutex.Unlock()
 
@@ -72,7 +71,7 @@ func (a *SnapshotActivity) SetupReplication(
 	if err != nil {
 		connectors.CloseConnector(ctx, conn)
 		// it is important to close the connection here as it is not closed in CloseSlotKeepAlive
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+		return nil, a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "slot error", err)
 	} else if slotInfo.Conn == nil && slotInfo.SlotName == "" {
 		connectors.CloseConnector(ctx, conn)
 		logger.Info("replication setup without slot")
