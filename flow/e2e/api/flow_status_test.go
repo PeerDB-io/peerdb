@@ -6,8 +6,12 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
+	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	"github.com/PeerDB-io/peerdb/flow/e2e"
+	e2e_mongo "github.com/PeerDB-io/peerdb/flow/e2e/mongo"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
@@ -21,8 +25,8 @@ func (s Suite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, err
 	var updates []flowStatusUpdate
 	rows, err := s.pg.PostgresConnector.Conn().Query(
 		s.t.Context(),
-		`SELECT flow_job_name, old_status, new_status 
-		FROM flow_status_updates 
+		`SELECT flow_job_name, old_status, new_status
+		FROM flow_status_updates
 		WHERE flow_job_name = $1 AND old_status != new_status`,
 		flowJobName,
 	)
@@ -91,10 +95,24 @@ func (s Suite) TestFlowStatusUpdate() {
 	s.t.Parallel()
 	s.t.Cleanup(s.cleanupFlowStatusTestDependencies)
 	s.setupFlowStatusTestDependencies()
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "status_test"))))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "status_test"))))
+	var cols string
+	switch s.source.(type) {
+	case *e2e.PostgresSource, *e2e.MySqlSource:
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "status_test"))))
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "status_test"))))
+		cols = "id,val"
+	case *e2e_mongo.MongoSource:
+		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
+			Database(e2e.Schema(s)).Collection("valid").
+			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
+		require.NoError(s.t, err)
+		require.True(s.t, res.Acknowledged)
+		cols = fmt.Sprintf("%s,%s", connmongo.DefaultDocumentKeyColumnName, connmongo.DefaultFullDocumentColumnName)
+	default:
+		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
+	}
 	connectionGen := e2e.FlowConnectionGenerationConfig{
 		FlowJobName:      "flow_status_update_" + s.suffix,
 		TableNameMapping: map[string]string{e2e.AttachSchema(s, "status_test"): "status_test"},
@@ -110,7 +128,7 @@ func (s Suite) TestFlowStatusUpdate() {
 	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	e2e.RequireEqualTables(s.ch, "status_test", "id,val")
+	e2e.RequireEqualTables(s.ch, "status_test", cols)
 
 	// pause the mirror
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{

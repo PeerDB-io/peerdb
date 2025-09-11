@@ -3,6 +3,7 @@ package connmysql
 import (
 	"encoding/binary"
 	"fmt"
+	"log/slog"
 	"math"
 	"math/bits"
 	"slices"
@@ -14,10 +15,12 @@ import (
 	"github.com/go-mysql-org/go-mysql/replication"
 	"github.com/shopspring/decimal"
 	geom "github.com/twpayne/go-geos"
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -354,35 +357,47 @@ func QValueFromMysqlFieldValue(qkind types.QValueKind, mytype byte, fv mysql.Fie
 }
 
 func QValueFromMysqlRowEvent(
-	mytype byte, enums []string, sets []string,
-	qkind types.QValueKind, val any,
+	ev *replication.TableMapEvent, idx int,
+	enums []string, sets []string,
+	qkind types.QValueKind, val any, logger log.Logger, coercionReported *bool,
 ) (types.QValue, error) {
+	mytype := ev.ColumnType[idx]
+
 	// See go-mysql row_event.go for mapping
 	switch val := val.(type) {
 	case nil:
 		return types.QValueNull(qkind), nil
 	case int8: // go-mysql reads all integers as signed, consumer needs to check metadata & convert
-		if qkind == types.QValueKindBoolean {
+		switch qkind {
+		case types.QValueKindBoolean:
 			return types.QValueBoolean{Val: val != 0}, nil
-		} else if qkind == types.QValueKindUInt8 {
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
+		case types.QValueKindUInt8:
 			return types.QValueUInt8{Val: uint8(val)}, nil
-		} else {
+		default:
 			return types.QValueInt8{Val: val}, nil
 		}
 	case int16:
-		if qkind == types.QValueKindUInt16 {
+		switch qkind {
+		case types.QValueKindUInt16:
 			return types.QValueUInt16{Val: uint16(val)}, nil
-		} else {
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
+		default:
 			return types.QValueInt16{Val: val}, nil
 		}
 	case int32:
-		if qkind == types.QValueKindUInt32 {
+		switch qkind {
+		case types.QValueKindUInt32:
 			if mytype == mysql.MYSQL_TYPE_INT24 {
 				return types.QValueUInt32{Val: uint32(val) & 0xFFFFFF}, nil
 			} else {
 				return types.QValueUInt32{Val: uint32(val)}, nil
 			}
-		} else {
+		case types.QValueKindString:
+			return types.QValueString{Val: strconv.FormatInt(int64(val), 10)}, nil
+		default:
 			return types.QValueInt32{Val: val}, nil
 		}
 	case int64:
@@ -418,8 +433,14 @@ func QValueFromMysqlRowEvent(
 			}
 		}
 	case float32:
+		if qkind == types.QValueKindFloat64 {
+			return types.QValueFloat64{Val: float64(val)}, nil
+		}
 		return types.QValueFloat32{Val: val}, nil
 	case float64:
+		if qkind == types.QValueKindFloat32 {
+			return types.QValueFloat32{Val: float32(val)}, nil
+		}
 		return types.QValueFloat64{Val: val}, nil
 	case decimal.Decimal:
 		return types.QValueNumeric{Val: val}, nil
@@ -492,7 +513,92 @@ func QValueFromMysqlRowEvent(
 				return nil, err
 			}
 			return types.QValueTimestamp{Val: tm.UTC()}, nil
+		case types.QValueKindBoolean:
+			// integer types shouldn't get here, but try work with schema changes
+			return types.QValueBoolean{
+				Val: strings.EqualFold(val, "true") || strings.EqualFold(val, "t") ||
+					strings.EqualFold(val, "on") || strings.EqualFold(val, "yes") || strings.EqualFold(val, "1"),
+			}, nil
+		case types.QValueKindInt8:
+			v, err := strconv.ParseInt(val, 10, 8)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueInt8{Val: int8(v)}, nil
+		case types.QValueKindInt16:
+			v, err := strconv.ParseInt(val, 10, 16)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueInt16{Val: int16(v)}, nil
+		case types.QValueKindInt32:
+			v, err := strconv.ParseInt(val, 10, 32)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueInt32{Val: int32(v)}, nil
+		case types.QValueKindInt64:
+			v, err := strconv.ParseInt(val, 10, 64)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueInt64{Val: v}, nil
+		case types.QValueKindUInt8:
+			v, err := strconv.ParseUint(val, 10, 8)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueUInt8{Val: uint8(v)}, nil
+		case types.QValueKindUInt16:
+			v, err := strconv.ParseUint(val, 10, 16)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueUInt16{Val: uint16(v)}, nil
+		case types.QValueKindUInt32:
+			v, err := strconv.ParseUint(val, 10, 32)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueUInt32{Val: uint32(v)}, nil
+		case types.QValueKindUInt64:
+			v, err := strconv.ParseUint(val, 10, 64)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueUInt64{Val: v}, nil
+		case types.QValueKindFloat32:
+			v, err := strconv.ParseFloat(val, 32)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueFloat32{Val: float32(v)}, nil
+		case types.QValueKindFloat64:
+			v, err := strconv.ParseFloat(val, 64)
+			if err != nil && !*coercionReported {
+				*coercionReported = true
+				logger.Warn("coercion failed to parse int", slog.Any("error", err))
+			}
+			return types.QValueFloat64{Val: v}, nil
 		}
 	}
-	return nil, fmt.Errorf("unexpected type %T for mysql type %d, qkind %s", val, mytype, qkind)
+
+	schemaName := string(ev.Schema)
+	tableName := string(ev.Table)
+	columnName := string(ev.ColumnName[idx])
+	qkindStr := string(qkind)
+
+	err := exceptions.NewMySQLIncompatibleColumnTypeError(
+		fmt.Sprintf("%s.%s", schemaName, tableName), columnName, mytype, fmt.Sprintf("%T", val), qkindStr)
+	logger.Warn(err.Error())
+	return nil, err
 }

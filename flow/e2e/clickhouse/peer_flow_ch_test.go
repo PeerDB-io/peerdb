@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -477,8 +478,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ReplaceAll(
-			strings.ToLower(tableName), "-", "_")),
+		FlowJobName: s.attachSuffix("clickhouse_test_weird_table_" + strings.ToLower(qvalue.ConvertToAvroCompatibleName(tableName))),
 		TableMappings: []*protos.TableMapping{{
 			SourceTableIdentifier:      s.attachSchemaSuffix(tableName),
 			DestinationTableIdentifier: dstTableName,
@@ -552,13 +552,11 @@ func (s ClickHouseSuite) Test_WeirdTable_MixedCase() {
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Question() {
-	s.t.SkipNow() // TODO fix avro errors by sanitizing names
 	s.WeirdTable("whatIsTable?")
 }
 
 func (s ClickHouseSuite) Test_WeirdTable_Dash() {
-	s.t.SkipNow() // TODO fix avro errors by sanitizing names
-	s.WeirdTable("table-group")
+	s.WeirdTable("table-group%c%i%t%i%z%e%n")
 }
 
 // large NUMERICs (precision >76) are mapped to String on CH, test
@@ -1092,20 +1090,25 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		require.NoError(s.t, err)
 	}
 
+	relaxedNumberStr := "1" + strings.Repeat("0", 1000)
+	jsonPayload := fmt.Sprintf(`{"key": 123, "relaxedNumber": %s}`, relaxedNumberStr)
+
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	CREATE TABLE IF NOT EXISTS %[1]s(id serial PRIMARY KEY,c1 BIGINT,c2 BIT,c3 VARBIT,c4 BOOLEAN,
 		c6 BYTEA,c7 CHARACTER,c8 varchar,c9 CIDR,c11 DATE,c12 FLOAT,c13 DOUBLE PRECISION,
-		c14 INET,c15 INTEGER,c16 INTERVAL,c17 JSON,c18 JSONB,c21 MACADDR,c22 MONEY,
+		c14 INET,c15 INTEGER,c16 INTERVAL,c21 MACADDR,c22 MONEY,
 		c23 NUMERIC,c24 OID,c28 REAL,c29 SMALLINT,c30 SMALLSERIAL,c31 SERIAL,c32 TEXT,
 		c33 TIMESTAMP,c34 TIMESTAMPTZ,c35 TIME,c36 TIMETZ,c37 TSQUERY,c38 TSVECTOR,
 		c39 TXID_SNAPSHOT,c40 UUID, c41 mood[], c42 INT[], c43 FLOAT[], c44 TEXT[], c45 mood, c46 HSTORE,
 		c47 DATE[], c48 TIMESTAMPTZ[], c49 TIMESTAMP[], c50 BOOLEAN[], c51 SMALLINT[], c52 UUID[],
-		c53 NUMERIC(16,2)[], c54 NUMERIC[], c55 NUMERIC(16,2)[], c56 NUMERIC[], c57 INTERVAL[]);
+		c53 NUMERIC(16,2)[], c54 NUMERIC[], c55 NUMERIC(16,2)[], c56 NUMERIC[], c57 INTERVAL[],
+		c58 JSON, c59 JSON, c60 JSONB, c61 JSONB, c62 JSON[], c63 JSON[], c64 JSON[], c65 JSONB[],
+		c66 JSONB[], c67 JSONB[]);
 		INSERT INTO %[1]s SELECT 2,2,b'1',b'101',
 		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
-		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
+		'08:00:2b:01:02:03'::macaddr,
 		1.2,123456789012345678901234567890.123456789012345678901234567890,
 		4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
 		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
@@ -1123,8 +1126,11 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{1, 2}'::smallint[],
 		'{"66073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
 		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
-		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[];`,
-		srcFullName))
+		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[],
+		'%[2]s'::json, null::json, '%[2]s'::jsonb, null::jsonb,
+		ARRAY['%[2]s'::json, null]::json[], ARRAY[]::json[], null::json[],
+		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`,
+		srcFullName, jsonPayload))
 	require.NoError(s.t, err)
 
 	connectionGen := e2e.FlowConnectionGenerationConfig{
@@ -1140,14 +1146,40 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 1", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,"+
+			"c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c64,c67")
+
+	// Verify JSON values
+	expectedJSON := fmt.Sprintf(`{"key":123,"relaxedNumber":"%s"}`, relaxedNumberStr)
+	expectedJSONArray := fmt.Sprintf(`[{"key":123,"relaxedNumber":"%s"},null]`, relaxedNumberStr)
+	rows, err := s.GetRows(dstTableName, "c58,c60,c62,c63,c65,c66")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 1, "expected 1 row")
+	c58Str, ok := rows.Records[0][0].Value().(string)
+	require.True(s.t, ok, "c58 should be a string")
+	require.JSONEq(s.t, expectedJSON, c58Str, "c58 should have exact JSON with quoted number")
+	c60Str, ok := rows.Records[0][1].Value().(string)
+	require.True(s.t, ok, "c60 should be a string")
+	require.JSONEq(s.t, expectedJSON, c60Str, "c60 should have exact JSON with quoted number")
+	c62Str, ok := rows.Records[0][2].Value().(string)
+	require.True(s.t, ok, "c62 should be a string")
+	require.JSONEq(s.t, expectedJSONArray, c62Str, "c62 should have exact JSON array with quoted number")
+	c63Str, ok := rows.Records[0][3].Value().(string)
+	require.True(s.t, ok, "c63 should be a string")
+	require.JSONEq(s.t, "[]", c63Str, "c63 should be empty JSON array")
+	c65Str, ok := rows.Records[0][4].Value().(string)
+	require.True(s.t, ok, "c65 should be a string")
+	require.JSONEq(s.t, expectedJSONArray, c65Str, "c65 should have exact JSON array with quoted number")
+	c66Str, ok := rows.Records[0][5].Value().(string)
+	require.True(s.t, ok, "c66 should be a string")
+	require.JSONEq(s.t, "[]", c66Str, "c66 should be empty JSON array")
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
-		INSERT INTO %s SELECT 3,2,b'1',b'101',
+		INSERT INTO %[1]s SELECT 3,2,b'1',b'101',
 		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
-		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
+		'08:00:2b:01:02:03'::macaddr,
 		1.2,123456789012345678901234567890.123456789012345678901234567890,
 		4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
 		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
@@ -1165,11 +1197,45 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{1, 2}'::smallint[],
 		'{"86073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
 		'{2.2, 2.23, null}'::numeric(16,2)[], '{2.2, 2.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
-		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[];`, srcFullName))
+		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[],
+		'%[2]s'::json, null::json, '%[2]s'::jsonb, null::jsonb,
+		ARRAY['%[2]s'::json, null]::json[], ARRAY[]::json[], null::json[],
+		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`, srcFullName, jsonPayload))
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 2", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,"+
+			"c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c64,c67")
+
+	// Verify JSON values after CDC
+	rows, err = s.GetRows(dstTableName, "c58,c60,c62,c63,c65,c66")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 2, "expected 2 rows after CDC")
+	for i := range 2 {
+		c58Str, ok := rows.Records[i][0].Value().(string)
+		require.True(s.t, ok, "c58 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSON, c58Str, "c58 should have exact JSON with quoted number in row %d", i)
+
+		c60Str, ok := rows.Records[i][1].Value().(string)
+		require.True(s.t, ok, "c60 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSON, c60Str, "c60 should have exact JSON with quoted number in row %d", i)
+
+		c62Str, ok := rows.Records[i][2].Value().(string)
+		require.True(s.t, ok, "c62 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSONArray, c62Str, "c62 should have exact JSON array with quoted number in row %d", i)
+
+		c63Str, ok := rows.Records[i][3].Value().(string)
+		require.True(s.t, ok, "c63 should be a string in row %d", i)
+		require.JSONEqf(s.t, "[]", c63Str, "c63 should be empty JSON array in row %d", i)
+
+		c65Str, ok := rows.Records[i][4].Value().(string)
+		require.True(s.t, ok, "c65 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSONArray, c65Str, "c65 should have exact JSON array with quoted number in row %d", i)
+
+		c66Str, ok := rows.Records[i][5].Value().(string)
+		require.True(s.t, ok, "c66 should be a string in row %d", i)
+		require.JSONEqf(s.t, "[]", c66Str, "c66 should be empty JSON array in row %d", i)
+	}
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		UPDATE %[1]s SET c1=3,c32='testery' WHERE id=2;
@@ -1178,7 +1244,7 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		true,random_bytes(32),'s','test','1.1.10.2'::cidr,
 		CURRENT_DATE,1.23,1.234,'10.0.0.0/32'::inet,1,
 		'5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds'::interval,
-		'{"sai":-8.02139037433155}'::json,'{"sai":1}'::jsonb,'08:00:2b:01:02:03'::macaddr,
+		'08:00:2b:01:02:03'::macaddr,
 		1.2,123456789012345678901234567890.123456789012345678901234567890,
 		4::oid,1.23,1,1,1,'test',now(),now(),now()::time,now()::timetz,
 		'fat & rat'::tsquery,'a fat cat sat on a mat and ate a fat rat'::tsvector,
@@ -1196,12 +1262,46 @@ func (s ClickHouseSuite) Test_Types_CH() {
 		'{1, 2}'::smallint[],
 		'{"66073c38-b8df-4bdb-bbca-1c97596b8940","66073c38-b8df-4bdb-bbca-1c97596b8940"}'::uuid[],
 		'{1.2, 1.23, null}'::numeric(16,2)[], '{1.2, 1.23, null}'::numeric[], null::numeric(16,2)[], null::numeric[],
-		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[];`, srcFullName))
+		'{1 second, 5 years 2 months 29 days 1 minute 2 seconds 200 milliseconds 20000 microseconds}'::interval[],
+		'%[2]s'::json, null::json, '%[2]s'::jsonb, null::jsonb,
+		ARRAY['%[2]s'::json, null]::json[], ARRAY[]::json[], null::json[],
+		ARRAY['%[2]s'::jsonb, null]::jsonb[], ARRAY[]::jsonb[], null::jsonb[];`, srcFullName, jsonPayload))
 
 	require.NoError(s.t, err)
 	e2e.EnvWaitForCount(env, s, "waiting for CDC count again", dstTableName, "id", 3)
 	e2e.EnvWaitForEqualTablesWithNames(env, s, "check comparable types 3", srcTableName, dstTableName,
-		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,c48,c49,c52,c53,c54,c55,c56,c57")
+		"id,c1,c4,c7,c8,c11,c12,c13,c15,c23,c28,c29,c30,c31,c32,c33,c34,c35,c36,c40,c41,c42,c43,c44,c45,"+
+			"c48,c49,c52,c53,c54,c55,c56,c57,c59,c61,c64,c67")
+
+	// Verify JSON values after final updates
+	rows, err = s.GetRows(dstTableName, "c58,c60,c62,c63,c65,c66")
+	require.NoError(s.t, err)
+	require.Len(s.t, rows.Records, 3, "expected 3 rows after final updates")
+	for i := range 3 {
+		c58Str, ok := rows.Records[i][0].Value().(string)
+		require.True(s.t, ok, "c58 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSON, c58Str, "c58 should have exact JSON with quoted number in row %d", i)
+
+		c60Str, ok := rows.Records[i][1].Value().(string)
+		require.True(s.t, ok, "c60 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSON, c60Str, "c60 should have exact JSON with quoted number in row %d", i)
+
+		c62Str, ok := rows.Records[i][2].Value().(string)
+		require.True(s.t, ok, "c62 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSONArray, c62Str, "c62 should have exact JSON array with quoted number in row %d", i)
+
+		c63Str, ok := rows.Records[i][3].Value().(string)
+		require.True(s.t, ok, "c63 should be a string in row %d", i)
+		require.JSONEqf(s.t, "[]", c63Str, "c63 should be empty JSON array in row %d", i)
+
+		c65Str, ok := rows.Records[i][4].Value().(string)
+		require.True(s.t, ok, "c65 should be a string in row %d", i)
+		require.JSONEqf(s.t, expectedJSONArray, c65Str, "c65 should have exact JSON array with quoted number in row %d", i)
+
+		c66Str, ok := rows.Records[i][5].Value().(string)
+		require.True(s.t, ok, "c66 should be a string in row %d", i)
+		require.JSONEqf(s.t, "[]", c66Str, "c66 should be empty JSON array in row %d", i)
+	}
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
@@ -2381,6 +2481,99 @@ func (s ClickHouseSuite) Test_Partition_Key_Timestamp() {
 	var partitionCount int
 	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
 	require.GreaterOrEqual(s.t, partitionCount, 10, "expected at least 10 partitions to be created")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// tests where panic happened when using custom partition key on empty table
+func (s ClickHouseSuite) Test_Partition_Key_Empty() {
+	srcTableName := "test_partition_key_empty"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_partition_key_empty"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id INT PRIMARY KEY,
+		myname TEXT NOT NULL,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)`, srcFullName)))
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_partition_key_empty"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			PartitionKey:               "id",
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,myname,updated_at")
+
+	countRow := s.Conn().QueryRow(s.t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+
+	var partitionCount int
+	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
+	require.Zero(s.t, partitionCount, "expected no partitions to be created")
+
+	env.Cancel(s.t.Context())
+	e2e.RequireEnvCanceled(s.t, env)
+}
+
+// edge case: min/max will be null. initial load should skip these for now, & not panic
+func (s ClickHouseSuite) Test_Partition_Key_Null() {
+	srcTableName := "test_partition_key_null"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_partition_key_null"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id INT PRIMARY KEY,
+		myname TEXT NOT NULL,
+		updated_at TIMESTAMP)`, srcFullName)))
+
+	for i := 1; i <= 100; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(),
+			fmt.Sprintf(`INSERT INTO %s (id,myname) VALUES (%d,'init_%d')`, srcFullName, i, i)))
+	}
+
+	connectionGen := e2e.FlowConnectionGenerationConfig{
+		FlowJobName: s.attachSuffix("clickhouse_partition_key_null"),
+		TableMappings: []*protos.TableMapping{{
+			SourceTableIdentifier:      srcFullName,
+			DestinationTableIdentifier: dstTableName,
+			PartitionKey:               "updated_at",
+			ShardingKey:                "id",
+		}},
+		Destination: s.Peer().Name,
+	}
+
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotMaxParallelWorkers = 4
+	flowConnConfig.SnapshotNumRowsPerPartition = 10
+	tc := e2e.NewTemporalClient(s.t)
+	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
+	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	countRow := s.Conn().QueryRow(s.t.Context(),
+		`SELECT COUNT(*) FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1`,
+		flowConnConfig.FlowJobName)
+
+	var partitionCount int
+	require.NoError(s.t, countRow.Scan(&partitionCount), "failed to get partition count")
+	require.Zero(s.t, partitionCount, "expected no partitions to be created")
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)

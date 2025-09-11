@@ -655,7 +655,7 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
 	}
-	defer avroFile.Cleanup()
+	defer avroFile.Cleanup(ctx)
 
 	if err := avroSyncMethod.CopyStageToDestination(ctx, avroFile); err != nil {
 		return fmt.Errorf("failed to copy stage to destination: %w", err)

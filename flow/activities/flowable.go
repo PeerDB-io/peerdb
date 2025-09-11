@@ -842,6 +842,7 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInform
 		})
 		if err != nil {
 			logger.Error("Failed to get flow metadata", slog.Any("error", err))
+			return err
 		}
 		ctx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 		logger := internal.LoggerFromCtx(ctx)
@@ -908,6 +909,7 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context, infos []flowInform
 				})
 				if err != nil {
 					logger.Error("Failed to get flow metadata", slog.Any("error", err))
+					return err
 				}
 				ctx := context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 
@@ -963,6 +965,7 @@ func (a *FlowableActivity) recordSlotInformation(
 	})
 	if err != nil {
 		logger.Error("Failed to get flow metadata", slog.Any("error", err))
+		return
 	}
 	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
@@ -1002,6 +1005,7 @@ func (a *FlowableActivity) emitLogRetentionHours(
 	})
 	if err != nil {
 		logger.Error("Failed to get flow metadata", slog.Any("error", err))
+		return
 	}
 	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 	srcConn, err := connectors.GetByNameAs[connectors.GetLogRetentionConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
@@ -1031,7 +1035,7 @@ func (a *FlowableActivity) emitLogRetentionHours(
 
 var activeFlowStatuses = map[protos.FlowStatus]struct{}{
 	protos.FlowStatus_STATUS_RUNNING:   {},
-	protos.FlowStatus_STATUS_PAUSED: {},
+	protos.FlowStatus_STATUS_PAUSED:    {},
 	protos.FlowStatus_STATUS_PAUSING:   {},
 	protos.FlowStatus_STATUS_SETUP:     {},
 	protos.FlowStatus_STATUS_SNAPSHOT:  {},
@@ -1414,4 +1418,21 @@ func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context,
 
 func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
 	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
+}
+
+func (a *FlowableActivity) UpdateFlowStatusInCatalogLocalActivity(
+	ctx context.Context,
+	workflowID string,
+	status protos.FlowStatus,
+) (protos.FlowStatus, error) {
+	status, err := internal.UpdateFlowStatusInCatalog(ctx, a.CatalogPool, workflowID, status)
+	if err != nil {
+		return status, err
+	}
+	_, isActive := activeFlowStatuses[status]
+	a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.FlowStatusKey, status.String()),
+		attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
+	)))
+	return status, nil
 }

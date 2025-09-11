@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	tEnums "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/workflowservice/v1"
@@ -50,7 +51,7 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 	var peerType pgtype.Int4
 	err := h.pool.QueryRow(ctx, "SELECT id,type FROM peers WHERE name = $1", peerName).Scan(&id, &peerType)
 	if err != nil {
-		slog.Error("unable to query peer id for peer "+peerName, slog.Any("error", err))
+		slog.ErrorContext(ctx, "unable to query peer id for peer "+peerName, slog.Any("error", err))
 		return -1, fmt.Errorf("unable to query peer id for peer %s: %s", peerName, err)
 	}
 	return id.Int32, nil
@@ -130,7 +131,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	cfg := req.ConnectionConfigs
 	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to get internal version: %w", err))
 	}
 	cfg.Version = internalVersion
 
@@ -138,7 +139,9 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// There is no point validating again here if it's a resync - the mirror is dropped already
 	if !cfg.Resync {
 		if _, err := h.ValidateCDCMirror(ctx, req); err != nil {
-			slog.Error("validate mirror error", slog.Any("error", err))
+			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
+			// ValidateCDCMirror already returns a grpc error
+			//nopeertest:grpcReturn
 			return nil, fmt.Errorf("invalid mirror: %w", err)
 		}
 	}
@@ -151,13 +154,13 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 
 	if err := h.createCdcJobEntry(ctx, req, workflowID); err != nil {
-		slog.Error("unable to create flow job entry", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
+		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to create flow job entry: %w", err))
 	}
 
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
-		slog.Error("unable to start PeerFlow workflow", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
+		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to start PeerFlow workflow: %w", err))
 	}
 
 	return &protos.CreateCDCFlowResponse{
@@ -171,7 +174,7 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	cfg := req.QrepConfig
 	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.QrepConfig.Env)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to get internal version: %w", err))
 	}
 	cfg.Version = internalVersion
 
@@ -182,13 +185,13 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
 	if err := h.createQRepJobEntry(ctx, req, workflowID); err != nil {
-		slog.Error("unable to create flow job entry",
+		slog.ErrorContext(ctx, "unable to create flow job entry",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
-		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to create flow job entry: %w", err))
 	}
 	dbtype, err := connectors.LoadPeerType(ctx, h.pool, cfg.SourceName)
 	if err != nil {
-		return nil, err
+		return nil, exceptions.NewInternalApiError(err)
 	}
 	var workflowFn any
 	if dbtype == protos.DBType_POSTGRES && cfg.WatermarkColumn == "xmin" {
@@ -200,9 +203,9 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	cfg.ParentMirrorName = cfg.FlowJobName
 
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, workflowFn, cfg, nil); err != nil {
-		slog.Error("unable to start QRepFlow workflow",
+		slog.ErrorContext(ctx, "unable to start QRepFlow workflow",
 			slog.Any("error", err), slog.String("flowName", cfg.FlowJobName))
-		return nil, fmt.Errorf("unable to start QRepFlow workflow: %w", err)
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to start QRepFlow workflow: %w", err))
 	}
 
 	return &protos.CreateQRepFlowResponse{
@@ -227,20 +230,20 @@ func (h *FlowRequestHandler) shutdownFlow(
 	)
 
 	if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
-		slog.Error("unable to cancel workflow", logs, slog.Any("error", err))
+		slog.ErrorContext(ctx, "unable to cancel workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to wait for PeerFlow workflow to close: %w", err)
 	}
 
 	isCdc, err := h.isCDCFlow(ctx, flowJobName)
 	if err != nil {
-		slog.Error("unable to check if workflow is cdc", logs, slog.Any("error", err))
+		slog.ErrorContext(ctx, "unable to check if workflow is cdc", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to determine if workflow is cdc: %w", err)
 	}
 	var cdcConfig *protos.FlowConnectionConfigs
 	if isCdc {
 		cdcConfig, err = h.getFlowConfigFromCatalog(ctx, flowJobName)
 		if err != nil {
-			slog.Error("unable to get cdc config from catalog", logs, slog.Any("error", err))
+			slog.ErrorContext(ctx, "unable to get cdc config from catalog", logs, slog.Any("error", err))
 			return fmt.Errorf("unable to get cdc config from catalog: %w", err)
 		}
 	}
@@ -258,7 +261,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 		SkipDestinationDrop:   skipDestinationDrop,
 	})
 	if err != nil {
-		slog.Error("unable to start DropFlow workflow", logs, slog.Any("error", err))
+		slog.ErrorContext(ctx, "unable to start DropFlow workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
 	}
 
@@ -273,12 +276,12 @@ func (h *FlowRequestHandler) shutdownFlow(
 	select {
 	case <-errLatch.Chan():
 		if err := errLatch.Wait(); err != nil {
-			slog.Error("DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
+			slog.ErrorContext(ctx, "DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
 			return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
 		}
 	case <-time.After(5 * time.Minute):
 		if err := h.handleCancelWorkflow(ctx, workflowID, ""); err != nil {
-			slog.Error("unable to wait for DropFlow workflow to close", logs, slog.Any("error", err))
+			slog.ErrorContext(ctx, "unable to wait for DropFlow workflow to close", logs, slog.Any("error", err))
 			return fmt.Errorf("unable to wait for DropFlow workflow to close: %w", err)
 		}
 	}
@@ -291,24 +294,28 @@ func (h *FlowRequestHandler) FlowStateChange(
 	req *protos.FlowStateChangeRequest,
 ) (*protos.FlowStateChangeResponse, error) {
 	logs := slog.String(string(shared.FlowNameKey), req.FlowJobName)
-	slog.Info("FlowStateChange called", logs, slog.Any("req", req))
+	slog.InfoContext(ctx, "FlowStateChange called", logs, slog.Any("req", req))
 	if underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil); err != nil {
-		slog.Error("unable to check maintenance mode", logs, slog.Any("error", err))
-		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
+		slog.ErrorContext(ctx, "unable to check maintenance mode", logs, slog.Any("error", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to check maintenance mode: %w", err))
 	} else if underMaintenance {
-		slog.Warn("Flow state change request denied due to maintenance", logs)
+		slog.WarnContext(ctx, "Flow state change request denied due to maintenance", logs)
 		return nil, exceptions.ErrUnderMaintenance
 	}
 
 	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
 	if err != nil {
-		slog.Error("[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
-		return nil, err
+		slog.ErrorContext(ctx, "[flow-state-change] unable to get workflowID", logs, slog.Any("error", err))
+		var errNotFound *exceptions.NotFoundError
+		if errors.As(err, &errNotFound) {
+			return nil, exceptions.NewNotFoundApiError(fmt.Errorf("flow %s not found", req.FlowJobName))
+		}
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to get workflowID: %w", err))
 	}
 	currState, err := h.getWorkflowStatus(ctx, workflowID)
 	if err != nil {
-		slog.Error("[flow-state-change] unable to get workflow status", logs, slog.Any("error", err))
-		return nil, err
+		slog.ErrorContext(ctx, "[flow-state-change] unable to get workflow status", logs, slog.Any("error", err))
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to get workflow status: %w", err))
 	}
 
 	if req.FlowConfigUpdate != nil && req.FlowConfigUpdate.GetCdcFlowConfigUpdate() != nil {
@@ -319,12 +326,12 @@ func (h *FlowRequestHandler) FlowStateChange(
 			"",
 			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
 		); err != nil {
-			slog.Error("unable to signal workflow", logs, slog.Any("error", err))
-			return nil, fmt.Errorf("unable to signal workflow: %w", err)
+			slog.ErrorContext(ctx, "unable to signal workflow", logs, slog.Any("error", err))
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to signal workflow: %w", err))
 		}
 	}
 
-	slog.Info("[flow-state-change] received request", logs,
+	slog.InfoContext(ctx, "[flow-state-change] received request", logs,
 		slog.Any("requestedFlowState", req.RequestedFlowState), slog.Any("currState", currState))
 	if req.RequestedFlowState != currState {
 		var changeErr error
@@ -341,15 +348,15 @@ func (h *FlowRequestHandler) FlowStateChange(
 			if currState == protos.FlowStatus_STATUS_COMPLETED {
 				changeErr = h.resyncMirror(ctx, req.FlowJobName, req.DropMirrorStats)
 			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
-				return nil, err
+				return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to determine if mirror is cdc: %w", err))
 			} else if !isCDC {
-				return nil, errors.New("resync is only supported for CDC mirrors")
+				return nil, exceptions.NewInvalidArgumentApiError(errors.New("resync is only supported for CDC mirrors"))
 			} else {
-				slog.Info("resync requested for cdc flow", logs)
+				slog.InfoContext(ctx, "resync requested for cdc flow", logs)
 				// getting config before dropping the flow since the flow entry is deleted unconditionally
 				config, err := h.getFlowConfigFromCatalog(ctx, req.FlowJobName)
 				if err != nil {
-					return nil, err
+					return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 				}
 
 				config.Resync = true
@@ -358,7 +365,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 					ConnectionConfigs: config,
 				}); err != nil {
-					return nil, err
+					// ValidateCDCMirror already returns a grpc error
+					//nopeertest:grpcReturn
+					return nil, fmt.Errorf("invalid mirror: %w", err)
 				}
 				changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)
 			}
@@ -371,14 +380,14 @@ func (h *FlowRequestHandler) FlowStateChange(
 				}
 			}
 		default:
-			slog.Error("illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
+			slog.ErrorContext(ctx, "illegal state change requested", logs, slog.Any("requestedFlowState", req.RequestedFlowState),
 				slog.Any("currState", currState))
-			return nil, fmt.Errorf("illegal state change requested: %v, current state is: %v",
-				req.RequestedFlowState, currState)
+			return nil, exceptions.NewInvalidArgumentApiError(fmt.Errorf("illegal state change requested: %v, current state is: %v",
+				req.RequestedFlowState, currState))
 		}
 		if changeErr != nil {
-			slog.Error("unable to signal workflow", logs, slog.Any("error", changeErr))
-			return nil, fmt.Errorf("unable to signal workflow: %w", changeErr)
+			slog.ErrorContext(ctx, "unable to signal workflow", logs, slog.Any("error", changeErr))
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to signal workflow: %w", changeErr))
 		}
 	}
 
@@ -397,14 +406,15 @@ func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowI
 	select {
 	case <-errLatch.Chan():
 		if err := errLatch.Wait(); err != nil {
-			slog.Error(fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
+			slog.ErrorContext(ctx, fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
 			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 			if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 				return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
 			}
 		}
 	case <-time.After(1 * time.Minute):
-		slog.Error("Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
+		slog.ErrorContext(ctx,
+			"Timeout reached while trying to cancel PeerFlow workflow. Attempting to terminate.", slog.String("workflowId", workflowID))
 		terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 		if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
 			return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
@@ -418,18 +428,26 @@ func (h *FlowRequestHandler) CreatePeer(
 	ctx context.Context,
 	req *protos.CreatePeerRequest,
 ) (*protos.CreatePeerResponse, error) {
-	status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
-	if validateErr != nil {
-		return nil, validateErr
-	}
-	if status.Status != protos.ValidatePeerStatus_VALID {
-		return &protos.CreatePeerResponse{
-			Status:  protos.CreatePeerStatus_FAILED,
-			Message: status.Message,
-		}, nil
+	if !req.DisableValidation {
+		status, validateErr := h.ValidatePeer(ctx, &protos.ValidatePeerRequest{Peer: req.Peer})
+		if validateErr != nil {
+			// ValidatePeer returns proper grpc errors
+			//nopeertest:grpcReturn
+			return nil, validateErr
+		}
+		if status.Status != protos.ValidatePeerStatus_VALID {
+			return &protos.CreatePeerResponse{
+				Status:  protos.CreatePeerStatus_FAILED,
+				Message: status.Message,
+			}, exceptions.NewFailedPreconditionApiError(errors.New(status.Message))
+		}
 	}
 
-	return utils.CreatePeerNoValidate(ctx, h.pool, req.Peer, req.AllowUpdate)
+	created, err := utils.CreatePeerNoValidate(ctx, h.pool, req.Peer, req.AllowUpdate)
+	if err != nil {
+		return nil, exceptions.NewInternalApiError(err)
+	}
+	return created, nil
 }
 
 func (h *FlowRequestHandler) DropPeer(
@@ -437,28 +455,28 @@ func (h *FlowRequestHandler) DropPeer(
 	req *protos.DropPeerRequest,
 ) (*protos.DropPeerResponse, error) {
 	if req.PeerName == "" {
-		return nil, fmt.Errorf("peer %s not found", req.PeerName)
+		return nil, exceptions.NewNotFoundApiError(fmt.Errorf("peer %s not found", req.PeerName))
 	}
 
 	// Check if peer name is in flows table
 	peerID, err := h.getPeerID(ctx, req.PeerName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to obtain peer ID for peer %s: %w", req.PeerName, err)
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("failed to obtain peer ID for peer %s: %w", req.PeerName, err))
 	}
 
 	var inMirror pgtype.Int8
 	if queryErr := h.pool.QueryRow(ctx,
 		"SELECT COUNT(*) FROM flows WHERE source_peer=$1 or destination_peer=$1", peerID,
 	).Scan(&inMirror); queryErr != nil {
-		return nil, fmt.Errorf("failed to check for existing mirrors with peer %s: %w", req.PeerName, queryErr)
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to check for existing mirrors with peer %s: %w", req.PeerName, queryErr))
 	}
 
 	if inMirror.Int64 != 0 {
-		return nil, fmt.Errorf("peer %s is currently involved in an ongoing mirror", req.PeerName)
+		return nil, exceptions.NewFailedPreconditionApiError(fmt.Errorf("peer %s is currently involved in an ongoing mirror", req.PeerName))
 	}
 
 	if _, delErr := h.pool.Exec(ctx, "DELETE FROM peers WHERE name = $1", req.PeerName); delErr != nil {
-		return nil, fmt.Errorf("failed to delete peer %s from metadata table: %w", req.PeerName, delErr)
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to delete peer %s from metadata table: %w", req.PeerName, delErr))
 	}
 
 	return &protos.DropPeerResponse{}, nil
@@ -468,6 +486,9 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	q := "SELECT workflow_id FROM flows WHERE name = $1"
 	var workflowID string
 	if err := h.pool.QueryRow(ctx, q, flowJobName).Scan(&workflowID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", exceptions.NewNotFoundError(fmt.Errorf("flow job %s not found", flowJobName))
+		}
 		return "", fmt.Errorf("unable to get workflowID for flow job %s: %w", flowJobName, err)
 	}
 
@@ -523,10 +544,10 @@ func (h *FlowRequestHandler) resyncMirror(
 func (h *FlowRequestHandler) GetInstanceInfo(ctx context.Context, in *protos.InstanceInfoRequest) (*protos.InstanceInfoResponse, error) {
 	enabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
-		slog.Error("unable to get maintenance mode status", slog.Any("error", err))
+		slog.ErrorContext(ctx, "unable to get maintenance mode status", slog.Any("error", err))
 		return &protos.InstanceInfoResponse{
 			Status: protos.InstanceStatus_INSTANCE_STATUS_UNKNOWN,
-		}, fmt.Errorf("unable to get maintenance mode status: %w", err)
+		}, nil
 	}
 	if enabled {
 		return &protos.InstanceInfoResponse{
@@ -547,7 +568,7 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 	case protos.MaintenanceStatus_MAINTENANCE_STATUS_START:
 		workflowRun, err := peerflow.RunStartMaintenanceWorkflow(ctx, h.temporalClient, &protos.StartMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(err)
 		}
 		return &protos.MaintenanceResponse{
 			WorkflowId: workflowRun.GetID(),
@@ -556,14 +577,14 @@ func (h *FlowRequestHandler) Maintenance(ctx context.Context, in *protos.Mainten
 	case protos.MaintenanceStatus_MAINTENANCE_STATUS_END:
 		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, h.temporalClient, &protos.EndMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
-			return nil, err
+			return nil, exceptions.NewInternalApiError(err)
 		}
 		return &protos.MaintenanceResponse{
 			WorkflowId: workflowRun.GetID(),
 			RunId:      workflowRun.GetRunID(),
 		}, nil
 	}
-	return nil, errors.New("invalid maintenance status")
+	return nil, exceptions.NewInvalidArgumentApiError(errors.New("invalid maintenance status"))
 }
 
 type maintenanceWorkflowType string
@@ -580,7 +601,7 @@ func (h *FlowRequestHandler) GetMaintenanceStatus(
 	// Check if maintenance mode is enabled via dynamic setting
 	maintenanceModeEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
-		return nil, fmt.Errorf("failed to check maintenance mode: %w", err)
+		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to check maintenance mode: %w", err))
 	}
 
 	// Check for running maintenance workflows
@@ -693,14 +714,14 @@ func (h *FlowRequestHandler) SkipSnapshotWaitFlows(
 		return &protos.SkipSnapshotWaitFlowsResponse{
 			SignalSent: false,
 			Message:    "Failed to check StartMaintenanceWorkflow status: " + err.Error(),
-		}, nil
+		}, exceptions.NewInternalApiError(fmt.Errorf("failed to check StartMaintenanceWorkflow status: %w", err))
 	}
 
 	if !isRunning {
 		return &protos.SkipSnapshotWaitFlowsResponse{
 			SignalSent: false,
 			Message:    "StartMaintenanceWorkflow is not currently running",
-		}, nil
+		}, exceptions.NewInternalApiError(errors.New("StartMaintenanceWorkflow is not currently running"))
 	}
 
 	// Send the signal with the list of flow names using StartMaintenanceSignal
@@ -716,7 +737,7 @@ func (h *FlowRequestHandler) SkipSnapshotWaitFlows(
 		return &protos.SkipSnapshotWaitFlowsResponse{
 			SignalSent: false,
 			Message:    "Failed to send signal: " + err.Error(),
-		}, nil
+		}, exceptions.NewInternalApiError(fmt.Errorf("failed to send signal: %w", err))
 	}
 
 	return &protos.SkipSnapshotWaitFlowsResponse{

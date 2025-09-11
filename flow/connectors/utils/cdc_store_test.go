@@ -2,7 +2,6 @@ package utils
 
 import (
 	"crypto/rand"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -58,7 +57,7 @@ func TestSingleRecord(t *testing.T) {
 	cdcRecordsStore.numRecordsSwitchThreshold = 10
 
 	key, rec := genKeyAndRec(t)
-	require.NoError(t, cdcRecordsStore.Set(slog.Default(), key, rec))
+	require.NoError(t, cdcRecordsStore.Set(key, rec))
 	// should not spill into DB
 	require.Len(t, cdcRecordsStore.inMemoryRecords, 1)
 	require.Nil(t, cdcRecordsStore.pebbleDB)
@@ -80,7 +79,7 @@ func TestRecordsTillSpill(t *testing.T) {
 	// add records upto set limit
 	for i := 1; i <= 10; i++ {
 		key, rec := genKeyAndRec(t)
-		err := cdcRecordsStore.Set(slog.Default(), key, rec)
+		err := cdcRecordsStore.Set(key, rec)
 		require.NoError(t, err)
 		require.Len(t, cdcRecordsStore.inMemoryRecords, i)
 		require.Nil(t, cdcRecordsStore.pebbleDB)
@@ -88,7 +87,7 @@ func TestRecordsTillSpill(t *testing.T) {
 
 	// this record should be spilled to DB
 	key, rec := genKeyAndRec(t)
-	require.NoError(t, cdcRecordsStore.Set(slog.Default(), key, rec))
+	require.NoError(t, cdcRecordsStore.Set(key, rec))
 	_, ok := cdcRecordsStore.inMemoryRecords[key]
 	require.False(t, ok)
 	require.NotNil(t, cdcRecordsStore.pebbleDB)
@@ -109,7 +108,7 @@ func TestTimeAndDecimalEncoding(t *testing.T) {
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 
 	key, rec := genKeyAndRec(t)
-	require.NoError(t, cdcRecordsStore.Set(slog.Default(), key, rec))
+	require.NoError(t, cdcRecordsStore.Set(key, rec))
 
 	retreived, ok, err := cdcRecordsStore.Get(key)
 	require.NoError(t, err)
@@ -130,7 +129,7 @@ func TestNullKeyDoesntStore(t *testing.T) {
 	cdcRecordsStore.numRecordsSwitchThreshold = 0
 
 	key, rec := genKeyAndRec(t)
-	require.NoError(t, cdcRecordsStore.Set(slog.Default(), model.TableWithPkey{}, rec))
+	require.NoError(t, cdcRecordsStore.Set(model.TableWithPkey{}, rec))
 
 	retreived, ok, err := cdcRecordsStore.Get(key)
 	require.Nil(t, retreived)

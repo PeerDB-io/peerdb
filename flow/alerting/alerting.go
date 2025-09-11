@@ -16,6 +16,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/log"
@@ -454,7 +455,8 @@ func (a *Alerter) logFlowErrorInternal(
 ) {
 	logger := internal.LoggerFromCtx(ctx)
 	inErrWithStack := fmt.Sprintf("%+v", inErr)
-	loggerFunc(inErr.Error(), slog.String("stack", inErrWithStack))
+	errError := inErr.Error()
+	loggerFunc(errError, slog.String("stack", inErrWithStack))
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
 		flowName, inErrWithStack, errorType.String(),
@@ -470,7 +472,7 @@ func (a *Alerter) logFlowErrorInternal(
 	if errors.Is(inErr, io.EOF) || errors.Is(inErr, io.ErrUnexpectedEOF) {
 		tags = append(tags, string(shared.ErrTypeEOF))
 	}
-	if errors.Is(inErr, net.ErrClosed) {
+	if errors.Is(inErr, net.ErrClosed) || strings.HasSuffix(errError, "use of closed network connection") {
 		tags = append(tags, string(shared.ErrTypeClosed))
 	}
 	var pgErr *pgconn.PgError
@@ -480,6 +482,10 @@ func (a *Alerter) logFlowErrorInternal(
 	var myErr *mysql.MyError
 	if errors.As(inErr, &myErr) {
 		tags = append(tags, fmt.Sprintf("mycode:%d", myErr.Code), "mystate:"+myErr.State)
+	}
+	var mongoErr *driver.Error
+	if errors.As(inErr, &mongoErr) {
+		tags = append(tags, fmt.Sprintf("mongocode:%d", mongoErr.Code))
 	}
 	var chErr *clickhouse.Exception
 	if errors.As(inErr, &chErr) {
@@ -499,10 +505,10 @@ func (a *Alerter) logFlowErrorInternal(
 	tags = append(tags, "errorClass:"+errorClass.String(), "errorAction:"+errorClass.ErrorAction().String())
 
 	// Only send alerts to telemetry sender (incident.io) if the env is enabled
-	if internal.PeerDBTelemetrySenderSendErrorAlertsEnabled() {
+	if internal.PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx) {
 		a.sendTelemetryMessage(ctx, logger, flowName, inErrWithStack, telemetry.ERROR, tags...)
 	}
-	loggerFunc(fmt.Sprintf("Emitting error/warning metric: '%s'", inErr.Error()),
+	loggerFunc(fmt.Sprintf("Emitting error/warning metric: '%s'", errError),
 		slog.Any("error", inErr),
 		slog.Any("errorClass", errorClass),
 		slog.Any("errorInfo", errInfo),

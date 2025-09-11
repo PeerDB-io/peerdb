@@ -163,7 +163,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 	} else {
 		rows, rowsErr = ch.Query(
 			s.t.Context(),
-			fmt.Sprintf(`SELECT %s FROM %s FINAL WHERE _peerdb_is_deleted = 0 ORDER BY 1 SETTINGS use_query_cache = false`, cols, table),
+			fmt.Sprintf(`SELECT %s FROM "%s" FINAL WHERE _peerdb_is_deleted = 0 ORDER BY 1 SETTINGS use_query_cache = false`, cols, table),
 		)
 	}
 	if rowsErr != nil {
@@ -361,7 +361,7 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 func (s ClickHouseSuite) queryRawTable(conn clickhouse.Conn, table string, cols string) (driver.Rows, error) {
 	return conn.Query(
 		s.t.Context(),
-		fmt.Sprintf(`SELECT %s FROM %s ORDER BY 1 SETTINGS use_query_cache = false`, cols, table),
+		fmt.Sprintf(`SELECT %s FROM "%s" ORDER BY 1 SETTINGS use_query_cache = false`, cols, table),
 	)
 }
 

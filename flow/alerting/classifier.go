@@ -88,6 +88,11 @@ type ErrorClass struct {
 	action ErrorAction
 }
 
+type RetryableError interface {
+	error
+	Retryable() bool
+}
+
 var (
 	ErrorNotifyDestinationModified = ErrorClass{
 		Class: "NOTIFY_DESTINATION_MODIFIED", action: NotifyUser,
@@ -153,9 +158,8 @@ var (
 	ErrorLossyConversion = ErrorClass{
 		Class: "WARNING_LOSSY_CONVERSION", action: NotifyUser,
 	}
-	ErrorOther = ErrorClass{
-		// These are unclassified and should not be exposed
-		Class: "OTHER", action: NotifyTelemetry,
+	ErrorUnsupportedSchemaChange = ErrorClass{
+		Class: "NOTIFY_UNSUPPORTED_SCHEMA_CHANGE", action: NotifyUser,
 	}
 	// Postgres 16.9/17.5 etc. introduced a bug where certain workloads can cause logical replication to
 	// request a memory allocation of >1GB, which is not allowed by Postgres. Fixed already, but we need to handle this error
@@ -166,6 +170,10 @@ var (
 	// Mongo specific, equivalent to slot invalidation in Postgres
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
+	}
+	ErrorOther = ErrorClass{
+		// These are unclassified and should not be exposed
+		Class: "OTHER", action: NotifyTelemetry,
 	}
 )
 
@@ -307,6 +315,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.AdminShutdown, pgerrcode.IdleSessionTimeout:
 			return ErrorNotifyTerminate, pgErrorInfo
 
+		case pgerrcode.UndefinedFile:
+			// Handle WAL segment removed errors
+			if PostgresWalSegmentRemovedRe.MatchString(pgErr.Message) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 		case pgerrcode.InternalError:
 			// Handle reorderbuffer spill file and stale file handle errors
 			if strings.HasPrefix(pgErr.Message, "could not read from reorderbuffer spill file") ||
@@ -332,6 +346,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifyConnectivity, pgErrorInfo
 			}
 
+			// Handle Neon's custom WAL reading error
+			if pgErr.Routine == "NeonWALPageRead" && strings.Contains(pgErr.Message, "server closed the connection unexpectedly") {
+				return ErrorNotifyConnectivity, pgErrorInfo
+			}
+
 			if strings.Contains(pgErr.Message, "invalid memory alloc request size") {
 				return ErrorNotifyPostgresSlotMemalloc, pgErrorInfo
 			}
@@ -352,10 +371,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
 			}
-		case pgerrcode.SerializationFailure, pgerrcode.DeadlockDetected:
-			if strings.Contains(pgErr.Message, "canceling statement due to conflict with recovery") {
-				return ErrorNotifyConnectivity, pgErrorInfo
-			}
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?
 			pgerrcode.ConnectionException,
@@ -369,7 +384,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
 
-		case pgerrcode.QueryCanceled, pgerrcode.DuplicateFile:
+		case pgerrcode.QueryCanceled, pgerrcode.DuplicateFile, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure:
 			return ErrorRetryRecoverable, pgErrorInfo
 		}
 	}
@@ -396,6 +411,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1049, // ER_BAD_DB_ERROR
 			1051, // ER_BAD_TABLE_ERROR
 			1053, // ER_SERVER_SHUTDOWN
+			1094, // ER_NO_SUCH_THREAD
 			1102, // ER_WRONG_DB_NAME
 			1103, // ER_WRONG_TABLE_NAME
 			1109, // ER_UNKNOWN_TABLE
@@ -436,6 +452,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
+		// some driver errors do not provide error code, such as `poolClearedError`, so we check label instead
+		for _, label := range mongoErr.Labels {
+			if label == driver.TransientTransactionError {
+				return ErrorRetryRecoverable, mongoErrorInfo
+			}
+		}
+
+		// some error codes are defined to be retryable by the driver, so we retry them
+		var retryableError RetryableError
+		if errors.As(mongoErr, &retryableError) && retryableError.Retryable() {
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+
 		switch mongoErr.Code {
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
@@ -460,12 +489,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
-		case chproto.ErrCannotInsertNullInOrdinaryColumn,
-			chproto.ErrNotImplemented,
-			chproto.ErrTooManyParts:
-			if isClickHouseMvError(chException) {
-				return ErrorNotifyMVOrView, chErrorInfo
-			}
 		case chproto.ErrUnknownDatabase:
 			return ErrorNotifyConnectivity, chErrorInfo
 		case chproto.ErrKeeperException,
@@ -505,9 +528,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			691, // UNKNOWN_ELEMENT_OF_ENUM
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
-			if isClickHouseMvError(chException) {
-				return ErrorNotifyMVOrView, chErrorInfo
-			}
 			var qrepSyncError *exceptions.QRepSyncError
 			if errors.As(err, &qrepSyncError) {
 				// could cause false positives, but should be rare
@@ -516,15 +536,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case chproto.ErrQueryWasCancelled,
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
+			chproto.ErrSocketTimeout,
 			517: // CANNOT_ASSIGN_ALTER
 			return ErrorRetryRecoverable, chErrorInfo
-		default:
-			if isClickHouseMvError(chException) {
-				return ErrorNotifyMVOrView, chErrorInfo
+		case chproto.ErrTimeoutExceeded:
+			if strings.HasSuffix(chException.Message, "distributed_ddl_task_timeout") {
+				return ErrorRetryRecoverable, chErrorInfo
 			}
 		}
 		var normalizationErr *exceptions.NormalizationError
-		if errors.As(err, &normalizationErr) {
+		if isClickHouseMvError(chException) {
+			return ErrorNotifyMVOrView, chErrorInfo
+		} else if errors.As(err, &normalizationErr) {
 			// notify if normalization hits error on destination
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
@@ -539,7 +562,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	if errors.Is(err, net.ErrClosed) {
+	if errors.Is(err, net.ErrClosed) || strings.HasSuffix(err.Error(), "use of closed network connection") {
 		return ErrorIgnoreConnTemporary, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "net.ErrClosed",
@@ -617,6 +640,30 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
 				ErrorAttributeKeyTable:  numericTruncatedError.DestinationTable,
 				ErrorAttributeKeyColumn: numericTruncatedError.DestinationColumn,
+			},
+		}
+	}
+
+	var incompatibleColumnTypeError *exceptions.MySQLIncompatibleColumnTypeError
+	if errors.As(err, &incompatibleColumnTypeError) {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourceMySQL,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  incompatibleColumnTypeError.TableName,
+				ErrorAttributeKeyColumn: incompatibleColumnTypeError.ColumnName,
+			},
+		}
+	}
+
+	var postgresPrimaryKeyModifiedError *exceptions.PrimaryKeyModifiedError
+	if errors.As(err, &postgresPrimaryKeyModifiedError) {
+		return ErrorUnsupportedSchemaChange, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "UNSUPPORTED_SCHEMA_CHANGE",
+			AdditionalAttributes: map[AdditionalErrorAttributeKey]string{
+				ErrorAttributeKeyTable:  postgresPrimaryKeyModifiedError.TableName,
+				ErrorAttributeKeyColumn: postgresPrimaryKeyModifiedError.ColumnName,
 			},
 		}
 	}

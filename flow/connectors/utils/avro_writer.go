@@ -46,10 +46,10 @@ type AvroFile struct {
 	NumRecords      int64               `json:"numRecords"`
 }
 
-func (l *AvroFile) Cleanup() {
+func (l *AvroFile) Cleanup(ctx context.Context) {
 	if l.StorageLocation == AvroLocalStorage {
 		if err := os.Remove(l.FilePath); err != nil && !os.IsNotExist(err) {
-			slog.Warn("unable to delete temporary Avro file", slog.Any("error", err))
+			slog.WarnContext(ctx, "unable to delete temporary Avro file", slog.Any("error", err))
 		}
 	}
 }
@@ -246,11 +246,13 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		slog.Int("channelLen", len(p.stream.Records)))
 
 	numRows := atomic.Int64{}
+	writeStart := time.Now()
 
 	shutdown := shared.Interval(ctx, time.Minute, func() {
 		logger.Info("written records to OCF",
 			slog.Int64("records", numRows.Load()),
-			slog.Int("channelLen", len(p.stream.Records)))
+			slog.Int("channelLen", len(p.stream.Records)),
+			slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()))
 	})
 	defer shutdown()
 
@@ -278,7 +280,9 @@ func (p *peerDBOCFWriter) writeRecordsToOCFWriter(
 		}
 	}
 
-	logger.Info("finished writing records to OCF", slog.Int64("records", numRows.Load()))
+	logger.Info("finished writing records to OCF",
+		slog.Int64("records", numRows.Load()),
+		slog.Float64("elapsedMinutes", time.Since(writeStart).Minutes()))
 
 	if err := p.stream.Err(); err != nil {
 		logger.Error("Failed to get record from stream", slog.Any("error", err))

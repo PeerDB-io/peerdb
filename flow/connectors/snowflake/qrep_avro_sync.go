@@ -62,7 +62,7 @@ func (s *SnowflakeAvroSyncHandler) SyncRecords(
 	if err != nil {
 		return 0, err
 	}
-	defer avroFile.Cleanup()
+	defer avroFile.Cleanup(ctx)
 	s.logger.Info(fmt.Sprintf("written %d records to Avro file", avroFile.NumRecords), tableLog)
 
 	stage := s.getStageNameForJob(s.config.FlowJobName)
@@ -112,7 +112,7 @@ func (s *SnowflakeAvroSyncHandler) SyncQRepRecords(
 	if err != nil {
 		return 0, nil, err
 	}
-	defer avroFile.Cleanup()
+	defer avroFile.Cleanup(ctx)
 
 	stage := s.getStageNameForJob(config.FlowJobName)
 

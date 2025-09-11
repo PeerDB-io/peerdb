@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -323,21 +324,40 @@ func (c *MySqlConnector) PullRecords(
 	c.logger.Info("[mysql] PullRecords started streaming")
 
 	var skewLossReported bool
+	var coercionReported bool
 	var updatedOffset string
 	var inTx bool
 	var recordCount uint32
-	var bytesRead int
+
 	// set when a tx is preventing us from respecting the timeout, immediately exit after we see inTx false
 	var overtime bool
+	var fetchedBytes, totalFetchedBytes, allFetchedBytes atomic.Int64
+	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
 		}
 		c.logger.Info("[mysql] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int("bytes", bytesRead),
-			slog.Int("channelLen", req.RecordStream.ChannelLen()))
+			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int("channelLen", req.RecordStream.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
+
+	defer func() {
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+	}()
+	shutdown := shared.Interval(ctx, time.Minute, func() {
+		otelManager.Metrics.FetchedBytesCounter.Add(ctx, fetchedBytes.Swap(0))
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, allFetchedBytes.Swap(0))
+		c.logger.Info("[mysql] pulling records",
+			slog.Uint64("records", uint64(recordCount)),
+			slog.Int64("bytes", totalFetchedBytes.Load()),
+			slog.Int("channelLen", req.RecordStream.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
+	})
+	defer shutdown()
 
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 	//nolint:gocritic // cancelTimeout is rebound, do not defer cancelTimeout()
@@ -358,8 +378,9 @@ func (c *MySqlConnector) PullRecords(
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mysql] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
-				slog.Int("bytes", bytesRead),
+				slog.Int64("bytes", totalFetchedBytes.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
+				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()),
 				slog.Bool("inTx", inTx),
 				slog.Bool("overtime", overtime))
 		}
@@ -397,8 +418,9 @@ func (c *MySqlConnector) PullRecords(
 				} else if inTx {
 					c.logger.Info("[mysql] timeout reached, but still in transaction, waiting for inTx false",
 						slog.Uint64("records", uint64(recordCount)),
-						slog.Int("bytes", bytesRead),
-						slog.Int("channelLen", req.RecordStream.ChannelLen()))
+						slog.Int64("bytes", totalFetchedBytes.Load()),
+						slog.Int("channelLen", req.RecordStream.ChannelLen()),
+						slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 					// reset timeoutCtx to a low value and wait for inTx to become false
 					cancelTimeout()
 					//nolint:govet // cancelTimeout called by defer, spurious lint
@@ -415,7 +437,7 @@ func (c *MySqlConnector) PullRecords(
 			return err
 		}
 
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
+		allFetchedBytes.Add(int64(len(event.RawData)))
 
 		switch ev := event.Event.(type) {
 		case *replication.GTIDEvent:
@@ -473,7 +495,8 @@ func (c *MySqlConnector) PullRecords(
 			schema := req.TableNameSchemaMapping[destinationTableName]
 			if schema != nil {
 				otelManager.Metrics.FetchedBytesCounter.Add(ctx, int64(len(event.RawData)))
-				bytesRead += len(event.RawData)
+				fetchedBytes.Add(int64(len(event.RawData)))
+				totalFetchedBytes.Add(int64(len(event.RawData)))
 				inTx = true
 				enumMap := ev.Table.EnumStrValueMap()
 				setMap := ev.Table.SetStrValueMap()
@@ -514,8 +537,8 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -551,8 +574,8 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -565,8 +588,8 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}
@@ -603,8 +626,8 @@ func (c *MySqlConnector) PullRecords(
 							if fd == nil {
 								continue
 							}
-							val, err := QValueFromMysqlRowEvent(ev.Table.ColumnType[idx], enumMap[idx], setMap[idx],
-								types.QValueKind(fd.Type), val)
+							val, err := QValueFromMysqlRowEvent(ev.Table, idx, enumMap[idx], setMap[idx],
+								types.QValueKind(fd.Type), val, c.logger, &coercionReported)
 							if err != nil {
 								return err
 							}

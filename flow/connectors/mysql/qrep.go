@@ -80,25 +80,19 @@ func (c *MySqlConnector) GetQRepPartitions(
 		}
 
 		if totalRows == 0 {
-			c.logger.Warn("estimating no records to replicate, returning full table partition")
-			return []*protos.QRepPartition{
-				{
-					PartitionId:        shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID,
-					Range:              nil,
-					FullTablePartition: true,
-				},
-			}, nil
+			c.logger.Warn("estimating no records to replicate, only using 1 partition")
+			numPartitions = 1
+		} else {
+			// Calculate the number of partitions
+			adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
+			c.logger.Info("[mysql] partition details",
+				slog.Int64("totalRowsEstimate", totalRows),
+				slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
+				slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
+				slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
+
+			numPartitions = adjustedPartitions.AdjustedNumPartitions
 		}
-
-		// Calculate the number of partitions
-		adjustedPartitions := shared.AdjustNumPartitions(totalRows, numRowsPerPartition)
-		c.logger.Info("[mysql] partition details",
-			slog.Int64("totalRowsEstimate", totalRows),
-			slog.Int64("desiredNumRowsPerPartition", numRowsPerPartition),
-			slog.Int64("adjustedNumPartitions", adjustedPartitions.AdjustedNumPartitions),
-			slog.Int64("adjustedNumRowsPerPartition", adjustedPartitions.AdjustedNumRowsPerPartition))
-
-		numPartitions = adjustedPartitions.AdjustedNumPartitions
 	}
 
 	var minVal any
@@ -285,13 +279,11 @@ func BuildQuery(logger log.Logger, query string, start string, end string) (stri
 		return "", err
 	}
 
-	data := map[string]any{
+	buf := new(bytes.Buffer)
+	if err := tmpl.Execute(buf, map[string]string{
 		"start": start,
 		"end":   end,
-	}
-
-	buf := new(bytes.Buffer)
-	if err := tmpl.Execute(buf, data); err != nil {
+	}); err != nil {
 		return "", err
 	}
 	res := buf.String()

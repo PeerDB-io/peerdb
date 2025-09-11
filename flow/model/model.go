@@ -3,7 +3,6 @@ package model
 import (
 	"context"
 	"crypto/sha256"
-	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -11,6 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type NameAndExclude struct {
@@ -127,7 +127,7 @@ func RecToTablePKey[T Items](
 	for _, pkeyCol := range tableNameSchemaMapping[tableName].PrimaryKeyColumns {
 		pkeyColBytes, err := rec.GetItems().GetBytesByColName(pkeyCol)
 		if err != nil {
-			return TableWithPkey{}, fmt.Errorf("error getting primary key column '%s' value for table '%s': %w", pkeyCol, tableName, err)
+			return TableWithPkey{}, exceptions.NewPrimaryKeyModifiedError(err, tableName, pkeyCol)
 		}
 		// cannot return an error
 		_, _ = hasher.Write(pkeyColBytes)

@@ -16,31 +16,7 @@ import (
 // by converting them to JSON strings. Decoders are implemented to satisfy json-iterator's
 // extension interface requirements, even though decoding is not used by MongoDB Connector.
 type BsonExtension struct {
-	jsoniter.Extension
-}
-
-func (extension *BsonExtension) UpdateStructDescriptor(structDescriptor *jsoniter.StructDescriptor) {
-	// not used (bson documents does not contain struct)
-}
-
-func (extension *BsonExtension) CreateEncoder(typ reflect2.Type) jsoniter.ValEncoder {
-	// use default
-	return nil
-}
-
-func (extension *BsonExtension) CreateDecoder(typ reflect2.Type) jsoniter.ValDecoder {
-	// use default
-	return nil
-}
-
-func (extension *BsonExtension) CreateMapKeyEncoder(typ reflect2.Type) jsoniter.ValEncoder {
-	// use default
-	return nil
-}
-
-func (extension *BsonExtension) CreateMapKeyDecoder(typ reflect2.Type) jsoniter.ValDecoder {
-	// use default
-	return nil
+	jsoniter.DummyExtension
 }
 
 func (extension *BsonExtension) DecorateEncoder(typ reflect2.Type, encoder jsoniter.ValEncoder) jsoniter.ValEncoder {
@@ -52,17 +28,6 @@ func (extension *BsonExtension) DecorateEncoder(typ reflect2.Type, encoder jsoni
 	}
 	// use default
 	return encoder
-}
-
-func (extension *BsonExtension) DecorateDecoder(typ reflect2.Type, decoder jsoniter.ValDecoder) jsoniter.ValDecoder {
-	if typ.Type1() == reflect.TypeFor[bson.D]() {
-		return &BsonDCodec{}
-	}
-	if typ.Type1() == reflect.TypeFor[bson.A]() {
-		return &BsonACodec{}
-	}
-	// use default
-	return decoder
 }
 
 type BsonDCodec struct{}

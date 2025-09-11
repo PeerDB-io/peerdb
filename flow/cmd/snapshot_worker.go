@@ -59,7 +59,7 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker: true,
 		OnFatalError: func(err error) {
-			slog.Error("Snapshot Worker failed", slog.Any("error", err))
+			slog.ErrorContext(ctx, "Snapshot Worker failed", slog.Any("error", err))
 		},
 	})
 

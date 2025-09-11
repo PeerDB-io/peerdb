@@ -37,10 +37,10 @@ type WorkerSetupResponse struct {
 }
 
 func (w *WorkerSetupResponse) Close(ctx context.Context) {
-	slog.Info("Shutting down worker")
+	slog.InfoContext(ctx, "Shutting down worker")
 	w.Client.Close()
 	if err := w.OtelManager.Close(ctx); err != nil {
-		slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
+		slog.ErrorContext(ctx, "Failed to shutdown metrics provider", slog.Any("error", err))
 	}
 }
 
@@ -73,13 +73,13 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
-	slog.Info("Created temporal client")
+	slog.InfoContext(ctx, "Created temporal client")
 	queueId := shared.PeerFlowTaskQueue
 	if opts.UseMaintenanceTaskQueue {
 		queueId = shared.MaintenanceFlowTaskQueue
 	}
 	taskQueue := internal.PeerFlowTaskQueueName(queueId)
-	slog.Info(
+	slog.InfoContext(ctx,
 		"Creating temporal worker",
 		slog.String("taskQueue", taskQueue),
 		slog.Int("workflowConcurrency", opts.TemporalMaxConcurrentWorkflowTasks),
@@ -90,7 +90,7 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
 		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
 		OnFatalError: func(err error) {
-			slog.Error("Peerflow Worker failed", slog.Any("error", err))
+			slog.ErrorContext(ctx, "Peerflow Worker failed", slog.Any("error", err))
 		},
 		MaxHeartbeatThrottleInterval: 10 * time.Second,
 	})

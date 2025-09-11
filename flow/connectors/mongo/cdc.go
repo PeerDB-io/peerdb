@@ -176,6 +176,7 @@ func (c *MongoConnector) PullRecords(
 	defer changeStream.Close(ctx)
 
 	var recordCount uint32
+	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
 			req.RecordStream.SignalAsEmpty()
@@ -183,7 +184,8 @@ func (c *MongoConnector) PullRecords(
 		c.logger.Info("[mongo] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
 			slog.Int64("bytes", c.totalBytesRead.Load()),
-			slog.Int("channelLen", req.RecordStream.ChannelLen()))
+			slog.Int("channelLen", req.RecordStream.ChannelLen()),
+			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
 	// before the first record arrives, we wait for up to an hour before resetting context timeout
 	// after the first record arrives, we switch to configured idleTimeout
@@ -263,7 +265,8 @@ func (c *MongoConnector) PullRecords(
 			c.logger.Info("[mongo] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
 				slog.Int64("bytes", c.totalBytesRead.Load()),
-				slog.Int("channelLen", req.RecordStream.ChannelLen()))
+				slog.Int("channelLen", req.RecordStream.ChannelLen()),
+				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 		}
 		return nil
 	}

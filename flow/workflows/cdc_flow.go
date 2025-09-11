@@ -73,7 +73,7 @@ func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.
 	})
 
 	updateFuture := workflow.ExecuteLocalActivity(updateCtx,
-		updateFlowStatusInCatalogActivity, workflow.GetInfo(ctx).WorkflowExecution.ID, status)
+		flowable.UpdateFlowStatusInCatalogLocalActivity, workflow.GetInfo(ctx).WorkflowExecution.ID, status)
 	if err := updateFuture.Get(updateCtx, nil); err != nil {
 		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
@@ -106,10 +106,18 @@ func updateFlowConfigWithLatestSettings(
 	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
-	cloneCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
-	cloneCfg.SnapshotNumPartitionsOverride = state.SnapshotNumPartitionsOverride
-	cloneCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
-	cloneCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
+	if state.SnapshotNumRowsPerPartition > 0 {
+		cloneCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+	}
+	if state.SnapshotNumPartitionsOverride > 0 {
+		cloneCfg.SnapshotNumPartitionsOverride = state.SnapshotNumPartitionsOverride
+	}
+	if state.SnapshotMaxParallelWorkers > 0 {
+		cloneCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
+	}
+	if state.SnapshotNumTablesInParallel > 0 {
+		cloneCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
+	}
 	return cloneCfg
 }
 
@@ -285,10 +293,18 @@ func processTableAdditions(
 			additionalTablesCfg.InitialSnapshotOnly = true
 			additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
 			additionalTablesCfg.Resync = false
-			additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
-			additionalTablesCfg.SnapshotNumPartitionsOverride = state.SnapshotNumPartitionsOverride
-			additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
-			additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
+			if state.SnapshotNumRowsPerPartition > 0 {
+				additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+			}
+			if state.SnapshotNumPartitionsOverride > 0 {
+				additionalTablesCfg.SnapshotNumPartitionsOverride = state.SnapshotNumPartitionsOverride
+			}
+			if state.SnapshotMaxParallelWorkers > 0 {
+				additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
+			}
+			if state.SnapshotNumTablesInParallel > 0 {
+				additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
+			}
 
 			// execute the sync flow as a child workflow
 			childAddTablesCDCFlowOpts := workflow.ChildWorkflowOptions{
