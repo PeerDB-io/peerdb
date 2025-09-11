@@ -93,7 +93,7 @@ func analyzeRouteHandlerErrorWrapping(t *testing.T, pkg *packages.Package, fn *a
 			if hasUnwrappedError(ret) {
 				pos := pkg.Fset.Position(ret.Pos())
 				violations = append(violations,
-					formatViolation(pos, fn.Name.Name, "returns unwrapped error"))
+					formatViolation(pos, fn.Name.Name, "returns unwrapped error, wrap it via one of `exceptions\\.New.*ApiError`"))
 			}
 		case *ast.FuncLit:
 			t.Logf("Skipping function literal at: %s", pkg.Fset.Position(s.Pos()))
