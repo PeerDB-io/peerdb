@@ -63,7 +63,7 @@ func (s APITestSuite) setupFlowStatusTestDependencies() {
 		// create trigger
 		fmt.Sprintf(`CREATE OR REPLACE FUNCTION flow_status_update_%[1]s_trigger() RETURNS TRIGGER AS $$
 			BEGIN
-				INSERT INTO flow_status_updates (flow_job_name, old_status, new_status)
+				INSERT INTO flow_status_updates_%[1]s (flow_job_name, old_status, new_status)
 				VALUES (NEW.name, OLD.status, NEW.status);
 				RETURN NEW;
 			END;
