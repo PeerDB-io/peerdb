@@ -327,8 +327,8 @@ func (h *FlowRequestHandler) FlowStateChange(
 			"",
 			req.FlowConfigUpdate.GetCdcFlowConfigUpdate(),
 		); err != nil {
-			slog.ErrorContext(ctx, "unable to signal workflow", logs, slog.Any("error", err))
-			return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to signal workflow: %w", err))
+			slog.ErrorContext(ctx, "unable to signal workflow update", logs, slog.Any("error", err))
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to signal workflow update: %w", err))
 		}
 	}
 
@@ -406,7 +406,8 @@ func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowI
 
 	select {
 	case <-errLatch.Chan():
-		if err := errLatch.Wait(); err != nil && err.Error() != "workflow execution already completed" && !strings.HasPrefix(err.Error(), "workflow not found for ID:") {
+		if err := errLatch.Wait(); err != nil &&
+			err.Error() != "workflow execution already completed" && !strings.HasPrefix(err.Error(), "workflow not found for ID:") {
 			slog.ErrorContext(ctx, fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
 			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 			if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
