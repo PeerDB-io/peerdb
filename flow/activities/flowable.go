@@ -1287,13 +1287,13 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 	normBatchID, err := pgMetadata.GetLastNormalizeBatchID(ctx, cfg.FlowJobName)
 	if err != nil {
 		logger.Error("[RemoveTablesFromRawTable] failed to get last normalize batch id", slog.Any("error", err))
-		return err
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 
 	syncBatchID, err := pgMetadata.GetLastSyncBatchID(ctx, cfg.FlowJobName)
 	if err != nil {
 		logger.Error("[RemoveTablesFromRawTable] failed to get last sync batch id", slog.Any("error", err))
-		return err
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 	}
 
 	dstConn, err := connectors.GetByNameAs[connectors.RawTableConnector](ctx, cfg.Env, a.CatalogPool, cfg.DestinationName)
