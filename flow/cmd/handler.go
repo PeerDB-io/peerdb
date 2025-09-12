@@ -405,7 +405,7 @@ func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowI
 
 	select {
 	case <-errLatch.Chan():
-		if err := errLatch.Wait(); err != nil {
+		if err := errLatch.Wait(); err != nil && err.Error() != "workflow execution already completed" {
 			slog.ErrorContext(ctx, fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
 			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
 			if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
