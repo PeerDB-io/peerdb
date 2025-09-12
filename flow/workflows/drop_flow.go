@@ -161,6 +161,8 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		return fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
 
+	// Must be called after GetFlowMetadataContext to build flow context, then
+	// ContextPropagator ensures attributes get propagated from flow to activity
 	_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
