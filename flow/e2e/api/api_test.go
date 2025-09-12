@@ -120,15 +120,14 @@ func (s Suite) checkCatalogTableMapping(
 	expectedSourceTableNames []string,
 ) (bool, error) {
 	var configBytes sql.RawBytes
-	err := conn.QueryRow(ctx,
-		"SELECT config_proto FROM flows WHERE name = $1", flowName).Scan(&configBytes)
-	if err != nil {
+	if err := conn.QueryRow(ctx,
+		"SELECT config_proto FROM flows WHERE name = $1", flowName,
+	).Scan(&configBytes); err != nil {
 		return false, err
 	}
 
 	var config protos.FlowConnectionConfigs
-	err = proto.Unmarshal(configBytes, &config)
-	if err != nil {
+	if err := proto.Unmarshal(configBytes, &config); err != nil {
 		return false, err
 	}
 
@@ -1301,4 +1300,24 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 
 	env.Cancel(s.t.Context())
 	e2e.RequireEnvCanceled(s.t, env)
+}
+
+func (s Suite) TestDropMissing() {
+	conn := s.pg.PostgresConnector.Conn()
+	peer := s.source.GeneratePeer(s.t)
+	var peerId int32
+
+	require.NoError(s.t, conn.QueryRow(s.t.Context(), "select id from peers where name = $1", peer.Name).Scan(&peerId))
+
+	_, err := conn.Exec(s.t.Context(),
+		"insert into flows (name, source_peer, destination_peer, workflow_id, flow_status) values ('test-drop-missing', $1, $1, 'missing', $2)",
+		peerId, protos.FlowStatus_STATUS_COMPLETED,
+	)
+	require.NoError(s.t, err)
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        "test-drop-missing",
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
 }
