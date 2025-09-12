@@ -1,7 +1,6 @@
 package e2e_api
 
 import (
-	"context"
 	"fmt"
 	"time"
 
@@ -51,7 +50,7 @@ func (s APITestSuite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpda
 
 func (s APITestSuite) setupFlowStatusTestDependencies() {
 	_, err := s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
-		`CREATE TABLE flow_status_updates (
+		`CREATE TABLE IF NOT EXISTS flow_status_updates (
 			id serial PRIMARY KEY,
 			flow_job_name text NOT NULL,
 			old_status integer NOT NULL,
@@ -76,23 +75,7 @@ func (s APITestSuite) setupFlowStatusTestDependencies() {
 	require.NoError(s.t, err)
 }
 
-func (s APITestSuite) cleanupFlowStatusTestDependencies() {
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	_, err := s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
-		"DROP TRIGGER IF EXISTS flow_status_update ON flows;")
-	require.NoError(s.t, err)
-	_, err = s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
-		"DROP FUNCTION IF EXISTS flow_status_update_trigger();")
-	require.NoError(s.t, err)
-	_, err = s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
-		"DROP TABLE IF EXISTS flow_status_updates;")
-	require.NoError(s.t, err)
-}
-
 func (s APITestSuite) TestFlowStatusUpdate() {
-	s.t.Cleanup(s.cleanupFlowStatusTestDependencies)
 	s.setupFlowStatusTestDependencies()
 	var cols string
 	switch s.source.(type) {
