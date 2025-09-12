@@ -1273,7 +1273,6 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 	e2e.RequireEmptyDestinationTable(s.ch, "added", cols)
 
 	// cdc should occur for added table still, so insert row into added table to test cdc
-
 	switch s.source.(type) {
 	case *e2e.PostgresSource, *e2e.MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
