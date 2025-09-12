@@ -1390,25 +1390,39 @@ func (a *FlowableActivity) GetFlowMetadata(
 	input *protos.FlowContextMetadataInput,
 ) (*protos.FlowContextMetadata, error) {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), input.FlowName))
-	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, []string{input.SourceName, input.DestinationName})
+	peerNames := make([]string, 0, 2)
+	if input.SourceName != "" {
+		peerNames = append(peerNames, input.SourceName)
+	}
+	if input.DestinationName != "" {
+		peerNames = append(peerNames, input.DestinationName)
+	}
+	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, peerNames)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowName, err)
+	}
+	var sourcePeer, destinationPeer *protos.PeerContextMetadata
+	if input.SourceName != "" {
+		sourcePeer = &protos.PeerContextMetadata{
+			Name: input.SourceName,
+			Type: peerTypes[input.SourceName],
+		}
+	}
+	if input.DestinationName != "" {
+		destinationPeer = &protos.PeerContextMetadata{
+			Name: input.DestinationName,
+			Type: peerTypes[input.DestinationName],
+		}
 	}
 	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
 		slog.Any("peerTypes", peerTypes))
 	return &protos.FlowContextMetadata{
-		FlowName: input.FlowName,
-		Source: &protos.PeerContextMetadata{
-			Name: input.SourceName,
-			Type: peerTypes[input.SourceName],
-		},
-		Destination: &protos.PeerContextMetadata{
-			Name: input.DestinationName,
-			Type: peerTypes[input.DestinationName],
-		},
-		Status:   input.Status,
-		IsResync: input.IsResync,
+		FlowName:    input.FlowName,
+		Source:      sourcePeer,
+		Destination: destinationPeer,
+		Status:      input.Status,
+		IsResync:    input.IsResync,
 	}, nil
 }
 

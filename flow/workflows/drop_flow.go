@@ -147,7 +147,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
 	contextMetadataInput := &protos.FlowContextMetadataInput{
 		FlowName: input.FlowJobName,
-		Status:   protos.FlowStatus_STATUS_UNKNOWN,
+		Status:   status,
 		IsResync: false,
 	}
 	if input.FlowConnectionConfigs != nil {
