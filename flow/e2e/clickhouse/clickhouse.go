@@ -376,7 +376,7 @@ func (s ClickHouseSuite) CheckTableIsEmpty(table string) (bool, error) {
 	var count int64
 	if err := ch.QueryRow(
 		s.t.Context(),
-		fmt.Sprintf("SELECT count(*) FROM %s", table),
+		"SELECT count(*) FROM %s"+table,
 	).Scan(&count); err != nil {
 		return false, err
 	}
