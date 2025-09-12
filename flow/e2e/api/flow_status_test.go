@@ -67,7 +67,7 @@ func (s APITestSuite) setupFlowStatusTestDependencies() {
 				RETURN NEW;
 			END;
 		$$ LANGUAGE plpgsql;
-		CREATE TRIGGER flow_status_update
+		CREATE OR REPLACE TRIGGER flow_status_update
 		AFTER UPDATE OF status ON flows
 		FOR EACH ROW
 		EXECUTE FUNCTION flow_status_update_trigger();`,
