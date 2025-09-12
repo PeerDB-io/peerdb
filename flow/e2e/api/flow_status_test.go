@@ -21,7 +21,7 @@ type flowStatusUpdate struct {
 	NewStatus   protos.FlowStatus `db:"new_status"`
 }
 
-func (s Suite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, error) {
+func (s APITestSuite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, error) {
 	var updates []flowStatusUpdate
 	rows, err := s.pg.PostgresConnector.Conn().Query(
 		s.t.Context(),
@@ -49,7 +49,7 @@ func (s Suite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, err
 	return updates, nil
 }
 
-func (s Suite) setupFlowStatusTestDependencies() {
+func (s APITestSuite) setupFlowStatusTestDependencies() {
 	_, err := s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
 		`CREATE TABLE flow_status_updates (
 			id serial PRIMARY KEY,
@@ -76,7 +76,7 @@ func (s Suite) setupFlowStatusTestDependencies() {
 	require.NoError(s.t, err)
 }
 
-func (s Suite) cleanupFlowStatusTestDependencies() {
+func (s APITestSuite) cleanupFlowStatusTestDependencies() {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
@@ -91,8 +91,7 @@ func (s Suite) cleanupFlowStatusTestDependencies() {
 	require.NoError(s.t, err)
 }
 
-func (s Suite) TestFlowStatusUpdate() {
-	s.t.Parallel()
+func (s APITestSuite) TestFlowStatusUpdate() {
 	s.t.Cleanup(s.cleanupFlowStatusTestDependencies)
 	s.setupFlowStatusTestDependencies()
 	var cols string
