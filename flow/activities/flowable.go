@@ -1341,7 +1341,7 @@ func (a *FlowableActivity) RemoveTablesFromCatalog(
 		removedTables,
 	)
 
-	return err
+	return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
 }
 
 func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
