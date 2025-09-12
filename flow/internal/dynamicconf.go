@@ -171,7 +171,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:         "PEERDB_S3_BYTES_PER_AVRO_FILE",
 		Description:  "S3 upload chunk size in bytes, needed for large unpartitioned initial loads.",
-		DefaultValue: "10000000000", // 10GB, not GiB so to not align with 64MiB to avoid always having tiny part at end
+		DefaultValue: "1000000000", // 1GB, not GiB so to not align with 64MiB to avoid always having tiny part at end
 		ValueType:    protos.DynconfValueType_INT,
 		ApplyMode:    protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 	},
