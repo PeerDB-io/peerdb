@@ -16,18 +16,16 @@ import (
 )
 
 type flowStatusUpdate struct {
-	FlowJobName string            `db:"flow_job_name"`
-	OldStatus   protos.FlowStatus `db:"old_status"`
-	NewStatus   protos.FlowStatus `db:"new_status"`
+	OldStatus protos.FlowStatus `db:"old_status"`
+	NewStatus protos.FlowStatus `db:"new_status"`
 }
 
 func (s APITestSuite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, error) {
 	var updates []flowStatusUpdate
 	rows, err := s.pg.PostgresConnector.Conn().Query(
 		s.t.Context(),
-		fmt.Sprintf(`SELECT flow_job_name, old_status, new_status
-		FROM flow_status_updates_%s
-		WHERE flow_job_name = $1 AND old_status != new_status`, s.suffix),
+		fmt.Sprintf(`SELECT old_status, new_status FROM flow_status_updates_%s
+		WHERE flow_job_name = $1 AND old_status != new_status ORDER BY id ASC`, s.suffix),
 		flowJobName,
 	)
 	if err != nil {
@@ -37,7 +35,7 @@ func (s APITestSuite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpda
 
 	for rows.Next() {
 		var update flowStatusUpdate
-		if err := rows.Scan(&update.FlowJobName, &update.OldStatus, &update.NewStatus); err != nil {
+		if err := rows.Scan(&update.OldStatus, &update.NewStatus); err != nil {
 			return nil, fmt.Errorf("failed to scan flow status update: %w", err)
 		}
 		updates = append(updates, update)
