@@ -1310,7 +1310,7 @@ func (s Suite) TestDropMissing() {
 	require.NoError(s.t, conn.QueryRow(s.t.Context(), "select id from peers where name = $1", peer.Name).Scan(&peerId))
 
 	_, err := conn.Exec(s.t.Context(),
-		"insert into flows (name, source_peer, destination_peer, workflow_id, flow_status) values ('test-drop-missing', $1, $1, 'missing', $2)",
+		"insert into flows (name,source_peer,destination_peer,workflow_id,status) values ('test-drop-missing',$1,$1,'drop-missing-wf-id',$2)",
 		peerId, protos.FlowStatus_STATUS_COMPLETED,
 	)
 	require.NoError(s.t, err)
