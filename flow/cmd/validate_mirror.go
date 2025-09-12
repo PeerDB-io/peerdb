@@ -52,6 +52,11 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		return nil, exceptions.NewInvalidArgumentApiError(errors.New("connection configs is nil"))
 	}
 
+	if !req.ConnectionConfigs.DoInitialSnapshot && req.ConnectionConfigs.InitialSnapshotOnly {
+		return nil, exceptions.NewInvalidArgumentApiError(
+			errors.New("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
+	}
+
 	for _, tm := range req.ConnectionConfigs.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
