@@ -408,9 +408,8 @@ func (h *FlowRequestHandler) handleCancelWorkflow(ctx context.Context, workflowI
 	case <-errLatch.Chan():
 		if err := errLatch.Wait(); err != nil &&
 			err.Error() != "workflow execution already completed" && !strings.HasPrefix(err.Error(), "workflow not found for ID:") {
-			slog.ErrorContext(ctx, fmt.Sprintf("unable to cancel PeerFlow workflow: %s. Attempting to terminate.", err.Error()))
-			terminationReason := fmt.Sprintf("workflow %s did not cancel in time.", workflowID)
-			if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, terminationReason); err != nil {
+			slog.ErrorContext(ctx, "unable to cancel PeerFlow workflow. Attempting to terminate.", slog.Any("error", err))
+			if err := h.temporalClient.TerminateWorkflow(ctx, workflowID, runID, "workflow did not cancel in time."); err != nil {
 				return fmt.Errorf("unable to terminate PeerFlow workflow: %w", err)
 			}
 		}
