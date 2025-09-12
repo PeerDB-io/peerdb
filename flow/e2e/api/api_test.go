@@ -1306,7 +1306,6 @@ func (s Suite) TestDropMissing() {
 	conn := s.pg.PostgresConnector.Conn()
 	peer := s.source.GeneratePeer(s.t)
 	var peerId int32
-
 	require.NoError(s.t, conn.QueryRow(s.t.Context(), "select id from peers where name = $1", peer.Name).Scan(&peerId))
 
 	_, err := conn.Exec(s.t.Context(),
