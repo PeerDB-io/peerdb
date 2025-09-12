@@ -599,7 +599,8 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 	}
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "replicated all rows to destination for table "+config.DestinationTableIdentifier)
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName,
+		fmt.Sprintf("replicated %d partitions to destination for table "+config.DestinationTableIdentifier, numPartitions))
 	return nil
 }
 
@@ -1117,7 +1118,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 			option.CurrentName,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to load schema to rename tables: %w", err)
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to load schema to rename tables: %w", err))
 		}
 		tableNameSchemaMapping[option.CurrentName] = schema
 	}
@@ -1129,7 +1130,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 
 	tx, err := a.CatalogPool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin updating table_schema_mapping: %w", err)
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to begin updating table_schema_mapping: %w", err))
 	}
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 	defer shared.RollbackTx(tx, logger)
@@ -1142,7 +1143,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 				config.FlowJobName,
 				option.NewName,
 			); err != nil {
-				return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to update table_schema_mapping: %w", err))
 			}
 		}
 		if _, err := tx.Exec(
@@ -1152,13 +1153,16 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 			option.CurrentName,
 			option.NewName,
 		); err != nil {
-			return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+			return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to update table_schema_mapping: %w", err))
 		}
 	}
 
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
 
-	return renameOutput, tx.Commit(ctx)
+	if commitErr := tx.Commit(ctx); commitErr != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to commit updating table_schema_mapping: %w", commitErr))
+	}
+	return renameOutput, nil
 }
 
 func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
