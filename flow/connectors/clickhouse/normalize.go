@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -148,6 +149,10 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	}
 
 	colNameMap := make(map[string]string)
+	shardSuffix := "_shard"
+	if config.IsResync {
+		shardSuffix += strconv.FormatInt(time.Now().Unix(), 10)
+	}
 	for idx, builder := range builders {
 		if config.IsResync {
 			builder.WriteString("CREATE OR REPLACE TABLE ")
@@ -156,7 +161,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		}
 		if c.Config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
 			// distributed table gets destination name, avoid naming conflict
-			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier + "_shard"))
+			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier + shardSuffix))
 		} else {
 			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
 		}
@@ -257,7 +262,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
 				peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster),
 				peerdb_clickhouse.QuoteIdentifier(c.Config.Database),
-				peerdb_clickhouse.QuoteIdentifier(tableIdentifier+"_shard"),
+				peerdb_clickhouse.QuoteIdentifier(tableIdentifier+shardSuffix),
 			)
 			if tableMapping.ShardingKey != "" {
 				stmtBuilderDistributed.WriteByte(',')
