@@ -418,9 +418,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	groupBatches, err := internal.PeerDBGroupNormalize(ctx, req.Env)
 	if err != nil {
 		c.logger.Error("failed to lookup PEERDB_GROUP_NORMALIZE, only normalizing 1 batch")
+		groupBatches = 1
 	}
-	if !groupBatches {
-		endBatchID = min(endBatchID, normBatchID+1)
+	if groupBatches > 0 {
+		endBatchID = min(endBatchID, normBatchID+groupBatches)
 	}
 
 	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, endBatchID, req.Env, req.Version); err != nil {
