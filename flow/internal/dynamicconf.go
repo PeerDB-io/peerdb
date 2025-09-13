@@ -43,8 +43,8 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 	{
 		Name:             "PEERDB_GROUP_NORMALIZE",
 		Description:      "Controls whether normalize applies to one batch at a time, or all pending batches",
-		DefaultValue:     "false",
-		ValueType:        protos.DynconfValueType_BOOL,
+		DefaultValue:     "1",
+		ValueType:        protos.DynconfValueType_INT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
@@ -528,8 +528,8 @@ func PeerDBNormalizeBufferSize(ctx context.Context, env map[string]string) (int6
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_NORMALIZE_CHANNEL_BUFFER_SIZE")
 }
 
-func PeerDBGroupNormalize(ctx context.Context, env map[string]string) (bool, error) {
-	return dynamicConfBool(ctx, env, "PEERDB_GROUP_NORMALIZE")
+func PeerDBGroupNormalize(ctx context.Context, env map[string]string) (int64, error) {
+	return dynamicConfSigned[int64](ctx, env, "PEERDB_GROUP_NORMALIZE")
 }
 
 func PeerDBQueueFlushTimeoutSeconds(ctx context.Context, env map[string]string) (time.Duration, error) {
