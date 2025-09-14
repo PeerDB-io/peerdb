@@ -345,7 +345,7 @@ export default function SchemaBox({
                               as='label'
                               style={{
                                 fontSize: 13,
-                                color: row.canMirror ? 'black' : 'gray',
+                                color: row.canMirror ? undefined : 'gray',
                               }}
                             >
                               {row.source}
