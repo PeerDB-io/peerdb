@@ -162,7 +162,7 @@ jobs:
           key: ${{ runner.os }}-minio
 
       - name: Install MinIO Server
-        if: steps.cache-minio.outputs.cache-hit != 'true'
+        #if: steps.cache-minio.outputs.cache-hit != 'true'
         run: |
           curl -O https://dl.min.io/client/mc/release/linux-amd64/minio && chmod +x minio
 
@@ -173,7 +173,7 @@ jobs:
           key: ${{ runner.os }}-minio-client
 
       - name: Install MinIO Client
-        if: steps.cache-minio-client.outputs.cache-hit != 'true'
+        #if: steps.cache-minio-client.outputs.cache-hit != 'true'
         run: |
           curl -O https://dl.min.io/client/mc/release/linux-amd64/mc && chmod +x mc
 
@@ -186,8 +186,8 @@ jobs:
           chown -R 1001 certs &&
           ./minio --certs-dir ./certs --address :9999 &
           sleep 2 &&
-          mc alias set myminiopeerdb http://minio:9999 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
-          mc mb myminiopeerdb/peerdb
+          ./mc alias set myminiopeerdb http://localhost:9999 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+          ./mc mb myminiopeerdb/peerdb
         env:
           MINIO_ROOT_USER: minio
           MINIO_ROOT_PASSWORD: miniosecret
