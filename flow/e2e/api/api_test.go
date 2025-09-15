@@ -184,6 +184,9 @@ func TestApiPg(t *testing.T) {
 }
 
 func TestApiMy(t *testing.T) {
+	// need to sequence this suite to run before all other MySQL tests
+	// because other tests fail due to invalid mysql.rds_configuration table settings
+	testMySQLRDSBinlog(t)
 	testApi(t, e2e.SetupMySQL)
 }
 
