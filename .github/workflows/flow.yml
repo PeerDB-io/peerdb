@@ -161,26 +161,37 @@ jobs:
           path: ./minio
           key: ${{ runner.os }}-minio
 
-      - name: Install MinIO
+      - name: Install MinIO Server
         if: steps.cache-minio.outputs.cache-hit != 'true'
         run: |
-          curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
+          curl -O https://dl.min.io/client/mc/release/linux-amd64/minio && chmod +x minio
 
-      - name: MinIO TLS
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+        id: cache-minio-client
+        with:
+          path: ./mc
+          key: ${{ runner.os }}-minio-client
+
+      - name: Install MinIO Client
+        if: steps.cache-minio-client.outputs.cache-hit != 'true'
+        run: |
+          curl -O https://dl.min.io/client/mc/release/linux-amd64/mc && chmod +x mc
+
+      - name: MinIO
         run: >
           mkdir -p certs &&
           openssl genrsa -out certs/cert.key 2048 &&
           openssl req -new -key certs/cert.key -out certs/cert.csr -subj /CN=minio.local &&
           openssl x509 -req -days 3650 -in certs/cert.csr -signkey certs/cert.key -out certs/cert.crt &&
           chown -R 1001 certs &&
-          ./minio --certs-dirnene ./certs --address :9999 &
+          ./minio --certs-dir ./certs --address :9999 &
+          sleep 2 &&
+          mc alias set myminiopeerdb http://minio:9999 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+          mc mb myminiopeerdb/peerdb
         env:
-          MINIO_SCHEME: https
           MINIO_ROOT_USER: minio
           MINIO_ROOT_PASSWORD: miniosecret
-          MINIO_API_PORT_NUMBER: 9999
           AWS_EC2_METADATA_DISABLED: true
-          MINIO_DEFAULT_BUCKETS: peerdb
 
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
