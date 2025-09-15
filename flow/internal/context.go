@@ -116,6 +116,10 @@ func LoggerFromCtx(ctx context.Context) log.Logger {
 	}
 	logger = log.With(logger, string(AdditionalMetadataKey), GetAdditionalMetadata(ctx))
 
+	if requestId, hasId := ctx.Value(shared.RequestIdKey).(string); hasId {
+		logger = log.With(logger, shared.RequestIdKey.String(), requestId)
+	}
+
 	return logger
 }
 
@@ -129,6 +133,10 @@ func SlogLoggerFromCtx(ctx context.Context) *slog.Logger {
 		logger = logger.With(slog.Any(string(FlowMetadataKey), flowMetadata))
 	}
 	logger = logger.With(slog.Any(string(AdditionalMetadataKey), GetAdditionalMetadata(ctx)))
+
+	if requestId, hasId := ctx.Value(shared.RequestIdKey).(string); hasId {
+		logger = logger.With(shared.RequestIdKey.String(), requestId)
+	}
 
 	if activity.IsActivity(ctx) {
 		activityInfo := activity.GetInfo(ctx)
