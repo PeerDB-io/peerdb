@@ -765,9 +765,12 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	defer shared.Interval(ctx, 10*time.Minute, wrapWithLog("SendWALHeartbeat", func() error {
 		return a.SendWALHeartbeat(ctx)
 	}))()
-	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordMetrics", func() error {
-		return a.RecordMetrics(ctx)
+	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordMetricsCritical", func() error {
+		return a.RecordMetricsCritical(ctx)
 	}))()
+	defer shared.Interval(ctx, 2*time.Minute, wrapWithLog("RecordMetricsAggregates", func() error {
+		return a.RecordMetricsAggregates(ctx)
+	}))
 	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
 		return a.RecordSlotSizes(ctx)
 	}))()
@@ -809,9 +812,80 @@ func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadat
 	}
 }
 
-func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
-	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "RecordMetrics"))
-	logger.Info("Started RecordMetrics")
+func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "RecordMetricsAggregates"))
+	logger.Info("Started RecordMetricsAggregates")
+	flows, err := a.getFlowsForMetrics(ctx)
+	if err != nil {
+		logger.Error("Failed to get flows for metrics", slog.Any("error", err))
+		return err
+	}
+
+	flowsMap := make(map[string]*metricsFlowMetadata, len(flows))
+	flowNames := make([]string, 0, len(flows))
+	for _, flow := range flows {
+		flowsMap[flow.name] = &flow
+		flowNames = append(flowNames, flow.name)
+	}
+	rows, err := a.CatalogPool.Query(ctx, `
+		SELECT
+			destination_table_name,
+			inserts_count,
+			updates_count,
+			deletes_count,
+-- 			total_count,
+			flow_name
+		FROM peerdb_stats.cdc_table_aggregate_counts
+		WHERE flow_name IN ($1)
+		ORDER BY flow_name, destination_table_name`, flowNames)
+	if err != nil {
+		return fmt.Errorf("failed to query cdc table total counts: %w", err)
+	}
+
+	var scannedFlow string
+	tableCount := &protos.CDCTableRowCounts{
+		Counts: &protos.CDCRowCounts{},
+	}
+
+	operationValueMapping := map[string]*int64{
+		otel_metrics.RecordOperationTypeInsert: &tableCount.Counts.InsertsCount,
+		otel_metrics.RecordOperationTypeUpdate: &tableCount.Counts.UpdatesCount,
+		otel_metrics.RecordOperationTypeDelete: &tableCount.Counts.DeletesCount,
+	}
+
+	_, err = pgx.ForEachRow(rows, []any{
+		&tableCount.TableName,
+		&tableCount.Counts.InsertsCount,
+		&tableCount.Counts.UpdatesCount,
+		&tableCount.Counts.DeletesCount,
+		//&tableCount.Counts.TotalCount,
+		&scannedFlow,
+	}, func() error {
+		if flowData, ok := flowsMap[scannedFlow]; ok {
+			eCtx := context.WithValue(ctx, internal.FlowMetadataKey, flowData.toFlowContextMetadata())
+			for op, valuePtr := range operationValueMapping {
+				a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(eCtx, *valuePtr, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, scannedFlow),
+					attribute.String(otel_metrics.DestinationTableNameKey, tableCount.TableName),
+					attribute.String(otel_metrics.RecordOperationTypeInsert, op),
+				)))
+			}
+		} else {
+			logger.Error("Flow not found for metrics",
+				slog.String("flow", scannedFlow), slog.String("tableName", tableCount.TableName))
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to iterate over cdc table total counts: %w", err)
+	}
+
+	return nil
+}
+
+func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "RecordMetricsCritical"))
+	logger.Info("Started RecordMetricsCritical")
 
 	maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	instanceStatus := otel_metrics.InstanceStatusReady
@@ -829,64 +903,15 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
 		attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
 	)))
 	logger.Info("Querying for flows and statuses to emit metrics")
-	currentTime := time.Now()
 	queryCtx, cancelFunc := context.WithTimeout(ctx, 20*time.Second)
 	defer cancelFunc()
-	rows, err := a.CatalogPool.Query(queryCtx,
-		`
-			SELECT DISTINCT ON (f.name)
-				f.name AS flow_name,
-				f.status AS status,
-				f.config_proto AS config_proto,
-				f.workflow_id AS workflow_id,
-				f.updated_at AS updated_at,
-				COALESCE(sp.name, '') AS source_peer_name,
-				COALESCE(sp.type, 0) AS source_peer_type,
-				COALESCE(dp.name, '') AS destination_peer_name,
-				COALESCE(dp.type, 0) AS destination_peer_type
-			FROM
-				flows f
-			LEFT JOIN peers sp ON f.source_peer = sp.id
-			LEFT JOIN peers dp ON f.destination_peer = dp.id
-		`)
-	if err != nil {
-		logger.Error("failed to query all flows", slog.Any("error", err))
-		return fmt.Errorf("failed to query all flows for metrics: %w", err)
-	}
-
-	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (metricsFlowMetadata, error) {
-		var f metricsFlowMetadata
-		var configProto []byte
-		if err := rows.Scan(
-			&f.name,
-			&f.status,
-			&configProto,
-			&f.workflowID,
-			&f.updatedAt,
-			&f.sourcePeerName,
-			&f.sourcePeerType,
-			&f.destinationPeerName,
-			&f.destinationPeerType,
-		); err != nil {
-			return metricsFlowMetadata{}, fmt.Errorf("failed to scan row: %w", err)
-		}
-		if f.sourcePeerName == "" || f.destinationPeerName == "" {
-			logger.Error("flow has missing peer information", slog.String("flow_name", f.name))
-			return metricsFlowMetadata{},
-				a.Alerter.LogFlowError(ctx, f.name,
-					exceptions.NewRecordMetricsError(fmt.Errorf("flow has missing peer information %s", f.name)))
-		}
-		if err := proto.Unmarshal(configProto, f.config); err != nil {
-			return metricsFlowMetadata{}, err
-		}
-		return f, nil
-	})
-	if err != nil {
-		logger.Error("failed to collect rows", slog.Any("error", err))
-		return fmt.Errorf("failed to collect rows for metrics: %w", err)
+	infos, err2 := a.getFlowsForMetrics(queryCtx)
+	if err2 != nil {
+		return err2
 	}
 	logger.Info("Emitting metrics for flows", slog.Int("flows", len(infos)))
 	activeFlows := make([]metricsFlowMetadata, 0, len(infos))
+	currentTime := time.Now()
 	for _, info := range infos {
 		ctx := context.WithValue(ctx, internal.FlowMetadataKey, info.toFlowContextMetadata())
 		_, isActive := activeFlowStatuses[info.status]
@@ -952,8 +977,66 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
 		}
 	}
 	logger.Info("Finished emitting Active Flow Info", slog.Int("flows", len(activeFlows)))
-	logger.Info("Finished RecordMetrics")
+	logger.Info("Finished RecordMetricsCritical")
 	return nil
+}
+
+func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlowMetadata, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	rows, err := a.CatalogPool.Query(ctx,
+		`
+			SELECT DISTINCT ON (f.name)
+				f.name AS flow_name,
+				f.status AS status,
+				f.config_proto AS config_proto,
+				f.workflow_id AS workflow_id,
+				f.updated_at AS updated_at,
+				COALESCE(sp.name, '') AS source_peer_name,
+				COALESCE(sp.type, 0) AS source_peer_type,
+				COALESCE(dp.name, '') AS destination_peer_name,
+				COALESCE(dp.type, 0) AS destination_peer_type
+			FROM
+				flows f
+			LEFT JOIN peers sp ON f.source_peer = sp.id
+			LEFT JOIN peers dp ON f.destination_peer = dp.id
+		`)
+	if err != nil {
+		logger.Error("failed to query all flows", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to query all flows for metrics: %w", err)
+	}
+
+	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (metricsFlowMetadata, error) {
+		var f metricsFlowMetadata
+		var configProto []byte
+		if err := rows.Scan(
+			&f.name,
+			&f.status,
+			&configProto,
+			&f.workflowID,
+			&f.updatedAt,
+			&f.sourcePeerName,
+			&f.sourcePeerType,
+			&f.destinationPeerName,
+			&f.destinationPeerType,
+		); err != nil {
+			return metricsFlowMetadata{}, fmt.Errorf("failed to scan row: %w", err)
+		}
+		if f.sourcePeerName == "" || f.destinationPeerName == "" {
+			logger.Error("flow has missing peer information", slog.String("flow_name", f.name))
+			return metricsFlowMetadata{},
+				a.Alerter.LogFlowError(ctx, f.name,
+					exceptions.NewRecordMetricsError(fmt.Errorf("flow has missing peer information %s", f.name)))
+		}
+		if err := proto.Unmarshal(configProto, f.config); err != nil {
+			return metricsFlowMetadata{}, err
+		}
+		return f, nil
+	})
+	if err != nil {
+		logger.Error("failed to collect rows", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to collect rows for metrics: %w", err)
+	}
+	return infos, nil
 }
 
 func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {

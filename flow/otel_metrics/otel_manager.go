@@ -43,6 +43,7 @@ const (
 	WarningsEmittedCounterName           = "warnings_emitted"
 	RecordsSyncedGaugeName               = "records_synced"
 	RecordsSyncedCounterName             = "records_synced_counter"
+	RecordsSyncedPerTableGaugeName       = "records_synced_per_table"
 	SyncedTablesGaugeName                = "synced_tables"
 	InstanceStatusGaugeName              = "instance_status"
 	MaintenanceStatusGaugeName           = "maintenance_status"
@@ -78,6 +79,7 @@ type Metrics struct {
 	WarningEmittedCounter            metric.Int64Counter
 	RecordsSyncedGauge               metric.Int64Gauge
 	RecordsSyncedCounter             metric.Int64Counter
+	RecordsSyncedPerTableGauge       metric.Int64Gauge
 	SyncedTablesGauge                metric.Int64Gauge
 	InstanceStatusGauge              metric.Int64Gauge
 	MaintenanceStatusGauge           metric.Int64Gauge
@@ -307,6 +309,12 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 
 	if om.Metrics.RecordsSyncedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(RecordsSyncedCounterName),
 		metric.WithDescription("Counter of records synced (all time)"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.RecordsSyncedPerTableGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(RecordsSyncedPerTableGaugeName),
+		metric.WithDescription("Number of records synced per table. Note that this should be monotonically increasing"),
 	); err != nil {
 		return err
 	}
