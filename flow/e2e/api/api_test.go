@@ -30,7 +30,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/mongo"
 )
 
-type Suite struct {
+type APITestSuite struct {
 	protos.FlowServiceClient
 	t      *testing.T
 	pg     *e2e.PostgresSource
@@ -39,33 +39,33 @@ type Suite struct {
 	ch     e2e_clickhouse.ClickHouseSuite
 }
 
-func (s Suite) Teardown(ctx context.Context) {
+func (s APITestSuite) Teardown(ctx context.Context) {
 	s.pg.Teardown(s.t, ctx, s.suffix)
 }
 
-func (s Suite) T() *testing.T {
+func (s APITestSuite) T() *testing.T {
 	return s.t
 }
 
-func (s Suite) Suffix() string {
+func (s APITestSuite) Suffix() string {
 	return s.suffix
 }
 
-func (s Suite) Source() e2e.SuiteSource {
+func (s APITestSuite) Source() e2e.SuiteSource {
 	return s.source
 }
 
-func (s Suite) Connector() *connpostgres.PostgresConnector {
+func (s APITestSuite) Connector() *connpostgres.PostgresConnector {
 	return s.pg.PostgresConnector
 }
 
-func (s Suite) DestinationTable(table string) string {
+func (s APITestSuite) DestinationTable(table string) string {
 	return table
 }
 
 // checkMetadataLastSyncStateValues checks the values of sync_batch_id and normalize_batch_id
 // in the metadata_last_sync_state table
-func (s Suite) checkMetadataLastSyncStateValues(
+func (s APITestSuite) checkMetadataLastSyncStateValues(
 	env e2e.WorkflowRun,
 	flowConnConfig *protos.FlowConnectionConfigs,
 	reason string,
@@ -99,7 +99,7 @@ func (s Suite) checkMetadataLastSyncStateValues(
 	})
 }
 
-func (s Suite) waitForActiveSlotForPostgresMirror(env e2e.WorkflowRun, conn *pgx.Conn, mirrorName string) {
+func (s APITestSuite) waitForActiveSlotForPostgresMirror(env e2e.WorkflowRun, conn *pgx.Conn, mirrorName string) {
 	slotName := "peerflow_slot_" + mirrorName
 	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to become active", func() bool {
 		var active pgtype.Bool
@@ -113,7 +113,7 @@ func (s Suite) waitForActiveSlotForPostgresMirror(env e2e.WorkflowRun, conn *pgx
 }
 
 // checkCatalogTableMapping checks the table mappings in the catalog for a given flow
-func (s Suite) checkCatalogTableMapping(
+func (s APITestSuite) checkCatalogTableMapping(
 	ctx context.Context,
 	conn *pgx.Conn,
 	flowName string,
@@ -156,7 +156,7 @@ func testApi[TSource e2e.SuiteSource](
 	setup func(*testing.T, string) (TSource, error),
 ) {
 	t.Helper()
-	e2eshared.RunSuiteNoParallel(t, func(t *testing.T) Suite {
+	e2eshared.RunSuite(t, func(t *testing.T) APITestSuite {
 		t.Helper()
 
 		suffix := "api_" + strings.ToLower(shared.RandomString(8))
@@ -166,7 +166,7 @@ func testApi[TSource e2e.SuiteSource](
 		require.NoError(t, err)
 		client, err := e2e.NewApiClient()
 		require.NoError(t, err)
-		return Suite{
+		return APITestSuite{
 			FlowServiceClient: client,
 			t:                 t,
 			pg:                pg,
@@ -184,6 +184,9 @@ func TestApiPg(t *testing.T) {
 }
 
 func TestApiMy(t *testing.T) {
+	// need to sequence this suite to run before all other MySQL tests
+	// because other tests fail due to invalid mysql.rds_configuration table settings
+	testMySQLRDSBinlog(t)
 	testApi(t, e2e.SetupMySQL)
 }
 
@@ -191,13 +194,13 @@ func TestApiMongo(t *testing.T) {
 	testApi(t, e2e_mongo.SetupMongo)
 }
 
-func (s Suite) TestGetVersion() {
+func (s APITestSuite) TestGetVersion() {
 	response, err := s.GetVersion(s.t.Context(), &protos.PeerDBVersionRequest{})
 	require.NoError(s.t, err)
 	require.Equal(s.t, internal.PeerDBVersionShaShort(), response.Version)
 }
 
-func (s Suite) TestPostgresValidation_WrongPassword() {
+func (s APITestSuite) TestPostgresValidation_WrongPassword() {
 	config := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
 	config.Password = "wrong"
 	_, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
@@ -213,7 +216,7 @@ func (s Suite) TestPostgresValidation_WrongPassword() {
 	require.Equal(s.t, codes.FailedPrecondition, grpcStatus.Code())
 }
 
-func (s Suite) TestPostgresValidation_Pass() {
+func (s APITestSuite) TestPostgresValidation_Pass() {
 	config := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
 	response, err := s.ValidatePeer(s.t.Context(), &protos.ValidatePeerRequest{
 		Peer: &protos.Peer{
@@ -227,7 +230,7 @@ func (s Suite) TestPostgresValidation_Pass() {
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 }
 
-func (s Suite) TestClickHouseMirrorValidation_Pass() {
+func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	switch s.source.(type) {
 	case *e2e.PostgresSource, *e2e.MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
@@ -250,7 +253,7 @@ func (s Suite) TestClickHouseMirrorValidation_Pass() {
 	require.NotNil(s.t, response)
 }
 
-func (s Suite) TestSchemaEndpoints() {
+func (s APITestSuite) TestSchemaEndpoints() {
 	tableName := "listing"
 	peer := s.source.GeneratePeer(s.t)
 	peerInfo, err := s.GetPeerInfo(s.t.Context(), &protos.PeerInfoRequest{
@@ -354,7 +357,7 @@ func (s Suite) TestSchemaEndpoints() {
 	}
 }
 
-func (s Suite) TestScripts() {
+func (s APITestSuite) TestScripts() {
 	if _, ok := s.source.(*e2e.PostgresSource); !ok {
 		s.t.Skip("only run with pg so only one test against scripts runs")
 	}
@@ -425,53 +428,7 @@ func (s Suite) TestScripts() {
 	}
 }
 
-func (s Suite) TestMySQLRDSBinlogValidation() {
-	_, ok := s.source.(*e2e.MySqlSource)
-	if !ok {
-		s.t.Skip("only for MySQL")
-	}
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "valid"))))
-
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:      "my_validation_" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, "valid"): "valid"},
-		Destination:      s.ch.Peer().Name,
-	}
-	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
-
-	require.NoError(s.t, s.source.Exec(s.t.Context(), "CREATE TABLE IF NOT EXISTS mysql.rds_configuration(name TEXT, value TEXT)"))
-	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		"INSERT INTO mysql.rds_configuration(name, value) VALUES ('binlog retention hours', NULL)"))
-
-	res, err := s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.Nil(s.t, res)
-	require.Error(s.t, err)
-	st, ok := status.FromError(err)
-	require.True(s.t, ok)
-	require.Equal(s.t, codes.FailedPrecondition, st.Code())
-	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
-		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset", st.Message())
-
-	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '1' WHERE name = 'binlog retention hours'"))
-	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.Nil(s.t, res)
-	require.Error(s.t, err)
-	st, ok = status.FromError(err)
-	require.True(s.t, ok)
-	require.Equal(s.t, codes.FailedPrecondition, st.Code())
-	require.Equal(s.t, "failed to validate source connector mysql: binlog configuration error: "+
-		"RDS/Aurora setting 'binlog retention hours' should be at least 24, currently 1", st.Message())
-
-	require.NoError(s.t, s.source.Exec(s.t.Context(), "UPDATE mysql.rds_configuration SET value = '24' WHERE name = 'binlog retention hours';"))
-	res, err = s.ValidateCDCMirror(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(s.t, err)
-	require.NotNil(s.t, res)
-
-	require.NoError(s.t, s.source.Exec(s.t.Context(), "DROP TABLE IF EXISTS mysql.rds_configuration;"))
-}
-
-func (s Suite) TestMongoDBOplogRetentionValidation() {
+func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
 	if _, ok := s.source.(*e2e_mongo.MongoSource); !ok {
 		s.t.Skip("only for MongoDB")
 	}
@@ -509,7 +466,7 @@ func (s Suite) TestMongoDBOplogRetentionValidation() {
 	require.NotNil(s.t, res1)
 }
 
-func (s Suite) TestMongoDBUserRolesValidation() {
+func (s APITestSuite) TestMongoDBUserRolesValidation() {
 	if _, ok := s.source.(*e2e_mongo.MongoSource); !ok {
 		s.t.Skip("only for MongoDB")
 	}
@@ -584,7 +541,7 @@ func (s Suite) TestMongoDBUserRolesValidation() {
 	require.Equal(s.t, protos.ValidatePeerStatus_VALID, response.Status)
 }
 
-func (s Suite) TestMySQLFlavorSwap() {
+func (s APITestSuite) TestMySQLFlavorSwap() {
 	my, ok := s.source.(*e2e.MySqlSource)
 	if !ok {
 		s.t.Skip("only for MySQL")
@@ -607,7 +564,7 @@ func (s Suite) TestMySQLFlavorSwap() {
 	}
 }
 
-func (s Suite) TestResyncCompleted() {
+func (s APITestSuite) TestResyncCompleted() {
 	tableName := "valid"
 	var cols string
 	switch s.source.(type) {
@@ -684,7 +641,7 @@ func (s Suite) TestResyncCompleted() {
 	e2e.EnvWaitForFinished(s.t, env, time.Minute)
 }
 
-func (s Suite) TestDropCompleted() {
+func (s APITestSuite) TestDropCompleted() {
 	tableName := "valid"
 	var cols string
 	switch s.source.(type) {
@@ -743,7 +700,7 @@ func (s Suite) TestDropCompleted() {
 	})
 }
 
-func (s Suite) TestEditTablesBeforeResync() {
+func (s APITestSuite) TestEditTablesBeforeResync() {
 	var cols string
 	switch s.source.(type) {
 	case *e2e.PostgresSource, *e2e.MySqlSource:
@@ -956,7 +913,7 @@ func (s Suite) TestEditTablesBeforeResync() {
 	e2e.RequireEnvCanceled(s.t, newEnv)
 }
 
-func (s Suite) TestAlertConfig() {
+func (s APITestSuite) TestAlertConfig() {
 	create, err := s.PostAlertConfig(s.t.Context(), &protos.PostAlertConfigRequest{
 		Config: &protos.AlertConfig{
 			Id:              -1,
@@ -1002,7 +959,7 @@ func (s Suite) TestAlertConfig() {
 	}))
 }
 
-func (s Suite) TestTotalRowsSyncedByMirror() {
+func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	var cols string
 	switch s.source.(type) {
 	case *e2e.PostgresSource, *e2e.MySqlSource:
@@ -1101,7 +1058,7 @@ func (s Suite) TestTotalRowsSyncedByMirror() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s Suite) TestSettings() {
+func (s APITestSuite) TestSettings() {
 	newValue := "90"
 	firstResponse, err := s.GetDynamicSettings(s.t.Context(), &protos.GetDynamicSettingsRequest{})
 	require.NoError(s.t, err)
@@ -1131,7 +1088,7 @@ func (s Suite) TestSettings() {
 	}))
 }
 
-func (s Suite) TestQRep() {
+func (s APITestSuite) TestQRep() {
 	if _, ok := s.source.(*e2e_mongo.MongoSource); ok {
 		s.t.Skip("QRepFlowWorkFlow is not implemented for MongoDB")
 	}
@@ -1140,7 +1097,7 @@ func (s Suite) TestQRep() {
 		PeerName: s.source.GeneratePeer(s.t).Name,
 	})
 	require.NoError(s.t, err)
-	tblName := "qrepapi"
+	tblName := "qrepapi" + s.suffix
 	schemaQualified := e2e.AttachSchema(s, tblName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", schemaQualified)))
@@ -1193,7 +1150,7 @@ func (s Suite) TestQRep() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s Suite) TestTableAdditionWithoutInitialLoad() {
+func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	var cols string
 	switch s.source.(type) {
 	case *e2e.PostgresSource, *e2e.MySqlSource:
@@ -1302,7 +1259,7 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s Suite) TestDropMissing() {
+func (s APITestSuite) TestDropMissing() {
 	conn := s.pg.PostgresConnector.Conn()
 	peer := s.source.GeneratePeer(s.t)
 	var peerId int32

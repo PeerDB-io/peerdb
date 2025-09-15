@@ -16,18 +16,16 @@ import (
 )
 
 type flowStatusUpdate struct {
-	FlowJobName string            `db:"flow_job_name"`
-	OldStatus   protos.FlowStatus `db:"old_status"`
-	NewStatus   protos.FlowStatus `db:"new_status"`
+	OldStatus protos.FlowStatus `db:"old_status"`
+	NewStatus protos.FlowStatus `db:"new_status"`
 }
 
-func (s Suite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, error) {
+func (s APITestSuite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, error) {
 	var updates []flowStatusUpdate
 	rows, err := s.pg.PostgresConnector.Conn().Query(
 		s.t.Context(),
-		`SELECT flow_job_name, old_status, new_status
-		FROM flow_status_updates
-		WHERE flow_job_name = $1 AND old_status != new_status`,
+		fmt.Sprintf(`SELECT old_status, new_status FROM flow_status_updates_%s
+		WHERE flow_job_name = $1 AND old_status != new_status ORDER BY id ASC`, s.suffix),
 		flowJobName,
 	)
 	if err != nil {
@@ -37,7 +35,7 @@ func (s Suite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, err
 
 	for rows.Next() {
 		var update flowStatusUpdate
-		if err := rows.Scan(&update.FlowJobName, &update.OldStatus, &update.NewStatus); err != nil {
+		if err := rows.Scan(&update.OldStatus, &update.NewStatus); err != nil {
 			return nil, fmt.Errorf("failed to scan flow status update: %w", err)
 		}
 		updates = append(updates, update)
@@ -49,50 +47,49 @@ func (s Suite) getFlowStatusUpdates(flowJobName string) ([]flowStatusUpdate, err
 	return updates, nil
 }
 
-func (s Suite) setupFlowStatusTestDependencies() {
+func (s APITestSuite) setupFlowStatusTestDependencies() {
 	_, err := s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
-		`CREATE TABLE flow_status_updates (
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS flow_status_updates_%s (
 			id serial PRIMARY KEY,
 			flow_job_name text NOT NULL,
 			old_status integer NOT NULL,
 			new_status integer NOT NULL
-		)`)
+		)`, s.suffix))
 	require.NoError(s.t, err)
 	// Track updates to status via a trigger
 	_, err = s.pg.PostgresConnector.Conn().Exec(s.t.Context(),
 		// create trigger
-		`CREATE OR REPLACE FUNCTION flow_status_update_trigger() RETURNS TRIGGER AS $$
+		fmt.Sprintf(`CREATE OR REPLACE FUNCTION flow_status_update_%[1]s_trigger() RETURNS TRIGGER AS $$
 			BEGIN
-				INSERT INTO flow_status_updates (flow_job_name, old_status, new_status)
+				INSERT INTO flow_status_updates_%[1]s (flow_job_name, old_status, new_status)
 				VALUES (NEW.name, OLD.status, NEW.status);
 				RETURN NEW;
 			END;
 		$$ LANGUAGE plpgsql;
-		CREATE TRIGGER flow_status_update
+		CREATE OR REPLACE TRIGGER flow_status_update_%[1]s
 		AFTER UPDATE OF status ON flows
 		FOR EACH ROW
-		EXECUTE FUNCTION flow_status_update_trigger();`,
+		EXECUTE FUNCTION flow_status_update_%[1]s_trigger();`, s.suffix),
 	)
 	require.NoError(s.t, err)
 }
 
-func (s Suite) cleanupFlowStatusTestDependencies() {
+func (s APITestSuite) cleanupFlowStatusTestDependencies() {
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	_, err := s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
-		"DROP TRIGGER IF EXISTS flow_status_update ON flows;")
+		fmt.Sprintf("DROP TRIGGER IF EXISTS flow_status_update_%s ON flows;", s.suffix))
 	require.NoError(s.t, err)
 	_, err = s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
-		"DROP FUNCTION IF EXISTS flow_status_update_trigger();")
+		fmt.Sprintf("DROP FUNCTION IF EXISTS flow_status_update_%s_trigger();", s.suffix))
 	require.NoError(s.t, err)
 	_, err = s.pg.PostgresConnector.Conn().Exec(cleanupCtx,
-		"DROP TABLE IF EXISTS flow_status_updates;")
+		fmt.Sprintf("DROP TABLE IF EXISTS flow_status_updates_%s;", s.suffix))
 	require.NoError(s.t, err)
 }
 
-func (s Suite) TestFlowStatusUpdate() {
-	s.t.Parallel()
+func (s APITestSuite) TestFlowStatusUpdate() {
 	s.t.Cleanup(s.cleanupFlowStatusTestDependencies)
 	s.setupFlowStatusTestDependencies()
 	var cols string
