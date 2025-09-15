@@ -11,12 +11,15 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
@@ -112,19 +115,29 @@ func UpdateEndTimeForCDCBatch(
 	return nil
 }
 
-func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flowJobName string,
-	batchID int64, tableNameRowsMapping map[string]*model.RecordTypeCounts,
+func AddCDCBatchTablesForFlow(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	flowJobName string,
+	batchID int64,
+	tableNameRowsMapping map[string]*model.RecordTypeCounts,
+	otelManager *otel_metrics.OtelManager,
 ) error {
 	insertBatchTablesTx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("error while beginning transaction for inserting statistics: %w", err)
 	}
 	defer shared.RollbackTx(insertBatchTablesTx, internal.LoggerFromCtx(ctx))
-
+	tableNameOperations := make(map[string]map[string]int32, len(tableNameRowsMapping))
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
 		inserts := rowCounts.InsertCount.Load()
 		updates := rowCounts.UpdateCount.Load()
 		deletes := rowCounts.DeleteCount.Load()
+		tableNameOperations[destinationTableName] = map[string]int32{
+			otel_metrics.RecordOperationTypeInsert: inserts,
+			otel_metrics.RecordOperationTypeUpdate: updates,
+			otel_metrics.RecordOperationTypeDelete: deletes,
+		}
 		totalRows := inserts + updates + deletes
 
 		// Update the aggregated counts table
@@ -174,6 +187,15 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 	}
 	if err := insertBatchTablesTx.Commit(ctx); err != nil {
 		return fmt.Errorf("error while committing transaction for inserting and updating statistics: %w", err)
+	}
+
+	for destinationTableName, operations := range tableNameOperations {
+		for operationType, count := range operations {
+			otelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, int64(count), metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.DestinationTableNameKey, destinationTableName),
+				attribute.String(otel_metrics.RecordOperationTypeKey, operationType),
+			)))
+		}
 	}
 	return nil
 }

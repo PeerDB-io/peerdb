@@ -833,7 +833,6 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 			inserts_count,
 			updates_count,
 			deletes_count,
--- 			total_count,
 			flow_name
 		FROM peerdb_stats.cdc_table_aggregate_counts
 		WHERE flow_name IN ($1)
@@ -858,7 +857,6 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 		&tableCount.Counts.InsertsCount,
 		&tableCount.Counts.UpdatesCount,
 		&tableCount.Counts.DeletesCount,
-		//&tableCount.Counts.TotalCount,
 		&scannedFlow,
 	}, func() error {
 		if flowData, ok := flowsMap[scannedFlow]; ok {
