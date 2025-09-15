@@ -240,21 +240,22 @@ func processTableAdditions(
 			additionalTablesUUID := GetUUID(ctx)
 			childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
 			additionalTablesCfg := proto.CloneOf(cfg)
-			additionalTablesCfg.DoInitialSnapshot = !flowConfigUpdate.SkipInitialSnapshotForTableAdditions
+			// Default to doing initial snapshot for additional tables
+			additionalTablesCfg.DoInitialSnapshot = true
 			additionalTablesCfg.InitialSnapshotOnly = true
 			additionalTablesCfg.TableMappings = append(additionalTablesCfg.TableMappings, flowConfigUpdate.AdditionalTables...)
 			additionalTablesCfg.Resync = false
-			if state.SnapshotNumRowsPerPartition > 0 {
-				additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+			if flowConfigUpdate.SnapshotNumRowsPerPartition > 0 {
+				additionalTablesCfg.SnapshotNumRowsPerPartition = flowConfigUpdate.SnapshotNumRowsPerPartition
 			}
-			if state.SnapshotNumPartitionsOverride > 0 {
-				additionalTablesCfg.SnapshotNumPartitionsOverride = state.SnapshotNumPartitionsOverride
+			if flowConfigUpdate.SnapshotNumPartitionsOverride > 0 {
+				additionalTablesCfg.SnapshotNumPartitionsOverride = flowConfigUpdate.SnapshotNumPartitionsOverride
 			}
-			if state.SnapshotMaxParallelWorkers > 0 {
-				additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
+			if flowConfigUpdate.SnapshotMaxParallelWorkers > 0 {
+				additionalTablesCfg.SnapshotMaxParallelWorkers = flowConfigUpdate.SnapshotMaxParallelWorkers
 			}
-			if state.SnapshotNumTablesInParallel > 0 {
-				additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
+			if flowConfigUpdate.SnapshotNumTablesInParallel > 0 {
+				additionalTablesCfg.SnapshotNumTablesInParallel = flowConfigUpdate.SnapshotNumTablesInParallel
 			}
 
 			uploadConfigToCatalog(ctx, additionalTablesCfg)
@@ -274,7 +275,7 @@ func processTableAdditions(
 			childAddTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
 				childAddTablesCDCFlowCtx,
 				CDCFlowWorkflow,
-				additionalTablesCfg.FlowJobName,
+				internal.CreateMinimalConfigFromFlowJobName(additionalTablesCfg.FlowJobName),
 				nil, // nil is passed to trigger `setup` flow.
 			)
 			addTablesSelector.AddFuture(childAddTablesCDCFlowFuture, func(f workflow.Future) {
@@ -283,15 +284,10 @@ func processTableAdditions(
 		}
 	})
 
-	// additional tables should also be resynced, we don't know how much was done so far
-	// state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
-
 	for res == nil {
 		addTablesSelector.Select(ctx)
 		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 			if state.ActiveSignal == model.ResyncSignal {
-				// additional tables should also be resynced, we don't know how much was done so far
-				// state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state.FlowConfigUpdate)
 				state.DropFlowInput.FlowJobName = resyncCfg.FlowJobName
 				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
@@ -435,17 +431,19 @@ func addCdcPropertiesSignalListener(
 
 func CDCFlowWorkflow(
 	ctx workflow.Context,
-	flowJobName string,
-	// cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
-	cfg, err := internal.FetchConfigFromDB(flowJobName)
-	if cfg == nil {
+	// Fetch full config from DB using the flowJobName from the minimal config
+	cfgFromDB, err := internal.FetchConfigFromDB(cfg.FlowJobName)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch flow config from DB: %w", err)
+	}
+	if cfgFromDB == nil {
 		return nil, errors.New("invalid connection configs")
 	}
-	if err != nil {
-		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
-	}
+	// Use the config from DB for all operations
+	cfg = cfgFromDB
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
 	if state == nil {
@@ -533,7 +531,7 @@ func CDCFlowWorkflow(
 
 		logger.Info("mirror resumed", slog.Duration("after", time.Since(startTime)))
 		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg.FlowJobName, state)
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, internal.CreateMinimalConfigFromFlowJobName(cfg.FlowJobName), state)
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
@@ -678,7 +676,7 @@ func CDCFlowWorkflow(
 			}
 		}
 
-		// TODOAS: here we will also store the table mappings in the state.
+		// here we will also store the table mappings in the state.
 		maps.Copy(cfg.SrcTableIdNameMapping, setupFlowOutput.SrcTableIdNameMapping)
 		uploadConfigToCatalog(ctx, cfg)
 
@@ -701,7 +699,7 @@ func CDCFlowWorkflow(
 		// during any operation that triggers another snapshot (INCLUDING add tables).
 		// this could fail for very weird Temporal resets
 
-		// TODOAS : this will send the additionalTables to `temporal`, meaning
+		// This will send the additionalTables to `temporal`, meaning
 		// that we cannot add too many tables at once, or we risk the blob is too
 		// large (2MB limit).
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(
@@ -803,7 +801,7 @@ func CDCFlowWorkflow(
 			logger.Info("executed setup flow and snapshot flow, start running")
 			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 		}
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg.FlowJobName, state)
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, internal.CreateMinimalConfigFromFlowJobName(cfg.FlowJobName), state)
 	}
 
 	var finished bool
@@ -933,7 +931,7 @@ func CDCFlowWorkflow(
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
-			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg.FlowJobName, state)
+			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, internal.CreateMinimalConfigFromFlowJobName(cfg.FlowJobName), state)
 		}
 	}
 }

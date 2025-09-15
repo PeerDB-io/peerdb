@@ -36,3 +36,11 @@ func FetchConfigFromDB(flowName string) (*protos.FlowConnectionConfigs, error) {
 
 	return &cfgFromDB, nil
 }
+
+// CreateMinimalConfigFromFlowJobName creates a minimal FlowConnectionConfigs with just the FlowJobName set.
+// This is used when calling CDCFlowWorkflow which will fetch the full config from DB internally.
+func CreateMinimalConfigFromFlowJobName(flowJobName string) *protos.FlowConnectionConfigs {
+	return &protos.FlowConnectionConfigs{
+		FlowJobName: flowJobName,
+	}
+}
