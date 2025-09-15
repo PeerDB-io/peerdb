@@ -240,21 +240,22 @@ func processTableAdditions(
 			additionalTablesUUID := GetUUID(ctx)
 			childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
 			additionalTablesCfg := proto.CloneOf(cfg)
-			additionalTablesCfg.DoInitialSnapshot = !flowConfigUpdate.SkipInitialSnapshotForTableAdditions
+			// Default to doing initial snapshot for additional tables
+			additionalTablesCfg.DoInitialSnapshot = true
 			additionalTablesCfg.InitialSnapshotOnly = true
 			additionalTablesCfg.TableMappings = append(additionalTablesCfg.TableMappings, flowConfigUpdate.AdditionalTables...)
 			additionalTablesCfg.Resync = false
-			if state.SnapshotNumRowsPerPartition > 0 {
-				additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
+			if flowConfigUpdate.SnapshotNumRowsPerPartition > 0 {
+				additionalTablesCfg.SnapshotNumRowsPerPartition = flowConfigUpdate.SnapshotNumRowsPerPartition
 			}
-			if state.SnapshotNumPartitionsOverride > 0 {
-				additionalTablesCfg.SnapshotNumPartitionsOverride = state.SnapshotNumPartitionsOverride
+			if flowConfigUpdate.SnapshotNumPartitionsOverride > 0 {
+				additionalTablesCfg.SnapshotNumPartitionsOverride = flowConfigUpdate.SnapshotNumPartitionsOverride
 			}
-			if state.SnapshotMaxParallelWorkers > 0 {
-				additionalTablesCfg.SnapshotMaxParallelWorkers = state.SnapshotMaxParallelWorkers
+			if flowConfigUpdate.SnapshotMaxParallelWorkers > 0 {
+				additionalTablesCfg.SnapshotMaxParallelWorkers = flowConfigUpdate.SnapshotMaxParallelWorkers
 			}
-			if state.SnapshotNumTablesInParallel > 0 {
-				additionalTablesCfg.SnapshotNumTablesInParallel = state.SnapshotNumTablesInParallel
+			if flowConfigUpdate.SnapshotNumTablesInParallel > 0 {
+				additionalTablesCfg.SnapshotNumTablesInParallel = flowConfigUpdate.SnapshotNumTablesInParallel
 			}
 
 			uploadConfigToCatalog(ctx, additionalTablesCfg)
@@ -283,15 +284,10 @@ func processTableAdditions(
 		}
 	})
 
-	// additional tables should also be resynced, we don't know how much was done so far
-	// state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
-
 	for res == nil {
 		addTablesSelector.Select(ctx)
 		if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 			if state.ActiveSignal == model.ResyncSignal {
-				// additional tables should also be resynced, we don't know how much was done so far
-				// state.SyncFlowOptions.TableMappings = append(state.SyncFlowOptions.TableMappings, flowConfigUpdate.AdditionalTables...)
 				resyncCfg := syncStateToConfigProtoInCatalog(ctx, cfg, state.FlowConfigUpdate)
 				state.DropFlowInput.FlowJobName = resyncCfg.FlowJobName
 				state.DropFlowInput.FlowConnectionConfigs = resyncCfg
@@ -436,15 +432,15 @@ func addCdcPropertiesSignalListener(
 func CDCFlowWorkflow(
 	ctx workflow.Context,
 	flowJobName string,
-	// cfg *protos.FlowConnectionConfigs,
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
+	// Fetch full config from DB using the flowJobName
 	cfg, err := internal.FetchConfigFromDB(flowJobName)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch flow config from DB: %w", err)
+	}
 	if cfg == nil {
 		return nil, errors.New("invalid connection configs")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}
 
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cfg.FlowJobName))
@@ -468,7 +464,7 @@ func CDCFlowWorkflow(
 		return state, nil
 	}
 
-	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
+	mirrorNameSearch := shared.NewSearchAttributescfg.FlowJobName
 
 	if state.ActiveSignal == model.PauseSignal {
 		selector := workflow.NewNamedSelector(ctx, "PauseLoop")
@@ -678,7 +674,7 @@ func CDCFlowWorkflow(
 			}
 		}
 
-		// TODOAS: here we will also store the table mappings in the state.
+		// here we will also store the table mappings in the state.
 		maps.Copy(cfg.SrcTableIdNameMapping, setupFlowOutput.SrcTableIdNameMapping)
 		uploadConfigToCatalog(ctx, cfg)
 
@@ -701,7 +697,7 @@ func CDCFlowWorkflow(
 		// during any operation that triggers another snapshot (INCLUDING add tables).
 		// this could fail for very weird Temporal resets
 
-		// TODOAS : this will send the additionalTables to `temporal`, meaning
+		// This will send the additionalTables to `temporal`, meaning
 		// that we cannot add too many tables at once, or we risk the blob is too
 		// large (2MB limit).
 		snapshotFlowFuture := workflow.ExecuteChildWorkflow(
