@@ -118,6 +118,9 @@ var (
 	ErrorNotifySourceTableMissing = ErrorClass{
 		Class: "NOTIFY_SOURCE_TABLE_MISSING", action: NotifyUser,
 	}
+	ErrorNotifyBadSourceTableReplicaIdentity = ErrorClass{
+		Class: "NOTIFY_BAD_POSTGRES_TABLE_REPLICA_IDENTITY", action: NotifyUser,
+	}
 	ErrorNotifyPublicationMissing = ErrorClass{
 		Class: "NOTIFY_PUBLICATION_MISSING", action: NotifyUser,
 	}
@@ -259,6 +262,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifySourceTableMissing, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "TABLE_DOES_NOT_EXIST",
+		}
+	}
+
+	if errors.Is(err, shared.ErrReplicaIdentityNothing) {
+		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "REPLICA_IDENTITY_NOTHING",
 		}
 	}
 
