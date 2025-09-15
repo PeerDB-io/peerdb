@@ -1527,8 +1527,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		}
 		notPresentTables := shared.ArrayMinus(additionalSrcTables, tableNames)
 		if len(notPresentTables) > 0 {
-			return exceptions.NewPostgresSetupError(fmt.Errorf("some additional tables not present in custom publication: %s",
-				strings.Join(notPresentTables, ",")))
+			return exceptions.NewTablesNotInPublicationError(notPresentTables, req.PublicationName)
 		}
 	} else {
 		for _, additionalSrcTable := range additionalSrcTables {

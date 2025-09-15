@@ -124,6 +124,9 @@ var (
 	ErrorNotifyPublicationMissing = ErrorClass{
 		Class: "NOTIFY_PUBLICATION_MISSING", action: NotifyUser,
 	}
+	ErrorNotifyTablesNotInPublication = ErrorClass{
+		Class: "NOTIFY_TABLES_NOT_IN_PUBLICATION", action: NotifyUser,
+	}
 	ErrorNotifyReplicationSlotMissing = ErrorClass{
 		Class: "NOTIFY_REPLICATION_SLOT_MISSING", action: NotifyUser,
 	}
@@ -270,6 +273,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "REPLICA_IDENTITY_NOTHING",
+		}
+	}
+
+	var tablesNotInPubErr *exceptions.TablesNotInPublicationError
+	if errors.As(err, &tablesNotInPubErr) {
+		return ErrorNotifyTablesNotInPublication, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "TABLES_NOT_IN_PUBLICATION",
 		}
 	}
 
