@@ -179,12 +179,12 @@ jobs:
 
       - name: MinIO
         run: >
-          mkdir -p certs &&
+          mkdir -p certs minio-data &&
           openssl genrsa -out certs/cert.key 2048 &&
           openssl req -new -key certs/cert.key -out certs/cert.csr -subj /CN=minio.local &&
           openssl x509 -req -days 3650 -in certs/cert.csr -signkey certs/cert.key -out certs/cert.crt &&
           chown -R 1001 certs &&
-          ./minio --certs-dir ./certs --address :9999 &
+          ./minio server ./minio-data --certs-dir ./certs --address :9999 &
           sleep 2 &&
           ./mc alias set myminiopeerdb http://localhost:9999 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
           ./mc mb myminiopeerdb/peerdb
