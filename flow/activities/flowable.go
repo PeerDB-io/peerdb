@@ -823,8 +823,8 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 
 	flowsMap := make(map[string]*metricsFlowMetadata, len(flows))
 	flowNames := make([]string, 0, len(flows))
-	for _, flow := range flows {
-		flowsMap[flow.name] = &flow
+	for idx, flow := range flows {
+		flowsMap[flow.name] = &flows[idx]
 		flowNames = append(flowNames, flow.name)
 	}
 	rows, err := a.CatalogPool.Query(ctx, `
