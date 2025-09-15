@@ -1094,7 +1094,7 @@ func (s APITestSuite) TestQRep() {
 		PeerName: s.source.GeneratePeer(s.t).Name,
 	})
 	require.NoError(s.t, err)
-	tblName := "qrepapi"
+	tblName := "qrepapi" + s.suffix
 	schemaQualified := e2e.AttachSchema(s, tblName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", schemaQualified)))
