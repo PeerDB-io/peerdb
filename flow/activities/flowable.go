@@ -644,6 +644,12 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
+		var notFound *exceptions.NotFoundError
+		if errors.As(err, &notFound) {
+			logger := internal.LoggerFromCtx(ctx)
+			logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
+			return nil
+		}
 		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
 			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err)),
 		)
@@ -668,6 +674,12 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
+		var notFound *exceptions.NotFoundError
+		if errors.As(err, &notFound) {
+			logger := internal.LoggerFromCtx(ctx)
+			logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
+			return nil
+		}
 		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
 			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err)),
 		)

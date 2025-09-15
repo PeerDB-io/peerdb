@@ -103,23 +103,26 @@ func (a *Float64SyncGauge) Record(ctx context.Context, value float64, options ..
 }
 
 func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
-	attributes := make([]attribute.KeyValue, 0)
+	attributes := make([]attribute.KeyValue, 0, 12)
 	flowMetadata := internal.GetFlowMetadata(ctx)
 	if flowMetadata != nil {
+		attributes = append(attributes, attribute.String(FlowNameKey, flowMetadata.FlowName))
+		if flowMetadata.Source != nil {
+			attributes = append(attributes,
+				attribute.Stringer(SourcePeerType, flowMetadata.Source.Type),
+				attribute.String(SourcePeerName, flowMetadata.Source.Name))
+		}
+		if flowMetadata.Destination != nil {
+			attributes = append(attributes,
+				attribute.Stringer(DestinationPeerType, flowMetadata.Destination.Type),
+				attribute.String(DestinationPeerName, flowMetadata.Destination.Name))
+		}
 		attributes = append(attributes,
-			attribute.String(FlowNameKey, flowMetadata.FlowName),
-			attribute.Stringer(SourcePeerType, flowMetadata.Source.Type),
-			attribute.Stringer(DestinationPeerType, flowMetadata.Destination.Type),
-			attribute.String(SourcePeerName, flowMetadata.Source.Name),
-			attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
 			attribute.Stringer(FlowStatusKey, flowMetadata.Status),
-			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync),
-		)
+			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync))
 	}
 	additionalMetadata := internal.GetAdditionalMetadata(ctx)
-	attributes = append(attributes,
-		attribute.Stringer(FlowOperationKey, additionalMetadata.Operation),
-	)
+	attributes = append(attributes, attribute.Stringer(FlowOperationKey, additionalMetadata.Operation))
 
 	if activity.IsActivity(ctx) {
 		activityInfo := activity.GetInfo(ctx)
