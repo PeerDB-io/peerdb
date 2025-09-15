@@ -53,16 +53,6 @@ jobs:
           discovery.type: single-node
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
-      minio:
-        image: bitnamilegacy/minio:2025.7.23@sha256:8935e75fa5d11295c17171e4aa49efe390a1193cd7f12e4d21b92af9ffef09d7
-        ports:
-          - 9999:9999
-        env:
-          MINIO_ROOT_USER: minio
-          MINIO_ROOT_PASSWORD: miniosecret
-          MINIO_API_PORT_NUMBER: 9999
-          AWS_EC2_METADATA_DISABLED: true
-          MINIO_DEFAULT_BUCKETS: peerdb
       otelcol:
         image: otel/opentelemetry-collector-contrib:0.135.0@sha256:89107a3a8f4636a396927edf7025bb9614b8da2d92f4cc3f43109e8d115736e2
         ports:
@@ -165,6 +155,17 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
+      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+        id: cache-minio
+        with:
+          path: ./minio
+          key: ${{ runner.os }}-minio
+
+      - name: Install MinIO
+        if: steps.cache-minio.outputs.cache-hit != 'true'
+        run: |
+          curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
+
       - name: MinIO TLS
         run: >
           mkdir -p certs &&
@@ -172,7 +173,14 @@ jobs:
           openssl req -new -key certs/cert.key -out certs/cert.csr -subj /CN=minio.local &&
           openssl x509 -req -days 3650 -in certs/cert.csr -signkey certs/cert.key -out certs/cert.crt &&
           chown -R 1001 certs &&
-          docker run -d --rm --name miniotls -p 9998:9998 -v "$PWD/certs:/certs" -e MINIO_SCHEME=https bitnamilegacy/minio:latest
+          ./minio --certs-dirnene ./certs --address :9999 &
+        env:
+          MINIO_SCHEME: https
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: miniosecret
+          MINIO_API_PORT_NUMBER: 9999
+          AWS_EC2_METADATA_DISABLED: true
+          MINIO_DEFAULT_BUCKETS: peerdb
 
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
