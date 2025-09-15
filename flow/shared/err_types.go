@@ -8,10 +8,26 @@ import (
 )
 
 var (
-	ErrSlotAlreadyExists      error = temporal.NewNonRetryableApplicationError("slot already exists", "snapshot", nil)
-	ErrTableDoesNotExist      error = temporal.NewNonRetryableApplicationError("table does not exist", "snapshot", nil)
-	ErrReplicaIdentityNothing error = errors.New("table has replica identity 'n'/NOTHING")
+	ErrSlotAlreadyExists error = temporal.NewNonRetryableApplicationError("slot already exists", "snapshot", nil)
+	ErrTableDoesNotExist error = temporal.NewNonRetryableApplicationError("table does not exist", "snapshot", nil)
 )
+
+type ErrReplicaIdentityNothing struct {
+	Table string
+	Cause error
+}
+
+func (e *ErrReplicaIdentityNothing) Error() string {
+	return fmt.Sprintf("table %s has replica identity 'n'/NOTHING", e.Table)
+}
+
+func (e *ErrReplicaIdentityNothing) Unwrap() error {
+	return e.Cause
+}
+
+func NewErrReplicaIdentityNothing(table string, cause error) error {
+	return &ErrReplicaIdentityNothing{Table: table, Cause: cause}
+}
 
 type ErrType string
 

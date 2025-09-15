@@ -130,7 +130,7 @@ func (c *PostgresConnector) getReplicaIdentityType(
 		return ReplicaIdentityDefault, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
 	}
 	if replicaIdentity == rune(ReplicaIdentityNothing) {
-		return ReplicaIdentityType(replicaIdentity), shared.ErrReplicaIdentityNothing
+		return ReplicaIdentityType(replicaIdentity), shared.NewErrReplicaIdentityNothing(schemaTable.String(), nil)
 	}
 
 	return ReplicaIdentityType(replicaIdentity), nil
