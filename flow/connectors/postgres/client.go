@@ -19,6 +19,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 const (
@@ -130,7 +131,7 @@ func (c *PostgresConnector) getReplicaIdentityType(
 		return ReplicaIdentityDefault, fmt.Errorf("error getting replica identity for table %s: %w", schemaTable, err)
 	}
 	if replicaIdentity == rune(ReplicaIdentityNothing) {
-		return ReplicaIdentityType(replicaIdentity), shared.NewErrReplicaIdentityNothing(schemaTable.String(), nil)
+		return ReplicaIdentityType(replicaIdentity), exceptions.NewErrReplicaIdentityNothing(schemaTable.String(), nil)
 	}
 
 	return ReplicaIdentityType(replicaIdentity), nil
