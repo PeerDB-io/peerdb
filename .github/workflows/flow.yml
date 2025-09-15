@@ -162,7 +162,7 @@ jobs:
           key: ${{ runner.os }}-minio
 
       - name: Install MinIO Server
-        #if: steps.cache-minio.outputs.cache-hit != 'true'
+        if: steps.cache-minio.outputs.cache-hit != 'true'
         run: |
           curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
@@ -173,7 +173,7 @@ jobs:
           key: ${{ runner.os }}-minio-client
 
       - name: Install MinIO Client
-        #if: steps.cache-minio-client.outputs.cache-hit != 'true'
+        if: steps.cache-minio-client.outputs.cache-hit != 'true'
         run: |
           curl -O https://dl.min.io/client/mc/release/linux-amd64/mc && chmod +x mc
 
