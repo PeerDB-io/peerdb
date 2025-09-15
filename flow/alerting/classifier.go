@@ -265,7 +265,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var replicaIdentityNothingErr *shared.ErrReplicaIdentityNothing
+	var replicaIdentityNothingErr *exceptions.ErrReplicaIdentityNothing
 	if errors.As(err, &replicaIdentityNothingErr) {
 		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
 			Source: ErrorSourcePostgres,
