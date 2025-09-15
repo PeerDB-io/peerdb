@@ -910,19 +910,18 @@ func (a *FlowableActivity) RecordMetrics(ctx context.Context) error {
 	activeFlows := make([]metricsFlowMetadata, 0, len(infos))
 	for _, info := range infos {
 		ctx := context.WithValue(ctx, internal.FlowMetadataKey, info.toFlowContextMetadata())
-		status := info.status
-		_, isActive := activeFlowStatuses[status]
+		_, isActive := activeFlowStatuses[info.status]
 		if isActive {
 			activeFlows = append(activeFlows, info)
 		}
 		a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
 		a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-			attribute.String(otel_metrics.FlowStatusKey, status.String()),
+			attribute.String(otel_metrics.FlowStatusKey, info.status.String()),
 			attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
 		)))
 		a.OtelManager.Metrics.DurationSinceLastFlowUpdateGauge.Record(ctx, int64(currentTime.Sub(info.updatedAt).Seconds()),
 			metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowStatusKey, status.String()),
+				attribute.String(otel_metrics.FlowStatusKey, info.status.String()),
 			)))
 	}
 	logger.Info("Finished emitting Instance and Flow Status", slog.Int("flows", len(infos)))
