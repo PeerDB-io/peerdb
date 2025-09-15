@@ -164,7 +164,7 @@ jobs:
       - name: Install MinIO Server
         #if: steps.cache-minio.outputs.cache-hit != 'true'
         run: |
-          curl -O https://dl.min.io/client/mc/release/linux-amd64/minio && chmod +x minio
+          curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
       - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
         id: cache-minio-client
