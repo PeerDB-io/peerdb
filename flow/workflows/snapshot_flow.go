@@ -363,7 +363,7 @@ func SnapshotFlowWorkflow(
 	}
 	defer workflow.CompleteSession(sessionCtx)
 
-	if !config.DoInitialSnapshot {
+	if !config.DoInitialSnapshot && !config.InitialSnapshotOnly {
 		if _, err := se.setupReplication(sessionCtx); err != nil {
 			return fmt.Errorf("failed to setup replication: %w", err)
 		}
@@ -375,7 +375,7 @@ func SnapshotFlowWorkflow(
 		return nil
 	}
 
-	if config.InitialSnapshotOnly {
+	if config.InitialSnapshotOnly && config.DoInitialSnapshot {
 		sessionInfo := workflow.GetSessionInfo(sessionCtx)
 
 		exportCtx := workflow.WithActivityOptions(sessionCtx, workflow.ActivityOptions{
@@ -428,8 +428,10 @@ func SnapshotFlowWorkflow(
 		); err != nil {
 			return fmt.Errorf("failed to clone tables: %w", err)
 		}
-	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
-		return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+	} else if config.DoInitialSnapshot {
+		if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
+			return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+		}
 	}
 
 	return nil
