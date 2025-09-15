@@ -148,23 +148,7 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 		slog.ErrorContext(ctx, "unable to query flow config from catalog", slog.Any("error", err))
 		return nil, err
 	}
-	workflowID, err := h.getWorkflowID(ctx, req.FlowJobName)
-	if err != nil {
-		slog.ErrorContext(ctx, "unable to get the workflow ID of mirror", slog.Any("error", err))
-		return nil, err
-	}
-	state, err := h.getCDCWorkflowState(ctx, workflowID)
-	if err != nil {
-		slog.ErrorContext(ctx, "unable to get the state of mirror", slog.Any("error", err))
-		return nil, err
-	}
-
-	// patching config to show latest values from state
-	if state.SyncFlowOptions != nil {
-		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
-		config.MaxBatchSize = state.SyncFlowOptions.BatchSize
-		config.TableMappings = state.SyncFlowOptions.TableMappings
-	}
+	// The config is now always sourced from DB, so no state patching needed
 
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)
 	if err != nil {
@@ -473,7 +457,7 @@ func (h *FlowRequestHandler) getFlowConfigFromCatalog(
 ) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
 	if err := h.pool.QueryRow(ctx,
-		"SELECT config_proto FROM flows WHERE name = $1", flowJobName,
+		"SELECT config_proto FROM flows WHERE name = $1 LIMIT 1", flowJobName,
 	).Scan(&configBytes); err != nil {
 		slog.ErrorContext(ctx, "unable to query flow config from catalog", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
