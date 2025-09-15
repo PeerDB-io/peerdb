@@ -186,7 +186,7 @@ jobs:
           chown -R 1001 certs &&
           ./minio server ./minio-data --certs-dir ./certs --address :9999 &
           sleep 2 &&
-          ./mc alias set myminiopeerdb http://localhost:9999 $$MINIO_ROOT_USER $$MINIO_ROOT_PASSWORD &&
+          ./mc alias set myminiopeerdb http://localhost:9999 minio miniosecret &&
           ./mc mb myminiopeerdb/peerdb
         env:
           MINIO_ROOT_USER: minio
