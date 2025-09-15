@@ -1150,7 +1150,7 @@ func (s APITestSuite) TestQRep() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s Suite) TestTableAdditionWithoutInitialLoad() {
+func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	var cols string
 	switch s.source.(type) {
 	case *e2e.PostgresSource, *e2e.MySqlSource:
@@ -1259,7 +1259,7 @@ func (s Suite) TestTableAdditionWithoutInitialLoad() {
 	e2e.RequireEnvCanceled(s.t, env)
 }
 
-func (s Suite) TestDropMissing() {
+func (s APITestSuite) TestDropMissing() {
 	conn := s.pg.PostgresConnector.Conn()
 	peer := s.source.GeneratePeer(s.t)
 	var peerId int32
