@@ -49,8 +49,7 @@ func (s MySQLRDSBinlogAPITestSuite) Connector() *connpostgres.PostgresConnector 
 	return s.pg.PostgresConnector
 }
 
-func testMySQLRDSBinlog(t *testing.T) {
-	t.Helper()
+func TestMySQLRDSBinlog(t *testing.T) {
 	e2eshared.RunSuiteNoParallel(t, func(t *testing.T) MySQLRDSBinlogAPITestSuite {
 		t.Helper()
 
