@@ -8,9 +8,8 @@ import (
 )
 
 var (
-	ErrSlotAlreadyExists      error = temporal.NewNonRetryableApplicationError("slot already exists", "snapshot", nil)
-	ErrTableDoesNotExist      error = temporal.NewNonRetryableApplicationError("table does not exist", "snapshot", nil)
-	ErrReplicaIdentityNothing error = errors.New("table has replica identity 'n'/NOTHING")
+	ErrSlotAlreadyExists error = temporal.NewNonRetryableApplicationError("slot already exists", "snapshot", nil)
+	ErrTableDoesNotExist error = temporal.NewNonRetryableApplicationError("table does not exist", "snapshot", nil)
 )
 
 type ErrType string

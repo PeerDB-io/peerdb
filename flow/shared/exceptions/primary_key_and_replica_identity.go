@@ -19,3 +19,15 @@ func (e *PrimaryKeyModifiedError) Unwrap() error {
 func (e *PrimaryKeyModifiedError) Error() string {
 	return fmt.Sprintf("cannot locate primary key column '%s' value for table '%s': %v", e.ColumnName, e.TableName, e.error.Error())
 }
+
+type ReplicaIdentityNothingError struct {
+	Table string
+}
+
+func NewErrReplicaIdentityNothing(table string, cause error) error {
+	return &ReplicaIdentityNothingError{Table: table}
+}
+
+func (e *ReplicaIdentityNothingError) Error() string {
+	return fmt.Sprintf("table %s has replica identity 'n'/NOTHING", e.Table)
+}
