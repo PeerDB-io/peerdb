@@ -205,7 +205,6 @@ func (c *MySqlConnector) setSessionSettings() error {
 		}
 	}
 
-	// Set session settings
 	switch c.Flavor() {
 	case mysql.MySQLFlavor:
 		// set max_execution_time to unlimited
