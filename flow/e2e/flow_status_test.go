@@ -10,8 +10,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
-	e2e_mongo "github.com/PeerDB-io/peerdb/flow/e2e/mongo"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
@@ -94,15 +92,15 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 	s.setupFlowStatusTestDependencies()
 	var cols string
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "status_test"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "status_test"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "status_test"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "status_test"))))
 		cols = "id,val"
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("valid").
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("valid").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -110,9 +108,9 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "flow_status_update_" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, "status_test"): "status_test"},
+		TableNameMapping: map[string]string{AttachSchema(s, "status_test"): "status_test"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -121,11 +119,11 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 
-	tc := e2e.NewTemporalClient(s.t)
-	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	e2e.RequireEqualTables(s.ch, "status_test", cols)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	RequireEqualTables(s.ch, "status_test", cols)
 
 	// pause the mirror
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -133,7 +131,7 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for paused state", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for paused state", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
@@ -143,7 +141,7 @@ func (s APITestSuite) TestFlowStatusUpdate() {
 		RequestedFlowState: protos.FlowStatus_STATUS_RUNNING,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for running state", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for running state", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 

@@ -7,7 +7,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
@@ -20,7 +19,7 @@ func (s PeerFlowE2ETestSuiteS3) attachSuffix(input string) string {
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("test_simple_flow_s3")
 	dstTableName := "peerdb_test_s3.test_simple_flow_s3"
@@ -33,7 +32,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
 		);
 	`, srcTableName))
 	require.NoError(s.t, err)
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowJobName,
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -42,29 +41,29 @@ func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.MaxBatchSize = 5
 
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 20 rows
 	for i := range 20 {
 		testKey := fmt.Sprintf("test_key_%d", i)
 		testValue := fmt.Sprintf("test_value_%d", i)
 		_, err := s.conn.Conn().Exec(s.t.Context(),
 			fmt.Sprintf(`INSERT INTO %s (key, value) VALUES ($1, $2)`, srcTableName), testKey, testValue)
-		e2e.EnvNoError(s.t, env, err)
+		EnvNoError(s.t, env, err)
 	}
 
-	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "waiting for blobs", func() bool {
+	EnvWaitFor(s.t, env, 2*time.Minute, "waiting for blobs", func() bool {
 		ctx, cancel := context.WithTimeout(s.t.Context(), 25*time.Second)
 		defer cancel()
 		files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-		e2e.EnvNoError(s.t, env, err)
+		EnvNoError(s.t, env, err)
 		s.t.Logf("Files in %s: %d", flowJobName, len(files))
 		return len(files) == 4
 	})
 
 	pool, err := internal.GetCatalogConnectionPoolFromEnv(s.t.Context())
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, time.Minute, "waiting for cdc batch completion", func() bool {
+	EnvWaitFor(s.t, env, time.Minute, "waiting for cdc batch completion", func() bool {
 		// s3 normalize is nop, so check peerdb_stats directly that batch finalized
 		var count int64
 		require.NoError(s.t, pool.QueryRow(s.t.Context(),
@@ -75,11 +74,11 @@ func (s PeerFlowE2ETestSuiteS3) Test_Simple() {
 	})
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuiteS3) Test_OriginMetadata() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	srcTableName := s.attachSchemaSuffix("origin_metadata")
 	dstTableName := "peerdb_test_s3.origin_metadata"
@@ -92,7 +91,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_OriginMetadata() {
 		);
 	`, srcTableName))
 	require.NoError(s.t, err)
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowJobName,
 		TableNameMapping: map[string]string{srcTableName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -102,24 +101,24 @@ func (s PeerFlowE2ETestSuiteS3) Test_OriginMetadata() {
 	flowConnConfig.MaxBatchSize = 5
 	flowConnConfig.Env = map[string]string{"PEERDB_ORIGIN_METADATA_AS_DESTINATION_COLUMN": "true"}
 
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	// insert 20 rows
 	for i := range 20 {
 		_, err := s.conn.Conn().Exec(s.t.Context(),
 			fmt.Sprintf(`INSERT INTO %s (val) VALUES ($1)`, srcTableName), fmt.Sprintf("test_value_%d", i))
-		e2e.EnvNoError(s.t, env, err)
+		EnvNoError(s.t, env, err)
 	}
 
-	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "waiting for blobs", func() bool {
+	EnvWaitFor(s.t, env, 2*time.Minute, "waiting for blobs", func() bool {
 		ctx, cancel := context.WithTimeout(s.t.Context(), 25*time.Second)
 		defer cancel()
 		files, err := s.s3Helper.ListAllFiles(ctx, flowJobName)
-		e2e.EnvNoError(s.t, env, err)
+		EnvNoError(s.t, env, err)
 		s.t.Logf("Files in %s: %d", flowJobName, len(files))
 		return len(files) == 4
 	})
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }

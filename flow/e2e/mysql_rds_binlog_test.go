@@ -11,8 +11,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
-	e2e_clickhouse "github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -23,10 +21,10 @@ import (
 type MySQLRDSBinlogAPITestSuite struct {
 	protos.FlowServiceClient
 	t      *testing.T
-	pg     *e2e.PostgresSource
-	source *e2e.MySqlSource
+	pg     *PostgresSource
+	source *MySqlSource
 	suffix string
-	ch     e2e_clickhouse.ClickHouseSuite
+	ch     ClickHouseSuite
 }
 
 func (s MySQLRDSBinlogAPITestSuite) Teardown(ctx context.Context) {
@@ -41,7 +39,7 @@ func (s MySQLRDSBinlogAPITestSuite) Suffix() string {
 	return s.suffix
 }
 
-func (s MySQLRDSBinlogAPITestSuite) Source() e2e.SuiteSource {
+func (s MySQLRDSBinlogAPITestSuite) Source() SuiteSource {
 	return s.source
 }
 
@@ -54,18 +52,18 @@ func TestMySQLRDSBinlog(t *testing.T) {
 		t.Helper()
 
 		suffix := "api_" + strings.ToLower(shared.RandomString(8))
-		pg, err := e2e.SetupPostgres(t, suffix)
+		pg, err := SetupPostgres(t, suffix)
 		require.NoError(t, err)
-		source, err := e2e.SetupMySQL(t, suffix)
+		source, err := SetupMySQL(t, suffix)
 		require.NoError(t, err)
-		client, err := e2e.NewApiClient()
+		client, err := NewApiClient()
 		require.NoError(t, err)
 		return MySQLRDSBinlogAPITestSuite{
 			FlowServiceClient: client,
 			t:                 t,
 			pg:                pg,
 			source:            source,
-			ch: e2e_clickhouse.SetupSuite(t, false, func(*testing.T) (*e2e.MySqlSource, string, error) {
+			ch: SetupClickHouseSuite(t, false, func(*testing.T) (*MySqlSource, string, error) {
 				return source, suffix, nil
 			})(t),
 			suffix: suffix,
@@ -75,11 +73,11 @@ func TestMySQLRDSBinlog(t *testing.T) {
 
 func (s MySQLRDSBinlogAPITestSuite) TestMySQLRDSBinlogValidation() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
-		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "valid"))))
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid"))))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "my_validation_" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, "valid"): "valid"},
+		TableNameMapping: map[string]string{AttachSchema(s, "valid"): "valid"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)

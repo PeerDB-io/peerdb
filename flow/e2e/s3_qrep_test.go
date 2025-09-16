@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -32,8 +31,8 @@ func (s PeerFlowE2ETestSuiteS3) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
-func (s PeerFlowE2ETestSuiteS3) Source() e2e.SuiteSource {
-	return &e2e.PostgresSource{PostgresConnector: s.conn}
+func (s PeerFlowE2ETestSuiteS3) Source() SuiteSource {
+	return &PostgresSource{PostgresConnector: s.conn}
 }
 
 func (s PeerFlowE2ETestSuiteS3) Suffix() string {
@@ -43,13 +42,13 @@ func (s PeerFlowE2ETestSuiteS3) Suffix() string {
 func (s PeerFlowE2ETestSuiteS3) Peer() *protos.Peer {
 	s.t.Helper()
 	ret := &protos.Peer{
-		Name: e2e.AddSuffix(s, "s3peer"),
+		Name: AddSuffix(s, "s3peer"),
 		Type: protos.DBType_S3,
 		Config: &protos.Peer_S3Config{
 			S3Config: s.s3Helper.S3Config,
 		},
 	}
-	e2e.CreatePeer(s.t, ret)
+	CreatePeer(s.t, ret)
 	return ret
 }
 
@@ -67,15 +66,15 @@ func TestPeerFlowE2ETestSuiteMinIO(t *testing.T) {
 }
 
 func (s PeerFlowE2ETestSuiteS3) setupSourceTable(tableName string, rowCount int) {
-	require.NoError(s.t, e2e.CreateTableForQRep(s.t.Context(), s.conn.Conn(), s.suffix, tableName))
-	require.NoError(s.t, e2e.PopulateSourceTable(s.t.Context(), s.conn.Conn(), s.suffix, tableName, rowCount))
+	require.NoError(s.t, CreateTableForQRep(s.t.Context(), s.conn.Conn(), s.suffix, tableName))
+	require.NoError(s.t, PopulateSourceTable(s.t.Context(), s.conn.Conn(), s.suffix, tableName, rowCount))
 }
 
 func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS3 {
 	t.Helper()
 
 	suffix := "s3_" + strings.ToLower(shared.RandomString(8))
-	conn, err := e2e.SetupPostgres(t, suffix)
+	conn, err := SetupPostgres(t, suffix)
 	if err != nil || conn == nil {
 		require.Fail(t, "failed to setup postgres", err)
 	}
@@ -94,7 +93,7 @@ func setupSuite(t *testing.T, s3environment S3Environment) PeerFlowE2ETestSuiteS
 }
 
 func (s PeerFlowE2ETestSuiteS3) Teardown(ctx context.Context) {
-	e2e.TearDownPostgres(ctx, s)
+	TearDownPostgres(ctx, s)
 
 	if err := s.s3Helper.CleanUp(ctx); err != nil {
 		require.Fail(s.t, "failed to clean up s3", err)
@@ -126,7 +125,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 		s.t.Skip("Skipping S3 test")
 	}
 
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	jobName := "test_complete_flow_s3"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s.suffix, jobName)
@@ -134,7 +133,7 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	s.setupSourceTable(jobName, 10)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
 		schemaQualifiedName)
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		jobName,
 		schemaQualifiedName,
@@ -148,8 +147,8 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 	)
 	qrepConfig.StagingPath = s.s3Helper.S3Config.Url
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	// Verify destination has 1 file
@@ -169,14 +168,14 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 		s.t.Skip("Skipping S3 test")
 	}
 
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	jobName := "test_complete_flow_s3_ctid"
 	schemaQualifiedName := fmt.Sprintf("e2e_test_%s.%s", s.suffix, jobName)
 
 	s.setupSourceTable(jobName, 20000)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", schemaQualifiedName)
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		jobName,
 		schemaQualifiedName,
@@ -193,8 +192,8 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 	qrepConfig.InitialCopyOnly = true
 	qrepConfig.WatermarkColumn = "ctid"
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	// Verify destination has 1 file

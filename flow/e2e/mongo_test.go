@@ -13,8 +13,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 
-	"github.com/PeerDB-io/peerdb/flow/e2e"
-	e2e_clickhouse "github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -22,7 +20,7 @@ import (
 )
 
 type MongoClickhouseSuite struct {
-	e2e.GenericSuite
+	GenericSuite
 }
 
 func TestMongoClickhouseSuite(t *testing.T) {
@@ -31,7 +29,7 @@ func TestMongoClickhouseSuite(t *testing.T) {
 
 func SetupMongoClickhouseSuite(t *testing.T) MongoClickhouseSuite {
 	t.Helper()
-	return MongoClickhouseSuite{e2e_clickhouse.SetupSuite(t, false, func(t *testing.T) (*MongoSource, string, error) {
+	return MongoClickhouseSuite{SetupClickHouseSuite(t, false, func(t *testing.T) (*MongoSource, string, error) {
 		t.Helper()
 		suffix := "mongoch_" + strings.ToLower(shared.RandomString(8))
 		source, err := SetupMongo(t, suffix)
@@ -45,9 +43,9 @@ func (s MongoClickhouseSuite) Test_Simple_Flow() {
 	srcTable := "test_simple"
 	dstTable := "test_simple_dst"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -64,12 +62,12 @@ func (s MongoClickhouseSuite) Test_Simple_Flow() {
 		require.True(t, res.Acknowledged)
 	}
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
 
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// insert 10 rows into the source table for cdc
 	for i := range 10 {
 		testKey := fmt.Sprintf("test_key_%d", i)
@@ -79,9 +77,9 @@ func (s MongoClickhouseSuite) Test_Simple_Flow() {
 		require.True(t, res.Acknowledged)
 	}
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
@@ -90,9 +88,9 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 	srcTable := "test_simple_partitioned"
 	dstTable := "test_simple_dst_partitioned"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -111,12 +109,12 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 		require.True(t, res.Acknowledged)
 	}
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
 
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 	// insert 10 rows into the source table for cdc
 	for i := range 10 {
 		testKey := fmt.Sprintf("test_key_%d", i)
@@ -126,9 +124,9 @@ func (s MongoClickhouseSuite) Test_Simple_Flow_Partitioned() {
 		require.True(t, res.Acknowledged)
 	}
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_Inconsistent_Schema() {
@@ -138,9 +136,9 @@ func (s MongoClickhouseSuite) Test_Inconsistent_Schema() {
 	srcTable := "test_schema_change"
 	dstTable := "test_schema_change_dst"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -161,11 +159,11 @@ func (s MongoClickhouseSuite) Test_Inconsistent_Schema() {
 		require.True(t, res.Acknowledged)
 	}
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "initial load to match", srcTable, dstTable, "_id,doc")
 
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	// inconsistent data type for a given field should work
 	docs = []bson.D{
@@ -177,10 +175,10 @@ func (s MongoClickhouseSuite) Test_Inconsistent_Schema() {
 		require.NoError(t, err)
 		require.True(t, res.Acknowledged)
 	}
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "cdc events to match", srcTable, dstTable, "_id,doc")
 
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_CDC() {
@@ -190,9 +188,9 @@ func (s MongoClickhouseSuite) Test_CDC() {
 	srcTable := "test_update_replace_delete"
 	dstTable := "test_update_replace_delete_dst"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -201,14 +199,14 @@ func (s MongoClickhouseSuite) Test_CDC() {
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: 1}}, options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, insertRes.Acknowledged)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable, dstTable, "_id,doc")
 
 	updateRes, err := collection.UpdateOne(
 		t.Context(),
@@ -217,7 +215,7 @@ func (s MongoClickhouseSuite) Test_CDC() {
 		options.UpdateOne())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), updateRes.ModifiedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "update event", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "update event", srcTable, dstTable, "_id,doc")
 
 	replaceRes, err := collection.ReplaceOne(
 		t.Context(),
@@ -226,15 +224,15 @@ func (s MongoClickhouseSuite) Test_CDC() {
 		options.Replace())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), replaceRes.ModifiedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "replace event", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "replace event", srcTable, dstTable, "_id,doc")
 
 	deleteRes, err := collection.DeleteOne(t.Context(), bson.D{bson.E{Key: "key", Value: 3}}, options.DeleteOne())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleteRes.DeletedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete event", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "delete event", srcTable, dstTable, "_id,doc")
 
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
@@ -252,9 +250,9 @@ func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
 	srcTable := "test_nested_event"
 	dstTable := "test_nested_event_dst"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -268,17 +266,17 @@ func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
 	require.NoError(t, err)
 	require.True(t, res.Acknowledged)
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
 
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	// insert nested doc for cdc
 	res, err = collection.InsertOne(t.Context(), nestedDoc("X"), options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, res.Acknowledged)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "insert events to match", srcTable, dstTable, "_id,doc")
 
 	oid := bson.D{bson.E{Key: "_id", Value: res.InsertedID}}
 
@@ -286,22 +284,22 @@ func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {
 	updateRes, err := collection.UpdateOne(t.Context(), oid, bson.D{bson.E{Key: "$set", Value: nestedDoc("Y")}}, options.UpdateOne())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), updateRes.ModifiedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "update events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "update events to match", srcTable, dstTable, "_id,doc")
 
 	// replace nested doc for cdc
 	replaceRes, err := collection.ReplaceOne(t.Context(), oid, nestedDoc("Z"), options.Replace())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), replaceRes.ModifiedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "replace events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "replace events to match", srcTable, dstTable, "_id,doc")
 
 	// delete nested doc for cdc
 	deleteRes, err := collection.DeleteOne(t.Context(), oid, options.DeleteOne())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleteRes.DeletedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "delete events to match", srcTable, dstTable, "_id,doc")
 
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
@@ -319,9 +317,9 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	srcTable := "test_large_event"
 	dstTable := "test_large_event_dst"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -335,17 +333,17 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	require.NoError(t, err)
 	require.True(t, res.Acknowledged)
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
 
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	// insert large doc for cdc (to test change event with "fullDocument")
 	res, err = collection.InsertOne(t.Context(), largeDoc("X"), options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, res.Acknowledged)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "insert events to match", srcTable, dstTable, "_id,doc")
 
 	oid := bson.D{bson.E{Key: "_id", Value: res.InsertedID}}
 
@@ -353,22 +351,22 @@ func (s MongoClickhouseSuite) Test_Large_Document_At_Limit() {
 	updateRes, err := collection.UpdateOne(t.Context(), oid, bson.D{bson.E{Key: "$set", Value: largeDoc("Y")}}, options.UpdateOne())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), updateRes.ModifiedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "update events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "update events to match", srcTable, dstTable, "_id,doc")
 
 	// replace large doc for cdc
 	replaceRes, err := collection.ReplaceOne(t.Context(), oid, largeDoc("Z"), options.Replace())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), replaceRes.ModifiedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "replace events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "replace events to match", srcTable, dstTable, "_id,doc")
 
 	// delete large doc for cdc
 	deleteRes, err := collection.DeleteOne(t.Context(), oid, options.DeleteOne())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleteRes.DeletedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete events to match", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "delete events to match", srcTable, dstTable, "_id,doc")
 
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
@@ -380,9 +378,9 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 	srcTable2 := "test_transaction_t2"
 	dstTable2 := "test_transaction_t2_dst"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, "test_transaction"),
-		TableMappings: e2e.TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, "test_transaction"),
+		TableMappings: TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -408,12 +406,12 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 	require.True(t, res.([]*mongo.InsertOneResult)[0].Acknowledged)
 	require.True(t, res.([]*mongo.InsertOneResult)[1].Acknowledged)
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable1, dstTable1, "_id,doc")
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable2, dstTable2, "_id,doc")
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable1, dstTable1, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable2, dstTable2, "_id,doc")
 
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	res, err = session.WithTransaction(t.Context(), func(ctx context.Context) (interface{}, error) {
 		res1, err1 := coll1.UpdateOne(t.Context(),
@@ -433,11 +431,11 @@ func (s MongoClickhouseSuite) Test_Transactions_Across_Collections() {
 	require.NoError(t, err)
 	require.Equal(t, int64(1), res.([]*mongo.UpdateResult)[0].ModifiedCount)
 	require.Equal(t, int64(1), res.([]*mongo.UpdateResult)[1].ModifiedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "t1 to match", srcTable1, dstTable1, "_id,doc")
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "t2 to match", srcTable2, dstTable2, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "t1 to match", srcTable1, dstTable1, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "t2 to match", srcTable2, dstTable2, "_id,doc")
 
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_Enable_Json() {
@@ -446,9 +444,9 @@ func (s MongoClickhouseSuite) Test_Enable_Json() {
 	srcTable := "test_full_document_json"
 	dstTable := "test_full_document_json_dst"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -462,30 +460,30 @@ func (s MongoClickhouseSuite) Test_Enable_Json() {
 	require.NoError(t, err)
 	require.True(t, res.Acknowledged)
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	EnvWaitForEqualTablesWithNames(env, s, "initial load", srcTable, dstTable, "_id,doc")
 
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	insertRes, err := collection.InsertOne(t.Context(), bson.D{bson.E{Key: "key2", Value: "val2"}}, options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, insertRes.Acknowledged)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable, dstTable, "_id,doc")
 	oid := bson.D{bson.E{Key: "_id", Value: res.InsertedID}}
 
 	replaceRes, err := collection.ReplaceOne(t.Context(), oid, bson.D{bson.E{Key: "key2", Value: "val2"}}, options.Replace())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), replaceRes.ModifiedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "replace event", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "replace event", srcTable, dstTable, "_id,doc")
 
 	deleteRes, err := collection.DeleteOne(t.Context(), oid, options.DeleteOne())
 	require.NoError(t, err)
 	require.Equal(t, int64(1), deleteRes.DeletedCount)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "delete event", srcTable, dstTable, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "delete event", srcTable, dstTable, "_id,doc")
 
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
@@ -497,9 +495,9 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 	srcTable2 := "t2"
 	dstTable2 := "t2_dst"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, "can_resume_after_delete_table"),
-		TableMappings: e2e.TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, "can_resume_after_delete_table"),
+		TableMappings: TableMappings(s, srcTable1, dstTable1, srcTable2, dstTable2),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -507,9 +505,9 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 
 	db := s.Source().(*MongoSource).AdminClient().Database(srcDatabase)
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	// insert a document to t1 and t2
 	// since t2 is written last, saved resume token references t2
@@ -519,23 +517,23 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 	insertRes, err = db.Collection(srcTable2).InsertOne(t.Context(), bson.D{bson.E{Key: "key", Value: "val"}}, options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, insertRes.Acknowledged)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable1, dstTable1, "_id,doc")
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable2, dstTable2, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable1, dstTable1, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable2, dstTable2, "_id,doc")
 
 	// pause workflow
-	e2e.SignalWorkflow(t.Context(), env, model.FlowSignal, model.PauseSignal)
-	e2e.EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
+	SignalWorkflow(t.Context(), env, model.FlowSignal, model.PauseSignal)
+	EnvWaitFor(t, env, 1*time.Minute, "paused workflow", func() bool {
 		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_PAUSED
 	})
 
 	// resume workflow with t2 removed from table mapping
-	e2e.SignalWorkflow(t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
+	SignalWorkflow(t.Context(), env, model.CDCDynamicPropertiesSignal, &protos.CDCFlowConfigUpdate{
 		RemovedTables: []*protos.TableMapping{{
 			SourceTableIdentifier:      srcDatabase + "." + srcTable2,
 			DestinationTableIdentifier: srcDatabase + "." + dstTable2,
 		}},
 	})
-	e2e.EnvWaitFor(t, env, 1*time.Minute, "resumed workflow", func() bool {
+	EnvWaitFor(t, env, 1*time.Minute, "resumed workflow", func() bool {
 		return env.GetFlowStatus(t) == protos.FlowStatus_STATUS_RUNNING
 	})
 
@@ -543,10 +541,10 @@ func (s MongoClickhouseSuite) Test_Mongo_Can_Resume_After_Delete_Table() {
 	insertRes, err = db.Collection(srcTable1).InsertOne(t.Context(), bson.D{bson.E{Key: "key2", Value: "val2"}}, options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, insertRes.Acknowledged)
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable1, dstTable1, "_id,doc")
+	EnvWaitForEqualTablesWithNames(env, s, "insert event", srcTable1, dstTable1, "_id,doc")
 
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s MongoClickhouseSuite) Test_Json_Types() {
@@ -555,9 +553,9 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 	srcTable := "test_json_types"
 	dstTable := "test_json_types_dst"
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -675,16 +673,16 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 	require.NoError(t, err)
 	require.True(t, insertRes.Acknowledged)
 
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
-	e2e.EnvWaitForCount(env, s, "initial load", dstTable, "_id,doc", 1)
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	EnvWaitForCount(env, s, "initial load", dstTable, "_id,doc", 1)
 
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
 
 	insertRes, err = collection.InsertOne(t.Context(), doc, options.InsertOne())
 	require.NoError(t, err)
 	require.True(t, insertRes.Acknowledged)
-	e2e.EnvWaitForCount(env, s, "cdc", dstTable, "_id,doc", 2)
+	EnvWaitForCount(env, s, "cdc", dstTable, "_id,doc", 2)
 
 	rows, err := s.GetRows(dstTable, "_id,doc")
 	require.NoError(t, err)
@@ -751,5 +749,5 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		require.NotContains(t, row, `"min_key"`)
 	}
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }

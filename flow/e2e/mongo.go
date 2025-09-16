@@ -14,7 +14,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -37,7 +36,7 @@ func (s *MongoSource) GeneratePeer(t *testing.T) *protos.Peer {
 			MongoConfig: s.config,
 		},
 	}
-	e2e.CreatePeer(t, peer)
+	CreatePeer(t, peer)
 	return peer
 }
 

@@ -6,13 +6,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 )
 
 func (s PeerFlowE2ETestSuiteBQ) setupSourceTable(tableName string, rowCount int) {
-	require.NoError(s.t, e2e.CreateTableForQRep(s.t.Context(), s.Conn(), s.bqSuffix, tableName))
-	require.NoError(s.t, e2e.PopulateSourceTable(s.t.Context(), s.Conn(), s.bqSuffix, tableName, rowCount))
+	require.NoError(s.t, CreateTableForQRep(s.t.Context(), s.Conn(), s.bqSuffix, tableName))
+	require.NoError(s.t, PopulateSourceTable(s.t.Context(), s.Conn(), s.bqSuffix, tableName, rowCount))
 }
 
 func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
@@ -50,7 +48,7 @@ func (s PeerFlowE2ETestSuiteBQ) setupTimeTable(tableName string) {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -60,7 +58,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.bqSuffix, tblName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(s.t, "test_qrep_flow_avro",
+	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_qrep_flow_avro",
 		fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tblName),
 		tblName,
 		query,
@@ -69,22 +67,22 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 		true,
 		"",
 		"")
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
-	e2e.RequireEqualTables(s, tblName, "*")
+	RequireEqualTables(s, tblName, "*")
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 	tblName := "test_invalid_time_bq"
 	s.setupTimeTable(tblName)
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE watermark_ts BETWEEN {{.start}} AND {{.end}}",
 		s.bqSuffix, tblName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(s.t, "test_invalid_time_bq",
+	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_invalid_time_bq",
 		fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tblName),
 		tblName,
 		query,
@@ -94,8 +92,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 		"",
 		"")
 	qrepConfig.WatermarkColumn = "watermark_ts"
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	goodValues := []string{"watermark_ts", "mydate", "medieval"}
@@ -115,7 +113,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 }
 
 func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -125,7 +123,7 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.bqSuffix, tblName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(s.t, "test_qrep_flow_avro",
+	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_qrep_flow_avro",
 		fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tblName),
 		tblName,
 		query,
@@ -134,8 +132,8 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 		true,
 		"_PEERDB_SYNCED_AT",
 		"")
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	require.NoError(s.t, s.checkPeerdbColumns(tblName, false))

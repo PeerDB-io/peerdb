@@ -20,8 +20,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
-	e2e_s3 "github.com/PeerDB-io/peerdb/flow/e2e/s3"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -29,8 +27,8 @@ import (
 
 type ClickHouseSuite struct {
 	t         *testing.T
-	source    e2e.SuiteSource
-	s3Helper  *e2e_s3.S3TestHelper
+	source    SuiteSource
+	s3Helper  *S3TestHelper
 	connector *connclickhouse.ClickHouseConnector
 	suffix    string
 	cluster   bool
@@ -48,7 +46,7 @@ func (s ClickHouseSuite) Connector() *connpostgres.PostgresConnector {
 	return c
 }
 
-func (s ClickHouseSuite) Source() e2e.SuiteSource {
+func (s ClickHouseSuite) Source() SuiteSource {
 	return s.source
 }
 
@@ -68,7 +66,7 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 	dbname := "e2e_test_" + s.suffix
 	if s.cluster {
 		ret := &protos.Peer{
-			Name: e2e.AddSuffix(s, dbname),
+			Name: AddSuffix(s, dbname),
 			Type: protos.DBType_CLICKHOUSE,
 			Config: &protos.Peer_ClickhouseConfig{
 				ClickhouseConfig: &protos.ClickhouseConfig{
@@ -82,7 +80,7 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 				},
 			},
 		}
-		e2e.CreatePeer(s.t, ret)
+		CreatePeer(s.t, ret)
 		return ret
 	} else {
 		return s.PeerForDatabase(dbname)
@@ -91,7 +89,7 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 
 func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 	ret := &protos.Peer{
-		Name: e2e.AddSuffix(s, dbname),
+		Name: AddSuffix(s, dbname),
 		Type: protos.DBType_CLICKHOUSE,
 		Config: &protos.Peer_ClickhouseConfig{
 			ClickhouseConfig: &protos.ClickhouseConfig{
@@ -103,7 +101,7 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 			},
 		},
 	}
-	e2e.CreatePeer(s.t, ret)
+	CreatePeer(s.t, ret)
 	return ret
 }
 
@@ -365,7 +363,7 @@ func (s ClickHouseSuite) queryRawTable(conn clickhouse.Conn, table string, cols 
 	)
 }
 
-func SetupSuite[TSource e2e.SuiteSource](
+func SetupClickHouseSuite[TSource SuiteSource](
 	t *testing.T,
 	cluster bool,
 	setupSource func(*testing.T) (TSource, string, error),
@@ -377,12 +375,12 @@ func SetupSuite[TSource e2e.SuiteSource](
 		source, suffix, err := setupSource(t)
 		require.NoError(t, err, "failed to setup postgres")
 
-		s3Helper, err := e2e_s3.NewS3TestHelper(t.Context(), e2e_s3.Minio)
+		s3Helper, err := NewS3TestHelper(t.Context(), Minio)
 		require.NoError(t, err, "failed to setup S3")
 
 		s := ClickHouseSuite{
 			t:        t,
-			source:   e2e.SuiteSource(source),
+			source:   SuiteSource(source),
 			suffix:   suffix,
 			s3Helper: s3Helper,
 			cluster:  cluster,

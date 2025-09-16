@@ -20,9 +20,6 @@ import (
 
 	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
-	e2e_clickhouse "github.com/PeerDB-io/peerdb/flow/e2e/clickhouse"
-	e2e_mongo "github.com/PeerDB-io/peerdb/flow/e2e/mongo"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -33,10 +30,10 @@ import (
 type APITestSuite struct {
 	protos.FlowServiceClient
 	t      *testing.T
-	pg     *e2e.PostgresSource
-	source e2e.SuiteSource
+	pg     *PostgresSource
+	source SuiteSource
 	suffix string
-	ch     e2e_clickhouse.ClickHouseSuite
+	ch     ClickHouseSuite
 }
 
 func (s APITestSuite) Teardown(ctx context.Context) {
@@ -51,7 +48,7 @@ func (s APITestSuite) Suffix() string {
 	return s.suffix
 }
 
-func (s APITestSuite) Source() e2e.SuiteSource {
+func (s APITestSuite) Source() SuiteSource {
 	return s.source
 }
 
@@ -66,13 +63,13 @@ func (s APITestSuite) DestinationTable(table string) string {
 // checkMetadataLastSyncStateValues checks the values of sync_batch_id and normalize_batch_id
 // in the metadata_last_sync_state table
 func (s APITestSuite) checkMetadataLastSyncStateValues(
-	env e2e.WorkflowRun,
+	env WorkflowRun,
 	flowConnConfig *protos.FlowConnectionConfigs,
 	reason string,
 	expectedSyncBatchId int64,
 	expectedNormalizeBatchId int64,
 ) {
-	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
+	EnvWaitFor(s.t, env, 5*time.Minute, "sync flow check: "+reason, func() bool {
 		var syncBatchID pgtype.Int8
 		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
 			s.t.Context(),
@@ -85,7 +82,7 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 		return syncBatchID.Valid && (syncBatchID.Int64 == expectedSyncBatchId)
 	})
 
-	e2e.EnvWaitFor(s.t, env, 5*time.Minute, "normalize flow check: "+reason, func() bool {
+	EnvWaitFor(s.t, env, 5*time.Minute, "normalize flow check: "+reason, func() bool {
 		var normalizeBatchID pgtype.Int8
 		queryErr := s.pg.PostgresConnector.Conn().QueryRow(
 			s.t.Context(),
@@ -99,9 +96,9 @@ func (s APITestSuite) checkMetadataLastSyncStateValues(
 	})
 }
 
-func (s APITestSuite) waitForActiveSlotForPostgresMirror(env e2e.WorkflowRun, conn *pgx.Conn, mirrorName string) {
+func (s APITestSuite) waitForActiveSlotForPostgresMirror(env WorkflowRun, conn *pgx.Conn, mirrorName string) {
 	slotName := "peerflow_slot_" + mirrorName
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to become active", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for replication to become active", func() bool {
 		var active pgtype.Bool
 		err := conn.QueryRow(s.t.Context(),
 			`SELECT active FROM pg_replication_slots WHERE slot_name = $1`, slotName).Scan(&active)
@@ -151,7 +148,7 @@ func (s APITestSuite) checkCatalogTableMapping(
 	return true, nil
 }
 
-func testApi[TSource e2e.SuiteSource](
+func testApi[TSource SuiteSource](
 	t *testing.T,
 	setup func(*testing.T, string) (TSource, error),
 ) {
@@ -160,18 +157,18 @@ func testApi[TSource e2e.SuiteSource](
 		t.Helper()
 
 		suffix := "api_" + strings.ToLower(shared.RandomString(8))
-		pg, err := e2e.SetupPostgres(t, suffix)
+		pg, err := SetupPostgres(t, suffix)
 		require.NoError(t, err)
 		source, err := setup(t, suffix)
 		require.NoError(t, err)
-		client, err := e2e.NewApiClient()
+		client, err := NewApiClient()
 		require.NoError(t, err)
 		return APITestSuite{
 			FlowServiceClient: client,
 			t:                 t,
 			pg:                pg,
 			source:            source,
-			ch: e2e_clickhouse.SetupSuite(t, false, func(*testing.T) (TSource, string, error) {
+			ch: SetupClickHouseSuite(t, false, func(*testing.T) (TSource, string, error) {
 				return source, suffix, nil
 			})(t),
 			suffix: suffix,
@@ -180,15 +177,15 @@ func testApi[TSource e2e.SuiteSource](
 }
 
 func TestApiPg(t *testing.T) {
-	testApi(t, e2e.SetupPostgres)
+	testApi(t, SetupPostgres)
 }
 
 func TestApiMy(t *testing.T) {
-	testApi(t, e2e.SetupMySQL)
+	testApi(t, SetupMySQL)
 }
 
 func TestApiMongo(t *testing.T) {
-	testApi(t, e2e_mongo.SetupMongo)
+	testApi(t, SetupMongo)
 }
 
 func (s APITestSuite) TestGetVersion() {
@@ -229,18 +226,18 @@ func (s APITestSuite) TestPostgresValidation_Pass() {
 
 func (s APITestSuite) TestClickHouseMirrorValidation_Pass() {
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "valid"))))
-	case *e2e_mongo.MongoSource:
-		require.NoError(s.t, s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).CreateCollection(s.t.Context(), "valid"))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid"))))
+	case *MongoSource:
+		require.NoError(s.t, s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).CreateCollection(s.t.Context(), "valid"))
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "ch_validation_" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, "valid"): "valid"},
+		TableNameMapping: map[string]string{AttachSchema(s, "valid"): "valid"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -273,30 +270,30 @@ func (s APITestSuite) TestSchemaEndpoints() {
 	})
 	require.NoError(s.t, err)
 	switch s.source.(type) {
-	case *e2e.MySqlSource:
+	case *MySqlSource:
 		require.Equal(s.t, "MYSQL", peerType.PeerType)
-	case *e2e.PostgresSource:
+	case *PostgresSource:
 		require.Equal(s.t, "POSTGRES", peerType.PeerType)
-	case *e2e_mongo.MongoSource:
+	case *MongoSource:
 		require.Equal(s.t, "MONGO", peerType.PeerType)
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
 
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, tableName))))
-	case *e2e_mongo.MongoSource:
-		require.NoError(s.t, s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).CreateCollection(s.t.Context(), tableName))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+	case *MongoSource:
+		require.NoError(s.t, s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).CreateCollection(s.t.Context(), tableName))
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
 
 	tablesInSchema, err := s.GetTablesInSchema(s.t.Context(), &protos.SchemaTablesRequest{
 		PeerName:   peer.Name,
-		SchemaName: e2e.Schema(s),
+		SchemaName: Schema(s),
 	})
 	require.NoError(s.t, err)
 	require.Len(s.t, tablesInSchema.Tables, 1)
@@ -312,13 +309,13 @@ func (s APITestSuite) TestSchemaEndpoints() {
 		PeerName: peer.Name,
 	})
 	require.NoError(s.t, err)
-	require.Contains(s.t, tablesResponse.Tables, e2e.AttachSchema(s, tableName))
+	require.Contains(s.t, tablesResponse.Tables, AttachSchema(s, tableName))
 
 	switch source := s.source.(type) {
-	case *e2e.PostgresSource:
+	case *PostgresSource:
 		columns, err := s.GetColumns(s.t.Context(), &protos.TableColumnsRequest{
 			PeerName:   peer.Name,
-			SchemaName: e2e.Schema(s),
+			SchemaName: Schema(s),
 			TableName:  tableName,
 		})
 		require.NoError(s.t, err)
@@ -329,10 +326,10 @@ func (s APITestSuite) TestSchemaEndpoints() {
 		require.Equal(s.t, "val", columns.Columns[1].Name)
 		require.False(s.t, columns.Columns[1].IsKey)
 		require.Equal(s.t, "text", columns.Columns[1].Type)
-	case *e2e.MySqlSource:
+	case *MySqlSource:
 		columns, err := s.GetColumns(s.t.Context(), &protos.TableColumnsRequest{
 			PeerName:   peer.Name,
-			SchemaName: e2e.Schema(s),
+			SchemaName: Schema(s),
 			TableName:  tableName,
 		})
 		require.NoError(s.t, err)
@@ -347,7 +344,7 @@ func (s APITestSuite) TestSchemaEndpoints() {
 		require.Equal(s.t, "val", columns.Columns[1].Name)
 		require.False(s.t, columns.Columns[1].IsKey)
 		require.Equal(s.t, "text", columns.Columns[1].Type)
-	case *e2e_mongo.MongoSource:
+	case *MongoSource:
 		// GetColumns is not implemented for Mongo
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", source))
@@ -355,7 +352,7 @@ func (s APITestSuite) TestSchemaEndpoints() {
 }
 
 func (s APITestSuite) TestScripts() {
-	if _, ok := s.source.(*e2e.PostgresSource); !ok {
+	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only run with pg so only one test against scripts runs")
 	}
 
@@ -426,19 +423,19 @@ func (s APITestSuite) TestScripts() {
 }
 
 func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
-	if _, ok := s.source.(*e2e_mongo.MongoSource); !ok {
+	if _, ok := s.source.(*MongoSource); !ok {
 		s.t.Skip("only for MongoDB")
 	}
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "mongo_validation_" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, "t1"): "t1"},
+		TableNameMapping: map[string]string{AttachSchema(s, "t1"): "t1"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	// test retention hours (< 24 hours) validation failure
-	adminClient := s.Source().(*e2e_mongo.MongoSource).AdminClient()
+	adminClient := s.Source().(*MongoSource).AdminClient()
 	err := adminClient.Database("admin").RunCommand(s.t.Context(), bson.D{
 		bson.E{Key: "replSetResizeOplog", Value: 1},
 		bson.E{Key: "minRetentionHours", Value: mongo.MinOplogRetentionHours - 1},
@@ -464,18 +461,18 @@ func (s APITestSuite) TestMongoDBOplogRetentionValidation() {
 }
 
 func (s APITestSuite) TestMongoDBUserRolesValidation() {
-	if _, ok := s.source.(*e2e_mongo.MongoSource); !ok {
+	if _, ok := s.source.(*MongoSource); !ok {
 		s.t.Skip("only for MongoDB")
 	}
 
-	adminClient := s.Source().(*e2e_mongo.MongoSource).AdminClient()
+	adminClient := s.Source().(*MongoSource).AdminClient()
 	user := "test_role_validation_user"
 	pass := "test_role_validation_pass"
 	mongoConfig := s.source.GeneratePeer(s.t).GetMongoConfig()
 	mongoConfig.Username = user
 	mongoConfig.Password = pass
 	peer := &protos.Peer{
-		Name:   e2e.AddSuffix(s, "mongo"),
+		Name:   AddSuffix(s, "mongo"),
 		Type:   protos.DBType_MONGO,
 		Config: &protos.Peer_MongoConfig{MongoConfig: mongoConfig},
 	}
@@ -539,7 +536,7 @@ func (s APITestSuite) TestMongoDBUserRolesValidation() {
 }
 
 func (s APITestSuite) TestMySQLFlavorSwap() {
-	my, ok := s.source.(*e2e.MySqlSource)
+	my, ok := s.source.(*MySqlSource)
 	if !ok {
 		s.t.Skip("only for MySQL")
 	}
@@ -565,15 +562,15 @@ func (s APITestSuite) TestResyncCompleted() {
 	tableName := "valid"
 	var cols string
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, tableName))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, tableName))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
 		cols = "id,val"
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection(tableName).
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -582,9 +579,9 @@ func (s APITestSuite) TestResyncCompleted() {
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "resync_completed_" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, tableName): tableName},
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -594,20 +591,20 @@ func (s APITestSuite) TestResyncCompleted() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 
-	tc := e2e.NewTemporalClient(s.t)
-	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	e2e.RequireEqualTables(s.ch, tableName, cols)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	RequireEqualTables(s.ch, tableName, cols)
 
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", e2e.AttachSchema(s, tableName))))
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection(tableName).
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'resync')", AttachSchema(s, tableName))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "resync"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -621,10 +618,10 @@ func (s APITestSuite) TestResyncCompleted() {
 	})
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForEqualTables(env, s.ch, "resync", tableName, cols)
-	env, err = e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	EnvWaitForEqualTables(env, s.ch, "resync", tableName, cols)
+	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.EnvWaitForFinished(s.t, env, time.Minute)
+	EnvWaitForFinished(s.t, env, time.Minute)
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
@@ -632,25 +629,25 @@ func (s APITestSuite) TestResyncCompleted() {
 	})
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForEqualTables(env, s.ch, "resync 2", tableName, cols)
-	env, err = e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	EnvWaitForEqualTables(env, s.ch, "resync 2", tableName, cols)
+	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.EnvWaitForFinished(s.t, env, time.Minute)
+	EnvWaitForFinished(s.t, env, time.Minute)
 }
 
 func (s APITestSuite) TestDropCompleted() {
 	tableName := "valid"
 	var cols string
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, tableName))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, tableName))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
 		cols = "id,val"
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection(tableName).
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection(tableName).
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -659,9 +656,9 @@ func (s APITestSuite) TestDropCompleted() {
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "drop_completed_" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, tableName): tableName},
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -671,25 +668,25 @@ func (s APITestSuite) TestDropCompleted() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 
-	tc := e2e.NewTemporalClient(s.t)
-	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
-	e2e.RequireEqualTables(s.ch, tableName, cols)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	RequireEqualTables(s.ch, tableName, cols)
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
+	EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
 		var workflowID string
 		return s.pg.PostgresConnector.Conn().QueryRow(
 			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
-	e2e.EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
+	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
 		var workflowID string
 		return s.pg.PostgresConnector.Conn().QueryRow(
 			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
@@ -700,24 +697,24 @@ func (s APITestSuite) TestDropCompleted() {
 func (s APITestSuite) TestEditTablesBeforeResync() {
 	var cols string
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "original"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "original"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "added"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "added"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "original"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "original"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "added"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "added"))))
 		cols = "id,val"
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("original").
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("original").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("added").
+		res, err = s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("added").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -725,9 +722,9 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "edit_tables_before_resync_" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, "original"): "original"},
+		TableNameMapping: map[string]string{AttachSchema(s, "original"): "original"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -736,14 +733,14 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 
-	tc := e2e.NewTemporalClient(s.t)
-	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	e2e.RequireEqualTables(s.ch, "original", cols)
+	RequireEqualTables(s.ch, "original", cols)
 
 	// pause the mirror
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -751,7 +748,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -762,7 +759,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					AdditionalTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      e2e.AttachSchema(s, "added"),
+							SourceTableIdentifier:      AttachSchema(s, "added"),
 							DestinationTableIdentifier: "added",
 						},
 					},
@@ -771,10 +768,10 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 		},
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
 		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
-			e2e.AttachSchema(s, "added"),
-			e2e.AttachSchema(s, "original"),
+			AttachSchema(s, "added"),
+			AttachSchema(s, "original"),
 		})
 		if err != nil {
 			return false
@@ -782,7 +779,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 
 		return valid && env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	e2e.RequireEqualTables(s.ch, "added", cols)
+	RequireEqualTables(s.ch, "added", cols)
 
 	// Check initial load stats
 	initialLoadClientFacingDataAfterAddTable, err := s.InitialLoadSummary(s.t.Context(), &protos.InitialLoadSummaryRequest{
@@ -793,12 +790,12 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 
 	// Test CDC
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'added_table_cdc')", e2e.AttachSchema(s, "added"))))
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("added").
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'added_table_cdc')", AttachSchema(s, "added"))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("added").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "added_table_cdc"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -806,14 +803,14 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
 	s.checkMetadataLastSyncStateValues(env, flowConnConfig, "cdc after add table", 1, 1)
-	e2e.RequireEqualTables(s.ch, "added", cols)
+	RequireEqualTables(s.ch, "added", cols)
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for remove table", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for remove table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -824,7 +821,7 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					RemovedTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      e2e.AttachSchema(s, "original"),
+							SourceTableIdentifier:      AttachSchema(s, "original"),
 							DestinationTableIdentifier: "original",
 						},
 					},
@@ -834,9 +831,9 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 	})
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for table removal to finish", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table removal to finish", func() bool {
 		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
-			e2e.AttachSchema(s, "added"),
+			AttachSchema(s, "added"),
 		})
 		if err != nil {
 			return false
@@ -853,16 +850,16 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause after table removal", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause after table removal", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (3,'resync')", e2e.AttachSchema(s, "added"))))
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("added").
+			fmt.Sprintf("INSERT INTO %s(id, val) values (3,'resync')", AttachSchema(s, "added"))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("added").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 3}, bson.E{Key: "val", Value: "resync"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -875,11 +872,11 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 		DropMirrorStats:    true,
 	})
 	require.NoError(s.t, err)
-	newEnv, newErr := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	newEnv, newErr := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, newErr)
 	// test resync initial load
-	e2e.EnvWaitForEqualTables(newEnv, s.ch, "resync", "added", cols)
-	e2e.EnvWaitFor(s.t, newEnv, 3*time.Minute, "wait for resynced mirror to be in cdc", func() bool {
+	EnvWaitForEqualTables(newEnv, s.ch, "resync", "added", cols)
+	EnvWaitFor(s.t, newEnv, 3*time.Minute, "wait for resynced mirror to be in cdc", func() bool {
 		return newEnv.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 
@@ -892,12 +889,12 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 
 	// Test resync CDC
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (4,'cdc_after_resync')", e2e.AttachSchema(s, "added"))))
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("added").
+			fmt.Sprintf("INSERT INTO %s(id, val) values (4,'cdc_after_resync')", AttachSchema(s, "added"))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("added").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 4}, bson.E{Key: "val", Value: "cdc_after_resync"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -905,9 +902,9 @@ func (s APITestSuite) TestEditTablesBeforeResync() {
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
 	s.checkMetadataLastSyncStateValues(newEnv, flowConnConfig, "cdc after resync", 1, 1)
-	e2e.EnvWaitForEqualTables(newEnv, s.ch, "resync after normalize", "added", cols)
+	EnvWaitForEqualTables(newEnv, s.ch, "resync after normalize", "added", cols)
 	newEnv.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, newEnv)
+	RequireEnvCanceled(s.t, newEnv)
 }
 
 func (s APITestSuite) TestAlertConfig() {
@@ -959,24 +956,24 @@ func (s APITestSuite) TestAlertConfig() {
 func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	var cols string
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "table1"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table1"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "table2"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "table2"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "table1"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table1"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "table2"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "table2"))))
 		cols = "id,val"
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("table1").
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("table1").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("table2").
+		res, err = s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("table2").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -984,9 +981,9 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "test_total_rows_synced_mirror" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, "table1"): "table1", e2e.AttachSchema(s, "table2"): "table2"},
+		TableNameMapping: map[string]string{AttachSchema(s, "table1"): "table1", AttachSchema(s, "table2"): "table2"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -995,31 +992,31 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
 
-	tc := e2e.NewTemporalClient(s.t)
-	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
 	// test initial load
-	e2e.RequireEqualTables(s.ch, "table1", cols)
-	e2e.RequireEqualTables(s.ch, "table2", cols)
+	RequireEqualTables(s.ch, "table1", cols)
+	RequireEqualTables(s.ch, "table2", cols)
 
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "table1"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "table1"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "table2"))))
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("table1").
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "table2"))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("table1").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("table2").
+		res, err = s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("table2").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -1028,8 +1025,8 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	}
 
 	// test cdc
-	e2e.EnvWaitForEqualTables(env, s.ch, "cdc equal", "table1", cols)
-	e2e.EnvWaitForEqualTables(env, s.ch, "cdc equal", "table2", cols)
+	EnvWaitForEqualTables(env, s.ch, "cdc equal", "table1", cols)
+	EnvWaitForEqualTables(env, s.ch, "cdc equal", "table2", cols)
 
 	// check total rows synced
 	mirrorTotalRowsSynced, err := s.TotalRowsSyncedByMirror(s.t.Context(), &protos.TotalRowsSyncedByMirrorRequest{
@@ -1052,7 +1049,7 @@ func (s APITestSuite) TestTotalRowsSyncedByMirror() {
 	require.Equal(s.t, int64(1), tableStats.TablesData[1].Counts.InsertsCount)
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s APITestSuite) TestSettings() {
@@ -1086,7 +1083,7 @@ func (s APITestSuite) TestSettings() {
 }
 
 func (s APITestSuite) TestQRep() {
-	if _, ok := s.source.(*e2e_mongo.MongoSource); ok {
+	if _, ok := s.source.(*MongoSource); ok {
 		s.t.Skip("QRepFlowWorkFlow is not implemented for MongoDB")
 	}
 
@@ -1095,13 +1092,13 @@ func (s APITestSuite) TestQRep() {
 	})
 	require.NoError(s.t, err)
 	tblName := "qrepapi" + s.suffix
-	schemaQualified := e2e.AttachSchema(s, tblName)
+	schemaQualified := AttachSchema(s, tblName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", schemaQualified)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"qrepapiflow"+"_"+peerType.PeerType,
 		schemaQualified,
@@ -1123,16 +1120,16 @@ func (s APITestSuite) TestQRep() {
 	})
 	require.NoError(s.t, err)
 
-	tc := e2e.NewTemporalClient(s.t)
-	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
 
-	e2e.EnvWaitForEqualTables(env, s.ch, "qrep initial load", tblName, "id,val")
+	EnvWaitForEqualTables(env, s.ch, "qrep initial load", tblName, "id,val")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualified)))
 
-	e2e.EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tblName, "id,val")
+	EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tblName, "id,val")
 	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
 		FlowJobName:     qrepConfig.FlowJobName,
 		IncludeFlowInfo: true,
@@ -1144,30 +1141,30 @@ func (s APITestSuite) TestQRep() {
 	require.Len(s.t, qStatus.Partitions, 2)
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	var cols string
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "original"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "original"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", e2e.AttachSchema(s, "added"))))
+			fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "added"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "original"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "original"))))
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", e2e.AttachSchema(s, "added"))))
+			fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "added"))))
 		cols = "id,val"
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("original").
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("original").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
-		res, err = s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("added").
+		res, err = s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("added").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 1}, bson.E{Key: "val", Value: "first"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
@@ -1176,9 +1173,9 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      "added_tables_no_initial_load_" + s.suffix,
-		TableNameMapping: map[string]string{e2e.AttachSchema(s, "original"): "original"},
+		TableNameMapping: map[string]string{AttachSchema(s, "original"): "original"},
 		Destination:      s.ch.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
@@ -1186,21 +1183,21 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
-	tc := e2e.NewTemporalClient(s.t)
-	env, err := e2e.GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for initial load to finish", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
 	})
-	e2e.RequireEqualTables(s.ch, "original", cols)
+	RequireEqualTables(s.ch, "original", cols)
 	// add table
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_PAUSED,
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for pause for add table", func() bool {
 		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_PAUSED
 	})
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
@@ -1211,7 +1208,7 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 				CdcFlowConfigUpdate: &protos.CDCFlowConfigUpdate{
 					AdditionalTables: []*protos.TableMapping{
 						{
-							SourceTableIdentifier:      e2e.AttachSchema(s, "added"),
+							SourceTableIdentifier:      AttachSchema(s, "added"),
 							DestinationTableIdentifier: "added",
 						},
 					},
@@ -1221,10 +1218,10 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 		},
 	})
 	require.NoError(s.t, err)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for table addition to finish", func() bool {
 		valid, err := s.checkCatalogTableMapping(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName, []string{
-			e2e.AttachSchema(s, "added"),
-			e2e.AttachSchema(s, "original"),
+			AttachSchema(s, "added"),
+			AttachSchema(s, "original"),
 		})
 		if err != nil {
 			return false
@@ -1234,26 +1231,26 @@ func (s APITestSuite) TestTableAdditionWithoutInitialLoad() {
 	})
 
 	// No initial load should have happened for added table, so it should be empty on ClickHouse
-	e2e.RequireEmptyDestinationTable(s.ch, "added", cols)
+	RequireEmptyDestinationTable(s.ch, "added", cols)
 
 	// cdc should occur for added table still, so insert row into added table to test cdc
 	switch s.source.(type) {
-	case *e2e.PostgresSource, *e2e.MySqlSource:
+	case *PostgresSource, *MySqlSource:
 		require.NoError(s.t, s.source.Exec(s.t.Context(),
-			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", e2e.AttachSchema(s, "added"))))
-	case *e2e_mongo.MongoSource:
-		res, err := s.Source().(*e2e_mongo.MongoSource).AdminClient().
-			Database(e2e.Schema(s)).Collection("added").
+			fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", AttachSchema(s, "added"))))
+	case *MongoSource:
+		res, err := s.Source().(*MongoSource).AdminClient().
+			Database(Schema(s)).Collection("added").
 			InsertOne(s.t.Context(), bson.D{bson.E{Key: "id", Value: 2}, bson.E{Key: "val", Value: "second"}}, options.InsertOne())
 		require.NoError(s.t, err)
 		require.True(s.t, res.Acknowledged)
 	default:
 		require.Fail(s.t, fmt.Sprintf("unknown source type %T", s.source))
 	}
-	e2e.EnvWaitForCount(env, s.ch, "test cdc of cdc_only table addition", "added", cols, 1)
+	EnvWaitForCount(env, s.ch, "test cdc of cdc_only table addition", "added", cols, 1)
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s APITestSuite) TestDropMissing() {

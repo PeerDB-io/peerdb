@@ -7,15 +7,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 //nolint:unparam
 func (s PeerFlowE2ETestSuiteSF) setupSourceTable(tableName string, numRows int) {
-	err := e2e.CreateTableForQRep(s.t.Context(), s.Conn(), s.pgSuffix, tableName)
+	err := CreateTableForQRep(s.t.Context(), s.Conn(), s.pgSuffix, tableName)
 	require.NoError(s.t, err)
-	err = e2e.PopulateSourceTable(s.t.Context(), s.Conn(), s.pgSuffix, tableName, numRows)
+	err = PopulateSourceTable(s.t.Context(), s.Conn(), s.pgSuffix, tableName, numRows)
 	require.NoError(s.t, err)
 }
 
@@ -43,11 +42,11 @@ func (s PeerFlowE2ETestSuiteSF) compareTableContentsWithDiffSelectorsSF(tableNam
 	sfRows, err := s.GetRows(tableName, sfSelector)
 	require.NoError(s.t, err)
 
-	e2e.RequireEqualRecordBatches(s.t, pgRows, sfRows)
+	RequireEqualRecordBatches(s.t, pgRows, sfRows)
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -59,7 +58,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_flow_avro_sf",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
@@ -73,18 +72,18 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	)
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
-	sel := e2e.GetOwnersSelectorStringsSF()
+	sel := GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 
 	require.NoError(s.t, s.checkJSONValue(dstSchemaQualified, "f7", "key", "\"value\""))
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -96,7 +95,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_flow_avro_sf",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
@@ -114,17 +113,17 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	}
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
-	sel := e2e.GetOwnersSelectorStringsSF()
+	sel := GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	s.t.Skip("aws s3 broken in ci") // TODO fix
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -136,7 +135,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_flow_avro_sf",
 		s.attachSchemaSuffix(tblName),
@@ -151,16 +150,16 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 5*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
-	sel := e2e.GetOwnersSelectorStringsSF()
+	sel := GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -171,7 +170,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s", s.pgSuffix, tblName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_flow_avro_sf_xmin",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
@@ -190,17 +189,17 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 	qrepConfig.WatermarkColumn = "xmin"
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
-	sel := e2e.GetOwnersSelectorStringsSF()
+	sel := GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration() {
 	s.t.Skip("aws s3 broken in ci") // TODO fix
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -214,7 +213,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 
 	s.sfHelper.Config.S3Integration = "peerdb_s3_integration"
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_flow_avro_sf_int",
 		s.attachSchemaSuffix(tblName),
@@ -229,16 +228,16 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 	qrepConfig.StagingPath = fmt.Sprintf("s3://peerdb-test-bucket/avro/%s", uuid.New())
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 5*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 5*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
-	sel := e2e.GetOwnersSelectorStringsSF()
+	sel := GetOwnersSelectorStringsSF()
 	s.compareTableContentsWithDiffSelectorsSF(tblName, sel[0], sel[1])
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -250,7 +249,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_columns_qrep_sf",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
@@ -268,15 +267,15 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	}
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	require.NoError(s.t, s.sfHelper.checkSyncedAt(s.t.Context(), `SELECT "_PEERDB_SYNCED_AT" FROM `+dstSchemaQualified))
 }
 
 func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	numRows := 10
 
@@ -288,7 +287,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_deleted_false_qrep_sf",
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
@@ -306,8 +305,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
 	}
 	qrepConfig.SetupWatermarkTableOnDestination = true
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	require.NoError(s.t, s.sfHelper.checkIsDeleted(s.t.Context(), `SELECT "_PEERDB_IS_DELETED" FROM `+dstSchemaQualified))

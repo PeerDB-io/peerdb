@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -19,17 +18,17 @@ import (
 )
 
 func TestPeerFlowE2ETestSuitePG(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite)
+	e2eshared.RunSuite(t, SetupPostgresSuite)
 }
 
 func (s PeerFlowE2ETestSuitePG) setupSourceTable(tableName string, rowCount int) {
-	require.NoError(s.t, e2e.CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, tableName))
+	require.NoError(s.t, CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, tableName))
 	s.populateSourceTable(tableName, rowCount)
 }
 
 func (s PeerFlowE2ETestSuitePG) populateSourceTable(tableName string, rowCount int) {
 	if rowCount > 0 {
-		require.NoError(s.t, e2e.PopulateSourceTable(s.t.Context(), s.Conn(), s.suffix, tableName, rowCount))
+		require.NoError(s.t, PopulateSourceTable(s.t.Context(), s.Conn(), s.suffix, tableName, rowCount))
 	}
 }
 
@@ -172,7 +171,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 
 	dstTable := "test_qrep_flow_avro_pg_2"
 
-	err := e2e.CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, dstTable)
+	err := CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, dstTable)
 	require.NoError(s.t, err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
@@ -181,22 +180,22 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_flow_avro_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(s.t).Name,
+		GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"",
 		"",
 	)
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	require.NoError(s.t, s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*"))
@@ -210,7 +209,7 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 
 	dstTable := "test_qrep_flow_pgpg_2"
 
-	err := e2e.CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, dstTable)
+	err := CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, dstTable)
 	require.NoError(s.t, err)
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
@@ -219,13 +218,13 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		srcSchemaQualified)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_flow_pgpg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(s.t).Name,
+		GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"",
@@ -233,9 +232,9 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	)
 	qrepConfig.System = protos.TypeSystem_PG
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	require.NoError(s.t, s.comparePGTables(srcSchemaQualified, dstSchemaQualified, "*"))
@@ -255,22 +254,22 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_columns_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(s.t).Name,
+		GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
 		"",
 	)
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 
 	require.NoError(s.t, s.checkSyncedAt(dstSchemaQualified))
@@ -290,13 +289,13 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_overwrite_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(s.t).Name,
+		GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
@@ -307,9 +306,9 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	}
 	qrepConfig.InitialCopyOnly = false
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
 		err := s.compareCounts(dstSchemaQualified, int64(numRows))
 		return err == nil
 	})
@@ -317,7 +316,7 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	newRowCount := 5
 	s.populateSourceTable(srcTable, newRowCount)
 
-	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "waiting for overwrite sync to complete", func() bool {
+	EnvWaitFor(s.t, env, 2*time.Minute, "waiting for overwrite sync to complete", func() bool {
 		err := s.compareCounts(dstSchemaQualified, int64(newRowCount))
 		return err == nil
 	})
@@ -339,22 +338,22 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_no_rows_qrep_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(s.t).Name,
+		GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
 		"",
 	)
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitForFinished(s.t, env, 3*time.Minute)
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	require.NoError(s.t, env.Error(s.t.Context()))
 }
 
@@ -372,13 +371,13 @@ func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
-	config := e2e.CreateQRepWorkflowConfig(
+	config := CreateQRepWorkflowConfig(
 		s.t,
 		"test_qrep_pause_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(s.t).Name,
+		GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
@@ -386,11 +385,11 @@ func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 	)
 	config.InitialCopyOnly = false
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, config)
-	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, config)
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
 		response, err := env.Query(s.t.Context(), shared.QRepFlowStateQuery)
 		if err != nil {
 			s.t.Log(err)
@@ -403,8 +402,8 @@ func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 		}
 		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED
 	})
-	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.NoopSignal)
-	e2e.EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.NoopSignal)
+	EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
 		response, err := env.Query(s.t.Context(), shared.QRepFlowStateQuery)
 		if err != nil {
 			s.t.Fatal(err)
@@ -417,7 +416,7 @@ func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 	})
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuitePG) TestXminPause() {
@@ -433,13 +432,13 @@ func (s PeerFlowE2ETestSuitePG) TestXminPause() {
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s", s.suffix, srcTable)
 
-	config := e2e.CreateQRepWorkflowConfig(
+	config := CreateQRepWorkflowConfig(
 		s.t,
 		"test_xmin_pause_pg",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(s.t).Name,
+		GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
@@ -448,11 +447,11 @@ func (s PeerFlowE2ETestSuitePG) TestXminPause() {
 	config.WatermarkColumn = "xmin"
 	config.InitialCopyOnly = false
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, config)
-	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, config)
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.PauseSignal)
 
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "pausing", func() bool {
 		response, err := env.Query(s.t.Context(), shared.QRepFlowStateQuery)
 		if err != nil {
 			s.t.Log(err)
@@ -465,8 +464,8 @@ func (s PeerFlowE2ETestSuitePG) TestXminPause() {
 		}
 		return state.CurrentFlowStatus == protos.FlowStatus_STATUS_PAUSED
 	})
-	e2e.SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.NoopSignal)
-	e2e.EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
+	SignalWorkflow(s.t.Context(), env, model.FlowSignal, model.NoopSignal)
+	EnvWaitFor(s.t, env, time.Minute, "unpausing", func() bool {
 		response, err := env.Query(s.t.Context(), shared.QRepFlowStateQuery)
 		if err != nil {
 			s.t.Fatal(err)
@@ -479,7 +478,7 @@ func (s PeerFlowE2ETestSuitePG) TestXminPause() {
 	})
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s PeerFlowE2ETestSuitePG) TestTransform() {
@@ -499,13 +498,13 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 	('pgtransform', 'lua', 'function transformRow(row) row.myreal = 1729 end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(
+	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
 		"test_transform",
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
-		e2e.GeneratePostgresPeer(s.t).Name,
+		GeneratePostgresPeer(s.t).Name,
 		"",
 		true,
 		"_PEERDB_SYNCED_AT",
@@ -517,9 +516,9 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 	qrepConfig.InitialCopyOnly = false
 	qrepConfig.Script = "pgtransform"
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
-	e2e.EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
+	tc := NewTemporalClient(s.t)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "waiting for first sync to complete", func() bool {
 		return s.compareCounts(dstSchemaQualified, int64(numRows)) == nil
 	})
 	require.NoError(s.t, env.Error(s.t.Context()))

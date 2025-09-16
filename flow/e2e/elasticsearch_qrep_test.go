@@ -7,17 +7,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func Test_Elasticsearch(t *testing.T) {
-	e2eshared.RunSuite(t, SetupSuite)
+	e2eshared.RunSuite(t, SetupElasticSuite)
 }
 
 func (s elasticsearchSuite) Test_Simple_QRep_Append() {
-	srcTableName := e2e.AttachSchema(s, "es_simple_append")
+	srcTableName := AttachSchema(s, "es_simple_append")
 
 	_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -37,12 +36,12 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 		require.NoError(s.t, err, "failed to insert row")
 	}
 
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		srcTableName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(s.t, "test_es_simple_qrep",
+	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_es_simple_qrep",
 		srcTableName,
 		srcTableName,
 		query,
@@ -54,15 +53,15 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	)
 	qrepConfig.InitialCopyOnly = false
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 
-	e2e.EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
+	EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
 		return s.countDocumentsInIndex(srcTableName) == int64(rowCount)
 	})
 	_, err = s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 	UPDATE %s SET c1=c1+2,updated_at=now() WHERE id%%2=0;`, srcTableName))
 	require.NoError(s.t, err, "failed to update rows on source")
-	e2e.EnvWaitFor(s.t, env, 20*time.Second, "waiting for ES to catch up", func() bool {
+	EnvWaitFor(s.t, env, 20*time.Second, "waiting for ES to catch up", func() bool {
 		return s.countDocumentsInIndex(srcTableName) == int64(3*rowCount/2)
 	})
 
@@ -70,7 +69,7 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 }
 
 func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
-	srcTableName := e2e.AttachSchema(s, "es_simple_upsert")
+	srcTableName := AttachSchema(s, "es_simple_upsert")
 
 	_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -90,12 +89,12 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 		require.NoError(s.t, err, "failed to insert row")
 	}
 
-	tc := e2e.NewTemporalClient(s.t)
+	tc := NewTemporalClient(s.t)
 
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		srcTableName)
 
-	qrepConfig := e2e.CreateQRepWorkflowConfig(s.t, "test_es_simple_qrep",
+	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_es_simple_qrep",
 		srcTableName,
 		srcTableName,
 		query,
@@ -111,9 +110,9 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	}
 	qrepConfig.InitialCopyOnly = false
 
-	env := e2e.RunQRepFlowWorkflow(s.t, tc, qrepConfig)
+	env := RunQRepFlowWorkflow(s.t, tc, qrepConfig)
 
-	e2e.EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
+	EnvWaitFor(s.t, env, 10*time.Second, "waiting for ES to catch up", func() bool {
 		return s.countDocumentsInIndex(srcTableName) == int64(rowCount)
 	})
 

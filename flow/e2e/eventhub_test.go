@@ -14,7 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -35,8 +34,8 @@ func (s EventhubsSuite) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
-func (s EventhubsSuite) Source() e2e.SuiteSource {
-	return &e2e.PostgresSource{PostgresConnector: s.conn}
+func (s EventhubsSuite) Source() SuiteSource {
+	return &PostgresSource{PostgresConnector: s.conn}
 }
 
 func (s EventhubsSuite) Conn() *pgx.Conn {
@@ -69,7 +68,7 @@ func EventhubsCreds() (*protos.EventHubConfig, error) {
 
 func (s EventhubsSuite) Peer(config *protos.EventHubConfig) *protos.Peer {
 	ret := &protos.Peer{
-		Name: e2e.AddSuffix(s, "eventhubs"),
+		Name: AddSuffix(s, "eventhubs"),
 		Type: protos.DBType_EVENTHUBS,
 		Config: &protos.Peer_EventhubGroupConfig{
 			EventhubGroupConfig: &protos.EventHubGroupConfig{
@@ -87,7 +86,7 @@ func (s EventhubsSuite) Peer(config *protos.EventHubConfig) *protos.Peer {
 			},
 		},
 	}
-	e2e.CreatePeer(s.t, ret)
+	CreatePeer(s.t, ret)
 	return ret
 }
 
@@ -98,19 +97,19 @@ func (s EventhubsSuite) GetEventhubName() string {
 }
 
 func (s EventhubsSuite) Teardown(ctx context.Context) {
-	e2e.TearDownPostgres(ctx, s)
+	TearDownPostgres(ctx, s)
 	creds, err := EventhubsCreds()
 	require.NoError(s.t, err)
 	err = DeleteEventhub(ctx, s.GetEventhubName(), creds)
 	require.NoError(s.t, err)
 }
 
-func SetupSuite(t *testing.T) EventhubsSuite {
+func SetupEventhubsSuite(t *testing.T) EventhubsSuite {
 	t.Helper()
 
 	suffix := strings.ToLower(shared.RandomString(8))
 	tsSuffix := time.Now().Format("20060102150405")
-	conn, err := e2e.SetupPostgres(t, suffix)
+	conn, err := SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 
 	return EventhubsSuite{
@@ -123,11 +122,11 @@ func SetupSuite(t *testing.T) EventhubsSuite {
 
 func Test_Eventhubs(t *testing.T) {
 	t.Skip()
-	e2eshared.RunSuite(t, SetupSuite)
+	e2eshared.RunSuite(t, SetupEventhubsSuite)
 }
 
 func (s EventhubsSuite) Test_EH_Simple() {
-	srcTableName := e2e.AttachSchema(s, "eh_simple")
+	srcTableName := AttachSchema(s, "eh_simple")
 
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -144,27 +143,27 @@ func (s EventhubsSuite) Test_EH_Simple() {
 	('e2e_eh_simple_script', 'lua', 'function onRecord(r) return r.row and r.row.val end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
-	flowName := e2e.AddSuffix(s, "e2e_eh_simple")
+	flowName := AddSuffix(s, "e2e_eh_simple")
 	scopedEventhubName := fmt.Sprintf("%s.%s.id",
 		ehCreds.Namespace, s.GetEventhubName())
 	destinationPeer := s.Peer(ehCreds)
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      flowName,
 		TableNameMapping: map[string]string{srcTableName: scopedEventhubName},
 		Destination:      destinationPeer.Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.Script = "e2e_eh_simple_script"
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		INSERT INTO %s (id, val) VALUES (1, 'testval')
 	`, srcTableName))
-	e2e.EnvNoError(s.t, env, err)
+	EnvNoError(s.t, env, err)
 
-	e2e.EnvWaitFor(s.t, env, 2*time.Minute, "eventhubs message check", func() bool {
+	EnvWaitFor(s.t, env, 2*time.Minute, "eventhubs message check", func() bool {
 		messages, err := ConsumeAllMessages(
 			s.t.Context(),
 			ehCreds.Namespace,
@@ -182,5 +181,5 @@ func (s EventhubsSuite) Test_EH_Simple() {
 	})
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }

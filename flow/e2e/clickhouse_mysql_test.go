@@ -9,7 +9,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
@@ -17,7 +16,7 @@ import (
 )
 
 func (s ClickHouseSuite) Test_UnsignedMySQL() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -40,7 +39,7 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,true)
 	`, srcFullName, int64(math.MinInt64), uint64(math.MaxUint64))))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      srcFullName,
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -48,25 +47,25 @@ func (s ClickHouseSuite) Test_UnsignedMySQL() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`insert into %s
 		(i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b)
 		values (-1, 200, -2, 40000, -3, 10000000, -4, 3000000000, %d, %d, 3.141592,false)
 	`, srcFullName, int64(math.MinInt64), uint64(math.MaxUint64))))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,i8,u8,i16,u16,i24,u24,i32,u32,i64,u64,d,b")
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Time() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -92,7 +91,7 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 		('init','2000-01-00','2000-00-01 00:00:00','2000-01-01 00:00:00.000','-800:0:1')`,
 		quotedSrcFullName)))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -100,11 +99,11 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",d,dt,tm,t) VALUES
 		('cdc','1935-01-01','1953-02-02 12:01:02','1973-02-02 13:01:02.123','14:21.654321'),
@@ -112,14 +111,14 @@ func (s ClickHouseSuite) Test_MySQL_Time() {
 		('cdc','2000-01-00','2000-00-01 00:00:00','2000-01-01 00:00:00.000','-800:0:1')`,
 		quotedSrcFullName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",d,dt,tm,t")
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Bit() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -140,7 +139,7 @@ func (s ClickHouseSuite) Test_MySQL_Bit() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",b1,b20) VALUES
 		('init',b'1',b'11100011100011100011'), ('init',b'0',b'00011100011100011100')`, quotedSrcFullName)))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -148,23 +147,23 @@ func (s ClickHouseSuite) Test_MySQL_Bit() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",b1,b20")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",b1,b20")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",b1,b20) VALUES
 		('cdc','1','11100011100011100011'), ('cdc','0','00011100011100011100')`, quotedSrcFullName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",b1,b20")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",b1,b20")
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Blobs() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -195,7 +194,7 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 		('init','tinyblob','mediumblob','longblob','binary','varbinary',
 		'tinytext','mediumtext','longtext','char','varchar','{"a":2}')`, quotedSrcFullName)))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -203,24 +202,24 @@ func (s ClickHouseSuite) Test_MySQL_Blobs() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,k,tb,mb,lb,vb,bi,tt,mt,lt,ch,vc,js")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,k,tb,mb,lb,vb,bi,tt,mt,lt,ch,vc,js")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (k,tb,mb,lb,bi,vb,tt,mt,lt,ch,vc,js) VALUES
 		('cdc','tinyblob','mediumblob','longblob','binary','varbinary',
 		'tinytext','mediumtext','longtext','char','varchar','{"a":2}')`, quotedSrcFullName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,k,tb,mb,lb,bi,vb,tt,mt,lt,ch,vc,js")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,k,tb,mb,lb,bi,vb,tt,mt,lt,ch,vc,js")
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Enum() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -241,7 +240,7 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",e,s) VALUES
 		('init','b''s','a,b'),('init','','')`, quotedSrcFullName)))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -249,23 +248,23 @@ func (s ClickHouseSuite) Test_MySQL_Enum() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",e,s")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,\"key\",e,s")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s ("key",e,s) VALUES
 		('cdc','b''s','a,b'),('cdc','','')`, quotedSrcFullName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",e,s")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,\"key\",e,s")
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Vector() {
-	if mysource, ok := s.source.(*e2e.MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+	if mysource, ok := s.source.(*MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -281,7 +280,7 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`INSERT INTO %s (val) VALUES (to_vector('[1.1,1.0]'))`, quotedSrcFullName)))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -289,23 +288,23 @@ func (s ClickHouseSuite) Test_MySQL_Vector() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,val")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`INSERT INTO %s (val) VALUES (to_vector('[2.718, 1.414]'))`, quotedSrcFullName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,val")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,val")
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Numbers() {
-	if mysource, ok := s.source.(*e2e.MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
+	if mysource, ok := s.source.(*MySqlSource); !ok || mysource.Config.Flavor != protos.MySqlFlavor_MYSQL_MYSQL {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -322,7 +321,7 @@ func (s ClickHouseSuite) Test_MySQL_Numbers() {
 		fmt.Sprintf(`INSERT INTO %s(num,num603,f32,f64,r)VALUES(1.23,780780780.780,1.41421,2.718281828459045,6.28319)`,
 			quotedSrcFullName)))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -330,24 +329,24 @@ func (s ClickHouseSuite) Test_MySQL_Numbers() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,num,num603,f32,f64,r")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,num,num603,f32,f64,r")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`INSERT INTO%s(num,num603,f32,f64,r)VALUES(1.23,780780780.780,1.41421,2.718281828459045,6.28319)`,
 			quotedSrcFullName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,num,num603,f32,f64,r")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id,num,num603,f32,f64,r")
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -373,7 +372,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 		(ST_GeomFromText('GEOMETRYCOLLECTION(POINT(1 2), LINESTRING(1 2, 3 4))'));`, srcFullName))
 	require.NoError(s.t, err)
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_geometric_types"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -381,12 +380,12 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// Wait for initial snapshot to complete
-	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 7)
+	EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 7)
 
 	// Insert additional rows to test CDC
 	_, err = s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
@@ -397,7 +396,7 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 	require.NoError(s.t, err)
 
 	// Wait for CDC to replicate the new rows
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 10)
+	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 10)
 
 	// Verify that the data was correctly replicated
 	rows, err := s.GetRows(dstTableName, "id, geometry_col")
@@ -426,11 +425,11 @@ func (s ClickHouseSuite) Test_MySQL_Geometric_Types() {
 
 	// Clean up
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -472,7 +471,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 
 	require.NoError(s.t, err)
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("clickhouse_test_mysql_geometric_types"),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -481,12 +480,12 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
 	// Wait for initial snapshot to complete
-	e2e.EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
+	EnvWaitForCount(env, s, "waiting for initial snapshot count", dstTableName, "id", 1)
 
 	// Insert additional rows to test CDC
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
@@ -509,7 +508,7 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 	);`, srcFullName)))
 
 	// Wait for CDC to replicate the new rows
-	e2e.EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
+	EnvWaitForCount(env, s, "waiting for CDC count", dstTableName, "id", 2)
 
 	// Verify that the data was correctly replicated
 	rows, err := s.GetRows(dstTableName, `id, point_col, linestring_col, polygon_col, multipoint_col,
@@ -549,11 +548,11 @@ func (s ClickHouseSuite) Test_MySQL_Specific_Geometric_Types() {
 
 	// Clean up
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -565,11 +564,11 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 
 	srcTable := "test_mysql_schema_changes"
 	dstTable := "test_mysql_schema_changes_dst"
-	srcTableName := e2e.AttachSchema(s, srcTable)
+	srcTableName := AttachSchema(s, srcTable)
 	dstTableName := s.DestinationTable(dstTable)
 	secondSrcTable := "test_mysql_schema_changes_second"
 	secondDstTable := "test_mysql_schema_changes_second_dst"
-	secondSrcTableName := e2e.AttachSchema(s, secondSrcTable)
+	secondSrcTableName := AttachSchema(s, secondSrcTable)
 
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -583,32 +582,32 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 		);
 	`, secondSrcTableName)))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
-		FlowJobName:   e2e.AddSuffix(s, srcTable),
-		TableMappings: e2e.TableMappings(s, srcTable, dstTable, secondSrcTable, secondDstTable),
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable, secondSrcTable, secondDstTable),
 		Destination:   s.Peer().Name,
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 
 	// wait for PeerFlowStatusQuery to finish setup
 	// and then insert and mutate schema repeatedly.
-	tc := e2e.NewTemporalClient(t)
-	env := e2e.ExecutePeerflow(t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(1)`, srcTableName)))
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s(c1) VALUES(1)`, srcTableName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", srcTable, dstTable, "id,c1")
+	EnvWaitForEqualTablesWithNames(env, s, "normalize reinsert", srcTable, dstTable, "id,c1")
 
 	expectedTableSchema := &protos.TableSchema{
-		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
+		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
 		Columns: []*protos.FieldDescription{
 			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
+				Name:         ExpectedDestinationIdentifier(s, "id"),
 				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
+				Name:         ExpectedDestinationIdentifier(s, "c1"),
 				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
@@ -626,24 +625,24 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	}
 	output, err := destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
-	e2e.EnvNoError(t, env, err)
-	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvNoError(t, env, err)
+	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
 
 	// alter source table, add column addedColumn and insert another row.
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN `addedColumn` BIGINT", srcTableName)))
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf("ALTER TABLE %s ADD COLUMN `addedColumn` BIGINT", srcTableName)))
 	// so that the batch finishes, insert a row into the second source table.
-	e2e.EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s VALUES(DEFAULT)`, secondSrcTableName)))
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
+	EnvNoError(t, env, s.Source().Exec(t.Context(), fmt.Sprintf(`INSERT INTO %s VALUES(DEFAULT)`, secondSrcTableName)))
+	EnvWaitForEqualTablesWithNames(env, s, "normalize altered row", srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
 	expectedTableSchema = &protos.TableSchema{
-		TableIdentifier: e2e.ExpectedDestinationTableName(s, dstTable),
+		TableIdentifier: ExpectedDestinationTableName(s, dstTable),
 		Columns: []*protos.FieldDescription{
 			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "id"),
+				Name:         ExpectedDestinationIdentifier(s, "id"),
 				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
 			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "c1"),
+				Name:         ExpectedDestinationIdentifier(s, "c1"),
 				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
@@ -653,7 +652,7 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 				TypeModifier: -1,
 			},
 			{
-				Name:         e2e.ExpectedDestinationIdentifier(s, "addedColumn"),
+				Name:         ExpectedDestinationIdentifier(s, "addedColumn"),
 				Type:         string(types.QValueKindNumeric),
 				TypeModifier: -1,
 			},
@@ -661,16 +660,16 @@ func (s ClickHouseSuite) Test_MySQL_Schema_Changes() {
 	}
 	output, err = destinationSchemaConnector.GetTableSchema(t.Context(), nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
 		[]*protos.TableMapping{{SourceTableIdentifier: dstTableName}})
-	e2e.EnvNoError(t, env, err)
-	e2e.EnvTrue(t, env, e2e.CompareTableSchemas(expectedTableSchema, output[dstTableName]))
-	e2e.EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
+	EnvNoError(t, env, err)
+	EnvTrue(t, env, CompareTableSchemas(expectedTableSchema, output[dstTableName]))
+	EnvEqualTablesWithNames(env, s, srcTable, dstTable, "id,c1,coalesce(`addedColumn`,0) `addedColumn`")
 
 	env.Cancel(t.Context())
-	e2e.RequireEnvCanceled(t, env)
+	RequireEnvCanceled(t, env)
 }
 
 func (s ClickHouseSuite) Test_MySQL_Coercion() {
-	if _, ok := s.source.(*e2e.MySqlSource); !ok {
+	if _, ok := s.source.(*MySqlSource); !ok {
 		s.t.Skip("only applies to mysql")
 	}
 
@@ -686,7 +685,7 @@ func (s ClickHouseSuite) Test_MySQL_Coercion() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`INSERT INTO %s(num,f32,f64)VALUES(780780780,1.41421,2.718281828459045)`, quotedSrcFullName)))
 
-	connectionGen := e2e.FlowConnectionGenerationConfig{
+	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix(srcTableName),
 		TableNameMapping: map[string]string{srcFullName: dstTableName},
 		Destination:      s.Peer().Name,
@@ -694,11 +693,11 @@ func (s ClickHouseSuite) Test_MySQL_Coercion() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 
-	tc := e2e.NewTemporalClient(s.t)
-	env := e2e.ExecutePeerflow(s.t, tc, flowConnConfig)
-	e2e.SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,num,f32,f64")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id,num,f32,f64")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		ALTER TABLE %s MODIFY COLUMN num VARCHAR(20), MODIFY COLUMN f32 VARCHAR(20), MODIFY COLUMN f64 VARCHAR(20)
@@ -707,7 +706,7 @@ func (s ClickHouseSuite) Test_MySQL_Coercion() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf(`INSERT INTO%s(num,f32,f64)VALUES('780780780','1.41421','2.718281828459045')`, quotedSrcFullName)))
 
-	e2e.EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
 
 	var numCount, f32Count, f64Count uint64
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
@@ -720,5 +719,5 @@ func (s ClickHouseSuite) Test_MySQL_Coercion() {
 	require.Equal(s.t, uint64(1), f64Count)
 
 	env.Cancel(s.t.Context())
-	e2e.RequireEnvCanceled(s.t, env)
+	RequireEnvCanceled(s.t, env)
 }

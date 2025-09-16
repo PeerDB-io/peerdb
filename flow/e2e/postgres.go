@@ -12,7 +12,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -33,8 +32,8 @@ func (s PeerFlowE2ETestSuitePG) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
-func (s PeerFlowE2ETestSuitePG) Source() e2e.SuiteSource {
-	return &e2e.PostgresSource{PostgresConnector: s.conn}
+func (s PeerFlowE2ETestSuitePG) Source() SuiteSource {
+	return &PostgresSource{PostgresConnector: s.conn}
 }
 
 func (s PeerFlowE2ETestSuitePG) DestinationConnector() connectors.Connector {
@@ -50,11 +49,11 @@ func (s PeerFlowE2ETestSuitePG) Suffix() string {
 }
 
 func (s PeerFlowE2ETestSuitePG) Peer() *protos.Peer {
-	return e2e.GeneratePostgresPeer(s.t)
+	return GeneratePostgresPeer(s.t)
 }
 
 func (s PeerFlowE2ETestSuitePG) DestinationTable(table string) string {
-	return e2e.AttachSchema(s, table)
+	return AttachSchema(s, table)
 }
 
 func (s PeerFlowE2ETestSuitePG) Exec(ctx context.Context, sql string) error {
@@ -75,11 +74,11 @@ func (s PeerFlowE2ETestSuitePG) GetRows(table string, cols string) (*model.QReco
 	)
 }
 
-func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
+func SetupPostgresSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 	t.Helper()
 
 	suffix := "pg_" + strings.ToLower(shared.RandomString(8))
-	conn, err := e2e.SetupPostgres(t, suffix)
+	conn, err := SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 
 	return PeerFlowE2ETestSuitePG{
@@ -90,5 +89,5 @@ func SetupSuite(t *testing.T) PeerFlowE2ETestSuitePG {
 }
 
 func (s PeerFlowE2ETestSuitePG) Teardown(ctx context.Context) {
-	e2e.TearDownPostgres(ctx, s)
+	TearDownPostgres(ctx, s)
 }

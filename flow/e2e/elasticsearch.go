@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/e2e"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -32,19 +31,19 @@ func (s elasticsearchSuite) Connector() *connpostgres.PostgresConnector {
 	return s.conn
 }
 
-func (s elasticsearchSuite) Source() e2e.SuiteSource {
-	return &e2e.PostgresSource{PostgresConnector: s.conn}
+func (s elasticsearchSuite) Source() SuiteSource {
+	return &PostgresSource{PostgresConnector: s.conn}
 }
 
 func (s elasticsearchSuite) Suffix() string {
 	return s.suffix
 }
 
-func SetupSuite(t *testing.T) elasticsearchSuite {
+func SetupElasticSuite(t *testing.T) elasticsearchSuite {
 	t.Helper()
 
 	suffix := "es_" + strings.ToLower(shared.RandomString(8))
-	conn, err := e2e.SetupPostgres(t, suffix)
+	conn, err := SetupPostgres(t, suffix)
 	require.NoError(t, err, "failed to setup postgres")
 	esAddresses := strings.Split(internal.GetEnvString("ELASTICSEARCH_TEST_ADDRESS", ""), ",")
 
@@ -66,12 +65,12 @@ func SetupSuite(t *testing.T) elasticsearchSuite {
 }
 
 func (s elasticsearchSuite) Teardown(ctx context.Context) {
-	e2e.TearDownPostgres(ctx, s)
+	TearDownPostgres(ctx, s)
 }
 
 func (s elasticsearchSuite) Peer() *protos.Peer {
 	ret := &protos.Peer{
-		Name: e2e.AddSuffix(s, "elasticsearch"),
+		Name: AddSuffix(s, "elasticsearch"),
 		Type: protos.DBType_ELASTICSEARCH,
 		Config: &protos.Peer_ElasticsearchConfig{
 			ElasticsearchConfig: &protos.ElasticsearchConfig{
@@ -80,7 +79,7 @@ func (s elasticsearchSuite) Peer() *protos.Peer {
 			},
 		},
 	}
-	e2e.CreatePeer(s.t, ret)
+	CreatePeer(s.t, ret)
 	return ret
 }
 
