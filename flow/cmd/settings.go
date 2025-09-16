@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 
 	"github.com/jackc/pgx/v5"
@@ -24,6 +25,12 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to query settings: %w", err))
 	}
 	settings := slices.Clone(internal.DynamicSettings[:])
+	for idx := range settings {
+		if value, found := os.LookupEnv(settings[idx].Name); found {
+			settings[idx].Value = &value
+		}
+	}
+
 	var name string
 	var value string
 	if _, err := pgx.ForEachRow(rows, []any{&name, &value}, func() error {
