@@ -41,7 +41,7 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:bc53f37c580d25cde8c6a9081ee45478d9405cabe47e2f224ad5dfd15017e8ea
+        image: redpandadata/redpanda@sha256:efddcc9ac2b00bd523aff393defbd21cedd922ead984bcb8fdadd92982c81027
         ports:
           - 9092:9092
           - 9644:9644
@@ -64,7 +64,7 @@ jobs:
           AWS_EC2_METADATA_DISABLED: true
           MINIO_DEFAULT_BUCKETS: peerdb
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.134.1@sha256:440197291e082dcd225339cc7caabfa8d13414e29779e8b493716cfea385fd9c
+        image: otel/opentelemetry-collector-contrib:0.135.0@sha256:89107a3a8f4636a396927edf7025bb9614b8da2d92f4cc3f43109e8d115736e2
         ports:
           - 4317:4317
 
