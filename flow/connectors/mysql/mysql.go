@@ -182,55 +182,55 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			// need to check if context cancel came in before above Store
 			return nil, err
 		}
-		if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
-			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
-		}
-
-		// Set session settings
-		switch c.Flavor() {
-		case mysql.MySQLFlavor:
-			// set session timezone to UTC (use numeric offset to avoid tz table dependency)
-			if _, err := conn.Execute("SET SESSION time_zone = '+00:00';"); err != nil {
-				var mErr *mysql.MyError
-				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
-					c.logger.Warn("session time_zone is not supported by the MySQL server, ignoring", slog.Any("error", err))
-				} else {
-					return nil, fmt.Errorf("failed to set session time_zone to '+00:00': %w", err)
-				}
-			}
-			// set max_execution_time to unlimited
-			if _, err := conn.Execute("SET SESSION max_execution_time=0;"); err != nil {
-				var mErr *mysql.MyError
-				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
-					// max_execution_time is not supported, ignore the error
-					c.logger.Warn("max_execution_time is not supported by the MySQL server, ignoring", slog.Any("error", err))
-				} else {
-					return nil, fmt.Errorf("failed to set max_execution_time to 0: %w", err)
-				}
-			}
-		case mysql.MariaDBFlavor:
-			// set session timezone to UTC (use numeric offset to avoid tz table dependency)
-			if _, err := conn.Execute("SET SESSION time_zone = '+00:00';"); err != nil {
-				var mErr *mysql.MyError
-				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
-					c.logger.Warn("session time_zone is not supported by the MySQL server, ignoring", slog.Any("error", err))
-				} else {
-					return nil, fmt.Errorf("failed to set session time_zone to '+00:00': %w", err)
-				}
-			}
-			// set max_statement_time to unlimited
-			if _, err := conn.Execute("SET SESSION max_statement_time=0;"); err != nil {
-				var mErr *mysql.MyError
-				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
-					// max_statement_time is not supported, ignore the error
-					c.logger.Warn("max_statement_time is not supported by the MariaDB server, ignoring", slog.Any("error", err))
-				} else {
-					return nil, fmt.Errorf("failed to set max_statement_time to 0: %w", err)
-				}
-			}
+		if err := c.setSessionSettings(); err != nil {
+			return nil, err
 		}
 	}
 	return conn, nil
+}
+
+func (c *MySqlConnector) setSessionSettings() error {
+	conn := c.conn.Load()
+	if _, err := conn.Execute("SET sql_mode = 'ANSI,NO_BACKSLASH_ESCAPES'"); err != nil {
+		return fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
+	}
+
+	// set session timezone to UTC (use numeric offset to avoid tz table dependency)
+	if _, err := conn.Execute("SET SESSION time_zone = '+00:00';"); err != nil {
+		var mErr *mysql.MyError
+		if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+			c.logger.Warn("session time_zone is not supported by the MySQL server, ignoring", slog.Any("error", err))
+		} else {
+			return fmt.Errorf("failed to set session time_zone to '+00:00': %w", err)
+		}
+	}
+
+	// Set session settings
+	switch c.Flavor() {
+	case mysql.MySQLFlavor:
+		// set max_execution_time to unlimited
+		if _, err := conn.Execute("SET SESSION max_execution_time=0;"); err != nil {
+			var mErr *mysql.MyError
+			if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+				// max_execution_time is not supported, ignore the error
+				c.logger.Warn("max_execution_time is not supported by the MySQL server, ignoring", slog.Any("error", err))
+			} else {
+				return fmt.Errorf("failed to set max_execution_time to 0: %w", err)
+			}
+		}
+	case mysql.MariaDBFlavor:
+		// set max_statement_time to unlimited
+		if _, err := conn.Execute("SET SESSION max_statement_time=0;"); err != nil {
+			var mErr *mysql.MyError
+			if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+				// max_statement_time is not supported, ignore the error
+				c.logger.Warn("max_statement_time is not supported by the MariaDB server, ignoring", slog.Any("error", err))
+			} else {
+				return fmt.Errorf("failed to set max_statement_time to 0: %w", err)
+			}
+		}
+	}
+	return nil
 }
 
 // withRetries return an iterable over connections,
