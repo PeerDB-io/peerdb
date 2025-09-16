@@ -845,7 +845,7 @@ func CDCFlowWorkflow(
 					"panic in sync flow",
 					slog.Any("error", panicErr.Error()),
 					slog.String("stack", panicErr.StackTrace()),
-					slog.Any("sleepFor", sleepFor),
+					slog.Duration("sleepFor", sleepFor),
 				)
 			} else {
 				sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute

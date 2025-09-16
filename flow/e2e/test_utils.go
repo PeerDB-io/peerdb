@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -619,8 +620,13 @@ func NewTemporalClient(t *testing.T) client.Client {
 		),
 	))
 
+	hostport := os.Getenv("TEMPORAL_HOST_PORT")
+	if hostport == "" {
+		hostport = "localhost:7233"
+	}
+
 	tc, err := client.Dial(client.Options{
-		HostPort: "localhost:7233",
+		HostPort: hostport,
 		Logger:   logger,
 	})
 	if err != nil {
