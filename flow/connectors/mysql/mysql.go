@@ -186,9 +186,18 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 			return nil, fmt.Errorf("failed to set sql_mode to ANSI: %w", err)
 		}
 
-		// Set max_execution_time/max_statement_time to 0 (unlimited)
+		// Set session settings
 		switch c.Flavor() {
 		case mysql.MySQLFlavor:
+			// set session timezone to UTC (use numeric offset to avoid tz table dependency)
+			if _, err := conn.Execute("SET SESSION time_zone = '+00:00';"); err != nil {
+				var mErr *mysql.MyError
+				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+					c.logger.Warn("session time_zone is not supported by the MySQL server, ignoring", slog.Any("error", err))
+				} else {
+					return nil, fmt.Errorf("failed to set session time_zone to '+00:00': %w", err)
+				}
+			}
 			// set max_execution_time to unlimited
 			if _, err := conn.Execute("SET SESSION max_execution_time=0;"); err != nil {
 				var mErr *mysql.MyError
@@ -200,6 +209,15 @@ func (c *MySqlConnector) connect(ctx context.Context) (*client.Conn, error) {
 				}
 			}
 		case mysql.MariaDBFlavor:
+			// set session timezone to UTC (use numeric offset to avoid tz table dependency)
+			if _, err := conn.Execute("SET SESSION time_zone = '+00:00';"); err != nil {
+				var mErr *mysql.MyError
+				if errors.As(err, &mErr) && mErr.Code == mysql.ER_UNKNOWN_SYSTEM_VARIABLE {
+					c.logger.Warn("session time_zone is not supported by the MySQL server, ignoring", slog.Any("error", err))
+				} else {
+					return nil, fmt.Errorf("failed to set session time_zone to '+00:00': %w", err)
+				}
+			}
 			// set max_statement_time to unlimited
 			if _, err := conn.Execute("SET SESSION max_statement_time=0;"); err != nil {
 				var mErr *mysql.MyError
