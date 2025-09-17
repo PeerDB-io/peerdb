@@ -136,6 +136,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_SNOWFLAKE,
 	},
 	{
+		Name:             "PEERDB_ENABLE_CLICKHOUSE_STREAM",
+		Description:      "Stream records as series of inserts, lightweight updates, & lightweight deletes",
+		DefaultValue:     "false",
+		ValueType:        protos.DynconfValueType_BOOL,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
+		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+	},
+	{
 		Name:             "PEERDB_CLICKHOUSE_BINARY_FORMAT",
 		Description:      "Binary field encoding on clickhouse destination; either raw, hex, or base64",
 		DefaultValue:     "raw",
@@ -570,6 +578,10 @@ func PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) 
 
 func PeerDBNullable(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_NULLABLE")
+}
+
+func PeerDBEnableClickHouseStream(ctx context.Context, env map[string]string) (bool, error) {
+	return dynamicConfBool(ctx, env, "PEERDB_ENABLE_CLICKHOUSE_STREAM")
 }
 
 func PeerDBBinaryFormat(ctx context.Context, env map[string]string) (BinaryFormat, error) {

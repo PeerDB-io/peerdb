@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -146,17 +147,91 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 }
 
 func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
-	res, err := c.syncRecordsViaAvro(ctx, req, req.SyncBatchID)
+	enableStream, err := internal.PeerDBEnableClickHouseStream(ctx, req.Env)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint); err != nil {
-		c.logger.Error("failed to increment id", slog.Any("error", err))
-		return nil, err
-	}
+	if enableStream {
+		tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
+		var numRecords int64
+	Loop:
+		for {
+			select {
+			case record, ok := <-req.Records.GetRecords():
+				if !ok {
+					c.logger.Info("flushing batches because no more records")
+					break Loop
+				}
+				numRecords += 1
+				tableSchema := req.TableNameSchemaMapping[record.GetDestinationTableName()]
+				switch r := record.(type) {
+				case *model.InsertRecord[model.RecordItems]:
+					colNames := make([]string, 0, len(tableSchema.Columns))
+					values := make([]string, 0, len(tableSchema.Columns))
+					for _, col := range tableSchema.Columns {
+						colNames = append(colNames, peerdb_clickhouse.QuoteIdentifier(col.Name))
+						val := r.Items.GetColumnValue(col.Name)
+						values = append(values, peerdb_clickhouse.QuoteLiteral(fmt.Sprint(val.Value())))
+					}
+					c.exec(ctx, fmt.Sprintf("INSERT INTO %s(%s) VALUES (%s)",
+						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(colNames, ","), strings.Join(values, ",")))
+				case *model.UpdateRecord[model.RecordItems]:
+					assignments := make([]string, 0, len(tableSchema.Columns))
+					for _, col := range tableSchema.Columns {
+						assignments = append(assignments, fmt.Sprintf("%s=%s",
+							peerdb_clickhouse.QuoteIdentifier(col.Name), peerdb_clickhouse.QuoteLiteral(fmt.Sprint(r.NewItems.GetColumnValue(col.Name))),
+						))
+					}
+					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+					for _, colName := range tableSchema.PrimaryKeyColumns {
+						where = append(where, fmt.Sprintf("%s=%s",
+							peerdb_clickhouse.QuoteIdentifier(colName), peerdb_clickhouse.QuoteLiteral(fmt.Sprint(r.OldItems.GetColumnValue(colName))),
+						))
+					}
+					c.exec(ctx, fmt.Sprintf("UPDATE %s SET %s WHERE %s",
+						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
+						strings.Join(assignments, ","),
+						strings.Join(where, " AND ")))
+				case *model.DeleteRecord[model.RecordItems]:
+					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+					for _, colName := range tableSchema.PrimaryKeyColumns {
+						where = append(where, fmt.Sprintf("%s=%s",
+							peerdb_clickhouse.QuoteIdentifier(colName), peerdb_clickhouse.QuoteLiteral(fmt.Sprint(r.Items.GetColumnValue(colName))),
+						))
+					}
+					c.exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s",
+						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(where, ",")))
+				}
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
 
-	return res, nil
+		lastCheckpoint := req.Records.GetLastCheckpoint()
+		if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
+			return nil, err
+		}
+		return &model.SyncResponse{
+			CurrentSyncBatchID:   req.SyncBatchID,
+			LastSyncedCheckpoint: lastCheckpoint,
+			NumRecordsSynced:     numRecords,
+			TableNameRowsMapping: tableNameRowsMapping,
+			TableSchemaDeltas:    req.Records.SchemaDeltas,
+		}, nil
+	} else {
+		res, err := c.syncRecordsViaAvro(ctx, req, req.SyncBatchID)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint); err != nil {
+			c.logger.Error("failed to increment id", slog.Any("error", err))
+			return nil, err
+		}
+
+		return res, nil
+	}
 }
 
 func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
