@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 
@@ -15,8 +16,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
+const keepaliveIntervalSeconds = 15
+
 type SSHTunnel struct {
 	*ssh.Client
+	keepaliveChan      chan struct{}
+	closeKeepaliveChan chan struct{}
 }
 
 // GetSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
@@ -79,13 +84,13 @@ func NewSSHTunnel(
 			return SSHTunnel{}, err
 		}
 
-		logger.Info("Setting up SSH connection ", slog.String("Server", sshServer))
+		logger.Info("Setting up SSH connection", slog.String("Server", sshServer))
 		client, err := ssh.Dial("tcp", sshServer, clientConfig)
 		if err != nil {
 			return SSHTunnel{}, exceptions.NewSSHTunnelSetupError(err)
 		}
 
-		return SSHTunnel{Client: client}, nil
+		return SSHTunnel{Client: client, closeKeepaliveChan: make(chan struct{})}, nil
 	}
 
 	return SSHTunnel{}, nil
@@ -93,7 +98,49 @@ func NewSSHTunnel(
 
 func (tunnel SSHTunnel) Close() error {
 	if tunnel.Client != nil {
+		close(tunnel.closeKeepaliveChan)
 		return tunnel.Client.Close()
 	}
 	return nil
+}
+
+// returns a channel that will receive a value if the SSH keepalive fails
+// or nil if no SSH tunnel is configured
+func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) chan struct{} {
+	if tunnel.Client == nil {
+		// nil channel would be of no consequence in a select
+		// UNLESS it's the only branch in a select, in which case it would block forever
+		return nil
+	}
+	if tunnel.keepaliveChan != nil {
+		// Already started
+		return tunnel.keepaliveChan
+	}
+	tunnel.keepaliveChan = make(chan struct{})
+
+	go func() {
+		ticker := time.NewTicker(time.Duration(keepaliveIntervalSeconds) * time.Second)
+		defer ticker.Stop()
+		logger := internal.LoggerFromCtx(ctx)
+		for {
+			select {
+			case <-ticker.C:
+				_, _, err := tunnel.Client.SendRequest("keepalive@openssh.com", true, nil)
+				if err != nil {
+					logger.Error("Failed to send keep alive", slog.Any("error", err))
+					// don't close it, otherwise a select can read from channel forever until we error out
+					// relying on it being closed by .Close()
+					tunnel.keepaliveChan <- struct{}{}
+					return
+				}
+			case <-tunnel.closeKeepaliveChan:
+				close(tunnel.keepaliveChan)
+				return
+			case <-ctx.Done():
+				close(tunnel.keepaliveChan)
+				return
+			}
+		}
+	}()
+	return tunnel.keepaliveChan
 }
