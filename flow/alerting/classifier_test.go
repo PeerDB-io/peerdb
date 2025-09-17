@@ -219,7 +219,7 @@ func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
 	_, err = connectConfig.Exec(t.Context(), "SELECT pg_sleep(2)")
 
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed querying: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.QueryCanceled,

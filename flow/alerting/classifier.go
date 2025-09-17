@@ -395,7 +395,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
 
-		case pgerrcode.QueryCanceled, pgerrcode.DuplicateFile, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure:
+		case pgerrcode.QueryCanceled:
+			if pgErr.Message == "canceling statement due to statement timeout" {
+				return ErrorNotifyConnectivity, pgErrorInfo
+			} else {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+		case pgerrcode.DuplicateFile, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure:
 			return ErrorRetryRecoverable, pgErrorInfo
 		}
 	}
