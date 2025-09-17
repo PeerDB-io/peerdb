@@ -57,6 +57,11 @@ jobs:
         image: otel/opentelemetry-collector-contrib:0.135.0@sha256:89107a3a8f4636a396927edf7025bb9614b8da2d92f4cc3f43109e8d115736e2
         ports:
           - 4317:4317
+      toxiproxy:
+        image: ghcr.io/shopify/toxiproxy:2.11.0
+        ports:
+          - 18474:8474
+          - 9902:9902
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5

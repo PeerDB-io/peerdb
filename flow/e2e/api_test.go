@@ -6,14 +6,18 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	tp "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.temporal.io/api/enums/v1"
+	"go.temporal.io/api/workflowservice/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
@@ -1270,4 +1274,392 @@ func (s APITestSuite) TestDropMissing() {
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
 	require.NoError(s.t, err)
+}
+
+func (s APITestSuite) TestCreateCDCFlowManagedConcurrentRequests() {
+	// Test: two concurrent requests succeed
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only testing with PostgreSQL")
+	}
+
+	tableName := "concurrent_test"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "managed_concurrent_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	// Two concurrent requests should succeed and return the same workflow ID
+	var wg sync.WaitGroup
+	var response1, response2 *protos.CreateCDCFlowResponse
+	var err1, err2 error
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		response1, err1 = s.CreateCDCFlowManaged(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	}()
+	go func() {
+		defer wg.Done()
+		response2, err2 = s.CreateCDCFlowManaged(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	}()
+	wg.Wait()
+
+	require.NoError(s.t, err1)
+	require.NoError(s.t, err2)
+	require.NotNil(s.t, response1)
+	require.NotNil(s.t, response2)
+	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId)
+
+	// Verify workflow is actually running
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s APITestSuite) TestCreateCDCFlowManagedConcurrentRequestsToxi() {
+	// Test: use Toxiproxy to ensure concurrent requests are truly concurrent
+
+	// To run locally, requires toxiproxy running:
+	// docker run -d \
+	//   --name peerdb-toxiproxy \
+	//   -p 18474:8474 \
+	//   -p 9902:9902 \
+	//   ghcr.io/shopify/toxiproxy:2.11.0
+
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only testing with PostgreSQL")
+	}
+
+	// Setup PostgreSQL with Toxiproxy
+	suffix := "race_" + s.suffix
+	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix)
+	require.NoError(s.t, err)
+	defer pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+
+	// Create table
+	tableName := "toxiproxy_race_test"
+	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE e2e_test_%s.%s(id int primary key, val text)", suffix, tableName)))
+
+	// Create peer for the proxy connection
+	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	proxyConfig.Port = uint32(9902)
+	proxyPeer := &protos.Peer{
+		Name: "proxy_postgres_" + suffix,
+		Type: protos.DBType_POSTGRES,
+		Config: &protos.Peer_PostgresConfig{
+			PostgresConfig: proxyConfig,
+		},
+	}
+	CreatePeer(s.t, proxyPeer)
+	defer func() {
+		_, _ = s.DropPeer(s.t.Context(), &protos.DropPeerRequest{PeerName: proxyPeer.Name})
+	}()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "managed_" + suffix,
+		TableNameMapping: map[string]string{
+			fmt.Sprintf("e2e_test_%s.%s", suffix, tableName): tableName,
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SourceName = proxyPeer.Name
+
+	// Add latency toxic to ensure concurrent execution
+	const toxicDelay = 2 * time.Second
+	toxic, err := proxy.AddToxic("latency", "latency", "downstream", 1.0, tp.Attributes{
+		"latency": int(toxicDelay.Milliseconds()),
+	})
+	require.NoError(s.t, err)
+
+	// Start concurrent requests
+	var wg sync.WaitGroup
+	var response1, response2 *protos.CreateCDCFlowResponse
+	var err1, err2 error
+	var duration1, duration2 time.Duration
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		start := time.Now()
+		response1, err1 = s.CreateCDCFlowManaged(s.t.Context(),
+			&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+		duration1 = time.Since(start)
+	}()
+	go func() {
+		defer wg.Done()
+		start := time.Now()
+		response2, err2 = s.CreateCDCFlowManaged(s.t.Context(),
+			&protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+		duration2 = time.Since(start)
+	}()
+
+	// Let goroutines start with toxic active
+	time.Sleep(toxicDelay)
+
+	// Remove toxic so requests can complete
+	err = proxy.RemoveToxic(toxic.Name)
+	require.NoError(s.t, err)
+
+	wg.Wait()
+
+	// Verify both requests were delayed by toxic
+	require.Greater(s.t, duration1, toxicDelay)
+	require.Greater(s.t, duration2, toxicDelay)
+
+	// Verify both succeeded with same workflow ID
+	require.NoError(s.t, err1)
+	require.NoError(s.t, err2)
+	require.NotNil(s.t, response1)
+	require.NotNil(s.t, response2)
+	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId)
+
+	// Verify workflow is actually running
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s APITestSuite) TestCreateCDCFlowManagedSequentialRequests() {
+	// Test: two sequential requests succeed, same workflow is returned
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only testing with PostgreSQL")
+	}
+
+	tableName := "sequential_test"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "managed_sequential_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	// First request
+	response1, err1 := s.CreateCDCFlowManaged(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err1)
+	require.NotNil(s.t, response1)
+
+	// Verify workflow is actually running
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// Second sequential request should return the same workflow ID
+	response2, err2 := s.CreateCDCFlowManaged(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err2)
+	require.NotNil(s.t, response2)
+	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId)
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s APITestSuite) TestCreateCDCFlowManagedExternalFlowEntry() {
+	// Test: create a flows entry from the outside (simulate a crash before the workflow is created), do a request, should succeed
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only testing with PostgreSQL")
+	}
+
+	tableName := "external_entry_test"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "managed_external_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	// Simulate a crash: create flows entry without creating workflow
+	conn := s.pg.PostgresConnector.Conn()
+	sourcePeer := s.source.GeneratePeer(s.t)
+	destPeer, err := s.GetPeerInfo(s.t.Context(), &protos.PeerInfoRequest{PeerName: s.ch.Peer().Name})
+	require.NoError(s.t, err)
+
+	var sourcePeerID, destPeerID int32
+	require.NoError(s.t, conn.QueryRow(s.t.Context(),
+		"SELECT id FROM peers WHERE name = $1", sourcePeer.Name).Scan(&sourcePeerID))
+	require.NoError(s.t, conn.QueryRow(s.t.Context(),
+		"SELECT id FROM peers WHERE name = $1", destPeer.Peer.Name).Scan(&destPeerID))
+
+	cfgBytes, err := proto.Marshal(flowConnConfig)
+	require.NoError(s.t, err)
+
+	workflowID := fmt.Sprintf("%s-peerflow", flowConnConfig.FlowJobName)
+	_, err = conn.Exec(s.t.Context(),
+		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,
+		description, source_table_identifier, destination_table_identifier)
+		VALUES ($1,$2,$3,$4,$5,$6,'gRPC','','')`,
+		workflowID, flowConnConfig.FlowJobName, sourcePeerID, destPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
+	)
+	require.NoError(s.t, err)
+
+	// Now call CreateCDCFlowManaged - should start the workflow successfully
+	response, err := s.CreateCDCFlowManaged(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+	require.Equal(s.t, workflowID, response.WorkflowId)
+
+	// Verify workflow is created and running
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), conn, tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitFor(s.t, env, 3*time.Minute, "wait for flow to be running", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s APITestSuite) TestCreateCDCFlowManagedCanceledWorkflow() {
+	// Test: when cdc flow workflow is failed/canceled, a new one is still not created
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only testing with PostgreSQL")
+	}
+
+	tableName := "canceled_workflow_test"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "managed_canceled_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	// First create a normal flow
+	response1, err := s.CreateCDCFlowManaged(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response1)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+
+	// Cancel the workflow to simulate failure
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+
+	// Wait for workflow to be canceled
+	EnvWaitFor(s.t, env, 30*time.Second, "wait for workflow to be canceled", func() bool {
+		desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response1.WorkflowId, "")
+		if err != nil {
+			return false
+		}
+		status := desc.GetWorkflowExecutionInfo().GetStatus()
+		return status == enums.WORKFLOW_EXECUTION_STATUS_CANCELED
+	})
+
+	// Attempt to create again - should return the same workflow ID even though it's canceled
+	response2, err := s.CreateCDCFlowManaged(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response2)
+	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId)
+
+	// Verify workflow is still in canceled state (not restarted)
+	desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response2.WorkflowId, "")
+	require.NoError(s.t, err)
+	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_CANCELED, desc.GetWorkflowExecutionInfo().GetStatus())
+}
+
+func (s APITestSuite) TestCreateCDCFlowManagedIdempotentAfterContinueAsNew() {
+	// Test: cdc flow workflow can continue-as-new and use the same id
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only testing with PostgreSQL")
+	}
+
+	tableName := "continue_as_new_test"
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, tableName))))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      "managed_continue_" + s.suffix,
+		TableNameMapping: map[string]string{AttachSchema(s, tableName): tableName},
+		Destination:      s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+
+	// First create a normal flow
+	response1, err := s.CreateCDCFlowManaged(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response1)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	// Wait for flow to be running
+	EnvWaitFor(s.t, env, 30*time.Second, "wait for flow to be running", func() bool {
+		return env.GetFlowStatus(s.t) == protos.FlowStatus_STATUS_RUNNING
+	})
+
+	// Check workflow executions - should have multiple due to continue-as-new during setup->running transition
+	listReq := &workflowservice.ListWorkflowExecutionsRequest{
+		Namespace: "default",
+		Query:     fmt.Sprintf("WorkflowId = '%s'", response1.WorkflowId),
+	}
+	listResp, err := tc.ListWorkflow(s.t.Context(), listReq)
+	require.NoError(s.t, err)
+	require.Greater(s.t, len(listResp.Executions), 1, "Should have multiple executions (continue-as-new happened)")
+
+	// Call CreateCDCFlowManaged again after continue-as-new - should return the same workflow ID
+	response2, err := s.CreateCDCFlowManaged(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response2)
+	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId, "Should return same workflow ID after continue-as-new")
+
+	// Verify workflow is still running
+	desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response2.WorkflowId, "")
+	require.NoError(s.t, err)
+	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.GetWorkflowExecutionInfo().GetStatus())
+
+	// Clean up
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
