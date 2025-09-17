@@ -98,7 +98,10 @@ func NewSSHTunnel(
 
 func (tunnel *SSHTunnel) Close() error {
 	if tunnel.Client != nil {
-		close(tunnel.closeKeepaliveChan)
+		if tunnel.closeKeepaliveChan != nil {
+			close(tunnel.closeKeepaliveChan)
+			tunnel.closeKeepaliveChan = nil
+		}
 		return tunnel.Client.Close()
 	}
 	return nil
