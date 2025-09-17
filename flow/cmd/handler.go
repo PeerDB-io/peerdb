@@ -85,7 +85,8 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 			description, source_table_identifier, destination_table_identifier)
 			SELECT $1,$2,$3,$4,$5,$6,'gRPC','',''
 			WHERE NOT EXISTS (SELECT 1 FROM flows WHERE name = $7)`,
-			workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP, req.ConnectionConfigs.FlowJobName,
+			workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes,
+			protos.FlowStatus_STATUS_SETUP, req.ConnectionConfigs.FlowJobName,
 		)
 	} else {
 		_, err = h.pool.Exec(ctx,
@@ -196,7 +197,7 @@ func (h *FlowRequestHandler) CreateCDCFlowManaged(
 		return nil, exceptions.NewInvalidArgumentApiError(errors.New("resync is not supported in the managed API"))
 	}
 
-	workflowID := fmt.Sprintf("%s-peerflow", cfg.FlowJobName)
+	workflowID := cfg.FlowJobName + "-peerflow"
 	var errNotFound *serviceerror.NotFound
 	_, err = h.temporalClient.DescribeWorkflow(ctx, workflowID, "")
 	if err != nil && !errors.As(err, &errNotFound) {

@@ -1524,7 +1524,7 @@ func (s APITestSuite) TestCreateCDCFlowManagedExternalFlowEntry() {
 	cfgBytes, err := proto.Marshal(flowConnConfig)
 	require.NoError(s.t, err)
 
-	workflowID := fmt.Sprintf("%s-peerflow", flowConnConfig.FlowJobName)
+	workflowID := flowConnConfig.FlowJobName + "-peerflow"
 	_, err = conn.Exec(s.t.Context(),
 		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,
 		description, source_table_identifier, destination_table_identifier)
