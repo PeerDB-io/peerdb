@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -337,7 +338,15 @@ func GetPostgresToxicProxy(t *testing.T) (*tp.Proxy, error) {
 	if toxiPostgresProxy == nil {
 		// Get upstream from environment configuration
 		config := internal.GetCatalogPostgresConfigFromEnv(context.Background())
-		upstream := fmt.Sprintf("%s:%d", config.Host, config.Port)
+
+		// Allow override of upstream host for Toxiproxy
+		// In CI, Toxiproxy runs as a service container and needs to use service names
+		// while test code connects via localhost
+		upstreamHost := os.Getenv("TOXIPROXY_POSTGRES_HOST")
+		if upstreamHost == "" {
+			upstreamHost = config.Host
+		}
+		upstream := fmt.Sprintf("%s:%d", upstreamHost, config.Port)
 
 		// Try to create proxy
 		proxy, err := toxiClient.CreateProxy("postgres",

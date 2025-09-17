@@ -19,6 +19,8 @@ var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, error) {
+	// validateCDCMirrorImpl already returns a grpc error
+	//nopeertest:grpcReturn
 	return h.validateCDCMirrorImpl(ctx, req, false)
 }
 
