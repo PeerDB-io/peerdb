@@ -128,7 +128,7 @@ func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) chan struct{} {
 				_, _, err := tunnel.Client.SendRequest("keepalive@openssh.com", true, nil)
 				if err != nil {
 					logger.Error("Failed to send keep alive", slog.Any("error", err))
-					// don't close it, otherwise a select can read from channel forever until we error out
+					// don't close it, otherwise a select would select this over and over until we error out
 					// relying on it being closed by .Close()
 					tunnel.keepaliveChan <- struct{}{}
 					return
