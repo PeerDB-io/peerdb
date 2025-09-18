@@ -16,6 +16,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	numeric "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -368,6 +369,7 @@ func (c *PostgresConnector) createSlotAndPublication(
 	tableNameMapping map[string]model.NameAndExclude,
 	doInitialCopy bool,
 	skipSnapshotExport bool,
+	env map[string]string,
 ) (model.SetupReplicationResult, error) {
 	// iterate through source tables and create publication,
 	// expecting tablenames to be schema qualified
@@ -408,17 +410,24 @@ func (c *PostgresConnector) createSlotAndPublication(
 			conn.Close(ctx)
 			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error getting PG version: %w", err)
 		}
-		// can't create failover slots on a standby
-		isInRecovery, err := c.IsInRecovery(ctx)
-		if err != nil {
-			conn.Close(ctx)
-			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error checking if in recovery: %w", err)
-		}
 
 		var optionsString string
-		if pgversion >= shared.POSTGRES_17 && !isInRecovery {
-			optionsString = " (FAILOVER 'true')"
+		if failoverEnabled, err := internal.PeerDBPostgresEnableFailoverSlots(ctx, env); err != nil {
+			conn.Close(ctx)
+			return model.SetupReplicationResult{}, fmt.Errorf("[slot] error checking dynamic config for failover slots: %w", err)
+		} else if failoverEnabled {
+			// can't create failover slots on a standby
+			isInRecovery, err := c.IsInRecovery(ctx)
+			if err != nil {
+				conn.Close(ctx)
+				return model.SetupReplicationResult{}, fmt.Errorf("[slot] error checking if in recovery: %w", err)
+			}
+
+			if pgversion >= shared.POSTGRES_17 && !isInRecovery {
+				optionsString = " (FAILOVER 'true')"
+			}
 		}
+
 		createSlotCommand := fmt.Sprintf("CREATE_REPLICATION_SLOT %s LOGICAL pgoutput%s", utils.QuoteIdentifier(slot), optionsString)
 
 		c.logger.Info("Creating replication slot", slog.String("slot", slot))
