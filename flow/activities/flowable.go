@@ -769,7 +769,7 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		return a.RecordMetricsCritical(ctx)
 	}))()
 	defer shared.Interval(ctx, 2*time.Minute, wrapWithLog("RecordMetricsAggregates", func() error {
-		if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err != nil && enabled {
+		if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
 			return a.RecordMetricsAggregates(ctx)
 		}
 		logger.Info("metrics aggregates recording is disabled")
