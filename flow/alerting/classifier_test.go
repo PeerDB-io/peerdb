@@ -206,7 +206,7 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
+func TestPostgresQueryCancelledErrorShouldBeNotifyConnectivity(t *testing.T) {
 	t.Parallel()
 
 	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
@@ -219,7 +219,7 @@ func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
 	_, err = connectConfig.Exec(t.Context(), "SELECT pg_sleep(2)")
 
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed querying: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.QueryCanceled,
@@ -341,7 +341,7 @@ func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
+func TestPostgresQueryCancelledDuringWalShouldBeNotifyConnectivity(t *testing.T) {
 	// Simulate a query cancelled error during WAL
 	err := exceptions.NewPostgresWalError(errors.New("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
 		Severity: "ERROR",
@@ -349,7 +349,7 @@ func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
 		Message:  "canceling statement due to user request",
 	})
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.QueryCanceled,
