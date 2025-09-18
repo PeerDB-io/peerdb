@@ -284,6 +284,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var missingPrimaryKeyErr *exceptions.MissingPrimaryKeyError
+	if errors.As(err, &missingPrimaryKeyErr) {
+		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "MISSING_PRIMARY_KEY",
+		}
+	}
+
 	var temporalErr *temporal.ApplicationError
 	if errors.As(err, &temporalErr) {
 		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
