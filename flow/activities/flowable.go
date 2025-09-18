@@ -903,9 +903,9 @@ func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
 	logger.Info("Querying for flows and statuses to emit metrics")
 	queryCtx, cancelFunc := context.WithTimeout(ctx, 20*time.Second)
 	defer cancelFunc()
-	infos, err2 := a.getFlowsForMetrics(queryCtx)
-	if err2 != nil {
-		return err2
+	infos, err := a.getFlowsForMetrics(queryCtx)
+	if err != nil {
+		return err
 	}
 	logger.Info("Emitting metrics for flows", slog.Int("flows", len(infos)))
 	activeFlows := make([]metricsFlowMetadata, 0, len(infos))
@@ -1004,7 +1004,9 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 	}
 
 	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (metricsFlowMetadata, error) {
-		var f metricsFlowMetadata
+		f := metricsFlowMetadata{
+			config: &protos.FlowConnectionConfigs{},
+		}
 		var configProto []byte
 		if err := rows.Scan(
 			&f.name,
