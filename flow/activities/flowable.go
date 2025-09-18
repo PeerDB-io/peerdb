@@ -839,7 +839,7 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 			deletes_count,
 			flow_name
 		FROM peerdb_stats.cdc_table_aggregate_counts
-		WHERE flow_name IN ($1)
+		WHERE flow_name = ANY($1)
 		ORDER BY flow_name, destination_table_name`, flowNames)
 	if err != nil {
 		return fmt.Errorf("failed to query cdc table total counts: %w", err)
