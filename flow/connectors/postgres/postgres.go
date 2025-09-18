@@ -1290,7 +1290,8 @@ func (c *PostgresConnector) SetupReplication(
 		}
 	}
 	// Create the replication slot and publication
-	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot, skipSnapshotExport)
+	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping,
+		req.DoInitialSnapshot, skipSnapshotExport, req.Env)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
