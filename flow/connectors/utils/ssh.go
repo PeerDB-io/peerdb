@@ -22,6 +22,7 @@ type SSHTunnel struct {
 	*ssh.Client
 	keepaliveChan      chan struct{}
 	closeKeepaliveChan chan struct{}
+	badTunnel          bool
 }
 
 // GetSSHClientConfig returns an *ssh.ClientConfig based on provided credentials.
@@ -90,7 +91,7 @@ func NewSSHTunnel(
 			return SSHTunnel{}, exceptions.NewSSHTunnelSetupError(err)
 		}
 
-		return SSHTunnel{Client: client, closeKeepaliveChan: make(chan struct{})}, nil
+		return SSHTunnel{Client: client, closeKeepaliveChan: make(chan struct{}), badTunnel: false}, nil
 	}
 
 	return SSHTunnel{}, nil
@@ -110,7 +111,7 @@ func (tunnel *SSHTunnel) Close() error {
 // returns a channel that will receive a value if the SSH keepalive fails
 // or nil if no SSH tunnel is configured
 func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) chan struct{} {
-	if tunnel.Client == nil {
+	if tunnel.Client == nil || tunnel.badTunnel {
 		// nil channel would be of no consequence in a select
 		// UNLESS it's the only branch in a select, in which case it would block forever
 		return nil
@@ -131,9 +132,8 @@ func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) chan struct{} {
 				_, _, err := tunnel.Client.SendRequest("keepalive@openssh.com", true, nil)
 				if err != nil {
 					logger.Error("Failed to send keep alive", slog.Any("error", err))
-					// don't close it, otherwise a select would select this over and over until we error out
-					// relying on it being closed by .Close()
-					tunnel.keepaliveChan <- struct{}{}
+					close(tunnel.keepaliveChan)
+					tunnel.badTunnel = true
 					return
 				}
 			case <-tunnel.closeKeepaliveChan:
