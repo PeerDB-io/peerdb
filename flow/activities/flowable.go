@@ -770,7 +770,7 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 	}))()
 	defer shared.Interval(ctx, 2*time.Minute, wrapWithLog("RecordMetricsAggregates", func() error {
 		return a.RecordMetricsAggregates(ctx)
-	}))
+	}))()
 	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
 		return a.RecordSlotSizes(ctx)
 	}))()
