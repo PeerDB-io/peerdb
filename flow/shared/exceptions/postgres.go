@@ -58,12 +58,12 @@ func (e *PostgresWalError) UnderlyingError() *pgproto3.ErrorResponse {
 }
 
 type TablesNotInPublicationError struct {
-	tables          []string
 	publicationName string
+	tables          []string
 }
 
 func NewTablesNotInPublicationError(tables []string, publicationName string) *TablesNotInPublicationError {
-	return &TablesNotInPublicationError{tables, publicationName}
+	return &TablesNotInPublicationError{publicationName, tables}
 }
 
 func (e *TablesNotInPublicationError) Error() string {
