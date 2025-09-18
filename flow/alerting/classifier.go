@@ -267,6 +267,13 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	if strings.Contains(err.Error(), "conn closed") || strings.Contains(err.Error(), "conn uninitialized") || strings.Contains(err.Error(), "conn busy") {
+		return ErrorIgnoreEOF, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "UNKNOWN",
+		}
+	}
+
 	if errors.Is(err, shared.ErrTableDoesNotExist) {
 		return ErrorNotifySourceTableMissing, ErrorInfo{
 			Source: ErrorSourcePostgres,
