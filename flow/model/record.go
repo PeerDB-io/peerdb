@@ -13,8 +13,8 @@ type Record[T Items] interface {
 	GetTransactionID() uint64
 	GetDestinationTableName() string
 	GetSourceTableName() string
-	// get columns and values for the record
-	GetItems() T
+	GetBaseRecord() BaseRecord
+	GetItems() T // get columns and values for the record
 	PopulateCountMap(mapOfCounts map[string]*RecordTypeCounts)
 }
 
@@ -63,6 +63,10 @@ func (r *InsertRecord[T]) GetSourceTableName() string {
 	return r.SourceTableName
 }
 
+func (r *InsertRecord[T]) GetBaseRecord() BaseRecord {
+	return r.BaseRecord
+}
+
 func (r *InsertRecord[T]) GetItems() T {
 	return r.Items
 }
@@ -100,6 +104,10 @@ func (r *UpdateRecord[T]) GetSourceTableName() string {
 	return r.SourceTableName
 }
 
+func (r *UpdateRecord[T]) GetBaseRecord() BaseRecord {
+	return r.BaseRecord
+}
+
 func (r *UpdateRecord[T]) GetItems() T {
 	return r.NewItems
 }
@@ -135,6 +143,10 @@ func (r *DeleteRecord[T]) GetSourceTableName() string {
 	return r.SourceTableName
 }
 
+func (r *DeleteRecord[T]) GetBaseRecord() BaseRecord {
+	return r.BaseRecord
+}
+
 func (r *DeleteRecord[T]) GetItems() T {
 	return r.Items
 }
@@ -164,6 +176,10 @@ func (r *RelationRecord[T]) GetSourceTableName() string {
 	return r.TableSchemaDelta.SrcTableName
 }
 
+func (r *RelationRecord[T]) GetBaseRecord() BaseRecord {
+	return r.BaseRecord
+}
+
 func (r *RelationRecord[T]) GetItems() T {
 	var none T
 	return none
@@ -188,6 +204,10 @@ func (r *MessageRecord[T]) GetDestinationTableName() string {
 
 func (r *MessageRecord[T]) GetSourceTableName() string {
 	return ""
+}
+
+func (r *MessageRecord[T]) GetBaseRecord() BaseRecord {
+	return r.BaseRecord
 }
 
 func (r *MessageRecord[T]) GetItems() T {

@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strconv"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -146,15 +150,98 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}, nil
 }
 
+func formatSlice[T any](values []T, f func(T) string) string {
+	s := make([]string, 0, len(values))
+	for _, value := range values {
+		s = append(s, f(value))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+func formatQValue(value types.QValue) string {
+	switch v := value.(type) {
+	case nil:
+		return "NULL"
+	case types.QValueNull:
+		return "NULL"
+	case types.QValueArrayBoolean:
+		return formatSlice(v.Val, func(val bool) string {
+			if val {
+				return "true"
+			} else {
+				return "false"
+			}
+		})
+	case types.QValueArrayInt16:
+		return formatSlice(v.Val, func(val int16) string {
+			return strconv.FormatInt(int64(val), 10)
+		})
+	case types.QValueArrayInt32:
+		return formatSlice(v.Val, func(val int32) string {
+			return strconv.FormatInt(int64(val), 10)
+		})
+	case types.QValueArrayInt64:
+		return formatSlice(v.Val, func(val int64) string {
+			return strconv.FormatInt(val, 10)
+		})
+	case types.QValueArrayString:
+		return formatSlice(v.Val, peerdb_clickhouse.QuoteLiteral)
+	case types.QValueArrayFloat32:
+		return formatSlice(v.Val, func(val float32) string {
+			return strconv.FormatFloat(float64(val), 'g', -1, 32)
+		})
+	case types.QValueArrayFloat64:
+		return formatSlice(v.Val, func(val float64) string {
+			return strconv.FormatFloat(val, 'g', -1, 64)
+		})
+	case types.QValueArrayEnum:
+		return formatSlice(v.Val, peerdb_clickhouse.QuoteLiteral)
+	default:
+		return peerdb_clickhouse.QuoteLiteral(fmt.Sprint(v.Value()))
+	}
+}
+
 func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	enableStream, err := internal.PeerDBEnableClickHouseStream(ctx, req.Env)
 	if err != nil {
 		return nil, err
-	}
-
-	if enableStream {
-		tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
+	} else if enableStream {
 		var numRecords int64
+		lastSeenLSN := atomic.Int64{}
+		tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
+		flushLoopDone := make(chan struct{})
+		go func() {
+			flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+			if err != nil {
+				c.logger.Warn("failed to get flush timeout, no periodic flushing", slog.Any("error", err))
+				return
+			}
+			ticker := time.NewTicker(flushTimeout)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-flushLoopDone:
+					return
+				// flush loop doesn't block processing new messages
+				case <-ticker.C:
+					lastSeen := lastSeenLSN.Load()
+					if lastSeen > req.ConsumedOffset.Load() {
+						if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeen}); err != nil {
+							c.logger.Warn("SetLastOffset error", slog.Any("error", err))
+						} else {
+							shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
+							c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeen))
+						}
+					}
+				}
+			}
+		}()
+		defer close(flushLoopDone)
+
+		// TODO sourceSchemaAsDestinationColumn
 	Loop:
 		for {
 			select {
@@ -172,37 +259,51 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 					for _, col := range tableSchema.Columns {
 						colNames = append(colNames, peerdb_clickhouse.QuoteIdentifier(col.Name))
 						val := r.Items.GetColumnValue(col.Name)
-						values = append(values, peerdb_clickhouse.QuoteLiteral(fmt.Sprint(val.Value())))
+						values = append(values, formatQValue(val))
 					}
-					c.exec(ctx, fmt.Sprintf("INSERT INTO %s(%s) VALUES (%s)",
-						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(colNames, ","), strings.Join(values, ",")))
+					if err := c.execWithLogging(ctx, fmt.Sprintf("INSERT INTO %s(%s,_peerdb_is_deleted,_peerdb_version) VALUES (%s,0,%d)",
+						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(colNames, ","), strings.Join(values, ","), r.BaseRecord.CommitTimeNano)); err != nil {
+						return nil, err
+					}
 				case *model.UpdateRecord[model.RecordItems]:
 					assignments := make([]string, 0, len(tableSchema.Columns))
 					for _, col := range tableSchema.Columns {
-						assignments = append(assignments, fmt.Sprintf("%s=%s",
-							peerdb_clickhouse.QuoteIdentifier(col.Name), peerdb_clickhouse.QuoteLiteral(fmt.Sprint(r.NewItems.GetColumnValue(col.Name))),
-						))
+						// TODO needs to match custom ordering key
+						if !slices.Contains(tableSchema.PrimaryKeyColumns, col.Name) {
+							assignments = append(assignments, fmt.Sprintf("%s=%s",
+								peerdb_clickhouse.QuoteIdentifier(col.Name), formatQValue(r.NewItems.GetColumnValue(col.Name)),
+							))
+						}
 					}
 					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
 					for _, colName := range tableSchema.PrimaryKeyColumns {
+						item := r.OldItems.GetColumnValue(colName)
+						if item == nil {
+							item = r.NewItems.GetColumnValue(colName)
+						}
 						where = append(where, fmt.Sprintf("%s=%s",
-							peerdb_clickhouse.QuoteIdentifier(colName), peerdb_clickhouse.QuoteLiteral(fmt.Sprint(r.OldItems.GetColumnValue(colName))),
+							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(item),
 						))
 					}
-					c.exec(ctx, fmt.Sprintf("UPDATE %s SET %s WHERE %s",
+					if err := c.execWithLogging(ctx, fmt.Sprintf("UPDATE %s SET %s,_peerdb_is_deleted=0 WHERE %s",
 						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
 						strings.Join(assignments, ","),
-						strings.Join(where, " AND ")))
+						strings.Join(where, " AND "))); err != nil {
+						return nil, err
+					}
 				case *model.DeleteRecord[model.RecordItems]:
 					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
 					for _, colName := range tableSchema.PrimaryKeyColumns {
 						where = append(where, fmt.Sprintf("%s=%s",
-							peerdb_clickhouse.QuoteIdentifier(colName), peerdb_clickhouse.QuoteLiteral(fmt.Sprint(r.Items.GetColumnValue(colName))),
+							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(r.Items.GetColumnValue(colName)),
 						))
 					}
-					c.exec(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s",
-						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(where, ",")))
+					if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s",
+						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(where, " AND "))); err != nil {
+						return nil, err
+					}
 				}
+				shared.AtomicInt64Max(&lastSeenLSN, record.GetBaseRecord().CheckpointID)
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}

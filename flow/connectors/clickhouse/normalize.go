@@ -254,8 +254,15 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			}
 		}
 
-		if allowNullableKey {
-			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+		if allowStream, err := internal.PeerDBEnableClickHouseStream(ctx, config.Env); err != nil {
+			return nil, fmt.Errorf("failed to load stream config: %w", err)
+		} else if allowStream {
+			stmtBuilder.WriteString(" SETTINGS enable_block_number_column=1,enable_block_offset_column=1")
+			if allowNullableKey {
+				stmtBuilder.WriteString(",allow_nullable_key=1")
+			}
+		} else if allowNullableKey {
+			stmtBuilder.WriteString(" SETTINGS allow_nullable_key=1")
 		}
 
 		if c.Config.Cluster != "" {
@@ -408,6 +415,16 @@ func (c *ClickHouseConnector) NormalizeRecords(
 
 	// normalize has caught up with sync, chill until more records are loaded.
 	if normBatchID >= req.SyncBatchID {
+		return model.NormalizeResponse{
+			StartBatchID: normBatchID,
+			EndBatchID:   req.SyncBatchID,
+		}, nil
+	}
+
+	enableStream, err := internal.PeerDBEnableClickHouseStream(ctx, req.Env)
+	if err != nil {
+		return model.NormalizeResponse{}, err
+	} else if enableStream {
 		return model.NormalizeResponse{
 			StartBatchID: normBatchID,
 			EndBatchID:   req.SyncBatchID,
