@@ -299,9 +299,10 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	}
 
 	if t.cluster {
-		colSelector.WriteString(" SETTINGS parallel_distributed_insert_select=0")
+		colSelector.WriteString(" SETTINGS throw_on_max_partitions_per_insert_block = 0, parallel_distributed_insert_select=0")
+	} else {
+		colSelector.WriteString(" SETTINGS throw_on_max_partitions_per_insert_block = 0")
 	}
-
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
 		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String())
 
