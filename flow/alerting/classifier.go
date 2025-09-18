@@ -272,7 +272,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 	if strings.Contains(err.Error(), "conn closed") ||
 		strings.Contains(err.Error(), "conn uninitialized") ||
 		strings.Contains(err.Error(), "conn busy") {
-		return ErrorIgnoreEOF, ErrorInfo{
+		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "UNKNOWN",
 		}
