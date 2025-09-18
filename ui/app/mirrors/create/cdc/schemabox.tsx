@@ -195,7 +195,6 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setExpandedSchemas((curr) => [...curr, schemaName]);
