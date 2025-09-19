@@ -869,7 +869,7 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 				a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(eCtx, *valuePtr, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, scannedFlow),
 					attribute.String(otel_metrics.DestinationTableNameKey, tableCount.TableName),
-					attribute.String(otel_metrics.RecordOperationTypeInsert, op),
+					attribute.String(otel_metrics.RecordOperationTypeKey, op),
 				)))
 			}
 		} else {
