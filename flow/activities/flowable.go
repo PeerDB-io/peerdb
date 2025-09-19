@@ -846,39 +846,38 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 	}
 
 	var scannedFlow string
-	tableCount := &protos.CDCTableRowCounts{
-		Counts: &protos.CDCRowCounts{},
+	var tableName string
+	operationValueMapping := [3]struct {
+		op    string
+		count int64
+	}{
+		{op: otel_metrics.RecordOperationTypeInsert},
+		{op: otel_metrics.RecordOperationTypeUpdate},
+		{op: otel_metrics.RecordOperationTypeDelete},
 	}
 
-	operationValueMapping := map[string]*int64{
-		otel_metrics.RecordOperationTypeInsert: &tableCount.Counts.InsertsCount,
-		otel_metrics.RecordOperationTypeUpdate: &tableCount.Counts.UpdatesCount,
-		otel_metrics.RecordOperationTypeDelete: &tableCount.Counts.DeletesCount,
-	}
-
-	_, err = pgx.ForEachRow(rows, []any{
-		&tableCount.TableName,
-		&tableCount.Counts.InsertsCount,
-		&tableCount.Counts.UpdatesCount,
-		&tableCount.Counts.DeletesCount,
+	if _, err = pgx.ForEachRow(rows, []any{
+		&tableName,
+		&(operationValueMapping[0].count),
+		&(operationValueMapping[1].count),
+		&(operationValueMapping[2].count),
 		&scannedFlow,
 	}, func() error {
 		if flowData, ok := flowsMap[scannedFlow]; ok {
 			eCtx := context.WithValue(ctx, internal.FlowMetadataKey, flowData.toFlowContextMetadata())
-			for op, valuePtr := range operationValueMapping {
-				a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(eCtx, *valuePtr, metric.WithAttributeSet(attribute.NewSet(
+			for _, opAndValue := range operationValueMapping {
+				a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(eCtx, opAndValue.count, metric.WithAttributeSet(attribute.NewSet(
 					attribute.String(otel_metrics.FlowNameKey, scannedFlow),
-					attribute.String(otel_metrics.DestinationTableNameKey, tableCount.TableName),
-					attribute.String(otel_metrics.RecordOperationTypeKey, op),
+					attribute.String(otel_metrics.DestinationTableNameKey, tableName),
+					attribute.String(otel_metrics.RecordOperationTypeKey, opAndValue.op),
 				)))
 			}
 		} else {
 			logger.Error("Flow not found for metrics",
-				slog.String("flow", scannedFlow), slog.String("tableName", tableCount.TableName))
+				slog.String("flow", scannedFlow), slog.String("tableName", tableName))
 		}
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return fmt.Errorf("failed to iterate over cdc table total counts: %w", err)
 	}
 

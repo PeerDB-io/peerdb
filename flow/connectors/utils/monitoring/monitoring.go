@@ -128,15 +128,19 @@ func AddCDCBatchTablesForFlow(
 		return fmt.Errorf("error while beginning transaction for inserting statistics: %w", err)
 	}
 	defer shared.RollbackTx(insertBatchTablesTx, internal.LoggerFromCtx(ctx))
-	tableNameOperations := make(map[string]map[string]int32, len(tableNameRowsMapping))
+	type opWithValue struct {
+		op    string
+		count int32
+	}
+	tableNameOperations := make(map[string][3]opWithValue, len(tableNameRowsMapping))
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
 		inserts := rowCounts.InsertCount.Load()
 		updates := rowCounts.UpdateCount.Load()
 		deletes := rowCounts.DeleteCount.Load()
-		tableNameOperations[destinationTableName] = map[string]int32{
-			otel_metrics.RecordOperationTypeInsert: inserts,
-			otel_metrics.RecordOperationTypeUpdate: updates,
-			otel_metrics.RecordOperationTypeDelete: deletes,
+		tableNameOperations[destinationTableName] = [3]opWithValue{
+			{op: otel_metrics.RecordOperationTypeInsert, count: inserts},
+			{op: otel_metrics.RecordOperationTypeUpdate, count: updates},
+			{op: otel_metrics.RecordOperationTypeDelete, count: deletes},
 		}
 		totalRows := inserts + updates + deletes
 
@@ -190,10 +194,10 @@ func AddCDCBatchTablesForFlow(
 	}
 
 	for destinationTableName, operations := range tableNameOperations {
-		for operationType, count := range operations {
-			otelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, int64(count), metric.WithAttributeSet(attribute.NewSet(
+		for _, opAndCount := range operations {
+			otelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, int64(opAndCount.count), metric.WithAttributeSet(attribute.NewSet(
 				attribute.String(otel_metrics.DestinationTableNameKey, destinationTableName),
-				attribute.String(otel_metrics.RecordOperationTypeKey, operationType),
+				attribute.String(otel_metrics.RecordOperationTypeKey, opAndCount.op),
 			)))
 		}
 	}
