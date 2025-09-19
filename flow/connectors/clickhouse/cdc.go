@@ -307,7 +307,9 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 						values = append(values, formatQValue(val))
 					}
 					if err := c.execWithLogging(ctx, fmt.Sprintf("INSERT INTO %s(%s,_peerdb_is_deleted,_peerdb_version) VALUES (%s,0,%d)",
-						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(colNames, ","), strings.Join(values, ","), r.BaseRecord.CommitTimeNano)); err != nil {
+						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
+						strings.Join(colNames, ","), strings.Join(values, ","), r.BaseRecord.CommitTimeNano),
+					); err != nil {
 						return nil, err
 					}
 				case *model.UpdateRecord[model.RecordItems]:
