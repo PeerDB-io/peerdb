@@ -261,6 +261,17 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// Reference:
+	// https://github.com/jackc/pgx/blob/61d3c965ad442cc14d6b0e39e0ab3821f3684c03/pgconn/pgconn.go#L731
+	if strings.Contains(err.Error(), "conn closed") ||
+		strings.Contains(err.Error(), "conn uninitialized") ||
+		strings.Contains(err.Error(), "conn busy") {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "UNKNOWN",
+		}
+	}
+
 	if errors.Is(err, shared.ErrTableDoesNotExist) {
 		return ErrorNotifySourceTableMissing, ErrorInfo{
 			Source: ErrorSourcePostgres,
