@@ -262,6 +262,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		return nil, fmt.Errorf("failed to load stream config: %w", err)
 	} else if allowStream {
 		settings["allow_experimental_lightweight_update"] = true
+		settings["async_insert"] = true
 	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{

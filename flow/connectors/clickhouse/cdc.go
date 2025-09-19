@@ -159,11 +159,61 @@ func formatSlice[T any](values []T, f func(T) string) string {
 	return fmt.Sprintf("[%s]", strings.Join(s, ","))
 }
 
-func formatQValue(value types.QValue) string {
+func formatQValue(value types.QValue, nullable bool) string {
 	switch v := value.(type) {
 	case nil:
 		return "NULL"
 	case types.QValueNull:
+		if !nullable {
+			switch types.QValueKind(v) {
+			case types.QValueKindArrayFloat32,
+				types.QValueKindArrayFloat64,
+				types.QValueKindArrayInt16,
+				types.QValueKindArrayInt32,
+				types.QValueKindArrayInt64,
+				types.QValueKindArrayString,
+				types.QValueKindArrayEnum,
+				types.QValueKindArrayDate,
+				types.QValueKindArrayInterval,
+				types.QValueKindArrayTimestamp,
+				types.QValueKindArrayTimestampTZ,
+				types.QValueKindArrayBoolean,
+				types.QValueKindArrayJSON,
+				types.QValueKindArrayJSONB,
+				types.QValueKindArrayUUID,
+				types.QValueKindArrayNumeric:
+				return "[]"
+			case types.QValueKindFloat32,
+				types.QValueKindFloat64,
+				types.QValueKindInt8,
+				types.QValueKindInt16,
+				types.QValueKindInt32,
+				types.QValueKindInt64,
+				types.QValueKindInt256,
+				types.QValueKindUInt8,
+				types.QValueKindUInt16,
+				types.QValueKindUInt32,
+				types.QValueKindUInt64,
+				types.QValueKindUInt256,
+				types.QValueKindBoolean,
+				types.QValueKindNumeric:
+				return "0"
+			case types.QValueKindQChar,
+				types.QValueKindString,
+				types.QValueKindEnum,
+				types.QValueKindBytes:
+				return "''"
+			case types.QValueKindJSON,
+				types.QValueKindJSONB:
+				return "'{}'"
+			case types.QValueKindUUID:
+				return "'00000000-0000-0000-0000-000000000000'"
+			case types.QValueKindDate:
+				return "'1970-01-01'"
+			case types.QValueKindTimestamp, types.QValueKindTimestampTZ:
+				return "'1970-01-01 00:00:00'"
+			}
+		}
 		return "NULL"
 	case types.QValueArrayBoolean:
 		return formatSlice(v.Val, func(val bool) string {
@@ -304,7 +354,7 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 					for _, col := range tableSchema.Columns {
 						colNames = append(colNames, peerdb_clickhouse.QuoteIdentifier(col.Name))
 						val := r.Items.GetColumnValue(col.Name)
-						values = append(values, formatQValue(val))
+						values = append(values, formatQValue(val, tableSchema.NullableEnabled && col.Nullable))
 					}
 					if err := c.execWithLogging(ctx, fmt.Sprintf("INSERT INTO %s(%s,_peerdb_is_deleted,_peerdb_version) VALUES (%s,0,%d)",
 						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
@@ -318,7 +368,7 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 						// TODO needs to match custom ordering key
 						if !slices.Contains(tableSchema.PrimaryKeyColumns, col.Name) {
 							assignments = append(assignments, fmt.Sprintf("%s=%s",
-								peerdb_clickhouse.QuoteIdentifier(col.Name), formatQValue(r.NewItems.GetColumnValue(col.Name)),
+								peerdb_clickhouse.QuoteIdentifier(col.Name), formatQValue(r.NewItems.GetColumnValue(col.Name), tableSchema.NullableEnabled && col.Nullable),
 							))
 						}
 					}
@@ -328,8 +378,19 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 						if item == nil {
 							item = r.NewItems.GetColumnValue(colName)
 						}
+						var nullable bool
+						if tableSchema.NullableEnabled {
+							for _, col := range tableSchema.Columns {
+								if col.Name == colName {
+									if col.Nullable {
+										nullable = true
+									}
+									break
+								}
+							}
+						}
 						where = append(where, fmt.Sprintf("%s=%s",
-							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(item),
+							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(item, nullable),
 						))
 					}
 					if err := c.execWithLogging(ctx, fmt.Sprintf("UPDATE %s SET %s,_peerdb_is_deleted=0 WHERE %s",
@@ -341,8 +402,19 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 				case *model.DeleteRecord[model.RecordItems]:
 					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
 					for _, colName := range tableSchema.PrimaryKeyColumns {
+						var nullable bool
+						if tableSchema.NullableEnabled {
+							for _, col := range tableSchema.Columns {
+								if col.Name == colName {
+									if col.Nullable {
+										nullable = true
+									}
+									break
+								}
+							}
+						}
 						where = append(where, fmt.Sprintf("%s=%s",
-							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(r.Items.GetColumnValue(colName)),
+							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(r.Items.GetColumnValue(colName), nullable),
 						))
 					}
 					if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s",
