@@ -13,6 +13,7 @@ import (
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -194,8 +195,52 @@ func formatQValue(value types.QValue) string {
 		return formatSlice(v.Val, func(val float64) string {
 			return strconv.FormatFloat(val, 'g', -1, 64)
 		})
+	case types.QValueArrayNumeric:
+		return formatSlice(v.Val, func(val decimal.Decimal) string {
+			return val.String()
+		})
+	case types.QValueArrayDate:
+		return formatSlice(v.Val, func(val time.Time) string {
+			return val.Format(time.DateOnly)
+		})
+	case types.QValueArrayTimestamp:
+		return formatSlice(v.Val, func(val time.Time) string {
+			return val.Format(time.StampNano)
+		})
+	case types.QValueArrayTimestampTZ:
+		return formatSlice(v.Val, func(val time.Time) string {
+			return val.Format(time.StampNano)
+		})
 	case types.QValueArrayEnum:
 		return formatSlice(v.Val, peerdb_clickhouse.QuoteLiteral)
+	case types.QValueBoolean:
+		if v.Val {
+			return "true"
+		} else {
+			return "false"
+		}
+	case types.QValueInt16:
+		return strconv.FormatInt(int64(v.Val), 10)
+	case types.QValueInt32:
+		return strconv.FormatInt(int64(v.Val), 10)
+	case types.QValueInt64:
+		return strconv.FormatInt(v.Val, 10)
+	case types.QValueString:
+		return peerdb_clickhouse.QuoteLiteral(v.Val)
+	case types.QValueFloat32:
+		return strconv.FormatFloat(float64(v.Val), 'g', -1, 32)
+	case types.QValueFloat64:
+		return strconv.FormatFloat(v.Val, 'g', -1, 64)
+	case types.QValueNumeric:
+		return v.Val.String()
+	case types.QValueDate:
+		return v.Val.Format(time.DateOnly)
+	case types.QValueTimestamp:
+		return v.Val.Format(time.StampNano)
+	case types.QValueTimestampTZ:
+		return v.Val.Format(time.StampNano)
+	case types.QValueEnum:
+		return peerdb_clickhouse.QuoteLiteral(v.Val)
 	default:
 		return peerdb_clickhouse.QuoteLiteral(fmt.Sprint(v.Value()))
 	}
