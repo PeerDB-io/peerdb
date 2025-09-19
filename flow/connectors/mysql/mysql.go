@@ -26,7 +26,7 @@ import (
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
 	config         *protos.MySqlConfig
-	ssh            utils.SSHTunnel
+	ssh            *utils.SSHTunnel
 	conn           atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
 	contexts       chan context.Context
 	logger         log.Logger
@@ -71,7 +71,14 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		for {
 			var ok bool
 			select {
+			case <-ssh.GetKeepaliveChan(ctx):
+				c.logger.Info("SSH keepalive failed, closing connection")
+				ctx = context.Background()
+				if conn := c.conn.Swap(nil); conn != nil {
+					conn.Close()
+				}
 			case <-ctx.Done():
+				c.logger.Info("ctx canceled, closing connection")
 				ctx = context.Background()
 				if conn := c.conn.Swap(nil); conn != nil {
 					conn.Close()
@@ -127,7 +134,7 @@ func (c *MySqlConnector) ConnectionActive(context.Context) error {
 
 func (c *MySqlConnector) Dialer() client.Dialer {
 	var meteredDialer utils.MeteredDialer
-	if c.ssh.Client != nil {
+	if c.ssh != nil && c.ssh.Client != nil {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.ssh.Client.DialContext, false)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
