@@ -35,7 +35,7 @@ type MongoConnector struct {
 	*metadataStore.PostgresMetadata
 	config         *protos.MongoConfig
 	client         *mongo.Client
-	ssh            utils.SSHTunnel
+	ssh            *utils.SSHTunnel
 	totalBytesRead atomic.Int64
 	deltaBytesRead atomic.Int64
 }
@@ -60,7 +60,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 	mc.ssh = sshTunnel
 
 	var meteredDialer utils.MeteredDialer
-	if sshTunnel.Client != nil {
+	if sshTunnel != nil && sshTunnel.Client != nil {
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, sshTunnel.Client.DialContext, true)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
@@ -87,7 +87,7 @@ func (c *MongoConnector) Close() error {
 		defer cancel()
 		return c.client.Disconnect(timeout)
 	}
-	if c.ssh.Client != nil {
+	if c.ssh != nil && c.ssh.Client != nil {
 		if err := c.ssh.Close(); err != nil {
 			return fmt.Errorf("failed to close SSH tunnel: %w", err)
 		}
