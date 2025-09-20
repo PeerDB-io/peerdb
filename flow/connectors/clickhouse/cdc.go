@@ -368,7 +368,8 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 						// TODO needs to match custom ordering key
 						if !slices.Contains(tableSchema.PrimaryKeyColumns, col.Name) {
 							assignments = append(assignments, fmt.Sprintf("%s=%s",
-								peerdb_clickhouse.QuoteIdentifier(col.Name), formatQValue(r.NewItems.GetColumnValue(col.Name), tableSchema.NullableEnabled && col.Nullable),
+								peerdb_clickhouse.QuoteIdentifier(col.Name),
+								formatQValue(r.NewItems.GetColumnValue(col.Name), tableSchema.NullableEnabled && col.Nullable),
 							))
 						}
 					}
