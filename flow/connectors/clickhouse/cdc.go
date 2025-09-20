@@ -4,10 +4,16 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strconv"
+	"strings"
+	"sync/atomic"
+	"time"
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
+	"github.com/shopspring/decimal"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -145,18 +151,308 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 	}, nil
 }
 
+func formatSlice[T any](values []T, f func(T) string) string {
+	s := make([]string, 0, len(values))
+	for _, value := range values {
+		s = append(s, f(value))
+	}
+	return fmt.Sprintf("[%s]", strings.Join(s, ","))
+}
+
+func formatQValue(value types.QValue, nullable bool) string {
+	switch v := value.(type) {
+	case nil:
+		return "NULL"
+	case types.QValueNull:
+		if !nullable {
+			switch types.QValueKind(v) {
+			case types.QValueKindArrayFloat32,
+				types.QValueKindArrayFloat64,
+				types.QValueKindArrayInt16,
+				types.QValueKindArrayInt32,
+				types.QValueKindArrayInt64,
+				types.QValueKindArrayString,
+				types.QValueKindArrayEnum,
+				types.QValueKindArrayDate,
+				types.QValueKindArrayInterval,
+				types.QValueKindArrayTimestamp,
+				types.QValueKindArrayTimestampTZ,
+				types.QValueKindArrayBoolean,
+				types.QValueKindArrayJSON,
+				types.QValueKindArrayJSONB,
+				types.QValueKindArrayUUID,
+				types.QValueKindArrayNumeric:
+				return "[]"
+			case types.QValueKindFloat32,
+				types.QValueKindFloat64,
+				types.QValueKindInt8,
+				types.QValueKindInt16,
+				types.QValueKindInt32,
+				types.QValueKindInt64,
+				types.QValueKindInt256,
+				types.QValueKindUInt8,
+				types.QValueKindUInt16,
+				types.QValueKindUInt32,
+				types.QValueKindUInt64,
+				types.QValueKindUInt256,
+				types.QValueKindBoolean,
+				types.QValueKindNumeric:
+				return "0"
+			case types.QValueKindQChar,
+				types.QValueKindString,
+				types.QValueKindEnum,
+				types.QValueKindBytes:
+				return "''"
+			case types.QValueKindJSON,
+				types.QValueKindJSONB:
+				return "'{}'"
+			case types.QValueKindUUID:
+				return "'00000000-0000-0000-0000-000000000000'"
+			case types.QValueKindDate:
+				return "'1970-01-01'"
+			case types.QValueKindTimestamp, types.QValueKindTimestampTZ:
+				return "'1970-01-01 00:00:00'"
+			}
+		}
+		return "NULL"
+	case types.QValueArrayBoolean:
+		return formatSlice(v.Val, func(val bool) string {
+			if val {
+				return "true"
+			} else {
+				return "false"
+			}
+		})
+	case types.QValueArrayInt16:
+		return formatSlice(v.Val, func(val int16) string {
+			return strconv.FormatInt(int64(val), 10)
+		})
+	case types.QValueArrayInt32:
+		return formatSlice(v.Val, func(val int32) string {
+			return strconv.FormatInt(int64(val), 10)
+		})
+	case types.QValueArrayInt64:
+		return formatSlice(v.Val, func(val int64) string {
+			return strconv.FormatInt(val, 10)
+		})
+	case types.QValueArrayString:
+		return formatSlice(v.Val, peerdb_clickhouse.QuoteLiteral)
+	case types.QValueArrayFloat32:
+		return formatSlice(v.Val, func(val float32) string {
+			return strconv.FormatFloat(float64(val), 'g', -1, 32)
+		})
+	case types.QValueArrayFloat64:
+		return formatSlice(v.Val, func(val float64) string {
+			return strconv.FormatFloat(val, 'g', -1, 64)
+		})
+	case types.QValueArrayNumeric:
+		return formatSlice(v.Val, func(val decimal.Decimal) string {
+			return val.String()
+		})
+	case types.QValueArrayDate:
+		return formatSlice(v.Val, func(val time.Time) string {
+			return val.Format(time.DateOnly)
+		})
+	case types.QValueArrayTimestamp:
+		return formatSlice(v.Val, func(val time.Time) string {
+			return val.Format(time.StampNano)
+		})
+	case types.QValueArrayTimestampTZ:
+		return formatSlice(v.Val, func(val time.Time) string {
+			return val.Format(time.StampNano)
+		})
+	case types.QValueArrayEnum:
+		return formatSlice(v.Val, peerdb_clickhouse.QuoteLiteral)
+	case types.QValueBoolean:
+		if v.Val {
+			return "true"
+		} else {
+			return "false"
+		}
+	case types.QValueInt16:
+		return strconv.FormatInt(int64(v.Val), 10)
+	case types.QValueInt32:
+		return strconv.FormatInt(int64(v.Val), 10)
+	case types.QValueInt64:
+		return strconv.FormatInt(v.Val, 10)
+	case types.QValueString:
+		return peerdb_clickhouse.QuoteLiteral(v.Val)
+	case types.QValueFloat32:
+		return strconv.FormatFloat(float64(v.Val), 'g', -1, 32)
+	case types.QValueFloat64:
+		return strconv.FormatFloat(v.Val, 'g', -1, 64)
+	case types.QValueNumeric:
+		return v.Val.String()
+	case types.QValueDate:
+		return v.Val.Format(time.DateOnly)
+	case types.QValueTimestamp:
+		return v.Val.Format(time.StampNano)
+	case types.QValueTimestampTZ:
+		return v.Val.Format(time.StampNano)
+	case types.QValueEnum:
+		return peerdb_clickhouse.QuoteLiteral(v.Val)
+	default:
+		return peerdb_clickhouse.QuoteLiteral(fmt.Sprint(v.Value()))
+	}
+}
+
 func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
-	res, err := c.syncRecordsViaAvro(ctx, req, req.SyncBatchID)
+	enableStream, err := internal.PeerDBEnableClickHouseStream(ctx, req.Env)
 	if err != nil {
 		return nil, err
-	}
+	} else if enableStream {
+		var numRecords int64
+		lastSeenLSN := atomic.Int64{}
+		tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
+		flushLoopDone := make(chan struct{})
+		go func() {
+			flushTimeout, err := internal.PeerDBQueueFlushTimeoutSeconds(ctx, req.Env)
+			if err != nil {
+				c.logger.Warn("failed to get flush timeout, no periodic flushing", slog.Any("error", err))
+				return
+			}
+			ticker := time.NewTicker(flushTimeout)
+			defer ticker.Stop()
 
-	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint); err != nil {
-		c.logger.Error("failed to increment id", slog.Any("error", err))
-		return nil, err
-	}
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-flushLoopDone:
+					return
+				// flush loop doesn't block processing new messages
+				case <-ticker.C:
+					lastSeen := lastSeenLSN.Load()
+					if lastSeen > req.ConsumedOffset.Load() {
+						if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeen}); err != nil {
+							c.logger.Warn("SetLastOffset error", slog.Any("error", err))
+						} else {
+							shared.AtomicInt64Max(req.ConsumedOffset, lastSeen)
+							c.logger.Info("processBatch", slog.Int64("updated last offset", lastSeen))
+						}
+					}
+				}
+			}
+		}()
+		defer close(flushLoopDone)
 
-	return res, nil
+		// TODO sourceSchemaAsDestinationColumn
+	Loop:
+		for {
+			select {
+			case record, ok := <-req.Records.GetRecords():
+				if !ok {
+					c.logger.Info("flushing batches because no more records")
+					break Loop
+				}
+				numRecords += 1
+				tableSchema := req.TableNameSchemaMapping[record.GetDestinationTableName()]
+				switch r := record.(type) {
+				case *model.InsertRecord[model.RecordItems]:
+					colNames := make([]string, 0, len(tableSchema.Columns))
+					values := make([]string, 0, len(tableSchema.Columns))
+					for _, col := range tableSchema.Columns {
+						colNames = append(colNames, peerdb_clickhouse.QuoteIdentifier(col.Name))
+						val := r.Items.GetColumnValue(col.Name)
+						values = append(values, formatQValue(val, tableSchema.NullableEnabled && col.Nullable))
+					}
+					if err := c.execWithLogging(ctx, fmt.Sprintf("INSERT INTO %s(%s,_peerdb_is_deleted,_peerdb_version) VALUES (%s,0,%d)",
+						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
+						strings.Join(colNames, ","), strings.Join(values, ","), r.BaseRecord.CommitTimeNano),
+					); err != nil {
+						return nil, err
+					}
+				case *model.UpdateRecord[model.RecordItems]:
+					assignments := make([]string, 0, len(tableSchema.Columns))
+					for _, col := range tableSchema.Columns {
+						// TODO needs to match custom ordering key
+						if !slices.Contains(tableSchema.PrimaryKeyColumns, col.Name) {
+							assignments = append(assignments, fmt.Sprintf("%s=%s",
+								peerdb_clickhouse.QuoteIdentifier(col.Name),
+								formatQValue(r.NewItems.GetColumnValue(col.Name), tableSchema.NullableEnabled && col.Nullable),
+							))
+						}
+					}
+					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+					for _, colName := range tableSchema.PrimaryKeyColumns {
+						item := r.OldItems.GetColumnValue(colName)
+						if item == nil {
+							item = r.NewItems.GetColumnValue(colName)
+						}
+						var nullable bool
+						if tableSchema.NullableEnabled {
+							for _, col := range tableSchema.Columns {
+								if col.Name == colName {
+									if col.Nullable {
+										nullable = true
+									}
+									break
+								}
+							}
+						}
+						where = append(where, fmt.Sprintf("%s=%s",
+							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(item, nullable),
+						))
+					}
+					if err := c.execWithLogging(ctx, fmt.Sprintf("UPDATE %s SET %s,_peerdb_is_deleted=0 WHERE %s",
+						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
+						strings.Join(assignments, ","),
+						strings.Join(where, " AND "))); err != nil {
+						return nil, err
+					}
+				case *model.DeleteRecord[model.RecordItems]:
+					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
+					for _, colName := range tableSchema.PrimaryKeyColumns {
+						var nullable bool
+						if tableSchema.NullableEnabled {
+							for _, col := range tableSchema.Columns {
+								if col.Name == colName {
+									if col.Nullable {
+										nullable = true
+									}
+									break
+								}
+							}
+						}
+						where = append(where, fmt.Sprintf("%s=%s",
+							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(r.Items.GetColumnValue(colName), nullable),
+						))
+					}
+					if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s",
+						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(where, " AND "))); err != nil {
+						return nil, err
+					}
+				}
+				shared.AtomicInt64Max(&lastSeenLSN, record.GetBaseRecord().CheckpointID)
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+
+		lastCheckpoint := req.Records.GetLastCheckpoint()
+		if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
+			return nil, err
+		}
+		return &model.SyncResponse{
+			CurrentSyncBatchID:   req.SyncBatchID,
+			LastSyncedCheckpoint: lastCheckpoint,
+			NumRecordsSynced:     numRecords,
+			TableNameRowsMapping: tableNameRowsMapping,
+			TableSchemaDeltas:    req.Records.SchemaDeltas,
+		}, nil
+	} else {
+		res, err := c.syncRecordsViaAvro(ctx, req, req.SyncBatchID)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, res.LastSyncedCheckpoint); err != nil {
+			c.logger.Error("failed to increment id", slog.Any("error", err))
+			return nil, err
+		}
+
+		return res, nil
+	}
 }
 
 func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
