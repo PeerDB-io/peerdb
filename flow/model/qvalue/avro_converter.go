@@ -204,19 +204,19 @@ func QValueToAvro(
 	switch v := value.(type) {
 	case types.QValueInvalid:
 		// we will attempt to convert invalid to a string
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueTime:
-		return c.processNullableUnion(c.processGoTime(v.Val))
+		return c.processNullableUnion(c.processGoTime(v.Val)), nil
 	case types.QValueTimeTZ:
-		return c.processNullableUnion(c.processGoTime(v.Val))
+		return c.processNullableUnion(c.processGoTime(v.Val)), nil
 	case types.QValueTimestamp:
-		return c.processNullableUnion(c.processGoTimestamp(v.Val))
+		return c.processNullableUnion(c.processGoTimestamp(v.Val)), nil
 	case types.QValueTimestampTZ:
-		return c.processNullableUnion(c.processGoTimestampTZ(v.Val))
+		return c.processNullableUnion(c.processGoTimestampTZ(v.Val)), nil
 	case types.QValueDate:
-		return c.processNullableUnion(c.processGoDate(v.Val))
+		return c.processNullableUnion(c.processGoDate(v.Val)), nil
 	case types.QValueQChar:
-		return c.processNullableUnion(string(v.Val))
+		return c.processNullableUnion(string(v.Val)), nil
 	case types.QValueString,
 		types.QValueCIDR, types.QValueINET, types.QValueMacaddr,
 		types.QValueInterval, types.QValueEnum,
@@ -227,36 +227,36 @@ func QValueToAvro(
 			slog.WarnContext(ctx, "Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return nil, nil
 		}
-		return c.processNullableUnion(v.Value())
+		return c.processNullableUnion(v.Value()), nil
 	case types.QValueFloat32:
 		if c.TargetDWH == protos.DBType_BIGQUERY {
-			return c.processNullableUnion(float64(v.Val))
+			return c.processNullableUnion(float64(v.Val)), nil
 		}
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueFloat64:
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueInt8:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueInt16:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueInt32:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueInt64:
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueInt256:
 		return c.processInt256(v.Val), nil
 	case types.QValueUInt8:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueUInt16:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueUInt32:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueUInt64:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueUInt256:
 		return c.processUInt256(v.Val), nil
 	case types.QValueBoolean:
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueNumeric:
 		return c.processNumeric(v.Val), nil
 	case types.QValueBytes:
@@ -311,40 +311,32 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
+	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
+		return nil
+	}
+
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		return t.Format("2006-01-02 15:04:05.999999-0700")
 	}
-
-	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-	// So make such timestamps null
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
-	}
-
 	return t
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
+	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
+		return nil
+	}
+
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		return t.Format("2006-01-02 15:04:05.999999")
 	}
-
-	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-	// So make such timestamps null
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
-	}
-
 	return t
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time) any {
-	// Bigquery will not allow Date if it is less than 1AD and more than 9999AD
-	// So make such Dates null
 	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
 		return nil
 	}
@@ -359,21 +351,20 @@ func (c *QValueAvroConverter) processGoDate(t time.Time) any {
 
 func (c *QValueAvroConverter) processNullableUnion(
 	value any,
-) (any, error) {
+) any {
 	if c.Nullable {
 		if value == nil {
-			return nil, nil
+			return nil
 		}
-		return &value, nil
+		return &value
 	}
-	return value, nil
+	return value
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
 	if destType.IsString {
-		numStr, _ := c.processNullableUnion(num.String())
-		return numStr
+		return c.processNullableUnion(num.String())
 	}
 
 	num, ok := TruncateNumeric(num, destType.Precision, destType.Scale, c.TargetDWH, c.Stat)
@@ -446,6 +437,9 @@ func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
 }
 
 func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) any {
+	if c.Nullable && arrayNum == nil {
+		return nil
+	}
 	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
 	if destType.IsString {
 		transformedNumArr := make([]string, 0, len(arrayNum))
@@ -508,12 +502,21 @@ func (c *QValueAvroConverter) processJSON(jsonString string) any {
 }
 
 func (c *QValueAvroConverter) processArrayBoolean(arrayData []bool) any {
+	if arrayData == nil && !c.Nullable {
+		return []bool{}
+	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) any {
-	if c.Nullable && arrayTime == nil {
-		return nil
+	if arrayTime == nil {
+		if c.Nullable {
+			return nil
+		} else if c.TargetDWH == protos.DBType_SNOWFLAKE {
+			return []string{}
+		} else {
+			return []time.Time{}
+		}
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
@@ -530,8 +533,14 @@ func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) any {
 }
 
 func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) any {
-	if c.Nullable && arrayDate == nil {
-		return nil
+	if arrayDate == nil {
+		if c.Nullable {
+			return nil
+		} else if c.TargetDWH == protos.DBType_SNOWFLAKE {
+			return []string{}
+		} else {
+			return []time.Time{}
+		}
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
@@ -577,8 +586,11 @@ func (c *QValueAvroConverter) processUUID(byteData uuid.UUID) any {
 }
 
 func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) any {
-	if c.Nullable && arrayData == nil {
-		return nil
+	if arrayData == nil {
+		if c.Nullable {
+			return nil
+		}
+		return []string{}
 	}
 
 	UUIDData := make([]string, 0, len(arrayData))
@@ -589,8 +601,11 @@ func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) any {
 }
 
 func (c *QValueAvroConverter) processArrayInt16(arrayData []int16) any {
-	if c.Nullable && arrayData == nil {
-		return nil
+	if arrayData == nil {
+		if c.Nullable {
+			return nil
+		}
+		return []int32{}
 	}
 
 	// cast to int32
@@ -602,22 +617,37 @@ func (c *QValueAvroConverter) processArrayInt16(arrayData []int16) any {
 }
 
 func (c *QValueAvroConverter) processArrayInt32(arrayData []int32) any {
+	if arrayData == nil && !c.Nullable {
+		return []int32{}
+	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayInt64(arrayData []int64) any {
+	if arrayData == nil && !c.Nullable {
+		return []int64{}
+	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayFloat32(arrayData []float32) any {
+	if arrayData == nil && !c.Nullable {
+		return []float32{}
+	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayFloat64(arrayData []float64) any {
+	if arrayData == nil && !c.Nullable {
+		return []float64{}
+	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayString(arrayData []string) any {
+	if arrayData == nil && !c.Nullable {
+		return []string{}
+	}
 	return arrayData
 }
 
