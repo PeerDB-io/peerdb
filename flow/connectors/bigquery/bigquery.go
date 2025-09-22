@@ -18,19 +18,18 @@ import (
 	"cloud.google.com/go/auth/credentials/downscope"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
-	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/shared/types"
-	"github.com/google/uuid"
-	"go.temporal.io/sdk/log"
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
-
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
+	"github.com/google/uuid"
+	"go.temporal.io/sdk/log"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 )
 
 const (
@@ -1238,7 +1237,12 @@ func (c *BigQueryConnector) queryWithLogging(query string) *bigquery.Query {
 	return c.client.Query(query)
 }
 
+// PullQRepObjects pulls QRep objects from GCS based on the provided configuration and partition information.
+// It streams the objects to the provided QObjectStream and returns the total number of rows and bytes processed.
+// Total number of rows is estimated based on the size of the first object and the average row size.
 func (c *BigQueryConnector) PullQRepObjects(ctx context.Context, _ *otel_metrics.OtelManager, config *protos.QRepConfig, partition *protos.QRepPartition, stream *model.QObjectStream) (int64, int64, error) {
+	defer close(stream.Objects)
+
 	stream.SetFormat("Avro")
 
 	schema, err := c.getQRepSchema(ctx, config)
@@ -1267,16 +1271,69 @@ func (c *BigQueryConnector) PullQRepObjects(ctx context.Context, _ *otel_metrics
 
 	bucket := c.storageClient.Bucket(bucketName)
 
+	var token *auth.Token
+	urlHeaders := make(http.Header)
+
+	var totalBytes int64
+	var totalRows int64
+
+	var projectedRowSizeHasBeenCalculated bool
+	var projectedRowSize uint64
+
+	processObject := func(attrs *storage.ObjectAttrs) error {
+		if token == nil || !token.IsValid() {
+			token, err = c.storageDownScopedToken(ctx, bucketName, prefix)
+			if err != nil {
+				return fmt.Errorf("failed to get downscoped token for bucket %s with prefix %s: %w", bucketName, prefix, err)
+			}
+
+			urlHeaders.Set("Authorization", "Bearer "+token.Value)
+		}
+
+		stream.Objects <- &model.Object{
+			URL:     fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, url.PathEscape(attrs.Name)),
+			Size:    attrs.Size,
+			Headers: urlHeaders,
+		}
+
+		if !projectedRowSizeHasBeenCalculated {
+			// estimate the row size based on the first object
+			projectedRowSize = avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
+			c.logger.Info("projected Avro row size", slog.Uint64("bytes", projectedRowSize))
+
+			projectedRowSizeHasBeenCalculated = true
+		}
+
+		totalBytes += attrs.Size
+
+		if projectedRowSize > 0 {
+			totalRows += int64(float64(attrs.Size) / float64(projectedRowSize))
+		}
+
+		return nil
+	}
+
 	startOffset := objectRange.Start
 	endOffset := objectRange.End
 	if endOffset == startOffset {
 		// If startOffset and endOffset are the same,
 		// we can assume it's the last partition,
 		// and it consists of one object only.
-		// Since EndOffset is exclusive,
-		// we set it to empty string to ensure last
-		// object is included in the listing.
-		endOffset = ""
+
+		attrs, err := bucket.Object(startOffset).Attrs(ctx)
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to get object attrs for bucket %s with prefix %s and object %s: %w",
+				bucketName, prefix, startOffset, err)
+		}
+		if err := processObject(attrs); err != nil {
+			return 0, 0, err
+		}
+		c.logger.Info("finished pulling single downloadable object",
+			slog.String("bucket", bucketName),
+			slog.String("prefix", prefix),
+			slog.Int64("totalRows", totalRows),
+			slog.Int64("totalBytes", totalBytes))
+		return totalRows, totalBytes, nil
 	}
 
 	it := bucket.Objects(ctx, &storage.Query{
@@ -1286,6 +1343,35 @@ func (c *BigQueryConnector) PullQRepObjects(ctx context.Context, _ *otel_metrics
 		EndOffset:   objectRange.End,
 	})
 
+	for {
+		attrs, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			c.logger.Debug("finished listing objects in bucket",
+				slog.String("bucket", bucketName),
+				slog.String("prefix", prefix),
+				slog.Int64("totalRows", totalRows),
+				slog.Int64("totalBytes", totalBytes))
+			break
+		}
+		if err != nil {
+			return 0, 0, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
+		}
+
+		if err := processObject(attrs); err != nil {
+			return 0, 0, err
+		}
+	}
+
+	c.logger.Info("finished pulling downloadable objects",
+		slog.String("bucket", bucketName),
+		slog.String("prefix", prefix),
+		slog.Int64("totalRows", totalRows),
+		slog.Int64("totalBytes", totalBytes))
+
+	return totalRows, totalBytes, nil
+}
+
+func (c *BigQueryConnector) storageDownScopedToken(ctx context.Context, bucketName string, prefix string) (*auth.Token, error) {
 	accessBoundary := []downscope.AccessBoundaryRule{
 		{
 			AvailableResource:    fmt.Sprintf("//storage.googleapis.com/projects/_/buckets/%s", bucketName),
@@ -1296,61 +1382,16 @@ func (c *BigQueryConnector) PullQRepObjects(ctx context.Context, _ *otel_metrics
 		},
 	}
 
-	// todo: token can expire during long listing operation, need to handle that
-	//       by refreshing the token if needed.
-
 	tp, err := downscope.NewCredentials(&downscope.Options{Credentials: c.credentials, Rules: accessBoundary})
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to generate downscoped token provider: %w", err)
+		return nil, fmt.Errorf("failed to generate downscoped token provider: %w", err)
 	}
 
 	token, err := tp.Token(ctx)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to generate downscoped token: %w", err)
+		return nil, fmt.Errorf("failed to generate downscoped token: %w", err)
 	}
-
-	urlHeaders := make(http.Header)
-	urlHeaders.Add("Authorization", "Bearer "+token.Value)
-
-	var totalBytes int64
-	var totalObjects int64
-	for {
-		attrs, err := it.Next()
-		if errors.Is(err, iterator.Done) {
-			c.logger.Debug("finished listing objects in bucket",
-				slog.String("bucket", bucketName),
-				slog.String("prefix", prefix),
-				slog.Int64("totalObjects", totalObjects),
-				slog.Int64("totalBytes", totalBytes))
-			break
-		}
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
-		}
-
-		if attrs.Name == "" {
-			continue // skip if no name, todo: figure out why this happens
-		}
-
-		stream.Objects <- &model.Object{
-			URL:     fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, url.PathEscape(attrs.Name)),
-			Size:    attrs.Size,
-			Headers: urlHeaders,
-		}
-
-		totalBytes += attrs.Size
-		totalObjects += 1
-	}
-
-	close(stream.Objects)
-
-	c.logger.Info("finished pulling downloadable objects",
-		slog.String("bucket", bucketName),
-		slog.String("prefix", prefix),
-		slog.Int64("totalObjects", totalObjects),
-		slog.Int64("totalBytes", totalBytes))
-
-	return totalObjects, totalBytes, nil
+	return token, nil
 }
 
 func (c *BigQueryConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
@@ -1387,12 +1428,11 @@ func (c *BigQueryConnector) GetQRepPartitions(ctx context.Context, config *proto
 
 	var partitions []*protos.QRepPartition
 	var currentPartition *protos.QRepPartition
-	var currentPartitionObjectsNum uint64
+	var currentPartitionTotalSize uint64
 
-	// todo: from config.NumRowsPerPartition we know what is desired number of rows per partition
-	//       ideally if we can estimate average object row count, we can set this dynamically
-	//       to achieve the desired number of rows per partition.
-	var numObjectPerPartition uint64 = 10
+	// todo: refactor this beauty :screaming:
+
+	var projectedMaximumPartitionSize *uint64
 
 	for {
 		attrs, err := it.Next()
@@ -1408,6 +1448,14 @@ func (c *BigQueryConnector) GetQRepPartitions(ctx context.Context, config *proto
 			continue
 		}
 
+		if projectedMaximumPartitionSize == nil {
+			rowSize := avroObjectAverageRowSize(ctx, c.logger, bucket.Object(attrs.Name))
+			partitionSize := uint64(config.NumRowsPerPartition) * rowSize
+			projectedMaximumPartitionSize = &partitionSize
+
+			c.logger.Info("estimated avro object average row size", slog.Uint64("size", partitionSize))
+		}
+
 		if currentPartition == nil {
 			currentPartition = &protos.QRepPartition{
 				PartitionId: uuid.NewString(),
@@ -1420,16 +1468,16 @@ func (c *BigQueryConnector) GetQRepPartitions(ctx context.Context, config *proto
 					},
 				},
 			}
-			currentPartitionObjectsNum = 0
+			currentPartitionTotalSize = 0
 		}
 
-		currentPartitionObjectsNum++
+		currentPartitionTotalSize += uint64(attrs.Size)
 		currentPartition.Range.GetObjectIdRange().End = attrs.Name
 
-		if currentPartitionObjectsNum >= numObjectPerPartition {
+		if currentPartitionTotalSize >= *projectedMaximumPartitionSize {
 			partitions = append(partitions, currentPartition)
 			currentPartition = nil
-			currentPartitionObjectsNum = 0
+			currentPartitionTotalSize = 0
 		}
 	}
 
