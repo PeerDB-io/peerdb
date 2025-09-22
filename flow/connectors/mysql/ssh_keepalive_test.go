@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"context"
+	"net"
 	"strconv"
 	"testing"
 	"time"
@@ -23,8 +24,13 @@ const (
 // setupMySQLConnectorWithSSH creates a MySQL connector with SSH tunnel through the given proxy
 func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, sshProxy *toxiproxy.Proxy) *MySqlConnector {
 	t.Helper()
-	sshPort, err := strconv.Atoi(sshProxy.Listen)
-	require.NoError(t, err)
+
+	// Parse port from the Listen address (format: "host:port" or "[::]:port")
+	_, portStr, err := net.SplitHostPort(sshProxy.Listen)
+	require.NoError(t, err, "Failed to parse proxy listen address: %s", sshProxy.Listen)
+
+	sshPort, err := strconv.Atoi(portStr)
+	require.NoError(t, err, "Failed to convert port to integer: %s", portStr)
 
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
 		Host:     "mysql",

@@ -4,22 +4,21 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestSSHTunnel_GetKeepaliveChan_NilCases(t *testing.T) {
 	// Nil tunnel
 	var tunnel *SSHTunnel = nil
-	assert.Nil(t, tunnel.GetKeepaliveChan(context.Background()), "Nil tunnel should return nil channel")
+	require.Nil(t, tunnel.GetKeepaliveChan(context.Background()), "Nil tunnel should return nil channel")
 
 	// Nil client
 	tunnel = &SSHTunnel{Client: nil}
-	assert.Nil(t, tunnel.GetKeepaliveChan(context.Background()), "Tunnel with nil client should return nil channel")
+	require.Nil(t, tunnel.GetKeepaliveChan(context.Background()), "Tunnel with nil client should return nil channel")
 
 	// Bad tunnel
 	tunnel = &SSHTunnel{Client: nil, badTunnel: true}
-	assert.Nil(t, tunnel.GetKeepaliveChan(context.Background()), "Bad tunnel should return nil channel")
+	require.Nil(t, tunnel.GetKeepaliveChan(context.Background()), "Bad tunnel should return nil channel")
 }
 
 func TestSSHTunnel_Close_NilCases(t *testing.T) {
@@ -30,9 +29,9 @@ func TestSSHTunnel_Close_NilCases(t *testing.T) {
 	// Nil client
 	tunnel = &SSHTunnel{Client: nil}
 	err := tunnel.Close()
-	assert.NoError(t, err, "Closing tunnel with nil client should not error")
+	require.NoError(t, err, "Closing tunnel with nil client should not error")
 
 	// Double close
 	err2 := tunnel.Close()
-	assert.NoError(t, err2, "Second close should not error")
+	require.NoError(t, err2, "Second close should not error")
 }
