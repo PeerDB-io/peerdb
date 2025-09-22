@@ -41,12 +41,12 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:efddcc9ac2b00bd523aff393defbd21cedd922ead984bcb8fdadd92982c81027
+        image: redpandadata/redpanda@sha256:b6a5ac5e4cdef333116748f6c7ece70eee33266d08a1850a3a83c1b4393554b6
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.1.3@sha256:05069ffdf546dbb8d1e3f1b9fcf0d8d7e9aa9164d4b85153936e356a4173aba9
+        image: elasticsearch:9.1.4@sha256:0605584123a5e577e7da05215d80ed81473d3ad041abca686918c1295c90a549
         ports:
           - 9200:9200
         env:
