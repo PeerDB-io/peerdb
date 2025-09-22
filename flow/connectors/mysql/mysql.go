@@ -128,8 +128,9 @@ func (c *MySqlConnector) Close() error {
 	return errors.Join(errs...)
 }
 
-func (c *MySqlConnector) ConnectionActive(context.Context) error {
-	return nil
+func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
+	_, err := c.Execute(ctx, "SELECT 1")
+	return err
 }
 
 func (c *MySqlConnector) Dialer() client.Dialer {

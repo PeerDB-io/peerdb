@@ -82,7 +82,10 @@ require (
 
 require golang.org/x/tools v0.37.0
 
-require github.com/gogo/googleapis v1.4.1
+require (
+	github.com/Shopify/toxiproxy/v2 v2.12.0
+	github.com/gogo/googleapis v1.4.1
+)
 
 require (
 	cel.dev/expr v0.24.0 // indirect

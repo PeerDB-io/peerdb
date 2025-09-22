@@ -57,6 +57,22 @@ jobs:
         image: otel/opentelemetry-collector-contrib:0.135.0@sha256:89107a3a8f4636a396927edf7025bb9614b8da2d92f4cc3f43109e8d115736e2
         ports:
           - 4317:4317
+      toxiproxy:
+        image: ghcr.io/shopify/toxiproxy:2.11.0
+        ports:
+          - 18474:8474
+          - 9902:9902
+      openssh:
+        image: linuxserver/openssh-server:latest
+        ports:
+          - 2222:2222
+        env:
+          PUID: 1000
+          PGID: 1000
+          TZ: Etc/UTC
+          USER_NAME: testuser
+          USER_PASSWORD: testpass
+          PASSWORD_ACCESS: true
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
@@ -427,6 +443,7 @@ jobs:
           CI_MONGO_URI: mongodb://localhost:27017
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
+          TOXIPROXY_POSTGRES_HOST: catalog
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
