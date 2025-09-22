@@ -527,6 +527,12 @@ service FlowService {
       body : "*"
     };
   }
+  rpc CreateCDCFlowManaged(CreateCDCFlowRequest) returns (CreateCDCFlowResponse) {
+    option (google.api.http) = {
+      post : "/v1/flows/cdc/create_managed",
+      body : "*"
+    };
+  }
   rpc CreateQRepFlow(CreateQRepFlowRequest) returns (CreateQRepFlowResponse) {
     option (google.api.http) = {
       post : "/v1/flows/qrep/create",
