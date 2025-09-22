@@ -26,16 +26,11 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, sshProxy *tox
 	t.Helper()
 
 	// Parse host and port from the Listen address (format: "host:port" or "[::]:port")
-	host, portStr, err := net.SplitHostPort(sshProxy.Listen)
+	_, portStr, err := net.SplitHostPort(sshProxy.Listen)
 	require.NoError(t, err, "Failed to parse proxy listen address: %s", sshProxy.Listen)
 
 	sshPort, err := strconv.Atoi(portStr)
 	require.NoError(t, err, "Failed to convert port to integer: %s", portStr)
-
-	// If host is empty or [::], use localhost
-	if host == "" || host == "::" {
-		host = "localhost"
-	}
 
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
 		Host:     "mysql",
@@ -44,7 +39,7 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, sshProxy *tox
 		Password: "cipass",
 		Database: "mysql",
 		SshConfig: &protos.SSHConfig{
-			Host:     host,
+			Host:     "localhost",
 			Port:     uint32(sshPort),
 			User:     "testuser",
 			Password: "testpass",
