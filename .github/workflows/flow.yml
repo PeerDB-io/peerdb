@@ -60,8 +60,8 @@ jobs:
       toxiproxy:
         image: ghcr.io/shopify/toxiproxy:2.11.0
         ports:
-          - 18474:8474
-          - 9902:9902
+          # - 18474:8474
+          # - 9902:9902
       openssh:
         image: linuxserver/openssh-server:latest
         ports:
