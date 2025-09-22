@@ -78,6 +78,13 @@ jobs:
             -e TCP_FORWARDING=true \
             panubo/sshd:latest
 
+          # Wait for SSH to be ready and debug
+          sleep 5
+          docker logs openssh
+          docker exec openssh ps aux
+          echo "Testing SSH connection..."
+          ssh -o ConnectTimeout=5 -o BatchMode=yes -p 2222 testuser@localhost echo "SSH works" || echo "SSH failed"
+
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
