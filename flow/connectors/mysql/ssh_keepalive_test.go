@@ -2,7 +2,6 @@ package connmysql
 
 import (
 	"context"
-	"net"
 	"strconv"
 	"testing"
 	"time"
@@ -15,28 +14,27 @@ import (
 )
 
 const (
-	toxiproxyAPIPort = "18474"
-	sshServerPort    = "2222"
-	toxiproxyHost    = "localhost"
-	sshServerHost    = "openssh"
+	toxiproxyAPIPort          = "18474"
+	sshServerPort             = "2222"
+	toxiproxyHost             = "localhost"
+	sshServerHost             = "openssh"
+	toxiproxyDownProxyPort    = "42001"
+	toxiproxyLatencyProxyPort = "42002"
+	toxiproxyResetProxyPort   = "42003"
 )
 
 // setupMySQLConnectorWithSSH creates a toxiproxy and MySQL connector with SSH tunnel
 func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
-	toxiproxyClient *toxiproxy.Client, proxyName string,
+	toxiproxyClient *toxiproxy.Client, proxyName string, proxyPort string,
 ) (*MySqlConnector, *toxiproxy.Proxy) {
 	t.Helper()
 
 	// Create proxy from Toxiproxy to the OpenSSH server
-	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:0", sshServerHost+":"+sshServerPort)
+	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:"+toxiproxyDownProxyPort, sshServerHost+":"+sshServerPort)
 	require.NoError(t, err)
 
-	// Parse port from the Listen address
-	_, portStr, err := net.SplitHostPort(sshProxy.Listen)
-	require.NoError(t, err, "Failed to parse proxy listen address: %s", sshProxy.Listen)
-
-	sshPort, err := strconv.Atoi(portStr)
-	require.NoError(t, err, "Failed to convert port to integer: %s", portStr)
+	sshPort, err := strconv.Atoi(proxyPort)
+	require.NoError(t, err, "Failed to convert port to integer: %s", proxyPort)
 
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
 		Host:     "mysql",
@@ -77,7 +75,7 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 	}
 
 	// Create MySQL connector with SSH tunnel through Toxiproxy
-	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-keepalive-test")
+	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-keepalive-test", toxiproxyDownProxyPort)
 	defer connector.Close()
 	defer func() {
 		if err := sshProxy.Delete(); err != nil {
@@ -146,7 +144,7 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 	}
 
 	// Create MySQL connector with SSH tunnel through Toxiproxy
-	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-latency-test")
+	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-latency-test", toxiproxyLatencyProxyPort)
 	defer connector.Close()
 	defer func() {
 		if err := sshProxy.Delete(); err != nil {
@@ -192,7 +190,7 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 	}
 
 	// Create MySQL connector with SSH tunnel through Toxiproxy
-	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-reset-peer-test")
+	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-reset-peer-test", toxiproxyResetProxyPort)
 	defer connector.Close()
 	defer func() {
 		if err := sshProxy.Delete(); err != nil {
