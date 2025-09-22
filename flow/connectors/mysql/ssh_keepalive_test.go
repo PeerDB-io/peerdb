@@ -21,11 +21,17 @@ const (
 	sshServerHost    = "openssh"
 )
 
-// setupMySQLConnectorWithSSH creates a MySQL connector with SSH tunnel through the given proxy
-func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, sshProxy *toxiproxy.Proxy) *MySqlConnector {
+// setupMySQLConnectorWithSSH creates a toxiproxy and MySQL connector with SSH tunnel
+func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
+	toxiproxyClient *toxiproxy.Client, proxyName string,
+) (*MySqlConnector, *toxiproxy.Proxy) {
 	t.Helper()
 
-	// Parse host and port from the Listen address (format: "host:port" or "[::]:port")
+	// Create proxy from Toxiproxy to the OpenSSH server
+	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:0", sshServerHost+":"+sshServerPort)
+	require.NoError(t, err)
+
+	// Parse port from the Listen address
 	_, portStr, err := net.SplitHostPort(sshProxy.Listen)
 	require.NoError(t, err, "Failed to parse proxy listen address: %s", sshProxy.Listen)
 
@@ -51,7 +57,7 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T, sshProxy *tox
 	err = connector.ConnectionActive(ctx)
 	require.NoError(t, err, "Initial connection should work")
 
-	return connector
+	return connector, sshProxy
 }
 
 func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
@@ -70,18 +76,14 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 		t.Skipf("Toxiproxy not available: %v", err)
 	}
 
-	// Create proxy from Toxiproxy to the OpenSSH server
-	sshProxy, err := toxiproxyClient.CreateProxy("ssh-keepalive-test", "", sshServerHost+":"+sshServerPort)
-	require.NoError(t, err)
+	// Create MySQL connector with SSH tunnel through Toxiproxy
+	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-keepalive-test")
+	defer connector.Close()
 	defer func() {
 		if err := sshProxy.Delete(); err != nil {
 			t.Logf("Failed to delete toxiproxy proxy: %v", err)
 		}
 	}()
-
-	// Create MySQL connector with SSH tunnel through Toxiproxy
-	connector := setupMySQLConnectorWithSSH(ctx, t, sshProxy)
-	defer connector.Close()
 
 	// Get the SSH keepalive channel
 	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
@@ -143,17 +145,14 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 		t.Skipf("Toxiproxy not available: %v", err)
 	}
 
-	sshProxy, err := toxiproxyClient.CreateProxy("ssh-latency-test", "", sshServerHost+":"+sshServerPort)
-	require.NoError(t, err)
+	// Create MySQL connector with SSH tunnel through Toxiproxy
+	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-latency-test")
+	defer connector.Close()
 	defer func() {
 		if err := sshProxy.Delete(); err != nil {
 			t.Logf("Failed to delete toxiproxy proxy: %v", err)
 		}
 	}()
-
-	// Create MySQL connector with SSH tunnel through Toxiproxy
-	connector := setupMySQLConnectorWithSSH(ctx, t, sshProxy)
-	defer connector.Close()
 
 	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
 	require.NotNil(t, keepaliveChan)
@@ -192,17 +191,14 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 		t.Skipf("Toxiproxy not available: %v", err)
 	}
 
-	sshProxy, err := toxiproxyClient.CreateProxy("ssh-reset-test", "", sshServerHost+":"+sshServerPort)
-	require.NoError(t, err)
+	// Create MySQL connector with SSH tunnel through Toxiproxy
+	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-reset-peer-test")
+	defer connector.Close()
 	defer func() {
 		if err := sshProxy.Delete(); err != nil {
 			t.Logf("Failed to delete toxiproxy proxy: %v", err)
 		}
 	}()
-
-	// Create MySQL connector with SSH tunnel through Toxiproxy
-	connector := setupMySQLConnectorWithSSH(ctx, t, sshProxy)
-	defer connector.Close()
 
 	keepaliveChan := connector.ssh.GetKeepaliveChan(ctx)
 	require.NotNil(t, keepaliveChan)
