@@ -30,7 +30,7 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 	t.Helper()
 
 	// Create proxy from Toxiproxy to the OpenSSH server
-	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:"+toxiproxyDownProxyPort, sshServerHost+":"+sshServerPort)
+	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:"+proxyPort, sshServerHost+":"+sshServerPort)
 	require.NoError(t, err)
 
 	sshPort, err := strconv.Atoi(proxyPort)

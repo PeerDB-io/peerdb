@@ -65,16 +65,15 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest
+        image: panubo/sshd:latest
         ports:
-          - 2222:2222
+          - 2222:22
         env:
-          PUID: 1000
-          PGID: 1000
-          TZ: Etc/UTC
-          USER_NAME: testuser
-          USER_PASSWORD: testpass
-          PASSWORD_ACCESS: true
+          SSH_USERS: testuser:1000:1000
+          SSH_ENABLE_PASSWORD_AUTH: true
+          TCP_FORWARDING: true
+        volumes:
+          - ${{ github.workspace }}/.github/set_password.sh:/etc/entrypoint.d/set_password.sh:ro
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
