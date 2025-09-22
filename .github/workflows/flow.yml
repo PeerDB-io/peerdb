@@ -59,7 +59,7 @@ jobs:
           - 4317:4317
       toxiproxy:
         image: ghcr.io/shopify/toxiproxy:2.11.0
-        ports:
+        # ports:
           # - 18474:8474
           # - 9902:9902
       openssh:
