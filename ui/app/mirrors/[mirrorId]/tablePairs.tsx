@@ -2,8 +2,7 @@
 import { tableStyle } from '@/app/peers/[peerName]/style';
 import { TableMapping } from '@/grpc_generated/flow';
 import { SearchField } from '@/lib/SearchField';
-import { Table, TableCell } from '@/lib/Table';
-import { TableRow } from '@tremor/react';
+import { Table, TableCell, TableRow } from '@/lib/Table';
 import React, { useMemo, useState } from 'react';
 import ColumnDisplayModal from './columnDisplayModal';
 
