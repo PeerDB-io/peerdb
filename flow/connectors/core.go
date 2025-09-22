@@ -234,15 +234,6 @@ type QRepPullConnector interface {
 	) (int64, int64, error)
 }
 
-type QRepPullPgConnector interface {
-	QRepPullConnectorCore
-
-	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(
-		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter,
-	) (int64, int64, error)
-}
-
 type QRepSyncConnectorCore interface {
 	Connector
 
@@ -590,8 +581,6 @@ var (
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connmysql.MySqlConnector{}
 	_ QRepPullConnector = &connmongo.MongoConnector{}
-
-	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}
 
 	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}

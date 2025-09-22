@@ -118,7 +118,7 @@ func (a *FlowableActivity) EnsurePullability(
 	config *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName) // todo: I assume this was mistake before to expect CDCPullConnector
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
@@ -561,52 +561,93 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	logger.Info("replicating partitions for batch",
 		slog.Int64("batchID", int64(partitions.BatchId)), slog.Int("partitions", numPartitions))
 
-	for _, p := range partitions.Partitions {
-		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
+	qRepPullCoreConn, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep source connector: %w", err))
+	}
+	defer connectors.CloseConnector(ctx, qRepPullCoreConn)
+
+	qRepSyncCoreConn, err := connectors.GetByNameAs[connectors.QRepSyncConnectorCore](ctx, config.Env, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep destination connector: %w", err))
+	}
+
+	qRecordReplication := func(qRepPullConn connectors.QRepPullConnector, qRepSyncConn connectors.QRepSyncConnectorCore, partition *protos.QRepPartition) error {
+		destConn, ok := qRepSyncCoreConn.(connectors.QRepSyncConnector)
+		if !ok {
+			return fmt.Errorf("source connector is QRepPullConnector but destination connector is not QRepSyncConnector, got %T", qRepSyncCoreConn)
+		}
+
+		stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+		outstream := stream
+		if config.Script != "" {
+			ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+			}))
+			if err != nil {
+				return err
+			}
+			if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
+				outstream = pua.AttachToStream(ls, fn, stream)
+			}
+		}
+
+		return replicateQRepPartition(ctx, a, qRepPullConn, destConn, config, partition, runUUID, stream, outstream,
+			connectors.QRepPullConnector.PullQRepRecords,
+			connectors.QRepSyncConnector.SyncQRepRecords,
+		)
+	}
+
+	// todo: figure out if we are allowed to reuse the same connection for multiple partitions
+	//       for both source and destination
+
+	for _, partition := range partitions.Partitions {
+		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, partition.PartitionId))
 
 		var err error
 
-		isDownloadableObjectStream := true // todo: determine based on connectors
-		if isDownloadableObjectStream {
-			bufferSize := 10
-			if config.MaxParallelWorkers > 0 {
-				bufferSize = int(config.MaxParallelWorkers) * 2 // buffer size is double the number of workers
-			}
-
-			stream := model.NewQObjectStream(bufferSize)
-			err = replicateQRepPartition(ctx, a, config, p, runUUID, stream, stream,
-				connectors.QRepPullObjectsConnector.PullQRepObjects,
-				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
-			)
-		} else {
+		switch srcConn := qRepPullCoreConn.(type) {
+		case *connpostgres.PostgresConnector:
 			switch config.System {
 			case protos.TypeSystem_Q:
-				stream := model.NewQRecordStream(shared.FetchAndChannelSize)
-				outstream := stream
-				if config.Script != "" {
-					ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
-						a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
-					}))
-					if err != nil {
-						return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-					}
-					if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
-						outstream = pua.AttachToStream(ls, fn, stream)
-					}
-				}
-				err = replicateQRepPartition(ctx, a, config, p, runUUID, stream, outstream,
-					connectors.QRepPullConnector.PullQRepRecords,
-					connectors.QRepSyncConnector.SyncQRepRecords,
-				)
+				err = qRecordReplication(srcConn, qRepSyncCoreConn, partition)
 			case protos.TypeSystem_PG:
+				destConn, ok := qRepSyncCoreConn.(*connpostgres.PostgresConnector)
+				if !ok {
+					err = fmt.Errorf("source connector is PostgresConnector but destination connector is not, got %T", qRepSyncCoreConn)
+				}
+
 				read, write := connpostgres.NewPgCopyPipe()
-				err = replicateQRepPartition(ctx, a, config, p, runUUID, write, read,
-					connectors.QRepPullPgConnector.PullPgQRepRecords,
-					connectors.QRepSyncPgConnector.SyncPgQRepRecords,
+
+				err = replicateQRepPartition(ctx, a, srcConn, destConn, config, partition, runUUID, write, read,
+					(*connpostgres.PostgresConnector).PullPgQRepRecords,
+					(*connpostgres.PostgresConnector).SyncPgQRepRecords,
 				)
 			default:
 				err = fmt.Errorf("unknown type system %d", config.System)
 			}
+		case connectors.QRepPullConnector:
+			destConn, ok := qRepSyncCoreConn.(connectors.QRepSyncConnector)
+			if !ok {
+				err = fmt.Errorf("source connector is QRepPullConnector but destination connector is not QRepSyncConnector, got %T", qRepSyncCoreConn)
+				break
+			}
+
+			err = qRecordReplication(srcConn, destConn, partition)
+		case connectors.QRepPullObjectsConnector:
+			destConn, ok := qRepSyncCoreConn.(connectors.QRepSyncObjectsConnector)
+			if !ok {
+				err = fmt.Errorf("source connector is QRepPullObjectsConnector but destination connector is not QRepSyncObjectsConnector, got %T", qRepSyncCoreConn)
+				break
+			}
+
+			stream := model.NewQObjectStream(shared.FetchAndChannelSize)
+			err = replicateQRepPartition(ctx, a, srcConn, destConn, config, partition, runUUID, stream, stream,
+				connectors.QRepPullObjectsConnector.PullQRepObjects,
+				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
+			)
+		default:
+			err = fmt.Errorf("unsupported QRepSyncConnectorCore type %T", qRepPullCoreConn)
 		}
 
 		if err != nil {

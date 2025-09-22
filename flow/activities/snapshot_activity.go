@@ -101,7 +101,7 @@ func (a *SnapshotActivity) MaintainTx(ctx context.Context, sessionID string, flo
 		return "maintaining transaction snapshot"
 	})
 	defer shutdown()
-	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, peer) // todo: it was CDCPullConnector before, but didn't use any of its methods
+	conn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, peer)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, sessionID, err)
 	}

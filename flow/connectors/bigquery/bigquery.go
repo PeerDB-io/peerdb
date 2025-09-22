@@ -3,10 +3,8 @@ package connbigquery
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"reflect"
 	"slices"
@@ -15,22 +13,17 @@ import (
 
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/auth/credentials"
-	"cloud.google.com/go/auth/credentials/downscope"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
-	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
-	"github.com/PeerDB-io/peerdb/flow/shared/types"
-	"github.com/google/uuid"
-	"go.temporal.io/sdk/log"
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
-
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"go.temporal.io/sdk/log"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
 )
 
 const (
@@ -67,213 +60,6 @@ type BigQueryConnector struct {
 	catalogPool   shared.CatalogPool
 	datasetID     string
 	projectID     string
-}
-
-func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
-	// todo should we vaidate initial copy settings?
-
-	if !cfg.InitialSnapshotOnly || !cfg.DoInitialSnapshot {
-		return fmt.Errorf("BigQuery source connector only supports initial snapshot flows. CDC is not supported")
-	}
-
-	// todo is this a right place and way to do it? this currently won't work due to package dependency cycle
-	//_, err := connectors.GetByNameAs[connectors.QRepSyncDownloadableObjectsConnector](ctx, cfg.Env, c.catalogPool, cfg.DestinationName)
-	//if errors.Is(err, errors.ErrUnsupported) {
-	//	return fmt.Errorf("destination connector %s is not supported for BigQuery source connector", cfg.DestinationName)
-	//}
-
-	for _, tableMapping := range cfg.TableMappings {
-		dstDatasetTable, err := c.convertToDatasetTable(tableMapping.SourceTableIdentifier)
-		if err != nil {
-			return err
-		}
-
-		table := c.client.DatasetInProject(c.projectID, dstDatasetTable.dataset).Table(dstDatasetTable.table)
-
-		if _, err := table.Metadata(ctx); err != nil {
-			return fmt.Errorf("failed to get metadata for table %s: %w", tableMapping.DestinationTableIdentifier, err)
-		}
-	}
-
-	if cfg.SnapshotStagingPath == "" {
-		return fmt.Errorf("snapshot staging path is required for BigQuery source connector")
-	}
-
-	// todo refactor
-
-	bucketUrl, err := url.Parse(cfg.SnapshotStagingPath)
-	if err != nil {
-		return fmt.Errorf("invalid snapshot staging path: %w", err)
-	}
-
-	if bucketUrl.Scheme != "gs" {
-		return fmt.Errorf("invalid snapshot staging path: %s. Must start with gs://", cfg.SnapshotStagingPath)
-	}
-
-	bucketName := bucketUrl.Host
-	prefix := strings.TrimPrefix(bucketUrl.Path, "/")
-	bucket := c.storageClient.Bucket(bucketName)
-
-	it := bucket.Objects(ctx, &storage.Query{Prefix: prefix})
-	_, err = it.Next()
-	if err != nil && !errors.Is(err, iterator.Done) {
-		return fmt.Errorf("failed to access snapshot staging path: %w", err)
-	}
-
-	return nil
-}
-
-func (c *BigQueryConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
-	var allTables []string
-
-	datasetsIter := c.client.Datasets(ctx)
-	datasetsIter.ProjectID = c.projectID
-
-	for {
-		dataset, err := datasetsIter.Next()
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to list datasets: %w", err)
-		}
-
-		// Get all tables in this dataset
-		tablesIter := dataset.Tables(ctx)
-		for {
-			table, err := tablesIter.Next()
-			if errors.Is(err, iterator.Done) {
-				break
-			}
-			if err != nil {
-				return nil, fmt.Errorf("failed to list tables in dataset %s: %w", dataset.DatasetID, err)
-			}
-
-			// Format as dataset.table for BigQuery
-			fullTableName := fmt.Sprintf("%s.%s", dataset.DatasetID, table.TableID)
-			allTables = append(allTables, fullTableName)
-		}
-	}
-
-	return &protos.AllTablesResponse{
-		Tables: allTables,
-	}, nil
-}
-
-func (c *BigQueryConnector) GetColumns(ctx context.Context, _ uint32, dataset string, table string) (*protos.TableColumnsResponse, error) {
-	tableRef := c.client.DatasetInProject(c.projectID, dataset).Table(table)
-	metadata, err := tableRef.Metadata(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get table metadata for %s.%s: %w", dataset, table, err)
-	}
-
-	var columns []*protos.ColumnsItem
-	for _, field := range metadata.Schema {
-		colType := string(field.Type)
-		qkind := string(BigQueryTypeToQValueKind(field))
-
-		columns = append(columns, &protos.ColumnsItem{
-			Name:  field.Name,
-			Type:  colType,
-			IsKey: false, // BigQuery doesn't have traditional primary keys
-			Qkind: qkind,
-		})
-	}
-
-	return &protos.TableColumnsResponse{
-		Columns: columns,
-	}, nil
-}
-
-func (c *BigQueryConnector) GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error) {
-	var schemas []string
-
-	// In BigQuery, datasets are equivalent to schemas
-	datasetsIter := c.client.Datasets(ctx)
-	datasetsIter.ProjectID = c.projectID
-
-	for {
-		dataset, err := datasetsIter.Next()
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to list datasets: %w", err)
-		}
-		schemas = append(schemas, dataset.DatasetID)
-	}
-
-	return &protos.PeerSchemasResponse{
-		Schemas: schemas,
-	}, nil
-}
-
-func (c *BigQueryConnector) GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error) {
-	dataset := c.client.DatasetInProject(c.projectID, schema)
-
-	// Check if dataset exists
-	if _, err := dataset.Metadata(ctx); err != nil {
-		return nil, fmt.Errorf("failed to get dataset metadata for %s: %w", schema, err)
-	}
-
-	var tables []*protos.TableResponse
-	tablesIter := dataset.Tables(ctx)
-	for {
-		table, err := tablesIter.Next()
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to list tables in dataset %s: %w", schema, err)
-		}
-
-		// Get table metadata to calculate size
-		metadata, err := table.Metadata(ctx)
-		var tableSize string
-		if err != nil {
-			c.logger.Warn("failed to get table metadata for size calculation",
-				slog.String("table", table.TableID),
-				slog.Any("error", err))
-			tableSize = "Unknown"
-		} else {
-			// Calculate human-readable table size from bytes
-			tableSize = formatTableSize(metadata.NumBytes)
-		}
-
-		// For BigQuery source connector, all tables can be mirrored
-		tableResponse := &protos.TableResponse{
-			TableName: table.TableID,
-			CanMirror: true,
-			TableSize: tableSize,
-		}
-		tables = append(tables, tableResponse)
-	}
-
-	return &protos.SchemaTablesResponse{
-		Tables: tables,
-	}, nil
-}
-
-// formatTableSize converts bytes to human-readable format
-// todo more somewhere
-func formatTableSize(bytes int64) string {
-	if bytes == 0 {
-		return "0 B"
-	}
-
-	const unit = 1024
-	if bytes < unit {
-		return fmt.Sprintf("%d B", bytes)
-	}
-
-	div, exp := int64(unit), 0
-	for n := bytes / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-
-	units := []string{"B", "KB", "MB", "GB", "TB", "PB"}
-	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(div), units[exp+1])
 }
 
 func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*BigQueryConnector, error) {
@@ -349,52 +135,9 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	}, nil
 }
 
-// ValidateCheck:
-// 1. Creates a table
-// 2. Inserts one row into the table
-// 3. Deletes the table
 func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
 	if _, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx); err != nil {
 		return fmt.Errorf("failed to get dataset metadata: %v", err)
-	}
-
-	return nil // todo: temporary. We need to distinguish between source and destination peers validation. For source peer we don't need to do the below checks
-
-	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
-
-	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
-
-	createErr := newTable.Create(ctx, &bigquery.TableMetadata{
-		Schema: []*bigquery.FieldSchema{
-			{
-				Name:     "dummy",
-				Type:     bigquery.BooleanFieldType,
-				Repeated: false,
-			},
-		},
-	})
-	if createErr != nil {
-		return fmt.Errorf("unable to validate table creation within dataset: %w. "+
-			"Please check if bigquery.tables.create permission has been granted", createErr)
-	}
-
-	var errs []error
-	insertQuery := c.client.Query(fmt.Sprintf("INSERT INTO %s VALUES(true)", dummyTable))
-	insertQuery.DefaultDatasetID = c.datasetID
-	insertQuery.DefaultProjectID = c.projectID
-	_, insertErr := insertQuery.Run(ctx)
-	if insertErr != nil {
-		errs = append(errs, fmt.Errorf("unable to validate insertion into table: %w. ", insertErr))
-	}
-
-	// Drop the table
-	deleteErr := newTable.Delete(ctx)
-	if deleteErr != nil {
-		errs = append(errs, fmt.Errorf("unable to delete table :%w. ", deleteErr))
-	}
-
-	if len(errs) > 0 {
-		return errors.Join(errs...)
 	}
 
 	return nil
@@ -1238,206 +981,8 @@ func (c *BigQueryConnector) queryWithLogging(query string) *bigquery.Query {
 	return c.client.Query(query)
 }
 
-func (c *BigQueryConnector) PullQRepObjects(ctx context.Context, _ *otel_metrics.OtelManager, config *protos.QRepConfig, partition *protos.QRepPartition, stream *model.QObjectStream) (int64, int64, error) {
-	stream.SetFormat("Avro")
-
-	schema, err := c.getQRepSchema(ctx, config)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to get QRep schema: %w", err)
-	}
-	stream.SetSchema(schema)
-
-	// todo: refactor duplicate code
-	stagingURL, err := url.Parse(config.StagingPath)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
-	}
-	tableURL := stagingURL.JoinPath(config.WatermarkTable) // source table identifier
-	bucketName := stagingURL.Host
-	prefix := strings.TrimPrefix(tableURL.Path, "/") + "/" // ensure: "aa/bb/"
-
-	if partition == nil || partition.Range == nil {
-		return 0, 0, fmt.Errorf("partition and partition range must be provided")
-	}
-
-	objectRange := partition.Range.GetObjectIdRange()
-	if objectRange == nil {
-		return 0, 0, fmt.Errorf("invalid partition range")
-	}
-
-	bucket := c.storageClient.Bucket(bucketName)
-
-	startOffset := objectRange.Start
-	endOffset := objectRange.End
-	if endOffset == startOffset {
-		// If startOffset and endOffset are the same,
-		// we can assume it's the last partition,
-		// and it consists of one object only.
-		// Since EndOffset is exclusive,
-		// we set it to empty string to ensure last
-		// object is included in the listing.
-		endOffset = ""
-	}
-
-	it := bucket.Objects(ctx, &storage.Query{
-		Prefix:      prefix,
-		Delimiter:   "/",
-		StartOffset: objectRange.Start,
-		EndOffset:   objectRange.End,
-	})
-
-	accessBoundary := []downscope.AccessBoundaryRule{
-		{
-			AvailableResource:    fmt.Sprintf("//storage.googleapis.com/projects/_/buckets/%s", bucketName),
-			AvailablePermissions: []string{"inRole:roles/storage.objectViewer"},
-			Condition: &downscope.AvailabilityCondition{
-				Expression: fmt.Sprintf("resource.name.startsWith('projects/_/buckets/%s/objects/%s')", bucketName, prefix),
-			},
-		},
-	}
-
-	// todo: token can expire during long listing operation, need to handle that
-	//       by refreshing the token if needed.
-
-	tp, err := downscope.NewCredentials(&downscope.Options{Credentials: c.credentials, Rules: accessBoundary})
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to generate downscoped token provider: %w", err)
-	}
-
-	token, err := tp.Token(ctx)
-	if err != nil {
-		return 0, 0, fmt.Errorf("failed to generate downscoped token: %w", err)
-	}
-
-	urlHeaders := make(http.Header)
-	urlHeaders.Add("Authorization", "Bearer "+token.Value)
-
-	var totalBytes int64
-	var totalObjects int64
-	for {
-		attrs, err := it.Next()
-		if errors.Is(err, iterator.Done) {
-			c.logger.Debug("finished listing objects in bucket",
-				slog.String("bucket", bucketName),
-				slog.String("prefix", prefix),
-				slog.Int64("totalObjects", totalObjects),
-				slog.Int64("totalBytes", totalBytes))
-			break
-		}
-		if err != nil {
-			return 0, 0, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
-		}
-
-		if attrs.Name == "" {
-			continue // skip if no name, todo: figure out why this happens
-		}
-
-		stream.Objects <- &model.Object{
-			URL:     fmt.Sprintf("https://storage.googleapis.com/%s/%s", bucketName, url.PathEscape(attrs.Name)),
-			Size:    attrs.Size,
-			Headers: urlHeaders,
-		}
-
-		totalBytes += attrs.Size
-		totalObjects += 1
-	}
-
-	close(stream.Objects)
-
-	c.logger.Info("finished pulling downloadable objects",
-		slog.String("bucket", bucketName),
-		slog.String("prefix", prefix),
-		slog.Int64("totalObjects", totalObjects),
-		slog.Int64("totalBytes", totalBytes))
-
-	return totalObjects, totalBytes, nil
-}
-
 func (c *BigQueryConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
 	return model.SetupReplicationResult{}, nil
-}
-
-func (c *BigQueryConnector) GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
-	stagingURL, err := url.Parse(config.StagingPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
-	}
-
-	tableURL := stagingURL.JoinPath(config.WatermarkTable) // source table identifier
-
-	bucketName := stagingURL.Host
-	prefix := strings.TrimPrefix(tableURL.Path, "/") + "/" // ensure: "aa/bb/"
-
-	bucket := c.storageClient.Bucket(bucketName)
-
-	var startOffset string
-	if last.Range != nil {
-		objectRange := last.Range.GetObjectIdRange()
-		if objectRange == nil {
-			return nil, fmt.Errorf("invalid partition range type: %T", last.Range.Range)
-		}
-		startOffset = objectRange.Start
-	}
-
-	it := bucket.Objects(ctx, &storage.Query{
-		Prefix:      prefix,
-		Delimiter:   "/",
-		StartOffset: startOffset,
-	})
-
-	var partitions []*protos.QRepPartition
-	var currentPartition *protos.QRepPartition
-	var currentPartitionObjectsNum uint64
-
-	// todo: from config.NumRowsPerPartition we know what is desired number of rows per partition
-	//       ideally if we can estimate average object row count, we can set this dynamically
-	//       to achieve the desired number of rows per partition.
-	var numObjectPerPartition uint64 = 10
-
-	for {
-		attrs, err := it.Next()
-		if errors.Is(err, iterator.Done) {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("failed to list objects in bucket %s with prefix %s: %w", bucketName, prefix, err)
-		}
-
-		// we only want the first object after the start offset
-		if attrs.Name == startOffset {
-			continue
-		}
-
-		if currentPartition == nil {
-			currentPartition = &protos.QRepPartition{
-				PartitionId: uuid.NewString(),
-				Range: &protos.PartitionRange{
-					Range: &protos.PartitionRange_ObjectIdRange{
-						ObjectIdRange: &protos.ObjectIdPartitionRange{
-							Start: attrs.Name,
-							End:   attrs.Name,
-						},
-					},
-				},
-			}
-			currentPartitionObjectsNum = 0
-		}
-
-		currentPartitionObjectsNum++
-		currentPartition.Range.GetObjectIdRange().End = attrs.Name
-
-		if currentPartitionObjectsNum >= numObjectPerPartition {
-			partitions = append(partitions, currentPartition)
-			currentPartition = nil
-			currentPartitionObjectsNum = 0
-		}
-	}
-
-	if currentPartition != nil {
-		partitions = append(partitions, currentPartition)
-	}
-
-	return partitions, nil
 }
 
 func (c *BigQueryConnector) GetDefaultPartitionKeyForTables(
@@ -1609,42 +1154,4 @@ func (c *BigQueryConnector) UpdateReplStateLastOffset(ctx context.Context, lastO
 
 func (c *BigQueryConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
 	return nil
-}
-
-func (c *BigQueryConnector) getQRepSchema(ctx context.Context, config *protos.QRepConfig) (types.QRecordSchema, error) {
-	dsTable, err := c.convertToDatasetTable(config.WatermarkTable)
-	if err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to parse table identifier %s: %w", config.WatermarkTable, err)
-	}
-
-	tableRef := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
-	metadata, err := tableRef.Metadata(ctx)
-	if err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to get table metadata for %s.%s: %w", dsTable.dataset, dsTable.table, err)
-	}
-
-	return bigQuerySchemaToQRecordSchema(metadata.Schema)
-}
-
-func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema, error) {
-	fields := make([]types.QField, 0, len(schema))
-
-	for _, field := range schema {
-		qValueKind := BigQueryTypeToQValueKind(field)
-		if qValueKind == types.QValueKindInvalid {
-			return types.QRecordSchema{}, fmt.Errorf("unsupported BigQuery field type: %s for field %s", field.Type, field.Name) // todo: should we fail?
-		}
-
-		qField := types.QField{
-			Name:      field.Name,
-			Type:      qValueKind,
-			Nullable:  !field.Required,
-			Precision: int16(field.Precision),
-			Scale:     int16(field.Scale),
-		}
-
-		fields = append(fields, qField)
-	}
-
-	return types.NewQRecordSchema(fields), nil
 }

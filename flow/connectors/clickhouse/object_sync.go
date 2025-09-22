@@ -68,9 +68,6 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 		// query param should be used for headers as well
 		recordsInserted, err := c.insertFromURLWithMapping(ctx, config, object, schema, columnNameFieldMap, format)
 		if err != nil {
-			// todo: we should continue on error and process remaining objects on a stream
-			// todo: logging
-
 			c.logger.Error("Failed to insert from URL",
 				slog.String("url", object.URL),
 				slog.Any("error", err))

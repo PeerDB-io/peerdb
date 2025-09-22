@@ -524,7 +524,6 @@ export async function handleValidateCDC(
     }),
   });
   if (statusRes.ok) {
-    console.log(statusRes);
     notifyErr('CDC Mirror is valid', true);
   } else {
     const errRes = await statusRes.json();
