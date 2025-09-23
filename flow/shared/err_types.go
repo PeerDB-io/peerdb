@@ -5,11 +5,15 @@ import (
 	"fmt"
 
 	"go.temporal.io/sdk/temporal"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 var (
-	ErrSlotAlreadyExists error = temporal.NewNonRetryableApplicationError("slot already exists", "snapshot", nil)
-	ErrTableDoesNotExist error = temporal.NewNonRetryableApplicationError("table does not exist", "snapshot", nil)
+	ErrSlotAlreadyExists = temporal.NewNonRetryableApplicationError("slot already exists",
+		exceptions.ApplicationErrorTypeIrrecoverableExistingSlot.String(), nil)
+	ErrTableDoesNotExist = temporal.NewNonRetryableApplicationError("table does not exist",
+		exceptions.ApplicationErrorTypeIrrecoverableMissingTables.String(), nil)
 )
 
 type ErrType string
