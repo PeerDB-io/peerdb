@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -58,23 +59,42 @@ func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, arg
 	return rows, nil
 }
 
-func (qe *QRepQueryExecutor) executeQueryInTx(ctx context.Context, tx pgx.Tx, cursorName string, fetchSize int) (pgx.Rows, error) {
-	qe.logger.Info("Executing query in transaction")
-	q := fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName)
+// FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
+func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(
+	ctx context.Context,
+	tx pgx.Tx,
+	fds []pgconn.FieldDescription,
+) (types.QRecordSchema, error) {
+	tableOIDset := make(map[uint32]struct{})
+	for _, fd := range fds {
+		tableOIDset[fd.TableOID] = struct{}{}
+	}
+	tableOIDs := maps.Keys(tableOIDset)
 
-	rows, err := tx.Query(ctx, q)
+	rows, err := tx.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
 	if err != nil {
-		qe.logger.Error("[pg_query_executor] failed to execute query in tx", slog.Any("error", err))
-		return nil, err
+		return types.QRecordSchema{}, fmt.Errorf("failed to query schema for field descriptions: %w", err)
 	}
 
-	return rows, nil
-}
+	type attId struct {
+		relid uint32
+		num   uint16
+	}
+	var att attId
+	nullableCols := make(map[attId]struct{})
+	if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
+		nullableCols[att] = struct{}{}
+		return nil
+	}); err != nil {
+		return types.QRecordSchema{}, fmt.Errorf("failed to process schema for field descriptions: %w", err)
+	}
 
-// FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescription) types.QRecordSchema {
 	qfields := make([]types.QField, len(fds))
 	for i, fd := range fds {
+		_, nullable := nullableCols[attId{
+			relid: fd.TableOID,
+			num:   fd.TableAttributeNumber,
+		}]
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping, qe.version)
 		// there isn't a way to know if a column is nullable or not
 		if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
@@ -82,7 +102,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 			qfields[i] = types.QField{
 				Name:      fd.Name,
 				Type:      ctype,
-				Nullable:  true,
+				Nullable:  nullable,
 				Precision: precision,
 				Scale:     scale,
 			}
@@ -90,11 +110,11 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(fds []pgconn.FieldDescrip
 			qfields[i] = types.QField{
 				Name:     fd.Name,
 				Type:     ctype,
-				Nullable: true,
+				Nullable: nullable,
 			}
 		}
 	}
-	return types.NewQRecordSchema(qfields)
+	return types.NewQRecordSchema(qfields), nil
 }
 
 func (qe *QRepQueryExecutor) processRowsStream(
@@ -152,9 +172,11 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	fetchSize int,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
-	rows, err := qe.executeQueryInTx(ctx, tx, cursorName, fetchSize)
+	qe.logger.Info("[pg_query_executor] fetching from cursor", slog.String("cursor", cursorName))
+
+	rows, err := tx.Query(ctx, fmt.Sprintf("FETCH %d FROM %s", fetchSize, cursorName))
 	if err != nil {
-		qe.logger.Error("[pg_query_executor] failed to execute query in tx",
+		qe.logger.Error("[pg_query_executor] failed to fetch cursor in tx",
 			slog.Any("error", err), slog.String("query", query))
 		return 0, 0, fmt.Errorf("[pg_query_executor] failed to execute query in tx: %w", err)
 	}
@@ -162,7 +184,10 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 
 	fieldDescriptions := rows.FieldDescriptions()
 	if !stream.IsSchemaSet() {
-		schema := qe.fieldDescriptionsToSchema(fieldDescriptions)
+		schema, err := qe.fieldDescriptionsToSchema(ctx, tx, fieldDescriptions)
+		if err != nil {
+			return 0, 0, err
+		}
 		stream.SetSchema(schema)
 	}
 
