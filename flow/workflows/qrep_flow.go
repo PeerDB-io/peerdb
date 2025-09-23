@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type QRepFlowExecution struct {
@@ -210,7 +211,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 			BackoffCoefficient:     2.,
 			MaximumInterval:        10 * time.Minute,
 			MaximumAttempts:        0,
-			NonRetryableErrorTypes: []string{"snapshot"},
+			NonRetryableErrorTypes: []string{exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String()},
 		},
 	})
 

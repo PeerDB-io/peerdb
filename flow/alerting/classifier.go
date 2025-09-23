@@ -305,6 +305,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Source: ErrorSourcePostgres,
 				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
 			}
+		case exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot:
+			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "SNAPSHOT_DOES_NOT_EXIST",
+			}
 		}
 		return ErrorOther, ErrorInfo{
 			Source: ErrorSourceTemporal,

@@ -533,10 +533,17 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 				Code:   "PUBLICATION_DOES_NOT_EXIST",
 			},
 		},
+		exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot: {
+			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   "SNAPSHOT_DOES_NOT_EXIST",
+			},
+		},
 	} {
 		t.Run(code.String(), func(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError(
-				"irrecoverable error",
+				"irrecoveragble error",
 				code.String(),
 				nil,
 			))

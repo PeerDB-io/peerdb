@@ -15,6 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PgCopyShared struct {
@@ -57,7 +58,8 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
 			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
-				return 0, 0, temporal.NewNonRetryableApplicationError("failed to set transaction snapshot", "snapshot", err)
+				return 0, 0, temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
+					exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(), err)
 			}
 			return 0, 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
