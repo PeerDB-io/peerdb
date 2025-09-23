@@ -13,11 +13,11 @@ func NewIrrecoverableApplicationErrorType(errorType string) ApplicationErrorType
 }
 
 var (
-	ApplicationErrorTypeIrrecoverablePublicationMissing ApplicationErrorType = NewIrrecoverableApplicationErrorType("irrecoverable_publication_missing")
-	ApplicationErrorTypeIrrecoverableSlotMissing        ApplicationErrorType = NewIrrecoverableApplicationErrorType("irrecoverable_slot_missing")
-	ApplicationErrorTypeIrrecoverableInvalidSnapshot    ApplicationErrorType = NewIrrecoverableApplicationErrorType("irrecoverable_invalid_snapshot")
-	ApplicationErrorTypeIrrecoverableExistingSlot       ApplicationErrorType = NewIrrecoverableApplicationErrorType("irrecoverable_existing_slot")
-	ApplicationErrorTypeIrrecoverableMissingTables      ApplicationErrorType = NewIrrecoverableApplicationErrorType("irrecoverable_missing_tables")
+	ApplicationErrorTypeIrrecoverablePublicationMissing = NewIrrecoverableApplicationErrorType("irrecoverable_publication_missing")
+	ApplicationErrorTypeIrrecoverableSlotMissing        = NewIrrecoverableApplicationErrorType("irrecoverable_slot_missing")
+	ApplicationErrorTypeIrrecoverableInvalidSnapshot    = NewIrrecoverableApplicationErrorType("irrecoverable_invalid_snapshot")
+	ApplicationErrorTypeIrrecoverableExistingSlot       = NewIrrecoverableApplicationErrorType("irrecoverable_existing_slot")
+	ApplicationErrorTypeIrrecoverableMissingTables      = NewIrrecoverableApplicationErrorType("irrecoverable_missing_tables")
 )
 
 func (a ApplicationErrorType) String() string {
