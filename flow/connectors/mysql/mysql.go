@@ -28,7 +28,7 @@ type MySqlConnector struct {
 	config         *protos.MySqlConfig
 	ssh            *utils.SSHTunnel
 	conn           atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts       chan context.Context
+	contexts       atomic.Pointer[chan context.Context]
 	logger         log.Logger
 	rdsAuth        *utils.RDSAuth
 	serverVersion  string
@@ -62,10 +62,10 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		config:           config,
 		ssh:              ssh,
 		conn:             atomic.Pointer[client.Conn]{},
-		contexts:         contexts,
 		logger:           logger,
 		rdsAuth:          rdsAuth,
 	}
+	c.contexts.Store(&contexts)
 	go func() {
 		ctx := context.Background()
 		for {
@@ -95,9 +95,14 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 }
 
 func (c *MySqlConnector) watchCtx(ctx context.Context) func() {
-	c.contexts <- ctx
+	if contexts := c.contexts.Load(); contexts != nil {
+		*contexts <- ctx
+	}
+
 	return func() {
-		c.contexts <- context.Background()
+		if contexts := c.contexts.Load(); contexts != nil {
+			*contexts <- context.Background()
+		}
 	}
 }
 
@@ -114,8 +119,8 @@ func (c *MySqlConnector) Flavor() string {
 
 func (c *MySqlConnector) Close() error {
 	var errs []error
-	if c.contexts != nil {
-		close(c.contexts)
+	if contexts := c.contexts.Swap(nil); contexts != nil {
+		close(*contexts)
 	}
 	if conn := c.conn.Swap(nil); conn != nil {
 		if err := conn.Close(); err != nil {

@@ -92,8 +92,8 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Simulate network going down - this requires keepalives to detect the failure
-	t.Log("Adding 'down' toxic to simulate network failure during long-running query")
-	_, err = sshProxy.AddToxic("ssh-down", "down", "", 1.0, toxiproxy.Attributes{})
+	t.Log("Disabling proxy to simulate network failure during long-running query")
+	err = sshProxy.Disable()
 	require.NoError(t, err)
 
 	// Wait for keepalive failure detection (should happen within ~15-20 seconds)
