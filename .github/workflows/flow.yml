@@ -64,26 +64,29 @@ jobs:
           - 42001:42001
           - 42002:42002
           - 42003:42003
+      openssh:
+        image: panubo/sshd:latest
+        ports:
+          - 2222:22
+        env:
+          SSH_USERS: testuser:1000:1000
+          SSH_ENABLE_PASSWORD_AUTH: true
+          TCP_FORWARDING: true
+        volumes:
+          - ${{ github.workspace }}/.github/openssh:/etc/entrypoint.d:ro
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
-      - name: Start SSH container
+      - name: Restart SSH container to load password script
         run: |
-          docker run -d --name openssh \
-            -p 2222:22 \
-            -v $PWD/.github/openssh:/etc/entrypoint.d:ro \
-            -e SSH_USERS=testuser:1000:1000 \
-            -e SSH_ENABLE_PASSWORD_AUTH=true \
-            -e TCP_FORWARDING=true \
-            panubo/sshd:latest
+          # Restart the service container to pick up the entrypoint.d script
+          docker restart openssh
 
-          # Wait for SSH to be ready and debug
+          # Wait for SSH to be ready
           sleep 5
-          docker logs openssh
-          docker exec openssh ps aux
           echo "Testing SSH connection..."
-          ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o BatchMode=yes -p 2222 testuser@localhost echo "SSH works" || echo "SSH failed"
+          nc -zv localhost 2222 && echo "SSH port open" || echo "SSH port closed"
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
