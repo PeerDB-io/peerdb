@@ -65,28 +65,21 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: panubo/sshd:latest
+        image: linuxserver/openssh-server:latest
         ports:
-          - 2222:22
+          - 2222:2222
         env:
-          SSH_USERS: testuser:1000:1000
-          SSH_ENABLE_PASSWORD_AUTH: true
-          TCP_FORWARDING: true
-        volumes:
-          - ${{ github.workspace }}/.github/openssh:/etc/entrypoint.d:ro
+          PUID: 1000
+          PGID: 1000
+          TZ: Etc/UTC
+          USER_NAME: testuser
+          USER_PASSWORD: testpass
+          PASSWORD_ACCESS: true
+          DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
-      - name: Restart SSH container to load password script
-        run: |
-          # Restart the service container to pick up the entrypoint.d script
-          docker restart openssh
-
-          # Wait for SSH to be ready
-          sleep 5
-          echo "Testing SSH connection..."
-          nc -zv localhost 2222 && echo "SSH port open" || echo "SSH port closed"
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
