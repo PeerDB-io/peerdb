@@ -3,6 +3,7 @@ package connmysql
 import (
 	"context"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -206,7 +207,7 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 		hasExpectedError := false
 		expectedErrors := []string{"connection reset", "broken pipe", "EOF", "connection closed", "use of closed network connection"}
 		for _, expected := range expectedErrors {
-			if assert.Contains(t, errorMsg, expected) {
+			if strings.Contains(errorMsg, expected) {
 				hasExpectedError = true
 				break
 			}
@@ -215,14 +216,5 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 
 	case <-time.After(utils.SSHKeepaliveInterval):
 		t.Fatal("Query should have failed quickly due to connection reset, not timeout")
-	}
-
-	// The keepalive channel may or may not close since the connection failed so quickly
-	// that keepalives might not have had a chance to detect it
-	select {
-	case <-keepaliveChan:
-		t.Log("Keepalive channel closed (connection failure detected)")
-	case <-time.After(2 * time.Second):
-		t.Log("Keepalive channel didn't close - connection failed too quickly for keepalive detection")
 	}
 }
