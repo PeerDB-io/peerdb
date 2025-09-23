@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	ErrSlotAlreadyExists error = temporal.NewNonRetryableApplicationError("slot already exists", exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(), nil)
-	ErrTableDoesNotExist error = temporal.NewNonRetryableApplicationError("table does not exist", exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(), nil)
+	ErrSlotAlreadyExists error = temporal.NewNonRetryableApplicationError("slot already exists", exceptions.ApplicationErrorTypeIrrecoverableExistingSlot.String(), nil)
+	ErrTableDoesNotExist error = temporal.NewNonRetryableApplicationError("table does not exist", exceptions.ApplicationErrorTypeIrrecoverableMissingTables.String(), nil)
 )
 
 type ErrType string

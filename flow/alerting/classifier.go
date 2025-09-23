@@ -298,17 +298,30 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing:
 			return ErrorNotifyPublicationMissing, ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "PUBLICATION_DOES_NOT_EXIST",
+				Code:   temporalErr.Type(),
 			}
 		case exceptions.ApplicationErrorTypeIrrecoverableSlotMissing:
 			return ErrorNotifyReplicationSlotMissing, ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
+				Code:   temporalErr.Type(),
 			}
 		case exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot:
 			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "INVALID_SNAPSHOT_IDENTIFIER",
+				Code:   temporalErr.Type(),
+			}
+
+		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot, exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   temporalErr.Type(),
+			}
+		}
+		// Just in case we forget to classify some irrecoverable errors
+		if _, irrecoverable := exceptions.IrrecoverableApplicationErrorTypesMap[temporalErr.Type()]; irrecoverable {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceTemporal,
+				Code:   temporalErr.Type(),
 			}
 		}
 		return ErrorOther, ErrorInfo{

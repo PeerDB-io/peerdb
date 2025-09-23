@@ -523,21 +523,21 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 			errorClass: ErrorNotifyReplicationSlotMissing,
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(),
 			},
 		},
 		exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing: {
 			errorClass: ErrorNotifyPublicationMissing,
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "PUBLICATION_DOES_NOT_EXIST",
+				Code:   exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(),
 			},
 		},
 		exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot: {
 			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "INVALID_SNAPSHOT_IDENTIFIER",
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(),
 			},
 		},
 	} {
@@ -549,6 +549,16 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 			))
 			assert.Equal(t, cinfo.errorClass, errorClass, "Unexpected error class")
 			assert.Equal(t, cinfo.errInfo, errInfo, "Unexpected error info")
+		})
+	}
+}
+
+func TestTemporalKnownIrrecoverableErrorTypesHaveCorrectClassification(t *testing.T) {
+	for _, code := range exceptions.IrrecoverableApplicationErrorTypesList {
+		t.Run(code, func(t *testing.T) {
+			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError("unknown", code, nil))
+			assert.NotEqual(t, ErrorOther, errorClass, "Error class should not be other")
+			assert.NotEqual(t, ErrorSourceTemporal, errInfo.Source)
 		})
 	}
 }
