@@ -81,31 +81,31 @@ func convertToStatus(code codes.Code, err error, details ...*rpc.ErrorInfo) *sta
 	return richStatus
 }
 
-func NewInvalidArgumentApiError(err error, details ...*rpc.ErrorInfo) APIError {
+func NewInvalidArgumentApiError(err error, details ...*rpc.ErrorInfo) *apiError {
 	return newAPIError(convertToStatus(codes.InvalidArgument, err, details...))
 }
 
-func NewFailedPreconditionApiError(err error, details ...*rpc.ErrorInfo) APIError {
+func NewFailedPreconditionApiError(err error, details ...*rpc.ErrorInfo) *apiError {
 	return newAPIError(convertToStatus(codes.FailedPrecondition, err, details...))
 }
 
-func NewInternalApiError(err error, details ...*rpc.ErrorInfo) APIError {
+func NewInternalApiError(err error, details ...*rpc.ErrorInfo) *apiError {
 	return newAPIError(convertToStatus(codes.Internal, err, details...))
 }
 
-func NewUnavailableApiError(err error, details ...*rpc.ErrorInfo) APIError {
+func NewUnavailableApiError(err error, details ...*rpc.ErrorInfo) *apiError {
 	return newAPIError(convertToStatus(codes.Unavailable, err, details...))
 }
 
-func NewUnimplementedApiError(err error, details ...*rpc.ErrorInfo) APIError {
+func NewUnimplementedApiError(err error, details ...*rpc.ErrorInfo) *apiError {
 	return newAPIError(convertToStatus(codes.Unimplemented, err, details...))
 }
 
-func NewAlreadyExistsApiError(err error, details ...*rpc.ErrorInfo) APIError {
+func NewAlreadyExistsApiError(err error, details ...*rpc.ErrorInfo) *apiError {
 	return newAPIError(convertToStatus(codes.AlreadyExists, err, details...))
 }
 
-func NewNotFoundApiError(err error, details ...*rpc.ErrorInfo) APIError {
+func NewNotFoundApiError(err error, details ...*rpc.ErrorInfo) *apiError {
 	return newAPIError(convertToStatus(codes.NotFound, err, details...))
 }
 
