@@ -389,6 +389,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, pgErrorInfo
 
 		case pgerrcode.ObjectNotInPrerequisiteState:
+			if pgErr.Message == "logical decoding on standby requires \"wal_level\" >= \"logical\" on the primary" {
+				return ErrorNotifyConnectivity, pgErrorInfo
+			}
+
 			// same underlying error but 3 different messages
 			// based on PG version, newer ones have second error
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") ||
