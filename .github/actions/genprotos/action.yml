@@ -10,6 +10,7 @@ runs:
       with:
         path: |
           ./flow/generated/protos
+          ./flow/cmd/typed_handler.go
           ./nexus/pt/src/gen
           ./ui/grpc_generated
         key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
@@ -21,4 +22,6 @@ runs:
         github_token: ${{ github.token }}
     - if: steps.cache.outputs.cache-hit != 'true'
       shell: sh
-      run: buf generate protos
+      run: |
+        buf generate protos
+        cd flow && go generate ./cmd/...

@@ -259,7 +259,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to start scheduler workflow: %w", err)
 	}
 
-	protos.RegisterFlowServiceServer(grpcServer, flowHandler)
+	protos.RegisterFlowServiceServer(grpcServer, NewFlowServiceAdapter(flowHandler))
 	grpc_health_v1.RegisterHealthServer(grpcServer, health.NewServer())
 	reflection.Register(grpcServer)
 
