@@ -1,7 +1,5 @@
 package cmd
 
-//go:generate go run gen-grpc-wrapper/main.go
-
 import (
 	"context"
 	"errors"

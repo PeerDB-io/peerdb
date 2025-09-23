@@ -69,9 +69,15 @@ func main() {
 }
 
 func run() error {
+	// Check if the proto file exists
+	protoPath := "generated/protos/route_grpc.pb.go"
+	if _, err := os.Stat(protoPath); os.IsNotExist(err) {
+		return fmt.Errorf("required proto file %s does not exist. Please run 'buf generate protos' first to generate the proto files", protoPath)
+	}
+
 	// Parse the generated gRPC file
 	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, "generated/protos/route_grpc.pb.go", nil, parser.ParseComments)
+	node, err := parser.ParseFile(fset, protoPath, nil, parser.ParseComments)
 	if err != nil {
 		return fmt.Errorf("failed to parse route_grpc.pb.go: %w", err)
 	}
