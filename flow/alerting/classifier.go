@@ -308,7 +308,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot:
 			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "SNAPSHOT_DOES_NOT_EXIST",
+				Code:   "INVALID_SNAPSHOT_IDENTIFIER",
 			}
 		}
 		return ErrorOther, ErrorInfo{

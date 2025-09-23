@@ -537,7 +537,7 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "SNAPSHOT_DOES_NOT_EXIST",
+				Code:   "INVALID_SNAPSHOT_IDENTIFIER",
 			},
 		},
 	} {
