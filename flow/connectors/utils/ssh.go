@@ -17,7 +17,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-const keepaliveIntervalSeconds = 15
+const SSHKeepaliveInterval = 15 * time.Second
 
 type SSHTunnel struct {
 	*ssh.Client
@@ -124,7 +124,7 @@ func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) <-chan struct{} {
 	tunnel.keepaliveChan.Store(&keepaliveChan)
 
 	go func() {
-		ticker := time.NewTicker(time.Duration(keepaliveIntervalSeconds) * time.Second)
+		ticker := time.NewTicker(SSHKeepaliveInterval)
 		defer ticker.Stop()
 		logger := internal.LoggerFromCtx(ctx)
 		for {

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
@@ -48,6 +49,7 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 			User:     "testuser",
 			Password: "testpass",
 		},
+		DisableTls: true,
 	})
 	require.NoError(t, err)
 
@@ -59,20 +61,11 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 }
 
 func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
 	ctx := t.Context()
 
-	// Connect to Toxiproxy - NewClient automatically adds http:// if not present
 	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
-
-	// Test if toxiproxy is available
 	_, err := toxiproxyClient.Version()
-	if err != nil {
-		t.Skipf("Toxiproxy not available: %v", err)
-	}
+	require.NoError(t, err, "Toxiproxy not available")
 
 	// Create MySQL connector with SSH tunnel through Toxiproxy
 	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-keepalive-test", toxiproxyDownProxyPort)
@@ -109,8 +102,8 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 	case <-keepaliveChan:
 		t.Log("SSH keepalive failure detected successfully")
 		// Channel closing indicates tunnel failure was detected
-	case <-time.After(30 * time.Second):
-		t.Fatal("SSH keepalive failure not detected within 30 seconds")
+	case <-time.After(2 * utils.SSHKeepaliveInterval):
+		t.Fatal("SSH keepalive failure not detected within 2 intervals")
 	}
 
 	// The long-running query should fail due to broken connection
@@ -129,19 +122,11 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 }
 
 func TestMySQLSSHKeepaliveLatency(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
 	ctx := t.Context()
 
 	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
-
-	// Test if toxiproxy is available
 	_, err := toxiproxyClient.Version()
-	if err != nil {
-		t.Skipf("Toxiproxy not available: %v", err)
-	}
+	require.NoError(t, err, "Toxiproxy not available")
 
 	// Create MySQL connector with SSH tunnel through Toxiproxy
 	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-latency-test", toxiproxyLatencyProxyPort)
@@ -169,25 +154,17 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 	case <-keepaliveChan:
 		t.Log("SSH keepalive timeout detected successfully")
 		// Channel closing indicates tunnel timeout was detected
-	case <-time.After(45 * time.Second):
-		t.Fatal("SSH keepalive timeout not detected within 45 seconds")
+	case <-time.After(2 * utils.SSHKeepaliveInterval):
+		t.Fatal("SSH keepalive timeout not detected within 2 intervals")
 	}
 }
 
 func TestMySQLSSHResetPeer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping integration test in short mode")
-	}
-
 	ctx := t.Context()
 
 	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
-
-	// Test if toxiproxy is available
 	_, err := toxiproxyClient.Version()
-	if err != nil {
-		t.Skipf("Toxiproxy not available: %v", err)
-	}
+	require.NoError(t, err, "Toxiproxy not available")
 
 	// Create MySQL connector with SSH tunnel through Toxiproxy
 	connector, sshProxy := setupMySQLConnectorWithSSH(ctx, t, toxiproxyClient, "ssh-reset-peer-test", toxiproxyResetProxyPort)
@@ -236,7 +213,7 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 		}
 		assert.True(t, hasExpectedError, "Error should indicate immediate connection failure, got: %s", errorMsg)
 
-	case <-time.After(15 * time.Second):
+	case <-time.After(utils.SSHKeepaliveInterval):
 		t.Fatal("Query should have failed quickly due to connection reset, not timeout")
 	}
 
