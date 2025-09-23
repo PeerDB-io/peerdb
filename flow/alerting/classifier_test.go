@@ -543,7 +543,7 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 	} {
 		t.Run(code.String(), func(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError(
-				"irrecoveragble error",
+				"irrecoverable error",
 				code.String(),
 				nil,
 			))
