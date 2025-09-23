@@ -11,7 +11,10 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.GetAlertConfigsRequest) (*protos.GetAlertConfigsResponse, APIError) {
+func (h *FlowRequestHandler) GetAlertConfigs(
+	ctx context.Context,
+	req *protos.GetAlertConfigsRequest,
+) (*protos.GetAlertConfigsResponse, APIError) {
 	rows, err := h.pool.Query(ctx, "SELECT id,service_type,service_config,enc_key_id,alert_for_mirrors from peerdb_stats.alerting_config")
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to get alert configs: %w", err))
@@ -38,7 +41,10 @@ func (h *FlowRequestHandler) GetAlertConfigs(ctx context.Context, req *protos.Ge
 	return &protos.GetAlertConfigsResponse{Configs: configs}, nil
 }
 
-func (h *FlowRequestHandler) PostAlertConfig(ctx context.Context, req *protos.PostAlertConfigRequest) (*protos.PostAlertConfigResponse, APIError) {
+func (h *FlowRequestHandler) PostAlertConfig(
+	ctx context.Context,
+	req *protos.PostAlertConfigRequest,
+) (*protos.PostAlertConfigResponse, APIError) {
 	key, err := internal.PeerDBCurrentEncKey(ctx)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to get current enc key: %w", err))

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -72,7 +73,9 @@ func run() error {
 	// Check if the proto file exists
 	protoPath := "generated/protos/route_grpc.pb.go"
 	if _, err := os.Stat(protoPath); os.IsNotExist(err) {
-		return fmt.Errorf("required proto file %s does not exist. Please run 'buf generate protos' first to generate the proto files", protoPath)
+		return fmt.Errorf(
+			"required proto file %s does not exist. Please run 'buf generate protos' first to generate the proto files",
+			protoPath)
 	}
 
 	// Parse the generated gRPC file
@@ -89,42 +92,44 @@ func run() error {
 			if typeSpec.Name.Name == "FlowServiceServer" {
 				if iface, ok := typeSpec.Type.(*ast.InterfaceType); ok {
 					for _, method := range iface.Methods.List {
-						if funcType, ok := method.Type.(*ast.FuncType); ok {
-							methodName := method.Names[0].Name
+						funcType, ok := method.Type.(*ast.FuncType)
+						if !ok {
+							continue
+						}
+						methodName := method.Names[0].Name
 
-							// Skip mustEmbedUnimplemented* methods
-							if strings.HasPrefix(methodName, "mustEmbedUnimplemented") {
-								continue
-							}
+						// Skip mustEmbedUnimplemented* methods
+						if strings.HasPrefix(methodName, "mustEmbedUnimplemented") {
+							continue
+						}
 
-							// Extract request and response types
-							var request, response string
+						// Extract request and response types
+						var request, response string
 
-							// Get request type (second parameter after context)
-							if len(funcType.Params.List) >= 2 {
-								if starExpr, ok := funcType.Params.List[1].Type.(*ast.StarExpr); ok {
-									if ident, ok := starExpr.X.(*ast.Ident); ok {
-										request = ident.Name
-									}
+						// Get request type (second parameter after context)
+						if len(funcType.Params.List) >= 2 {
+							if starExpr, ok := funcType.Params.List[1].Type.(*ast.StarExpr); ok {
+								if ident, ok := starExpr.X.(*ast.Ident); ok {
+									request = ident.Name
 								}
 							}
+						}
 
-							// Get response type (first return value)
-							if len(funcType.Results.List) >= 1 {
-								if starExpr, ok := funcType.Results.List[0].Type.(*ast.StarExpr); ok {
-									if ident, ok := starExpr.X.(*ast.Ident); ok {
-										response = ident.Name
-									}
+						// Get response type (first return value)
+						if len(funcType.Results.List) >= 1 {
+							if starExpr, ok := funcType.Results.List[0].Type.(*ast.StarExpr); ok {
+								if ident, ok := starExpr.X.(*ast.Ident); ok {
+									response = ident.Name
 								}
 							}
+						}
 
-							if request != "" && response != "" {
-								methods = append(methods, Method{
-									Name:     methodName,
-									Request:  request,
-									Response: response,
-								})
-							}
+						if request != "" && response != "" {
+							methods = append(methods, Method{
+								Name:     methodName,
+								Request:  request,
+								Response: response,
+							})
 						}
 					}
 				}
@@ -135,7 +140,7 @@ func run() error {
 	})
 
 	if len(methods) == 0 {
-		return fmt.Errorf("no methods found in FlowServiceServer interface")
+		return errors.New("no methods found in FlowServiceServer interface")
 	}
 
 	// Generate the output
@@ -151,10 +156,10 @@ func run() error {
 
 	// Write to file
 	outputPath := "cmd/typed_handler.go"
-	if err := os.WriteFile(outputPath, buf.Bytes(), 0644); err != nil {
+	if err := os.WriteFile(outputPath, buf.Bytes(), 0o600); err != nil {
 		return fmt.Errorf("failed to write output file: %w", err)
 	}
 
-	fmt.Printf("Generated %s with %d methods\n", outputPath, len(methods))
+	log.Printf("Generated %s with %d methods\n", outputPath, len(methods))
 	return nil
 }

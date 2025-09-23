@@ -40,7 +40,7 @@ func (e *apiError) Code() codes.Code {
 	return e.status.Code()
 }
 
-func newAPIError(s *status.Status) APIError {
+func newAPIError(s *status.Status) *apiError {
 	return &apiError{status: s}
 }
 
