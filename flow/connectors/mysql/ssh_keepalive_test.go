@@ -116,6 +116,9 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 		t.Fatal("Long-running query should have failed after SSH tunnel broke")
 	}
 
+	// Wait a bit for conn recycle
+	time.Sleep(2 * time.Second)
+
 	// New MySQL operations should succeed because connector will create new SSH tunnel
 	err = connector.ConnectionActive(ctx)
 	require.NoError(t, err, "New connection should succeed after SSH tunnel recovers")

@@ -127,11 +127,16 @@ func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) <-chan struct{} {
 		ticker := time.NewTicker(SSHKeepaliveInterval)
 		defer ticker.Stop()
 		logger := internal.LoggerFromCtx(ctx)
-		requestSent := false
+		// in case request hangs, we want to detect that and not send another request
+		requestSent := atomic.Bool{}
+		var keepaliveErr error
+		// closed by request making goroutine to signal error, keepaliveErr
+		errChan := make(chan struct{})
+
 		for {
 			select {
 			case <-ticker.C:
-				if requestSent {
+				if requestSent.Load() {
 					// Previous keepalive request didn't return yet, something's wrong
 					logger.Error("Previous keepalive request still pending, marking tunnel as bad")
 					if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
@@ -141,16 +146,12 @@ func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) <-chan struct{} {
 					return
 				}
 				go func() {
-					requestSent = true
+					requestSent.Store(true)
 					_, _, err := tunnel.Client.SendRequest("keepalive@openssh.com", true, nil)
-					requestSent = false
+					requestSent.Store(false)
 					if err != nil {
-						logger.Error("Failed to send keep alive", slog.Any("error", err))
-						if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
-							close(*keepaliveChan)
-						}
-						tunnel.badTunnel = true
-						return
+						keepaliveErr = err
+						close(errChan)
 					}
 				}()
 			case <-ctx.Done():
@@ -160,6 +161,13 @@ func (tunnel *SSHTunnel) GetKeepaliveChan(ctx context.Context) <-chan struct{} {
 				return
 			case <-keepaliveChan:
 				// channel closed from outside
+				return
+			case <-errChan:
+				logger.Error("Keepalive request failed, marking tunnel as bad", slog.Any("error", keepaliveErr))
+				if keepaliveChan := tunnel.keepaliveChan.Swap(nil); keepaliveChan != nil {
+					close(*keepaliveChan)
+				}
+				tunnel.badTunnel = true
 				return
 			}
 		}
