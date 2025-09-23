@@ -74,22 +74,41 @@ func (a *MaintenanceActivity) WaitForRunningSnapshotsAndIntermediateStates(
 	if err != nil {
 		return nil, err
 	}
+	for {
+		checkStartTime := time.Now()
+		slog.InfoContext(ctx, "Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
 
-	slog.InfoContext(ctx, "Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
-
-	for _, mirror := range mirrors.Mirrors {
-		if _, shouldSkip := skippedFlows[mirror.MirrorName]; shouldSkip {
-			slog.WarnContext(ctx, "Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
-			continue
+		for _, mirror := range mirrors.Mirrors {
+			if _, shouldSkip := skippedFlows[mirror.MirrorName]; shouldSkip {
+				slog.WarnContext(ctx, "Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
+				continue
+			}
+			lastStatus, err := a.checkAndWaitIfNeeded(ctx, mirror, 2*time.Minute)
+			if err != nil {
+				return nil, err
+			}
+			slog.InfoContext(ctx, "Finished checking and waiting for snapshot",
+				"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
 		}
-		lastStatus, err := a.checkAndWaitIfNeeded(ctx, mirror, 2*time.Minute)
+		slog.InfoContext(ctx, "Finished checking and waiting for all mirrors to finish snapshot")
+
+		// New mirrors can come in while we wait, so we check for new ones and retry waiting if we find any
+		mirrors, err = a.GetAllMirrors(ctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get mirrors during new mirror check: %w", err)
 		}
-		slog.InfoContext(ctx, "Finished checking and waiting for snapshot",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
+		allMirrorsChecked := true
+		for _, mirror := range mirrors.Mirrors {
+			if mirror.MirrorCreatedAt.AsTime().After(checkStartTime) || mirror.MirrorUpdatedAt.AsTime().After(checkStartTime) {
+				slog.WarnContext(ctx, "Found a new mirror while checking for snapshots", "mirror", mirror.MirrorName, "info", mirror)
+				allMirrorsChecked = false
+				break
+			}
+		}
+		if allMirrorsChecked {
+			break
+		}
 	}
-	slog.InfoContext(ctx, "Finished checking and waiting for all mirrors to finish snapshot")
 	return mirrors, nil
 }
 
