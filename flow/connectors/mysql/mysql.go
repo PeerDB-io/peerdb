@@ -75,13 +75,19 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 				c.logger.Info("SSH keepalive failed, closing connection")
 				ctx = context.Background()
 				if conn := c.conn.Swap(nil); conn != nil {
-					conn.Close()
+					c.logger.Info("Closing connection due to SSH keepalive failure")
+					if err := conn.Close(); err != nil {
+						c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
+					}
 				}
 			case <-ctx.Done():
 				c.logger.Info("ctx canceled, closing connection")
 				ctx = context.Background()
 				if conn := c.conn.Swap(nil); conn != nil {
-					conn.Close()
+					c.logger.Info("Closing connection due to ctx cancellation")
+					if err := conn.Close(); err != nil {
+						c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
+					}
 				}
 			case ctx, ok = <-contexts:
 				if !ok {
@@ -118,16 +124,19 @@ func (c *MySqlConnector) Flavor() string {
 }
 
 func (c *MySqlConnector) Close() error {
+	c.logger.Info("Closing MySQL connector")
 	var errs []error
 	if contexts := c.contexts.Swap(nil); contexts != nil {
 		close(*contexts)
 	}
 	if conn := c.conn.Swap(nil); conn != nil {
 		if err := conn.Close(); err != nil {
+			c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
 			errs = append(errs, err)
 		}
 	}
 	if err := c.ssh.Close(); err != nil {
+		c.logger.Error("Failed to close SSH tunnel", slog.Any("error", err))
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
