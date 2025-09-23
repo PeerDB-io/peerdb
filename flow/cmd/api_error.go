@@ -22,63 +22,8 @@ type apiError struct {
 	status *status.Status
 }
 
-func (e *apiError) Error() string {
-	if e.status == nil {
-		return "unknown error"
-	}
-	return e.status.Err().Error()
-}
-
-func (e *apiError) GRPCStatus() *status.Status {
-	return e.status
-}
-
-func (e *apiError) Code() codes.Code {
-	if e.status == nil {
-		return codes.Unknown
-	}
-	return e.status.Code()
-}
-
 func newAPIError(s *status.Status) *apiError {
 	return &apiError{status: s}
-}
-
-// AsAPIError converts an error to APIError if it's a gRPC status error,
-// otherwise wraps it as an Internal error
-func AsAPIError(err error) APIError {
-	if err == nil {
-		return nil
-	}
-
-	if apiErr, ok := err.(APIError); ok {
-		return apiErr
-	}
-
-	if s, ok := status.FromError(err); ok {
-		return newAPIError(s)
-	}
-
-	return NewInternalApiError(err)
-}
-
-func convertToStatus(code codes.Code, err error, details ...*rpc.ErrorInfo) *status.Status {
-	errorStatus := status.New(code, err.Error())
-	if len(details) == 0 {
-		return errorStatus
-	}
-	convertedDetails := make([]protoadapt.MessageV1, len(details))
-	for i, detail := range details {
-		convertedDetails[i] = detail
-	}
-	richStatus, err := errorStatus.WithDetails(convertedDetails...)
-	if err != nil {
-		// This cannot happen because we control all calls to convertToStatus and only pass code != OK and allow only rpc.ErrorInfo in details
-		slog.Error("Failed to convert to grpc proto error", "error", err) //nolint:sloglint // No context in conversion helper
-		return errorStatus
-	}
-
-	return richStatus
 }
 
 func NewInvalidArgumentApiError(err error, details ...*rpc.ErrorInfo) *apiError {
@@ -107,6 +52,61 @@ func NewAlreadyExistsApiError(err error, details ...*rpc.ErrorInfo) *apiError {
 
 func NewNotFoundApiError(err error, details ...*rpc.ErrorInfo) *apiError {
 	return newAPIError(convertToStatus(codes.NotFound, err, details...))
+}
+
+func (e *apiError) Error() string {
+	if e.status == nil {
+		return "unknown error"
+	}
+	return e.status.Err().Error()
+}
+
+func (e *apiError) GRPCStatus() *status.Status {
+	return e.status
+}
+
+func (e *apiError) Code() codes.Code {
+	if e.status == nil {
+		return codes.Unknown
+	}
+	return e.status.Code()
+}
+
+func convertToStatus(code codes.Code, err error, details ...*rpc.ErrorInfo) *status.Status {
+	errorStatus := status.New(code, err.Error())
+	if len(details) == 0 {
+		return errorStatus
+	}
+	convertedDetails := make([]protoadapt.MessageV1, len(details))
+	for i, detail := range details {
+		convertedDetails[i] = detail
+	}
+	richStatus, err := errorStatus.WithDetails(convertedDetails...)
+	if err != nil {
+		// This cannot happen because we control all calls to convertToStatus and only pass code != OK and allow only rpc.ErrorInfo in details
+		slog.Error("Failed to convert to grpc proto error", "error", err) //nolint:sloglint // No context in conversion helper
+		return errorStatus
+	}
+
+	return richStatus
+}
+
+// AsAPIError converts an error to APIError if it's a gRPC status error,
+// otherwise wraps it as an Internal error
+func AsAPIError(err error) APIError {
+	if err == nil {
+		return nil
+	}
+
+	if apiErr, ok := err.(APIError); ok {
+		return apiErr
+	}
+
+	if s, ok := status.FromError(err); ok {
+		return newAPIError(s)
+	}
+
+	return NewInternalApiError(err)
 }
 
 const (
