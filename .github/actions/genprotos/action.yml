@@ -13,7 +13,7 @@ runs:
           ./flow/cmd/typed_handler.go
           ./nexus/pt/src/gen
           ./ui/grpc_generated
-        key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto') }}
+        key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto', './flow/cmd/gen-grpc-wrapper/main.go') }}
 
     - if: steps.cache.outputs.cache-hit != 'true'
       uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1
