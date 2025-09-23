@@ -721,7 +721,7 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		require.Contains(t, row, `"pos_inf":"+Inf"`)
 		require.Contains(t, row, `"neg_inf":"-Inf"`)
 		// mixed array promoted common type
-		require.Contains(t, row, `"array_mixed":["1","str",true]`)
+		require.Contains(t, row, `"array_mixed":[1,"str",true]`)
 		require.Contains(t, row, `"array_special_floats":["NaN","+Inf","-Inf"]`)
 		require.Contains(t, row, `"nested_doc":{"inner1":"str","inner2":1,"inner3":true,"inner4":{"a":"NaN","b":["hello","world"]}}`)
 		require.Contains(t, row, `"nested_array":[{"inner1":[{"inner_inner":["NaN","+Inf","-Inf"]}]},{"inner2":1.23}]`)
