@@ -115,6 +115,9 @@ var (
 	ErrorNotifyBinlogInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
 	}
+	ErrorNotifyBadGTIDSetup = ErrorClass{
+		Class: "NOTIFY_BAD_MULTISOURCE_GTID_SETUP", action: NotifyUser,
+	}
 	ErrorNotifySourceTableMissing = ErrorClass{
 		Class: "NOTIFY_SOURCE_TABLE_MISSING", action: NotifyUser,
 	}
@@ -493,6 +496,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, myErrorInfo
 		case 1146: // ER_NO_SUCH_TABLE
 			return ErrorNotifySourceTableMissing, myErrorInfo
+		case 1943:
+			return ErrorNotifyBadGTIDSetup, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
 		}
