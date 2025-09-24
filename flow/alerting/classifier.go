@@ -472,9 +472,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case 1146: // ER_NO_SUCH_TABLE
 			return ErrorNotifySourceTableMissing, myErrorInfo
 		case 1943:
-			if myErr.State == "HY000" && strings.Contains(myErr.Message, "duplicate domain id") {
-				return ErrorNotifyBadGTIDSetup, myErrorInfo
-			}
+			return ErrorNotifyBadGTIDSetup, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
 		}
