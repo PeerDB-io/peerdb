@@ -269,9 +269,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 	// Reference:
 	// https://github.dev/jackc/pgx/blob/master/pgconn/pgconn.go#L733-L740
-	if strings.Contains(err.Error(), "conn closed") ||
-		strings.Contains(err.Error(), "conn uninitialized") ||
-		strings.Contains(err.Error(), "conn busy") {
+	if strings.Contains(err.Error(), "conn closed") {
 		return ErrorRetryRecoverable, ErrorInfo{
 			Source: ErrorSourceNet,
 			Code:   "UNKNOWN",
