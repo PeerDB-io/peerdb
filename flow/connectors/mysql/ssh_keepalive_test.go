@@ -39,7 +39,7 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 	require.NoError(t, err, "Failed to convert port to integer: %s", proxyPort)
 
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
-		Host:     "mysql",
+		Host:     "localhost",
 		Port:     3306,
 		User:     "root",
 		Password: "cipass",
