@@ -139,6 +139,9 @@ var (
 	ErrorNotifyTerminate = ErrorClass{
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
+	ErrorNotifyReplicationStandbySetup = ErrorClass{
+		Class: "NOTIFY_REPLICATION_STANDBY_SETUP", action: NotifyUser,
+	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
 	}
@@ -390,7 +393,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.ObjectNotInPrerequisiteState:
 			if pgErr.Message == "logical decoding on standby requires \"wal_level\" >= \"logical\" on the primary" {
-				return ErrorNotifyConnectivity, pgErrorInfo
+				return ErrorNotifyReplicationStandbySetup, pgErrorInfo
 			}
 
 			// same underlying error but 3 different messages
