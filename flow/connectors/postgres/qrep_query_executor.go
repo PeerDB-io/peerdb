@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -60,41 +61,26 @@ func (qe *QRepQueryExecutor) ExecuteQuery(ctx context.Context, query string, arg
 }
 
 // FieldDescriptionsToSchema converts a slice of pgconn.FieldDescription to a QRecordSchema.
-func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(
+func (qe *QRepQueryExecutor) cursorToSchema(
 	ctx context.Context,
 	tx pgx.Tx,
-	fds []pgconn.FieldDescription,
+	cursorName string,
 ) (types.QRecordSchema, error) {
-	tableOIDset := make(map[uint32]struct{})
-	for _, fd := range fds {
-		tableOIDset[fd.TableOID] = struct{}{}
-	}
-	tableOIDs := maps.Keys(tableOIDset)
-
-	rows, err := tx.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
-	if err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to query schema for field descriptions: %w", err)
-	}
-
 	type attId struct {
 		relid uint32
 		num   uint16
 	}
-	var att attId
-	nullableCols := make(map[attId]struct{})
-	if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
-		nullableCols[att] = struct{}{}
-		return nil
-	}); err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to process schema for field descriptions: %w", err)
-	}
 
+	rows, err := tx.Query(ctx, "FETCH 0 FROM "+cursorName)
+	if err != nil {
+		return types.QRecordSchema{}, fmt.Errorf("failed to fetch 0 for field descriptions: %w", err)
+	}
+	fds := rows.FieldDescriptions()
+	tableOIDset := make(map[uint32]struct{})
+	nullPointers := make(map[attId]*bool, len(fds))
 	qfields := make([]types.QField, len(fds))
 	for i, fd := range fds {
-		_, nullable := nullableCols[attId{
-			relid: fd.TableOID,
-			num:   fd.TableAttributeNumber,
-		}]
+		tableOIDset[fd.TableOID] = struct{}{}
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping, qe.version)
 		// there isn't a way to know if a column is nullable or not
 		if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
@@ -102,7 +88,7 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(
 			qfields[i] = types.QField{
 				Name:      fd.Name,
 				Type:      ctype,
-				Nullable:  nullable,
+				Nullable:  false,
 				Precision: precision,
 				Scale:     scale,
 			}
@@ -110,10 +96,32 @@ func (qe *QRepQueryExecutor) fieldDescriptionsToSchema(
 			qfields[i] = types.QField{
 				Name:     fd.Name,
 				Type:     ctype,
-				Nullable: nullable,
+				Nullable: false,
 			}
 		}
+		nullPointers[attId{
+			relid: fd.TableOID,
+			num:   fd.TableAttributeNumber,
+		}] = &qfields[i].Nullable
 	}
+	rows.Close()
+	tableOIDs := slices.Collect(maps.Keys(tableOIDset))
+
+	rows, err = tx.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
+	if err != nil {
+		return types.QRecordSchema{}, fmt.Errorf("failed to query schema for field descriptions: %w", err)
+	}
+
+	var att attId
+	if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
+		if nullPointer, ok := nullPointers[att]; ok {
+			*nullPointer = true
+		}
+		return nil
+	}); err != nil {
+		return types.QRecordSchema{}, fmt.Errorf("failed to process schema for field descriptions: %w", err)
+	}
+
 	return types.NewQRecordSchema(qfields), nil
 }
 
@@ -183,14 +191,6 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	defer rows.Close()
 
 	fieldDescriptions := rows.FieldDescriptions()
-	if !stream.IsSchemaSet() {
-		schema, err := qe.fieldDescriptionsToSchema(ctx, tx, fieldDescriptions)
-		if err != nil {
-			return 0, 0, err
-		}
-		stream.SetSchema(schema)
-	}
-
 	numRows, numBytes, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to process rows", slog.Any("error", err))
