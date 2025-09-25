@@ -612,6 +612,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
+		case 529: // NOT_A_LEADER
+			if strings.HasPrefix(chException.Message, "Cannot enqueue query on this replica, because it has replication lag") {
+				return ErrorNotifyConnectivity, chErrorInfo
+			}
 		case chproto.ErrQueryWasCancelled,
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
