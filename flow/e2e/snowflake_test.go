@@ -90,8 +90,8 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	_, err := s.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
 			id INT PRIMARY KEY,
-			num1 NUMERIC(100, 50) NOT NULL,
-			num2 NUMERIC(100, 50) NOT NULL
+			num1 NUMERIC(100, 50),
+			num2 NUMERIC(100, 50)
 		);
 	`, srcTableName))
 	require.NoError(s.t, err)
