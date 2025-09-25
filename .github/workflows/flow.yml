@@ -70,7 +70,7 @@ jobs:
 
       - name: Start OpenSSH server container
         run: |
-          docker run -d --name openssh --network $(docker network ls -q -f name=github_network_) -p 2222:2222 \
+          docker run -d --name openssh -p 2222:2222 \
             -e PUID=1000 -e PGID=1000 -e TZ=Etc/UTC -e USER_NAME=testuser -e USER_PASSWORD=testpass \
             -e PASSWORD_ACCESS=true -e DOCKER_MODS=linuxserver/mods:openssh-server-ssh-tunnel \
             linuxserver/openssh-server:latest
