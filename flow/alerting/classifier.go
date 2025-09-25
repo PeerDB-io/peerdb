@@ -437,6 +437,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorNotifySlotInvalid, pgErrorInfo
 			}
 
+			if strings.Contains(pgErr.Message,
+				"specified in parameter \"synchronized_standby_slots\" does not have active_pid") {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
