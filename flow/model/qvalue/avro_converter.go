@@ -204,19 +204,19 @@ func QValueToAvro(
 	switch v := value.(type) {
 	case types.QValueInvalid:
 		// we will attempt to convert invalid to a string
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueTime:
-		return c.processNullableUnion(c.processGoTime(v.Val))
+		return c.processNullableUnion(c.processGoTime(v.Val)), nil
 	case types.QValueTimeTZ:
-		return c.processNullableUnion(c.processGoTime(v.Val))
+		return c.processNullableUnion(c.processGoTime(v.Val)), nil
 	case types.QValueTimestamp:
-		return c.processNullableUnion(c.processGoTimestamp(v.Val))
+		return c.processNullableUnion(c.processGoTimestamp(v.Val)), nil
 	case types.QValueTimestampTZ:
-		return c.processNullableUnion(c.processGoTimestampTZ(v.Val))
+		return c.processNullableUnion(c.processGoTimestampTZ(v.Val)), nil
 	case types.QValueDate:
-		return c.processNullableUnion(c.processGoDate(v.Val))
+		return c.processNullableUnion(c.processGoDate(v.Val)), nil
 	case types.QValueQChar:
-		return c.processNullableUnion(string(v.Val))
+		return c.processNullableUnion(string(v.Val)), nil
 	case types.QValueString,
 		types.QValueCIDR, types.QValueINET, types.QValueMacaddr,
 		types.QValueInterval, types.QValueEnum,
@@ -227,36 +227,36 @@ func QValueToAvro(
 			slog.WarnContext(ctx, "Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
 			return nil, nil
 		}
-		return c.processNullableUnion(v.Value())
+		return c.processNullableUnion(v.Value()), nil
 	case types.QValueFloat32:
 		if c.TargetDWH == protos.DBType_BIGQUERY {
-			return c.processNullableUnion(float64(v.Val))
+			return c.processNullableUnion(float64(v.Val)), nil
 		}
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueFloat64:
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueInt8:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueInt16:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueInt32:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueInt64:
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueInt256:
 		return c.processInt256(v.Val), nil
 	case types.QValueUInt8:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueUInt16:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueUInt32:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueUInt64:
-		return c.processNullableUnion(int64(v.Val))
+		return c.processNullableUnion(int64(v.Val)), nil
 	case types.QValueUInt256:
 		return c.processUInt256(v.Val), nil
 	case types.QValueBoolean:
-		return c.processNullableUnion(v.Val)
+		return c.processNullableUnion(v.Val), nil
 	case types.QValueNumeric:
 		return c.processNumeric(v.Val), nil
 	case types.QValueBytes:
@@ -311,40 +311,32 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
+	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
+		return nil
+	}
+
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		return t.Format("2006-01-02 15:04:05.999999-0700")
 	}
-
-	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-	// So make such timestamps null
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
-	}
-
 	return t
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
+	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
+		return nil
+	}
+
 	// Snowflake has issues with avro timestamp types, returning as string form
 	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
 		return t.Format("2006-01-02 15:04:05.999999")
 	}
-
-	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-	// So make such timestamps null
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
-	}
-
 	return t
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time) any {
-	// Bigquery will not allow Date if it is less than 1AD and more than 9999AD
-	// So make such Dates null
 	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
 		return nil
 	}
@@ -359,21 +351,20 @@ func (c *QValueAvroConverter) processGoDate(t time.Time) any {
 
 func (c *QValueAvroConverter) processNullableUnion(
 	value any,
-) (any, error) {
+) any {
 	if c.Nullable {
 		if value == nil {
-			return nil, nil
+			return nil
 		}
-		return &value, nil
+		return &value
 	}
-	return value, nil
+	return value
 }
 
 func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
 	if destType.IsString {
-		numStr, _ := c.processNullableUnion(num.String())
-		return numStr
+		return c.processNullableUnion(num.String())
 	}
 
 	num, ok := TruncateNumeric(num, destType.Precision, destType.Scale, c.TargetDWH, c.Stat)
