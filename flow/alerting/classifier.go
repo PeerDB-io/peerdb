@@ -36,6 +36,9 @@ var (
 	ClickHouseDecimalParsingRe = regexp.MustCompile(
 		`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`,
 	)
+	ClickHouseDecimalInsertRe = regexp.MustCompile(
+		`Cannot insert Avro decimal with scale \d+ and precision \d+ to ClickHouse type Decimal\(\d+, \d+\) with scale \d+ and precision \d+`,
+	)
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
 	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
@@ -573,6 +576,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorIgnoreConnTemporary, chErrorInfo
 		case chproto.ErrCannotParseUUID, chproto.ErrValueIsOutOfRangeOfDataType: // https://github.com/ClickHouse/ClickHouse/pull/78540
 			if ClickHouseDecimalParsingRe.MatchString(chException.Message) {
+				return ErrorUnsupportedDatatype, chErrorInfo
+			}
+		case chproto.ErrBadArguments:
+			if ClickHouseDecimalInsertRe.MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
 			}
 		case chproto.ErrAccessEntityNotFound:
