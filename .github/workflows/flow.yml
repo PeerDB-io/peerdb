@@ -64,19 +64,21 @@ jobs:
           - 42001:42001
           - 42002:42002
           - 42003:42003
+      openssh:
+        image: linuxserver/openssh-server:latest
+        ports:
+          - 2222:2222
+        env:
+          PUID: 1000
+          PGID: 1000
+          TZ: Etc/UTC
+          USER_NAME: testuser
+          USER_PASSWORD: testpass
+          PASSWORD_ACCESS: true
+          DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
-
-      - name: Start OpenSSH server container
-        run: |
-          docker run -d --name openssh -p 2222:2222 \
-            -e PUID=1000 -e PGID=1000 -e TZ=Etc/UTC -e USER_NAME=testuser -e USER_PASSWORD=testpass \
-            -e PASSWORD_ACCESS=true -e DOCKER_MODS=linuxserver/mods:openssh-server-ssh-tunnel \
-            linuxserver/openssh-server:latest
-
-          sleep 10
-          nc -zv localhost 2222 && echo "SSH ready" || echo "SSH not ready"
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos

@@ -2,6 +2,7 @@ package connmysql
 
 import (
 	"context"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ const (
 	toxiproxyAPIPort          = "18474"
 	sshServerPort             = "2222"
 	toxiproxyHost             = "localhost"
-	sshServerHost             = "localhost"
+	sshServerHost             = "openssh"
 	toxiproxyDownProxyPort    = "42001"
 	toxiproxyLatencyProxyPort = "42002"
 	toxiproxyResetProxyPort   = "42003"
@@ -39,7 +40,7 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 	require.NoError(t, err, "Failed to convert port to integer: %s", proxyPort)
 
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
-		Host:     "localhost",
+		Host:     "mysql",
 		Port:     3306,
 		User:     "root",
 		Password: "cipass",
@@ -62,6 +63,11 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 }
 
 func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
+	// Skip if running MariaDB instead of MySQL
+	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+		t.Skip("Skipping SSH keepalive test for MariaDB")
+	}
+
 	ctx := t.Context()
 
 	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
@@ -118,6 +124,11 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 }
 
 func TestMySQLSSHKeepaliveLatency(t *testing.T) {
+	// Skip if running MariaDB instead of MySQL
+	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+		t.Skip("Skipping SSH keepalive test for MariaDB")
+	}
+
 	ctx := t.Context()
 
 	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
@@ -156,6 +167,11 @@ func TestMySQLSSHKeepaliveLatency(t *testing.T) {
 }
 
 func TestMySQLSSHResetPeer(t *testing.T) {
+	// Skip if running MariaDB instead of MySQL
+	if os.Getenv("CI_MYSQL_VERSION") == "maria" {
+		t.Skip("Skipping SSH keepalive test for MariaDB")
+	}
+
 	ctx := t.Context()
 
 	toxiproxyClient := toxiproxy.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
