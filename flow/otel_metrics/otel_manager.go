@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
@@ -565,4 +566,22 @@ func SetupComponentMetricsProvider(
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
 	return setupMetricsProvider(ctx, otelResource, enabled, componentMetricsRenamingView(componentName))
+}
+
+type LoggingErrorHandler struct {
+	logger *slog.Logger
+}
+
+func (l *LoggingErrorHandler) Handle(err error) {
+	l.logger.Error("otel error", "error", err)
+}
+
+func NewLoggingErrorHandler() *LoggingErrorHandler {
+	return &LoggingErrorHandler{
+		logger: internal.SlogLoggerFromCtx(context.Background()),
+	}
+}
+
+func init() {
+	otel.SetErrorHandler(NewLoggingErrorHandler())
 }
