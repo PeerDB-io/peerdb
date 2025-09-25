@@ -42,7 +42,7 @@ type ReplState struct {
 type PostgresConnector struct {
 	logger                 log.Logger
 	customTypeMapping      map[uint32]shared.CustomDataType
-	ssh                    utils.SSHTunnel
+	ssh                    *utils.SSHTunnel
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
 	replState              *ReplState
