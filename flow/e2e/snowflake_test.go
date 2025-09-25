@@ -115,7 +115,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 
-	EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "init", func() bool {
 		records, err := s.sfHelper.ExecuteAndProcessQuery(s.t.Context(), "select num1, num2 from "+dstTableName+" where id = 1")
 		if err != nil || len(records.Records) == 0 {
 			return false
@@ -130,7 +130,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 		"9999999999999999")
 	EnvNoError(s.t, env, err)
 
-	EnvWaitFor(s.t, env, 3*time.Minute, "normalize shapes", func() bool {
+	EnvWaitFor(s.t, env, 3*time.Minute, "cdc", func() bool {
 		records, err := s.sfHelper.ExecuteAndProcessQuery(s.t.Context(), "select num1, num2 from "+dstTableName+" where id = 2")
 		if err != nil || len(records.Records) == 0 {
 			return false
