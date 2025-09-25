@@ -101,7 +101,13 @@ func GetAvroSchemaDefinition(
 	targetDWH protos.DBType,
 	avroNameMap map[string]string,
 ) (*QRecordAvroSchemaDefinition, error) {
+	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve nullable from env: %w", err)
+	}
 	avroFields := make([]*avro.Field, 0, len(qRecordSchema.Fields))
+
+	defaultNullable := targetDWH != protos.DBType_CLICKHOUSE
 
 	for _, qField := range qRecordSchema.Fields {
 		avroType, err := qvalue.GetAvroSchemaFromQValueKind(ctx, env, qField.Type, targetDWH, qField.Precision, qField.Scale)
@@ -109,7 +115,7 @@ func GetAvroSchemaDefinition(
 			return nil, err
 		}
 
-		if qField.Nullable {
+		if (nullableEnabled && qField.Nullable) || (!nullableEnabled && defaultNullable) {
 			avroType, err = avro.NewUnionSchema([]avro.Schema{avro.NewNullSchema(), avroType})
 			if err != nil {
 				return nil, err
