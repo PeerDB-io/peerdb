@@ -437,9 +437,6 @@ func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
 }
 
 func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) any {
-	if c.Nullable && arrayNum == nil {
-		return nil
-	}
 	destType := GetNumericDestinationType(c.Precision, c.Scale, c.TargetDWH, c.UnboundedNumericAsString)
 	if destType.IsString {
 		transformedNumArr := make([]string, 0, len(arrayNum))
@@ -502,21 +499,12 @@ func (c *QValueAvroConverter) processJSON(jsonString string) any {
 }
 
 func (c *QValueAvroConverter) processArrayBoolean(arrayData []bool) any {
-	if arrayData == nil && !c.Nullable {
-		return []bool{}
-	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) any {
-	if arrayTime == nil {
-		if c.Nullable {
-			return nil
-		} else if c.TargetDWH == protos.DBType_SNOWFLAKE {
-			return []string{}
-		} else {
-			return []time.Time{}
-		}
+	if c.Nullable && arrayTime == nil {
+		return nil
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
@@ -533,14 +521,8 @@ func (c *QValueAvroConverter) processArrayTime(arrayTime []time.Time) any {
 }
 
 func (c *QValueAvroConverter) processArrayDate(arrayDate []time.Time) any {
-	if arrayDate == nil {
-		if c.Nullable {
-			return nil
-		} else if c.TargetDWH == protos.DBType_SNOWFLAKE {
-			return []string{}
-		} else {
-			return []time.Time{}
-		}
+	if c.Nullable && arrayDate == nil {
+		return nil
 	}
 
 	if c.TargetDWH == protos.DBType_SNOWFLAKE {
@@ -586,11 +568,8 @@ func (c *QValueAvroConverter) processUUID(byteData uuid.UUID) any {
 }
 
 func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) any {
-	if arrayData == nil {
-		if c.Nullable {
-			return nil
-		}
-		return []string{}
+	if c.Nullable && arrayData == nil {
+		return nil
 	}
 
 	UUIDData := make([]string, 0, len(arrayData))
@@ -601,11 +580,8 @@ func (c *QValueAvroConverter) processArrayUUID(arrayData []uuid.UUID) any {
 }
 
 func (c *QValueAvroConverter) processArrayInt16(arrayData []int16) any {
-	if arrayData == nil {
-		if c.Nullable {
-			return nil
-		}
-		return []int32{}
+	if c.Nullable && arrayData == nil {
+		return nil
 	}
 
 	// cast to int32
@@ -617,37 +593,22 @@ func (c *QValueAvroConverter) processArrayInt16(arrayData []int16) any {
 }
 
 func (c *QValueAvroConverter) processArrayInt32(arrayData []int32) any {
-	if arrayData == nil && !c.Nullable {
-		return []int32{}
-	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayInt64(arrayData []int64) any {
-	if arrayData == nil && !c.Nullable {
-		return []int64{}
-	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayFloat32(arrayData []float32) any {
-	if arrayData == nil && !c.Nullable {
-		return []float32{}
-	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayFloat64(arrayData []float64) any {
-	if arrayData == nil && !c.Nullable {
-		return []float64{}
-	}
 	return arrayData
 }
 
 func (c *QValueAvroConverter) processArrayString(arrayData []string) any {
-	if arrayData == nil && !c.Nullable {
-		return []string{}
-	}
 	return arrayData
 }
 
