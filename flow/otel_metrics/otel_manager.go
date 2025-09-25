@@ -573,7 +573,7 @@ type LoggingErrorHandler struct {
 	logger *slog.Logger
 }
 
-func NewLoggingErrorHandler(logger slog.Logger) *LoggingErrorHandler {
+func NewLoggingErrorHandler(logger *slog.Logger) *LoggingErrorHandler {
 	return &LoggingErrorHandler{
 		logger: logger.With("component", "global-otel-error-handler"),
 	}
@@ -585,6 +585,6 @@ func (l *LoggingErrorHandler) Handle(err error) {
 
 func setupOtelHandlers(ctx context.Context) {
 	logger := internal.SlogLoggerFromCtx(ctx)
-	otel.SetErrorHandler(NewLoggingErrorHandler(*logger))
+	otel.SetErrorHandler(NewLoggingErrorHandler(logger))
 	otel.SetLogger(logr.FromSlogHandler(logger.With("component", "global-otel-logger-handler").Handler()))
 }
