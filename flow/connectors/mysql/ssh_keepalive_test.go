@@ -19,7 +19,7 @@ const (
 	toxiproxyAPIPort          = "18474"
 	sshServerPort             = "2222"
 	toxiproxyHost             = "localhost"
-	sshServerHost             = "openssh"
+	sshServerHost             = "localhost"
 	toxiproxyDownProxyPort    = "42001"
 	toxiproxyLatencyProxyPort = "42002"
 	toxiproxyResetProxyPort   = "42003"
