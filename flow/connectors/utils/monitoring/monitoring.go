@@ -132,15 +132,21 @@ func AddCDCBatchTablesForFlow(
 		op    string
 		count int32
 	}
+	var recordAggregateMetrics bool
+	if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
+		recordAggregateMetrics = true
+	}
 	tableNameOperations := make(map[string][3]opWithValue, len(tableNameRowsMapping))
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
 		inserts := rowCounts.InsertCount.Load()
 		updates := rowCounts.UpdateCount.Load()
 		deletes := rowCounts.DeleteCount.Load()
-		tableNameOperations[destinationTableName] = [3]opWithValue{
-			{op: otel_metrics.RecordOperationTypeInsert, count: inserts},
-			{op: otel_metrics.RecordOperationTypeUpdate, count: updates},
-			{op: otel_metrics.RecordOperationTypeDelete, count: deletes},
+		if recordAggregateMetrics {
+			tableNameOperations[destinationTableName] = [3]opWithValue{
+				{op: otel_metrics.RecordOperationTypeInsert, count: inserts},
+				{op: otel_metrics.RecordOperationTypeUpdate, count: updates},
+				{op: otel_metrics.RecordOperationTypeDelete, count: deletes},
+			}
 		}
 		totalRows := inserts + updates + deletes
 
