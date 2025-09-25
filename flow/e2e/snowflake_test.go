@@ -120,6 +120,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_Invalid_Numeric() {
 		if err != nil || len(records.Records) == 0 {
 			return false
 		}
+		s.t.Log("QQQ", records.Records[0][0].Value(), records.Records[0][1].Value())
 		return records.Records[0][0].Value() == nil && records.Records[0][1].Value() != nil
 	})
 
