@@ -573,14 +573,14 @@ type LoggingErrorHandler struct {
 	logger *slog.Logger
 }
 
-func (l *LoggingErrorHandler) Handle(err error) {
-	l.logger.Error("otel error", "error", err)
-}
-
 func NewLoggingErrorHandler() *LoggingErrorHandler {
 	return &LoggingErrorHandler{
 		logger: slog.Default().With("component", "global-otel"),
 	}
+}
+
+func (l *LoggingErrorHandler) Handle(err error) {
+	l.logger.Error("otel error", "error", err) //nolint:sloglint
 }
 
 func init() {
