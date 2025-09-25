@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/go-logr/logr"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
@@ -578,10 +579,11 @@ func (l *LoggingErrorHandler) Handle(err error) {
 
 func NewLoggingErrorHandler() *LoggingErrorHandler {
 	return &LoggingErrorHandler{
-		logger: internal.SlogLoggerFromCtx(context.Background()),
+		logger: slog.Default().With("component", "global-otel"),
 	}
 }
 
 func init() {
 	otel.SetErrorHandler(NewLoggingErrorHandler())
+	otel.SetLogger(logr.FromSlogHandler(slog.Default().With("component", "otel-handler").Handler()))
 }
