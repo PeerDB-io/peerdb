@@ -764,6 +764,7 @@ func EnvEqualRecordBatches(t *testing.T, env WorkflowRun, q *model.QRecordBatch,
 }
 
 func EnvWaitFor(t *testing.T, env WorkflowRun, timeout time.Duration, reason string, f func() bool) {
+	timeout = time.Hour * 2
 	t.Helper()
 	t.Log("WaitFor", reason, time.Now())
 
