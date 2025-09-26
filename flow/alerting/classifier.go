@@ -438,7 +438,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			if strings.Contains(pgErr.Message,
-				"specified in parameter \"synchronized_standby_slots\" does not have active_pid") {
+				`specified in parameter "synchronized_standby_slots" does not have active_pid`) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
