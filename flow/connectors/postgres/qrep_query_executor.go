@@ -82,7 +82,6 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 	for i, fd := range fds {
 		tableOIDset[fd.TableOID] = struct{}{}
 		ctype := qe.postgresOIDToQValueKind(fd.DataTypeOID, qe.customTypeMapping, qe.version)
-		// there isn't a way to know if a column is nullable or not
 		if ctype == types.QValueKindNumeric || ctype == types.QValueKindArrayNumeric {
 			precision, scale := datatypes.ParseNumericTypmod(fd.TypeModifier)
 			qfields[i] = types.QField{
