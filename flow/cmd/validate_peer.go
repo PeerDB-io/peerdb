@@ -8,27 +8,26 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func (h *FlowRequestHandler) ValidatePeer(
 	ctx context.Context,
 	req *protos.ValidatePeerRequest,
-) (*protos.ValidatePeerResponse, error) {
+) (*protos.ValidatePeerResponse, APIError) {
 	ctx, cancelCtx := context.WithTimeout(ctx, 15*time.Second)
 	defer cancelCtx()
 	if req.Peer == nil {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer provided",
-		}, exceptions.NewInvalidArgumentApiError(errors.New("no peer provided"))
+		}, NewInvalidArgumentApiError(errors.New("no peer provided"))
 	}
 
 	if req.Peer.Name == "" {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer name provided",
-		}, exceptions.NewInvalidArgumentApiError(errors.New("no peer name provided"))
+		}, NewInvalidArgumentApiError(errors.New("no peer name provided"))
 	}
 
 	conn, err := connectors.GetConnector(ctx, nil, req.Peer)
@@ -37,7 +36,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: displayErr.Error(),
-		}, exceptions.NewFailedPreconditionApiError(displayErr)
+		}, NewFailedPreconditionApiError(displayErr)
 	}
 	defer conn.Close()
 
@@ -47,7 +46,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 			return &protos.ValidatePeerResponse{
 				Status:  protos.ValidatePeerStatus_INVALID,
 				Message: displayErr.Error(),
-			}, exceptions.NewFailedPreconditionApiError(displayErr)
+			}, NewFailedPreconditionApiError(displayErr)
 		}
 	}
 
@@ -56,7 +55,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: displayErr.Error(),
-		}, exceptions.NewFailedPreconditionApiError(displayErr)
+		}, NewFailedPreconditionApiError(displayErr)
 	}
 
 	return &protos.ValidatePeerResponse{

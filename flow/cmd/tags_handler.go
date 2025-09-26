@@ -7,7 +7,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func (h *FlowRequestHandler) flowExists(ctx context.Context, flowName string) (bool, error) {
@@ -24,14 +23,14 @@ func (h *FlowRequestHandler) flowExists(ctx context.Context, flowName string) (b
 func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 	ctx context.Context,
 	in *protos.CreateOrReplaceFlowTagsRequest,
-) (*protos.CreateOrReplaceFlowTagsResponse, error) {
+) (*protos.CreateOrReplaceFlowTagsResponse, APIError) {
 	flowName := in.FlowName
 
 	if exists, err := h.flowExists(ctx, flowName); err != nil {
-		return nil, exceptions.NewInternalApiError(err)
+		return nil, NewInternalApiError(err)
 	} else if !exists {
 		slog.ErrorContext(ctx, "flow does not exist", slog.String("flow_name", flowName))
-		return nil, exceptions.NewNotFoundApiError(fmt.Errorf("flow %s does not exist", flowName))
+		return nil, NewNotFoundApiError(fmt.Errorf("flow %s does not exist", flowName))
 	}
 
 	tags := make(map[string]string, len(in.Tags))
@@ -41,7 +40,7 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 
 	if _, err := h.pool.Exec(ctx, "UPDATE flows SET tags=$1, updated_at=now() WHERE name=$2", tags, flowName); err != nil {
 		slog.ErrorContext(ctx, "error updating flow tags", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(err)
+		return nil, NewInternalApiError(err)
 	}
 
 	return &protos.CreateOrReplaceFlowTagsResponse{
@@ -49,20 +48,20 @@ func (h *FlowRequestHandler) CreateOrReplaceFlowTags(
 	}, nil
 }
 
-func (h *FlowRequestHandler) GetFlowTags(ctx context.Context, in *protos.GetFlowTagsRequest) (*protos.GetFlowTagsResponse, error) {
+func (h *FlowRequestHandler) GetFlowTags(ctx context.Context, in *protos.GetFlowTagsRequest) (*protos.GetFlowTagsResponse, APIError) {
 	flowName := in.FlowName
 
 	if exists, err := h.flowExists(ctx, flowName); err != nil {
-		return nil, exceptions.NewInternalApiError(err)
+		return nil, NewInternalApiError(err)
 	} else if !exists {
 		slog.ErrorContext(ctx, "flow does not exist", slog.String("flow_name", flowName))
-		return nil, exceptions.NewNotFoundApiError(fmt.Errorf("flow %s does not exist", flowName))
+		return nil, NewNotFoundApiError(fmt.Errorf("flow %s does not exist", flowName))
 	}
 
 	tags, err := alerting.GetTags(ctx, h.pool, flowName)
 	if err != nil {
 		slog.ErrorContext(ctx, "error getting flow tags", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("error getting flow tags: %w", err))
+		return nil, NewInternalApiError(fmt.Errorf("error getting flow tags: %w", err))
 	}
 
 	protosTags := make([]*protos.FlowTag, 0, len(tags))
