@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -347,6 +346,17 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 				}
 				numRecords += 1
 				tableSchema := req.TableNameSchemaMapping[record.GetDestinationTableName()]
+				orderingKey := make(map[string]struct{})
+				for _, tm := range req.TableMappings {
+					if tm.DestinationTableIdentifier == record.GetDestinationTableName() && tm.SourceTableIdentifier == record.GetSourceTableName() {
+						for _, col := range tm.Columns {
+							if col.Ordering > 0 {
+								orderingKey[col.DestinationName] = struct{}{}
+							}
+						}
+						break
+					}
+				}
 				switch r := record.(type) {
 				case *model.InsertRecord[model.RecordItems]:
 					colNames := make([]string, 0, len(tableSchema.Columns))
@@ -365,16 +375,20 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 				case *model.UpdateRecord[model.RecordItems]:
 					assignments := make([]string, 0, len(tableSchema.Columns))
 					for _, col := range tableSchema.Columns {
-						// TODO needs to match custom ordering key
-						if !slices.Contains(tableSchema.PrimaryKeyColumns, col.Name) {
-							assignments = append(assignments, fmt.Sprintf("%s=%s",
-								peerdb_clickhouse.QuoteIdentifier(col.Name),
-								formatQValue(r.NewItems.GetColumnValue(col.Name), tableSchema.NullableEnabled && col.Nullable),
-							))
+						if _, unchanged := r.UnchangedToastColumns[col.Name]; unchanged {
+							continue
 						}
+						if _, isOrdering := orderingKey[col.Name]; isOrdering {
+							// CH does not support UPDATE on these columns
+							continue
+						}
+						assignments = append(assignments, fmt.Sprintf("%s=%s",
+							peerdb_clickhouse.QuoteIdentifier(col.Name),
+							formatQValue(r.NewItems.GetColumnValue(col.Name), tableSchema.NullableEnabled && col.Nullable),
+						))
 					}
-					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
-					for _, colName := range tableSchema.PrimaryKeyColumns {
+					where := make([]string, 0, len(orderingKey))
+					for colName, _ := range orderingKey {
 						item := r.OldItems.GetColumnValue(colName)
 						if item == nil {
 							item = r.NewItems.GetColumnValue(colName)
@@ -402,7 +416,7 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 					}
 				case *model.DeleteRecord[model.RecordItems]:
 					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
-					for _, colName := range tableSchema.PrimaryKeyColumns {
+					for colName, _ := range orderingKey {
 						var nullable bool
 						if tableSchema.NullableEnabled {
 							for _, col := range tableSchema.Columns {
