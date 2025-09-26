@@ -626,6 +626,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.HasSuffix(chException.Message, "distributed_ddl_task_timeout") {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
+		case chproto.ErrQueryIsProhibited:
+			if strings.Contains(chException.Message, "Replicated DDL queries are disabled") {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
 		}
 		var normalizationErr *exceptions.NormalizationError
 		if isClickHouseMvError(chException) {
