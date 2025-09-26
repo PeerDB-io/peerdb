@@ -611,9 +611,16 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		{Key: "nan", Value: math.NaN()},
 		{Key: "pos_inf", Value: math.Inf(1)},
 		{Key: "neg_inf", Value: math.Inf(-1)},
-		// Arrays with special floats
+
+		// Datetime
+		{Key: "date_time", Value: bson.DateTime(1672531200000)},                   // 2023-01-01 00:00:00 UTC
+		{Key: "date_time_outside_rfc3339", Value: bson.DateTime(253433923200000)}, // 10001-01-01 00:00:00 UTC
+		{Key: "date_time_max", Value: bson.DateTime(math.MaxInt64)},
+		{Key: "date_time_min", Value: bson.DateTime(math.MinInt64)},
+
+		// Arrays with special values
 		{Key: "array_mixed", Value: bson.A{1, "str", true}},
-		{Key: "array_special_floats", Value: bson.A{math.NaN(), math.Inf(1), math.Inf(-1)}},
+		{Key: "array_special_values", Value: bson.A{math.NaN(), math.Inf(1), math.Inf(-1), bson.DateTime(math.MaxInt64)}},
 
 		// Complex nested documents
 		{Key: "nested_doc", Value: bson.D{
@@ -630,7 +637,7 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		{Key: "nested_array", Value: bson.A{
 			bson.D{{Key: "inner1", Value: bson.A{
 				bson.D{{Key: "inner_inner", Value: bson.A{
-					math.NaN(), math.Inf(1), math.Inf(-1),
+					math.NaN(), math.Inf(1), math.Inf(-1), bson.DateTime(math.MaxInt64),
 				}}},
 			}}},
 			bson.D{{Key: "inner2", Value: 1.23}},
@@ -651,7 +658,6 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 
 		// Other bson types
 		{Key: "object_id", Value: oid},
-		{Key: "date_time", Value: bson.DateTime(1672531200000)}, // 2023-01-01 00:00:00 UTC
 		{Key: "symbol", Value: bson.Symbol("test_symbol")},
 		{Key: "binary", Value: bson.Binary{Subtype: 0x02, Data: []byte("hello world")}},
 		{Key: "binary_empty", Value: bson.Binary{Subtype: 0x00, Data: []byte{}}},
@@ -720,16 +726,20 @@ func (s MongoClickhouseSuite) Test_Json_Types() {
 		require.Contains(t, row, `"nan":"NaN"`)
 		require.Contains(t, row, `"pos_inf":"+Inf"`)
 		require.Contains(t, row, `"neg_inf":"-Inf"`)
+		require.Contains(t, row, `"date_time":"2023-01-01T00:00:00Z"`)
+		require.Contains(t, row, `"date_time_outside_rfc3339":"10001-01-01T00:00:00Z"`)
+		require.Contains(t, row, `"date_time_max":"292278994-08-17T07:12:55.807Z"`)
+		require.Contains(t, row, `"date_time_min":"-292275055-05-16T16:47:04.192Z"`)
 		// mixed array promoted common type
 		require.Contains(t, row, `"array_mixed":[1,"str",true]`)
-		require.Contains(t, row, `"array_special_floats":["NaN","+Inf","-Inf"]`)
+		require.Contains(t, row, `"array_special_values":["NaN","+Inf","-Inf","292278994-08-17T07:12:55.807Z"]`)
 		require.Contains(t, row, `"nested_doc":{"inner1":"str","inner2":1,"inner3":true,"inner4":{"a":"NaN","b":["hello","world"]}}`)
-		require.Contains(t, row, `"nested_array":[{"inner1":[{"inner_inner":["NaN","+Inf","-Inf"]}]},{"inner2":1.23}]`)
+		require.Contains(t, row,
+			`"nested_array":[{"inner1":[{"inner_inner":["NaN","+Inf","-Inf","292278994-08-17T07:12:55.807Z"]}]},{"inner2":1.23}]`)
 		require.Contains(t, row, `"nested_array_2":[{"NaN":"NaN"},{"binary":{"Data":"dGVzdA==","Subtype":0}},`+
 			`{"nested_arr":[[1],[2],[3]]},{"nested_doc":{"str":"hello world"}},{"timestamp":{"I":1,"T":1672531200}}]`)
 
 		require.Contains(t, row, `"object_id":"507f1f77bcf86cd799439011"`)
-		require.Contains(t, row, `"date_time":"2023-01-01T00:00:00Z"`)
 		require.Contains(t, row, `"symbol":"test_symbol"`)
 		// binary data should be base64 encoded
 		require.Contains(t, row, `"binary":{"Data":"aGVsbG8gd29ybGQ=","Subtype":2}`)
