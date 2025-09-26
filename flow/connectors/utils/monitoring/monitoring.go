@@ -136,11 +136,15 @@ func AddCDCBatchTablesForFlow(
 	if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
 		recordAggregateMetrics = true
 	}
+	var syncedTablesCount int64
 	tableNameOperations := make(map[string][3]opWithValue, len(tableNameRowsMapping))
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
 		inserts := rowCounts.InsertCount.Load()
 		updates := rowCounts.UpdateCount.Load()
 		deletes := rowCounts.DeleteCount.Load()
+		if inserts+updates+deletes > 0 {
+			syncedTablesCount++
+		}
 		if recordAggregateMetrics {
 			tableNameOperations[destinationTableName] = [3]opWithValue{
 				{op: otel_metrics.RecordOperationTypeInsert, count: inserts},
@@ -198,6 +202,9 @@ func AddCDCBatchTablesForFlow(
 	if err := insertBatchTablesTx.Commit(ctx); err != nil {
 		return fmt.Errorf("error while committing transaction for inserting and updating statistics: %w", err)
 	}
+
+	otelManager.Metrics.SyncedTablesPerBatchGauge.Record(ctx, syncedTablesCount, metric.WithAttributeSet(attribute.NewSet(
+		attribute.Int64(otel_metrics.BatchIdKey, batchID))))
 
 	for destinationTableName, operations := range tableNameOperations {
 		for _, opAndCount := range operations {
