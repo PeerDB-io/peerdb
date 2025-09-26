@@ -45,7 +45,6 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	randomUint := rand.Uint64()
 
 	cursorName := fmt.Sprintf("peerdb_cursor_%d", randomUint)
-	fetchSize := shared.FetchAndChannelSize
 	cursorQuery := fmt.Sprintf("DECLARE %s CURSOR FOR %s", cursorName, query)
 
 	if _, err := tx.Exec(ctx, cursorQuery, args...); err != nil {
@@ -60,10 +59,18 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 		slog.String("query", query),
 		slog.Int("channelLen", len(stream.Records)))
 
+	if !stream.IsSchemaSet() {
+		schema, err := qe.cursorToSchema(ctx, tx, cursorName)
+		if err != nil {
+			return 0, 0, err
+		}
+		stream.SetSchema(schema)
+	}
+
 	var totalNumRows int64
 	var totalNumBytes int64
 	for {
-		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, fetchSize, stream.QRecordStream)
+		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.FetchAndChannelSize, stream.QRecordStream)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))
 			return totalNumRows, totalNumBytes, err
