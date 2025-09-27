@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"strconv"
 	"sync/atomic"
@@ -657,12 +658,18 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.PullFlowCleanup(ctx, req.FlowJobName); err != nil {
-		pullCleanupErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err))
-		if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
-			// don't alert when PID active
-			_ = a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			a.Alerter.LogFlowWarning(ctx, req.FlowJobName, fmt.Errorf("[DropFlowSource] hostname not found, skipping: %w", err))
+			return nil
+		} else {
+			pullCleanupErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err))
+			if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
+				// don't alert when PID active
+				_ = a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+			}
+			return pullCleanupErr
 		}
-		return pullCleanupErr
 	}
 
 	a.Alerter.LogFlowInfo(ctx, req.FlowJobName, "Cleaned up source peer replication objects.")
@@ -674,15 +681,21 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		var notFound *exceptions.NotFoundError
-		if errors.As(err, &notFound) {
-			logger := internal.LoggerFromCtx(ctx)
-			logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			a.Alerter.LogFlowWarning(ctx, req.FlowJobName, fmt.Errorf("[DropFlowDestination] hostname not found, skipping: %w", err))
 			return nil
+		} else {
+			var notFound *exceptions.NotFoundError
+			if errors.As(err, &notFound) {
+				logger := internal.LoggerFromCtx(ctx)
+				logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
+				return nil
+			}
+			return a.Alerter.LogFlowError(ctx, req.FlowJobName,
+				exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err)),
+			)
 		}
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
-			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err)),
-		)
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
