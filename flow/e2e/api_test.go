@@ -602,7 +602,7 @@ func (s APITestSuite) TestResyncCompleted() {
 	flowConnConfig.SnapshotMaxParallelWorkers = 7
 	flowConnConfig.SnapshotNumTablesInParallel = 13
 	flowConnConfig.Env = map[string]string{
-		"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(shared.InternalVersion_First), 10),
+		"PEERDB_FORCE_INTERNAL_VERSION": strconv.Itoa(int(shared.InternalVersion_First)),
 	}
 	// if true, then the flow will be resynced
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
