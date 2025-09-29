@@ -12,4 +12,4 @@ fi
 buf generate protos
 
 # Generate typed gRPC handler wrapper
-cd flow && go generate ./cmd/...
+cd flow && go generate

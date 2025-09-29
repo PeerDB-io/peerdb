@@ -1,11 +1,14 @@
 package main
 
+//go:generate go run cmd/gen-grpc-wrapper/main.go
+
 import (
 	"context"
 	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
+
 	//nolint:gosec
 	_ "net/http/pprof"
 	"os"

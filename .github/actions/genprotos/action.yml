@@ -24,4 +24,4 @@ runs:
       shell: sh
       run: |
         buf generate protos
-        cd flow && go run cmd/gen-grpc-wrapper/main.go
+        cd flow && go generate
