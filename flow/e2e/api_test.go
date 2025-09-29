@@ -596,8 +596,8 @@ func (s APITestSuite) TestResyncCompleted() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotNumRowsPerPartition = 1234
-	flowConnConfig.SnapshotNumPartitionsOverride = 6789
+	flowConnConfig.SnapshotNumRowsPerPartition = 3
+	flowConnConfig.SnapshotNumPartitionsOverride = 5
 	flowConnConfig.SnapshotMaxParallelWorkers = 7
 	flowConnConfig.SnapshotNumTablesInParallel = 13
 	// if true, then the flow will be resynced
