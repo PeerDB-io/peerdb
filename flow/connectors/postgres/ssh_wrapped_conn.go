@@ -58,6 +58,7 @@ func NewPostgresConnFromConfig(
 
 	if _, err := conn.Exec(ctx, "SELECT 1"); err != nil {
 		logger.Error("Failed to ping connection", slog.Any("error", err), slog.String("host", connConfig.Host))
+		conn.Close(ctx)
 		return nil, err
 	}
 
