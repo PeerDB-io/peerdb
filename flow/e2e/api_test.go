@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -109,6 +110,22 @@ func (s APITestSuite) waitForActiveSlotForPostgresMirror(env WorkflowRun, conn *
 	})
 }
 
+func (s APITestSuite) loadConfigFromCatalog(
+	ctx context.Context,
+	conn *pgx.Conn,
+	flowName string,
+) (*protos.FlowConnectionConfigs, error) {
+	var configBytes sql.RawBytes
+	if err := conn.QueryRow(ctx,
+		"SELECT config_proto FROM flows WHERE name = $1", flowName,
+	).Scan(&configBytes); err != nil {
+		return nil, err
+	}
+
+	var config protos.FlowConnectionConfigs
+	return &config, proto.Unmarshal(configBytes, &config)
+}
+
 // checkCatalogTableMapping checks the table mappings in the catalog for a given flow
 func (s APITestSuite) checkCatalogTableMapping(
 	ctx context.Context,
@@ -116,16 +133,9 @@ func (s APITestSuite) checkCatalogTableMapping(
 	flowName string,
 	expectedSourceTableNames []string,
 ) (bool, error) {
-	var configBytes sql.RawBytes
-	if err := conn.QueryRow(ctx,
-		"SELECT config_proto FROM flows WHERE name = $1", flowName,
-	).Scan(&configBytes); err != nil {
-		return false, err
-	}
-
-	var config protos.FlowConnectionConfigs
-	if err := proto.Unmarshal(configBytes, &config); err != nil {
-		return false, err
+	config, err := s.loadConfigFromCatalog(ctx, conn, flowName)
+	if err != nil {
+		return false, fmt.Errorf("failed to load config from catalog: %w", err)
 	}
 
 	if len(config.TableMappings) != len(expectedSourceTableNames) {
@@ -587,6 +597,14 @@ func (s APITestSuite) TestResyncCompleted() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SnapshotNumRowsPerPartition = 1234
+	flowConnConfig.SnapshotNumPartitionsOverride = 6789
+	flowConnConfig.SnapshotMaxParallelWorkers = 7
+	flowConnConfig.SnapshotNumTablesInParallel = 13
+	flowConnConfig.Env = map[string]string{
+		"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(shared.InternalVersion_First), 10),
+	}
+	// if true, then the flow will be resynced
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
 	require.NotNil(s.t, response)
@@ -633,6 +651,11 @@ func (s APITestSuite) TestResyncCompleted() {
 	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
 	EnvWaitForFinished(s.t, env, time.Minute)
+
+	// check that custom config options persist across resync
+	config, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	require.EqualExportedValues(s.t, flowConnConfig, config)
 }
 
 func (s APITestSuite) TestDropCompleted() {
