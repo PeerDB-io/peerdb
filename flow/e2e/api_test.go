@@ -655,6 +655,11 @@ func (s APITestSuite) TestResyncCompleted() {
 	// check that custom config options persist across resync
 	config, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
+	// ignore fields whose comparison is by identity
+	flowConnConfig.Env = nil
+	flowConnConfig.TableMappings = nil
+	config.Env = nil
+	config.TableMappings = nil
 	require.EqualExportedValues(s.t, flowConnConfig, config)
 }
 
