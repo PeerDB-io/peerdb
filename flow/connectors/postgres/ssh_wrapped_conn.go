@@ -2,13 +2,10 @@ package connpostgres
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net"
-	"time"
 
 	"github.com/jackc/pgx/v5"
-	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/internal"
@@ -55,40 +52,14 @@ func NewPostgresConnFromConfig(
 	}
 	conn, err := pgx.ConnectConfig(ctx, connConfig)
 	if err != nil {
-		logger.Error("Failed to create pool", slog.Any("error", err))
+		logger.Error("Failed to create connection", slog.Any("error", err))
 		return nil, err
 	}
 
-	if err := retryWithBackoff(logger, func() error {
-		if _, err := conn.Exec(ctx, "SELECT 1"); err != nil {
-			logger.Error("Failed to ping pool", slog.Any("error", err), slog.String("host", connConfig.Host))
-			return err
-		}
-		return nil
-	}, 5, 5*time.Second); err != nil {
-		logger.Error("Failed to create pool", slog.Any("error", err), slog.String("host", connConfig.Host))
-		conn.Close(ctx)
+	if _, err := conn.Exec(ctx, "SELECT 1"); err != nil {
+		logger.Error("Failed to ping connection", slog.Any("error", err), slog.String("host", connConfig.Host))
 		return nil, err
 	}
 
 	return conn, nil
-}
-
-type retryFunc func() error
-
-func retryWithBackoff(logger log.Logger, fn retryFunc, maxRetries int, backoff time.Duration) error {
-	i := 0
-	for {
-		err := fn()
-		if err == nil {
-			return nil
-		}
-		i += 1
-		if i < maxRetries {
-			logger.Info(fmt.Sprintf("Attempt #%d failed, retrying in %s", i+1, backoff))
-			time.Sleep(backoff)
-		} else {
-			return err
-		}
-	}
 }
