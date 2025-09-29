@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -601,9 +600,6 @@ func (s APITestSuite) TestResyncCompleted() {
 	flowConnConfig.SnapshotNumPartitionsOverride = 6789
 	flowConnConfig.SnapshotMaxParallelWorkers = 7
 	flowConnConfig.SnapshotNumTablesInParallel = 13
-	flowConnConfig.Env = map[string]string{
-		"PEERDB_FORCE_INTERNAL_VERSION": strconv.Itoa(int(shared.InternalVersion_First)),
-	}
 	// if true, then the flow will be resynced
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
@@ -655,11 +651,8 @@ func (s APITestSuite) TestResyncCompleted() {
 	// check that custom config options persist across resync
 	config, err := s.loadConfigFromCatalog(s.t.Context(), s.pg.PostgresConnector.Conn(), flowConnConfig.FlowJobName)
 	require.NoError(s.t, err)
-	// ignore fields whose comparison is by identity
-	flowConnConfig.Env = nil
-	flowConnConfig.TableMappings = nil
-	config.Env = nil
-	config.TableMappings = nil
+	flowConnConfig.Resync = true // this gets left true after resync
+	config.Env = nil             // env is modified by API
 	require.EqualExportedValues(s.t, flowConnConfig, config)
 }
 
