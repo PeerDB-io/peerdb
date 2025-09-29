@@ -8,9 +8,7 @@ import (
 	"log"
 	"log/slog"
 	"net/http"
-
-	//nolint:gosec
-	_ "net/http/pprof"
+	_ "net/http/pprof" //nolint:gosec
 	"os"
 	"os/signal"
 	"runtime"
