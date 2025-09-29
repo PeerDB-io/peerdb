@@ -974,10 +974,10 @@ func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
 	a.OtelManager.Metrics.WorkloadTotalReplicasGauge.Record(ctx, int64(workloadTotalReplicaCount))
 	logger.Info("Finished emitting Workload Compute information")
 	logger.Info("Emitting Active Flow Info", slog.Int("flows", len(activeFlows)))
+	a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(len(activeFlows)))
 	if activeFlowCount := len(activeFlows); activeFlowCount > 0 {
 		activeFlowCpuLimit := totalCpuLimit / float64(activeFlowCount)
 		activeFlowMemoryLimit := totalMemoryLimit / float64(activeFlowCount)
-		a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(activeFlowCount))
 		if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
 			for _, info := range activeFlows {
 				ctx := context.WithValue(ctx, internal.FlowMetadataKey, info.toFlowContextMetadata())
