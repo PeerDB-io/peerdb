@@ -21,6 +21,9 @@ func escape(result *strings.Builder, value string) {
 	for idx := range len(value) {
 		if mustEscape(value[idx]) {
 			result.WriteByte('\\')
+		} else if value[idx] == 0 {
+			result.WriteString("\\x00")
+			continue
 		}
 		result.WriteByte(value[idx])
 	}

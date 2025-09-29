@@ -290,6 +290,8 @@ func formatQValue(value types.QValue, nullable bool) string {
 		return v.Val.Format(time.StampNano)
 	case types.QValueEnum:
 		return peerdb_clickhouse.QuoteLiteral(v.Val)
+	case types.QValueBytes:
+		return peerdb_clickhouse.QuoteLiteral(shared.UnsafeFastReadOnlyBytesToString(v.Val))
 	default:
 		return peerdb_clickhouse.QuoteLiteral(fmt.Sprint(v.Value()))
 	}
@@ -345,7 +347,11 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 					break Loop
 				}
 				numRecords += 1
-				tableSchema := req.TableNameSchemaMapping[record.GetDestinationTableName()]
+				tableSchema, ok := req.TableNameSchemaMapping[record.GetDestinationTableName()]
+				if !ok {
+					c.logger.Warn("missing schema for table, ignoring", slog.String("table", record.GetDestinationTableName()))
+					continue
+				}
 				orderingKey := make(map[string]struct{})
 				for _, tm := range req.TableMappings {
 					if tm.DestinationTableIdentifier == record.GetDestinationTableName() && tm.SourceTableIdentifier == record.GetSourceTableName() {
@@ -355,6 +361,11 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 							}
 						}
 						break
+					}
+				}
+				if len(orderingKey) == 0 {
+					for _, colName := range tableSchema.PrimaryKeyColumns {
+						orderingKey[colName] = struct{}{}
 					}
 				}
 				switch r := record.(type) {
@@ -388,7 +399,7 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 						))
 					}
 					where := make([]string, 0, len(orderingKey))
-					for colName, _ := range orderingKey {
+					for colName := range orderingKey {
 						item := r.OldItems.GetColumnValue(colName)
 						if item == nil {
 							item = r.NewItems.GetColumnValue(colName)
@@ -416,7 +427,7 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 					}
 				case *model.DeleteRecord[model.RecordItems]:
 					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
-					for colName, _ := range orderingKey {
+					for colName := range orderingKey {
 						var nullable bool
 						if tableSchema.NullableEnabled {
 							for _, col := range tableSchema.Columns {
