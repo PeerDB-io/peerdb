@@ -15,6 +15,8 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	proto2 "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -112,13 +114,30 @@ func (a *MaintenanceActivity) WaitForRunningSnapshotsAndIntermediateStates(
 	return mirrors, nil
 }
 
-var waitStatuses map[protos.FlowStatus]struct{} = map[protos.FlowStatus]struct{}{
-	protos.FlowStatus_STATUS_SNAPSHOT:  {},
-	protos.FlowStatus_STATUS_SETUP:     {},
-	protos.FlowStatus_STATUS_RESYNC:    {},
-	protos.FlowStatus_STATUS_UNKNOWN:   {},
-	protos.FlowStatus_STATUS_PAUSING:   {},
-	protos.FlowStatus_STATUS_MODIFYING: {},
+var waitStatuses = buildWaitStatuses()
+
+func buildWaitStatuses() map[protos.FlowStatus]struct{} {
+	waitStatuses := make(map[protos.FlowStatus]struct{})
+
+	for index := range protos.FlowStatus_name {
+		flowStatus := protos.FlowStatus(index)
+
+		// Get the enum value descriptor
+		enumValueDesc := flowStatus.Descriptor().Values().ByNumber(protoreflect.EnumNumber(index))
+		if enumValueDesc == nil {
+			continue
+		}
+
+		// Get the extension value from the enum value options
+		if proto2.HasExtension(enumValueDesc.Options(), protos.E_PeerdbMaintenanceWait) {
+			waitValue := proto2.GetExtension(enumValueDesc.Options(), protos.E_PeerdbMaintenanceWait)
+			if boolVal, ok := waitValue.(bool); ok && boolVal {
+				waitStatuses[flowStatus] = struct{}{}
+			}
+		}
+	}
+
+	return waitStatuses
 }
 
 func (a *MaintenanceActivity) checkAndWaitIfNeeded(
