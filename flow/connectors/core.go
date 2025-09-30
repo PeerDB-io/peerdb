@@ -290,6 +290,12 @@ type RawTableConnector interface {
 type RenameTablesConnector interface {
 	Connector
 
+	RenameTables(context.Context, *protos.RenameTablesInput) (*protos.RenameTablesOutput, error)
+}
+
+type RenameTablesWithSoftDeleteConnector interface {
+	Connector
+
 	RenameTables(context.Context, *protos.RenameTablesInput, map[string]*protos.TableSchema) (*protos.RenameTablesOutput, error)
 }
 
@@ -593,10 +599,10 @@ var (
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickHouseConnector{}
 
-	_ RenameTablesConnector = &connsnowflake.SnowflakeConnector{}
-	_ RenameTablesConnector = &connbigquery.BigQueryConnector{}
-	_ RenameTablesConnector = &connpostgres.PostgresConnector{}
-	_ RenameTablesConnector = &connclickhouse.ClickHouseConnector{}
+	_ RenameTablesWithSoftDeleteConnector = &connsnowflake.SnowflakeConnector{}
+	_ RenameTablesWithSoftDeleteConnector = &connbigquery.BigQueryConnector{}
+	_ RenameTablesWithSoftDeleteConnector = &connpostgres.PostgresConnector{}
+	_ RenameTablesConnector               = &connclickhouse.ClickHouseConnector{}
 
 	_ RawTableConnector = &connclickhouse.ClickHouseConnector{}
 	_ RawTableConnector = &connbigquery.BigQueryConnector{}

@@ -1262,13 +1262,34 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	})
 	defer shutdown()
 
+	var renameOutput *protos.RenameTablesOutput
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	conn, err := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, nil, a.CatalogPool, config.PeerName)
+	renameWithSoftDeleteConn, err := connectors.GetByNameAs[connectors.RenameTablesWithSoftDeleteConnector](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
-	}
-	defer connectors.CloseConnector(ctx, conn)
+		if err == errors.ErrUnsupported {
+			// Rename without soft-delete
+			renameConn, renameErr := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, nil, a.CatalogPool, config.PeerName)
+			if renameErr != nil {
+				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get rename connector: %w", renameErr))
+			}
+			defer connectors.CloseConnector(ctx, renameConn)
 
+			renameOutput, err = renameConn.RenameTables(ctx, config)
+			if err != nil {
+				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to rename tables: %w", err))
+			}
+
+			err = a.updateTableSchemaMappingForResync(ctx, config.RenameTableOptions, config.FlowJobName)
+			if err != nil {
+				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to update table_schema_mapping after resync: %w", err))
+			}
+			return renameOutput, nil
+		}
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get rename with soft-delete connector: %w", err))
+	}
+	defer connectors.CloseConnector(ctx, renameWithSoftDeleteConn)
+
+	// Rename with soft-delete
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema, len(config.RenameTableOptions))
 	for _, option := range config.RenameTableOptions {
 		schema, err := internal.LoadTableSchemaFromCatalog(
@@ -1282,44 +1303,54 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 		}
 		tableNameSchemaMapping[option.CurrentName] = schema
 	}
-
-	renameOutput, err := conn.RenameTables(ctx, config, tableNameSchemaMapping)
+	renameOutput, err = renameWithSoftDeleteConn.RenameTables(ctx, config, tableNameSchemaMapping)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to rename tables: %w", err))
 	}
 
+	err = a.updateTableSchemaMappingForResync(ctx, config.RenameTableOptions, config.FlowJobName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to update table_schema_mapping after resync with soft-delete: %w", err))
+	}
+
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
+	return renameOutput, nil
+}
+
+func (a *FlowableActivity) updateTableSchemaMappingForResync(
+	ctx context.Context,
+	renameOptions []*protos.RenameTableOption,
+	flowJobName string,
+) error {
 	tx, err := a.CatalogPool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin updating table_schema_mapping: %w", err)
+		return fmt.Errorf("failed to begin updating table_schema_mapping: %w", err)
 	}
-	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), flowJobName))
 	defer shared.RollbackTx(tx, logger)
 
-	for _, option := range config.RenameTableOptions {
+	for _, option := range renameOptions {
 		if option.NewName != option.CurrentName {
 			if _, err := tx.Exec(
 				ctx,
 				"delete from table_schema_mapping where flow_name = $1 and table_name = $2",
-				config.FlowJobName,
+				flowJobName,
 				option.NewName,
 			); err != nil {
-				return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+				return fmt.Errorf("failed to delete _resync entries in table_schema_mapping: %w", err)
 			}
 		}
 		if _, err := tx.Exec(
 			ctx,
 			"update table_schema_mapping set table_name = $3 where flow_name = $1 and table_name = $2",
-			config.FlowJobName,
+			flowJobName,
 			option.CurrentName,
 			option.NewName,
 		); err != nil {
-			return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+			return fmt.Errorf("failed to update table_schema_mapping: %w", err)
 		}
 	}
-
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
-
-	return renameOutput, tx.Commit(ctx)
+	return tx.Commit(ctx)
 }
 
 func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
