@@ -32,8 +32,8 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourcePostgres,
-		Code:   "UNKNOWN",
+		Source: ErrorSourceNet,
+		Code:   "net.DNSError",
 	}, errInfo, "Unexpected error info")
 }
 
@@ -426,8 +426,8 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), err)
 			assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   "UNKNOWN",
+				Source: ErrorSourceNet,
+				Code:   "connect: connection refused",
 			}, errInfo, "Unexpected error info")
 		})
 	}

@@ -310,6 +310,61 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// Connection reset errors can mostly be ignored
+	if errors.Is(err, syscall.ECONNRESET) {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   syscall.ECONNRESET.Error(),
+		}
+	}
+
+	if errors.Is(err, net.ErrClosed) || strings.HasSuffix(err.Error(), "use of closed network connection") {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "net.ErrClosed",
+		}
+	}
+
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   netErr.Err.Error(),
+		}
+	}
+
+	var sshOpenChanErr *ssh.OpenChannelError
+	if errors.As(err, &sshOpenChanErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   sshOpenChanErr.Reason.String(),
+		}
+	}
+
+	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
+	if errors.As(err, &sshTunnelSetupErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   "UNKNOWN",
+		}
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "net.DNSError",
+		}
+	}
+
+	var tlsCertVerificationError *tls.CertificateVerificationError
+	if errors.As(err, &tlsCertVerificationError) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "tls.CertificateVerificationError",
+		}
+	}
+
 	var temporalErr *temporal.ApplicationError
 	if errors.As(err, &temporalErr) {
 		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
@@ -646,53 +701,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorOther, chErrorInfo
 	}
 
-	// Connection reset errors can mostly be ignored
-	if errors.Is(err, syscall.ECONNRESET) {
-		return ErrorIgnoreConnTemporary, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   syscall.ECONNRESET.Error(),
-		}
-	}
-
-	if errors.Is(err, net.ErrClosed) || strings.HasSuffix(err.Error(), "use of closed network connection") {
-		return ErrorIgnoreConnTemporary, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   "net.ErrClosed",
-		}
-	}
-
-	var netErr *net.OpError
-	if errors.As(err, &netErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   netErr.Err.Error(),
-		}
-	}
-
-	var ssOpenChanErr *ssh.OpenChannelError
-	if errors.As(err, &ssOpenChanErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceSSH,
-			Code:   ssOpenChanErr.Reason.String(),
-		}
-	}
-
-	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
-	if errors.As(err, &sshTunnelSetupErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceSSH,
-			Code:   "UNKNOWN",
-		}
-	}
-
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   "net.DNSError",
-		}
-	}
-
 	var peerCreateError *exceptions.PeerCreateError
 	if errors.As(err, &peerCreateError) {
 		// Check for context deadline exceeded error
@@ -713,14 +721,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				ErrorAttributeKeyTable:  numericOutOfRangeError.DestinationTable,
 				ErrorAttributeKeyColumn: numericOutOfRangeError.DestinationColumn,
 			},
-		}
-	}
-
-	var tlsCertVerificationError *tls.CertificateVerificationError
-	if errors.As(err, &tlsCertVerificationError) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   "tls.CertificateVerificationError",
 		}
 	}
 
