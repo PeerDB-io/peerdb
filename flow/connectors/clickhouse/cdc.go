@@ -226,7 +226,6 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 func (c *ClickHouseConnector) RenameTables(
 	ctx context.Context,
 	req *protos.RenameTablesInput,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
 	onCluster := c.onCluster()
 	for _, renameRequest := range req.RenameTableOptions {
