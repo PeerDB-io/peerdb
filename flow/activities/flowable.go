@@ -1264,7 +1264,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 
 	var renameOutput *protos.RenameTablesOutput
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	renameWithSoftDeleteConn, err := connectors.GetByNameAs[connectors.RenameTablesWithSoftDeleteConnector](ctx, nil, a.CatalogPool, config.PeerName)
+	renameWithSoftDeleteConn, err := connectors.GetByNameAs[connectors.RenameTablesWithSoftDeleteConnector](
+		ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if err == errors.ErrUnsupported {
 			// Rename without soft-delete
@@ -1281,7 +1282,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 
 			err = a.updateTableSchemaMappingForResync(ctx, config.RenameTableOptions, config.FlowJobName)
 			if err != nil {
-				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to update table_schema_mapping after resync: %w", err))
+				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName,
+					fmt.Errorf("failed to update table_schema_mapping after resync: %w", err))
 			}
 			return renameOutput, nil
 		}
@@ -1310,7 +1312,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 
 	err = a.updateTableSchemaMappingForResync(ctx, config.RenameTableOptions, config.FlowJobName)
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to update table_schema_mapping after resync with soft-delete: %w", err))
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName,
+			fmt.Errorf("failed to update table_schema_mapping after resync with soft-delete: %w", err))
 	}
 
 	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
