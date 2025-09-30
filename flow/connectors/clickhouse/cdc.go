@@ -3,6 +3,8 @@ package connclickhouse
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
+	"io"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	_ "github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/shopspring/decimal"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -303,7 +306,15 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 		return nil, err
 	} else if enableStream {
 		var numRecords int64
-		lastSeenLSN := atomic.Int64{}
+		type query struct {
+			sql string
+			lsn int64
+		}
+		var lsns [4]atomic.Int64
+		var queries [4]chan query
+		for workerId := range len(queries) {
+			queries[workerId] = make(chan query)
+		}
 		tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 		flushLoopDone := make(chan struct{})
 		go func() {
@@ -323,8 +334,12 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 					return
 				// flush loop doesn't block processing new messages
 				case <-ticker.C:
-					lastSeen := lastSeenLSN.Load()
-					if lastSeen > req.ConsumedOffset.Load() {
+					oldLastSeen := req.ConsumedOffset.Load()
+					lastSeen := oldLastSeen
+					for workerId := range len(lsns) {
+						lastSeen = min(lastSeen, lsns[workerId].Load())
+					}
+					if lastSeen > oldLastSeen {
 						if err := c.SetLastOffset(ctx, req.FlowJobName, model.CdcCheckpoint{ID: lastSeen}); err != nil {
 							c.logger.Warn("SetLastOffset error", slog.Any("error", err))
 						} else {
@@ -338,6 +353,28 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 		defer close(flushLoopDone)
 
 		// TODO sourceSchemaAsDestinationColumn
+		// TODO schema changes
+		fnvHash := fnv.New64a()
+		group, groupCtx := errgroup.WithContext(ctx)
+		for workerId := range len(lsns) {
+			group.Go(func() error {
+				for {
+					select {
+					case q := <-queries[workerId]:
+						if err := c.exec(groupCtx, q.sql); err != nil {
+							c.logger.Error("failed to execute %s: %w", q.sql, err)
+							if groupCtx.Err() != nil {
+								return nil
+							}
+							return err
+						}
+						shared.AtomicInt64Max(&lsns[workerId], q.lsn)
+					case <-groupCtx.Done():
+						return nil
+					}
+				}
+			})
+		}
 	Loop:
 		for {
 			select {
@@ -352,36 +389,48 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 					c.logger.Warn("missing schema for table, ignoring", slog.String("table", record.GetDestinationTableName()))
 					continue
 				}
-				orderingKey := make(map[string]struct{})
+				fnvHash.Reset()
+				orderingKeySlice := make([]string, 0)
 				for _, tm := range req.TableMappings {
 					if tm.DestinationTableIdentifier == record.GetDestinationTableName() && tm.SourceTableIdentifier == record.GetSourceTableName() {
 						for _, col := range tm.Columns {
 							if col.Ordering > 0 {
-								orderingKey[col.DestinationName] = struct{}{}
+								orderingKeySlice = append(orderingKeySlice, col.DestinationName)
 							}
 						}
 						break
 					}
 				}
-				if len(orderingKey) == 0 {
-					for _, colName := range tableSchema.PrimaryKeyColumns {
-						orderingKey[colName] = struct{}{}
-					}
+				if len(orderingKeySlice) == 0 {
+					orderingKeySlice = tableSchema.PrimaryKeyColumns
 				}
+				orderingKey := make(map[string]struct{}, len(orderingKeySlice))
+				for _, colName := range orderingKeySlice {
+					orderingKey[colName] = struct{}{}
+				}
+				lsn := record.GetBaseRecord().CheckpointID
 				switch r := record.(type) {
 				case *model.InsertRecord[model.RecordItems]:
 					colNames := make([]string, 0, len(tableSchema.Columns))
 					values := make([]string, 0, len(tableSchema.Columns))
+					formattedValMap := make(map[string]string, len(orderingKeySlice))
 					for _, col := range tableSchema.Columns {
 						colNames = append(colNames, peerdb_clickhouse.QuoteIdentifier(col.Name))
 						val := r.Items.GetColumnValue(col.Name)
-						values = append(values, formatQValue(val, tableSchema.NullableEnabled && col.Nullable))
+						formattedVal := formatQValue(val, tableSchema.NullableEnabled && col.Nullable)
+						values = append(values, formattedVal)
+						if _, isOrdering := orderingKey[col.Name]; isOrdering {
+							formattedValMap[col.Name] = formattedVal
+						}
 					}
-					if err := c.execWithLogging(ctx, fmt.Sprintf("INSERT INTO %s(%s,_peerdb_is_deleted,_peerdb_version) VALUES (%s,0,%d)",
-						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
-						strings.Join(colNames, ","), strings.Join(values, ","), r.BaseRecord.CommitTimeNano),
-					); err != nil {
-						return nil, err
+					for _, colName := range orderingKeySlice {
+						io.WriteString(fnvHash, formattedValMap[colName])
+					}
+					queries[fnvHash.Sum64()%uint64(len(queries))] <- query{
+						sql: fmt.Sprintf("INSERT INTO %s(%s,_peerdb_is_deleted,_peerdb_version) VALUES (%s,0,%d)",
+							peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
+							strings.Join(colNames, ","), strings.Join(values, ","), r.BaseRecord.CommitTimeNano),
+						lsn: lsn,
 					}
 				case *model.UpdateRecord[model.RecordItems]:
 					assignments := make([]string, 0, len(tableSchema.Columns))
@@ -398,8 +447,8 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 							formatQValue(r.NewItems.GetColumnValue(col.Name), tableSchema.NullableEnabled && col.Nullable),
 						))
 					}
-					where := make([]string, 0, len(orderingKey))
-					for colName := range orderingKey {
+					where := make([]string, 0, len(orderingKeySlice))
+					for _, colName := range orderingKeySlice {
 						item := r.OldItems.GetColumnValue(colName)
 						if item == nil {
 							item = r.NewItems.GetColumnValue(colName)
@@ -415,19 +464,24 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 								}
 							}
 						}
+						formattedVal := formatQValue(item, nullable)
 						where = append(where, fmt.Sprintf("%s=%s",
-							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(item, nullable),
+							peerdb_clickhouse.QuoteIdentifier(colName), formattedVal,
 						))
+						if _, isOrdering := orderingKey[colName]; isOrdering {
+							io.WriteString(fnvHash, formattedVal)
+						}
 					}
-					if err := c.execWithLogging(ctx, fmt.Sprintf("UPDATE %s SET %s,_peerdb_is_deleted=0 WHERE %s",
-						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
-						strings.Join(assignments, ","),
-						strings.Join(where, " AND "))); err != nil {
-						return nil, err
+					queries[fnvHash.Sum64()%uint64(len(queries))] <- query{
+						sql: fmt.Sprintf("UPDATE %s SET %s,_peerdb_is_deleted=0 WHERE %s",
+							peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName),
+							strings.Join(assignments, ","),
+							strings.Join(where, " AND ")),
+						lsn: lsn,
 					}
 				case *model.DeleteRecord[model.RecordItems]:
 					where := make([]string, 0, len(tableSchema.PrimaryKeyColumns))
-					for colName := range orderingKey {
+					for _, colName := range orderingKeySlice {
 						var nullable bool
 						if tableSchema.NullableEnabled {
 							for _, col := range tableSchema.Columns {
@@ -439,20 +493,33 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 								}
 							}
 						}
+						formattedVal := formatQValue(r.Items.GetColumnValue(colName), nullable)
 						where = append(where, fmt.Sprintf("%s=%s",
-							peerdb_clickhouse.QuoteIdentifier(colName), formatQValue(r.Items.GetColumnValue(colName), nullable),
+							peerdb_clickhouse.QuoteIdentifier(colName), formattedVal,
 						))
+						if _, isOrdering := orderingKey[colName]; isOrdering {
+							io.WriteString(fnvHash, formattedVal)
+						}
 					}
-					if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE %s",
-						peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(where, " AND "))); err != nil {
-						return nil, err
+					queries[fnvHash.Sum64()%uint64(len(queries))] <- query{
+						sql: fmt.Sprintf("DELETE FROM %s WHERE %s",
+							peerdb_clickhouse.QuoteIdentifier(r.DestinationTableName), strings.Join(where, " AND ")),
+						lsn: lsn,
 					}
 				}
-				shared.AtomicInt64Max(&lastSeenLSN, record.GetBaseRecord().CheckpointID)
-			case <-ctx.Done():
-				return nil, ctx.Err()
+			case <-groupCtx.Done():
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
+				c.logger.Error("error syncing, ending batch", slog.Any("error", groupCtx.Err()))
+				break Loop
 			}
 		}
+
+		for _, ch := range queries {
+			close(ch)
+		}
+		group.Wait()
 
 		lastCheckpoint := req.Records.GetLastCheckpoint()
 		if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
