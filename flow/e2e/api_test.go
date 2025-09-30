@@ -597,9 +597,10 @@ func (s APITestSuite) TestResyncCompleted() {
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
 	flowConnConfig.SnapshotNumRowsPerPartition = 3
-	flowConnConfig.SnapshotNumPartitionsOverride = 5
 	flowConnConfig.SnapshotMaxParallelWorkers = 7
 	flowConnConfig.SnapshotNumTablesInParallel = 13
+	flowConnConfig.IdleTimeoutSeconds = 9
+	flowConnConfig.MaxBatchSize = 5040
 	// if true, then the flow will be resynced
 	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
 	require.NoError(s.t, err)
