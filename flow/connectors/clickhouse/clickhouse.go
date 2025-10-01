@@ -2,10 +2,8 @@ package connclickhouse
 
 import (
 	"context"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -169,13 +167,7 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 		return err
 	}
 
-	hasher := sha256.New()
-	hasher.Write([]byte(c.Config.Host))
-	hasher.Write([]byte(c.Config.Database))
-	hasher.Write([]byte(c.Config.User))
-	suffix := base64.RawURLEncoding.EncodeToString(hasher.Sum(nil))[0:8]
-
-	validateDummyTableName := "peerdb_validation_" + suffix
+	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
 	if err := c.exec(ctx,
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
