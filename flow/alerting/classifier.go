@@ -497,6 +497,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
+			// this can't happen for slots we created
+			// from our persective, the slot is missing
+			if strings.Contains(pgErr.Message, "was not created in this database") {
+				return ErrorNotifyReplicationSlotMissing, pgErrorInfo
+			}
+
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
