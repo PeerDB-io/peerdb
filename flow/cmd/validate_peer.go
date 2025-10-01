@@ -30,6 +30,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 
 	validatePeerDeadline := 15 * time.Second
 	if req.Peer.Type == protos.DBType_CLICKHOUSE {
+		// if instance is overloaded, DDL can take longer than 15s to execute
 		validatePeerDeadline = 1 * time.Minute
 	}
 

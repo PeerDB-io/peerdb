@@ -166,7 +166,6 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	if err := ValidateClickHouseHost(ctx, c.Config.Host, allowedDomains); err != nil {
 		return err
 	}
-
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
 	if err := c.exec(ctx,
