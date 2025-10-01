@@ -14,8 +14,6 @@ func (h *FlowRequestHandler) ValidatePeer(
 	ctx context.Context,
 	req *protos.ValidatePeerRequest,
 ) (*protos.ValidatePeerResponse, APIError) {
-	ctx, cancelCtx := context.WithTimeout(ctx, 15*time.Second)
-	defer cancelCtx()
 	if req.Peer == nil {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
@@ -29,6 +27,14 @@ func (h *FlowRequestHandler) ValidatePeer(
 			Message: "no peer name provided",
 		}, NewInvalidArgumentApiError(errors.New("no peer name provided"))
 	}
+
+	validatePeerDeadline := 15 * time.Second
+	if req.Peer.Type == protos.DBType_CLICKHOUSE {
+		validatePeerDeadline = 1 * time.Minute
+	}
+
+	ctx, cancelCtx := context.WithTimeout(ctx, validatePeerDeadline)
+	defer cancelCtx()
 
 	conn, err := connectors.GetConnector(ctx, nil, req.Peer)
 	if err != nil {
