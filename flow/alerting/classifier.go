@@ -498,7 +498,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 			// this can't happen for slots we created
-			// from our persective, the slot is missing
+			// from our perspective, the slot is missing
 			if strings.Contains(pgErr.Message, "was not created in this database") {
 				return ErrorNotifyReplicationSlotMissing, pgErrorInfo
 			}
