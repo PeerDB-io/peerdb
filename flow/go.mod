@@ -108,6 +108,7 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.30.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.54.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.54.0 // indirect
+	github.com/PeerDB-io/peerdb/flow/shared-validation v0.0.0
 	github.com/RaduBerinde/axisds v0.0.0-20250419182453-5135a0650657 // indirect
 	github.com/RaduBerinde/btreemap v0.0.0-20250419232817-bf0d809ae648 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
@@ -298,3 +299,5 @@ require (
 )
 
 replace github.com/tikv/client-go/v2 => github.com/PeerDB-io/tikv-client-go/v2 v2.0.7
+
+replace github.com/PeerDB-io/peerdb/flow/shared-validation => ./shared-validation
