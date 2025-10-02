@@ -322,11 +322,17 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 			lsn          int64
 			ty           int8
 		}
-		var lsns [4]atomic.Int64
-		var queries [4]chan query
+
+		parallelNormalize, err := internal.PeerDBClickHouseParallelNormalize(ctx, req.Env)
+		if err != nil {
+			return nil, err
+		}
+		lsns := make([]atomic.Int64, parallelNormalize)
+		queries := make([]chan query, parallelNormalize)
 		for workerId := range len(queries) {
 			queries[workerId] = make(chan query)
 		}
+
 		tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
 		flushLoopDone := make(chan struct{})
 		go func() {
