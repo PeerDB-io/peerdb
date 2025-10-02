@@ -18,8 +18,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
 	if internal.PeerDBOnlyClickHouseAllowed() {
-		err := chvalidate.CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx, c.logger, c.database)
-		if err != nil {
+		if err := chvalidate.CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx, c.logger, c.database); err != nil {
 			return err
 		}
 	}

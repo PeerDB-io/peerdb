@@ -263,6 +263,7 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	} else if allowStream {
 		settings["allow_experimental_lightweight_update"] = true
 		settings["async_insert"] = true
+		settings["lightweight_delete_mode"] = "lightweight_update"
 	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
