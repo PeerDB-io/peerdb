@@ -1,4 +1,4 @@
-module github.com/PeerDB-io/peerdb/flow/shared-validation
+module github.com/PeerDB-io/peerdb/flow/shared-light
 
 go 1.25.0
 

@@ -9,7 +9,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	chvalidate "github.com/PeerDB-io/peerdb/flow/shared-validation/clickhouse"
+	chvalidate "github.com/PeerDB-io/peerdb/flow/shared-light/clickhouse"
 )
 
 func (c *ClickHouseConnector) ValidateMirrorDestination(

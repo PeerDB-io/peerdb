@@ -15,8 +15,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_clickhouse_val "github.com/PeerDB-io/peerdb/flow/shared-validation/clickhouse"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared-light/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -44,8 +43,7 @@ func (c *ClickHouseConnector) GetRawTableName(flowJobName string) string {
 func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
 	var result uint8
 	if err := c.queryRow(ctx,
-		fmt.Sprintf(checkIfTableExistsSQL,
-			peerdb_clickhouse_val.QuoteLiteral(databaseName), peerdb_clickhouse_val.QuoteLiteral(tableIdentifier)),
+		fmt.Sprintf(checkIfTableExistsSQL, peerdb_clickhouse.QuoteLiteral(databaseName), peerdb_clickhouse.QuoteLiteral(tableIdentifier)),
 	).Scan(&result); err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
@@ -61,7 +59,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 		engine = fmt.Sprintf(
 			"ReplicatedMergeTree('%s%s','{replica}')",
 			zooPathPrefix,
-			peerdb_clickhouse_val.EscapeStr(rawTableName),
+			peerdb_clickhouse.EscapeStr(rawTableName),
 		)
 	}
 	onCluster := c.onCluster()
@@ -72,7 +70,7 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 
 	createRawTableSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = %s ORDER BY (_peerdb_batch_id, _peerdb_destination_table_name)`
 	if err := c.execWithLogging(ctx,
-		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse_val.QuoteIdentifier(rawTableName), onCluster, rawColumns, engine),
+		fmt.Sprintf(createRawTableSQL, peerdb_clickhouse.QuoteIdentifier(rawTableName), onCluster, rawColumns, engine),
 	); err != nil {
 		return nil, fmt.Errorf("unable to create raw table: %w", err)
 	}
@@ -80,11 +78,11 @@ func (c *ClickHouseConnector) CreateRawTable(ctx context.Context, req *protos.Cr
 	if onCluster != "" {
 		createRawDistributedSQL := `CREATE TABLE IF NOT EXISTS %s%s %s ENGINE = Distributed(%s,%s,%s,cityHash64(_peerdb_uid))`
 		if err := c.execWithLogging(ctx,
-			fmt.Sprintf(createRawDistributedSQL, peerdb_clickhouse_val.QuoteIdentifier(rawDistributedName), onCluster,
+			fmt.Sprintf(createRawDistributedSQL, peerdb_clickhouse.QuoteIdentifier(rawDistributedName), onCluster,
 				rawColumns,
-				peerdb_clickhouse_val.QuoteIdentifier(c.Config.Cluster),
-				peerdb_clickhouse_val.QuoteIdentifier(c.Config.Database),
-				peerdb_clickhouse_val.QuoteIdentifier(rawTableName)),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Database),
+				peerdb_clickhouse.QuoteIdentifier(rawTableName)),
 		); err != nil {
 			return nil, fmt.Errorf("unable to create raw table: %w", err)
 		}
@@ -120,7 +118,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, unboundedNumericAsString,
 		protos.DBType_CLICKHOUSE,
 	)
-	numericTruncator := model.NewStreamNumericTruncator(req.TableMappings, peerdb_clickhouse.NumericDestinationTypes)
+	numericTruncator := model.NewStreamNumericTruncator(req.TableMappings, NumericDestinationTypes)
 	stream, err := utils.RecordsToRawTableStream(streamReq, numericTruncator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -200,8 +198,8 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 			if c.Config.Cluster != "" && (tm == nil || tm.Engine != protos.TableEngine_CH_ENGINE_NULL) {
 				if err := c.execWithLogging(ctx,
 					fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
-						peerdb_clickhouse_val.QuoteIdentifier(schemaDelta.DstTableName+"_shard"), onCluster,
-						peerdb_clickhouse_val.QuoteIdentifier(addedColumn.Name), clickHouseColType),
+						peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName+"_shard"), onCluster,
+						peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
 				); err != nil {
 					return fmt.Errorf("failed to add column %s for table shards %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
 				}
@@ -209,8 +207,8 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 
 			if err := c.execWithLogging(ctx,
 				fmt.Sprintf("ALTER TABLE %s%s ADD COLUMN IF NOT EXISTS %s %s",
-					peerdb_clickhouse_val.QuoteIdentifier(schemaDelta.DstTableName), onCluster,
-					peerdb_clickhouse_val.QuoteIdentifier(addedColumn.Name), clickHouseColType),
+					peerdb_clickhouse.QuoteIdentifier(schemaDelta.DstTableName), onCluster,
+					peerdb_clickhouse.QuoteIdentifier(addedColumn.Name), clickHouseColType),
 			); err != nil {
 				return fmt.Errorf("failed to add column %s for table %s: %w", addedColumn.Name, schemaDelta.DstTableName, err)
 			}
@@ -258,11 +256,11 @@ func (c *ClickHouseConnector) RenameTables(
 			c.logger.Info("attempting atomic exchange",
 				slog.String("OldName", renameRequest.CurrentName), slog.String("NewName", renameRequest.NewName))
 			if err = c.execWithLogging(ctx,
-				fmt.Sprintf("EXCHANGE TABLES %s and %s%s", peerdb_clickhouse_val.QuoteIdentifier(renameRequest.NewName),
-					peerdb_clickhouse_val.QuoteIdentifier(renameRequest.CurrentName), onCluster),
+				fmt.Sprintf("EXCHANGE TABLES %s and %s%s", peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName),
+					peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
 			); err == nil {
 				if err := c.execWithLogging(ctx,
-					fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse_val.QuoteIdentifier(renameRequest.CurrentName), onCluster),
+					fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName), onCluster),
 				); err != nil {
 					return nil, fmt.Errorf("unable to drop exchanged table %s: %w", renameRequest.CurrentName, err)
 				}
@@ -277,14 +275,14 @@ func (c *ClickHouseConnector) RenameTables(
 		// or err is set (in which case err comes from EXCHANGE TABLES)
 		if !originalTableExists || err != nil {
 			if err := c.execWithLogging(ctx,
-				fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse_val.QuoteIdentifier(renameRequest.NewName), onCluster),
+				fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster),
 			); err != nil {
 				return nil, fmt.Errorf("unable to drop table %s: %w", renameRequest.NewName, err)
 			}
 
 			if err := c.execWithLogging(ctx, fmt.Sprintf("RENAME TABLE %s TO %s%s",
-				peerdb_clickhouse_val.QuoteIdentifier(renameRequest.CurrentName),
-				peerdb_clickhouse_val.QuoteIdentifier(renameRequest.NewName), onCluster,
+				peerdb_clickhouse.QuoteIdentifier(renameRequest.CurrentName),
+				peerdb_clickhouse.QuoteIdentifier(renameRequest.NewName), onCluster,
 			)); err != nil {
 				return nil, fmt.Errorf("unable to rename table %s to %s: %w", renameRequest.CurrentName, renameRequest.NewName, err)
 			}
@@ -304,13 +302,13 @@ func (c *ClickHouseConnector) SyncFlowCleanup(ctx context.Context, jobName strin
 	rawTableIdentifier := c.GetRawTableName(jobName)
 	onCluster := c.onCluster()
 	if err := c.execWithLogging(ctx,
-		fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse_val.QuoteIdentifier(rawTableIdentifier), onCluster),
+		fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier), onCluster),
 	); err != nil {
 		return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 	}
 	if onCluster != "" {
 		if err := c.execWithLogging(ctx,
-			fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse_val.QuoteIdentifier(rawTableIdentifier+"_shard"), onCluster),
+			fmt.Sprintf(dropTableIfExistsSQL, peerdb_clickhouse.QuoteIdentifier(rawTableIdentifier+"_shard"), onCluster),
 		); err != nil {
 			return fmt.Errorf("[clickhouse] unable to drop raw table: %w", err)
 		}
@@ -336,7 +334,7 @@ func (c *ClickHouseConnector) RemoveTableEntriesFromRawTable(
 		// rows in the table be visible by the NormalizeRecords' INSERT INTO SELECT queries
 		if err := c.execWithLogging(ctx, fmt.Sprintf("DELETE FROM %s WHERE _peerdb_destination_table_name = %s"+
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
-			c.GetRawTableName(req.FlowJobName), peerdb_clickhouse_val.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId),
+			c.GetRawTableName(req.FlowJobName), peerdb_clickhouse.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId),
 		); err != nil {
 			return fmt.Errorf("unable to remove table %s from raw table: %w", tableName, err)
 		}

@@ -23,7 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared-validation/clickhouse"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared-light/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 

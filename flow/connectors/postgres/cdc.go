@@ -33,7 +33,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	geo "github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
-	"github.com/PeerDB-io/peerdb/flow/shared/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -377,7 +376,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
 		return p.parseFieldFromPostgresOID(dataType, typmod, string(data), customTypeMapping, p.internalVersion)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
-		customQKind := postgres.CustomTypeToQKind(typeData, version)
+		customQKind := CustomTypeToQKind(typeData, version)
 		switch customQKind {
 		case types.QValueKindGeography, types.QValueKindGeometry:
 			wkt, err := geo.GeoValidate(string(data))
@@ -1105,7 +1104,7 @@ func processRelationMessage[Items model.Items](
 			if qKind == types.QValueKindInvalid {
 				typeName, ok := customTypeMapping[column.DataType]
 				if ok {
-					qKind = postgres.CustomTypeToQKind(typeName, p.internalVersion)
+					qKind = CustomTypeToQKind(typeName, p.internalVersion)
 				}
 			}
 			currRelMap[column.Name] = string(qKind)

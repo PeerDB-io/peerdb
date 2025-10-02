@@ -5,8 +5,7 @@ import (
 	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	mysql_val "github.com/PeerDB-io/peerdb/flow/shared-validation/mysql"
-	"github.com/PeerDB-io/peerdb/flow/shared/mysql"
+	"github.com/PeerDB-io/peerdb/flow/shared-light/mysql"
 )
 
 func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -68,7 +67,7 @@ func (c *MySqlConnector) GetTablesInSchema(
 		tables = append(tables, &protos.TableResponse{
 			TableName: tableName,
 			CanMirror: true,
-			TableSize: mysql_val.PrettyBytes(tableSizeInBytes),
+			TableSize: mysql.PrettyBytes(tableSizeInBytes),
 		})
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
@@ -96,7 +95,7 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema 
 		if err != nil {
 			return nil, err
 		}
-		qkind, err := mysql.QkindFromMysqlColumnType(columnType)
+		qkind, err := QkindFromMysqlColumnType(columnType)
 		if err != nil {
 			return nil, err
 		}

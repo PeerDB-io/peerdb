@@ -1,4 +1,4 @@
-package mysql
+package connmysql
 
 import (
 	"fmt"
