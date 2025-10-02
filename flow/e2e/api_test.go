@@ -1526,9 +1526,8 @@ func (s APITestSuite) TestCreateCDCFlowManagedExternalFlowEntry() {
 
 	workflowID := flowConnConfig.FlowJobName + "-peerflow"
 	_, err = conn.Exec(s.t.Context(),
-		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,
-		description, source_table_identifier, destination_table_identifier)
-		VALUES ($1,$2,$3,$4,$5,$6,'gRPC','','')`,
+		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,	description)
+		VALUES ($1,$2,$3,$4,$5,$6,'gRPC')`,
 		workflowID, flowConnConfig.FlowJobName, sourcePeerID, destPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
 	)
 	require.NoError(s.t, err)

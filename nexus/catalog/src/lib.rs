@@ -388,9 +388,9 @@ impl Catalog {
             .pg
             .prepare_typed(
                 "INSERT INTO flows (name, source_peer, destination_peer, description,
-                     destination_table_identifier, query_string, flow_metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                     query_string, flow_metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)",
                 &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT,
-                 types::Type::TEXT, types::Type::TEXT, types::Type::JSONB],
+                 types::Type::TEXT, types::Type::JSONB],
             )
             .await?;
 
@@ -407,7 +407,6 @@ impl Catalog {
                     &source_peer_id,
                     &destination_peer_id,
                     &job.description,
-                    &destination_table_name.as_str().unwrap(),
                     &job.query_string,
                     &serde_json::to_value(job.flow_options.clone())
                         .context("unable to serialize flow options")?,

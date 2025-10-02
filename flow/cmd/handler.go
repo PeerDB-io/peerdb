@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	tEnums "go.temporal.io/api/enums/v1"
@@ -59,6 +60,12 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 	return id.Int32, nil
 }
 
+func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName string) (bool, error) {
+	var exists bool
+	err := h.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM flows WHERE name = $1)`, flowJobName).Scan(&exists)
+	return exists, err
+}
+
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	req *protos.CreateCDCFlowRequest, workflowID string, idempotent bool,
 ) error {
@@ -79,24 +86,11 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
 
-	if idempotent {
-		_, err = h.pool.Exec(ctx,
-			`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,
-			description, source_table_identifier, destination_table_identifier)
-			SELECT $1,$2,$3,$4,$5,$6,'gRPC','',''
-			WHERE NOT EXISTS (SELECT 1 FROM flows WHERE name = $7)`,
-			workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes,
-			protos.FlowStatus_STATUS_SETUP, req.ConnectionConfigs.FlowJobName,
-		)
-	} else {
-		_, err = h.pool.Exec(ctx,
-			`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,
-			description, source_table_identifier, destination_table_identifier)
-			VALUES ($1,$2,$3,$4,$5,$6,'gRPC','','')`,
-			workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
-		)
-	}
-	if err != nil {
+	if _, err = h.pool.Exec(ctx,
+		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,	description)
+		VALUES ($1,$2,$3,$4,$5,$6,'gRPC')`,
+		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
+	); err != nil && !(idempotent && shared.IsSQLStateError(err, pgerrcode.UniqueViolation)) {
 		return fmt.Errorf("unable to insert into flows table for flow %s: %w",
 			req.ConnectionConfigs.FlowJobName, err)
 	}
@@ -128,9 +122,8 @@ func (h *FlowRequestHandler) createQRepJobEntry(ctx context.Context,
 
 	flowName := req.QrepConfig.FlowJobName
 	if _, err := h.pool.Exec(ctx, `INSERT INTO flows(workflow_id,name,source_peer,destination_peer,config_proto,status,
-		description, destination_table_identifier, query_string) VALUES ($1,$2,$3,$4,$5,$6,'gRPC',$7,$8)
+		description, query_string) VALUES ($1,$2,$3,$4,$5,$6,'gRPC',$7)
 	`, workflowID, flowName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_RUNNING,
-		req.QrepConfig.DestinationTableIdentifier,
 		req.QrepConfig.Query,
 	); err != nil {
 		return fmt.Errorf("unable to insert into flows table for flow %s with source table %s: %w",
@@ -193,11 +186,15 @@ func (h *FlowRequestHandler) CreateCDCFlowManaged(
 	}
 	cfg.Version = internalVersion
 
-	if cfg.Resync {
-		return nil, exceptions.NewInvalidArgumentApiError(errors.New("resync is not supported in the managed API"))
+	if !req.AttachToExisting {
+		if exists, err := h.cdcJobEntryExists(ctx, cfg.FlowJobName); err != nil {
+			return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to check flow job entry: %w", err))
+		} else if exists {
+			return nil, exceptions.NewAlreadyExistsApiError(fmt.Errorf("flow already exists: %s", cfg.FlowJobName))
+		}
 	}
 
-	workflowID := cfg.FlowJobName + "-peerflow"
+	workflowID := getWorkflowID(cfg.FlowJobName)
 	var errNotFound *serviceerror.NotFound
 	_, err = h.temporalClient.DescribeWorkflow(ctx, workflowID, "")
 	if err != nil && !errors.As(err, &errNotFound) {
@@ -218,12 +215,23 @@ func (h *FlowRequestHandler) CreateCDCFlowManaged(
 		return nil, fmt.Errorf("invalid mirror: %w", err)
 	}
 
+	return h.createCDCFlow(ctx, req, workflowID, tEnums.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE)
+}
+
+func getWorkflowID(flowName string) string {
+	return flowName + "-peerflow"
+}
+
+func (h *FlowRequestHandler) createCDCFlow(
+	ctx context.Context, req *protos.CreateCDCFlowRequest, workflowID string, workflowIDReusePolicy tEnums.WorkflowIdReusePolicy,
+) (*protos.CreateCDCFlowResponse, error) {
+	cfg := req.ConnectionConfigs
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                       workflowID,
 		TaskQueue:                h.peerflowTaskQueueID,
 		TypedSearchAttributes:    shared.NewSearchAttributes(cfg.FlowJobName),
 		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE,
+		WorkflowIDReusePolicy:    workflowIDReusePolicy,
 	}
 
 	if err := h.createCdcJobEntry(ctx, req, workflowID, true); err != nil {
@@ -332,6 +340,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 		DropFlowStats:         deleteStats,
 		FlowConnectionConfigs: cdcConfig,
 		SkipDestinationDrop:   skipDestinationDrop,
+		// NOTE: Resync is false here during snapshot-only resync
 	})
 	if err != nil {
 		slog.ErrorContext(ctx, "unable to start DropFlow workflow", logs, slog.Any("error", err))
@@ -419,7 +428,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_RESYNC:
 			if currState == protos.FlowStatus_STATUS_COMPLETED {
-				changeErr = h.resyncMirror(ctx, req.FlowJobName, req.DropMirrorStats)
+				changeErr = h.resyncCompletedSnapshot(ctx, req.FlowJobName, req.DropMirrorStats)
 			} else if isCDC, err := h.isCDCFlow(ctx, req.FlowJobName); err != nil {
 				return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to determine if mirror is cdc: %w", err))
 			} else if !isCDC {
@@ -568,8 +577,7 @@ func (h *FlowRequestHandler) getWorkflowID(ctx context.Context, flowJobName stri
 	return workflowID, nil
 }
 
-// only supports CDC resync for now
-func (h *FlowRequestHandler) resyncMirror(
+func (h *FlowRequestHandler) resyncCompletedSnapshot(
 	ctx context.Context,
 	flowName string,
 	dropStats bool,
@@ -606,9 +614,12 @@ func (h *FlowRequestHandler) resyncMirror(
 		return err
 	}
 
-	if _, err := h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
-		ConnectionConfigs: config,
-	}); err != nil {
+	workflowID := getWorkflowID(config.FlowJobName)
+	if _, err := h.createCDCFlow(ctx,
+		&protos.CreateCDCFlowRequest{ConnectionConfigs: config},
+		workflowID,
+		tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+	); err != nil {
 		return err
 	}
 	return nil
