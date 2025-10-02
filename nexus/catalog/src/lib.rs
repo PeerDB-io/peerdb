@@ -394,10 +394,6 @@ impl Catalog {
             )
             .await?;
 
-        let Some(destination_table_name) = job.flow_options.get("destination_table_name") else {
-            return Err(anyhow!("destination_table_name not found in flow options"));
-        };
-
         let _rows = self
             .pg
             .execute(
