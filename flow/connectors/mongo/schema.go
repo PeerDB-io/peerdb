@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
+	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared-validation/mongo"
 )
 
 func (c *MongoConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {

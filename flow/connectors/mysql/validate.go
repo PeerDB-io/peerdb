@@ -10,7 +10,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	peerdb_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
+	peerdb_mysql "github.com/PeerDB-io/peerdb/flow/shared-validation/mysql"
 )
 
 func (c *MySqlConnector) CheckSourceTables(ctx context.Context, tableNames []*utils.SchemaTable) error {

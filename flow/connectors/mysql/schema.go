@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	mysql_val "github.com/PeerDB-io/peerdb/flow/shared-validation/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
@@ -67,7 +68,7 @@ func (c *MySqlConnector) GetTablesInSchema(
 		tables = append(tables, &protos.TableResponse{
 			TableName: tableName,
 			CanMirror: true,
-			TableSize: mysql.PrettyBytes(tableSizeInBytes),
+			TableSize: mysql_val.PrettyBytes(tableSizeInBytes),
 		})
 	}
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
