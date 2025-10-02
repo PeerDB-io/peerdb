@@ -35,7 +35,6 @@ const (
 		_PEERDB_RECORD_TYPE INTEGER NOT NULL, _PEERDB_MATCH_DATA STRING,_PEERDB_BATCH_ID INT,
 		_PEERDB_UNCHANGED_TOAST_COLUMNS STRING)`
 	createDummyTableSQL               = "CREATE TABLE IF NOT EXISTS %s.%s(_PEERDB_DUMMY_COL STRING)"
-	rawTableMultiValueInsertSQL       = "INSERT INTO %s.%s VALUES%s"
 	createNormalizedTableSQL          = "CREATE TABLE IF NOT EXISTS %s(%s)"
 	createOrReplaceNormalizedTableSQL = "CREATE OR REPLACE TABLE %s(%s)"
 	toVariantColumnName               = "VAR_COLS"

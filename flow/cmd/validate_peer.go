@@ -8,28 +8,34 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func (h *FlowRequestHandler) ValidatePeer(
 	ctx context.Context,
 	req *protos.ValidatePeerRequest,
-) (*protos.ValidatePeerResponse, error) {
-	ctx, cancelCtx := context.WithTimeout(ctx, 15*time.Second)
-	defer cancelCtx()
+) (*protos.ValidatePeerResponse, APIError) {
 	if req.Peer == nil {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer provided",
-		}, exceptions.NewInvalidArgumentApiError(errors.New("no peer provided"))
+		}, NewInvalidArgumentApiError(errors.New("no peer provided"))
 	}
 
 	if req.Peer.Name == "" {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer name provided",
-		}, exceptions.NewInvalidArgumentApiError(errors.New("no peer name provided"))
+		}, NewInvalidArgumentApiError(errors.New("no peer name provided"))
 	}
+
+	validatePeerDeadline := 15 * time.Second
+	if req.Peer.Type == protos.DBType_CLICKHOUSE {
+		// if instance is overloaded, DDL can take longer than 15s to execute
+		validatePeerDeadline = 1 * time.Minute
+	}
+
+	ctx, cancelCtx := context.WithTimeout(ctx, validatePeerDeadline)
+	defer cancelCtx()
 
 	conn, err := connectors.GetConnector(ctx, nil, req.Peer)
 	if err != nil {
@@ -37,7 +43,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: displayErr.Error(),
-		}, exceptions.NewFailedPreconditionApiError(displayErr)
+		}, NewFailedPreconditionApiError(displayErr)
 	}
 	defer conn.Close()
 
@@ -47,7 +53,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 			return &protos.ValidatePeerResponse{
 				Status:  protos.ValidatePeerStatus_INVALID,
 				Message: displayErr.Error(),
-			}, exceptions.NewFailedPreconditionApiError(displayErr)
+			}, NewFailedPreconditionApiError(displayErr)
 		}
 	}
 
@@ -56,7 +62,7 @@ func (h *FlowRequestHandler) ValidatePeer(
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: displayErr.Error(),
-		}, exceptions.NewFailedPreconditionApiError(displayErr)
+		}, NewFailedPreconditionApiError(displayErr)
 	}
 
 	return &protos.ValidatePeerResponse{

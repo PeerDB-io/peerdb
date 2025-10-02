@@ -36,6 +36,9 @@ var (
 	ClickHouseDecimalParsingRe = regexp.MustCompile(
 		`Cannot parse type Decimal\(\d+, \d+\), expected non-empty binary data with size equal to or less than \d+, got \d+`,
 	)
+	ClickHouseDecimalInsertRe = regexp.MustCompile(
+		`Cannot insert Avro decimal with scale \d+ and precision \d+ to ClickHouse type Decimal\(\d+, \d+\) with scale \d+ and precision \d+`,
+	)
 	// ID(a14c2a1c-edcd-5fcb-73be-bd04e09fccb7) not found in user directories
 	ClickHouseNotFoundInUserDirsRe    = regexp.MustCompile("ID\\([a-z0-9-]+\\) not found in `?user directories`?")
 	PostgresPublicationDoesNotExistRe = regexp.MustCompile(`publication ".*?" does not exist`)
@@ -115,6 +118,9 @@ var (
 	ErrorNotifyBinlogInvalid = ErrorClass{
 		Class: "NOTIFY_BINLOG_INVALID", action: NotifyUser,
 	}
+	ErrorNotifyBadGTIDSetup = ErrorClass{
+		Class: "NOTIFY_BAD_MULTISOURCE_GTID_SETUP", action: NotifyUser,
+	}
 	ErrorNotifySourceTableMissing = ErrorClass{
 		Class: "NOTIFY_SOURCE_TABLE_MISSING", action: NotifyUser,
 	}
@@ -123,6 +129,9 @@ var (
 	}
 	ErrorNotifyPublicationMissing = ErrorClass{
 		Class: "NOTIFY_PUBLICATION_MISSING", action: NotifyUser,
+	}
+	ErrorNotifyTablesNotInPublication = ErrorClass{
+		Class: "NOTIFY_TABLES_NOT_IN_PUBLICATION", action: NotifyUser,
 	}
 	ErrorNotifyReplicationSlotMissing = ErrorClass{
 		Class: "NOTIFY_REPLICATION_SLOT_MISSING", action: NotifyUser,
@@ -135,6 +144,9 @@ var (
 	}
 	ErrorNotifyTerminate = ErrorClass{
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
+	}
+	ErrorNotifyReplicationStandbySetup = ErrorClass{
+		Class: "NOTIFY_REPLICATION_STANDBY_SETUP", action: NotifyUser,
 	}
 	ErrorInternal = ErrorClass{
 		Class: "INTERNAL", action: NotifyTelemetry,
@@ -258,6 +270,15 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	// Reference:
+	// https://github.dev/jackc/pgx/blob/master/pgconn/pgconn.go#L733-L740
+	if strings.Contains(err.Error(), "conn closed") {
+		return ErrorRetryRecoverable, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "UNKNOWN",
+		}
+	}
+
 	if errors.Is(err, shared.ErrTableDoesNotExist) {
 		return ErrorNotifySourceTableMissing, ErrorInfo{
 			Source: ErrorSourcePostgres,
@@ -273,18 +294,107 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var tablesNotInPubErr *exceptions.TablesNotInPublicationError
+	if errors.As(err, &tablesNotInPubErr) {
+		return ErrorNotifyTablesNotInPublication, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "TABLES_NOT_IN_PUBLICATION",
+		}
+	}
+
+	var missingPrimaryKeyErr *exceptions.MissingPrimaryKeyError
+	if errors.As(err, &missingPrimaryKeyErr) {
+		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "MISSING_PRIMARY_KEY",
+		}
+	}
+
+	// Connection reset errors can mostly be ignored
+	if errors.Is(err, syscall.ECONNRESET) {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   syscall.ECONNRESET.Error(),
+		}
+	}
+
+	if errors.Is(err, net.ErrClosed) || strings.HasSuffix(err.Error(), "use of closed network connection") {
+		return ErrorIgnoreConnTemporary, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "net.ErrClosed",
+		}
+	}
+
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   netErr.Err.Error(),
+		}
+	}
+
+	var sshOpenChanErr *ssh.OpenChannelError
+	if errors.As(err, &sshOpenChanErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   sshOpenChanErr.Reason.String(),
+		}
+	}
+
+	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
+	if errors.As(err, &sshTunnelSetupErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceSSH,
+			Code:   "UNKNOWN",
+		}
+	}
+
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "net.DNSError",
+		}
+	}
+
+	var tlsCertVerificationError *tls.CertificateVerificationError
+	if errors.As(err, &tlsCertVerificationError) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceNet,
+			Code:   "tls.CertificateVerificationError",
+		}
+	}
+
 	var temporalErr *temporal.ApplicationError
 	if errors.As(err, &temporalErr) {
 		switch exceptions.ApplicationErrorType(temporalErr.Type()) {
 		case exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing:
 			return ErrorNotifyPublicationMissing, ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "PUBLICATION_DOES_NOT_EXIST",
+				Code:   temporalErr.Type(),
 			}
 		case exceptions.ApplicationErrorTypeIrrecoverableSlotMissing:
 			return ErrorNotifyReplicationSlotMissing, ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
+				Code:   temporalErr.Type(),
+			}
+		case exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot:
+			return ErrorNotifyInvalidSnapshotIdentifier, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   temporalErr.Type(),
+			}
+
+		case exceptions.ApplicationErrorTypeIrrecoverableExistingSlot, exceptions.ApplicationErrorTypeIrrecoverableMissingTables:
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   temporalErr.Type(),
+			}
+		}
+		// Just in case we forget to classify some irrecoverable errors
+		if _, irrecoverable := exceptions.IrrecoverableApplicationErrorTypesMap[temporalErr.Type()]; irrecoverable {
+			return ErrorNotifyConnectivity, ErrorInfo{
+				Source: ErrorSourceTemporal,
+				Code:   temporalErr.Type(),
 			}
 		}
 		return ErrorOther, ErrorInfo{
@@ -370,12 +480,27 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, pgErrorInfo
 
 		case pgerrcode.ObjectNotInPrerequisiteState:
+			if pgErr.Message == "logical decoding on standby requires \"wal_level\" >= \"logical\" on the primary" {
+				return ErrorNotifyReplicationStandbySetup, pgErrorInfo
+			}
+
 			// same underlying error but 3 different messages
 			// based on PG version, newer ones have second error
 			if strings.Contains(pgErr.Message, "cannot read from logical replication slot") ||
 				strings.Contains(pgErr.Message, "can no longer get changes from replication slot") ||
 				strings.Contains(pgErr.Message, "could not import the requested snapshot") {
 				return ErrorNotifySlotInvalid, pgErrorInfo
+			}
+
+			if strings.Contains(pgErr.Message,
+				`specified in parameter "synchronized_standby_slots" does not have active_pid`) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			// this can't happen for slots we created
+			// from our perspective, the slot is missing
+			if strings.Contains(pgErr.Message, "was not created in this database") {
+				return ErrorNotifyReplicationSlotMissing, pgErrorInfo
 			}
 
 		case pgerrcode.InvalidParameterValue:
@@ -395,7 +520,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.OutOfMemory:
 			return ErrorNotifyOOMSource, pgErrorInfo
 
-		case pgerrcode.QueryCanceled, pgerrcode.DuplicateFile, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure:
+		case pgerrcode.QueryCanceled:
+			return ErrorNotifyConnectivity, pgErrorInfo
+
+		case pgerrcode.DuplicateFile, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure:
 			return ErrorRetryRecoverable, pgErrorInfo
 		}
 	}
@@ -446,6 +574,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, myErrorInfo
 		case 1146: // ER_NO_SUCH_TABLE
 			return ErrorNotifySourceTableMissing, myErrorInfo
+		case 1943:
+			return ErrorNotifyBadGTIDSetup, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
 		}
@@ -514,6 +644,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if ClickHouseDecimalParsingRe.MatchString(chException.Message) {
 				return ErrorUnsupportedDatatype, chErrorInfo
 			}
+		case chproto.ErrBadArguments:
+			if ClickHouseDecimalInsertRe.MatchString(chException.Message) {
+				return ErrorUnsupportedDatatype, chErrorInfo
+			}
 		case chproto.ErrAccessEntityNotFound:
 			if ClickHouseNotFoundInUserDirsRe.MatchString(chException.Message) {
 				return ErrorRetryRecoverable, chErrorInfo
@@ -544,6 +678,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
+		case 529: // NOT_A_LEADER
+			if strings.HasPrefix(chException.Message, "Cannot enqueue query on this replica, because it has replication lag") {
+				return ErrorNotifyConnectivity, chErrorInfo
+			}
 		case chproto.ErrQueryWasCancelled,
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
@@ -552,6 +690,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrTimeoutExceeded:
 			if strings.HasSuffix(chException.Message, "distributed_ddl_task_timeout") {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
+		case chproto.ErrQueryIsProhibited:
+			if strings.Contains(chException.Message, "Replicated DDL queries are disabled") {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
 		}
@@ -563,53 +705,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyMVOrView, chErrorInfo
 		}
 		return ErrorOther, chErrorInfo
-	}
-
-	// Connection reset errors can mostly be ignored
-	if errors.Is(err, syscall.ECONNRESET) {
-		return ErrorIgnoreConnTemporary, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   syscall.ECONNRESET.Error(),
-		}
-	}
-
-	if errors.Is(err, net.ErrClosed) || strings.HasSuffix(err.Error(), "use of closed network connection") {
-		return ErrorIgnoreConnTemporary, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   "net.ErrClosed",
-		}
-	}
-
-	var netErr *net.OpError
-	if errors.As(err, &netErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   netErr.Err.Error(),
-		}
-	}
-
-	var ssOpenChanErr *ssh.OpenChannelError
-	if errors.As(err, &ssOpenChanErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceSSH,
-			Code:   ssOpenChanErr.Reason.String(),
-		}
-	}
-
-	var sshTunnelSetupErr *exceptions.SSHTunnelSetupError
-	if errors.As(err, &sshTunnelSetupErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceSSH,
-			Code:   "UNKNOWN",
-		}
-	}
-
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   "net.DNSError",
-		}
 	}
 
 	var peerCreateError *exceptions.PeerCreateError
@@ -632,14 +727,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				ErrorAttributeKeyTable:  numericOutOfRangeError.DestinationTable,
 				ErrorAttributeKeyColumn: numericOutOfRangeError.DestinationColumn,
 			},
-		}
-	}
-
-	var tlsCertVerificationError *tls.CertificateVerificationError
-	if errors.As(err, &tlsCertVerificationError) {
-		return ErrorNotifyConnectivity, ErrorInfo{
-			Source: ErrorSourceNet,
-			Code:   "tls.CertificateVerificationError",
 		}
 	}
 

@@ -26,6 +26,7 @@ const (
 	POSTGRES_14 PGVersion = 140000
 	POSTGRES_15 PGVersion = 150000
 	POSTGRES_16 PGVersion = 160000
+	POSTGRES_17 PGVersion = 170000
 )
 
 type CustomDataType struct {

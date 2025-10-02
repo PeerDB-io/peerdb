@@ -42,7 +42,7 @@ type ReplState struct {
 type PostgresConnector struct {
 	logger                 log.Logger
 	customTypeMapping      map[uint32]shared.CustomDataType
-	ssh                    utils.SSHTunnel
+	ssh                    *utils.SSHTunnel
 	conn                   *pgx.Conn
 	replConn               *pgx.Conn
 	replState              *ReplState
@@ -1192,7 +1192,7 @@ func (c *PostgresConnector) EnsurePullability(
 		// we only allow no primary key if the table has REPLICA IDENTITY FULL
 		// this is ok for replica identity index as we populate the primary key columns
 		if len(pKeyCols) == 0 && replicaIdentity != ReplicaIdentityFull {
-			return nil, fmt.Errorf("table %s has no primary keys and does not have REPLICA IDENTITY FULL", schemaTable)
+			return nil, exceptions.NewMissingPrimaryKeyError(schemaTable.String())
 		}
 	}
 
@@ -1290,7 +1290,8 @@ func (c *PostgresConnector) SetupReplication(
 		}
 	}
 	// Create the replication slot and publication
-	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping, req.DoInitialSnapshot, skipSnapshotExport)
+	return c.createSlotAndPublication(ctx, exists, slotName, publicationName, tableNameMapping,
+		req.DoInitialSnapshot, skipSnapshotExport, req.Env)
 }
 
 func (c *PostgresConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
@@ -1527,8 +1528,7 @@ func (c *PostgresConnector) AddTablesToPublication(ctx context.Context, req *pro
 		}
 		notPresentTables := shared.ArrayMinus(additionalSrcTables, tableNames)
 		if len(notPresentTables) > 0 {
-			return exceptions.NewPostgresSetupError(fmt.Errorf("some additional tables not present in custom publication: %s",
-				strings.Join(notPresentTables, ",")))
+			return exceptions.NewTablesNotInPublicationError(notPresentTables, req.PublicationName)
 		}
 	} else {
 		for _, additionalSrcTable := range additionalSrcTables {

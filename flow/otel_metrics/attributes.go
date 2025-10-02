@@ -26,6 +26,17 @@ const (
 	TemporalActivityTypeKey    = "temporalActivityType"
 	TemporalWorkflowTypeKey    = "temporalWorkflowType"
 	IsFlowActiveKey            = "isFlowActive"
+	DestinationTableNameKey    = "destinationTableName"
+)
+
+const (
+	RecordOperationTypeKey = "recordOperationType"
+)
+
+const (
+	RecordOperationTypeInsert = "insert"
+	RecordOperationTypeUpdate = "update"
+	RecordOperationTypeDelete = "delete"
 )
 
 const (

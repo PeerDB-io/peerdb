@@ -8,6 +8,8 @@ import (
 )
 
 func QkindFromMysqlColumnType(ct string) (types.QValueKind, error) {
+	// https://mariadb.com/docs/server/reference/data-types/date-and-time-data-types/timestamp#tab-current-1
+	ct, _ = strings.CutSuffix(ct, " /* mariadb-5.3 */")
 	ct, _ = strings.CutSuffix(ct, " zerofill")
 	ct, isUnsigned := strings.CutSuffix(ct, " unsigned")
 	ct, param, _ := strings.Cut(ct, "(")

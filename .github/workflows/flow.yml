@@ -41,12 +41,12 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:efddcc9ac2b00bd523aff393defbd21cedd922ead984bcb8fdadd92982c81027
+        image: redpandadata/redpanda@sha256:b6a5ac5e4cdef333116748f6c7ece70eee33266d08a1850a3a83c1b4393554b6
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.1.3@sha256:05069ffdf546dbb8d1e3f1b9fcf0d8d7e9aa9164d4b85153936e356a4173aba9
+        image: elasticsearch:9.1.4@sha256:0605584123a5e577e7da05215d80ed81473d3ad041abca686918c1295c90a549
         ports:
           - 9200:9200
         env:
@@ -54,14 +54,29 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.135.0@sha256:89107a3a8f4636a396927edf7025bb9614b8da2d92f4cc3f43109e8d115736e2
+        image: otel/opentelemetry-collector-contrib:0.136.0@sha256:45392d534c1edcc809c2d112394029246bc679d2ae5ea7081414a1fc74f2c621
         ports:
           - 4317:4317
       toxiproxy:
-        image: ghcr.io/shopify/toxiproxy:2.11.0
+        image: ghcr.io/shopify/toxiproxy:2.12.0@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e
         ports:
           - 18474:8474
           - 9902:9902
+          - 42001:42001
+          - 42002:42002
+          - 42003:42003
+      openssh:
+        image: linuxserver/openssh-server:latest@sha256:72bd35539cca36df4703ba29f27ee1b3ba7171361ef001744e8390ba4ee69599
+        ports:
+          - 2222:2222
+        env:
+          PUID: 1000
+          PGID: 1000
+          TZ: Etc/UTC
+          USER_NAME: testuser
+          USER_PASSWORD: testpass
+          PASSWORD_ACCESS: true
+          DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
@@ -160,7 +175,7 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: cache-minio
         with:
           path: ./minio
@@ -171,7 +186,7 @@ jobs:
         run: |
           curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
 
-      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: cache-minio-client
         with:
           path: ./mc
@@ -213,7 +228,7 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: cache-clickhouse
         with:
           path: ./clickhouse

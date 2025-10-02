@@ -195,17 +195,9 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const rowsDoNotHaveSchemaTables = (schema: string) => {
-    return !rows.some((row) => row.schema === schema);
-  };
-
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setExpandedSchemas((curr) => [...curr, schemaName]);
-
-      if (rowsDoNotHaveSchemaTables(schemaName)) {
-        fetchTablesForSchema(schemaName);
-      }
     } else {
       setExpandedSchemas((curr) =>
         curr.filter((expandedSchema) => expandedSchema != schemaName)
@@ -270,8 +262,10 @@ export default function SchemaBox({
   ];
 
   useEffect(() => {
-    fetchTablesForSchema(schema);
-  }, [schema, fetchTablesForSchema, initialLoadOnly]);
+    if (schemaIsExpanded(schema)) {
+      fetchTablesForSchema(schema);
+    }
+  }, [schema, fetchTablesForSchema, schemaIsExpanded, initialLoadOnly]);
 
   return (
     <div style={schemaBoxStyle}>

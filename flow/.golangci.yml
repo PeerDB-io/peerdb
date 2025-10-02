@@ -29,6 +29,7 @@ linters:
     - prealloc
     - recvcheck
     - rowserrcheck
+    - sloglint
     - sqlclosecheck
     - staticcheck
     - testifylint
@@ -74,6 +75,8 @@ linters:
     lll:
       line-length: 144
       tab-width: 4
+    sloglint:
+      context: all
     staticcheck:
       checks:
         - all
