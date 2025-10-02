@@ -143,49 +143,6 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 	cfg.Version = internalVersion
 
-	// For resync, we validate the mirror before dropping it and getting to this step.
-	// There is no point validating again here if it's a resync - the mirror is dropped already
-	if !cfg.Resync {
-		if _, err := h.ValidateCDCMirror(ctx, req); err != nil {
-			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
-			// ValidateCDCMirror already returns a grpc error
-			//nopeertest:grpcReturn
-			return nil, fmt.Errorf("invalid mirror: %w", err)
-		}
-	}
-
-	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
-	workflowOptions := client.StartWorkflowOptions{
-		ID:                    workflowID,
-		TaskQueue:             h.peerflowTaskQueueID,
-		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
-	}
-
-	if err := h.createCdcJobEntry(ctx, req, workflowID, false); err != nil {
-		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to create flow job entry: %w", err))
-	}
-
-	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
-		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to start PeerFlow workflow: %w", err))
-	}
-
-	return &protos.CreateCDCFlowResponse{
-		WorkflowId: workflowID,
-	}, nil
-}
-
-func (h *FlowRequestHandler) CreateCDCFlowManaged(
-	ctx context.Context, req *protos.CreateCDCFlowRequest,
-) (*protos.CreateCDCFlowResponse, error) {
-	cfg := req.ConnectionConfigs
-	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env)
-	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to get internal version: %w", err))
-	}
-	cfg.Version = internalVersion
-
 	if !req.AttachToExisting {
 		if exists, err := h.cdcJobEntryExists(ctx, cfg.FlowJobName); err != nil {
 			return nil, exceptions.NewInternalApiError(fmt.Errorf("unable to check flow job entry: %w", err))
@@ -200,7 +157,7 @@ func (h *FlowRequestHandler) CreateCDCFlowManaged(
 	if err != nil && !errors.As(err, &errNotFound) {
 		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to query the workflow execution: %w", err))
 	} else if err == nil {
-		// Previous CreateCDCFlowManaged already succeeded
+		// Previous CreateCDCFlow already succeeded
 		return &protos.CreateCDCFlowResponse{
 			WorkflowId: workflowID,
 		}, nil
