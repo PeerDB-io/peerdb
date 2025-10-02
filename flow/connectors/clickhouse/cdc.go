@@ -44,7 +44,8 @@ func (c *ClickHouseConnector) GetRawTableName(flowJobName string) string {
 func (c *ClickHouseConnector) checkIfTableExists(ctx context.Context, databaseName string, tableIdentifier string) (bool, error) {
 	var result uint8
 	if err := c.queryRow(ctx,
-		fmt.Sprintf(checkIfTableExistsSQL, peerdb_clickhouse_val.QuoteLiteral(databaseName), peerdb_clickhouse_val.QuoteLiteral(tableIdentifier)),
+		fmt.Sprintf(checkIfTableExistsSQL,
+			peerdb_clickhouse_val.QuoteLiteral(databaseName), peerdb_clickhouse_val.QuoteLiteral(tableIdentifier)),
 	).Scan(&result); err != nil {
 		return false, fmt.Errorf("error while reading result row: %w", err)
 	}
