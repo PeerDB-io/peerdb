@@ -525,6 +525,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 
 		case pgerrcode.DuplicateFile, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure:
 			return ErrorRetryRecoverable, pgErrorInfo
+		default:
+			return ErrorOther, pgErrorInfo
 		}
 	}
 
