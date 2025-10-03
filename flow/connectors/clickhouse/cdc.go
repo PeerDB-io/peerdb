@@ -327,6 +327,9 @@ func (c *ClickHouseConnector) SyncRecords(ctx context.Context, req *model.SyncRe
 		if err != nil {
 			return nil, err
 		}
+		if parallelNormalize < 1 {
+			parallelNormalize = 1
+		}
 		lsns := make([]atomic.Int64, parallelNormalize)
 		queries := make([]chan query, parallelNormalize)
 		for workerId := range len(queries) {
