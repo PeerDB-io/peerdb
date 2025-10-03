@@ -254,15 +254,15 @@ func formatQValue(value types.QValue, nullable bool) string {
 		})
 	case types.QValueArrayDate:
 		return formatSlice(v.Val, func(val time.Time) string {
-			return val.Format(time.DateOnly)
+			return peerdb_clickhouse.QuoteLiteral(val.Format(time.DateOnly))
 		})
 	case types.QValueArrayTimestamp:
 		return formatSlice(v.Val, func(val time.Time) string {
-			return val.Format(time.StampNano)
+			return peerdb_clickhouse.QuoteLiteral(val.Format(time.StampNano))
 		})
 	case types.QValueArrayTimestampTZ:
 		return formatSlice(v.Val, func(val time.Time) string {
-			return val.Format(time.StampNano)
+			return peerdb_clickhouse.QuoteLiteral(val.Format(time.StampNano))
 		})
 	case types.QValueArrayEnum:
 		return formatSlice(v.Val, peerdb_clickhouse.QuoteLiteral)
@@ -287,11 +287,11 @@ func formatQValue(value types.QValue, nullable bool) string {
 	case types.QValueNumeric:
 		return v.Val.String()
 	case types.QValueDate:
-		return v.Val.Format(time.DateOnly)
+		return peerdb_clickhouse.QuoteLiteral(v.Val.Format(time.DateOnly))
 	case types.QValueTimestamp:
-		return v.Val.Format(time.StampNano)
+		return peerdb_clickhouse.QuoteLiteral(v.Val.Format(time.StampNano))
 	case types.QValueTimestampTZ:
-		return v.Val.Format(time.StampNano)
+		return peerdb_clickhouse.QuoteLiteral(v.Val.Format(time.StampNano))
 	case types.QValueEnum:
 		return peerdb_clickhouse.QuoteLiteral(v.Val)
 	case types.QValueBytes:
