@@ -11,7 +11,7 @@ jobs:
     strategy:
       matrix:
         # ubuntu-latest leverages larger GH runner pool & completes in ~30s instead of ~3m
-        runner: [ubuntu-latest]
+        runner: [blacksmith-4vcpu-ubuntu-2404]
     runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
