@@ -118,8 +118,8 @@ func XminFlowWorkflow(
 	}
 
 	logger.Info("Continuing as new workflow",
-		slog.Any("Last Partition", state.LastPartition),
-		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
+		slog.Any("lastPartition", state.LastPartition),
+		slog.Uint64("numPartitionsProcessed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)
