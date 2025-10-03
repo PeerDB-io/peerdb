@@ -779,7 +779,9 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 		return a.SendWALHeartbeat(ctx)
 	}))()
 	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordMetricsCritical", func() error {
-		return a.RecordMetricsCritical(ctx)
+		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 50*time.Second)
+		defer cancelFunc()
+		return a.RecordMetricsCritical(timeoutCtx)
 	}))()
 	defer shared.Interval(ctx, 2*time.Minute, wrapWithLog("RecordMetricsAggregates", func() error {
 		if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
