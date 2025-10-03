@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
 	"go.temporal.io/sdk/temporal"
 	"golang.org/x/crypto/ssh"
 
@@ -615,6 +616,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
 		default:
 			return ErrorOther, mongoErrorInfo
+		}
+	}
+
+	var mongoServerError *topology.ServerSelectionError
+	if errors.As(err, &mongoServerError) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "SERVER_SELECTION_ERROR",
 		}
 	}
 
