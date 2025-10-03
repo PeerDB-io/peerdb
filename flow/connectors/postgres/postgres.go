@@ -269,21 +269,30 @@ func (c *PostgresConnector) replicationOptions(publicationName string, pgVersion
 
 // Close closes all connections.
 func (c *PostgresConnector) Close() error {
-	var connerr, replerr error
+	var errs []error
 	if c != nil {
 		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		connerr = c.conn.Close(timeout)
+		if err := c.conn.Close(timeout); err != nil {
+			c.logger.Error("failed to close Postgres connection", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to close Postgres connection: %w", err))
+		}
 
 		if c.replConn != nil {
 			timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
-			replerr = c.replConn.Close(timeout)
+			if err := c.replConn.Close(timeout); err != nil {
+				c.logger.Error("failed to close Postgres replication connection", slog.Any("error", err))
+				errs = append(errs, fmt.Errorf("failed to close Postgres replication connection: %w", err))
+			}
 		}
 
-		c.ssh.Close()
+		if err := c.ssh.Close(); err != nil {
+			c.logger.Error("[postgres] failed to close SSH tunnel", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("[postgres] failed to close SSH tunnel: %w", err))
+		}
 	}
-	return errors.Join(connerr, replerr)
+	return errors.Join(errs...)
 }
 
 func (c *PostgresConnector) Conn() *pgx.Conn {

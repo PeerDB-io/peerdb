@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync/atomic"
 	"time"
@@ -81,18 +82,22 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 }
 
 func (c *MongoConnector) Close() error {
+	var errs []error
 	if c != nil && c.client != nil {
 		// Use a timeout to ensure the disconnect operation does not hang indefinitely
 		timeout, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		return c.client.Disconnect(timeout)
-	}
-	if c.ssh != nil && c.ssh.Client != nil {
-		if err := c.ssh.Close(); err != nil {
-			return fmt.Errorf("failed to close SSH tunnel: %w", err)
+		if err := c.client.Disconnect(timeout); err != nil {
+			c.logger.Error("failed to disconnect MongoDB client", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to disconnect MongoDB client: %w", err))
 		}
 	}
-	return nil
+
+	if err := c.ssh.Close(); err != nil {
+		c.logger.Error("[mongo] failed to close SSH tunnel", slog.Any("error", err))
+		errs = append(errs, fmt.Errorf("[mongo] failed to close SSH tunnel: %w", err))
+	}
+	return errors.Join(errs...)
 }
 
 func (c *MongoConnector) ConnectionActive(ctx context.Context) error {

@@ -131,13 +131,13 @@ func (c *MySqlConnector) Close() error {
 	}
 	if conn := c.conn.Swap(nil); conn != nil {
 		if err := conn.Close(); err != nil {
-			c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
-			errs = append(errs, err)
+			c.logger.Error("failed to close MySQL connection", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to close MySQL connection: %w", err))
 		}
 	}
 	if err := c.ssh.Close(); err != nil {
-		c.logger.Error("Failed to close SSH tunnel", slog.Any("error", err))
-		errs = append(errs, err)
+		c.logger.Error("[mysql] failed to close SSH tunnel", slog.Any("error", err))
+		errs = append(errs, fmt.Errorf("[mysql] failed to close SSH tunnel: %w", err))
 	}
 	return errors.Join(errs...)
 }
