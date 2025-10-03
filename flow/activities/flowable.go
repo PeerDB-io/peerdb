@@ -1105,8 +1105,12 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			return err
 		}
 		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		a.recordSlotInformation(timeoutCtx, info, slotMetricGauges)
-		a.emitLogRetentionHours(timeoutCtx, info, a.OtelManager.Metrics.LogRetentionGauge)
+		if err := a.recordSlotInformation(timeoutCtx, info, slotMetricGauges); err != nil {
+			logger.Error("Failed to record slot information", slog.Any("error", err))
+		}
+		if err := a.emitLogRetentionHours(timeoutCtx, info, a.OtelManager.Metrics.LogRetentionGauge); err != nil {
+			logger.Error("Failed to emit log retention hours", slog.Any("error", err))
+		}
 		cancel()
 	}
 	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
@@ -1117,7 +1121,7 @@ func (a *FlowableActivity) recordSlotInformation(
 	ctx context.Context,
 	info flowInformation,
 	slotMetricGauges otel_metrics.SlotMetricGauges,
-) {
+) error {
 	logger := internal.LoggerFromCtx(ctx)
 	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
 		FlowName:        info.config.FlowJobName,
@@ -1126,15 +1130,20 @@ func (a *FlowableActivity) recordSlotInformation(
 	})
 	if err != nil {
 		logger.Error("Failed to get flow metadata", slog.Any("error", err))
-		return
+		return err
 	}
+
+	if flowMetadata.Source.Type != protos.DBType_POSTGRES {
+		return nil
+	}
+
 	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
+	srcConn, err := connectors.GetPostgresConnectorByName(ctx, nil, a.CatalogPool, info.config.SourceName)
 	if err != nil {
 		if !errors.Is(err, errors.ErrUnsupported) {
 			logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
 		}
-		return
+		return err
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
@@ -1151,13 +1160,15 @@ func (a *FlowableActivity) recordSlotInformation(
 	}, slotMetricGauges); err != nil {
 		logger.Error("Failed to handle slot info", slog.Any("error", err))
 	}
+
+	return nil
 }
 
 func (a *FlowableActivity) emitLogRetentionHours(
 	ctx context.Context,
 	info flowInformation,
 	logRetentionGauge metric.Float64Gauge,
-) {
+) error {
 	logger := internal.LoggerFromCtx(ctx)
 	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
 		FlowName:        info.config.FlowJobName,
@@ -1166,7 +1177,7 @@ func (a *FlowableActivity) emitLogRetentionHours(
 	})
 	if err != nil {
 		logger.Error("Failed to get flow metadata", slog.Any("error", err))
-		return
+		return err
 	}
 	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 	srcConn, err := connectors.GetByNameAs[connectors.GetLogRetentionConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
@@ -1174,7 +1185,7 @@ func (a *FlowableActivity) emitLogRetentionHours(
 		if !errors.Is(err, errors.ErrUnsupported) {
 			logger.Error("Failed to create connector to emit log retention", slog.Any("error", err))
 		}
-		return
+		return err
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
@@ -1187,11 +1198,12 @@ func (a *FlowableActivity) emitLogRetentionHours(
 	if logRetentionHours > 0 {
 		logRetentionGauge.Record(ctx, logRetentionHours)
 		logger.Info("Emitted log retention hours", slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
-		return
+		return nil
 	}
 
 	logger.Warn("Log retention hours is not set or is zero, skipping emission",
 		slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
+	return nil
 }
 
 var activeFlowStatuses = map[protos.FlowStatus]struct{}{
