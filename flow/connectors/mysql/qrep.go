@@ -39,7 +39,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
-				PartitionId:        utils.MySQLFullTablePartitionID,
+				PartitionId:        utils.FullTablePartitionID,
 				Range:              nil,
 				FullTablePartition: true,
 			},

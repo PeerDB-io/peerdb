@@ -16,11 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-// QRep partition constants
-const (
-	MySQLFullTablePartitionID = "mysql-full-table-partition-id"
-	MongoFullTablePartitionID = "mongo-full-table-partition-id"
-)
+const FullTablePartitionID = "full-table-partition-id"
 
 type PartitionRangeType string
 

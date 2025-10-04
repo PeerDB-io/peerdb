@@ -299,8 +299,7 @@ func supportsStatsForFullTablePartition(partition *protos.QRepPartition) bool {
 	if partition == nil {
 		return false
 	}
-	return partition.PartitionId == utils.MySQLFullTablePartitionID ||
-		partition.PartitionId == utils.MongoFullTablePartitionID
+	return partition.PartitionId == utils.FullTablePartitionID
 }
 
 func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,

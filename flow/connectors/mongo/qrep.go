@@ -27,7 +27,7 @@ func (c *MongoConnector) GetQRepPartitions(
 ) ([]*protos.QRepPartition, error) {
 	fullTablePartition := []*protos.QRepPartition{
 		{
-			PartitionId:        utils.MongoFullTablePartitionID,
+			PartitionId:        utils.FullTablePartitionID,
 			Range:              nil,
 			FullTablePartition: true,
 		},
