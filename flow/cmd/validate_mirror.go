@@ -36,7 +36,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 		return nil, NewUnavailableApiError(ErrUnderMaintenance)
 	}
 
-	// Skip mirror existence check when idempotent (for managed API)
+	// Skip mirror existence check when idempotent (for managed creates)
 	if !idempotent && !req.ConnectionConfigs.Resync {
 		mirrorExists, existCheckErr := h.checkIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {

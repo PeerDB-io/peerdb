@@ -152,16 +152,26 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 
 	workflowID := getWorkflowID(cfg.FlowJobName)
 	var errNotFound *serviceerror.NotFound
-	_, err = h.temporalClient.DescribeWorkflow(ctx, workflowID, "")
+	desc, err := h.temporalClient.DescribeWorkflow(ctx, workflowID, "")
 	if err != nil && !errors.As(err, &errNotFound) {
 		return nil, NewInternalApiError(fmt.Errorf("failed to query the workflow execution: %w", err))
 	} else if err == nil {
-		// Previous CreateCDCFlow already succeeded
-		return &protos.CreateCDCFlowResponse{
-			WorkflowId: workflowID,
-		}, nil
+		// If workflow is actively running, handle based on AttachToExisting
+		// Workflows in terminal states are fine
+		if desc.WorkflowExecutionMetadata.Status == tEnums.WORKFLOW_EXECUTION_STATUS_RUNNING ||
+			desc.WorkflowExecutionMetadata.Status == tEnums.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW {
+			if req.AttachToExisting {
+				// Idempotent attach to running workflow
+				return &protos.CreateCDCFlowResponse{
+					WorkflowId: workflowID,
+				}, nil
+			} else {
+				// Can't create duplicate of running workflow
+				return nil, NewAlreadyExistsApiError(fmt.Errorf("workflow already exists for flow: %s", cfg.FlowJobName))
+			}
+		}
 	}
-	// Workflow not found, do the validations and start a new one
+	// No running workflow, do the validations and start a new one
 
 	// Use idempotent validation that skips mirror existence check
 	if _, err := h.validateCDCMirrorImpl(ctx, req, true); err != nil {
@@ -169,7 +179,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 	}
 
-	if resp, err := h.createCDCFlow(ctx, req, workflowID, tEnums.WORKFLOW_ID_REUSE_POLICY_REJECT_DUPLICATE); err != nil {
+	if resp, err := h.createCDCFlow(ctx, req, workflowID); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
 		return resp, nil
@@ -181,15 +191,15 @@ func getWorkflowID(flowName string) string {
 }
 
 func (h *FlowRequestHandler) createCDCFlow(
-	ctx context.Context, req *protos.CreateCDCFlowRequest, workflowID string, workflowIDReusePolicy tEnums.WorkflowIdReusePolicy,
+	ctx context.Context, req *protos.CreateCDCFlowRequest, workflowID string,
 ) (*protos.CreateCDCFlowResponse, error) {
 	cfg := req.ConnectionConfigs
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                       workflowID,
 		TaskQueue:                h.peerflowTaskQueueID,
 		TypedSearchAttributes:    shared.NewSearchAttributes(cfg.FlowJobName),
-		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowIDReusePolicy:    workflowIDReusePolicy,
+		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, // two racing requests end up with the same workflow
+		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // but creating the same id as a completed one is allowed
 	}
 
 	if err := h.createCdcJobEntry(ctx, req, workflowID, true); err != nil {
@@ -572,7 +582,6 @@ func (h *FlowRequestHandler) resyncCompletedSnapshot(
 	if _, err := h.createCDCFlow(ctx,
 		&protos.CreateCDCFlowRequest{ConnectionConfigs: config},
 		workflowID,
-		tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	); err != nil {
 		return err
 	}
