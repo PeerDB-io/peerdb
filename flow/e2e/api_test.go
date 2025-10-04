@@ -1117,18 +1117,20 @@ func (s APITestSuite) TestQRep() {
 		PeerName: s.source.GeneratePeer(s.t).Name,
 	})
 	require.NoError(s.t, err)
-	tblName := "qrepapi" + s.suffix
-	schemaQualified := AttachSchema(s, tblName)
+	tableName := "qrepapi"
+	schemaQualified := AttachSchema(s, tableName)
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", schemaQualified)))
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", schemaQualified)))
 
+	flowName := fmt.Sprintf("qrepapiflow_%s_%s", peerType.PeerType, s.suffix)
+	destTableName := AddSuffix(s, tableName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"qrepapiflow"+"_"+peerType.PeerType,
+		flowName,
 		schemaQualified,
-		tblName,
+		destTableName,
 		fmt.Sprintf("SELECT * FROM %s WHERE id BETWEEN {{.start}} AND {{.end}}", schemaQualified),
 		s.ch.Peer().Name,
 		"",
@@ -1150,12 +1152,12 @@ func (s APITestSuite) TestQRep() {
 	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, qrepConfig.FlowJobName)
 	require.NoError(s.t, err)
 
-	EnvWaitForEqualTables(env, s.ch, "qrep initial load", tblName, "id,val")
+	EnvWaitForEqualTables(env, s.ch, "qrep initial load", destTableName, "id,val")
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(),
 		fmt.Sprintf("INSERT INTO %s(id, val) values (2,'second')", schemaQualified)))
 
-	EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", tblName, "id,val")
+	EnvWaitForEqualTables(env, s.ch, "insert post qrep initial load", destTableName, "id,val")
 	statusResponse, err := s.MirrorStatus(s.t.Context(), &protos.MirrorStatusRequest{
 		FlowJobName:     qrepConfig.FlowJobName,
 		IncludeFlowInfo: true,
