@@ -20,8 +20,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	peerdb_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 const (
