@@ -17,7 +17,6 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
-	"github.com/PeerDB-io/peerdb/flow/shared/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -53,7 +52,7 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	customTypeMapping map[uint32]shared.CustomDataType,
 	version uint32,
 ) types.QValueKind {
-	colType, err := postgres.PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, version)
+	colType, err := PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, version)
 	if err != nil {
 		if _, warned := c.hushWarnOID[recvOID]; !warned {
 			c.logger.Warn(

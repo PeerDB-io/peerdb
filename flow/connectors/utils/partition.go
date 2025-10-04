@@ -16,6 +16,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
+const FullTablePartitionID = "full-table-partition-id"
+
 type PartitionRangeType string
 
 const (

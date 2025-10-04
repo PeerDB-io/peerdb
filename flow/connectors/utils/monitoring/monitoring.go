@@ -16,13 +16,12 @@ import (
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
-	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
 type CDCBatchInfo struct {
@@ -302,8 +301,7 @@ func supportsStatsForFullTablePartition(partition *protos.QRepPartition) bool {
 	if partition == nil {
 		return false
 	}
-	return partition.PartitionId == shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID ||
-		partition.PartitionId == shared_mongo.MongoFullTablePartitionId
+	return partition.PartitionId == utils.FullTablePartitionID
 }
 
 func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,

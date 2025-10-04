@@ -9,8 +9,6 @@ import (
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"go.temporal.io/sdk/log"
-
-	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func CompareServerVersion(conn *client.Conn, version string) (int, error) {
@@ -64,12 +62,12 @@ func CheckMySQL5BinlogSettings(conn *client.Conn, logger log.Logger) error {
 	}
 	row := rs.Values[0]
 
-	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
+	binlogFormat := string(row[0].AsString())
 	if binlogFormat != "ROW" {
 		return errors.New("binlog_format must be set to 'ROW', currently " + binlogFormat)
 	}
 	if checkBinlogRowImage {
-		binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[1].AsString())
+		binlogRowImage := string(row[1].AsString())
 		if binlogRowImage != "FULL" {
 			return errors.New("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
 		}
@@ -113,20 +111,20 @@ func CheckMySQL8BinlogSettings(conn *client.Conn, logger log.Logger) error {
 			"binlog_expire_logs_seconds must be set to at least 86400 (24 hours), currently " +
 				strconv.FormatUint(binlogExpireLogsSeconds, 10))
 	}
-	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(row[1].AsString())
+	binlogFormat := string(row[1].AsString())
 	if binlogFormat != "ROW" {
 		return errors.New("binlog_format must be set to 'ROW', currently " + binlogFormat)
 	}
-	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[2].AsString())
+	binlogRowImage := string(row[2].AsString())
 	if binlogRowImage != "FULL" {
 		return errors.New("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
 	}
-	binlogRowMetadata := shared.UnsafeFastReadOnlyBytesToString(row[3].AsString())
+	binlogRowMetadata := string(row[3].AsString())
 	if binlogRowMetadata != "FULL" {
 		return errors.New("binlog_row_metadata must be set to 'FULL', currently " + binlogRowMetadata)
 	}
 	if checkRowValueOptions {
-		binlogRowValueOptions := shared.UnsafeFastReadOnlyBytesToString(row[4].AsString())
+		binlogRowValueOptions := string(row[4].AsString())
 		if binlogRowValueOptions != "" {
 			return errors.New("binlog_row_value_options must be disabled, currently " + binlogRowValueOptions)
 		}
@@ -159,17 +157,17 @@ func CheckMariaDBBinlogSettings(conn *client.Conn, logger log.Logger) error {
 	}
 	row := rs.Values[0]
 
-	binlogFormat := shared.UnsafeFastReadOnlyBytesToString(row[0].AsString())
+	binlogFormat := string(row[0].AsString())
 	if binlogFormat != "ROW" {
 		return errors.New("binlog_format must be set to 'ROW', currently " + binlogFormat)
 	}
 
-	binlogRowImage := shared.UnsafeFastReadOnlyBytesToString(row[1].AsString())
+	binlogRowImage := string(row[1].AsString())
 	if binlogRowImage != "FULL" {
 		return errors.New("binlog_row_image must be set to 'FULL', currently " + binlogRowImage)
 	}
 
-	binlogRowMetadata := shared.UnsafeFastReadOnlyBytesToString(row[2].AsString())
+	binlogRowMetadata := string(row[2].AsString())
 	if binlogRowMetadata != "FULL" {
 		// only strictly required for column exclusion support, but let's enforce it for consistency
 		return errors.New("binlog_row_metadata must be set to 'FULL', currently " + binlogRowMetadata)
@@ -200,7 +198,7 @@ func CheckRDSBinlogSettings(conn *client.Conn, logger log.Logger) error {
 		}
 		return errors.New("failed to check RDS/Aurora binlog retention hours: " + err.Error())
 	} else if len(rs.Values) > 0 {
-		binlogRetentionHoursStr := shared.UnsafeFastReadOnlyBytesToString(rs.Values[0][0].AsString())
+		binlogRetentionHoursStr := string(rs.Values[0][0].AsString())
 		if binlogRetentionHoursStr == "" {
 			return errors.New("RDS/Aurora setting 'binlog retention hours' should be at least 24, currently unset")
 		}

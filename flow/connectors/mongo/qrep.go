@@ -17,7 +17,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -28,7 +27,7 @@ func (c *MongoConnector) GetQRepPartitions(
 ) ([]*protos.QRepPartition, error) {
 	fullTablePartition := []*protos.QRepPartition{
 		{
-			PartitionId:        shared_mongo.MongoFullTablePartitionId,
+			PartitionId:        utils.FullTablePartitionID,
 			Range:              nil,
 			FullTablePartition: true,
 		},
