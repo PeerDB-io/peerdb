@@ -142,7 +142,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		status = protos.FlowStatus_STATUS_RESYNC
 	}
 	logger := workflow.GetLogger(ctx)
-	syncStatusToCatalog(ctx, logger, status)
+	syncStatusToCatalogWithFlowName(ctx, logger, status, input.FlowJobName)
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
 	logger.Info("performing cleanup for flow",
