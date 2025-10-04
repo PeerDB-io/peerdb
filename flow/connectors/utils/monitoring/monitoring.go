@@ -123,6 +123,11 @@ func AddCDCBatchTablesForFlow(
 	tableNameRowsMapping map[string]*model.RecordTypeCounts,
 	otelManager *otel_metrics.OtelManager,
 ) error {
+	var recordAggregateMetrics bool
+	if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
+		recordAggregateMetrics = true
+	}
+
 	insertBatchTablesTx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("error while beginning transaction for inserting statistics: %w", err)
@@ -132,10 +137,7 @@ func AddCDCBatchTablesForFlow(
 		op    string
 		count int32
 	}
-	var recordAggregateMetrics bool
-	if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
-		recordAggregateMetrics = true
-	}
+
 	var syncedTablesCount int64
 	tableNameOperations := make(map[string][3]opWithValue, len(tableNameRowsMapping))
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
