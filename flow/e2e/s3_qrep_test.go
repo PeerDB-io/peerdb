@@ -127,8 +127,9 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3() {
 
 	tc := NewTemporalClient(s.t)
 
-	jobName := AddSuffix(s, "test_complete_flow_s3")
-	schemaQualifiedName := AttachSchema(s, "test_complete_flow_s3")
+	tableName := "test_complete_flow_s3"
+	jobName := AddSuffix(s, tableName)
+	schemaQualifiedName := AttachSchema(s, tableName)
 
 	s.setupSourceTable(jobName, 10)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at >= {{.start}} AND updated_at < {{.end}}",
@@ -170,8 +171,9 @@ func (s PeerFlowE2ETestSuiteS3) Test_Complete_QRep_Flow_S3_CTID() {
 
 	tc := NewTemporalClient(s.t)
 
-	jobName := AddSuffix(s, "test_complete_flow_s3_ctid")
-	schemaQualifiedName := AttachSchema(s, "test_complete_flow_s3_ctid")
+	tableName := "test_complete_flow_s3_ctid"
+	jobName := AddSuffix(s, tableName)
+	schemaQualifiedName := AttachSchema(s, tableName)
 
 	s.setupSourceTable(jobName, 20000)
 	query := fmt.Sprintf("SELECT * FROM %s WHERE ctid BETWEEN {{.start}} AND {{.end}}", schemaQualifiedName)
