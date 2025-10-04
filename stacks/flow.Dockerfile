@@ -6,7 +6,7 @@ WORKDIR /root/flow
 
 # first copy only go.mod and go.sum to cache dependencies
 COPY flow/go.mod flow/go.sum ./
-COPY flow/shared-light/go.mod flow/shared-light/go.sum ./shared-light/
+COPY flow/pkg/go.mod flow/pkg/go.sum ./pkg/
 
 # download all the dependencies
 RUN go mod download
