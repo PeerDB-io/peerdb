@@ -1594,7 +1594,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachExternalFlowEntry() {
 }
 
 func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
-	// Test: when cdc flow workflow is failed/canceled, a new one is still not created
+	// Test: when cdc flow workflow is failed/canceled, a new run can be created with the same workflow ID
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only testing with PostgreSQL")
 	}
@@ -1628,16 +1628,21 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 	RequireEnvCanceled(s.t, env)
 
 	// Wait for workflow to be canceled
+	var firstRunID string
 	EnvWaitFor(s.t, env, 30*time.Second, "wait for workflow to be canceled", func() bool {
 		desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response1.WorkflowId, "")
 		if err != nil {
 			return false
 		}
 		status := desc.GetWorkflowExecutionInfo().GetStatus()
-		return status == enums.WORKFLOW_EXECUTION_STATUS_CANCELED
+		if status == enums.WORKFLOW_EXECUTION_STATUS_CANCELED {
+			firstRunID = desc.GetWorkflowExecutionInfo().GetExecution().GetRunId()
+			return true
+		}
+		return false
 	})
 
-	// Attempt to create again - should return the same workflow ID even though it's canceled
+	// Attempt to create again - should create a new workflow run with the same workflow ID
 	response2, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{
 		ConnectionConfigs: flowConnConfig,
 		AttachToExisting:  true,
@@ -1646,10 +1651,18 @@ func (s APITestSuite) TestCreateCDCFlowAttachCanceledWorkflow() {
 	require.NotNil(s.t, response2)
 	require.Equal(s.t, response1.WorkflowId, response2.WorkflowId)
 
-	// Verify workflow is still in canceled state (not restarted)
+	// Verify a new workflow run was created (different run ID, status is RUNNING)
 	desc, err := tc.DescribeWorkflowExecution(s.t.Context(), response2.WorkflowId, "")
 	require.NoError(s.t, err)
-	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_CANCELED, desc.GetWorkflowExecutionInfo().GetStatus())
+	require.Equal(s.t, enums.WORKFLOW_EXECUTION_STATUS_RUNNING, desc.GetWorkflowExecutionInfo().GetStatus())
+	require.NotEqual(s.t, firstRunID, desc.GetWorkflowExecutionInfo().GetExecution().GetRunId(),
+		"should have created a new workflow run")
+
+	// Clean up
+	env, err = GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
 }
 
 func (s APITestSuite) TestCreateCDCFlowAttachIdempotentAfterContinueAsNew() {
