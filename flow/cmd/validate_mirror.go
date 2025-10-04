@@ -18,6 +18,12 @@ var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
+	return h.validateCDCMirrorImpl(ctx, req, false)
+}
+
+func (h *FlowRequestHandler) validateCDCMirrorImpl(
+	ctx context.Context, req *protos.CreateCDCFlowRequest, idempotent bool,
+) (*protos.ValidateCDCMirrorResponse, APIError) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.ConnectionConfigs.FlowJobName)
 	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
@@ -30,7 +36,8 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		return nil, NewUnavailableApiError(ErrUnderMaintenance)
 	}
 
-	if !req.ConnectionConfigs.Resync {
+	// Skip mirror existence check when idempotent (for managed creates)
+	if !idempotent && !req.ConnectionConfigs.Resync {
 		mirrorExists, existCheckErr := h.checkIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {
 			slog.ErrorContext(ctx, "/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
