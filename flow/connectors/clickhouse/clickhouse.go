@@ -258,6 +258,13 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	if config.Cluster != "" {
 		settings["insert_distributed_sync"] = uint64(1)
 	}
+	if allowStream, err := internal.PeerDBEnableClickHouseStream(ctx, env); err != nil {
+		return nil, fmt.Errorf("failed to load stream config: %w", err)
+	} else if allowStream {
+		settings["allow_experimental_lightweight_update"] = true
+		settings["async_insert"] = true
+		settings["lightweight_delete_mode"] = "lightweight_update"
+	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
 		Addr: []string{shared.JoinHostPort(config.Host, config.Port)},
