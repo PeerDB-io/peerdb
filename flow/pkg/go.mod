@@ -1,4 +1,4 @@
-module github.com/PeerDB-io/peerdb/flow/shared-light
+module github.com/PeerDB-io/peerdb/flow/pkg
 
 go 1.25.0
 

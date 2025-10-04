@@ -5,7 +5,7 @@ import (
 	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared-light/mysql"
+	"github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
 
 func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
