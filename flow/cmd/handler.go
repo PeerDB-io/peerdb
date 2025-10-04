@@ -269,6 +269,20 @@ func (h *FlowRequestHandler) dropFlow(
 ) error {
 	logs := slog.Group("shutdown-log", slog.String(string(shared.FlowNameKey), flowJobName))
 
+	isCdc, err := h.isCDCFlow(ctx, flowJobName)
+	if err != nil {
+		slog.ErrorContext(ctx, "unable to check if workflow is cdc", logs, slog.Any("error", err))
+		return fmt.Errorf("unable to determine if workflow is cdc: %w", err)
+	}
+	var cdcConfig *protos.FlowConnectionConfigs
+	if isCdc {
+		cdcConfig, err = h.getFlowConfigFromCatalog(ctx, flowJobName)
+		if err != nil {
+			slog.ErrorContext(ctx, "unable to get cdc config from catalog", logs, slog.Any("error", err))
+			return fmt.Errorf("unable to get cdc config from catalog: %w", err)
+		}
+	}
+
 	dropFlowWorkflowID := fmt.Sprintf("%s-dropflow-%s", flowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                    dropFlowWorkflowID,
@@ -279,8 +293,9 @@ func (h *FlowRequestHandler) dropFlow(
 	if dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowJobName,
 		DropFlowStats:         deleteStats,
-		FlowConnectionConfigs: nil,
+		FlowConnectionConfigs: cdcConfig,
 		SkipDestinationDrop:   true,
+		SkipSourceDrop:        true,
 	}); err != nil {
 		slog.ErrorContext(ctx, "unable to start DropFlow workflow", logs, slog.Any("error", err))
 		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
