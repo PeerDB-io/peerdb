@@ -58,7 +58,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Complete_QRep_Flow_Avro() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.bqSuffix, tblName)
 
-	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_qrep_flow_avro",
+	jobName := AddSuffix(s, tblName)
+	qrepConfig := CreateQRepWorkflowConfig(s.t,
+		jobName,
 		fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tblName),
 		tblName,
 		query,
@@ -82,7 +84,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_Invalid_Timestamps_And_Date_QRep() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE watermark_ts BETWEEN {{.start}} AND {{.end}}",
 		s.bqSuffix, tblName)
 
-	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_invalid_time_bq",
+	jobName := AddSuffix(s, tblName)
+	qrepConfig := CreateQRepWorkflowConfig(s.t,
+		jobName,
 		fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tblName),
 		tblName,
 		query,
@@ -123,7 +127,9 @@ func (s PeerFlowE2ETestSuiteBQ) Test_PeerDB_Columns_QRep_BQ() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.bqSuffix, tblName)
 
-	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_qrep_flow_avro",
+	jobName := AddSuffix(s, tblName)
+	qrepConfig := CreateQRepWorkflowConfig(s.t,
+		jobName,
 		fmt.Sprintf("e2e_test_%s.%s", s.bqSuffix, tblName),
 		tblName,
 		query,
