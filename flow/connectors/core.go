@@ -281,6 +281,20 @@ type QRepConsolidateConnector interface {
 	CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error
 }
 
+type AvroExportS3Connector interface {
+	Connector
+
+	// Export list of tables to S3
+	AvroExport(context.Context, *protos.CreateImportS3Request) (map[string][]func() (string, error), error)
+}
+
+type AvroImportS3Connector interface {
+	Connector
+
+	// Import list of paths
+	AvroImport(context.Context, *protos.CreateImportS3Request, map[string][]func() (string, error)) error
+}
+
 type RawTableConnector interface {
 	Connector
 
@@ -537,6 +551,10 @@ func CloseConnector(ctx context.Context, conn Connector) {
 
 // create type assertions to cause compile time error if connector interface not implemented
 var (
+	_ AvroExportS3Connector = &connbigquery.BigQueryConnector{}
+
+	_ AvroImportS3Connector = &connclickhouse.ClickHouseConnector{}
+
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
 	_ CDCPullConnector = &connmysql.MySqlConnector{}
 	_ CDCPullConnector = &connmongo.MongoConnector{}

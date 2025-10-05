@@ -377,6 +377,32 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	return nil
 }
 
+func (s *ClickHouseAvroSyncMethod) SyncFromAvroS3(
+	ctx context.Context,
+	creds utils.AWSCredentials,
+	destinationTableIdentifier string,
+	avroFile utils.AvroFile,
+) (int64, error) {
+	var selectorStr string
+	var avroFileUrl string
+
+	sessionTokenPart := ""
+	if creds.AWS.SessionToken != "" {
+		sessionTokenPart = fmt.Sprintf(", '%s'", creds.AWS.SessionToken)
+	}
+	query := fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM s3('%s','%s','%s'%s, 'Avro')",
+		destinationTableIdentifier, selectorStr, selectorStr, avroFileUrl,
+		creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, sessionTokenPart)
+
+	err := s.database.Exec(ctx, query)
+	if err != nil {
+		s.logger.Error("Failed to insert into select for Clickhouse: ", err)
+		return 0, err
+	}
+
+	return avroFile.NumRecords, nil
+}
+
 func (s *ClickHouseAvroSyncMethod) getAvroSchema(
 	ctx context.Context,
 	env map[string]string,
