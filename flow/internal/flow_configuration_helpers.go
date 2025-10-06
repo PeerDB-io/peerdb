@@ -20,10 +20,9 @@ func TableNameMapping(tableMappings []*protos.TableMapping) map[string]string {
 
 func FetchConfigFromDB(flowName string) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
-	dbCtx := context.Background()
-	pool, _ := GetCatalogConnectionPoolFromEnv(dbCtx)
-	defer dbCtx.Done()
-	if err := pool.QueryRow(dbCtx,
+	ctx := context.Background()
+	pool, _ := GetCatalogConnectionPoolFromEnv(ctx)
+	if err := pool.QueryRow(ctx,
 		"SELECT config_proto FROM flows WHERE name = $1 LIMIT 1", flowName,
 	).Scan(&configBytes); err != nil {
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
