@@ -619,7 +619,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var mongoServerError *topology.ServerSelectionError
+	var mongoServerError topology.ServerSelectionError
 	if errors.As(err, &mongoServerError) {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMongoDB,
