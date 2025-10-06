@@ -317,9 +317,9 @@ func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName 
 	err := row.Scan(&dbtype)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("peer not found: %s", peerName)
+			return 0, exceptions.NewNotFoundError(fmt.Errorf("peer not found: %s", peerName))
 		}
-		return 0, fmt.Errorf("failed to load peer type for %s: %w", peerName, err)
+		return 0, exceptions.NewCatalogError(fmt.Errorf("failed to load peer type for %s: %w", peerName, err))
 	}
 	return dbtype, nil
 }

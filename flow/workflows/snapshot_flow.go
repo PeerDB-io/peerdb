@@ -277,11 +277,11 @@ func (s *SnapshotFlowExecution) cloneTables(
 
 	sourcePeerType, err := getPeerType(ctx, s.config.SourceName)
 	if err != nil {
-		return fmt.Errorf("failed to get source peer type: %w", err)
+		return err
 	}
 	destinationPeerType, err := getPeerType(ctx, s.config.DestinationName)
 	if err != nil {
-		return fmt.Errorf("failed to get destination peer type: %w", err)
+		return err
 	}
 
 	for _, v := range s.config.TableMappings {
