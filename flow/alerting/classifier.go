@@ -137,6 +137,9 @@ var (
 	ErrorNotifyReplicationSlotMissing = ErrorClass{
 		Class: "NOTIFY_REPLICATION_SLOT_MISSING", action: NotifyUser,
 	}
+	ErrorNotifyIncreaseLogicalDecodingWorkMem = ErrorClass{
+		Class: "NOTIFY_INCREASE_LOGICAL_DECODING_WORK_MEM", action: NotifyUser,
+	}
 	ErrorUnsupportedDatatype = ErrorClass{
 		Class: "NOTIFY_UNSUPPORTED_DATATYPE", action: NotifyUser,
 	}
@@ -449,12 +452,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				(strings.HasPrefix(pgErr.Message, "could not stat file ") &&
 					strings.HasSuffix(pgErr.Message, "Stale file handle")) ||
 				// Below error is transient and Aurora Specific
-				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) ||
+				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) &&
+					!strings.Contains(pgErr.Hint, "increase logical_decoding_work_mem") ||
 				//nolint:lll
 				// Handle missing record during logical decoding
 				// https://github.com/postgres/postgres/blob/a0c7b765372d949cec54960dafcaadbc04b3204e/src/backend/access/transam/xlogreader.c#L921
 				strings.HasPrefix(pgErr.Message, "could not find record while sending logically-decoded data") {
 				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
+			// Handle error in ReorderBufferPreserveLastSpilledSnapshot routine
+			if strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding of aborted sub-transaction") &&
+				strings.Contains(pgErr.Hint, "increase logical_decoding_work_mem") {
+				return ErrorNotifyIncreaseLogicalDecodingWorkMem, pgErrorInfo
 			}
 
 			// Handle WAL segment removed errors
