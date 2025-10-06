@@ -735,12 +735,12 @@ func TestDropCompletedAndUnavailable(t *testing.T) {
 	require.NoError(t, mysql.Exec(t.Context(),
 		fmt.Sprintf("INSERT INTO e2e_test_%s.%s(id, val) values (1,'first')", suffix, "valid")))
 
-	proxyPortInt := uint16(43001)
-	proxyPort := strconv.Itoa(int(proxyPortInt))
+	proxyPort := 43001
 	toxiproxyAPIPort := "18474"
 	toxiproxyHost := "localhost"
 	toxiproxyClient := tp.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
-	proxy, err := toxiproxyClient.CreateProxy(suffix, "0.0.0.0:"+proxyPort, fmt.Sprintf("%s:%d", mysql.Config.Host, mysql.Config.Port))
+	proxy, err := toxiproxyClient.CreateProxy(suffix,
+		"0.0.0.0:"+strconv.Itoa(proxyPort), fmt.Sprintf("%s:%d", mysql.Config.Host, mysql.Config.Port))
 	require.NoError(t, err)
 	defer func() {
 		if err := proxy.Delete(); err != nil {
@@ -750,7 +750,7 @@ func TestDropCompletedAndUnavailable(t *testing.T) {
 
 	config := &protos.MySqlConfig{
 		Host:       "localhost",
-		Port:       uint32(proxyPortInt),
+		Port:       uint32(proxyPort),
 		User:       "root",
 		Password:   "cipass",
 		Database:   "mysql",

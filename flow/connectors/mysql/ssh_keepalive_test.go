@@ -22,23 +22,20 @@ const (
 	sshServerPort             = "2222"
 	toxiproxyHost             = "localhost"
 	sshServerHost             = "openssh"
-	toxiproxyDownProxyPort    = "42001"
-	toxiproxyLatencyProxyPort = "42002"
-	toxiproxyResetProxyPort   = "42003"
+	toxiproxyDownProxyPort    = 42001
+	toxiproxyLatencyProxyPort = 42002
+	toxiproxyResetProxyPort   = 42003
 )
 
 // setupMySQLConnectorWithSSH creates a toxiproxy and MySQL connector with SSH tunnel
 func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
-	toxiproxyClient *toxiproxy.Client, proxyName string, proxyPort string,
+	toxiproxyClient *toxiproxy.Client, proxyName string, proxyPort int,
 ) (*MySqlConnector, *toxiproxy.Proxy) {
 	t.Helper()
 
 	// Create proxy from Toxiproxy to the OpenSSH server
-	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:"+proxyPort, sshServerHost+":"+sshServerPort)
+	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:"+strconv.Itoa(proxyPort), sshServerHost+":"+sshServerPort)
 	require.NoError(t, err)
-
-	sshPort, err := strconv.Atoi(proxyPort)
-	require.NoError(t, err, "Failed to convert port to integer: %s", proxyPort)
 
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
 		Host:     "mysql",
@@ -48,7 +45,7 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 		Database: "mysql",
 		SshConfig: &protos.SSHConfig{
 			Host:     "localhost",
-			Port:     uint32(sshPort),
+			Port:     uint32(proxyPort),
 			User:     "testuser",
 			Password: "testpass",
 		},
