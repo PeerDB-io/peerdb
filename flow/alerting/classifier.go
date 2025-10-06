@@ -447,24 +447,23 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 		case pgerrcode.InternalError:
+			// Handle logical decoding error in ReorderBufferPreserveLastSpilledSnapshot routine
+			if strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding of aborted sub-transaction") &&
+				strings.Contains(pgErr.Hint, "increase logical_decoding_work_mem") {
+				return ErrorNotifyIncreaseLogicalDecodingWorkMem, pgErrorInfo
+			}
+
 			// Handle reorderbuffer spill file and stale file handle errors
 			if strings.HasPrefix(pgErr.Message, "could not read from reorderbuffer spill file") ||
 				(strings.HasPrefix(pgErr.Message, "could not stat file ") &&
 					strings.HasSuffix(pgErr.Message, "Stale file handle")) ||
 				// Below error is transient and Aurora Specific
-				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) &&
-					!strings.Contains(pgErr.Hint, "increase logical_decoding_work_mem") ||
+				(strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding")) ||
 				//nolint:lll
 				// Handle missing record during logical decoding
 				// https://github.com/postgres/postgres/blob/a0c7b765372d949cec54960dafcaadbc04b3204e/src/backend/access/transam/xlogreader.c#L921
 				strings.HasPrefix(pgErr.Message, "could not find record while sending logically-decoded data") {
 				return ErrorRetryRecoverable, pgErrorInfo
-			}
-
-			// Handle error in ReorderBufferPreserveLastSpilledSnapshot routine
-			if strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding of aborted sub-transaction") &&
-				strings.Contains(pgErr.Hint, "increase logical_decoding_work_mem") {
-				return ErrorNotifyIncreaseLogicalDecodingWorkMem, pgErrorInfo
 			}
 
 			// Handle WAL segment removed errors
