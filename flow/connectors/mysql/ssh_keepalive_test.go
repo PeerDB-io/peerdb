@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 )
 
 const (
@@ -21,23 +22,20 @@ const (
 	sshServerPort             = "2222"
 	toxiproxyHost             = "localhost"
 	sshServerHost             = "openssh"
-	toxiproxyDownProxyPort    = "42001"
-	toxiproxyLatencyProxyPort = "42002"
-	toxiproxyResetProxyPort   = "42003"
+	toxiproxyDownProxyPort    = 42001
+	toxiproxyLatencyProxyPort = 42002
+	toxiproxyResetProxyPort   = 42003
 )
 
 // setupMySQLConnectorWithSSH creates a toxiproxy and MySQL connector with SSH tunnel
 func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
-	toxiproxyClient *toxiproxy.Client, proxyName string, proxyPort string,
+	toxiproxyClient *toxiproxy.Client, proxyName string, proxyPort int,
 ) (*MySqlConnector, *toxiproxy.Proxy) {
 	t.Helper()
 
 	// Create proxy from Toxiproxy to the OpenSSH server
-	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:"+proxyPort, sshServerHost+":"+sshServerPort)
+	sshProxy, err := toxiproxyClient.CreateProxy(proxyName, "0.0.0.0:"+strconv.Itoa(proxyPort), sshServerHost+":"+sshServerPort)
 	require.NoError(t, err)
-
-	sshPort, err := strconv.Atoi(proxyPort)
-	require.NoError(t, err, "Failed to convert port to integer: %s", proxyPort)
 
 	connector, err := NewMySqlConnector(ctx, &protos.MySqlConfig{
 		Host:     "mysql",
@@ -47,7 +45,7 @@ func setupMySQLConnectorWithSSH(ctx context.Context, t *testing.T,
 		Database: "mysql",
 		SshConfig: &protos.SSHConfig{
 			Host:     "localhost",
-			Port:     uint32(sshPort),
+			Port:     uint32(proxyPort),
 			User:     "testuser",
 			Password: "testpass",
 		},
@@ -88,11 +86,11 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
 
 	// Start a long-running query in a goroutine
-	queryDone := make(chan error, 1)
+	queryDone := concurrency.NewLatch[error]()
 	go func() {
 		// This query will sleep for 60 seconds, giving us time to break the SSH tunnel
 		_, err := connector.Execute(ctx, "SELECT SLEEP(60)")
-		queryDone <- err
+		queryDone.Set(err)
 	}()
 
 	// Wait a bit for the query to start
@@ -100,8 +98,7 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 
 	// Simulate network going down - this requires keepalives to detect the failure
 	t.Log("Disabling proxy to simulate network failure during long-running query")
-	err = sshProxy.Disable()
-	require.NoError(t, err)
+	require.NoError(t, sshProxy.Disable())
 
 	// Wait for keepalive failure detection (should happen within ~15-20 seconds)
 	t.Log("Waiting for SSH keepalive failure detection...")
@@ -115,7 +112,8 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 
 	// The long-running query should fail due to broken connection
 	select {
-	case queryErr := <-queryDone:
+	case <-queryDone.Chan():
+		queryErr := queryDone.Wait()
 		require.Error(t, queryErr, "Long-running query should fail after SSH tunnel failure")
 		t.Logf("Long-running query failed as expected: %v", queryErr)
 	case <-time.After(10 * time.Second):
@@ -191,10 +189,10 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 	require.NotNil(t, keepaliveChan)
 
 	// Start a long-running query
-	queryDone := make(chan error, 1)
+	queryDone := concurrency.NewLatch[error]()
 	go func() {
 		_, err := connector.Execute(ctx, "SELECT SLEEP(60)")
-		queryDone <- err
+		queryDone.Set(err)
 	}()
 
 	// Wait for query to start
@@ -207,7 +205,8 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 
 	// The long-running query should fail quickly due to connection reset
 	select {
-	case queryErr := <-queryDone:
+	case <-queryDone.Chan():
+		queryErr := queryDone.Wait()
 		require.Error(t, queryErr, "Query should fail due to connection reset")
 
 		// Assert on specific error messages that indicate immediate connection failure

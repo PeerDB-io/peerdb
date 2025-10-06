@@ -262,6 +262,51 @@ func (h *FlowRequestHandler) CreateQRepFlow(
 	}, nil
 }
 
+func (h *FlowRequestHandler) dropFlow(
+	ctx context.Context,
+	flowJobName string,
+	deleteStats bool,
+) error {
+	logs := slog.Group("shutdown-log", slog.String(string(shared.FlowNameKey), flowJobName))
+
+	isCdc, err := h.isCDCFlow(ctx, flowJobName)
+	if err != nil {
+		slog.ErrorContext(ctx, "unable to check if workflow is cdc", logs, slog.Any("error", err))
+		return fmt.Errorf("unable to determine if workflow is cdc: %w", err)
+	}
+	var cdcConfig *protos.FlowConnectionConfigs
+	if isCdc {
+		cdcConfig, err = h.getFlowConfigFromCatalog(ctx, flowJobName)
+		if err != nil {
+			slog.ErrorContext(ctx, "unable to get cdc config from catalog", logs, slog.Any("error", err))
+			return fmt.Errorf("unable to get cdc config from catalog: %w", err)
+		}
+	}
+
+	dropFlowWorkflowID := fmt.Sprintf("%s-dropflow-%s", flowJobName, uuid.New())
+	workflowOptions := client.StartWorkflowOptions{
+		ID:                    dropFlowWorkflowID,
+		TaskQueue:             h.peerflowTaskQueueID,
+		TypedSearchAttributes: shared.NewSearchAttributes(flowJobName),
+	}
+
+	if dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           flowJobName,
+		DropFlowStats:         deleteStats,
+		FlowConnectionConfigs: cdcConfig,
+		SkipDestinationDrop:   true,
+		SkipSourceDrop:        true,
+	}); err != nil {
+		slog.ErrorContext(ctx, "unable to start DropFlow workflow", logs, slog.Any("error", err))
+		return fmt.Errorf("unable to start DropFlow workflow: %w", err)
+	} else if err := dropFlowHandle.Get(ctx, nil); err != nil {
+		slog.ErrorContext(ctx, "DropFlow workflow did not execute successfully", logs, slog.Any("error", err))
+		return fmt.Errorf("DropFlow workflow did not execute successfully: %w", err)
+	}
+
+	return nil
+}
+
 func (h *FlowRequestHandler) shutdownFlow(
 	ctx context.Context,
 	flowJobName string,
@@ -421,7 +466,9 @@ func (h *FlowRequestHandler) FlowStateChange(
 			}
 		case protos.FlowStatus_STATUS_TERMINATING, protos.FlowStatus_STATUS_TERMINATED:
 			if currState != protos.FlowStatus_STATUS_TERMINATED && currState != protos.FlowStatus_STATUS_TERMINATING {
-				if currState == protos.FlowStatus_STATUS_COMPLETED || currState == protos.FlowStatus_STATUS_FAILED {
+				if currState == protos.FlowStatus_STATUS_COMPLETED {
+					changeErr = h.dropFlow(ctx, req.FlowJobName, req.DropMirrorStats)
+				} else if currState == protos.FlowStatus_STATUS_FAILED {
 					changeErr = h.shutdownFlow(ctx, req.FlowJobName, req.DropMirrorStats, req.SkipDestinationDrop)
 				} else {
 					changeErr = model.FlowSignalStateChange.SignalClientWorkflow(ctx, h.temporalClient, workflowID, "", req)

@@ -720,6 +720,91 @@ func (s APITestSuite) TestDropCompleted() {
 	})
 }
 
+// drop on completed mirror doesn't access peers, so should still drop immediately
+func (s APITestSuite) TestDropCompletedAndUnavailable() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only testing with PostgreSQL")
+	}
+
+	suffix := "drop_unavailable_" + s.suffix
+	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9903)
+	require.NoError(s.t, err)
+	defer func() {
+		require.NoError(s.t, proxy.Enable())
+		connectionString := internal.GetPGConnectionString(proxyConfig, "")
+		connConfig, err := connpostgres.ParseConfig(connectionString, proxyConfig)
+		require.NoError(s.t, err)
+		conn, err := connpostgres.NewPostgresConnFromConfig(s.t.Context(), connConfig, "", nil, nil)
+		if err != nil {
+			s.t.Logf("failed to connect for teardown: %v", err)
+		} else if err := cleanPostgres(s.t.Context(), conn, suffix); err != nil {
+			s.t.Logf("failed to teardown: %v", err)
+		}
+	}()
+
+	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid"))))
+	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "valid"))))
+
+	// Create peer for the proxy connection
+	proxyConfig.Port = uint32(9903)
+	proxyPeer := &protos.Peer{
+		Name: "proxy_postgres_" + suffix,
+		Type: protos.DBType_POSTGRES,
+		Config: &protos.Peer_PostgresConfig{
+			PostgresConfig: proxyConfig,
+		},
+	}
+	CreatePeer(s.t, proxyPeer)
+	defer func() {
+		_, _ = s.DropPeer(s.t.Context(), &protos.DropPeerRequest{PeerName: proxyPeer.Name})
+	}()
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "create_concurrent_toxi_" + suffix,
+		TableNameMapping: map[string]string{
+			AttachSchema(s, "valid"): "valid",
+		},
+		Destination: s.ch.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SourceName = proxyPeer.Name
+
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
+
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	RequireEqualTables(s.ch, "valid", "id,val")
+	require.NoError(s.t, proxy.Disable())
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
+		FlowJobName:        flowConnConfig.FlowJobName,
+		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
+	})
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
+		var workflowID string
+		return s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
+		).Scan(&workflowID) == pgx.ErrNoRows
+	})
+	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
+		var workflowID string
+		return s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
+		).Scan(&workflowID) == pgx.ErrNoRows
+	})
+}
+
 func (s APITestSuite) TestEditTablesBeforeResync() {
 	var cols string
 	switch s.source.(type) {
@@ -1377,7 +1462,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 
 	// Setup PostgreSQL with Toxiproxy
 	suffix := "race_" + s.suffix
-	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix)
+	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9902)
 	require.NoError(s.t, err)
 	defer pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
 
