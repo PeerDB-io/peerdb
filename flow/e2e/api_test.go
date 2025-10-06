@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -722,95 +721,75 @@ func (s APITestSuite) TestDropCompleted() {
 }
 
 // drop on completed mirror doesn't access peers, so should still drop immediately
-func TestDropCompletedAndUnavailable(t *testing.T) {
-	suffix := "drop_unavailable"
-	mysql, err := SetupMySQL(t, suffix)
-	require.NoError(t, err)
-	ch := SetupClickHouseSuite(t, false, func(*testing.T) (*MySqlSource, string, error) {
-		return mysql, suffix, nil
-	})(t)
-
-	require.NoError(t, mysql.Exec(t.Context(),
-		fmt.Sprintf("CREATE TABLE e2e_test_%s.%s(id int primary key, val text)", suffix, "valid")))
-	require.NoError(t, mysql.Exec(t.Context(),
-		fmt.Sprintf("INSERT INTO e2e_test_%s.%s(id, val) values (1,'first')", suffix, "valid")))
-
-	proxyPort := 43001
-	toxiproxyAPIPort := "18474"
-	toxiproxyHost := "localhost"
-	toxiproxyClient := tp.NewClient(toxiproxyHost + ":" + toxiproxyAPIPort)
-	proxy, err := toxiproxyClient.CreateProxy(suffix,
-		"0.0.0.0:"+strconv.Itoa(proxyPort), fmt.Sprintf("%s:%d", mysql.Config.Host, mysql.Config.Port))
-	require.NoError(t, err)
-	defer func() {
-		if err := proxy.Delete(); err != nil {
-			t.Logf("Failed to delete toxiproxy proxy: %v", err)
-		}
-	}()
-
-	config := &protos.MySqlConfig{
-		Host:       "localhost",
-		Port:       uint32(proxyPort),
-		User:       "root",
-		Password:   "cipass",
-		Database:   "mysql",
-		DisableTls: true,
+func (s APITestSuite) TestDropCompletedAndUnavailable() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only testing with PostgreSQL")
 	}
-	peer := &protos.Peer{
-		Name: "mysql_" + suffix,
-		Type: protos.DBType_MYSQL,
-		Config: &protos.Peer_MysqlConfig{
-			MysqlConfig: config,
+
+	suffix := "drop_unavailable_" + s.suffix
+	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix)
+	require.NoError(s.t, err)
+	defer pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+
+	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
+		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid"))))
+	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
+		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "valid"))))
+
+	// Create peer for the proxy connection
+	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
+	proxyConfig.Port = uint32(9902)
+	proxyPeer := &protos.Peer{
+		Name: "proxy_postgres_" + suffix,
+		Type: protos.DBType_POSTGRES,
+		Config: &protos.Peer_PostgresConfig{
+			PostgresConfig: proxyConfig,
 		},
 	}
-	CreatePeer(t, peer)
+	CreatePeer(s.t, proxyPeer)
+	defer func() {
+		_, _ = s.DropPeer(s.t.Context(), &protos.DropPeerRequest{PeerName: proxyPeer.Name})
+	}()
 
-	flowConnConfig := &protos.FlowConnectionConfigs{
-		FlowJobName: "drop_unavailable_" + suffix,
-		TableMappings: []*protos.TableMapping{{
-			SourceTableIdentifier:      fmt.Sprintf("e2e_test_%s.%s", suffix, "valid"),
-			DestinationTableIdentifier: "valid",
-			ShardingKey:                "id",
-		}},
-		SourceName:          peer.Name,
-		DestinationName:     ch.Peer().Name,
-		SyncedAtColName:     "_PEERDB_SYNCED_AT",
-		IdleTimeoutSeconds:  15,
-		Version:             shared.InternalVersion_Latest,
-		DoInitialSnapshot:   true,
-		InitialSnapshotOnly: true,
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: "create_concurrent_toxi_" + suffix,
+		TableNameMapping: map[string]string{
+			AttachSchema(s, "valid"): "valid",
+		},
+		Destination: s.ch.Peer().Name,
 	}
-	grpc, err := NewApiClient()
-	require.NoError(t, err)
-	response, err := grpc.CreateCDCFlow(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
-	require.NoError(t, err)
-	require.NotNil(t, response)
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SourceName = proxyPeer.Name
 
-	pg, err := SetupPostgres(t, suffix)
-	require.NoError(t, err)
-	tc := NewTemporalClient(t)
-	env, err := GetPeerflow(t.Context(), pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
-	require.NoError(t, err)
-	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
-	EnvWaitForFinished(t, env, 3*time.Minute)
-	RequireEqualTables(ch, "valid", "id,val")
-	require.NoError(t, proxy.Delete())
+	response, err := s.CreateCDCFlow(s.t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: flowConnConfig})
+	require.NoError(s.t, err)
+	require.NotNil(s.t, response)
 
-	_, err = grpc.FlowStateChange(t.Context(), &protos.FlowStateChangeRequest{
+	tc := NewTemporalClient(s.t)
+	env, err := GetPeerflow(s.t.Context(), s.pg.PostgresConnector.Conn(), tc, flowConnConfig.FlowJobName)
+	require.NoError(s.t, err)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForFinished(s.t, env, 3*time.Minute)
+	RequireEqualTables(s.ch, "valid", "id,val")
+	require.NoError(s.t, proxy.Delete())
+
+	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
 		RequestedFlowState: protos.FlowStatus_STATUS_TERMINATING,
 	})
-	require.NoError(t, err)
-	EnvWaitFor(t, env, time.Minute, "wait for avro stage dropped", func() bool {
+	require.NoError(s.t, err)
+	EnvWaitFor(s.t, env, time.Minute, "wait for avro stage dropped", func() bool {
 		var workflowID string
-		return pg.PostgresConnector.Conn().QueryRow(
-			t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
+		return s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(), "SELECT avro_file FROM ch_s3_stage WHERE flow_job_name = $1", flowConnConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
-	EnvWaitFor(t, env, time.Minute, "wait for flow dropped", func() bool {
+	EnvWaitFor(s.t, env, time.Minute, "wait for flow dropped", func() bool {
 		var workflowID string
-		return pg.PostgresConnector.Conn().QueryRow(
-			t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
+		return s.pg.PostgresConnector.Conn().QueryRow(
+			s.t.Context(), "select workflow_id from flows where name = $1", flowConnConfig.FlowJobName,
 		).Scan(&workflowID) == pgx.ErrNoRows
 	})
 }
