@@ -727,7 +727,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	}
 
 	suffix := "drop_unavailable_" + s.suffix
-	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix)
+	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9903)
 	require.NoError(s.t, err)
 	defer func() {
 		require.NoError(s.t, proxy.Enable())
@@ -741,7 +741,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 
 	// Create peer for the proxy connection
 	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
-	proxyConfig.Port = uint32(9902)
+	proxyConfig.Port = uint32(9903)
 	proxyPeer := &protos.Peer{
 		Name: "proxy_postgres_" + suffix,
 		Type: protos.DBType_POSTGRES,
@@ -1454,7 +1454,7 @@ func (s APITestSuite) TestCreateCDCFlowAttachConcurrentRequestsToxi() {
 
 	// Setup PostgreSQL with Toxiproxy
 	suffix := "race_" + s.suffix
-	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix)
+	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9902)
 	require.NoError(s.t, err)
 	defer pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
 
