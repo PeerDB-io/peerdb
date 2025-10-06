@@ -120,6 +120,11 @@ func (s *SnapshotFlowExecution) cloneTable(
 		slog.String(string(shared.FlowNameKey), flowName),
 		slog.String("snapshotName", snapshotName))
 
+	config, err := internal.FetchConfigFromDB(s.FlowJobName)
+	if err != nil {
+		return fmt.Errorf("unable to fetch config from DB for flow-job-name %s; err : %w", s.FlowJobName, err)
+	}
+
 	srcName := mapping.SourceTableIdentifier
 	dstName := mapping.DestinationTableIdentifier
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
@@ -281,6 +286,15 @@ func (s *SnapshotFlowExecution) cloneTables(
 	config, err := internal.FetchConfigFromDB(s.FlowJobName)
 	if err != nil {
 		return fmt.Errorf("unable to query flow config from catalog: %w", err)
+	}
+
+	sourcePeerType, err := getPeerType(ctx, config.SourceName)
+	if err != nil {
+		return err
+	}
+	destinationPeerType, err := getPeerType(ctx, config.DestinationName)
+	if err != nil {
+		return err
 	}
 
 	var res *protos.GetDefaultPartitionKeyForTablesOutput

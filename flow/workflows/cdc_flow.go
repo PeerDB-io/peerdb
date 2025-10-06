@@ -464,7 +464,7 @@ func CDCFlowWorkflow(
 		return state, nil
 	}
 
-	mirrorNameSearch := shared.NewSearchAttributescfg.FlowJobName
+	mirrorNameSearch := shared.NewSearchAttributes(cfg.FlowJobName)
 
 	if state.ActiveSignal == model.PauseSignal {
 		selector := workflow.NewNamedSelector(ctx, "PauseLoop")
