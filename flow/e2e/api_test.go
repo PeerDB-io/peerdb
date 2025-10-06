@@ -727,11 +727,20 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	}
 
 	suffix := "drop_unavailable_" + s.suffix
+	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
 	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix, 9903)
 	require.NoError(s.t, err)
 	defer func() {
 		require.NoError(s.t, proxy.Enable())
-		pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+		connectionString := internal.GetPGConnectionString(proxyConfig, "")
+		connConfig, err := connpostgres.ParseConfig(connectionString, proxyConfig)
+		require.NoError(s.t, err)
+		conn, err := connpostgres.NewPostgresConnFromConfig(s.t.Context(), connConfig, "", nil, nil)
+		if err != nil {
+			s.t.Logf("failed to connect for teardown: %v", err)
+		} else if err := cleanPostgres(s.t.Context(), conn, suffix); err != nil {
+			s.t.Logf("failed to teardown: %v", err)
+		}
 	}()
 
 	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
@@ -740,7 +749,6 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 		fmt.Sprintf("INSERT INTO %s(id, val) values (1,'first')", AttachSchema(s, "valid"))))
 
 	// Create peer for the proxy connection
-	proxyConfig := internal.GetCatalogPostgresConfigFromEnv(s.t.Context())
 	proxyConfig.Port = uint32(9903)
 	proxyPeer := &protos.Peer{
 		Name: "proxy_postgres_" + suffix,
