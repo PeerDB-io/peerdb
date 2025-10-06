@@ -14,6 +14,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 )
 
 const (
@@ -88,11 +89,11 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 	require.NotNil(t, keepaliveChan, "SSH keepalive channel should exist")
 
 	// Start a long-running query in a goroutine
-	queryDone := make(chan error, 1)
+	queryDone := concurrency.NewLatch[error]()
 	go func() {
 		// This query will sleep for 60 seconds, giving us time to break the SSH tunnel
 		_, err := connector.Execute(ctx, "SELECT SLEEP(60)")
-		queryDone <- err
+		queryDone.Set(err)
 	}()
 
 	// Wait a bit for the query to start
@@ -115,7 +116,8 @@ func TestMySQLSSHKeepaliveWithToxiproxy(t *testing.T) {
 
 	// The long-running query should fail due to broken connection
 	select {
-	case queryErr := <-queryDone:
+	case <-queryDone.Chan():
+		queryErr := queryDone.Wait()
 		require.Error(t, queryErr, "Long-running query should fail after SSH tunnel failure")
 		t.Logf("Long-running query failed as expected: %v", queryErr)
 	case <-time.After(10 * time.Second):
@@ -191,10 +193,10 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 	require.NotNil(t, keepaliveChan)
 
 	// Start a long-running query
-	queryDone := make(chan error, 1)
+	queryDone := concurrency.NewLatch[error]()
 	go func() {
 		_, err := connector.Execute(ctx, "SELECT SLEEP(60)")
-		queryDone <- err
+		queryDone.Set(err)
 	}()
 
 	// Wait for query to start
@@ -207,7 +209,8 @@ func TestMySQLSSHResetPeer(t *testing.T) {
 
 	// The long-running query should fail quickly due to connection reset
 	select {
-	case queryErr := <-queryDone:
+	case <-queryDone.Chan():
+		queryErr := queryDone.Wait()
 		require.Error(t, queryErr, "Query should fail due to connection reset")
 
 		// Assert on specific error messages that indicate immediate connection failure
