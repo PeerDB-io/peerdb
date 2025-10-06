@@ -729,7 +729,10 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	suffix := "drop_unavailable_" + s.suffix
 	pgWithProxy, proxy, err := SetupPostgresWithToxiproxy(s.t, suffix)
 	require.NoError(s.t, err)
-	defer pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+	defer func() {
+		require.NoError(s.t, proxy.Enable())
+		pgWithProxy.Teardown(s.t, s.t.Context(), suffix)
+	}()
 
 	require.NoError(s.t, pgWithProxy.Exec(s.t.Context(),
 		fmt.Sprintf("CREATE TABLE %s(id int primary key, val text)", AttachSchema(s, "valid"))))
@@ -773,7 +776,7 @@ func (s APITestSuite) TestDropCompletedAndUnavailable() {
 	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	RequireEqualTables(s.ch, "valid", "id,val")
-	require.NoError(s.t, proxy.Delete())
+	require.NoError(s.t, proxy.Disable())
 
 	_, err = s.FlowStateChange(s.t.Context(), &protos.FlowStateChangeRequest{
 		FlowJobName:        flowConnConfig.FlowJobName,
