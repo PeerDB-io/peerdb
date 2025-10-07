@@ -137,6 +137,9 @@ var (
 	ErrorNotifyReplicationSlotMissing = ErrorClass{
 		Class: "NOTIFY_REPLICATION_SLOT_MISSING", action: NotifyUser,
 	}
+	ErrorNotifyIncreaseLogicalDecodingWorkMem = ErrorClass{
+		Class: "NOTIFY_INCREASE_LOGICAL_DECODING_WORK_MEM", action: NotifyUser,
+	}
 	ErrorUnsupportedDatatype = ErrorClass{
 		Class: "NOTIFY_UNSUPPORTED_DATATYPE", action: NotifyUser,
 	}
@@ -444,6 +447,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			}
 
 		case pgerrcode.InternalError:
+			// Handle logical decoding error in ReorderBufferPreserveLastSpilledSnapshot routine
+			if strings.HasPrefix(pgErr.Message, "Internal error encountered during logical decoding of aborted sub-transaction") &&
+				strings.Contains(pgErr.Hint, "increase logical_decoding_work_mem") {
+				return ErrorNotifyIncreaseLogicalDecodingWorkMem, pgErrorInfo
+			}
+
 			// Handle reorderbuffer spill file and stale file handle errors
 			if strings.HasPrefix(pgErr.Message, "could not read from reorderbuffer spill file") ||
 				(strings.HasPrefix(pgErr.Message, "could not stat file ") &&
