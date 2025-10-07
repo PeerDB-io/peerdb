@@ -46,7 +46,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.1.4@sha256:0605584123a5e577e7da05215d80ed81473d3ad041abca686918c1295c90a549
+        image: elasticsearch:9.1.5@sha256:9dac882b67afe5161f8988a7ede0e9890145182af83e4e1d4d10631c2f66656f
         ports:
           - 9200:9200
         env:
@@ -54,7 +54,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.136.0@sha256:45392d534c1edcc809c2d112394029246bc679d2ae5ea7081414a1fc74f2c621
+        image: otel/opentelemetry-collector-contrib:0.137.0@sha256:886722fe0f37af9d1fe24d29529253ec59fbf263b3b1df4facaf221373e19d23
         ports:
           - 4317:4317
       toxiproxy:
