@@ -602,20 +602,20 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 
 		if mongoErr.RetryableRead() {
-			return ErrorRetryRecoverable, mongoErrorInfo
+			return ErrorNotifyConnectivity, mongoErrorInfo
 		}
 
 		// some driver errors do not provide error code, such as `poolClearedError`, so we check label instead
 		for _, label := range mongoErr.Labels {
 			if label == driver.TransientTransactionError {
-				return ErrorRetryRecoverable, mongoErrorInfo
+				return ErrorNotifyConnectivity, mongoErrorInfo
 			}
 		}
 
 		// some error codes are defined to be retryable by the driver, so we retry them
 		var retryableError RetryableError
 		if errors.As(mongoErr, &retryableError) && retryableError.Retryable() {
-			return ErrorRetryRecoverable, mongoErrorInfo
+			return ErrorNotifyConnectivity, mongoErrorInfo
 		}
 
 		switch mongoErr.Code {
