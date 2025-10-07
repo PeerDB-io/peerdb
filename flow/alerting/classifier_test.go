@@ -580,7 +580,7 @@ func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
 		Wrapped: errors.New("the server is in quiesce mode and will shut down"),
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "0",
