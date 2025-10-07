@@ -1276,7 +1276,7 @@ func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 
-	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
 	flowConnConfig.Resync = true

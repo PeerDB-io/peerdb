@@ -2,8 +2,10 @@ package connmongo
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/pkg/common"
 	shared_mongo "github.com/PeerDB-io/peerdb/flow/pkg/mongo"
 )
@@ -29,8 +31,13 @@ func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 		return err
 	}
 
-	tables := make([]*common.QualifiedTable, 0, len(cfg.TableMappings))
-	for _, tm := range cfg.TableMappings {
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return fmt.Errorf("failed to fetch table mappings: %w", err)
+	}
+
+	tables := make([]*common.QualifiedTable, 0, len(tableMappings))
+	for _, tm := range tableMappings {
 		t, err := common.ParseTableIdentifier(tm.SourceTableIdentifier)
 		if err != nil {
 			return err

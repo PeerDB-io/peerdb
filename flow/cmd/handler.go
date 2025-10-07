@@ -182,8 +182,18 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	}
 	// No running workflow, do the validations and start a new one
 
+	// Insert the table mappings into the DB
+
+	version := 12
+	err = internal.InsertTableMappingsToDB(ctx, cfg.FlowJobName, req.ConnectionConfigs.TableMappings, uint32(version))
+
+	if err != nil {
+		return nil, NewInternalApiError(fmt.Errorf("unable to insert table mappings: %w", err))
+	}
+
 	// Use idempotent validation that skips mirror existence check
-	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
+	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs)
+	connectionConfigsCore.TableMappingVersion = uint32(version)
 	if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
 		slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
@@ -208,11 +218,13 @@ func (h *FlowRequestHandler) createCDCFlow(
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // but creating the same id as a completed one is allowed
 	}
 
+	slog.Info("!!!!!!!!!! HEHE1")
 	if err := h.createCdcJobEntry(ctx, connectionConfigs, workflowID, true); err != nil {
 		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
+	slog.Info("!!!!!!!!!! HEHE")
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, connectionConfigs, nil); err != nil {
 		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
@@ -301,7 +313,7 @@ func (h *FlowRequestHandler) dropFlow(
 	if dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowJobName,
 		DropFlowStats:         deleteStats,
-		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig, 0),
+		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig),
 		SkipDestinationDrop:   true,
 		SkipSourceDrop:        true,
 	}); err != nil {
@@ -359,7 +371,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowJobName,
 		DropFlowStats:         deleteStats,
-		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig, 0),
+		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig),
 		SkipDestinationDrop:   skipDestinationDrop,
 		// NOTE: Resync is false here during snapshot-only resync
 	})
@@ -471,12 +483,17 @@ func (h *FlowRequestHandler) FlowStateChange(
 				if err != nil {
 					return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 				}
+				tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
+				if err != nil {
+					return nil, NewInternalApiError(fmt.Errorf("unable to get table mappings: %w", err))
+				}
 
 				config.Resync = true
 				config.DoInitialSnapshot = true
 				// validate mirror first because once the mirror is dropped, there's no going back
 				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 					ConnectionConfigs: config,
+					TableMappings:     tableMappings,
 				}); err != nil {
 					return nil, NewFailedPreconditionApiError(fmt.Errorf("invalid mirror: %w", err))
 				}
@@ -652,7 +669,7 @@ func (h *FlowRequestHandler) resyncByRecreatingFlow(
 	}
 
 	workflowID := getWorkflowID(config.FlowJobName)
-	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
+	configCore := pconv.FlowConnectionConfigsToCore(config)
 	if _, err := h.createCDCFlow(ctx, configCore, workflowID); err != nil {
 		return err
 	}

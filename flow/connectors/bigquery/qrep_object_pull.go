@@ -310,10 +310,15 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		return nil, nil, fmt.Errorf("failed to fetch flow config from db: %w", err)
 	}
 
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch table mappings: %w", err)
+	}
+
 	_ = c.LogFlowInfo(ctx, flowName, "Starting snapshot BigQuery export to GCS staging bucket")
 
 	jobs := make(map[string]*bigquery.Job)
-	for _, tm := range cfg.TableMappings {
+	for _, tm := range tableMappings {
 		exportSQL, err := c.bigQueryExportQueryStatement(ctx, tm.SourceTableIdentifier, cfg.SnapshotStagingPath)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to build export SQL for table %s: %w", tm.SourceTableIdentifier, err)

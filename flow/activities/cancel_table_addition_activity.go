@@ -217,6 +217,23 @@ func (a *CancelTableAdditionActivity) GetFlowInfoFromCatalog(
 	}, nil
 }
 
+func (a *CancelTableAdditionActivity) GetTableMappingsFromCatalog(
+	ctx context.Context,
+	flowJobName string,
+	tableMappingVersion uint32,
+) ([]*protos.TableMapping, error) {
+	return internal.FetchTableMappingsFromDB(ctx, flowJobName, tableMappingVersion)
+}
+
+func (a *CancelTableAdditionActivity) InsertTableMappingsIntoCatalog(
+	ctx context.Context,
+	flowJobName string,
+	tableMappings []*protos.TableMapping,
+	version uint32,
+) error {
+	return internal.InsertTableMappingsToDB(ctx, flowJobName, tableMappings, version)
+}
+
 func (a *CancelTableAdditionActivity) UpdateCdcJobEntry(
 	ctx context.Context,
 	connectionConfigs *protos.FlowConnectionConfigsCore,
