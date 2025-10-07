@@ -580,7 +580,9 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1373: // ER_UNKNOWN_TARGET_BINLOG
 			return ErrorNotifyBinlogInvalid, myErrorInfo
 		case 1105: // ER_UNKNOWN_ERROR
-			if myErr.State == "HY000" && myErr.Message == "The last transaction was aborted due to Zero Downtime Patch. Please retry." {
+			if myErr.State == "HY000" &&
+				strings.HasPrefix(myErr.Message, "The last transaction was aborted due to") &&
+				strings.HasSuffix(myErr.Message, "Please Retry.") {
 				return ErrorRetryRecoverable, myErrorInfo
 			}
 			return ErrorOther, myErrorInfo
