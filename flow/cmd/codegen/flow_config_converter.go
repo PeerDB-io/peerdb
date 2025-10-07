@@ -24,7 +24,7 @@ import (
 )
 
 // FlowConnectionConfigsToCore converts API FlowConnectionConfigs to internal FlowConnectionConfigsCore
-func FlowConnectionConfigsToCore(api *protos.FlowConnectionConfigs, tableMappingsVersion int64) *protos.FlowConnectionConfigsCore {
+func FlowConnectionConfigsToCore(api *protos.FlowConnectionConfigs) *protos.FlowConnectionConfigsCore {
 	if api == nil {
 		return nil
 	}
@@ -32,8 +32,6 @@ func FlowConnectionConfigsToCore(api *protos.FlowConnectionConfigs, tableMapping
 	return &protos.FlowConnectionConfigsCore{
 {{range .Fields}}		{{.GoName}}: api.{{.GoName}},
 {{end}}
-		TableMappings: api.TableMappings, // TODO: remove
-		// TableMappingsVersion: tableMappingsVersion, // TODO: uncomment
 	}
 }
 
@@ -49,7 +47,6 @@ func FlowConnectionConfigsCoreToAPI(
 	return &protos.FlowConnectionConfigs{
 {{range .Fields}}		{{.GoName}}: core.{{.GoName}},
 {{end}}
-		TableMappings: tableMappings, // TODO: remove
 	}
 }
 `

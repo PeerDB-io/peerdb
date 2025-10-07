@@ -138,12 +138,12 @@ func (a *FlowableActivity) applySchemaDeltasV1(ctx context.Context,
 
 	if len(schemaDeltas) > 0 {
 		if err := a.SetupTableSchema(ctx, &protos.SetupTableSchemaBatchInput{
-			PeerName:      config.SourceName,
-			TableMappings: filteredTableMappings,
-			FlowName:      config.FlowJobName,
-			System:        config.System,
-			Env:           config.Env,
-			Version:       config.Version,
+			PeerName:                 config.SourceName,
+			SchemaDeltaTableMappings: filteredTableMappings,
+			FlowName:                 config.FlowJobName,
+			System:                   config.System,
+			Env:                      config.Env,
+			Version:                  config.Version,
 		}); err != nil {
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to execute schema update at source: %w", err))
 		}
@@ -737,13 +737,18 @@ func (a *FlowableActivity) startNormalize(
 		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
+	if err != nil {
+		return err
+	}
+
 	for {
 		logger.Info("normalizing batches", slog.Int64("syncBatchID", batchID))
 		res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 			FlowJobName:            config.FlowJobName,
 			Env:                    config.Env,
 			TableNameSchemaMapping: tableNameSchemaMapping,
-			TableMappings:          config.TableMappings,
+			TableMappings:          tableMappings,
 			SoftDeleteColName:      config.SoftDeleteColName,
 			SyncedAtColName:        config.SyncedAtColName,
 			SyncBatchID:            batchID,

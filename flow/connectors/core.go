@@ -398,12 +398,12 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, exceptions.NewNotFoundError(errors.New("peer not found " + peerName))
 		}
-		return nil, fmt.Errorf("failed to load peer: %w", err)
+		return nil, fmt.Errorf("!!!!!! extra failed to load peer: %w", err)
 	}
 
 	peerOptions, err := internal.Decrypt(ctx, encKeyID, encPeerOptions)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load peer: %w", err)
+		return nil, fmt.Errorf("!!!± failed to load peer: %w", err)
 	}
 
 	switch peer.Type {

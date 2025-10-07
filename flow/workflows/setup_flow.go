@@ -36,15 +36,16 @@ type SetupFlowExecution struct {
 	tableNameMapping map[string]string
 	cdcFlowName      string
 	executionID      string
+	resync           bool
 }
 
 // NewSetupFlowExecution creates a new instance of SetupFlowExecution.
-func NewSetupFlowExecution(ctx workflow.Context, tableNameMapping map[string]string, cdcFlowName string) *SetupFlowExecution {
+func NewSetupFlowExecution(ctx workflow.Context, cdcFlowName string, resync bool) *SetupFlowExecution {
 	return &SetupFlowExecution{
-		Logger:           log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cdcFlowName)),
-		tableNameMapping: tableNameMapping,
-		cdcFlowName:      cdcFlowName,
-		executionID:      workflow.GetInfo(ctx).WorkflowExecution.ID,
+		Logger:      log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), cdcFlowName)),
+		cdcFlowName: cdcFlowName,
+		executionID: workflow.GetInfo(ctx).WorkflowExecution.ID,
+		resync:      resync,
 	}
 }
 
@@ -119,10 +120,10 @@ func (s *SetupFlowExecution) ensurePullability(
 
 	// create EnsurePullabilityInput for the srcTableName
 	ensurePullabilityInput := &protos.EnsurePullabilityBatchInput{
-		PeerName:               config.SourceName,
-		FlowJobName:            s.cdcFlowName,
-		SourceTableIdentifiers: slices.Sorted(maps.Keys(s.tableNameMapping)),
-		CheckConstraints:       checkConstraints,
+		PeerName:            config.SourceName,
+		FlowJobName:         s.cdcFlowName,
+		CheckConstraints:    checkConstraints,
+		TableMappingVersion: config.TableMappingVersion,
 	}
 
 	future := workflow.ExecuteActivity(ctx, flowable.EnsurePullability, ensurePullabilityInput)
@@ -162,9 +163,8 @@ func (s *SetupFlowExecution) createRawTable(
 
 	// attempt to create the tables.
 	createRawTblInput := &protos.CreateRawTableInput{
-		PeerName:         config.DestinationName,
-		FlowJobName:      s.cdcFlowName,
-		TableNameMapping: s.tableNameMapping,
+		PeerName:    config.DestinationName,
+		FlowJobName: s.cdcFlowName,
 	}
 
 	rawTblFuture := workflow.ExecuteActivity(ctx, flowable.CreateRawTable, createRawTblInput)
@@ -181,6 +181,7 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigsCore,
 ) error {
 	s.Info("fetching table schema for peer flow")
+	s.Info("fetching table schema for peer flow", slog.Any("cfg", flowConnectionConfigs))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 1 * time.Hour,
@@ -191,12 +192,12 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	})
 
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
-		PeerName:      flowConnectionConfigs.SourceName,
-		TableMappings: flowConnectionConfigs.TableMappings,
-		FlowName:      s.cdcFlowName,
-		System:        flowConnectionConfigs.System,
-		Env:           flowConnectionConfigs.Env,
-		Version:       flowConnectionConfigs.Version,
+		PeerName:            flowConnectionConfigs.SourceName,
+		FlowName:            s.cdcFlowName,
+		System:              flowConnectionConfigs.System,
+		Env:                 flowConnectionConfigs.Env,
+		Version:             flowConnectionConfigs.Version,
+		TableMappingVersion: flowConnectionConfigs.TableMappingVersion,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil); err != nil {
@@ -206,13 +207,13 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 
 	s.Info("setting up normalized tables on destination peer", slog.String("destination", flowConnectionConfigs.DestinationName))
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
-		PeerName:          flowConnectionConfigs.DestinationName,
-		TableMappings:     flowConnectionConfigs.TableMappings,
-		SoftDeleteColName: flowConnectionConfigs.SoftDeleteColName,
-		SyncedAtColName:   flowConnectionConfigs.SyncedAtColName,
-		FlowName:          flowConnectionConfigs.FlowJobName,
-		Env:               flowConnectionConfigs.Env,
-		IsResync:          flowConnectionConfigs.Resync,
+		PeerName:            flowConnectionConfigs.DestinationName,
+		SoftDeleteColName:   flowConnectionConfigs.SoftDeleteColName,
+		SyncedAtColName:     flowConnectionConfigs.SyncedAtColName,
+		FlowName:            flowConnectionConfigs.FlowJobName,
+		Env:                 flowConnectionConfigs.Env,
+		IsResync:            flowConnectionConfigs.Resync,
+		TableMappingVersion: flowConnectionConfigs.TableMappingVersion,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {
@@ -261,13 +262,8 @@ func (s *SetupFlowExecution) executeSetupFlow(
 
 // SetupFlowWorkflow is the workflow that sets up the flow.
 func SetupFlowWorkflow(ctx workflow.Context, config *protos.FlowConnectionConfigsCore) (*protos.SetupFlowOutput, error) {
-	tblNameMapping := make(map[string]string, len(config.TableMappings))
-	for _, v := range config.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
-	}
-
 	// create the setup flow execution
-	setupFlowExecution := NewSetupFlowExecution(ctx, tblNameMapping, config.FlowJobName)
+	setupFlowExecution := NewSetupFlowExecution(ctx, config.FlowJobName, config.Resync)
 
 	// execute the setup flow
 	setupFlowOutput, err := setupFlowExecution.executeSetupFlow(ctx, config)

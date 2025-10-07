@@ -9,6 +9,7 @@ import (
 	"google.golang.org/api/iterator"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
@@ -16,7 +17,12 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		return errors.New("BigQuery source connector only supports initial snapshot flows. CDC is not supported")
 	}
 
-	for _, tableMapping := range cfg.TableMappings {
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return fmt.Errorf("failed to fetch table mappings: %w", err)
+	}
+
+	for _, tableMapping := range tableMappings {
 		dstDatasetTable, err := c.convertToDatasetTable(tableMapping.SourceTableIdentifier)
 		if err != nil {
 			return err
