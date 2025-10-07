@@ -672,6 +672,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if ClickHouseNotFoundInUserDirsRe.MatchString(chException.Message) {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
+		case chproto.ErrTableAlreadyExists:
+			// We are already running query CREATE TABLE IF NOT EXISTS so this is likely a replica synchronization issue
+			if strings.HasSuffix(chException.Message, "is either DETACHED PERMANENTLY or was just created by another replica") {
+				return ErrorRetryRecoverable, chErrorInfo
+			}
 		case 439: // CANNOT_SCHEDULE_TASK
 			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrUnsupportedMethod,
