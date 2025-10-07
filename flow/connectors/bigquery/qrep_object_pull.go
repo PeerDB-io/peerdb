@@ -319,8 +319,13 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		return nil, nil, fmt.Errorf("failed to fetch flow config from db: %w", err)
 	}
 
-	jobs := make([]*bigquery.Job, 0, len(cfg.TableMappings))
-	for _, tm := range cfg.TableMappings {
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch table mappings: %w", err)
+	}
+
+	jobs := make([]*bigquery.Job, 0, len(tableMappings))
+	for _, tm := range tableMappings {
 		uri := fmt.Sprintf("%s/%s/*.avro", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
 		gcsRef := bigquery.NewGCSReference(uri)
 		gcsRef.DestinationFormat = bigquery.Avro
