@@ -320,7 +320,7 @@ func processTableAdditions(
 			childAddTablesCDCFlowFuture := workflow.ExecuteChildWorkflow(
 				childAddTablesCDCFlowCtx,
 				CDCFlowWorkflow,
-				additionalTablesCfg,
+				additionalTablesCfg, //TODO this cannot be minimized in the main branch.
 				nil,
 			)
 			addTablesSelector.AddFuture(childAddTablesCDCFlowFuture, func(f workflow.Future) {
@@ -495,6 +495,18 @@ func CDCFlowWorkflow(
 		state = NewCDCFlowWorkflowState(ctx, logger, cfg)
 	}
 
+	//TODO: might need a better signal if the cfg is minimized or not.
+	if cfg.PublicationName == "" {
+		dbCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: time.Minute,
+		})
+		cfgFuture := workflow.ExecuteActivity(dbCtx, flowable.FetchConfigurationFromDatabase, dbCtx, cfg.FlowJobName)
+
+		if err := cfgFuture.Get(dbCtx, &cfg); err != nil {
+			return nil, err
+		}
+	}
+
 	flowSignalChan := model.FlowSignal.GetSignalChannel(ctx)
 	flowSignalStateChangeChan := model.FlowSignalStateChange.GetSignalChannel(ctx)
 	if err := workflow.SetQueryHandler(ctx, shared.CDCFlowStateQuery, func() (CDCFlowWorkflowState, error) {
@@ -576,7 +588,8 @@ func CDCFlowWorkflow(
 
 		logger.Info("mirror resumed", slog.Duration("after", time.Since(startTime)))
 		state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+		//TODO: ctx needs to be small here.
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, internal.MinimizeFlowConfiguration(cfg), state)
 	}
 
 	originalRunID := workflow.GetInfo(ctx).OriginalRunID
@@ -808,7 +821,7 @@ func CDCFlowWorkflow(
 			logger.Info("executed setup flow and snapshot flow, start running")
 			state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_RUNNING)
 		}
-		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+		return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, internal.MinimizeFlowConfiguration(cfg), state)
 	}
 
 	var finished bool
@@ -938,7 +951,7 @@ func CDCFlowWorkflow(
 			if state.ActiveSignal == model.TerminateSignal || state.ActiveSignal == model.ResyncSignal {
 				return state, workflow.NewContinueAsNewError(ctx, DropFlowWorkflow, state.DropFlowInput)
 			}
-			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, cfg, state)
+			return state, workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, internal.MinimizeFlowConfiguration(cfg), state)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package activities
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -1654,4 +1655,20 @@ func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos
 		attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
 	)))
 	return nil
+}
+
+func (a *FlowableActivity) FetchConfigurationFromDatabase(ctx context.Context, flowJobName string) (*protos.FlowConnectionConfigs, error) {
+	var configBytes sql.RawBytes
+	if err := a.CatalogPool.QueryRow(ctx,
+		"SELECT config_proto FROM flows WHERE name = $1 LIMIT 1", flowJobName,
+	).Scan(&configBytes); err != nil {
+		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
+	}
+
+	var cfgFromDB protos.FlowConnectionConfigs
+	if err := proto.Unmarshal(configBytes, &cfgFromDB); err != nil {
+		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
+	}
+
+	return &cfgFromDB, nil
 }
