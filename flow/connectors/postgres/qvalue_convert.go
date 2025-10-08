@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/big"
 	"net"
 	"net/netip"
 	"strings"
@@ -533,6 +534,20 @@ func (c *PostgresConnector) parseFieldFromPostgresOIDWithQValueKind(
 	case types.QValueKindInt64:
 		intVal := value.(int64)
 		return types.QValueInt64{Val: intVal}, nil
+	case types.QValueKindInt256:
+		intVal := value.(pgtype.Numeric)
+		bi, err := numericToBigInt(intVal)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert pg numeric to big.Int: %w", err)
+		}
+		return types.QValueInt256{Val: bi}, nil
+	case types.QValueKindUInt256:
+		intVal := value.(pgtype.Numeric)
+		bi, err := numericToBigInt(intVal)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert pg numeric to big.Int: %w", err)
+		}
+		return types.QValueInt256{Val: bi}, nil
 	case types.QValueKindFloat32:
 		floatVal := value.(float32)
 		return types.QValueFloat32{Val: floatVal}, nil
@@ -785,4 +800,34 @@ func validNumericToDecimal(numVal pgtype.Numeric) (decimal.Decimal, bool) {
 	} else {
 		return decimal.NewFromBigInt(numVal.Int, numVal.Exp), true
 	}
+}
+
+var (
+	big0  = big.NewInt(0)
+	big10 = big.NewInt(10)
+)
+
+// copied from pgtype/numeric.go toBigInt
+func numericToBigInt(n pgtype.Numeric) (*big.Int, error) {
+	if n.Exp == 0 {
+		return n.Int, nil
+	}
+
+	num := &big.Int{}
+	num.Set(n.Int)
+	if n.Exp > 0 {
+		mul := &big.Int{}
+		mul.Exp(big10, big.NewInt(int64(n.Exp)), nil)
+		num.Mul(num, mul)
+		return num, nil
+	}
+
+	div := &big.Int{}
+	div.Exp(big10, big.NewInt(int64(-n.Exp)), nil)
+	remainder := &big.Int{}
+	num.DivMod(num, div, remainder)
+	if remainder.Cmp(big0) != 0 {
+		return nil, fmt.Errorf("cannot convert %v to integer", n)
+	}
+	return num, nil
 }
