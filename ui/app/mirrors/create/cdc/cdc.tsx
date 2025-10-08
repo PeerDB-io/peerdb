@@ -155,6 +155,7 @@ export default function CDCConfigForm({
     mirrorConfig.sourceName,
     mirrorConfig.initialSnapshotOnly,
     destinationType,
+    setter,
   ]);
 
   if (loading) {
