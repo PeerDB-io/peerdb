@@ -7,10 +7,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -37,7 +39,6 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 
 	// Get schema from the stream
 	schema, err := stream.Schema()
-
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to get schema from stream: %w", err)
 	}
@@ -48,8 +49,7 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 		schema = applyTypeConversions(schema, destTypeConversions)
 	}
 
-	// Create column name mapping for the format fields
-	columnNameFieldMap := c.constructColumnNameFieldMap(schema.Fields, format)
+	columnNameFieldMap := c.constructColumnNameFieldMap(schema.Fields)
 
 	var totalRecords int64
 	warnings := shared.QRepWarnings{}
@@ -98,9 +98,7 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 	return totalRecords, warnings, nil
 }
 
-// constructColumnNameFieldMap creates a mapping between column names and source field names
-// The mapping strategy depends on the format
-func (c *ClickHouseConnector) constructColumnNameFieldMap(fields []types.QField, format string) map[string]string {
+func (c *ClickHouseConnector) constructColumnNameFieldMap(fields []types.QField) map[string]string {
 	columnNameFieldMap := make(map[string]string)
 
 	for _, field := range fields {
@@ -142,12 +140,16 @@ func (c *ClickHouseConnector) insertFromURLWithMapping(
 		slog.String("format", format),
 		slog.String("query", query))
 
-	// todo: query insert with a profile to get actual records inserted
-	if err := c.exec(ctx, query); err != nil {
+	var totalRows int64
+	execCtx := clickhouse.Context(ctx, clickhouse.WithProgress(func(info *clickhouse.Progress) {
+		totalRows += int64(info.Rows)
+	}))
+
+	if err := c.exec(execCtx, query); err != nil {
 		return 0, err
 	}
 
-	return 0, nil
+	return totalRows, nil
 }
 
 // buildURLTableFunction builds a ClickHouse URL table function with headers and format
@@ -164,15 +166,17 @@ func (c *ClickHouseConnector) buildURLTableFunction(object *model.Object, format
 		first := true
 		for name, values := range object.Headers {
 			// Use the first value for each header name
-			if len(values) > 0 {
-				if !first {
-					expr.WriteString(", ")
-				}
-				expr.WriteString(peerdb_clickhouse.QuoteIdentifier(name))
-				expr.WriteString("=")
-				expr.WriteString(peerdb_clickhouse.QuoteLiteral(values[0]))
-				first = false
+			if len(values) == 0 {
+				continue
 			}
+
+			if !first {
+				expr.WriteString(", ")
+			}
+			expr.WriteString(peerdb_clickhouse.QuoteIdentifier(name))
+			expr.WriteString("=")
+			expr.WriteString(peerdb_clickhouse.QuoteLiteral(values[0]))
+			first = false
 		}
 		expr.WriteString(")")
 	}

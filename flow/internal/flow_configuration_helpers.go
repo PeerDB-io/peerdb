@@ -5,9 +5,10 @@ import (
 	"database/sql"
 	"fmt"
 
+	"google.golang.org/protobuf/proto"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"google.golang.org/protobuf/proto"
 )
 
 func FetchConfigFromDB(ctx context.Context, catalogPool shared.CatalogPool, flowName string) (*protos.FlowConnectionConfigs, error) {

@@ -90,7 +90,11 @@ type CDCPullConnectorCore interface {
 
 	// For InitialSnapshotOnly correctness without replication slot
 	// `any` is for returning transaction if necessary
-	ExportTxSnapshot(context.Context, string, map[string]string) (*protos.ExportTxSnapshotOutput, any, error)
+	ExportTxSnapshot(
+		ctx context.Context,
+		flowName string,
+		env map[string]string,
+	) (*protos.ExportTxSnapshotOutput, any, error)
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
 	FinishExport(any) error
@@ -256,7 +260,13 @@ type QRepSyncConnector interface {
 type QRepPullObjectsConnector interface {
 	QRepPullConnectorCore
 
-	PullQRepObjects(context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, *protos.QRepPartition, *model.QObjectStream) (int64, int64, error)
+	PullQRepObjects(
+		context.Context,
+		*otel_metrics.OtelManager,
+		*protos.QRepConfig,
+		*protos.QRepPartition,
+		*model.QObjectStream,
+	) (int64, int64, error)
 }
 
 type QRepSyncObjectsConnector interface {

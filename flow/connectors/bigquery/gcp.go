@@ -13,7 +13,7 @@ import (
 func (c *BigQueryConnector) storageDownScopedToken(ctx context.Context, bucketName string, prefix string) (*auth.Token, error) {
 	accessBoundary := []downscope.AccessBoundaryRule{
 		{
-			AvailableResource:    fmt.Sprintf("//storage.googleapis.com/projects/_/buckets/%s", bucketName),
+			AvailableResource:    "//storage.googleapis.com/projects/_/buckets/" + bucketName,
 			AvailablePermissions: []string{"inRole:roles/storage.objectViewer"},
 			Condition: &downscope.AvailabilityCondition{
 				Expression: fmt.Sprintf("resource.name.startsWith('projects/_/buckets/%s/objects/%s')", bucketName, prefix),

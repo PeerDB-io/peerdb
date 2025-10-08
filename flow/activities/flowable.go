@@ -573,10 +573,17 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep destination connector: %w", err))
 	}
 
-	qRecordReplication := func(qRepPullConn connectors.QRepPullConnector, qRepSyncConn connectors.QRepSyncConnectorCore, partition *protos.QRepPartition) error {
-		destConn, ok := qRepSyncCoreConn.(connectors.QRepSyncConnector)
+	qRecordReplication := func(
+		qRepPullConn connectors.QRepPullConnector,
+		qRepSyncConn connectors.QRepSyncConnectorCore,
+		partition *protos.QRepPartition,
+	) error {
+		destConn, ok := qRepSyncConn.(connectors.QRepSyncConnector)
 		if !ok {
-			return fmt.Errorf("source connector is QRepPullConnector but destination connector is not QRepSyncConnector, got %T", qRepSyncCoreConn)
+			return fmt.Errorf(
+				"source connector is QRepPullConnector but destination connector is not QRepSyncConnector, got %T",
+				qRepSyncCoreConn,
+			)
 		}
 
 		stream := model.NewQRecordStream(shared.FetchAndChannelSize)
@@ -599,9 +606,6 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		)
 	}
 
-	// todo: figure out if we are allowed to reuse the same connection for multiple partitions
-	//       for both source and destination
-
 	for _, partition := range partitions.Partitions {
 		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, partition.PartitionId))
 
@@ -616,6 +620,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 				destConn, ok := qRepSyncCoreConn.(*connpostgres.PostgresConnector)
 				if !ok {
 					err = fmt.Errorf("source connector is PostgresConnector but destination connector is not, got %T", qRepSyncCoreConn)
+					break
 				}
 
 				read, write := connpostgres.NewPgCopyPipe()
@@ -630,7 +635,10 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		case connectors.QRepPullConnector:
 			destConn, ok := qRepSyncCoreConn.(connectors.QRepSyncConnector)
 			if !ok {
-				err = fmt.Errorf("source connector is QRepPullConnector but destination connector is not QRepSyncConnector, got %T", qRepSyncCoreConn)
+				err = fmt.Errorf(
+					"source connector is QRepPullConnector but destination connector is not QRepSyncConnector, got %T",
+					qRepSyncCoreConn,
+				)
 				break
 			}
 
@@ -638,7 +646,10 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		case connectors.QRepPullObjectsConnector:
 			destConn, ok := qRepSyncCoreConn.(connectors.QRepSyncObjectsConnector)
 			if !ok {
-				err = fmt.Errorf("source connector is QRepPullObjectsConnector but destination connector is not QRepSyncObjectsConnector, got %T", qRepSyncCoreConn)
+				err = fmt.Errorf(
+					"source connector is QRepPullObjectsConnector but destination connector is not QRepSyncObjectsConnector, got %T",
+					qRepSyncCoreConn,
+				)
 				break
 			}
 
@@ -657,7 +668,11 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 	}
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "replicated all rows to destination for table "+config.DestinationTableIdentifier)
+	a.Alerter.LogFlowInfo(
+		ctx,
+		config.FlowJobName,
+		"replicated all rows to destination for table "+config.DestinationTableIdentifier,
+	)
 	return nil
 }
 

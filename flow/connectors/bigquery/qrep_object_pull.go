@@ -11,18 +11,26 @@ import (
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
+	"github.com/google/uuid"
+	"google.golang.org/api/iterator"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
-	"github.com/google/uuid"
-	"google.golang.org/api/iterator"
 )
 
 // PullQRepObjects pulls QRep objects from GCS based on the provided configuration and partition information.
 // It streams the objects to the provided QObjectStream and returns the total number of rows and bytes processed.
 // Total number of rows is estimated based on the size of the first object and the average row size.
-func (c *BigQueryConnector) PullQRepObjects(ctx context.Context, _ *otel_metrics.OtelManager, config *protos.QRepConfig, partition *protos.QRepPartition, stream *model.QObjectStream) (int64, int64, error) {
+func (c *BigQueryConnector) PullQRepObjects(
+	ctx context.Context,
+	_ *otel_metrics.OtelManager,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QObjectStream,
+) (int64, int64, error) {
 	defer close(stream.Objects)
 
 	stream.SetFormat("Avro")
@@ -34,12 +42,12 @@ func (c *BigQueryConnector) PullQRepObjects(ctx context.Context, _ *otel_metrics
 	stream.SetSchema(schema)
 
 	if partition == nil || partition.Range == nil {
-		return 0, 0, fmt.Errorf("partition and partition range must be provided")
+		return 0, 0, errors.New("partition and partition range must be provided")
 	}
 
 	objectRange := partition.Range.GetObjectIdRange()
 	if objectRange == nil {
-		return 0, 0, fmt.Errorf("invalid partition range")
+		return 0, 0, errors.New("invalid partition range")
 	}
 
 	stagingPath, err := parseGCSPath(config.StagingPath)
@@ -151,7 +159,11 @@ func (c *BigQueryConnector) PullQRepObjects(ctx context.Context, _ *otel_metrics
 	return totalRows, totalBytes, nil
 }
 
-func (c *BigQueryConnector) GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error) {
+func (c *BigQueryConnector) GetQRepPartitions(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
 	stagingPath, err := parseGCSPath(config.StagingPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse staging path %s: %w", config.StagingPath, err)
@@ -259,7 +271,7 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 	for _, field := range schema {
 		qValueKind := BigQueryTypeToQValueKind(field)
 		if qValueKind == types.QValueKindInvalid {
-			return types.QRecordSchema{}, fmt.Errorf("unsupported BigQuery field type: %s for field %s", field.Type, field.Name) // todo: should we fail?
+			return types.QRecordSchema{}, fmt.Errorf("unsupported BigQuery field type: %s for field %s", field.Type, field.Name)
 		}
 
 		qField := types.QField{
@@ -274,4 +286,76 @@ func bigQuerySchemaToQRecordSchema(schema bigquery.Schema) (types.QRecordSchema,
 	}
 
 	return types.NewQRecordSchema(fields), nil
+}
+
+func (c *BigQueryConnector) EnsurePullability(
+	ctx context.Context,
+	req *protos.EnsurePullabilityBatchInput,
+) (*protos.EnsurePullabilityBatchOutput, error) {
+	return nil, nil
+}
+
+func (c *BigQueryConnector) ExportTxSnapshot(
+	ctx context.Context,
+	flowName string,
+	_ map[string]string,
+) (*protos.ExportTxSnapshotOutput, any, error) {
+	cfg, err := internal.FetchConfigFromDB(ctx, c.catalogPool, flowName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch flow config from db: %w", err)
+	}
+
+	jobs := make([]*bigquery.Job, 0, len(cfg.TableMappings))
+	for _, tm := range cfg.TableMappings {
+		uri := fmt.Sprintf("%s/%s/*.avro", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
+		gcsRef := bigquery.NewGCSReference(uri)
+		gcsRef.DestinationFormat = bigquery.Avro
+		gcsRef.AvroOptions = &bigquery.AvroOptions{UseAvroLogicalTypes: true}
+		gcsRef.Compression = bigquery.Deflate
+
+		dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to parse table identifier %s: %w", tm.SourceTableIdentifier, err)
+		}
+
+		extractor := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table).ExtractorTo(gcsRef)
+		job, err := extractor.Run(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
+		}
+		jobs = append(jobs, job)
+	}
+	for _, job := range jobs {
+		if status, err := job.Wait(ctx); err != nil {
+			return nil, nil, fmt.Errorf("error waiting for export job to complete: %w", err)
+		} else if err := status.Err(); err != nil {
+			return nil, nil, fmt.Errorf("export job completed with error: %w", err)
+		}
+	}
+
+	return nil, nil, nil
+}
+
+func (c *BigQueryConnector) FinishExport(_ any) error {
+	return nil
+}
+
+func (c *BigQueryConnector) SetupReplConn(_ context.Context) error {
+	return nil
+}
+
+func (c *BigQueryConnector) ReplPing(_ context.Context) error {
+	return nil
+}
+
+func (c *BigQueryConnector) UpdateReplStateLastOffset(_ context.Context, _ model.CdcCheckpoint) error {
+	return nil
+}
+
+func (c *BigQueryConnector) PullFlowCleanup(_ context.Context, _ string) error {
+	return nil
+}
+
+func (c *BigQueryConnector) SetupReplication(_ context.Context, _ *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+	return model.SetupReplicationResult{}, nil
 }

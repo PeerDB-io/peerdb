@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"google.golang.org/api/iterator"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
 func (c *BigQueryConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -54,7 +56,7 @@ func (c *BigQueryConnector) GetColumns(ctx context.Context, _ uint32, dataset st
 		return nil, fmt.Errorf("failed to get table metadata for %s.%s: %w", dataset, table, err)
 	}
 
-	var columns []*protos.ColumnsItem
+	columns := make([]*protos.ColumnsItem, 0, len(metadata.Schema))
 	for _, field := range metadata.Schema {
 		colType := string(field.Type)
 		qkind := string(BigQueryTypeToQValueKind(field))
@@ -161,4 +163,109 @@ func formatTableSize(bytes int64) string {
 
 	units := []string{"B", "KB", "MB", "GB", "TB", "PB"}
 	return fmt.Sprintf("%.1f %s", float64(bytes)/float64(div), units[exp+1])
+}
+
+func (c *BigQueryConnector) GetTableSchema(
+	ctx context.Context,
+	env map[string]string,
+	version uint32,
+	system protos.TypeSystem,
+	tableMappings []*protos.TableMapping,
+) (map[string]*protos.TableSchema, error) {
+	res := make(map[string]*protos.TableSchema, len(tableMappings))
+
+	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, tm := range tableMappings {
+		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, nullableEnabled)
+		if err != nil {
+			c.logger.Error("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
+			return nil, err
+		}
+		res[tm.SourceTableIdentifier] = tableSchema
+		c.logger.Info("fetched schema", slog.String("table", tm.SourceTableIdentifier))
+	}
+
+	return res, nil
+}
+
+func (c *BigQueryConnector) getTableSchemaForTable(
+	ctx context.Context,
+	tm *protos.TableMapping,
+	system protos.TypeSystem,
+	nullableEnabled bool,
+) (*protos.TableSchema, error) {
+	dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse table identifier %s: %w", tm.SourceTableIdentifier, err)
+	}
+
+	table := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
+	metadata, err := table.Metadata(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get metadata for table %s: %w", tm.SourceTableIdentifier, err)
+	}
+
+	columns := make([]*protos.FieldDescription, 0, len(metadata.Schema))
+
+	excludedCols := make(map[string]struct{})
+	for _, col := range tm.Exclude {
+		excludedCols[col] = struct{}{}
+	}
+
+	for _, field := range metadata.Schema {
+		if _, excluded := excludedCols[field.Name]; excluded {
+			continue
+		}
+
+		var colType string
+		switch system {
+		case protos.TypeSystem_Q:
+			colType = string(BigQueryTypeToQValueKind(field))
+		default:
+			colType = string(field.Type)
+		}
+
+		nullable := !field.Required
+
+		columns = append(columns, &protos.FieldDescription{
+			Name:     field.Name,
+			Type:     colType,
+			Nullable: nullable,
+		})
+	}
+
+	// BigQuery doesn't have traditional primary keys, but we can use the table's clustering fields
+	// or return empty primary key columns
+	var primaryKeyColumns []string
+	if metadata.Clustering != nil {
+		// Use clustering fields as primary key columns if available
+		for _, clusterField := range metadata.Clustering.Fields {
+			// Only include if not excluded
+			if _, excluded := excludedCols[clusterField]; !excluded {
+				primaryKeyColumns = append(primaryKeyColumns, clusterField)
+			}
+		}
+	}
+
+	return &protos.TableSchema{
+		TableIdentifier:       tm.SourceTableIdentifier,
+		Columns:               columns,
+		PrimaryKeyColumns:     primaryKeyColumns,
+		IsReplicaIdentityFull: len(primaryKeyColumns) == 0, // True if no primary key columns
+		System:                system,
+		NullableEnabled:       nullableEnabled,
+	}, nil
+}
+
+func (c *BigQueryConnector) GetDefaultPartitionKeyForTables(
+	_ context.Context,
+	_ *protos.GetDefaultPartitionKeyForTablesInput,
+) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
+	return &protos.GetDefaultPartitionKeyForTablesOutput{
+		TableDefaultPartitionKeyMapping: nil,
+	}, nil
 }

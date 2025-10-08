@@ -8,8 +8,8 @@ import (
 )
 
 type Object struct {
-	URL     string
 	Headers http.Header
+	URL     string
 	Size    int64
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"reflect"
 	"slices"
 	"strings"
@@ -15,15 +14,16 @@ import (
 	"cloud.google.com/go/auth/credentials"
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/storage"
+	"go.temporal.io/sdk/log"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
+
 	metadataStore "github.com/PeerDB-io/peerdb/flow/connectors/external_metadata"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	"go.temporal.io/sdk/log"
-	"google.golang.org/api/iterator"
-	"google.golang.org/api/option"
 )
 
 const (
@@ -979,179 +979,4 @@ func (c *BigQueryConnector) convertToDatasetTable(tableName string) (datasetTabl
 func (c *BigQueryConnector) queryWithLogging(query string) *bigquery.Query {
 	c.logger.Info("[biguery] executing DDL statement", slog.String("query", query))
 	return c.client.Query(query)
-}
-
-func (c *BigQueryConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
-	return model.SetupReplicationResult{}, nil
-}
-
-func (c *BigQueryConnector) GetDefaultPartitionKeyForTables(
-	ctx context.Context,
-	input *protos.GetDefaultPartitionKeyForTablesInput,
-) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
-	return &protos.GetDefaultPartitionKeyForTablesOutput{
-		TableDefaultPartitionKeyMapping: nil,
-	}, nil
-}
-
-func (c *BigQueryConnector) GetTableSchema(
-	ctx context.Context,
-	env map[string]string,
-	version uint32,
-	system protos.TypeSystem,
-	tableMappings []*protos.TableMapping,
-) (map[string]*protos.TableSchema, error) {
-	res := make(map[string]*protos.TableSchema, len(tableMappings))
-
-	nullableEnabled, err := internal.PeerDBNullable(ctx, env)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, tm := range tableMappings {
-		tableSchema, err := c.getTableSchemaForTable(ctx, tm, system, nullableEnabled)
-		if err != nil {
-			c.logger.Error("error fetching schema", slog.String("table", tm.SourceTableIdentifier), slog.Any("error", err))
-			return nil, err
-		}
-		res[tm.SourceTableIdentifier] = tableSchema
-		c.logger.Info("fetched schema", slog.String("table", tm.SourceTableIdentifier))
-	}
-
-	return res, nil
-}
-
-func (c *BigQueryConnector) getTableSchemaForTable(
-	ctx context.Context,
-	tm *protos.TableMapping,
-	system protos.TypeSystem,
-	nullableEnabled bool,
-) (*protos.TableSchema, error) {
-	dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse table identifier %s: %w", tm.SourceTableIdentifier, err)
-	}
-
-	table := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table)
-	metadata, err := table.Metadata(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get metadata for table %s: %w", tm.SourceTableIdentifier, err)
-	}
-
-	columns := make([]*protos.FieldDescription, 0, len(metadata.Schema))
-	columnNames := make([]string, 0, len(metadata.Schema))
-
-	excludedCols := make(map[string]struct{})
-	for _, col := range tm.Exclude {
-		excludedCols[col] = struct{}{}
-	}
-
-	for _, field := range metadata.Schema {
-		if _, excluded := excludedCols[field.Name]; excluded {
-			continue
-		}
-
-		var colType string
-		switch system {
-		case protos.TypeSystem_Q:
-			colType = string(BigQueryTypeToQValueKind(field))
-		default:
-			colType = string(field.Type)
-		}
-
-		nullable := field.Required == false
-
-		columns = append(columns, &protos.FieldDescription{
-			Name:     field.Name,
-			Type:     colType,
-			Nullable: nullable,
-		})
-		columnNames = append(columnNames, field.Name)
-	}
-
-	// BigQuery doesn't have traditional primary keys, but we can use the table's clustering fields
-	// or return empty primary key columns
-	var primaryKeyColumns []string
-	if metadata.Clustering != nil {
-		// Use clustering fields as primary key columns if available
-		for _, clusterField := range metadata.Clustering.Fields {
-			// Only include if not excluded
-			if _, excluded := excludedCols[clusterField]; !excluded {
-				primaryKeyColumns = append(primaryKeyColumns, clusterField)
-			}
-		}
-	}
-
-	return &protos.TableSchema{
-		TableIdentifier:       tm.SourceTableIdentifier,
-		Columns:               columns,
-		PrimaryKeyColumns:     primaryKeyColumns,
-		IsReplicaIdentityFull: len(primaryKeyColumns) == 0, // True if no primary key columns
-		System:                system,
-		NullableEnabled:       nullableEnabled,
-	}, nil
-}
-
-func (c *BigQueryConnector) EnsurePullability(
-	ctx context.Context,
-	req *protos.EnsurePullabilityBatchInput,
-) (*protos.EnsurePullabilityBatchOutput, error) {
-	return nil, nil
-}
-
-func (c *BigQueryConnector) ExportTxSnapshot(ctx context.Context, flowName string, _ map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
-	cfg, err := internal.FetchConfigFromDB(ctx, c.catalogPool, flowName)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to fetch flow config from db: %w", err)
-	}
-
-	jobs := make([]*bigquery.Job, 0, len(cfg.TableMappings))
-	for _, tm := range cfg.TableMappings {
-		uri := fmt.Sprintf("%s/%s/*.avro", cfg.SnapshotStagingPath, url.PathEscape(tm.SourceTableIdentifier))
-		gcsRef := bigquery.NewGCSReference(uri)
-		gcsRef.DestinationFormat = bigquery.Avro
-		gcsRef.AvroOptions = &bigquery.AvroOptions{UseAvroLogicalTypes: true}
-		gcsRef.Compression = bigquery.Deflate
-
-		dsTable, err := c.convertToDatasetTable(tm.SourceTableIdentifier)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to parse table identifier %s: %w", tm.SourceTableIdentifier, err)
-		}
-
-		extractor := c.client.DatasetInProject(c.projectID, dsTable.dataset).Table(dsTable.table).ExtractorTo(gcsRef)
-		job, err := extractor.Run(ctx)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to start export job for table %s: %w", tm.SourceTableIdentifier, err)
-		}
-		jobs = append(jobs, job)
-	}
-	for _, job := range jobs {
-		if status, err := job.Wait(ctx); err != nil {
-			return nil, nil, fmt.Errorf("error waiting for export job to complete: %w", err)
-		} else if err := status.Err(); err != nil {
-			return nil, nil, fmt.Errorf("export job completed with error: %w", err)
-		}
-	}
-
-	return nil, nil, nil
-}
-
-func (c *BigQueryConnector) FinishExport(a any) error {
-	return nil
-}
-
-func (c *BigQueryConnector) SetupReplConn(ctx context.Context) error {
-	return nil
-}
-
-func (c *BigQueryConnector) ReplPing(ctx context.Context) error {
-	return nil
-}
-
-func (c *BigQueryConnector) UpdateReplStateLastOffset(ctx context.Context, lastOffset model.CdcCheckpoint) error {
-	return nil
-}
-
-func (c *BigQueryConnector) PullFlowCleanup(ctx context.Context, jobName string) error {
-	return nil
 }

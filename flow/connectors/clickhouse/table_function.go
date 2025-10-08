@@ -2,6 +2,7 @@ package connclickhouse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -10,19 +11,19 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 // InsertFromTableFunctionConfig contains the configuration for building INSERT queries from table functions
 type InsertFromTableFunctionConfig struct {
-	DestinationTable    string
-	Schema              types.QRecordSchema
-	ColumnNameMap       map[string]string // maps column names to source field names (e.g., Avro field names)
-	ExcludedColumns     []string
+	ColumnNameMap       map[string]string
 	Config              *protos.QRepConfig
 	ClickHouseConnector *ClickHouseConnector
 	Logger              *slog.Logger
+	DestinationTable    string
+	Schema              types.QRecordSchema
+	ExcludedColumns     []string
 }
 
 // buildInsertFromTableFunctionQuery builds a complete INSERT query from a table function expression
@@ -61,10 +62,6 @@ func buildInsertFromTableFunctionQuery(
 			if mappedName, ok := config.ColumnNameMap[colName]; ok {
 				sourceFieldName = mappedName
 			} else {
-				if config.Logger != nil {
-					config.Logger.Error("destination column not found in column name map",
-						slog.String("columnName", colName))
-				}
 				return "", fmt.Errorf("destination column %s not found in column name map", colName)
 			}
 		}
@@ -118,7 +115,7 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 
 	// Get the first field for hash partitioning
 	if len(config.Schema.Fields) == 0 {
-		return "", fmt.Errorf("schema has no fields for partitioning")
+		return "", errors.New("schema has no fields for partitioning")
 	}
 
 	hashFieldName := config.Schema.Fields[0].Name

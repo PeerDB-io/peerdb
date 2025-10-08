@@ -6,13 +6,14 @@ import (
 	"fmt"
 
 	"cloud.google.com/go/storage"
-	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"google.golang.org/api/iterator"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
 func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
 	if !cfg.InitialSnapshotOnly || !cfg.DoInitialSnapshot {
-		return fmt.Errorf("BigQuery source connector only supports initial snapshot flows. CDC is not supported")
+		return errors.New("BigQuery source connector only supports initial snapshot flows. CDC is not supported")
 	}
 
 	for _, tableMapping := range cfg.TableMappings {
@@ -29,7 +30,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	if cfg.SnapshotStagingPath == "" {
-		return fmt.Errorf("snapshot staging path is required for BigQuery source connector")
+		return errors.New("snapshot staging path is required for BigQuery source connector")
 	}
 
 	stagingPath, err := parseGCSPath(cfg.SnapshotStagingPath)
