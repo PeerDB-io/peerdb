@@ -4,6 +4,7 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"time"
 	"unsafe"
 
 	jsoniter "github.com/json-iterator/go"
@@ -40,26 +41,8 @@ func (codec *BsonDCodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 		if i > 0 {
 			stream.WriteMore()
 		}
-
 		stream.WriteObjectField(elem.Key)
-
-		switch v := elem.Value.(type) {
-		case float64:
-			if math.IsNaN(v) {
-				stream.WriteString("NaN")
-			} else if math.IsInf(v, 1) {
-				stream.WriteString("+Inf")
-			} else if math.IsInf(v, -1) {
-				stream.WriteString("-Inf")
-			} else {
-				writeFloat64WithExplicitDecimal(v, stream)
-			}
-		default:
-			// Delegate to json-iterator's encoding system for all other types.
-			// This maintains extension behavior: if elem.Value is another bson.D,
-			// it will recursively use this custom encoder for proper NaN/Inf handling.
-			stream.WriteVal(elem.Value)
-		}
+		encodeCustom(elem.Value, stream)
 	}
 	stream.WriteObjectEnd()
 }
@@ -83,23 +66,7 @@ func (codec *BsonACodec) Encode(ptr unsafe.Pointer, stream *jsoniter.Stream) {
 		if i > 0 {
 			stream.WriteMore()
 		}
-		switch v := elem.(type) {
-		case float64:
-			if math.IsNaN(v) {
-				stream.WriteString("NaN")
-			} else if math.IsInf(v, 1) {
-				stream.WriteString("+Inf")
-			} else if math.IsInf(v, -1) {
-				stream.WriteString("-Inf")
-			} else {
-				writeFloat64WithExplicitDecimal(v, stream)
-			}
-		default:
-			// Delegate to json-iterator's encoding system for all other types.
-			// This maintains extension behavior: if elem.Value is another bson.A,
-			// it will recursively use this custom encoder for proper NaN/Inf handling.
-			stream.WriteVal(elem)
-		}
+		encodeCustom(elem, stream)
 	}
 	stream.WriteArrayEnd()
 }
@@ -111,6 +78,29 @@ func (codec *BsonACodec) IsEmpty(ptr unsafe.Pointer) bool {
 
 func (codec *BsonACodec) Decode(ptr unsafe.Pointer, iter *jsoniter.Iterator) {
 	// Not used
+}
+
+func encodeCustom(value any, stream *jsoniter.Stream) {
+	switch v := value.(type) {
+	case float64:
+		if math.IsNaN(v) {
+			stream.WriteString("NaN")
+		} else if math.IsInf(v, 1) {
+			stream.WriteString("+Inf")
+		} else if math.IsInf(v, -1) {
+			stream.WriteString("-Inf")
+		} else {
+			writeFloat64WithExplicitDecimal(v, stream)
+		}
+	case bson.DateTime:
+		value := v.Time().UTC().Format(time.RFC3339Nano)
+		stream.WriteString(value)
+	default:
+		// Delegate to json-iterator's encoding system for all other types.
+		// This maintains extension behavior: if the value is another bson.A/D,
+		// it will recursively use this custom encoder for proper NaN/Inf/date handling.
+		stream.WriteVal(value)
+	}
 }
 
 func CreateExtendedJSONMarshaler() jsoniter.API {

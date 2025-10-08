@@ -166,10 +166,11 @@ func (s PeerFlowE2ETestSuitePG) TestSimpleSlotCreation() {
 func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	numRows := 10
 
-	srcTable := "test_qrep_flow_avro_pg_1"
+	baseName := "test_qrep_flow_avro_pg"
+	srcTable := baseName + "_1"
 	s.setupSourceTable(srcTable, numRows)
 
-	dstTable := "test_qrep_flow_avro_pg_2"
+	dstTable := baseName + "_2"
 
 	err := CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, dstTable)
 	require.NoError(s.t, err)
@@ -180,9 +181,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
+	jobName := AddSuffix(s, baseName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_qrep_flow_avro_pg",
+		jobName,
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
@@ -204,10 +206,11 @@ func (s PeerFlowE2ETestSuitePG) Test_Complete_QRep_Flow_Multi_Insert_PG() {
 func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	numRows := 10
 
-	srcTable := "test_qrep_flow_pgpg_1"
+	baseName := "test_qrep_flow_pgpg"
+	srcTable := baseName + "_1"
 	s.setupSourceTable(srcTable, numRows)
 
-	dstTable := "test_qrep_flow_pgpg_2"
+	dstTable := baseName + "_2"
 
 	err := CreateTableForQRep(s.t.Context(), s.Conn(), s.suffix, dstTable)
 	require.NoError(s.t, err)
@@ -218,9 +221,10 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		srcSchemaQualified)
 
+	jobName := AddSuffix(s, baseName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_qrep_flow_pgpg",
+		jobName,
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
@@ -243,10 +247,11 @@ func (s PeerFlowE2ETestSuitePG) Test_PG_TypeSystemQRep() {
 func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	numRows := 10
 
-	srcTable := "test_qrep_columns_pg_1"
+	baseName := "test_qrep_columns_pg"
+	srcTable := baseName + "_1"
 	s.setupSourceTable(srcTable, numRows)
 
-	dstTable := "test_qrep_columns_pg_2"
+	dstTable := baseName + "_2"
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
 	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
@@ -254,9 +259,10 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
+	jobName := AddSuffix(s, baseName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_qrep_columns_pg",
+		jobName,
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
@@ -278,10 +284,11 @@ func (s PeerFlowE2ETestSuitePG) Test_PeerDB_Columns_QRep_PG() {
 func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	numRows := 10
 
-	srcTable := "test_overwrite_pg_1"
+	baseName := "test_overwrite_pg"
+	srcTable := baseName + "_1"
 	s.setupSourceTable(srcTable, numRows)
 
-	dstTable := "test_overwrite_pg_2"
+	dstTable := baseName + "_2"
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
 	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
@@ -289,9 +296,10 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
+	jobName := AddSuffix(s, baseName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_overwrite_pg",
+		jobName,
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
@@ -327,10 +335,11 @@ func (s PeerFlowE2ETestSuitePG) Test_Overwrite_PG() {
 func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	numRows := 0
 
-	srcTable := "test_no_rows_qrep_pg_1"
+	baseName := "test_no_rows_qrep_pg"
+	srcTable := baseName + "_1"
 	s.setupSourceTable(srcTable, numRows)
 
-	dstTable := "test_no_rows_qrep_pg_2"
+	dstTable := baseName + "_2"
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
 	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
@@ -338,9 +347,10 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
+	jobName := AddSuffix(s, baseName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_no_rows_qrep_pg",
+		jobName,
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
@@ -360,10 +370,10 @@ func (s PeerFlowE2ETestSuitePG) Test_No_Rows_QRep_PG() {
 func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 	numRows := 10
 
-	srcTable := "qrep_pause"
+	srcTable := "test_qrep_pause"
 	s.setupSourceTable(srcTable, numRows)
 
-	dstTable := "qrep_pause_dst"
+	dstTable := "test_qrep_pause_dst"
 
 	srcSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, srcTable)
 	dstSchemaQualified := fmt.Sprintf("%s_%s.%s", "e2e_test", s.suffix, dstTable)
@@ -371,9 +381,10 @@ func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.suffix, srcTable)
 
+	jobName := AddSuffix(s, srcTable)
 	config := CreateQRepWorkflowConfig(
 		s.t,
-		"test_qrep_pause_pg",
+		jobName,
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
@@ -422,6 +433,7 @@ func (s PeerFlowE2ETestSuitePG) TestQRepPause() {
 func (s PeerFlowE2ETestSuitePG) TestXminPause() {
 	numRows := 10
 
+	baseName := "test_xmin_pause_pg"
 	srcTable := "xmin_pause"
 	s.setupSourceTable(srcTable, numRows)
 
@@ -432,9 +444,10 @@ func (s PeerFlowE2ETestSuitePG) TestXminPause() {
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s", s.suffix, srcTable)
 
+	jobName := AddSuffix(s, baseName)
 	config := CreateQRepWorkflowConfig(
 		s.t,
-		"test_xmin_pause_pg",
+		jobName,
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,
@@ -498,9 +511,10 @@ func (s PeerFlowE2ETestSuitePG) TestTransform() {
 	('pgtransform', 'lua', 'function transformRow(row) row.myreal = 1729 end') on conflict do nothing`)
 	require.NoError(s.t, err)
 
+	jobName := AddSuffix(s, srcTable)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_transform",
+		jobName,
 		srcSchemaQualified,
 		dstSchemaQualified,
 		query,

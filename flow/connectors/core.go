@@ -293,6 +293,12 @@ type RawTableConnector interface {
 type RenameTablesConnector interface {
 	Connector
 
+	RenameTables(context.Context, *protos.RenameTablesInput) (*protos.RenameTablesOutput, error)
+}
+
+type RenameTablesWithSoftDeleteConnector interface {
+	Connector
+
 	RenameTables(context.Context, *protos.RenameTablesInput, map[string]*protos.TableSchema) (*protos.RenameTablesOutput, error)
 }
 
@@ -314,9 +320,9 @@ func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName 
 	err := row.Scan(&dbtype)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return 0, fmt.Errorf("peer not found: %s", peerName)
+			return 0, exceptions.NewNotFoundError(fmt.Errorf("peer not found: %s", peerName))
 		}
-		return 0, fmt.Errorf("failed to load peer type for %s: %w", peerName, err)
+		return 0, exceptions.NewCatalogError(fmt.Errorf("failed to load peer type for %s: %w", peerName, err))
 	}
 	return dbtype, nil
 }
@@ -598,10 +604,10 @@ var (
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickHouseConnector{}
 
-	_ RenameTablesConnector = &connsnowflake.SnowflakeConnector{}
-	_ RenameTablesConnector = &connbigquery.BigQueryConnector{}
-	_ RenameTablesConnector = &connpostgres.PostgresConnector{}
-	_ RenameTablesConnector = &connclickhouse.ClickHouseConnector{}
+	_ RenameTablesWithSoftDeleteConnector = &connsnowflake.SnowflakeConnector{}
+	_ RenameTablesWithSoftDeleteConnector = &connbigquery.BigQueryConnector{}
+	_ RenameTablesWithSoftDeleteConnector = &connpostgres.PostgresConnector{}
+	_ RenameTablesConnector               = &connclickhouse.ClickHouseConnector{}
 
 	_ RawTableConnector = &connclickhouse.ClickHouseConnector{}
 	_ RawTableConnector = &connbigquery.BigQueryConnector{}

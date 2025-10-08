@@ -11,6 +11,7 @@ package peerdb_route;
 
 message CreateCDCFlowRequest {
   peerdb_flow.FlowConnectionConfigs connection_configs = 1;
+  bool attach_to_existing = 2;
 }
 
 message CreateCDCFlowResponse { string workflow_id = 1; }

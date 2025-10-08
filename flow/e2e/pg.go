@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	tp "github.com/Shopify/toxiproxy/v2/client"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
@@ -263,4 +266,85 @@ func (s *PostgresSource) GetLogCount(ctx context.Context, flowJobName, errorType
 	}
 
 	return int(rows.Records[0][0].Value().(int64)), nil
+}
+
+// Toxiproxy support for testing concurrent scenarios
+
+var (
+	toxiClient    *tp.Client
+	toxiOnce      sync.Once
+	toxiAdminPort = 18474
+)
+
+// InitToxiproxy initializes the Toxiproxy client (singleton pattern)
+func InitToxiproxy() error {
+	var err error
+	toxiOnce.Do(func() {
+		adminAddr := fmt.Sprintf("localhost:%d", toxiAdminPort)
+		toxiClient = tp.NewClient(adminAddr)
+		// Test connection
+		_, err = toxiClient.Proxies()
+	})
+	return err
+}
+
+// SetupPostgresWithToxiproxy creates a PostgreSQL source that connects through Toxiproxy
+func SetupPostgresWithToxiproxy(t *testing.T, suffix string, port uint32) (*PostgresSource, *tp.Proxy, error) {
+	t.Helper()
+
+	// Initialize Toxiproxy client
+	if err := InitToxiproxy(); err != nil {
+		return nil, nil, fmt.Errorf("failed to init toxiproxy: %w", err)
+	}
+
+	// Get or create proxy
+	proxy, err := GetPostgresToxicProxy(t, suffix, port)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Create config pointing to proxy
+	config := internal.GetCatalogPostgresConfigFromEnv(t.Context())
+	config.Host = "localhost"
+	config.Port = port
+	// Don't set RequireTls - let it use the default from env
+
+	// Rest is same as SetupPostgres
+	connector, err := connpostgres.NewPostgresConnector(t.Context(), nil, config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create postgres connection: %w", err)
+	}
+	conn := connector.Conn()
+
+	if err := cleanPostgres(t.Context(), conn, suffix); err != nil {
+		connector.Close()
+		return nil, nil, err
+	}
+
+	if err := setupPostgresSchema(t, conn, suffix); err != nil {
+		connector.Close()
+		return nil, nil, err
+	}
+
+	return &PostgresSource{PostgresConnector: connector}, proxy, nil
+}
+
+// GetPostgresToxicProxy gets or creates the PostgreSQL proxy
+func GetPostgresToxicProxy(t *testing.T, suffix string, port uint32) (*tp.Proxy, error) {
+	t.Helper()
+
+	// Get upstream from environment configuration
+	config := internal.GetCatalogPostgresConfigFromEnv(context.Background())
+
+	// Allow override of upstream host for Toxiproxy
+	// In CI, Toxiproxy runs as a service container and needs to use service names
+	// while test code connects via localhost
+	upstreamHost := os.Getenv("TOXIPROXY_POSTGRES_HOST")
+	if upstreamHost == "" {
+		upstreamHost = config.Host
+	}
+
+	return toxiClient.CreateProxy("postgres_"+suffix,
+		fmt.Sprintf("0.0.0.0:%d", port),
+		fmt.Sprintf("%s:%d", upstreamHost, config.Port))
 }

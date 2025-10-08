@@ -58,9 +58,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
+	jobName := AddSuffix(s, tblName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_qrep_flow_avro_sf",
+		jobName,
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
@@ -95,9 +96,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_Simple() 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
+	jobName := AddSuffix(s, tblName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_qrep_flow_avro_sf",
+		jobName,
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
@@ -135,9 +137,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
+	jobName := AddSuffix(s, tblName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_qrep_flow_avro_sf",
+		jobName,
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
@@ -170,9 +173,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_Upsert_XMIN() {
 
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s", s.pgSuffix, tblName)
 
+	jobName := AddSuffix(s, tblName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_qrep_flow_avro_sf_xmin",
+		jobName,
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
@@ -213,9 +217,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Complete_QRep_Flow_Avro_SF_S3_Integration()
 
 	s.sfHelper.Config.S3Integration = "peerdb_s3_integration"
 
+	jobName := AddSuffix(s, tblName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_qrep_flow_avro_sf_int",
+		jobName,
 		s.attachSchemaSuffix(tblName),
 		dstSchemaQualified,
 		query,
@@ -241,7 +246,7 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 
 	numRows := 10
 
-	tblName := "test_qrep_columns_sf"
+	tblName := "test_columns_qrep_sf"
 	s.setupSourceTable(tblName, numRows)
 
 	dstSchemaQualified := fmt.Sprintf("%s.%s", s.sfHelper.testSchemaName, tblName)
@@ -249,9 +254,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_PeerDB_Columns_QRep_SF() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
+	jobName := AddSuffix(s, tblName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_columns_qrep_sf",
+		jobName,
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,
@@ -287,9 +293,10 @@ func (s PeerFlowE2ETestSuiteSF) Test_Soft_Delete_Default_False_SF() {
 	query := fmt.Sprintf("SELECT * FROM e2e_test_%s.%s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		s.pgSuffix, tblName)
 
+	jobName := AddSuffix(s, tblName)
 	qrepConfig := CreateQRepWorkflowConfig(
 		s.t,
-		"test_deleted_false_qrep_sf",
+		jobName,
 		fmt.Sprintf("e2e_test_%s.%s", s.pgSuffix, tblName),
 		dstSchemaQualified,
 		query,

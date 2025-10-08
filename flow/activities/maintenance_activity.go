@@ -15,6 +15,8 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	proto2 "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -74,32 +76,68 @@ func (a *MaintenanceActivity) WaitForRunningSnapshotsAndIntermediateStates(
 	if err != nil {
 		return nil, err
 	}
+	for {
+		checkStartTime := time.Now()
+		slog.InfoContext(ctx, "Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
 
-	slog.InfoContext(ctx, "Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
-
-	for _, mirror := range mirrors.Mirrors {
-		if _, shouldSkip := skippedFlows[mirror.MirrorName]; shouldSkip {
-			slog.WarnContext(ctx, "Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
-			continue
+		for _, mirror := range mirrors.Mirrors {
+			if _, shouldSkip := skippedFlows[mirror.MirrorName]; shouldSkip {
+				slog.WarnContext(ctx, "Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
+				continue
+			}
+			lastStatus, err := a.checkAndWaitIfNeeded(ctx, mirror, 2*time.Minute)
+			if err != nil {
+				return nil, err
+			}
+			slog.InfoContext(ctx, "Finished checking and waiting for snapshot",
+				"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
 		}
-		lastStatus, err := a.checkAndWaitIfNeeded(ctx, mirror, 2*time.Minute)
+		slog.InfoContext(ctx, "Finished checking and waiting for all mirrors to finish snapshot")
+
+		// New mirrors can come in while we wait, so we check for new ones and retry waiting if we find any
+		mirrors, err = a.GetAllMirrors(ctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get mirrors during new mirror check: %w", err)
 		}
-		slog.InfoContext(ctx, "Finished checking and waiting for snapshot",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
+		allMirrorsChecked := true
+		for _, mirror := range mirrors.Mirrors {
+			if mirror.MirrorCreatedAt.AsTime().After(checkStartTime) || mirror.MirrorUpdatedAt.AsTime().After(checkStartTime) {
+				slog.WarnContext(ctx, "Found a new mirror while checking for snapshots", "mirror", mirror.MirrorName, "info", mirror)
+				allMirrorsChecked = false
+				break
+			}
+		}
+		if allMirrorsChecked {
+			break
+		}
 	}
-	slog.InfoContext(ctx, "Finished checking and waiting for all mirrors to finish snapshot")
 	return mirrors, nil
 }
 
-var waitStatuses map[protos.FlowStatus]struct{} = map[protos.FlowStatus]struct{}{
-	protos.FlowStatus_STATUS_SNAPSHOT:  {},
-	protos.FlowStatus_STATUS_SETUP:     {},
-	protos.FlowStatus_STATUS_RESYNC:    {},
-	protos.FlowStatus_STATUS_UNKNOWN:   {},
-	protos.FlowStatus_STATUS_PAUSING:   {},
-	protos.FlowStatus_STATUS_MODIFYING: {},
+var waitStatuses = buildWaitStatuses()
+
+func buildWaitStatuses() map[protos.FlowStatus]struct{} {
+	waitStatuses := make(map[protos.FlowStatus]struct{})
+
+	for index := range protos.FlowStatus_name {
+		flowStatus := protos.FlowStatus(index)
+
+		// Get the enum value descriptor
+		enumValueDesc := flowStatus.Descriptor().Values().ByNumber(protoreflect.EnumNumber(index))
+		if enumValueDesc == nil {
+			continue
+		}
+
+		// Get the extension value from the enum value options
+		if proto2.HasExtension(enumValueDesc.Options(), protos.E_PeerdbMaintenanceWait) {
+			waitValue := proto2.GetExtension(enumValueDesc.Options(), protos.E_PeerdbMaintenanceWait)
+			if boolVal, ok := waitValue.(bool); ok && boolVal {
+				waitStatuses[flowStatus] = struct{}{}
+			}
+		}
+	}
+
+	return waitStatuses
 }
 
 func (a *MaintenanceActivity) checkAndWaitIfNeeded(

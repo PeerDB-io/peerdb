@@ -82,8 +82,9 @@ func CheckIfTablesEmptyAndEngine(ctx context.Context, logger log.Logger, conn cl
 }
 
 type ClickHouseColumn struct {
-	Name string
-	Type string
+	Name        string
+	Type        string
+	DefaultKind string
 }
 
 func GetTableColumnsMapping(ctx context.Context, logger log.Logger, conn clickhouse.Conn,
@@ -111,7 +112,7 @@ func storeColumnInfoForTable(ctx context.Context, logger log.Logger, conn clickh
 	tableColumnsMapping map[string][]ClickHouseColumn,
 ) error {
 	rows, err := Query(ctx, logger, conn,
-		fmt.Sprintf("SELECT name,type,table FROM system.columns WHERE database=currentDatabase() AND table IN (%s)",
+		fmt.Sprintf("SELECT name,type,default_kind,table FROM system.columns WHERE database=currentDatabase() AND table IN (%s)",
 			strings.Join(queryTables, ",")))
 	if err != nil {
 		return fmt.Errorf("failed to get columns for destination tables: %w", err)
@@ -120,7 +121,7 @@ func storeColumnInfoForTable(ctx context.Context, logger log.Logger, conn clickh
 	for rows.Next() {
 		var tableName string
 		var clickhouseColumn ClickHouseColumn
-		if err := rows.Scan(&clickhouseColumn.Name, &clickhouseColumn.Type, &tableName); err != nil {
+		if err := rows.Scan(&clickhouseColumn.Name, &clickhouseColumn.Type, &clickhouseColumn.DefaultKind, &tableName); err != nil {
 			return fmt.Errorf("failed to scan columns for tables: %w", err)
 		}
 		tableColumnsMapping[tableName] = append(tableColumnsMapping[tableName], clickhouseColumn)

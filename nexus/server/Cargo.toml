@@ -64,5 +64,5 @@ cargo-deb = "3"
 aws-config = "1.5"
 
 [dev-dependencies]
-postgres = "=0.19.10"
-similar = "=2.7.0"
+postgres = "0.19.10"
+similar = "2.7.0"

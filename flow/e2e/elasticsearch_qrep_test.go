@@ -16,7 +16,8 @@ func Test_Elasticsearch(t *testing.T) {
 }
 
 func (s elasticsearchSuite) Test_Simple_QRep_Append() {
-	srcTableName := AttachSchema(s, "es_simple_append")
+	jobName := AddSuffix(s, "test_es_simple_append")
+	srcTableName := AttachSchema(s, "test_es_simple_append")
 
 	_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -41,7 +42,8 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		srcTableName)
 
-	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_es_simple_qrep",
+	qrepConfig := CreateQRepWorkflowConfig(s.t,
+		jobName,
 		srcTableName,
 		srcTableName,
 		query,
@@ -69,7 +71,8 @@ func (s elasticsearchSuite) Test_Simple_QRep_Append() {
 }
 
 func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
-	srcTableName := AttachSchema(s, "es_simple_upsert")
+	jobName := AddSuffix(s, "test_es_simple_upsert")
+	srcTableName := AttachSchema(s, "test_es_simple_upsert")
 
 	_, err := s.conn.Conn().Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -94,7 +97,8 @@ func (s elasticsearchSuite) Test_Simple_QRep_Upsert() {
 	query := fmt.Sprintf("SELECT * FROM %s WHERE updated_at BETWEEN {{.start}} AND {{.end}}",
 		srcTableName)
 
-	qrepConfig := CreateQRepWorkflowConfig(s.t, "test_es_simple_qrep",
+	qrepConfig := CreateQRepWorkflowConfig(s.t,
+		jobName,
 		srcTableName,
 		srcTableName,
 		query,

@@ -32,8 +32,8 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourcePostgres,
-		Code:   "UNKNOWN",
+		Source: ErrorSourceNet,
+		Code:   "net.DNSError",
 	}, errInfo, "Unexpected error info")
 }
 
@@ -426,8 +426,8 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), err)
 			assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   "UNKNOWN",
+				Source: ErrorSourceNet,
+				Code:   "connect: connection refused",
 			}, errInfo, "Unexpected error info")
 		})
 	}
@@ -523,14 +523,21 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 			errorClass: ErrorNotifyReplicationSlotMissing,
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(),
 			},
 		},
 		exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing: {
 			errorClass: ErrorNotifyPublicationMissing,
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "PUBLICATION_DOES_NOT_EXIST",
+				Code:   exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(),
+			},
+		},
+		exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot: {
+			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(),
 			},
 		},
 	} {
@@ -542,6 +549,16 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 			))
 			assert.Equal(t, cinfo.errorClass, errorClass, "Unexpected error class")
 			assert.Equal(t, cinfo.errInfo, errInfo, "Unexpected error info")
+		})
+	}
+}
+
+func TestTemporalKnownIrrecoverableErrorTypesHaveCorrectClassification(t *testing.T) {
+	for _, code := range exceptions.IrrecoverableApplicationErrorTypesList {
+		t.Run(code, func(t *testing.T) {
+			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError("unknown", code, nil))
+			assert.NotEqual(t, ErrorOther, errorClass, "Error class should not be other")
+			assert.NotEqual(t, ErrorSourceTemporal, errInfo.Source)
 		})
 	}
 }
@@ -563,7 +580,7 @@ func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
 		Wrapped: errors.New("the server is in quiesce mode and will shut down"),
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "0",

@@ -7,17 +7,16 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-func (h *FlowRequestHandler) GetScripts(ctx context.Context, req *protos.GetScriptsRequest) (*protos.GetScriptsResponse, error) {
+func (h *FlowRequestHandler) GetScripts(ctx context.Context, req *protos.GetScriptsRequest) (*protos.GetScriptsResponse, APIError) {
 	whereClause := ""
 	if req.Id != -1 {
 		whereClause = fmt.Sprintf(" WHERE id=%d", req.Id)
 	}
 	rows, err := h.pool.Query(ctx, "SELECT id,lang,name,source FROM scripts"+whereClause)
 	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to query scripts: %w", err))
+		return nil, NewInternalApiError(fmt.Errorf("failed to query scripts: %w", err))
 	}
 
 	scripts, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*protos.Script, error) {
@@ -25,19 +24,19 @@ func (h *FlowRequestHandler) GetScripts(ctx context.Context, req *protos.GetScri
 		var sourceBytes []byte
 		err := row.Scan(&script.Id, &script.Lang, &script.Name, &sourceBytes)
 		if err != nil {
-			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to query scripts: %w", err))
+			return nil, NewInternalApiError(fmt.Errorf("failed to query scripts: %w", err))
 		}
 		script.Source = string(sourceBytes)
 		return script, nil
 	})
 	if err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to collect scripts: %w", err))
+		return nil, NewInternalApiError(fmt.Errorf("failed to collect scripts: %w", err))
 	}
 
 	return &protos.GetScriptsResponse{Scripts: scripts}, nil
 }
 
-func (h *FlowRequestHandler) PostScript(ctx context.Context, req *protos.PostScriptRequest) (*protos.PostScriptResponse, error) {
+func (h *FlowRequestHandler) PostScript(ctx context.Context, req *protos.PostScriptRequest) (*protos.PostScriptResponse, APIError) {
 	if req.Script.Id == -1 {
 		var id int32
 		if err := h.pool.QueryRow(
@@ -47,7 +46,7 @@ func (h *FlowRequestHandler) PostScript(ctx context.Context, req *protos.PostScr
 			req.Script.Name,
 			[]byte(req.Script.Source),
 		).Scan(&id); err != nil {
-			return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to insert script: %w", err))
+			return nil, NewInternalApiError(fmt.Errorf("failed to insert script: %w", err))
 		}
 		return &protos.PostScriptResponse{Id: id}, nil
 	} else if _, err := h.pool.Exec(
@@ -58,7 +57,7 @@ func (h *FlowRequestHandler) PostScript(ctx context.Context, req *protos.PostScr
 		[]byte(req.Script.Source),
 		req.Script.Id,
 	); err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to update script: %w", err))
+		return nil, NewInternalApiError(fmt.Errorf("failed to update script: %w", err))
 	}
 	return &protos.PostScriptResponse{Id: req.Script.Id}, nil
 }
@@ -66,9 +65,9 @@ func (h *FlowRequestHandler) PostScript(ctx context.Context, req *protos.PostScr
 func (h *FlowRequestHandler) DeleteScript(
 	ctx context.Context,
 	req *protos.DeleteScriptRequest,
-) (*protos.DeleteScriptResponse, error) {
+) (*protos.DeleteScriptResponse, APIError) {
 	if _, err := h.pool.Exec(ctx, "DELETE FROM scripts WHERE id=$1", req.Id); err != nil {
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to delete script: %w", err))
+		return nil, NewInternalApiError(fmt.Errorf("failed to delete script: %w", err))
 	}
 	return &protos.DeleteScriptResponse{}, nil
 }

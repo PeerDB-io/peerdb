@@ -22,8 +22,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -346,6 +346,11 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 		for _, dstField := range dstSchema {
 			// not doing type checks for now
 			if dstField.Name == colName {
+				if dstField.DefaultKind == "ALIAS" || dstField.DefaultKind == "MATERIALIZED" {
+					return fmt.Errorf("field %s in destination table %s is %s and doesn't support INSERTs",
+						srcField.Name, dstTableName, dstField.DefaultKind)
+				}
+
 				found = true
 				break
 			}

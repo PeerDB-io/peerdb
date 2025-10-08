@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/go-logr/logr"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
@@ -46,6 +48,7 @@ const (
 	RecordsSyncedPerTableGaugeName       = "records_synced_per_table"
 	RecordsSyncedPerTableCounterName     = "records_synced_per_table_counter"
 	SyncedTablesGaugeName                = "synced_tables"
+	SyncedTablesPerBatchGaugeName        = "synced_tables_per_batch"
 	InstanceStatusGaugeName              = "instance_status"
 	MaintenanceStatusGaugeName           = "maintenance_status"
 	FlowStatusGaugeName                  = "flow_status"
@@ -83,6 +86,7 @@ type Metrics struct {
 	RecordsSyncedPerTableGauge       metric.Int64Gauge
 	RecordsSyncedPerTableCounter     metric.Int64Counter
 	SyncedTablesGauge                metric.Int64Gauge
+	SyncedTablesPerBatchGauge        metric.Int64Gauge
 	InstanceStatusGauge              metric.Int64Gauge
 	MaintenanceStatusGauge           metric.Int64Gauge
 	FlowStatusGauge                  metric.Int64Gauge
@@ -333,6 +337,12 @@ func (om *OtelManager) setupMetrics(ctx context.Context) error {
 		return err
 	}
 
+	if om.Metrics.SyncedTablesPerBatchGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SyncedTablesPerBatchGaugeName),
+		metric.WithDescription("Number of tables synced for every Sync batch"),
+	); err != nil {
+		return err
+	}
+
 	if om.Metrics.InstanceStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(InstanceStatusGaugeName),
 		metric.WithDescription("Status of the instance, always emits a 1 metric with different attributes for different statuses"),
 	); err != nil {
@@ -516,7 +526,7 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	return metricExporter, err
 }
 
-func setupMetricsProvider(
+func setupMetricsAndProvider(
 	ctx context.Context,
 	otelResource *resource.Resource,
 	enabled bool,
@@ -529,7 +539,7 @@ func setupMetricsProvider(
 	if err != nil {
 		return nil, err
 	}
-
+	setupOtelHandlers(ctx)
 	meterProvider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithResource(otelResource),
@@ -543,7 +553,7 @@ func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string, ena
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, enabled)
+	return setupMetricsAndProvider(ctx, otelResource, enabled)
 }
 
 func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
@@ -551,7 +561,7 @@ func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, enabled, temporalMetricsFilteringView(ctx))
+	return setupMetricsAndProvider(ctx, otelResource, enabled, temporalMetricsFilteringView(ctx))
 }
 
 func SetupComponentMetricsProvider(
@@ -564,5 +574,25 @@ func SetupComponentMetricsProvider(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, enabled, componentMetricsRenamingView(componentName))
+	return setupMetricsAndProvider(ctx, otelResource, enabled, componentMetricsRenamingView(componentName))
+}
+
+type LoggingErrorHandler struct {
+	logger *slog.Logger
+}
+
+func NewLoggingErrorHandler(logger *slog.Logger) *LoggingErrorHandler {
+	return &LoggingErrorHandler{
+		logger: logger.With("component", "global-otel-error-handler"),
+	}
+}
+
+func (l *LoggingErrorHandler) Handle(err error) {
+	l.logger.Error("otel error", "error", err) //nolint:sloglint
+}
+
+func setupOtelHandlers(ctx context.Context) {
+	logger := internal.SlogLoggerFromCtx(ctx)
+	otel.SetErrorHandler(NewLoggingErrorHandler(logger))
+	otel.SetLogger(logr.FromSlogHandler(logger.With("component", "global-otel-logger-handler").Handler()))
 }

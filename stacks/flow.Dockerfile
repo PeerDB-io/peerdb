@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.18@sha256:dabfc0969b935b2080555ace70ee69a5261af8a8f1b4df97b9e7fbcf6722eddf
+# syntax=docker/dockerfile:1.19@sha256:b6afd42430b15f2d2a4c5a02b919e98a525b785b1aaff16747d2f623364e39b6
 
 FROM golang:1.25-alpine@sha256:b6ed3fd0452c0e9bcdef5597f29cc1418f61672e9d3a2f55bf02e7222c014abd AS builder
 RUN apk add --no-cache gcc geos-dev musl-dev
@@ -6,6 +6,7 @@ WORKDIR /root/flow
 
 # first copy only go.mod and go.sum to cache dependencies
 COPY flow/go.mod flow/go.sum ./
+COPY flow/pkg/go.mod flow/pkg/go.sum ./pkg/
 
 # download all the dependencies
 RUN go mod download
@@ -17,6 +18,8 @@ RUN rm -f go.work*
 # build the binary from flow folder
 WORKDIR /root/flow
 ENV CGO_ENABLED=1
+# Generate the typed handler wrapper
+RUN go generate
 RUN go build -o /root/peer-flow
 
 FROM alpine:3.22@sha256:4bcff63911fcb4448bd4fdacec207030997caf25e9bea4045fa6c8c44de311d1 AS flow-base

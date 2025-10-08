@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type QRepFlowExecution struct {
@@ -210,7 +211,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 			BackoffCoefficient:     2.,
 			MaximumInterval:        10 * time.Minute,
 			MaximumAttempts:        0,
-			NonRetryableErrorTypes: []string{"snapshot"},
+			NonRetryableErrorTypes: exceptions.IrrecoverableApplicationErrorTypesList,
 		},
 	})
 
@@ -616,8 +617,8 @@ func QRepFlowWorkflow(
 	}
 
 	q.logger.Info("Continuing as new workflow",
-		slog.Any("Last Partition", state.LastPartition),
-		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
+		slog.Any("lastPartition", state.LastPartition),
+		slog.Uint64("numPartitionsProcessed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)

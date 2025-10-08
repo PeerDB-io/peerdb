@@ -26,9 +26,9 @@ import (
 type MySqlConnector struct {
 	*metadataStore.PostgresMetadata
 	config         *protos.MySqlConfig
-	ssh            utils.SSHTunnel
+	ssh            *utils.SSHTunnel
 	conn           atomic.Pointer[client.Conn] // atomic used for internal concurrency, connector interface is not threadsafe
-	contexts       chan context.Context
+	contexts       atomic.Pointer[chan context.Context]
 	logger         log.Logger
 	rdsAuth        *utils.RDSAuth
 	serverVersion  string
@@ -62,19 +62,32 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 		config:           config,
 		ssh:              ssh,
 		conn:             atomic.Pointer[client.Conn]{},
-		contexts:         contexts,
 		logger:           logger,
 		rdsAuth:          rdsAuth,
 	}
+	c.contexts.Store(&contexts)
 	go func() {
 		ctx := context.Background()
 		for {
 			var ok bool
 			select {
-			case <-ctx.Done():
+			case <-ssh.GetKeepaliveChan(ctx):
+				c.logger.Info("SSH keepalive failed, closing connection")
 				ctx = context.Background()
 				if conn := c.conn.Swap(nil); conn != nil {
-					conn.Close()
+					c.logger.Info("Closing connection due to SSH keepalive failure")
+					if err := conn.Close(); err != nil {
+						c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
+					}
+				}
+			case <-ctx.Done():
+				c.logger.Info("ctx canceled, closing connection")
+				ctx = context.Background()
+				if conn := c.conn.Swap(nil); conn != nil {
+					c.logger.Info("Closing connection due to ctx cancellation")
+					if err := conn.Close(); err != nil {
+						c.logger.Error("Failed to close MySQL connection", slog.Any("error", err))
+					}
 				}
 			case ctx, ok = <-contexts:
 				if !ok {
@@ -88,9 +101,14 @@ func NewMySqlConnector(ctx context.Context, config *protos.MySqlConfig) (*MySqlC
 }
 
 func (c *MySqlConnector) watchCtx(ctx context.Context) func() {
-	c.contexts <- ctx
+	if contexts := c.contexts.Load(); contexts != nil {
+		*contexts <- ctx
+	}
+
 	return func() {
-		c.contexts <- context.Background()
+		if contexts := c.contexts.Load(); contexts != nil {
+			*contexts <- context.Background()
+		}
 	}
 }
 
@@ -106,28 +124,32 @@ func (c *MySqlConnector) Flavor() string {
 }
 
 func (c *MySqlConnector) Close() error {
+	c.logger.Info("Closing MySQL connector")
 	var errs []error
-	if c.contexts != nil {
-		close(c.contexts)
+	if contexts := c.contexts.Swap(nil); contexts != nil {
+		close(*contexts)
 	}
 	if conn := c.conn.Swap(nil); conn != nil {
 		if err := conn.Close(); err != nil {
-			errs = append(errs, err)
+			c.logger.Error("failed to close MySQL connection", slog.Any("error", err))
+			errs = append(errs, fmt.Errorf("failed to close MySQL connection: %w", err))
 		}
 	}
 	if err := c.ssh.Close(); err != nil {
-		errs = append(errs, err)
+		c.logger.Error("[mysql] failed to close SSH tunnel", slog.Any("error", err))
+		errs = append(errs, fmt.Errorf("[mysql] failed to close SSH tunnel: %w", err))
 	}
 	return errors.Join(errs...)
 }
 
-func (c *MySqlConnector) ConnectionActive(context.Context) error {
-	return nil
+func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
+	_, err := c.Execute(ctx, "SELECT 1")
+	return err
 }
 
 func (c *MySqlConnector) Dialer() client.Dialer {
 	var meteredDialer utils.MeteredDialer
-	if c.ssh.Client != nil {
+	if c.ssh != nil && c.ssh.Client != nil {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, c.ssh.Client.DialContext, false)
 	} else {
 		meteredDialer = utils.NewMeteredDialer(&c.totalBytesRead, &c.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
