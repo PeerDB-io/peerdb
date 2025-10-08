@@ -1321,12 +1321,15 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 			t_null TIMESTAMP NULL,
 			t_notnull TIMESTAMP NOT NULL,
 			d_null DATE NULL,
-			d_notnull DATE NOT NULL
+			d_notnull DATE NOT NULL,
+			n_null NUMERIC NULL,
+			n_notnull NUMERIC NOT NULL
 		);
 	`, srcFullName)))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (t_null,t_notnull,d_null,d_notnull)
-		VALUES ('infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (t_null,t_notnull,d_null,d_notnull,n_null,n_notnull)
+		VALUES ('infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date,'infinity'::numeric,'infinity'::numeric)`,
+		srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("ch_infinite_time"),
@@ -1343,10 +1346,38 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (t_null,t_notnull,d_null,d_notnull)
-		VALUES ('infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date)`, srcFullName)))
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (t_null,t_notnull,d_null,d_notnull,n_null,n_notnull)
+		VALUES ('infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date,'infinity'::numeric,'infinity'::numeric)`,
+		srcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	rows, err := ch.Query(s.t.Context(),
+		fmt.Sprintf("select t_null,t_notnull,d_null,d_notnull,n_null,n_notnull from %s order by id", dstTableName))
+	require.NoError(s.t, err)
+	defer rows.Close()
+	numRows := 0
+	for rows.Next() {
+		var tNull *time.Time
+		var dNull *time.Time
+		var nNull *decimal.Decimal
+		var tNotNull time.Time
+		var dNotNull time.Time
+		var nNotNull decimal.Decimal
+		require.NoError(s.t, rows.Scan(&tNull, &tNotNull, &dNull, &dNotNull, &nNull, &nNotNull))
+		s.t.Log(tNull, dNull, nNull, tNotNull, dNotNull, nNotNull)
+		require.Nil(s.t, tNull)
+		require.Nil(s.t, dNull)
+		require.Nil(s.t, nNull)
+		require.True(s.t, time.Date(1754, time.August, 30, 22, 43, 41, 128654848, time.UTC).Equal(tNotNull),
+			"expected 1754-08-30..., not %s", tNotNull)
+		require.True(s.t, time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(dNotNull), "expected 1970-01-01, not %s", dNotNull)
+		require.True(s.t, nNotNull.IsZero(), "expected 0, not %s", nNotNull)
+	}
+	require.NoError(s.t, rows.Err())
+	require.Equal(s.t, 2, numRows)
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
