@@ -20,6 +20,8 @@ export interface MirrorSetting {
   command?: string;
 }
 
+export const SOFT_DELETE_COLUMN_NAME = '_PEERDB_IS_DELETED';
+
 export const blankCDCSetting: CDCConfig = {
   sourceName: '',
   destinationName: '',
@@ -36,7 +38,7 @@ export const blankCDCSetting: CDCConfig = {
   cdcStagingPath: '',
   replicationSlotName: '',
   resync: false,
-  softDeleteColName: '_PEERDB_IS_DELETED',
+  softDeleteColName: SOFT_DELETE_COLUMN_NAME,
   syncedAtColName: '_PEERDB_SYNCED_AT',
   initialSnapshotOnly: false,
   idleTimeoutSeconds: 60,
