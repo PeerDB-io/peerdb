@@ -140,6 +140,12 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	if err != nil {
 		return 0, 0, err
 	}
+	nullableFields := make(map[string]struct{}, len(schema.Fields))
+	for _, field := range schema.Fields {
+		if field.Nullable {
+			nullableFields[field.Name] = struct{}{}
+		}
+	}
 
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
@@ -147,7 +153,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			return numRows, numBytes, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, schema, fieldDescriptions, jsonApi)
+		record, err := qe.mapRowToQRecord(rows, nullableFields, fieldDescriptions, jsonApi)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -346,7 +352,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 
 func (qe *QRepQueryExecutor) mapRowToQRecord(
 	row pgx.Rows,
-	schema types.QRecordSchema,
+	nullableFields map[string]struct{},
 	fds []pgconn.FieldDescription,
 	jsonApi jsoniter.API,
 ) ([]types.QValue, error) {
@@ -410,19 +416,11 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 		}
 	}
 
+	// Schema fields should generally align with field descriptors,
+	// avoid building map until we detect they are misaligned
 	record := make([]types.QValue, len(fds))
 	for i, fd := range fds {
-		var nullable bool
-		if i < len(schema.Fields) && schema.Fields[i].Name == fd.Name {
-			nullable = schema.Fields[i].Nullable
-		} else {
-			for _, field := range schema.Fields {
-				if field.Name == fd.Name {
-					nullable = field.Nullable
-					break
-				}
-			}
-		}
+		_, nullable := nullableFields[fd.Name]
 		tmp, err := qe.parseFieldFromPostgresOID(
 			fd.DataTypeOID,
 			fd.TypeModifier,
