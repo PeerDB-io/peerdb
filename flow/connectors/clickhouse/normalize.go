@@ -98,17 +98,25 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		}
 	}
 
+	isDeletedColumn := isDeletedColName
+	isDeletedColumnPart := ""
+	if config.SoftDeleteColName != "" {
+		isDeletedColumn = config.SoftDeleteColName
+		isDeletedColumnPart = ", " + peerdb_clickhouse.QuoteIdentifier(isDeletedColumn)
+	}
+
 	switch tmEngine {
 	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
 		if c.Config.Replicated {
 			engine = fmt.Sprintf(
-				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s)",
+				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s%s)",
 				zooPathPrefix,
 				peerdb_clickhouse.EscapeStr(tableIdentifier),
 				peerdb_clickhouse.QuoteIdentifier(versionColName),
+				isDeletedColumnPart,
 			)
 		} else {
-			engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
+			engine = fmt.Sprintf("ReplacingMergeTree(%s%s)", peerdb_clickhouse.QuoteIdentifier(versionColName), isDeletedColumnPart)
 		}
 	case protos.TableEngine_CH_ENGINE_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
 		if c.Config.Replicated {
@@ -206,6 +214,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
 		}
+		// TODO support hard delete
 		// synced at column will be added to all normalized tables
 		if config.SyncedAtColName != "" {
 			colName := strings.ToLower(config.SyncedAtColName)
@@ -217,37 +226,18 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName), sourceSchemaColType)
 		}
 
-		var engine string
-		tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
-		if tableMapping != nil {
-			tmEngine = tableMapping.Engine
-		}
-		switch tmEngine {
-		case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE:
-			engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
-		case protos.TableEngine_CH_ENGINE_MERGE_TREE:
-			engine = "MergeTree()"
-		case protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
-			engine = fmt.Sprintf(
-				"ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}',%s)",
-				peerdb_clickhouse.EscapeStr(tableIdentifier),
-				peerdb_clickhouse.QuoteIdentifier(versionColName),
-			)
-		case protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
-			engine = fmt.Sprintf(
-				"ReplicatedMergeTree('/clickhouse/tables/{shard}/{database}/%s','{replica}')",
-				peerdb_clickhouse.EscapeStr(tableIdentifier),
-			)
-		case protos.TableEngine_CH_ENGINE_NULL:
-			engine = "Null"
-		}
-
 		// add sign and version columns
-		fmt.Fprintf(&stmtBuilder, "%s %s, %s %s) ENGINE = %s",
-			peerdb_clickhouse.QuoteIdentifier(signColName), signColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType, engine)
+		fmt.Fprintf(builder, "%s %s, %s %s)",
+			peerdb_clickhouse.QuoteIdentifier(isDeletedColumn), isDeletedColType,
+			peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
+	}
 
-		orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
+	fmt.Fprintf(&stmtBuilder, " ENGINE = %s", engine)
 
+	if tmEngine != protos.TableEngine_CH_ENGINE_NULL {
+		hasNullableKeyFn := buildIsNullableKeyFn(tableMapping, tableSchema.Columns, tableSchema.NullableEnabled)
+		orderByColumns, allowNullableKey := getOrderedOrderByColumns(
+			tableMapping, colNameMap, tableSchema.PrimaryKeyColumns, hasNullableKeyFn)
 		if sourceSchemaAsDestinationColumn {
 			orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
 		}
@@ -586,6 +576,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				rawTbl,
 				c.chVersion,
 				c.Config.Cluster != "",
+				req.SoftDeleteColName,
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {

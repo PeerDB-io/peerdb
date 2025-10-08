@@ -64,11 +64,6 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		return err
 	}
 
-	peerDBColumns := []string{signColName, versionColName}
-	if cfg.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
-	}
-
 	for _, tableMapping := range cfg.TableMappings {
 		dstTableName := tableMapping.DestinationTableIdentifier
 		if _, ok := processedMapping[dstTableName]; !ok {

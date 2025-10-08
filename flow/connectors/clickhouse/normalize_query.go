@@ -21,6 +21,7 @@ type NormalizeQueryGenerator struct {
 	Query                           string
 	TableName                       string
 	rawTableName                    string
+	isDeletedColName                string
 	tableMappings                   []*protos.TableMapping
 	Part                            uint64
 	batchIDToLoadForTable           int64
@@ -46,7 +47,12 @@ func NewNormalizeQueryGenerator(
 	rawTableName string,
 	chVersion *chproto.Version,
 	cluster bool,
+	configuredSoftDeleteColName string,
 ) *NormalizeQueryGenerator {
+	isDeletedColumn := isDeletedColName
+	if configuredSoftDeleteColName != "" {
+		isDeletedColumn = configuredSoftDeleteColName
+	}
 	return &NormalizeQueryGenerator{
 		TableName:                       tableName,
 		Part:                            part,
@@ -61,6 +67,7 @@ func NewNormalizeQueryGenerator(
 		rawTableName:                    rawTableName,
 		chVersion:                       chVersion,
 		cluster:                         cluster,
+		isDeletedColName:                isDeletedColumn,
 	}
 }
 
