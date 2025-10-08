@@ -412,27 +412,24 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 
 	record := make([]types.QValue, len(fds))
 	for i, fd := range fds {
-		var qf types.QField
+		var nullable bool
 		if i < len(schema.Fields) && schema.Fields[i].Name == fd.Name {
-			qf = schema.Fields[i]
+			nullable = schema.Fields[i].Nullable
 		} else {
 			for _, field := range schema.Fields {
 				if field.Name == fd.Name {
-					qf = field
+					nullable = field.Nullable
 					break
 				}
 			}
-			if qf.Type == "" {
-				return nil, fmt.Errorf("missing schema for %s", fd.Name)
-			}
 		}
-		tmp, err := qe.parseFieldFromPostgresOIDWithQValueKind(
+		tmp, err := qe.parseFieldFromPostgresOID(
 			fd.DataTypeOID,
 			fd.TypeModifier,
-			qf.Type,
-			qf.Nullable,
+			nullable,
 			values[i],
 			qe.customTypeMapping,
+			qe.version,
 		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
