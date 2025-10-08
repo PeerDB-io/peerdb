@@ -214,7 +214,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
 		}
-		// TODO support hard delete
+
 		// synced at column will be added to all normalized tables
 		if config.SyncedAtColName != "" {
 			colName := strings.ToLower(config.SyncedAtColName)
