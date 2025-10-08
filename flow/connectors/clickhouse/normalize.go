@@ -25,10 +25,10 @@ import (
 )
 
 const (
-	signColName         = "_peerdb_is_deleted"
-	signColType         = "Int8"
+	isDeletedColName    = "_peerdb_is_deleted"
+	isDeletedColType    = "UInt8"
 	versionColName      = "_peerdb_version"
-	versionColType      = "Int64"
+	versionColType      = "UInt64"
 	sourceSchemaColName = "_peerdb_source_schema"
 	sourceSchemaColType = "LowCardinality(String)"
 )
@@ -98,17 +98,25 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		}
 	}
 
+	isDeletedColumn := isDeletedColName
+	isDeletedColumnPart := ""
+	if config.SoftDeleteColName != "" {
+		isDeletedColumn = config.SoftDeleteColName
+		isDeletedColumnPart = ", " + peerdb_clickhouse.QuoteIdentifier(isDeletedColumn)
+	}
+
 	switch tmEngine {
 	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
 		if c.Config.Replicated {
 			engine = fmt.Sprintf(
-				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s)",
+				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s%s)",
 				zooPathPrefix,
 				peerdb_clickhouse.EscapeStr(tableIdentifier),
 				peerdb_clickhouse.QuoteIdentifier(versionColName),
+				isDeletedColumnPart,
 			)
 		} else {
-			engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
+			engine = fmt.Sprintf("ReplacingMergeTree(%s%s)", peerdb_clickhouse.QuoteIdentifier(versionColName), isDeletedColumnPart)
 		}
 	case protos.TableEngine_CH_ENGINE_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
 		if c.Config.Replicated {
@@ -220,7 +228,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 		// add sign and version columns
 		fmt.Fprintf(builder, "%s %s, %s %s)",
-			peerdb_clickhouse.QuoteIdentifier(signColName), signColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
+			peerdb_clickhouse.QuoteIdentifier(isDeletedColumn), isDeletedColType,
+			peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
 	}
 
 	fmt.Fprintf(&stmtBuilder, " ENGINE = %s", engine)
@@ -567,6 +576,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				rawTbl,
 				c.chVersion,
 				c.Config.Cluster != "",
+				req.SoftDeleteColName,
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {

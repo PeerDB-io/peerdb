@@ -28,6 +28,11 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		return nil // no need to validate schema for resync, as we will create or replace the tables
 	}
 
+	peerDBColumns := []string{isDeletedColName, versionColName}
+	if cfg.SyncedAtColName != "" {
+		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
+	}
+
 	// this is for handling column exclusion, processed schema does that in a step
 	processedMapping := internal.BuildProcessedSchemaMapping(cfg.TableMappings, tableNameSchemaMapping, c.logger)
 	dstTableNames := slices.Collect(maps.Keys(processedMapping))
@@ -57,11 +62,6 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	chTableColumnsMapping, err := chvalidate.GetTableColumnsMapping(ctx, c.logger, c.database, dstTableNames)
 	if err != nil {
 		return err
-	}
-
-	peerDBColumns := []string{signColName, versionColName}
-	if cfg.SyncedAtColName != "" {
-		peerDBColumns = append(peerDBColumns, strings.ToLower(cfg.SyncedAtColName))
 	}
 
 	for _, tableMapping := range cfg.TableMappings {
