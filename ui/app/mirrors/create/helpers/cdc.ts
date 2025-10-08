@@ -173,7 +173,8 @@ export const cdcSettings: MirrorSetting[] = [
         (curr: CDCConfig): CDCConfig => ({
           ...curr,
           softDeleteColName: (value as boolean)
-            ? curr.softDeleteColName || blankCDCSetting.softDeleteColName.toLowerCase()
+            ? curr.softDeleteColName ||
+              blankCDCSetting.softDeleteColName.toLowerCase()
             : '',
         })
       ),
