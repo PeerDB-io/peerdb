@@ -136,6 +136,10 @@ func (qe *QRepQueryExecutor) processRowsStream(
 	const logPerRows = 50000
 
 	jsonApi := createExtendedJSONUnmarshaler()
+	schema, err := stream.Schema()
+	if err != nil {
+		return 0, 0, err
+	}
 
 	for rows.Next() {
 		if err := ctx.Err(); err != nil {
@@ -143,7 +147,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			return numRows, numBytes, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, fieldDescriptions, jsonApi)
+		record, err := qe.mapRowToQRecord(rows, schema, fieldDescriptions, jsonApi)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -342,6 +346,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 
 func (qe *QRepQueryExecutor) mapRowToQRecord(
 	row pgx.Rows,
+	schema types.QRecordSchema,
 	fds []pgconn.FieldDescription,
 	jsonApi jsoniter.API,
 ) ([]types.QValue, error) {
@@ -363,14 +368,14 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
 		case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
-			textArr := &pgtype.FlatArray[pgtype.Text]{}
-			if err := qe.conn.TypeMap().Scan(fd.DataTypeOID, fd.Format, buf, textArr); err != nil {
+			var textArr pgtype.FlatArray[pgtype.Text]
+			if err := qe.conn.TypeMap().Scan(fd.DataTypeOID, fd.Format, buf, &textArr); err != nil {
 				qe.logger.Error("[pg_query_executor] failed to to scan json array", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to scan json array: %w", err)
 			}
 
-			arr := make([]any, len(*textArr))
-			for j, text := range *textArr {
+			arr := make([]any, len(textArr))
+			for j, text := range textArr {
 				if text.Valid {
 					if err := jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
 						qe.logger.Error("[pg_query_executor] failed to unmarshal json array element", slog.Any("error", err))
@@ -396,9 +401,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 				case pgtype.TextFormatCode:
 					values[i] = string(buf)
 				case pgtype.BinaryFormatCode:
-					newBuf := make([]byte, len(buf))
-					copy(newBuf, buf)
-					values[i] = newBuf
+					values[i] = slices.Clone(buf)
 				default:
 					qe.logger.Error("[pg_query_executor] unknown format code", slog.Int("format", int(fd.Format)))
 					return nil, fmt.Errorf("unknown format code: %d", fd.Format)
@@ -409,7 +412,28 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 
 	record := make([]types.QValue, len(fds))
 	for i, fd := range fds {
-		tmp, err := qe.parseFieldFromPostgresOID(fd.DataTypeOID, fd.TypeModifier, values[i], qe.customTypeMapping, qe.version)
+		var qf types.QField
+		if i < len(schema.Fields) && schema.Fields[i].Name == fd.Name {
+			qf = schema.Fields[i]
+		} else {
+			for _, field := range schema.Fields {
+				if field.Name == fd.Name {
+					qf = field
+					break
+				}
+			}
+			if qf.Type == "" {
+				return nil, fmt.Errorf("missing schema for %s", fd.Name)
+			}
+		}
+		tmp, err := qe.parseFieldFromPostgresOIDWithQValueKind(
+			fd.DataTypeOID,
+			fd.TypeModifier,
+			qf.Type,
+			qf.Nullable,
+			values[i],
+			qe.customTypeMapping,
+		)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to parse field", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to parse field: %w", err)

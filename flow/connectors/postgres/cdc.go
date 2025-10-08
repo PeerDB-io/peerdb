@@ -1102,8 +1102,7 @@ func processRelationMessage[Items model.Items](
 		case protos.TypeSystem_Q:
 			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping, p.internalVersion)
 			if qKind == types.QValueKindInvalid {
-				typeName, ok := customTypeMapping[column.DataType]
-				if ok {
+				if typeName, ok := customTypeMapping[column.DataType]; ok {
 					qKind = CustomTypeToQKind(typeName, p.internalVersion)
 				}
 			}

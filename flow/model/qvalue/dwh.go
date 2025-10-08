@@ -26,14 +26,14 @@ func DetermineNumericSettingForDWH(precision int16, scale int16, dwh protos.DBTy
 }
 
 // Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
-func DisallowedTimestamp(dwh protos.DBType, t time.Time, logger log.Logger) bool {
+func DisallowedTimestamp(dwh protos.DBType, t time.Time, logger log.Logger) (time.Time, bool) {
 	if dwh == protos.DBType_BIGQUERY {
 		year := t.Year()
 		if year < 1 || year > 9999 {
 			logger.Warn("Nulling Timestamp value for BigQuery as it exceeds allowed range",
 				"timestamp", t.String())
-			return true
+			return time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC), true
 		}
 	}
-	return false
+	return time.Time{}, false
 }

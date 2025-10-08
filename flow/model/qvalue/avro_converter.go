@@ -225,7 +225,11 @@ func QValueToAvro(
 			(len(v.Value().(string)) > 15*1024*1024) {
 			slog.WarnContext(ctx, "Clearing TEXT value > 15MB for Snowflake!")
 			slog.WarnContext(ctx, "Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
-			return nil, nil
+			if c.Nullable {
+				return nil, nil
+			} else {
+				return "", nil
+			}
 		}
 		return c.processNullableUnion(v.Value()), nil
 	case types.QValueFloat32:
@@ -311,8 +315,11 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
 }
 
 func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
+	if newVal, disallowed := DisallowedTimestamp(c.TargetDWH, t, c.logger); disallowed {
+		if c.Nullable {
+			return nil
+		}
+		return newVal
 	}
 
 	// Snowflake has issues with avro timestamp types, returning as string form
@@ -324,8 +331,11 @@ func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
+	if newVal, disallowed := DisallowedTimestamp(c.TargetDWH, t, c.logger); disallowed {
+		if c.Nullable {
+			return nil
+		}
+		return newVal
 	}
 
 	// Snowflake has issues with avro timestamp types, returning as string form
@@ -337,8 +347,11 @@ func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time) any {
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
+	if newVal, disallowed := DisallowedTimestamp(c.TargetDWH, t, c.logger); disallowed {
+		if c.Nullable {
+			return nil
+		}
+		return newVal
 	}
 
 	// Snowflake has issues with avro timestamp types, returning as string form
@@ -375,11 +388,7 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 		return big.Rat{}
 	}
 
-	rat := num.Rat()
-	if c.Nullable {
-		return &rat
-	}
-	return rat
+	return c.processNullableUnion(num.Rat())
 }
 
 var (
@@ -413,11 +422,7 @@ func (c *QValueAvroConverter) processInt256(num *big.Int) any {
 		num = new(big.Int).Add(num, twoPow256)
 	}
 
-	res := bigIntTo32Bytes(num)
-	if c.Nullable {
-		return &res
-	}
-	return res
+	return c.processNullableUnion(bigIntTo32Bytes(num))
 }
 
 func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
@@ -429,11 +434,7 @@ func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
 		return bigIntTo32Bytes(big.NewInt(0))
 	}
 
-	res := bigIntTo32Bytes(num)
-	if c.Nullable {
-		return &res
-	}
-	return res
+	return c.processNullableUnion(bigIntTo32Bytes(num))
 }
 
 func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) any {

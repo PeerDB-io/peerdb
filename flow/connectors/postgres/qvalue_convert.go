@@ -391,9 +391,29 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 }
 
 func (c *PostgresConnector) parseFieldFromPostgresOID(
-	oid uint32, typmod int32, value any, customTypeMapping map[uint32]shared.CustomDataType, version uint32,
+	oid uint32,
+	typmod int32,
+	value any,
+	customTypeMapping map[uint32]shared.CustomDataType,
+	version uint32,
 ) (types.QValue, error) {
-	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping, version)
+	return c.parseFieldFromPostgresOIDWithQValueKind(
+		oid,
+		typmod,
+		c.postgresOIDToQValueKind(oid, customTypeMapping, version),
+		true,
+		value,
+		customTypeMapping)
+}
+
+func (c *PostgresConnector) parseFieldFromPostgresOIDWithQValueKind(
+	oid uint32,
+	typmod int32,
+	qvalueKind types.QValueKind,
+	nullable bool,
+	value any,
+	customTypeMapping map[uint32]shared.CustomDataType,
+) (types.QValue, error) {
 	if value == nil {
 		return types.QValueNull(qvalueKind), nil
 	}
@@ -404,14 +424,22 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		case time.Time:
 			return types.QValueTimestamp{Val: val}, nil
 		case pgtype.InfinityModifier:
-			return types.QValueNull(qvalueKind), nil
+			if nullable {
+				return types.QValueNull(qvalueKind), nil
+			} else {
+				return types.QValueTimestamp{}, nil
+			}
 		}
 	case types.QValueKindTimestampTZ:
 		switch val := value.(type) {
 		case time.Time:
 			return types.QValueTimestampTZ{Val: val}, nil
 		case pgtype.InfinityModifier:
-			return types.QValueNull(qvalueKind), nil
+			if nullable {
+				return types.QValueNull(qvalueKind), nil
+			} else {
+				return types.QValueTimestampTZ{}, nil
+			}
 		}
 	case types.QValueKindInterval:
 		if interval, ok := value.(pgtype.Interval); ok {
@@ -448,7 +476,11 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		case time.Time:
 			return types.QValueDate{Val: val}, nil
 		case pgtype.InfinityModifier:
-			return types.QValueNull(qvalueKind), nil
+			if nullable {
+				return types.QValueNull(qvalueKind), nil
+			} else {
+				return types.QValueDate{}, nil
+			}
 		}
 	case types.QValueKindTime:
 		timeVal := value.(pgtype.Time)
@@ -726,7 +758,11 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			if err != nil {
 				c.logger.Warn("failure during GeoValidate", slog.Any("error", err))
 			}
-			return types.QValueNull(types.QValueKindGeography), nil
+			if nullable {
+				return types.QValueNull(types.QValueKindGeography), nil
+			} else {
+				return types.QValueGeography{}, nil
+			}
 		} else if qvalueKind == types.QValueKindGeography {
 			return types.QValueGeography{Val: wkt}, nil
 		} else {

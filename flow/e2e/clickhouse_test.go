@@ -1306,6 +1306,52 @@ func (s ClickHouseSuite) Test_Types_CH() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_InfiniteTimestamp() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_infinite_time"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_infinite_time"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			t_null TIMESTAMP NULL,
+			t_notnull TIMESTAMP NOT NULL,
+			d_null DATE NULL,
+			d_notnull DATE NOT NULL
+		);
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (t_null,t_notnull,d_null,d_notnull)
+		VALUES ('infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date)`, srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_infinite_time"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (t_null,t_notnull,d_null,d_notnull)
+		VALUES ('infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date)`, srcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_JSON_CH() {
 	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("skip maria, where JSON is not a supported data type")
