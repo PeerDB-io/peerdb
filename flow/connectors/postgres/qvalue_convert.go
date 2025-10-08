@@ -579,7 +579,11 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		if numVal.Valid {
 			num, ok := validNumericToDecimal(numVal)
 			if !ok {
-				return types.QValueNull(types.QValueKindNumeric), nil
+				if nullable {
+					return types.QValueNull(types.QValueKindNumeric), nil
+				} else {
+					return types.QValueNumeric{}, nil
+				}
 			}
 			precision, scale := datatypes.ParseNumericTypmod(typmod)
 			return types.QValueNumeric{

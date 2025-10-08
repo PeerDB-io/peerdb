@@ -314,52 +314,38 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
 	return t
 }
 
-func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
-	if newVal, disallowed := DisallowedTimestamp(c.TargetDWH, t, c.logger); disallowed {
-		if c.Nullable {
-			return nil
+func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string) any {
+	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
+	switch c.TargetDWH {
+	case protos.DBType_BIGQUERY:
+		year := t.Year()
+		if year < 1 || year > 9999 {
+			c.logger.Warn("Nulling Timestamp value for BigQuery as it exceeds allowed range",
+				"timestamp", t.String())
+			if c.Nullable {
+				return nil
+			} else {
+				return time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
+			}
 		}
-		return newVal
-	}
-
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("2006-01-02 15:04:05.999999-0700")
+	case protos.DBType_SNOWFLAKE:
+		// Snowflake has issues with avro timestamp types, returning as string form
+		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+		return t.Format(format)
 	}
 	return t
+}
+
+func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700")
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
-	if newVal, disallowed := DisallowedTimestamp(c.TargetDWH, t, c.logger); disallowed {
-		if c.Nullable {
-			return nil
-		}
-		return newVal
-	}
-
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("2006-01-02 15:04:05.999999")
-	}
-	return t
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999")
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time) any {
-	if newVal, disallowed := DisallowedTimestamp(c.TargetDWH, t, c.logger); disallowed {
-		if c.Nullable {
-			return nil
-		}
-		return newVal
-	}
-
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("2006-01-02")
-	}
-	return t
+	return c.processGeneralTime(t, "2006-01-02")
 }
 
 func (c *QValueAvroConverter) processNullableUnion(
