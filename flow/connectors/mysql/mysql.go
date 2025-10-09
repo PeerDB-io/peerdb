@@ -143,15 +143,15 @@ func (c *MySqlConnector) Close() error {
 }
 
 func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
-	conn, err := c.connect(ctx)
-	if err != nil {
-		c.logger.Error("failed to connect to MySQL", slog.Any("error", err))
-		return err
-	}
-	if err := conn.Ping(); err != nil {
-		c.logger.Error("failed to ping MySQL connection", slog.Any("error", err))
-		return err
-	}
+	// conn, err := c.connect(ctx)
+	// if err != nil {
+	// 	c.logger.Error("failed to connect to MySQL", slog.Any("error", err))
+	// 	return err
+	// }
+	// if err := conn.Ping(); err != nil {
+	// 	c.logger.Error("failed to ping MySQL connection", slog.Any("error", err))
+	// 	return err
+	// }
 	if _, err := c.Execute(ctx, "SELECT 1"); err != nil {
 		c.logger.Error("failed to execute test query on MySQL connection", slog.Any("error", err))
 		return err
