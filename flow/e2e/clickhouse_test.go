@@ -1317,7 +1317,7 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
-			id SERIAL PRIMARY KEY,
+			id INT PRIMARY KEY,
 			t_null TIMESTAMP NULL,
 			t_notnull TIMESTAMP NOT NULL,
 			d_null DATE NULL,
@@ -1327,8 +1327,8 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 		);
 	`, srcFullName)))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (t_null,t_notnull,d_null,d_notnull,n_null,n_notnull)
-		VALUES ('infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date,'infinity'::numeric,'infinity'::numeric)`,
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,t_null,t_notnull,d_null,d_notnull,n_null,n_notnull)
+		VALUES (1,'infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date,'infinity'::numeric,'infinity'::numeric)`,
 		srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -1346,8 +1346,8 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (t_null,t_notnull,d_null,d_notnull,n_null,n_notnull)
-		VALUES ('infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date,'infinity'::numeric,'infinity'::numeric)`,
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,t_null,t_notnull,d_null,d_notnull,n_null,n_notnull)
+		VALUES (2,'infinity'::timestamp,'infinity'::timestamp,'infinity'::date,'infinity'::date,'infinity'::numeric,'infinity'::numeric)`,
 		srcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
@@ -1355,24 +1355,32 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	rows, err := ch.Query(s.t.Context(),
-		fmt.Sprintf("select t_null,t_notnull,d_null,d_notnull,n_null,n_notnull from %s order by id", dstTableName))
+		fmt.Sprintf("select id,t_null,t_notnull,d_null,d_notnull,n_null,n_notnull from %s order by id", dstTableName))
 	require.NoError(s.t, err)
 	defer rows.Close()
 	numRows := 0
 	for rows.Next() {
+		numRows++
+		var id int32
 		var tNull *time.Time
 		var dNull *time.Time
 		var nNull *decimal.Decimal
 		var tNotNull time.Time
 		var dNotNull time.Time
 		var nNotNull decimal.Decimal
-		require.NoError(s.t, rows.Scan(&tNull, &tNotNull, &dNull, &dNotNull, &nNull, &nNotNull))
+		require.NoError(s.t, rows.Scan(&id, &tNull, &tNotNull, &dNull, &dNotNull, &nNull, &nNotNull))
 		s.t.Log(tNull, dNull, nNull, tNotNull, dNotNull, nNotNull)
 		require.Nil(s.t, tNull)
 		require.Nil(s.t, dNull)
 		require.Nil(s.t, nNull)
-		require.True(s.t, time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(tNotNull), "expected 1970-01-01, not %s", tNotNull)
-		require.True(s.t, time.Date(1900, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(dNotNull), "expected 1900-01-01, not %s", dNotNull)
+		if id == 1 {
+			require.True(s.t, time.Date(1754, time.August, 30, 22, 43, 41, 128654848, time.UTC).Equal(tNotNull),
+				"expected 1754-08-30 22:43:41..., not %s", tNotNull)
+			require.True(s.t, time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(dNotNull), "expected 0001-01-01, not %s", dNotNull)
+		} else {
+			require.True(s.t, time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(tNotNull), "expected 1970-01-01, not %s", tNotNull)
+			require.True(s.t, time.Date(1900, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(dNotNull), "expected 1900-01-01, not %s", dNotNull)
+		}
 		require.True(s.t, nNotNull.IsZero(), "expected 0, not %s", nNotNull)
 	}
 	require.NoError(s.t, rows.Err())
