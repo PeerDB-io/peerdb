@@ -170,7 +170,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 
 	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
 	if err != nil {
-		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", "error", err)
+		internal.LoggerFromCtx(ctx).Error("failed to create replication connection", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to create replication connection: %w", err)
 	}
 	return conn, nil
@@ -1381,7 +1381,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 
 	slotInfo, err := getSlotInfo(ctx, c.conn, alertKeys.SlotName, c.Config.Database)
 	if err != nil {
-		logger.Warn("warning: failed to get slot info", "error", err)
+		logger.Warn("warning: failed to get slot info", slog.Any("error", err))
 		return err
 	}
 
@@ -1428,7 +1428,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	// Also handles alerts for PeerDB user connections exceeding a given limit here
 	res, err := getOpenConnectionsForUser(ctx, c.conn, c.Config.User)
 	if err != nil {
-		logger.Warn("warning: failed to get current open connections", "error", err)
+		logger.Warn("warning: failed to get current open connections", slog.Any("error", err))
 		return err
 	}
 	alerter.AlertIfOpenConnections(ctx, alertKeys, res)
@@ -1443,7 +1443,7 @@ func (c *PostgresConnector) HandleSlotInfo(
 	}
 	replicationRes, err := getOpenReplicationConnectionsForUser(ctx, c.conn, c.Config.User)
 	if err != nil {
-		logger.Warn("warning: failed to get current open replication connections", "error", err)
+		logger.Warn("warning: failed to get current open replication connections", slog.Any("error", err))
 		return err
 	}
 
@@ -1708,7 +1708,7 @@ func (c *PostgresConnector) RemoveTableEntriesFromRawTable(
 			" AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d",
 			utils.QuoteIdentifier(rawTableIdentifier), utils.QuoteLiteral(tableName), req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
-			c.logger.Error("failed to remove entries from raw table", "error", err)
+			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))

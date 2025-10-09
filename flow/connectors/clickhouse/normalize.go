@@ -411,7 +411,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 ) (model.NormalizeResponse, error) {
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", "error", err)
+		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 
@@ -445,7 +445,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		req.TableNameSchemaMapping,
 	)
 	if err != nil {
-		c.logger.Error("[clickhouse] error while getting distinct table names in batch", "error", err)
+		c.logger.Error("[clickhouse] error while getting distinct table names in batch", slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 
@@ -547,7 +547,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	for _, tbl := range destinationTableNames {
 		normalizeBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
 		if err != nil {
-			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, "error", err)
+			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
 			return model.NormalizeResponse{}, err
 		}
 
@@ -610,7 +610,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endBatchID); err != nil {
-		c.logger.Error("[clickhouse] error while updating normalize batch id", slog.Int64("BatchID", endBatchID), slog.Any("error", err))
+		c.logger.Error("[clickhouse] error while updating normalize batch id",
+			slog.Int64("batchID", endBatchID), slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 
