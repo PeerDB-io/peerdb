@@ -5,6 +5,8 @@ on:
     branches: [main]
   push:
     branches: [main]
+  pull_request_target:
+    branches: [main]
 
 permissions:
   id-token: write
@@ -12,6 +14,10 @@ permissions:
 
 jobs:
   flow_test:
+    if: |
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.head.repo.full_name != github.repository) ||
+      github.event_name != 'pull_request_target'
     strategy:
       fail-fast: false
       matrix:

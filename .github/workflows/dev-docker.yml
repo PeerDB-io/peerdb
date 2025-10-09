@@ -5,9 +5,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  pull_request_target:
+    branches: [main]
 
 jobs:
   docker-build:
+    if: |
+      (github.event_name == 'pull_request_target' &&
+       github.event.pull_request.head.repo.full_name != github.repository) ||
+      github.event_name != 'pull_request_target'
     strategy:
       matrix:
         # ubuntu-latest leverages larger GH runner pool & completes in ~30s instead of ~3m
