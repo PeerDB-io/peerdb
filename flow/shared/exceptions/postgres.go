@@ -71,3 +71,19 @@ func (e *TablesNotInPublicationError) Error() string {
 		e.publicationName,
 		strings.Join(e.tables, ","))
 }
+
+type PostgresLogicalMessageProcessingError struct {
+	error
+}
+
+func NewPostgresLogicalMessageProcessingError(err error) *PostgresLogicalMessageProcessingError {
+	return &PostgresLogicalMessageProcessingError{err}
+}
+
+func (e *PostgresLogicalMessageProcessingError) Error() string {
+	return "Logical message processing error: " + e.error.Error()
+}
+
+func (e *PostgresLogicalMessageProcessingError) Unwrap() error {
+	return e.error
+}
