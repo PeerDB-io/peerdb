@@ -238,8 +238,7 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 	}
 
 	cleanBackedUpFlowsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 24 * time.Hour,
-		HeartbeatTimeout:    1 * time.Minute,
+		StartToCloseTimeout: 2 * time.Minute,
 	})
 	clearBackupsFuture := workflow.ExecuteActivity(cleanBackedUpFlowsCtx, maintenance.CleanBackedUpFlows)
 	if err := clearBackupsFuture.Get(ctx, nil); err != nil {
@@ -264,7 +263,10 @@ func endMaintenance(ctx workflow.Context, logger log.Logger) (*protos.EndMainten
 }
 
 func resumeBackedUpMirrors(ctx workflow.Context, logger log.Logger) (*protos.MaintenanceMirrors, error) {
-	future := workflow.ExecuteActivity(ctx, maintenance.GetBackedUpFlows)
+	getBackedUpFlowsCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+	})
+	future := workflow.ExecuteActivity(getBackedUpFlowsCtx, maintenance.GetBackedUpFlows)
 
 	var mirrorsList *protos.MaintenanceMirrors
 	err := future.Get(ctx, &mirrorsList)
