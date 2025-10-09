@@ -260,7 +260,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				Code:   "UNKNOWN",
 			}
 		}
-
 	}
 
 	if errors.Is(err, context.Canceled) {
