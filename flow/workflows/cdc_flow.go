@@ -409,7 +409,7 @@ func processTableRemovals(
 				cfg, state.FlowConfigUpdate.RemovedTables)
 			removeTablesSelector.AddFuture(removeTablesFromCatalogFuture, func(f workflow.Future) {
 				if err := f.Get(ctx, nil); err != nil {
-					logger.Error("failed to clean up raw table for removed tables", "error", err)
+					logger.Error("failed to clean up raw table for removed tables", slog.Any("error", err))
 					removeTablesFlowErr = err
 					return
 				}

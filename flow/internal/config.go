@@ -75,7 +75,7 @@ func PeerDBCatalogUser() string {
 func PeerDBCatalogPassword(ctx context.Context) string {
 	val, err := GetKmsDecryptedEnvString(ctx, "PEERDB_CATALOG_PASSWORD", "")
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to decrypt PEERDB_CATALOG_PASSWORD", "error", err)
+		slog.ErrorContext(ctx, "failed to decrypt PEERDB_CATALOG_PASSWORD", slog.Any("error", err))
 		panic(err)
 	}
 
@@ -120,7 +120,7 @@ func PeerDBCurrentEncKeyID() string {
 func PeerDBEncKeys(ctx context.Context) shared.PeerDBEncKeys {
 	val, err := GetKmsDecryptedEnvString(ctx, "PEERDB_ENC_KEYS", "")
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to decrypt PEERDB_ENC_KEYS", "error", err)
+		slog.ErrorContext(ctx, "failed to decrypt PEERDB_ENC_KEYS", slog.Any("error", err))
 		panic(err)
 	}
 
@@ -182,7 +182,7 @@ func PeerDBGetIncidentIoToken() string {
 func PeerDBRAPIRequestLoggingEnabled(ctx context.Context) bool {
 	requestLoggingEnabled, err := strconv.ParseBool(GetEnvString("PEERDB_API_REQUEST_LOGGING_ENABLED", "false"))
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to parse PEERDB_API_REQUEST_LOGGING_ENABLED to bool", "error", err)
+		slog.ErrorContext(ctx, "failed to parse PEERDB_API_REQUEST_LOGGING_ENABLED to bool", slog.Any("error", err))
 		return false
 	}
 	return requestLoggingEnabled
@@ -197,7 +197,7 @@ func PeerDBMaintenanceModeWaitAlertSeconds() int {
 func PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx context.Context) bool {
 	enabled, err := strconv.ParseBool(GetEnvString("PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED", "false"))
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to parse PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED to bool", "error", err)
+		slog.ErrorContext(ctx, "failed to parse PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED to bool", slog.Any("error", err))
 		return false
 	}
 	return enabled

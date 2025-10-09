@@ -81,12 +81,13 @@ func (p *PostgresMetadata) GetLastNormalizedBatchIDForTable(ctx context.Context,
 			return 0, nil
 		}
 
-		p.logger.Error("failed to get last synced batch id for table", "error", err)
+		p.logger.Error("failed to get last synced batch id for table", slog.Any("error", err))
 		return 0, err
 	}
 
 	var tableBatchIDData map[string]int64
 	if err := json.Unmarshal([]byte(tableBatchIDDataJSON), &tableBatchIDData); err != nil {
+		p.logger.Error("failed to unmarshal table batch id data", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to unmarshal table batch id data: %w", err)
 	}
 
@@ -105,7 +106,7 @@ func (p *PostgresMetadata) SetLastNormalizedBatchIDForTable(ctx context.Context,
 		SET table_batch_id_data = jsonb_set(table_batch_id_data::jsonb, ARRAY[$2], $3::jsonb, true)
 		WHERE job_name = $1`, jobName, dstTableName, strconv.FormatInt(batchID, 10),
 	); err != nil {
-		p.logger.Error("failed to update table batch id data", "error", err)
+		p.logger.Error("failed to update table batch id data", slog.Any("error", err))
 		return fmt.Errorf("failed to update table batch id data: %w", err)
 	}
 
@@ -123,7 +124,7 @@ func (p *PostgresMetadata) GetLastBatchIDInRawTable(ctx context.Context, jobName
 			return 0, nil
 		}
 
-		p.logger.Error("failed to get last batch id in raw table", "error", err)
+		p.logger.Error("failed to get last batch id in raw table", slog.Any("error", err))
 		return 0, err
 	}
 
@@ -137,7 +138,7 @@ func (p *PostgresMetadata) SetLastBatchIDInRawTable(ctx context.Context, jobName
 		SET latest_batch_id_in_raw_table = $2
 		WHERE job_name = $1`, jobName, batchID,
 	); err != nil {
-		p.logger.Error("failed to update last batch id in raw table", "error", err)
+		p.logger.Error("failed to update last batch id in raw table", slog.Any("error", err))
 		return err
 	}
 
@@ -158,7 +159,7 @@ func (p *PostgresMetadata) GetLastOffset(ctx context.Context, jobName string) (m
 			return offset, nil
 		}
 
-		p.logger.Error("failed to get last offset", "error", err)
+		p.logger.Error("failed to get last offset", slog.Any("error", err))
 		return offset, err
 	}
 
@@ -178,10 +179,10 @@ func (p *PostgresMetadata) GetLastSyncBatchID(ctx context.Context, jobName strin
 			return 0, nil
 		}
 
-		p.logger.Error("failed to get last sync batch id", "error", err)
+		p.logger.Error("failed to get last sync batch id", slog.Any("error", err))
 		return 0, err
 	}
-	p.logger.Info("got last batch id for job", "batch id", syncBatchID.Int64)
+	p.logger.Info("got last batch id for job", slog.Int64("batchID", syncBatchID.Int64))
 
 	return syncBatchID.Int64, nil
 }
@@ -197,7 +198,7 @@ func (p *PostgresMetadata) GetLastNormalizeBatchID(ctx context.Context, jobName 
 			return 0, nil
 		}
 
-		p.logger.Error("failed to get last normalize", "error", err)
+		p.logger.Error("failed to get last normalize", slog.Any("error", err))
 		return 0, err
 	}
 	return normalizeBatchID.Int64, nil
@@ -214,7 +215,7 @@ func (p *PostgresMetadata) SetLastOffset(ctx context.Context, jobName string, of
 			last_text = excluded.last_text,
 			updated_at = NOW()
 	`, jobName, offset.ID, offset.Text); err != nil {
-		p.logger.Error("failed to update last offset", "error", err)
+		p.logger.Error("failed to update last offset", slog.Any("error", err))
 		return err
 	}
 

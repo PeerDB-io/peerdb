@@ -201,7 +201,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 	logger := slog.With("mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
 	mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 	if err != nil {
-		logger.WarnContext(ctx, "Error getting mirror status", "error", err)
+		logger.WarnContext(ctx, "Error getting mirror status", slog.Any("error", err))
 		var notFoundErr *serviceerror.NotFound
 		if errors.As(err, &notFoundErr) && workflowNotFoundMessageRe.MatchString(notFoundErr.Message) {
 			logger.WarnContext(ctx, "Received a workflow not found error, checking if the workflow is missing and if it is older than 90 days",
@@ -246,7 +246,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 	logger.InfoContext(ctx, "Pausing mirror for maintenance")
 
 	if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal); err != nil {
-		logger.ErrorContext(ctx, "Error signaling mirror to pause for maintenance", "error", err)
+		logger.ErrorContext(ctx, "Error signaling mirror to pause for maintenance", slog.Any("error", err))
 		// Is the CDC flow missing?
 		var notFoundErr *serviceerror.NotFound
 		if errors.As(err, &notFoundErr) && notFoundErr.Message == "workflow execution already completed" {
@@ -277,7 +277,7 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 				var exists bool
 				err := a.CatalogPool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM flows WHERE name = $1)", mirror.MirrorName).Scan(&exists)
 				if err != nil {
-					logger.ErrorContext(ctx, "Error checking if flow exists", "error", err)
+					logger.ErrorContext(ctx, "Error checking if flow exists", slog.Any("error", err))
 					return false, err
 				}
 				if !exists {
@@ -358,7 +358,7 @@ func (a *MaintenanceActivity) ResumeMirror(ctx context.Context, mirror *protos.M
 	// There can also be "workflow already completed" errors, what should we do in that case?
 	if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.NoopSignal); err != nil {
 		slog.ErrorContext(ctx, "Error signaling mirror to resume for maintenance",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "error", err)
+			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, slog.Any("error", err))
 		return err
 	}
 	return nil

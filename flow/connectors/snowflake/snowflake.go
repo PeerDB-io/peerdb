@@ -175,7 +175,7 @@ func (c *SnowflakeConnector) ValidateCheck(ctx context.Context) error {
 	// in case we return after error, ensure transaction is rolled back
 	defer func() {
 		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
-			c.logger.Error("error while rolling back transaction for table check", "error", err)
+			c.logger.Error("error while rolling back transaction for table check", slog.Any("error", err))
 		}
 	}()
 
@@ -725,7 +725,7 @@ func (c *SnowflakeConnector) RenameTables(
 	defer func() {
 		deferErr := renameTablesTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Error("error rolling back transaction for renaming tables", "error", err)
+			c.logger.Error("error rolling back transaction for renaming tables", slog.Any("error", err))
 		}
 	}()
 
@@ -832,7 +832,7 @@ func (c *SnowflakeConnector) CreateTablesFromExisting(ctx context.Context, req *
 	defer func() {
 		deferErr := createTablesFromExistingTx.Rollback()
 		if deferErr != sql.ErrTxDone && deferErr != nil {
-			c.logger.Info("error rolling back transaction for creating tables", "error", err)
+			c.logger.Info("error rolling back transaction for creating tables", slog.Any("error", err))
 		}
 	}()
 
@@ -868,7 +868,7 @@ func (c *SnowflakeConnector) RemoveTableEntriesFromRawTable(
 			" AND _PEERDB_BATCH_ID > %d AND _PEERDB_BATCH_ID <= %d",
 			c.rawSchema, rawTableIdentifier, tableName, req.NormalizeBatchId, req.SyncBatchId))
 		if err != nil {
-			c.logger.Error("failed to remove entries from raw table", "error", err)
+			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))
