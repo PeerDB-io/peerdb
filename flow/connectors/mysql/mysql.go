@@ -144,6 +144,10 @@ func (c *MySqlConnector) Close() error {
 
 func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
 	conn, err := c.connect(ctx)
+	if err != nil {
+		c.logger.Error("failed to connect to MySQL", slog.Any("error", err))
+		return err
+	}
 	if err := conn.Ping(); err != nil {
 		c.logger.Error("failed to ping MySQL connection", slog.Any("error", err))
 		return err
@@ -153,7 +157,7 @@ func (c *MySqlConnector) ConnectionActive(ctx context.Context) error {
 		return err
 	}
 
-	return err
+	return nil
 }
 
 func (c *MySqlConnector) Dialer() client.Dialer {
