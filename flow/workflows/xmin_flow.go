@@ -75,7 +75,11 @@ func XminFlowWorkflow(
 		StartToCloseTimeout: 24 * 5 * time.Hour,
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
-			InitialInterval: 1 * time.Minute,
+			InitialInterval:        time.Minute,
+			BackoffCoefficient:     2.,
+			MaximumInterval:        30 * time.Minute,
+			MaximumAttempts:        0,
+			NonRetryableErrorTypes: nil,
 		},
 	})
 	if err := workflow.ExecuteActivity(
