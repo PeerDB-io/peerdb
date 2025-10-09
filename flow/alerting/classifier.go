@@ -545,7 +545,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.QueryCanceled:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
-		case pgerrcode.DuplicateFile, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure:
+		case pgerrcode.DuplicateFile,
+			pgerrcode.DeadlockDetected,
+			pgerrcode.SerializationFailure,
+			pgerrcode.IdleInTransactionSessionTimeout:
 			return ErrorRetryRecoverable, pgErrorInfo
 		default:
 			return ErrorOther, pgErrorInfo
