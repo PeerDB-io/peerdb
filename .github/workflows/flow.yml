@@ -21,10 +21,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest-16-cores]
+        runner: [blacksmith-16vcpu-ubuntu-2404]
         db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 180
     services:
       catalog:
         image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
@@ -86,6 +86,12 @@ jobs:
           DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
+      - name: Expand local port range to prevent exhaustion
+        run: |
+          sudo sysctl -w net.ipv4.ip_local_port_range="15000 65000"
+          sudo sysctl -w net.ipv4.tcp_fin_timeout=30
+          sudo sysctl -w net.ipv4.tcp_tw_reuse=1
+
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: generate or hydrate protos
@@ -408,7 +414,7 @@ jobs:
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
           ./peer-flow api --port 8112 --gateway-port 8113 &
-          go test -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          GOMAXPROCS=8 go test -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 8 ./... -timeout 9000s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
