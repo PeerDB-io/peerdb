@@ -440,7 +440,7 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
+		StartToCloseTimeout: 4 * time.Hour, // 4 hours
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,

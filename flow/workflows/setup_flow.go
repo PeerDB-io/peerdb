@@ -111,7 +111,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	s.Info("ensuring pullability for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 4 * 24 * time.Hour,
+		StartToCloseTimeout: 4 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
