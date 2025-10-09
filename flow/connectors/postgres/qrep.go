@@ -386,11 +386,13 @@ func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
-		QRecordStream: stream,
+		QRecordStream:   stream,
+		DestinationType: dstType,
 	})
 }
 
@@ -398,6 +400,7 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
 ) (int64, int64, error) {
@@ -481,7 +484,8 @@ func (c *PostgresConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
 	return syncQRepRecords(c, ctx, config, partition, RecordStreamSink{
-		QRecordStream: stream,
+		QRecordStream:   stream,
+		DestinationType: protos.DBType_POSTGRES,
 	})
 }
 
@@ -711,17 +715,20 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 func (c *PostgresConnector) PullXminRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, int64, error) {
 	return pullXminRecordStream(c, ctx, config, partition, RecordStreamSink{
-		QRecordStream: stream,
+		QRecordStream:   stream,
+		DestinationType: dstType,
 	})
 }
 
 func (c *PostgresConnector) PullXminPgRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
+	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	pipe PgCopyWriter,
 ) (int64, int64, int64, error) {

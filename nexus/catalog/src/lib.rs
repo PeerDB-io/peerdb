@@ -335,6 +335,7 @@ impl Catalog {
                         pt::peerdb_peers::MySqlConfig::decode(&options[..]).with_context(err)?;
                     Config::MysqlConfig(mysql_config)
                 }
+                DbType::DbtypeUnknown => return Ok(None),
             })
         } else {
             None

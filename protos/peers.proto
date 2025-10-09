@@ -271,6 +271,7 @@ enum DBType {
   PUBSUB = 10;
   EVENTHUBS = 11;
   ELASTICSEARCH = 12;
+  DBTYPE_UNKNOWN = -1;
 }
 
 message Peer {

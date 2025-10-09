@@ -323,7 +323,8 @@ func (p *PostgresCDCSource) decodeColumnData(
 				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
-			return p.parseFieldFromPostgresOID(dataType, typmod, true, parsedData, customTypeMapping, p.internalVersion)
+			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+				parsedData, customTypeMapping, p.internalVersion)
 		}
 		return types.QValueNull(types.QValueKindJSON), nil
 	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
@@ -344,7 +345,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 				arr[j] = nil
 			}
 		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, true, arr, customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN, arr, customTypeMapping, p.internalVersion)
 	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
@@ -372,9 +373,11 @@ func (p *PostgresCDCSource) decodeColumnData(
 			}
 			return nil, err
 		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, true, parsedData, customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+			parsedData, customTypeMapping, p.internalVersion)
 	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
-		return p.parseFieldFromPostgresOID(dataType, typmod, true, string(data), customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
+			string(data), customTypeMapping, p.internalVersion)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
 		customQKind := CustomTypeToQKind(typeData, version)
 		switch customQKind {
@@ -444,9 +447,9 @@ func PullCdcRecords[Items model.Items](
 	sendStandbyAfterReplLock := func(updateType string) error {
 		replLock.Lock()
 		defer replLock.Unlock()
-		err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
-			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())})
-		if err != nil {
+		if err := pglogrepl.SendStandbyStatusUpdate(ctx, conn,
+			pglogrepl.StandbyStatusUpdate{WALWritePosition: pglogrepl.LSN(req.ConsumedOffset.Load())},
+		); err != nil {
 			return fmt.Errorf("[%s] SendStandbyStatusUpdate failed: %w", updateType, err)
 		}
 		return nil

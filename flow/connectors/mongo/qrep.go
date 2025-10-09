@@ -147,6 +147,7 @@ func (c *MongoConnector) PullQRepRecords(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {

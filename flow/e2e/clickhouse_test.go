@@ -1373,14 +1373,8 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 		require.Nil(s.t, tNull)
 		require.Nil(s.t, dNull)
 		require.Nil(s.t, nNull)
-		if id == 1 {
-			require.True(s.t, time.Date(1754, time.August, 30, 22, 43, 41, 128654848, time.UTC).Equal(tNotNull),
-				"expected 1754-08-30 22:43:41..., not %s", tNotNull)
-			require.True(s.t, time.Date(1, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(dNotNull), "expected 0001-01-01, not %s", dNotNull)
-		} else {
-			require.True(s.t, time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(tNotNull), "expected 1970-01-01, not %s", tNotNull)
-			require.True(s.t, time.Date(1900, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(dNotNull), "expected 1900-01-01, not %s", dNotNull)
-		}
+		require.True(s.t, time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(tNotNull), "expected 1970-01-01, not %s", tNotNull)
+		require.True(s.t, time.Date(1970, time.January, 1, 0, 0, 0, 0, time.UTC).Equal(dNotNull), "expected 1900-01-01, not %s", dNotNull)
 		require.True(s.t, nNotNull.IsZero(), "expected 0, not %s", nNotNull)
 	}
 	require.NoError(s.t, rows.Err())
