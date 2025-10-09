@@ -225,7 +225,11 @@ func QValueToAvro(
 			(len(v.Value().(string)) > 15*1024*1024) {
 			slog.WarnContext(ctx, "Clearing TEXT value > 15MB for Snowflake!")
 			slog.WarnContext(ctx, "Check this issue for details: https://github.com/PeerDB-io/peerdb/issues/309")
-			return nil, nil
+			if c.Nullable {
+				return nil, nil
+			} else {
+				return "", nil
+			}
 		}
 		return c.processNullableUnion(v.Value()), nil
 	case types.QValueFloat32:
@@ -310,43 +314,38 @@ func (c *QValueAvroConverter) processGoTime(t time.Duration) any {
 	return t
 }
 
-func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
-	}
-
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("2006-01-02 15:04:05.999999-0700")
+func (c *QValueAvroConverter) processGeneralTime(t time.Time, format string) any {
+	// Bigquery will not allow timestamp if it is less than 1AD and more than 9999AD
+	switch c.TargetDWH {
+	case protos.DBType_BIGQUERY:
+		year := t.Year()
+		if year < 1 || year > 9999 {
+			c.logger.Warn("Nulling Timestamp value for BigQuery as it exceeds allowed range",
+				"timestamp", t.String())
+			if c.Nullable {
+				return nil
+			} else {
+				return time.Date(1, 1, 1, 0, 0, 0, 0, time.UTC)
+			}
+		}
+	case protos.DBType_SNOWFLAKE:
+		// Snowflake has issues with avro timestamp types, returning as string form
+		// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
+		return t.Format(format)
 	}
 	return t
+}
+
+func (c *QValueAvroConverter) processGoTimestampTZ(t time.Time) any {
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999-0700")
 }
 
 func (c *QValueAvroConverter) processGoTimestamp(t time.Time) any {
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
-	}
-
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("2006-01-02 15:04:05.999999")
-	}
-	return t
+	return c.processGeneralTime(t, "2006-01-02 15:04:05.999999")
 }
 
 func (c *QValueAvroConverter) processGoDate(t time.Time) any {
-	if DisallowedTimestamp(c.TargetDWH, t, c.logger) {
-		return nil
-	}
-
-	// Snowflake has issues with avro timestamp types, returning as string form
-	// See: https://stackoverflow.com/questions/66104762/snowflake-date-column-have-incorrect-date-from-avro-file
-	if c.TargetDWH == protos.DBType_SNOWFLAKE {
-		return t.Format("2006-01-02")
-	}
-	return t
+	return c.processGeneralTime(t, "2006-01-02")
 }
 
 func (c *QValueAvroConverter) processNullableUnion(
@@ -375,11 +374,7 @@ func (c *QValueAvroConverter) processNumeric(num decimal.Decimal) any {
 		return big.Rat{}
 	}
 
-	rat := num.Rat()
-	if c.Nullable {
-		return &rat
-	}
-	return rat
+	return c.processNullableUnion(num.Rat())
 }
 
 var (
@@ -413,11 +408,7 @@ func (c *QValueAvroConverter) processInt256(num *big.Int) any {
 		num = new(big.Int).Add(num, twoPow256)
 	}
 
-	res := bigIntTo32Bytes(num)
-	if c.Nullable {
-		return &res
-	}
-	return res
+	return c.processNullableUnion(bigIntTo32Bytes(num))
 }
 
 func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
@@ -429,11 +420,7 @@ func (c *QValueAvroConverter) processUInt256(num *big.Int) any {
 		return bigIntTo32Bytes(big.NewInt(0))
 	}
 
-	res := bigIntTo32Bytes(num)
-	if c.Nullable {
-		return &res
-	}
-	return res
+	return c.processNullableUnion(bigIntTo32Bytes(num))
 }
 
 func (c *QValueAvroConverter) processArrayNumeric(arrayNum []decimal.Decimal) any {
