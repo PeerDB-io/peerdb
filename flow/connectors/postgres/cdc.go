@@ -670,7 +670,7 @@ func PullCdcRecords[Items model.Items](
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
 				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
 				if err != nil {
-					return fmt.Errorf("error processing message: %w", err)
+					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
 
 				if xld.WALStart > clientXLogPos {
