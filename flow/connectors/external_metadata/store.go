@@ -87,7 +87,6 @@ func (p *PostgresMetadata) GetLastNormalizedBatchIDForTable(ctx context.Context,
 
 	var tableBatchIDData map[string]int64
 	if err := json.Unmarshal([]byte(tableBatchIDDataJSON), &tableBatchIDData); err != nil {
-		p.logger.Error("failed to unmarshal table batch id data", slog.Any("error", err))
 		return 0, fmt.Errorf("failed to unmarshal table batch id data: %w", err)
 	}
 

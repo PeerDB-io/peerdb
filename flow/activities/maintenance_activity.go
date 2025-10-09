@@ -358,7 +358,7 @@ func (a *MaintenanceActivity) ResumeMirror(ctx context.Context, mirror *protos.M
 	// There can also be "workflow already completed" errors, what should we do in that case?
 	if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.NoopSignal); err != nil {
 		slog.ErrorContext(ctx, "Error signaling mirror to resume for maintenance",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, slog.Any("error", err))
+			slog.String("mirror", mirror.MirrorName), slog.String("workflowId", mirror.WorkflowId), slog.Any("error", err))
 		return err
 	}
 	return nil
