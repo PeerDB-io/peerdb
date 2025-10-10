@@ -50,6 +50,9 @@ func avroObjectAverageRowSize(ctx context.Context, logger log.Logger, object *st
 
 		return defaultCompressedRowSize
 	}
+	defer func() {
+		_ = r.Close()
+	}()
 
 	n, err := avroTotalRows(ctx, r)
 	if err != nil {
