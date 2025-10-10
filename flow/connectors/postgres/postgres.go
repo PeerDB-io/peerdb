@@ -1727,12 +1727,19 @@ func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
 }
 
 func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
-	query := `
+	// First check for Aurora by trying to call aurora_version()
+	var auroraVersion string
+	err := c.conn.QueryRow(ctx, "SELECT aurora_version()").Scan(&auroraVersion)
+	if err == nil && auroraVersion != "" {
+		return protos.DatabaseVariant_AWS_AURORA, nil
+	}
+
+	// If aurora_version() fails, it's not Aurora - continue checking other variants
+	settingsQuery := `
 		SELECT name, setting
 		FROM pg_settings
 		WHERE name IN (
 			'rds.extensions',
-			'aurora_version',
 			'cloudsql.logical_decoding',
 			'azure.extensions',
 			'neon.endpoint_id',
@@ -1740,7 +1747,7 @@ func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.Data
 			'supautils.privileged_extensions'
 		) AND setting IS NOT NULL AND setting != ''`
 
-	rows, err := c.conn.Query(ctx, query)
+	rows, err := c.conn.Query(ctx, settingsQuery)
 	if err != nil {
 		c.logger.Error("failed to query pg_settings for determining variant", slog.Any("error", err))
 		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
@@ -1757,8 +1764,6 @@ func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.Data
 		switch name {
 		case "rds.extensions":
 			return protos.DatabaseVariant_AWS_RDS, nil
-		case "aurora_version":
-			return protos.DatabaseVariant_AWS_AURORA, nil
 		case "cloudsql.logical_decoding":
 			return protos.DatabaseVariant_GOOGLE_CLOUD_SQL, nil
 		case "azure.extensions":

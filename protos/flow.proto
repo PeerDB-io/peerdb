@@ -541,6 +541,7 @@ message MaintenanceMirrors {
 message PeerContextMetadata {
   string name = 1;
   peerdb_peers.DBType type = 2;
+  peerdb_peers.DatabaseVariant variant = 3;
 }
 
 message FlowContextMetadataInput {
@@ -565,7 +566,6 @@ message FlowContextMetadata{
   PeerContextMetadata destination = 3;
   FlowStatus status = 4;
   bool is_resync = 5;
-  peerdb_peers.DatabaseVariant source_variant = 6;
 }
 
 message AdditionalContextMetadata{

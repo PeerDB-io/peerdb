@@ -1626,27 +1626,30 @@ func (a *FlowableActivity) GetFlowMetadata(
 			Type: peerTypes[input.DestinationName],
 		}
 	}
+
 	// Detect source database variant
-	sourceVariant := protos.DatabaseVariant_VARIANT_UNKNOWN
 	if input.SourceName != "" {
 		if srcConn, err := connectors.GetByNameAs[connectors.DatabaseVariantConnector](ctx, nil, a.CatalogPool, input.SourceName); err == nil {
 			if variant, variantErr := srcConn.GetDatabaseVariant(ctx); variantErr == nil {
-				sourceVariant = variant
+				sourcePeer.Variant = variant
+			} else {
+				logger.Warn("failed to get source database variant", slog.Any("error", variantErr))
 			}
 			connectors.CloseConnector(ctx, srcConn)
+		} else {
+			logger.Warn("failed to get source connector to detect database variant", slog.Any("error", err))
 		}
 	}
 
 	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
-		slog.Any("peerTypes", peerTypes), slog.Any("sourceVariant", sourceVariant))
+		slog.Any("peerTypes", peerTypes))
 	return &protos.FlowContextMetadata{
-		FlowName:      input.FlowName,
-		Source:        sourcePeer,
-		Destination:   destinationPeer,
-		Status:        input.Status,
-		IsResync:      input.IsResync,
-		SourceVariant: sourceVariant,
+		FlowName:    input.FlowName,
+		Source:      sourcePeer,
+		Destination: destinationPeer,
+		Status:      input.Status,
+		IsResync:    input.IsResync,
 	}, nil
 }
 
