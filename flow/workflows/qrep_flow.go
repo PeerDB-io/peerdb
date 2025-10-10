@@ -78,7 +78,7 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        30 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -100,7 +100,7 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        30 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -132,7 +132,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        time.Hour,
+				MaximumInterval:        30 * time.Minute,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -293,7 +293,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        30 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -358,7 +358,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        time.Hour,
+				MaximumInterval:        30 * time.Minute,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -404,7 +404,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        time.Hour,
+				MaximumInterval:        30 * time.Minute,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -440,12 +440,12 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
+		StartToCloseTimeout: 4 * time.Hour, // 4 hours
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        30 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},

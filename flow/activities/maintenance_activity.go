@@ -102,7 +102,8 @@ func (a *MaintenanceActivity) WaitForRunningSnapshotsAndIntermediateStates(
 		allMirrorsChecked := true
 		for _, mirror := range mirrors.Mirrors {
 			if mirror.MirrorCreatedAt.AsTime().After(checkStartTime) || mirror.MirrorUpdatedAt.AsTime().After(checkStartTime) {
-				slog.WarnContext(ctx, "Found a new mirror while checking for snapshots", "mirror", mirror.MirrorName, "info", mirror)
+				slog.WarnContext(ctx, "Found a new mirror while checking for snapshots",
+					slog.String("mirror", mirror.MirrorName), slog.Any("info", mirror))
 				allMirrorsChecked = false
 				break
 			}

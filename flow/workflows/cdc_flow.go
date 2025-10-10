@@ -840,7 +840,8 @@ func CDCFlowWorkflow(
 			var sleepFor time.Duration
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
-				sleepFor = time.Duration(10+min(state.ErrorCount, 3)*15) * time.Minute
+				// linear backoff starting at 10 minutes, up to 55 minutes in steps of 5 minutes
+				sleepFor = time.Duration(10+min(state.ErrorCount, 9)*5) * time.Minute
 				logger.Error(
 					"panic in sync flow",
 					slog.Any("error", panicErr.Error()),
@@ -848,6 +849,7 @@ func CDCFlowWorkflow(
 					slog.Any("sleepFor", sleepFor),
 				)
 			} else {
+				// linear backoff from 1 minute up to 10 minutes
 				sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
 				logger.Error("error in sync flow", slog.Any("error", err), slog.Any("sleepFor", sleepFor))
 			}
