@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"strings"
 	"testing"
+	"time"
 
 	"cloud.google.com/go/bigquery"
+	"cloud.google.com/go/civil"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
@@ -434,6 +437,354 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 	)
 
 	env.Cancel(t.Context())
+}
+
+func (s BigQueryClickhouseSuite) Test_Types() {
+	t := s.T()
+	ctx := t.Context()
+
+	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := "test_types_" + strings.ToLower(shared.RandomString(8))
+	dstTable := srcTable + "_dst"
+
+	t.Logf("Creating test table %s with all supported types", srcTable)
+
+	schema := bigquery.Schema{
+		{Name: "id", Type: bigquery.IntegerFieldType, Required: true},
+		{Name: "str_col", Type: bigquery.StringFieldType, Required: false},
+		{Name: "bytes_col", Type: bigquery.BytesFieldType, Required: false},
+		{Name: "int_col", Type: bigquery.IntegerFieldType, Required: false},
+		{Name: "float_col", Type: bigquery.FloatFieldType, Required: false},
+		{Name: "bool_col", Type: bigquery.BooleanFieldType, Required: false},
+		{Name: "ts_col", Type: bigquery.TimestampFieldType, Required: false},
+		{Name: "date_col", Type: bigquery.DateFieldType, Required: false},
+		{Name: "time_col", Type: bigquery.TimeFieldType, Required: false},
+		{Name: "numeric_col", Type: bigquery.NumericFieldType, Required: false, Precision: 38, Scale: 9},
+		{Name: "bignumeric_col", Type: bigquery.BigNumericFieldType, Required: false, Precision: 76, Scale: 38},
+		{Name: "geography_col", Type: bigquery.GeographyFieldType, Required: false},
+		{Name: "array_str", Type: bigquery.StringFieldType, Repeated: true},
+		{Name: "array_int", Type: bigquery.IntegerFieldType, Repeated: true},
+		{Name: "array_float", Type: bigquery.FloatFieldType, Repeated: true},
+		{Name: "array_bool", Type: bigquery.BooleanFieldType, Repeated: true},
+		{Name: "array_ts", Type: bigquery.TimestampFieldType, Repeated: true},
+		{Name: "array_date", Type: bigquery.DateFieldType, Repeated: true},
+		{Name: "record_col", Type: bigquery.RecordFieldType, Required: false, Schema: bigquery.Schema{
+			{Name: "nested_str", Type: bigquery.StringFieldType},
+			{Name: "nested_int", Type: bigquery.IntegerFieldType},
+			{Name: "nested_bool", Type: bigquery.BooleanFieldType},
+		}},
+		{Name: "array_record", Type: bigquery.RecordFieldType, Repeated: true, Schema: bigquery.Schema{
+			{Name: "item_name", Type: bigquery.StringFieldType},
+			{Name: "item_count", Type: bigquery.IntegerFieldType},
+		}},
+	}
+
+	table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+	err := table.Create(ctx, &bigquery.TableMetadata{
+		Schema: schema,
+		TableConstraints: &bigquery.TableConstraints{
+			PrimaryKey: &bigquery.PrimaryKey{
+				Columns: []string{"id"},
+			},
+		},
+	})
+	require.NoError(t, err, "should create table successfully")
+
+	defer func() {
+		if err := table.Delete(ctx); err != nil {
+			t.Logf("Warning: failed to delete test table %s: %v", srcTable, err)
+		}
+	}()
+
+	type NestedRecord struct {
+		NestedStr  string `bigquery:"nested_str"`
+		NestedInt  int64  `bigquery:"nested_int"`
+		NestedBool bool   `bigquery:"nested_bool"`
+	}
+
+	type ArrayRecordItem struct {
+		ItemName  string `bigquery:"item_name"`
+		ItemCount int64  `bigquery:"item_count"`
+	}
+
+	type TestRow struct {
+		RecordCol     *NestedRecord          `bigquery:"record_col"`
+		BignumericCol *big.Rat               `bigquery:"bignumeric_col"`
+		NumericCol    *big.Rat               `bigquery:"numeric_col"`
+		TsCol         bigquery.NullTimestamp `bigquery:"ts_col"`
+		ArrayBool     []bool                 `bigquery:"array_bool"`
+		ArrayFloat    []float64              `bigquery:"array_float"`
+		ArrayRecord   []ArrayRecordItem      `bigquery:"array_record"`
+		StrCol        bigquery.NullString    `bigquery:"str_col"`
+		ArrayDate     []civil.Date           `bigquery:"array_date"`
+		ArrayTs       []time.Time            `bigquery:"array_ts"`
+		BytesCol      []byte                 `bigquery:"bytes_col"`
+		GeographyCol  bigquery.NullGeography `bigquery:"geography_col"`
+		ArrayStr      []string               `bigquery:"array_str"`
+		ArrayInt      []int64                `bigquery:"array_int"`
+		TimeCol       bigquery.NullTime      `bigquery:"time_col"`
+		DateCol       bigquery.NullDate      `bigquery:"date_col"`
+		IntCol        bigquery.NullInt64     `bigquery:"int_col"`
+		FloatCol      bigquery.NullFloat64   `bigquery:"float_col"`
+		ID            int64                  `bigquery:"id"`
+		BoolCol       bigquery.NullBool      `bigquery:"bool_col"`
+	}
+
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	testData := []TestRow{
+		{
+			ID:            1,
+			StrCol:        bigquery.NullString{StringVal: "test string", Valid: true},
+			BytesCol:      []byte("test bytes"),
+			IntCol:        bigquery.NullInt64{Int64: 42, Valid: true},
+			FloatCol:      bigquery.NullFloat64{Float64: 3.14159, Valid: true},
+			BoolCol:       bigquery.NullBool{Bool: true, Valid: true},
+			TsCol:         bigquery.NullTimestamp{Timestamp: now, Valid: true},
+			DateCol:       bigquery.NullDate{Date: civil.DateOf(time.Date(2024, 1, 15, 0, 0, 0, 0, time.UTC)), Valid: true},
+			TimeCol:       bigquery.NullTime{Time: civil.TimeOf(time.Date(0, 1, 1, 14, 30, 0, 0, time.UTC)), Valid: true},
+			NumericCol:    big.NewRat(12345, 100),                                                      // 123.45
+			BignumericCol: big.NewRat(9876543, 1000),                                                   // 9876.543
+			GeographyCol:  bigquery.NullGeography{GeographyVal: "POINT(-122.084 37.422)", Valid: true}, // Google HQ
+			ArrayStr:      []string{"foo", "bar", "baz"},
+			ArrayInt:      []int64{1, 2, 3, 4, 5},
+			ArrayFloat:    []float64{1.1, 2.2, 3.3},
+			ArrayBool:     []bool{true, false, true},
+			ArrayTs:       []time.Time{now, now.Add(-time.Hour), now.Add(-24 * time.Hour)},
+			ArrayDate: []civil.Date{
+				civil.DateOf(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)),
+				civil.DateOf(time.Date(2024, 1, 2, 0, 0, 0, 0, time.UTC)),
+				civil.DateOf(time.Date(2024, 1, 3, 0, 0, 0, 0, time.UTC)),
+			},
+			RecordCol: &NestedRecord{
+				NestedStr:  "nested value",
+				NestedInt:  100,
+				NestedBool: true,
+			},
+			ArrayRecord: []ArrayRecordItem{
+				{ItemName: "item1", ItemCount: 10},
+				{ItemName: "item2", ItemCount: 20},
+			},
+		},
+		{
+			ID:           2,
+			StrCol:       bigquery.NullString{StringVal: "another string", Valid: true},
+			IntCol:       bigquery.NullInt64{Int64: -999, Valid: true},
+			FloatCol:     bigquery.NullFloat64{Float64: -2.71828, Valid: true},
+			BoolCol:      bigquery.NullBool{Bool: false, Valid: true},
+			TsCol:        bigquery.NullTimestamp{Timestamp: now.Add(-48 * time.Hour), Valid: true},
+			DateCol:      bigquery.NullDate{Date: civil.DateOf(time.Date(2023, 12, 31, 0, 0, 0, 0, time.UTC)), Valid: true},
+			TimeCol:      bigquery.NullTime{Time: civil.TimeOf(time.Date(0, 1, 1, 9, 15, 30, 0, time.UTC)), Valid: true},
+			ArrayStr:     []string{"single"},
+			ArrayInt:     []int64{},
+			ArrayFloat:   []float64{0.0},
+			ArrayBool:    []bool{false},
+			GeographyCol: bigquery.NullGeography{},
+			ArrayRecord:  []ArrayRecordItem{},
+		},
+		{
+			ID:       3,
+			StrCol:   bigquery.NullString{StringVal: "", Valid: true}, // Empty string, not NULL
+			IntCol:   bigquery.NullInt64{Int64: 0, Valid: true},
+			FloatCol: bigquery.NullFloat64{Float64: 0.0, Valid: true},
+			BoolCol:  bigquery.NullBool{Bool: false, Valid: true},
+			TsCol:    bigquery.NullTimestamp{Timestamp: time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC), Valid: true},
+			DateCol:  bigquery.NullDate{Date: civil.DateOf(time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)), Valid: true},
+			TimeCol:  bigquery.NullTime{Time: civil.TimeOf(time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)), Valid: true},
+			ArrayStr: []string{},
+			ArrayInt: []int64{-1, 0, 1},
+			ArrayDate: []civil.Date{
+				civil.DateOf(time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC)),
+			},
+		},
+	}
+
+	inserter := table.Inserter()
+	err = inserter.Put(ctx, testData)
+	require.NoError(t, err, "should insert test data successfully")
+
+	time.Sleep(2 * time.Second)
+
+	count, err := source.helper.countRowsWithDataset(ctx, source.config.DatasetId, srcTable, "")
+	require.NoError(t, err, "should be able to count rows")
+	require.Equal(t, len(testData), count, "should have inserted all test rows")
+	t.Logf("Inserted %d rows into source table", count)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, srcTable),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
+				DestinationTableIdentifier: s.DestinationTable(dstTable),
+			},
+		},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SnapshotStagingPath = "gs://do_not_remove_peerdb_source_test_bucket/test_types"
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "all types replicated", srcTable, dstTable, "id")
+
+	t.Log("Verifying data in ClickHouse")
+	dstRows, err := s.GetRows(dstTable, "id,str_col,int_col,float_col,bool_col")
+	require.NoError(t, err, "should fetch rows from ClickHouse")
+	require.Len(t, dstRows.Records, len(testData), "should have all rows in destination")
+
+	if len(dstRows.Records) > 0 {
+		firstRow := dstRows.Records[0]
+		require.Equal(t, int64(1), firstRow[0].Value(), "ID should match")
+		require.Equal(t, "test string", firstRow[1].Value(), "string column should match")
+		require.Equal(t, int64(42), firstRow[2].Value(), "int column should match")
+		require.InDelta(t, 3.14159, firstRow[3].Value().(float64), 0.00001, "float column should match")
+		require.Equal(t, true, firstRow[4].Value(), "bool column should match")
+		t.Log("Basic type verification passed")
+	}
+
+	arrayRows, err := s.GetRows(dstTable, "id,array_str,array_int,array_bool")
+	require.NoError(t, err, "should fetch array columns")
+	if len(arrayRows.Records) > 0 {
+		firstRow := arrayRows.Records[0]
+		t.Logf("Array columns: str=%v, int=%v, bool=%v",
+			firstRow[1].Value(), firstRow[2].Value(), firstRow[3].Value())
+	}
+
+	env.Cancel(ctx)
+}
+
+func (s BigQueryClickhouseSuite) Test_JSON_Support() {
+	t := s.T()
+	ctx := t.Context()
+
+	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := "test_json_" + strings.ToLower(shared.RandomString(8))
+	dstTable := srcTable + "_dst"
+
+	t.Logf("Creating test table %s with JSON column", srcTable)
+
+	// Define the table schema with JSON column
+	schema := bigquery.Schema{
+		{Name: "id", Type: bigquery.IntegerFieldType, Required: true},
+		{Name: "name", Type: bigquery.StringFieldType, Required: true},
+		{Name: "metadata", Type: bigquery.JSONFieldType, Required: false},
+		{Name: "tags", Type: bigquery.StringFieldType, Repeated: true},
+	}
+
+	// Create the table
+	table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+	err := table.Create(ctx, &bigquery.TableMetadata{
+		Schema: schema,
+		TableConstraints: &bigquery.TableConstraints{
+			PrimaryKey: &bigquery.PrimaryKey{
+				Columns: []string{"id"},
+			},
+		},
+	})
+	require.NoError(t, err, "should create table successfully")
+
+	// Cleanup: delete table after test
+	defer func() {
+		if err := table.Delete(ctx); err != nil {
+			t.Logf("Warning: failed to delete test table %s: %v", srcTable, err)
+		}
+	}()
+
+	type TestRow struct {
+		Name     string
+		Metadata bigquery.NullJSON
+		Tags     []string
+		ID       int64
+	}
+
+	testData := []TestRow{
+		{
+			ID:   1,
+			Name: "Product A",
+			Metadata: bigquery.NullJSON{JSONVal: `{
+				"price": 99.99,
+				"in_stock": true,
+				"category": "electronics",
+				"specs": {"weight": 1.5, "color": "black"},
+				"reviewCount": 42
+			}`, Valid: true},
+			Tags: []string{"featured", "sale"},
+		},
+		{
+			ID:   2,
+			Name: "Product B",
+			Metadata: bigquery.NullJSON{JSONVal: `{
+				"price": 149.50,
+				"in_stock": false,
+				"category": "furniture",
+				"specs": {"dimensions": {"width": 100, "height": 200}}
+			}`, Valid: true},
+			Tags: []string{"new", "premium"},
+		},
+		{
+			ID:       3,
+			Name:     "Product C",
+			Metadata: bigquery.NullJSON{},
+			Tags:     []string{"clearance"},
+		},
+	}
+
+	inserter := table.Inserter()
+	err = inserter.Put(ctx, testData)
+	require.NoError(t, err, "should insert test data successfully")
+
+	time.Sleep(2 * time.Second)
+
+	count, err := source.helper.countRowsWithDataset(ctx, source.config.DatasetId, srcTable, "")
+	require.NoError(t, err, "should be able to count rows")
+	require.Equal(t, len(testData), count, "should have inserted all test rows")
+	t.Logf("Inserted %d rows into source table", count)
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, srcTable),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
+				DestinationTableIdentifier: s.DestinationTable(dstTable),
+			},
+		},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SnapshotStagingPath = "gs://do_not_remove_peerdb_source_test_bucket/test_json"
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "JSON data replicated", srcTable, dstTable, "id,name")
+
+	t.Log("Verifying JSON data in ClickHouse")
+	dstRows, err := s.GetRows(dstTable, "id,name,metadata")
+	require.NoError(t, err, "should fetch rows from ClickHouse")
+	require.Len(t, dstRows.Records, len(testData), "should have all rows in destination")
+
+	if len(dstRows.Records) > 0 {
+		firstRow := dstRows.Records[0]
+		require.Equal(t, int64(1), firstRow[0].Value(), "first row ID should be 1")
+		require.Equal(t, "Product A", firstRow[1].Value(), "first row name should match")
+
+		jsonStr, ok := firstRow[2].Value().(string)
+		require.True(t, ok, "JSON should be stored as string")
+		require.Contains(t, jsonStr, "price", "JSON should contain price field")
+		require.Contains(t, jsonStr, "99.99", "JSON should contain price value")
+		require.Contains(t, jsonStr, "electronics", "JSON should contain category value")
+		t.Logf("JSON content verified: %s", jsonStr)
+	}
+
+	env.Cancel(ctx)
 }
 
 func (s *bigQuerySource) GeneratePeer(t *testing.T) *protos.Peer {
