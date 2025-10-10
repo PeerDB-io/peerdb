@@ -1637,7 +1637,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 		}
 	}
 
-	logger.Info("loaded peer types for flow", slog.String("flowName", input.FlowName),
+	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
 		slog.Any("peerTypes", peerTypes), slog.Any("sourceVariant", sourceVariant))
 	return &protos.FlowContextMetadata{
