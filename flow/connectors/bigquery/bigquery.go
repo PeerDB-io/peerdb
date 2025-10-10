@@ -3,6 +3,7 @@ package connbigquery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -138,6 +139,51 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
 	if _, err := c.client.DatasetInProject(c.projectID, c.datasetID).Metadata(ctx); err != nil {
 		return fmt.Errorf("failed to get dataset metadata: %v", err)
+	}
+
+	return nil
+}
+
+func (c *BigQueryConnector) ValidateMirrorDestination(
+	ctx context.Context,
+	_ *protos.FlowConnectionConfigs,
+	_ map[string]*protos.TableSchema,
+) error {
+	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)
+
+	newTable := c.client.DatasetInProject(c.projectID, c.datasetID).Table(dummyTable)
+
+	createErr := newTable.Create(ctx, &bigquery.TableMetadata{
+		Schema: []*bigquery.FieldSchema{
+			{
+				Name:     "dummy",
+				Type:     bigquery.BooleanFieldType,
+				Repeated: false,
+			},
+		},
+	})
+	if createErr != nil {
+		return fmt.Errorf("unable to validate table creation within dataset: %w. "+
+			"Please check if bigquery.tables.create permission has been granted", createErr)
+	}
+
+	var errs []error
+	insertQuery := c.client.Query(fmt.Sprintf("INSERT INTO %s VALUES(true)", dummyTable))
+	insertQuery.DefaultDatasetID = c.datasetID
+	insertQuery.DefaultProjectID = c.projectID
+	_, insertErr := insertQuery.Run(ctx)
+	if insertErr != nil {
+		errs = append(errs, fmt.Errorf("unable to validate insertion into table: %w. ", insertErr))
+	}
+
+	// Drop the table
+	deleteErr := newTable.Delete(ctx)
+	if deleteErr != nil {
+		errs = append(errs, fmt.Errorf("unable to delete table :%w. ", deleteErr))
+	}
+
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
 
 	return nil
