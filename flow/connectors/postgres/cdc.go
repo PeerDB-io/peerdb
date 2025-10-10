@@ -1029,7 +1029,13 @@ func processDeleteMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("DeleteMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+	p.logger.Debug("DeleteMessage",
+		slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(relID)),
+		slog.String("Relation Name", tableName),
+		slog.Uint64("OrigRelationID", uint64(msg.RelationID)),
+		slog.Uint64("ColumnCount", uint64(len(msg.OldTuple.Columns))),
+	)
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
