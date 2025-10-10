@@ -333,10 +333,66 @@ func (c *BigQueryConnector) ExportTxSnapshot(
 		}
 	}
 
-	return nil, nil, nil
+	return nil, cfg.SnapshotStagingPath, nil
 }
 
-func (c *BigQueryConnector) FinishExport(_ any) error {
+func (c *BigQueryConnector) FinishExport(v any) error {
+	if v == nil {
+		return nil
+	}
+
+	sv, ok := v.(string)
+	if !ok || sv == "" {
+		c.logger.Info("no staging path to cleanup")
+		return nil
+	}
+
+	ctx := context.Background()
+	stagingPath, err := parseGCSPath(sv)
+	if err != nil {
+		return fmt.Errorf("failed to parse staging path %s: %w", sv, err)
+	}
+
+	bucketName := stagingPath.Bucket()
+	prefix := stagingPath.QueryPrefix()
+
+	c.logger.Info("cleaning up GCS staging path after export",
+		slog.String("bucket", bucketName),
+		slog.String("prefix", prefix))
+
+	bucket := c.storageClient.Bucket(bucketName)
+	it := bucket.Objects(ctx, &storage.Query{Prefix: prefix})
+
+	deletedCount := 0
+	failedCount := 0
+	for {
+		attrs, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("failed to list objects in GCS bucket %s with prefix %s: %w", bucketName, prefix, err)
+		}
+
+		obj := bucket.Object(attrs.Name)
+		if err := obj.Delete(ctx); err != nil {
+			c.logger.Warn("failed to delete GCS object",
+				slog.String("object", attrs.Name),
+				slog.Any("error", err))
+			// Continue with other objects even if one fails
+			failedCount++
+		} else {
+			deletedCount++
+		}
+	}
+
+	if failedCount > 0 {
+		return fmt.Errorf("failed to delete %d objects in GCS bucket %s with prefix %s", failedCount, bucketName, prefix)
+	}
+
+	c.logger.Info("GCS cleanup completed after export",
+		slog.Int("deletedObjects", deletedCount))
+
 	return nil
 }
 

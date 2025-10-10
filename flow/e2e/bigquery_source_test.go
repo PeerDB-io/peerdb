@@ -787,6 +787,104 @@ func (s BigQueryClickhouseSuite) Test_JSON_Support() {
 	env.Cancel(ctx)
 }
 
+func (s BigQueryClickhouseSuite) Test_GCS_Cleanup_After_Initial_Load() {
+	t := s.T()
+	ctx := t.Context()
+
+	t.Logf("ClickHouse database: %s", s.Peer().Config.(*protos.Peer_ClickhouseConfig).ClickhouseConfig.Database)
+
+	source := s.Source().(*bigQuerySource)
+	srcTable := "test_gcs_cleanup_" + strings.ToLower(shared.RandomString(8))
+	dstTable := srcTable + "_dst"
+
+	t.Logf("Creating test table %s", srcTable)
+
+	schema := bigquery.Schema{
+		{Name: "id", Type: bigquery.IntegerFieldType, Required: true},
+		{Name: "data", Type: bigquery.StringFieldType, Required: true},
+		{Name: "value", Type: bigquery.IntegerFieldType, Required: false},
+	}
+
+	table := source.client.DatasetInProject(source.config.ProjectId, source.config.DatasetId).Table(srcTable)
+	err := table.Create(ctx, &bigquery.TableMetadata{
+		Schema: schema,
+		TableConstraints: &bigquery.TableConstraints{
+			PrimaryKey: &bigquery.PrimaryKey{
+				Columns: []string{"id"},
+			},
+		},
+	})
+	require.NoError(t, err, "should create table successfully")
+
+	defer func() {
+		if err := table.Delete(ctx); err != nil {
+			t.Logf("Warning: failed to delete test table %s: %v", srcTable, err)
+		}
+	}()
+
+	type TestRow struct {
+		Data  string `bigquery:"data"`
+		ID    int64  `bigquery:"id"`
+		Value int64  `bigquery:"value"`
+	}
+
+	testData := []TestRow{
+		{ID: 1, Data: "test data 1", Value: 100},
+		{ID: 2, Data: "test data 2", Value: 200},
+		{ID: 3, Data: "test data 3", Value: 300},
+		{ID: 4, Data: "test data 4", Value: 400},
+		{ID: 5, Data: "test data 5", Value: 500},
+	}
+
+	inserter := table.Inserter()
+	err = inserter.Put(ctx, testData)
+	require.NoError(t, err, "should insert test data successfully")
+
+	time.Sleep(2 * time.Second)
+
+	count, err := source.helper.countRowsWithDataset(ctx, source.config.DatasetId, srcTable, "")
+	require.NoError(t, err, "should be able to count rows")
+	require.Equal(t, len(testData), count, "should have inserted all test rows")
+	t.Logf("Inserted %d rows into source table", count)
+
+	gcsStagingPath := "gs://do_not_remove_peerdb_source_test_bucket/test_cleanup/" + srcTable
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName: AddSuffix(s, srcTable),
+		TableMappings: []*protos.TableMapping{
+			{
+				SourceTableIdentifier:      fmt.Sprintf("%s.%s", source.config.DatasetId, srcTable),
+				DestinationTableIdentifier: s.DestinationTable(dstTable),
+			},
+		},
+		Destination: s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.InitialSnapshotOnly = true
+	flowConnConfig.SnapshotStagingPath = gcsStagingPath
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "data replicated", srcTable, dstTable, "id")
+
+	t.Log("Verifying data in ClickHouse")
+	dstRows, err := s.GetRows(dstTable, "id,data,value")
+	require.NoError(t, err, "should fetch rows from ClickHouse")
+	require.Len(t, dstRows.Records, len(testData), "should have all rows in destination")
+
+	env.Cancel(ctx)
+
+	t.Log("Checking GCS staging path for exported objects")
+
+	EnvWaitFor(t, env, time.Second*30, fmt.Sprintf("GCS path %s to be cleaned up", gcsStagingPath), func() bool {
+		objectCount, err := source.helper.CountObjectsInGCSPath(ctx, gcsStagingPath)
+		require.NoError(t, err, "should be able to count GCS objects")
+		return objectCount > 0
+	})
+}
+
 func (s *bigQuerySource) GeneratePeer(t *testing.T) *protos.Peer {
 	t.Helper()
 	peer := &protos.Peer{
