@@ -20,10 +20,8 @@ func avroTotalRows(ctx context.Context, r io.Reader) (uint64, error) {
 
 	var totalRows uint64
 	for decoder.HasNext() {
-		select {
-		case <-ctx.Done():
-			return totalRows, ctx.Err()
-		default:
+		if err := ctx.Err(); err != nil {
+			return totalRows, err
 		}
 
 		// Decode into a generic map to avoid needing to know the exact schema
