@@ -34,29 +34,22 @@ type BigQueryTestHelper struct {
 }
 
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
-func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
+func NewBigQueryTestHelper(t *testing.T, datasetID string) (*BigQueryTestHelper, error) {
 	t.Helper()
 	// random 64 bit int to namespace stateful schemas.
 	//nolint:gosec // number has no cryptographic significance
 	runID := rand.Uint64()
 
-	jsonPath := os.Getenv("TEST_BQ_CREDS")
-	if jsonPath == "" {
-		return nil, errors.New("TEST_BQ_CREDS env var not set")
-	}
-
-	content, err := e2eshared.ReadFileToBytes(jsonPath)
+	config, err := bigQueryConfigFromEnv()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read file: %w", err)
+		return nil, err
 	}
 
-	var config *protos.BigqueryConfig
-	if err := json.Unmarshal(content, &config); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+	if datasetID == "" {
+		// suffix the dataset with the runID to namespace stateful schemas.
+		datasetID = fmt.Sprintf("%s_%d", config.DatasetId, runID)
 	}
-
-	// suffix the dataset with the runID to namespace stateful schemas.
-	config.DatasetId = fmt.Sprintf("%s_%d", config.DatasetId, runID)
+	config.DatasetId = datasetID
 
 	bqsa, err := peer_bq.NewBigQueryServiceAccount(config)
 	if err != nil {
@@ -73,6 +66,24 @@ func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
 		Config: config,
 		client: client,
 	}, nil
+}
+
+func bigQueryConfigFromEnv() (*protos.BigqueryConfig, error) {
+	jsonPath := os.Getenv("TEST_BQ_CREDS")
+	if jsonPath == "" {
+		return nil, errors.New("TEST_BQ_CREDS env var not set")
+	}
+
+	content, err := e2eshared.ReadFileToBytes(jsonPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	var config *protos.BigqueryConfig
+	if err := json.Unmarshal(content, &config); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+	}
+	return config, nil
 }
 
 // datasetExists checks if the dataset exists.

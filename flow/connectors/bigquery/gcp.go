@@ -2,6 +2,7 @@ package connbigquery
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -44,6 +45,10 @@ func parseGCSPath(gcsPathStr string) (*gcsPath, error) {
 	}
 	if u.Scheme != "gs" {
 		return nil, &url.Error{Op: "parse", URL: gcsPathStr, Err: fmt.Errorf("invalid scheme: %s, expected gs", u.Scheme)}
+	}
+
+	if u.Host == "" {
+		return nil, &url.Error{Op: "parse", URL: gcsPathStr, Err: errors.New("bucket name is required")}
 	}
 
 	return &gcsPath{URL: u}, nil

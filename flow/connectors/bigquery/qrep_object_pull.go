@@ -33,7 +33,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 ) (int64, int64, error) {
 	defer close(stream.Objects)
 
-	stream.SetFormat("Avro")
+	stream.SetFormat(model.QObjectStreamBigQueryExportAvroFormat)
 
 	schema, err := c.getQRepSchema(ctx, config)
 	if err != nil {

@@ -265,15 +265,14 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	columnNameAvroFieldMap map[string]string,
 	config *protos.QRepConfig,
 ) error {
-	// Create configuration for the table function helper
-	insertConfig := &InsertFromTableFunctionConfig{
-		DestinationTable:    config.DestinationTableIdentifier,
-		Schema:              schema,
-		ColumnNameMap:       columnNameAvroFieldMap,
-		ExcludedColumns:     config.Exclude,
-		Config:              config,
-		ClickHouseConnector: s.ClickHouseConnector,
-		Logger:              nil, // Will use default logging if needed
+	insertConfig := &insertFromTableFunctionConfig{
+		destinationTable: config.DestinationTableIdentifier,
+		schema:           schema,
+		columnNameMap:    columnNameAvroFieldMap,
+		excludedColumns:  config.Exclude,
+		config:           config,
+		connector:        s.ClickHouseConnector,
+		logger:           s.logger,
 	}
 
 	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)

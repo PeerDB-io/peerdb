@@ -7,6 +7,24 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
+type QObjectStreamFormat string
+
+const (
+	// QObjectStreamBigQueryExportAvroFormat is a representation of Avro format with some BigQuery Avro export
+	// specific conventions. For more details, see:
+	// https://cloud.google.com/bigquery/docs/exporting-data#avro_export_details
+	QObjectStreamBigQueryExportAvroFormat QObjectStreamFormat = "bigquery_export_avro"
+)
+
+func QObjectStreamFormatNormalized(format QObjectStreamFormat) string {
+	switch format {
+	case QObjectStreamBigQueryExportAvroFormat:
+		return "avro"
+	default:
+		return "unknown"
+	}
+}
+
 type Object struct {
 	Headers http.Header
 	URL     string
@@ -19,7 +37,7 @@ type Object struct {
 // with a header (e.g., token in header).
 type QObjectStream struct {
 	Objects     chan *Object
-	formatLatch *concurrency.Latch[string]
+	formatLatch *concurrency.Latch[QObjectStreamFormat]
 	schemaLatch *concurrency.Latch[types.QRecordSchema]
 	err         error
 }
@@ -27,7 +45,7 @@ type QObjectStream struct {
 func NewQObjectStream(buffer int) *QObjectStream {
 	return &QObjectStream{
 		schemaLatch: concurrency.NewLatch[types.QRecordSchema](),
-		formatLatch: concurrency.NewLatch[string](),
+		formatLatch: concurrency.NewLatch[QObjectStreamFormat](),
 		Objects:     make(chan *Object, buffer),
 		err:         nil,
 	}
@@ -41,11 +59,11 @@ func (s *QObjectStream) SetSchema(schema types.QRecordSchema) {
 	s.schemaLatch.Set(schema)
 }
 
-func (s *QObjectStream) Format() (string, error) {
+func (s *QObjectStream) Format() (QObjectStreamFormat, error) {
 	return s.formatLatch.Wait(), s.Err()
 }
 
-func (s *QObjectStream) SetFormat(format string) {
+func (s *QObjectStream) SetFormat(format QObjectStreamFormat) {
 	s.formatLatch.Set(format)
 }
 

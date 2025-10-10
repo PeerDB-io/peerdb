@@ -30,12 +30,12 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	}
 
 	if cfg.SnapshotStagingPath == "" {
-		return errors.New("snapshot staging path is required for BigQuery source connector")
+		return errors.New("snapshot bucket is required for BigQuery source connector")
 	}
 
 	stagingPath, err := parseGCSPath(cfg.SnapshotStagingPath)
 	if err != nil {
-		return fmt.Errorf("invalid snapshot staging path: %w", err)
+		return fmt.Errorf("invalid snapshot bucket: %w", err)
 	}
 
 	bucket := c.storageClient.Bucket(stagingPath.Bucket())
@@ -43,7 +43,7 @@ func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 	it := bucket.Objects(ctx, &storage.Query{Prefix: stagingPath.QueryPrefix()})
 	_, err = it.Next()
 	if err != nil && !errors.Is(err, iterator.Done) {
-		return fmt.Errorf("failed to access snapshot staging path: %w", err)
+		return fmt.Errorf("failed to access staging bucket: %w", err)
 	}
 
 	return nil

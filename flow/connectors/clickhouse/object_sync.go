@@ -16,7 +16,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-// SyncQRepDownloadableObjects syncs data from downloadable objects (URLs) to ClickHouse
+// SyncQRepObjects syncs data from downloadable objects (URLs) to ClickHouse
 // Supports all ClickHouse formats based on the stream's Format field
 func (c *ClickHouseConnector) SyncQRepObjects(
 	ctx context.Context,
@@ -31,22 +31,22 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to get format from stream: %w", err)
 	}
+	normalizedFormat := model.QObjectStreamFormatNormalized(format)
+
+	var fieldExpressionConverters []fieldExpressionConverter
+	if format == model.QObjectStreamBigQueryExportAvroFormat {
+		fieldExpressionConverters = objectSyncBigQueryAvroExportFieldExpressionConverters
+	}
 
 	c.logger.Info("Starting SyncQRepObjects",
 		slog.String("dstTable", dstTableName),
 		slog.String("partitionId", partition.PartitionId),
-		slog.String("format", format))
+		slog.String("qobject_stream_format", string(format)))
+	slog.String("format", normalizedFormat)
 
-	// Get schema from the stream
 	schema, err := stream.Schema()
 	if err != nil {
 		return 0, nil, fmt.Errorf("failed to get schema from stream: %w", err)
-	}
-
-	// Apply type conversions if configured
-	destTypeConversions := findTypeConversions(schema, config.Columns)
-	if len(destTypeConversions) > 0 {
-		schema = applyTypeConversions(schema, destTypeConversions)
 	}
 
 	columnNameFieldMap := c.constructColumnNameFieldMap(schema.Fields)
@@ -66,7 +66,15 @@ func (c *ClickHouseConnector) SyncQRepObjects(
 
 		// we should generate insert query once and use query params to insert multiple files
 		// query param should be used for headers as well
-		recordsInserted, err := c.insertFromURLWithMapping(ctx, config, object, schema, columnNameFieldMap, format)
+		recordsInserted, err := c.insertFromURLWithMapping(
+			ctx,
+			config,
+			object,
+			schema,
+			columnNameFieldMap,
+			normalizedFormat,
+			fieldExpressionConverters...,
+		)
 		if err != nil {
 			c.logger.Error("Failed to insert from URL",
 				slog.String("url", object.URL),
@@ -116,18 +124,19 @@ func (c *ClickHouseConnector) insertFromURLWithMapping(
 	schema types.QRecordSchema,
 	columnNameFieldMap map[string]string,
 	format string,
+	fieldExpressionConverters ...fieldExpressionConverter,
 ) (int64, error) {
 	urlTableFunction := c.buildURLTableFunction(object, format)
 
-	// Create configuration for the table function helper
-	insertConfig := &InsertFromTableFunctionConfig{
-		DestinationTable:    config.DestinationTableIdentifier,
-		Schema:              schema,
-		ColumnNameMap:       columnNameFieldMap,
-		ExcludedColumns:     config.Exclude,
-		Config:              config,
-		ClickHouseConnector: c,
-		Logger:              nil, // Will use default logging if needed
+	insertConfig := &insertFromTableFunctionConfig{
+		destinationTable:          config.DestinationTableIdentifier,
+		schema:                    schema,
+		columnNameMap:             columnNameFieldMap,
+		excludedColumns:           config.Exclude,
+		config:                    config,
+		connector:                 c,
+		logger:                    c.logger,
+		fieldExpressionConverters: fieldExpressionConverters,
 	}
 
 	query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, urlTableFunction)

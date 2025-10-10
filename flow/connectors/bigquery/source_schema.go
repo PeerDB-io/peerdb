@@ -238,26 +238,17 @@ func (c *BigQueryConnector) getTableSchemaForTable(
 		})
 	}
 
-	// BigQuery doesn't have traditional primary keys, but we can use the table's clustering fields
-	// or return empty primary key columns
 	var primaryKeyColumns []string
-	if metadata.Clustering != nil {
-		// Use clustering fields as primary key columns if available
-		for _, clusterField := range metadata.Clustering.Fields {
-			// Only include if not excluded
-			if _, excluded := excludedCols[clusterField]; !excluded {
-				primaryKeyColumns = append(primaryKeyColumns, clusterField)
-			}
-		}
+	if metadata.TableConstraints != nil && metadata.TableConstraints.PrimaryKey != nil {
+		primaryKeyColumns = metadata.TableConstraints.PrimaryKey.Columns
 	}
 
 	return &protos.TableSchema{
-		TableIdentifier:       tm.SourceTableIdentifier,
-		Columns:               columns,
-		PrimaryKeyColumns:     primaryKeyColumns,
-		IsReplicaIdentityFull: len(primaryKeyColumns) == 0, // True if no primary key columns
-		System:                system,
-		NullableEnabled:       nullableEnabled,
+		TableIdentifier:   tm.SourceTableIdentifier,
+		Columns:           columns,
+		PrimaryKeyColumns: primaryKeyColumns,
+		System:            system,
+		NullableEnabled:   nullableEnabled,
 	}, nil
 }
 

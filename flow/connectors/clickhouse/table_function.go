@@ -4,8 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
+
+	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -15,38 +16,70 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
-// InsertFromTableFunctionConfig contains the configuration for building INSERT queries from table functions
-type InsertFromTableFunctionConfig struct {
-	ColumnNameMap       map[string]string
-	Config              *protos.QRepConfig
-	ClickHouseConnector *ClickHouseConnector
-	Logger              *slog.Logger
-	DestinationTable    string
-	Schema              types.QRecordSchema
-	ExcludedColumns     []string
+// insertFromTableFunctionConfig contains the configuration for building INSERT queries from table functions
+type insertFromTableFunctionConfig struct {
+	columnNameMap             map[string]string
+	config                    *protos.QRepConfig
+	connector                 *ClickHouseConnector
+	logger                    log.Logger
+	destinationTable          string
+	schema                    types.QRecordSchema
+	excludedColumns           []string
+	fieldExpressionConverters []fieldExpressionConverter
+}
+
+type fieldExpressionConverter func(
+	ctx context.Context,
+	config *insertFromTableFunctionConfig,
+	sourceFieldIdentifier string,
+	field types.QField,
+) (string, error)
+
+func jsonFieldExpressionConverter(
+	ctx context.Context,
+	config *insertFromTableFunctionConfig,
+	sourceFieldIdentifier string,
+	field types.QField,
+) (string, error) {
+	if field.Type != types.QValueKindJSON && field.Type != types.QValueKindJSONB {
+		return sourceFieldIdentifier, nil
+	}
+
+	if !qvalue.ShouldUseNativeJSONType(ctx, config.config.Env, config.connector.chVersion) {
+		return sourceFieldIdentifier, nil
+	}
+
+	return fmt.Sprintf("CAST(%s, 'JSON')", sourceFieldIdentifier), nil
+}
+
+var defaultFieldExpressionConverters = []fieldExpressionConverter{
+	jsonFieldExpressionConverter,
 }
 
 // buildInsertFromTableFunctionQuery builds a complete INSERT query from a table function expression
 // This function handles column mapping, type conversions, and source schema columns
 func buildInsertFromTableFunctionQuery(
 	ctx context.Context,
-	config *InsertFromTableFunctionConfig,
+	config *insertFromTableFunctionConfig,
 	tableFunctionExpr string,
 ) (string, error) {
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Config.Env)
+	fieldExpressionConverters := defaultFieldExpressionConverters
+	fieldExpressionConverters = append(fieldExpressionConverters, config.fieldExpressionConverters...)
+
+	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.config.Env)
 	if err != nil {
 		return "", err
 	}
 
-	selectedColumnNames := make([]string, 0, len(config.Schema.Fields))
-	insertedColumnNames := make([]string, 0, len(config.Schema.Fields))
+	selectedColumnNames := make([]string, 0, len(config.schema.Fields))
+	insertedColumnNames := make([]string, 0, len(config.schema.Fields))
 
-	for _, field := range config.Schema.Fields {
+	for _, field := range config.schema.Fields {
 		colName := field.Name
 
 		// Skip excluded columns
 		excluded := false
-		for _, excludedColumn := range config.ExcludedColumns {
+		for _, excludedColumn := range config.excludedColumns {
 			if colName == excludedColumn {
 				excluded = true
 				break
@@ -56,10 +89,9 @@ func buildInsertFromTableFunctionQuery(
 			continue
 		}
 
-		// Get the source field name (e.g., from Avro schema)
 		sourceFieldName := colName
-		if config.ColumnNameMap != nil {
-			if mappedName, ok := config.ColumnNameMap[colName]; ok {
+		if config.columnNameMap != nil {
+			if mappedName, ok := config.columnNameMap[colName]; ok {
 				sourceFieldName = mappedName
 			} else {
 				return "", fmt.Errorf("destination column %s not found in column name map", colName)
@@ -68,10 +100,12 @@ func buildInsertFromTableFunctionQuery(
 
 		sourceFieldName = peerdb_clickhouse.QuoteIdentifier(sourceFieldName)
 
-		// Apply type conversions for JSON/JSONB fields
-		if (field.Type == types.QValueKindJSON || field.Type == types.QValueKindJSONB) &&
-			qvalue.ShouldUseNativeJSONType(ctx, config.Config.Env, config.ClickHouseConnector.chVersion) {
-			sourceFieldName = fmt.Sprintf("CAST(%s, 'JSON')", sourceFieldName)
+		for _, converter := range fieldExpressionConverters {
+			convertedExpr, err := converter(ctx, config, sourceFieldName, field)
+			if err != nil {
+				return "", err
+			}
+			sourceFieldName = convertedExpr
 		}
 
 		selectedColumnNames = append(selectedColumnNames, sourceFieldName)
@@ -80,7 +114,7 @@ func buildInsertFromTableFunctionQuery(
 
 	// Add source schema column if needed
 	if sourceSchemaAsDestinationColumn {
-		schemaTable, err := utils.ParseSchemaTable(config.Config.WatermarkTable)
+		schemaTable, err := utils.ParseSchemaTable(config.config.WatermarkTable)
 		if err != nil {
 			return "", err
 		}
@@ -93,13 +127,13 @@ func buildInsertFromTableFunctionQuery(
 	insertedStr := strings.Join(insertedColumnNames, ",")
 
 	return fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM %s",
-		peerdb_clickhouse.QuoteIdentifier(config.DestinationTable), insertedStr, selectorStr, tableFunctionExpr), nil
+		peerdb_clickhouse.QuoteIdentifier(config.destinationTable), insertedStr, selectorStr, tableFunctionExpr), nil
 }
 
 // buildInsertFromTableFunctionQueryWithPartitioning builds an INSERT query with hash-based partitioning
 func buildInsertFromTableFunctionQueryWithPartitioning(
 	ctx context.Context,
-	config *InsertFromTableFunctionConfig,
+	config *insertFromTableFunctionConfig,
 	tableFunctionExpr string,
 	partitionIndex uint64,
 	totalPartitions uint64,
@@ -114,13 +148,13 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 	}
 
 	// Get the first field for hash partitioning
-	if len(config.Schema.Fields) == 0 {
+	if len(config.schema.Fields) == 0 {
 		return "", errors.New("schema has no fields for partitioning")
 	}
 
-	hashFieldName := config.Schema.Fields[0].Name
-	if config.ColumnNameMap != nil {
-		if mappedName, ok := config.ColumnNameMap[hashFieldName]; ok {
+	hashFieldName := config.schema.Fields[0].Name
+	if config.columnNameMap != nil {
+		if mappedName, ok := config.columnNameMap[hashFieldName]; ok {
 			hashFieldName = mappedName
 		}
 	}
