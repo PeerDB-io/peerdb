@@ -869,21 +869,23 @@ func processMessage[Items model.Items](
 		p.otelManager.Metrics.CommitLagGauge.Record(ctx, time.Now().UTC().Sub(msg.CommitTime).Microseconds())
 		p.commitLock = nil
 	case *pglogrepl.RelationMessage:
-		// treat all relation messages as corresponding to parent if partitioned.
-		msg.RelationID, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
-		if err != nil {
-			return nil, err
-		}
-
-		if _, exists := p.srcTableIDNameMapping[msg.RelationID]; !exists {
-			return nil, nil
-		}
-
 		logger.Debug("RelationMessage",
 			slog.Uint64("RelationID", uint64(msg.RelationID)),
 			slog.String("Namespace", msg.Namespace),
 			slog.String("RelationName", msg.RelationName),
 			slog.Any("Columns", msg.Columns))
+
+		// treat all relation messages as corresponding to parent if partitioned.
+		msg.RelationID, err = p.checkIfUnknownTableInherits(ctx, msg.RelationID)
+		if err != nil {
+			logger.Debug("RelationMessage doesn't inherit")
+			return nil, err
+		}
+
+		if _, exists := p.srcTableIDNameMapping[msg.RelationID]; !exists {
+			logger.Debug("RelationMessage table name mapping doesn't exist", slog.Any("mapping", p.srcTableIDNameMapping))
+			return nil, nil
+		}
 
 		return processRelationMessage[Items](ctx, p, currentClientXlogPos, msg)
 	case *pglogrepl.LogicalDecodingMessage:
