@@ -1,5 +1,6 @@
 import { CDCConfig } from '@/app/dto/MirrorsDTO';
 import { QRepConfig, TypeSystem } from '@/grpc_generated/flow';
+import { DBType } from '@/grpc_generated/peers';
 
 export enum AdvancedSettingType {
   QUEUE = 'queue',
@@ -48,6 +49,13 @@ export const blankCDCSetting: CDCConfig = {
   env: {},
   envString: '',
   version: 0,
+};
+
+export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {
+  [DBType[DBType.BIGQUERY]]: {
+    doInitialSnapshot: true,
+    initialSnapshotOnly: true,
+  },
 };
 
 export const blankQRepSetting: QRepConfig = {

@@ -398,6 +398,7 @@ func SnapshotFlowWorkflow(
 			exportCtx,
 			snapshot.MaintainTx,
 			sessionInfo.SessionID,
+			config.FlowJobName,
 			config.SourceName,
 			config.Env,
 		)
