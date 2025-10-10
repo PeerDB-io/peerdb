@@ -479,12 +479,11 @@ func (c *MySqlConnector) StatActivity(
 }
 
 func (c *MySqlConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
-	query := "SHOW VARIABLES WHERE Variable_name IN " +
-		"('aurora_version', 'cloudsql_iam_authentication', 'azure_server_name', 'basedir')"
+	query := `SHOW VARIABLES WHERE Variable_name IN ('aurora_version', 'cloudsql_iam_authentication', 'azure_server_name', 'basedir')`
 
 	rs, err := c.Execute(ctx, query)
 	if err != nil {
-		c.logger.Error("failed to execute SHOW VARIABLES for database variant", slog.Any("error", err))
+		c.logger.Error("failed to execute SHOW VARIABLES for getting database variant", slog.Any("error", err))
 		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
 	}
 
@@ -504,6 +503,7 @@ func (c *MySqlConnector) GetDatabaseVariant(ctx context.Context) (protos.Databas
 		}
 	}
 
+	// true for RDS and Aurora, but we check for Aurora via aurora_version above
 	if strings.Contains(basedirValue, "/rdsdbbin/") {
 		return protos.DatabaseVariant_AWS_RDS, nil
 	}
