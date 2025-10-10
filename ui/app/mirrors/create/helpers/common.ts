@@ -51,8 +51,9 @@ export const blankCDCSetting: CDCConfig = {
   version: 0,
 };
 
-export const cdcSourceDefaults: {[index: string]: Partial<CDCConfig>} = {
-  [DBType[DBType.BIGQUERY]]: { //todo it's ugly!
+export const cdcSourceDefaults: { [index: string]: Partial<CDCConfig> } = {
+  [DBType[DBType.BIGQUERY]]: {
+    //todo it's ugly!
     doInitialSnapshot: true,
     initialSnapshotOnly: true,
   },

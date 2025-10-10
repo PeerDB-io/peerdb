@@ -80,7 +80,7 @@ export default function CDCConfigForm({
             setting.advanced === AdvancedSettingType.ALL
           )
       ),
-    [settings, destinationType]
+    [adjustedSettings, destinationType]
   );
 
   const advancedSettings = useMemo(() => {
@@ -98,7 +98,7 @@ export default function CDCConfigForm({
         }
       })
       .filter((setting) => setting !== undefined);
-  }, [settings, destinationType, setter]);
+  }, [adjustedSettings, destinationType, setter]);
 
   const isPostgresSource = () =>
     sourceType.toString() === DBType[DBType.POSTGRES];
