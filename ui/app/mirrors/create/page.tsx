@@ -104,7 +104,6 @@ export default function CreateMirrors() {
     }));
     setSourceType(peer.type);
 
-    // todo: not sure if that could be the best of doing that
     const typeDefaults = cdcSourceDefaults[peer.type];
     if (typeDefaults) {
       setCdcConfig((curr) => ({
