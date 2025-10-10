@@ -110,6 +110,7 @@ func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
 		if flowMetadata.Source != nil {
 			attributes = append(attributes,
 				attribute.Stringer(SourcePeerType, flowMetadata.Source.Type),
+				attribute.Stringer(SourcePeerVariant, flowMetadata.SourceVariant),
 				attribute.String(SourcePeerName, flowMetadata.Source.Name))
 		}
 		if flowMetadata.Destination != nil {

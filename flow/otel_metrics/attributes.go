@@ -15,6 +15,7 @@ const (
 	WorkflowTypeKey            = "workflowType"
 	BatchIdKey                 = "batchId"
 	SourcePeerType             = "sourcePeerType"
+	SourcePeerVariant          = "sourcePeerVariant"
 	DestinationPeerType        = "destinationPeerType"
 	SourcePeerName             = "sourcePeerName"
 	DestinationPeerName        = "destinationPeerName"
