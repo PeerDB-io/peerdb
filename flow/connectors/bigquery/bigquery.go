@@ -109,7 +109,7 @@ func NewBigQueryConnector(ctx context.Context, config *protos.BigqueryConfig) (*
 	}
 
 	if _, err := client.DatasetInProject(projectID, datasetID).Metadata(ctx); err != nil {
-		logger.Error("failed to get dataset metadata", "error", err)
+		logger.Error("failed to get dataset metadata", slog.Any("error", err))
 		return nil, fmt.Errorf("failed to get dataset metadata: %v", err)
 	}
 
@@ -977,7 +977,7 @@ func (c *BigQueryConnector) RemoveTableEntriesFromRawTable(
 		deleteCmd.DefaultProjectID = c.projectID
 		deleteCmd.DefaultDatasetID = c.datasetID
 		if _, err := deleteCmd.Read(ctx); err != nil {
-			c.logger.Error("failed to remove entries from raw table", "error", err)
+			c.logger.Error("failed to remove entries from raw table", slog.Any("error", err))
 		}
 
 		c.logger.Info(fmt.Sprintf("successfully removed entries for table '%s' from raw table", tableName))

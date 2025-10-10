@@ -7,8 +7,17 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { CDCConfig, TableMapRow } from '../../../dto/MirrorsDTO';
-import { fetchPublications, IsEventhubsPeer, IsQueuePeer } from '../handlers';
-import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
+import {
+  IsClickHousePeer,
+  IsEventhubsPeer,
+  IsQueuePeer,
+  fetchPublications,
+} from '../handlers';
+import {
+  AdvancedSettingType,
+  MirrorSetting,
+  SOFT_DELETE_COLUMN_NAME,
+} from '../helpers/common';
 import CDCField from './fields';
 import TablePicker from './tablemapping';
 
@@ -110,6 +119,7 @@ export default function CDCConfigForm({
     isPostgresDestination() ||
     isBigQueryDestination() ||
     isSnowflakeDestination();
+  const supportsHardDelete = () => !isClickhouseDestination();
 
   const shouldHidePublicationName = (label: string) => {
     return label === 'publication name' && !isPostgresSource();
@@ -150,6 +160,10 @@ export default function CDCConfigForm({
 
   const shouldHideSoftDelete = (label: string) => {
     return label.includes('soft delete') && !supportsSoftDelete();
+  };
+
+  const shoudlHideHardDelete = (label: string) => {
+    return label.includes('soft delete') && !supportsHardDelete();
   };
 
   const shouldHideClickhouseScript = (label: string) => {
@@ -203,7 +217,26 @@ export default function CDCConfigForm({
     }
     promises.push(getScriptingEnabled());
     Promise.all(promises).then(() => setLoading(false));
-  }, [sourceType, mirrorConfig.sourceName, mirrorConfig.initialSnapshotOnly]);
+    // ClickHouse has soft-delete as default and hard-delete as opt-in.
+    // It is the opposite for SF,BQ and PQ target peers.
+    if (IsClickHousePeer(destinationType)) {
+      setter((curr) => ({
+        ...curr,
+        softDeleteColName: '',
+      }));
+    } else {
+      setter((curr) => ({
+        ...curr,
+        softDeleteColName: curr.softDeleteColName || SOFT_DELETE_COLUMN_NAME,
+      }));
+    }
+  }, [
+    sourceType,
+    mirrorConfig.sourceName,
+    mirrorConfig.initialSnapshotOnly,
+    destinationType,
+    setter,
+  ]);
 
   if (loading) {
     return <ProgressCircle variant='determinate_progress_circle' />;

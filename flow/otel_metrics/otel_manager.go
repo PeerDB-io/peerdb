@@ -588,7 +588,7 @@ func NewLoggingErrorHandler(logger *slog.Logger) *LoggingErrorHandler {
 }
 
 func (l *LoggingErrorHandler) Handle(err error) {
-	l.logger.Error("otel error", "error", err) //nolint:sloglint
+	l.logger.Error("otel error", slog.Any("error", err)) //nolint:sloglint
 }
 
 func setupOtelHandlers(ctx context.Context) {

@@ -54,6 +54,13 @@ export function IsPostgresPeer(peerType?: DBType): boolean {
   );
 }
 
+export function IsClickHousePeer(peerType?: DBType): boolean {
+  return (
+    (!!peerType && peerType === DBType.CLICKHOUSE) ||
+    peerType?.toString() === DBType[DBType.CLICKHOUSE]
+  );
+}
+
 function ValidSchemaQualifiedTarget(
   peerType: DBType,
   tableName: string

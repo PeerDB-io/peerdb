@@ -136,6 +136,10 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, APIError) {
 	cfg := req.ConnectionConfigs
+	if cfg == nil {
+		// todo(@iamKunalGupta): add a panic recovery handler with metric and alert for it
+		return nil, NewInvalidArgumentApiError(errors.New("connection configs cannot be nil"))
+	}
 	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to get internal version: %w", err))

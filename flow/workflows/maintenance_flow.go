@@ -69,7 +69,7 @@ func StartMaintenanceWorkflow(ctx workflow.Context, input *protos.StartMaintenan
 
 	maintenanceFlowOutput, err := startMaintenance(ctx, logger)
 	if err != nil {
-		logger.Error("Error in StartMaintenance workflow", "error", err)
+		logger.Error("Error in StartMaintenance workflow", slog.Any("error", err))
 		return nil, err
 	}
 	return maintenanceFlowOutput, nil
@@ -192,7 +192,7 @@ func pauseAndGetRunningMirrors(
 		selector.AddFuture(f, func(f workflow.Future) {
 			var wasRunning bool
 			if err := f.Get(ctx, &wasRunning); err != nil {
-				logger.Error("Error checking and pausing mirror", "mirror", mirror, "error", err)
+				logger.Error("Error checking and pausing mirror", "mirror", mirror, slog.Any("error", err))
 			} else {
 				logger.Info("Finished check and pause for mirror", "mirror", mirror, "wasRunning", wasRunning)
 				if wasRunning {
@@ -229,7 +229,7 @@ func EndMaintenanceWorkflow(ctx workflow.Context, input *protos.EndMaintenanceFl
 
 	flowOutput, err := endMaintenance(ctx, logger)
 	if err != nil {
-		logger.Error("Error in EndMaintenance workflow", "error", err)
+		logger.Error("Error in EndMaintenance workflow", slog.Any("error", err))
 		return nil, err
 	}
 	return flowOutput, nil
@@ -291,7 +291,7 @@ func resumeBackedUpMirrors(ctx workflow.Context, logger log.Logger) (*protos.Mai
 		selector.AddFuture(f, func(f workflow.Future) {
 			err := f.Get(ctx, nil)
 			if err != nil {
-				logger.Error("Error resuming mirror", "mirror", mirror, "error", err)
+				logger.Error("Error resuming mirror", "mirror", mirror, slog.Any("error", err))
 			} else {
 				logger.Info("Finished resuming mirror", "mirror", mirror)
 			}

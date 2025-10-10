@@ -323,7 +323,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
-			return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+			return p.parseFieldFromPostgresOID(dataType, typmod, true, parsedData, customTypeMapping, p.internalVersion)
 		}
 		return types.QValueNull(types.QValueKindJSON), nil
 	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
@@ -344,7 +344,7 @@ func (p *PostgresCDCSource) decodeColumnData(
 				arr[j] = nil
 			}
 		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, arr, customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, arr, customTypeMapping, p.internalVersion)
 	} else if dt, ok := p.typeMap.TypeForOID(dataType); ok {
 		dtOid := dt.OID
 		if dtOid == pgtype.CIDROID || dtOid == pgtype.InetOID || dtOid == pgtype.MacaddrOID || dtOid == pgtype.XMLOID {
@@ -372,9 +372,9 @@ func (p *PostgresCDCSource) decodeColumnData(
 			}
 			return nil, err
 		}
-		return p.parseFieldFromPostgresOID(dataType, typmod, parsedData, customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, parsedData, customTypeMapping, p.internalVersion)
 	} else if dataType == pgtype.TimetzOID { // ugly TIMETZ workaround for CDC decoding.
-		return p.parseFieldFromPostgresOID(dataType, typmod, string(data), customTypeMapping, p.internalVersion)
+		return p.parseFieldFromPostgresOID(dataType, typmod, true, string(data), customTypeMapping, p.internalVersion)
 	} else if typeData, ok := customTypeMapping[dataType]; ok {
 		customQKind := CustomTypeToQKind(typeData, version)
 		switch customQKind {
@@ -670,7 +670,7 @@ func PullCdcRecords[Items model.Items](
 					slog.Any("WALStart", xld.WALStart), slog.Any("ServerWALEnd", xld.ServerWALEnd), slog.Time("ServerTime", xld.ServerTime))
 				rec, err := processMessage(ctx, p, records, xld, clientXLogPos, processor)
 				if err != nil {
-					return fmt.Errorf("error processing message: %w", err)
+					return exceptions.NewPostgresLogicalMessageProcessingError(err)
 				}
 
 				if xld.WALStart > clientXLogPos {
@@ -1102,8 +1102,7 @@ func processRelationMessage[Items model.Items](
 		case protos.TypeSystem_Q:
 			qKind := p.postgresOIDToQValueKind(column.DataType, customTypeMapping, p.internalVersion)
 			if qKind == types.QValueKindInvalid {
-				typeName, ok := customTypeMapping[column.DataType]
-				if ok {
+				if typeName, ok := customTypeMapping[column.DataType]; ok {
 					qKind = CustomTypeToQKind(typeName, p.internalVersion)
 				}
 			}

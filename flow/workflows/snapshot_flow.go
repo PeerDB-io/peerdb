@@ -301,7 +301,7 @@ func (s *SnapshotFlowExecution) cloneTables(
 	}
 
 	if err := boundSelector.Wait(ctx); err != nil {
-		s.logger.Error("failed to clone some tables", "error", err)
+		s.logger.Error("failed to clone some tables", slog.Any("error", err))
 		return err
 	}
 

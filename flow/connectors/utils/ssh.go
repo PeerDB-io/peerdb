@@ -81,7 +81,7 @@ func NewSSHTunnel(
 		sshServer := shared.JoinHostPort(sshConfig.Host, sshConfig.Port)
 		clientConfig, err := GetSSHClientConfig(sshConfig)
 		if err != nil {
-			logger.Error("Failed to get SSH client config", "error", err)
+			logger.Error("Failed to get SSH client config", slog.Any("error", err))
 			return nil, err
 		}
 

@@ -25,10 +25,10 @@ import (
 )
 
 const (
-	signColName         = "_peerdb_is_deleted"
-	signColType         = "Int8"
+	isDeletedColName    = "_peerdb_is_deleted"
+	isDeletedColType    = "UInt8"
 	versionColName      = "_peerdb_version"
-	versionColType      = "Int64"
+	versionColType      = "UInt64"
 	sourceSchemaColName = "_peerdb_source_schema"
 	sourceSchemaColType = "LowCardinality(String)"
 )
@@ -98,17 +98,25 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		}
 	}
 
+	isDeletedColumn := isDeletedColName
+	isDeletedColumnPart := ""
+	if config.SoftDeleteColName != "" {
+		isDeletedColumn = config.SoftDeleteColName
+		isDeletedColumnPart = ", " + peerdb_clickhouse.QuoteIdentifier(isDeletedColumn)
+	}
+
 	switch tmEngine {
 	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
 		if c.Config.Replicated {
 			engine = fmt.Sprintf(
-				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s)",
+				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s%s)",
 				zooPathPrefix,
 				peerdb_clickhouse.EscapeStr(tableIdentifier),
 				peerdb_clickhouse.QuoteIdentifier(versionColName),
+				isDeletedColumnPart,
 			)
 		} else {
-			engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
+			engine = fmt.Sprintf("ReplacingMergeTree(%s%s)", peerdb_clickhouse.QuoteIdentifier(versionColName), isDeletedColumnPart)
 		}
 	case protos.TableEngine_CH_ENGINE_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
 		if c.Config.Replicated {
@@ -206,7 +214,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
 		}
-		// TODO support hard delete
+
 		// synced at column will be added to all normalized tables
 		if config.SyncedAtColName != "" {
 			colName := strings.ToLower(config.SyncedAtColName)
@@ -220,7 +228,8 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 
 		// add sign and version columns
 		fmt.Fprintf(builder, "%s %s, %s %s)",
-			peerdb_clickhouse.QuoteIdentifier(signColName), signColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
+			peerdb_clickhouse.QuoteIdentifier(isDeletedColumn), isDeletedColType,
+			peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
 	}
 
 	fmt.Fprintf(&stmtBuilder, " ENGINE = %s", engine)
@@ -402,7 +411,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 ) (model.NormalizeResponse, error) {
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", "error", err)
+		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 
@@ -436,7 +445,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		req.TableNameSchemaMapping,
 	)
 	if err != nil {
-		c.logger.Error("[clickhouse] error while getting distinct table names in batch", "error", err)
+		c.logger.Error("[clickhouse] error while getting distinct table names in batch", slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 
@@ -538,7 +547,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	for _, tbl := range destinationTableNames {
 		normalizeBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
 		if err != nil {
-			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, "error", err)
+			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
 			return model.NormalizeResponse{}, err
 		}
 
@@ -567,6 +576,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				rawTbl,
 				c.chVersion,
 				c.Config.Cluster != "",
+				req.SoftDeleteColName,
 			)
 			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
 			if err != nil {
@@ -600,7 +610,8 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endBatchID); err != nil {
-		c.logger.Error("[clickhouse] error while updating normalize batch id", slog.Int64("BatchID", endBatchID), slog.Any("error", err))
+		c.logger.Error("[clickhouse] error while updating normalize batch id",
+			slog.Int64("batchID", endBatchID), slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 

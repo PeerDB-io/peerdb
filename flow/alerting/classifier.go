@@ -190,6 +190,10 @@ var (
 	ErrorNotifyChangeStreamHistoryLost = ErrorClass{
 		Class: "NOTIFY_CHANGE_STREAM_HISTORY_LOST", action: NotifyUser,
 	}
+	ErrorNotifyPostgresLogicalMessageProcessing = ErrorClass{
+		Class: "NOTIFY_POSTGRES_LOGICAL_MESSAGE_PROCESSING_ERROR", action: NotifyUser,
+	}
+	// Catch-all for unclassified errors
 	ErrorOther = ErrorClass{
 		// These are unclassified and should not be exposed
 		Class: "OTHER", action: NotifyTelemetry,
@@ -311,6 +315,14 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		return ErrorNotifyBadSourceTableReplicaIdentity, ErrorInfo{
 			Source: ErrorSourcePostgres,
 			Code:   "MISSING_PRIMARY_KEY",
+		}
+	}
+
+	var logicalMessageProcessingErr *exceptions.PostgresLogicalMessageProcessingError
+	if errors.As(err, &logicalMessageProcessingErr) {
+		return ErrorNotifyPostgresLogicalMessageProcessing, ErrorInfo{
+			Source: ErrorSourcePostgres,
+			Code:   "LOGICAL_MESSAGE_PROCESSING_ERROR",
 		}
 	}
 
@@ -533,7 +545,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.QueryCanceled:
 			return ErrorNotifyConnectivity, pgErrorInfo
 
-		case pgerrcode.DuplicateFile, pgerrcode.DeadlockDetected, pgerrcode.SerializationFailure:
+		case pgerrcode.DuplicateFile,
+			pgerrcode.DeadlockDetected,
+			pgerrcode.SerializationFailure,
+			pgerrcode.IdleInTransactionSessionTimeout:
 			return ErrorRetryRecoverable, pgErrorInfo
 		default:
 			return ErrorOther, pgErrorInfo
