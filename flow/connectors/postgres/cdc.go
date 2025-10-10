@@ -924,7 +924,11 @@ func processInsertMessage[Items model.Items](
 	}
 
 	// log lsn and relation id for debugging
-	p.logger.Debug("InsertMessage", slog.Any("LSN", lsn), slog.Uint64("RelationID", uint64(relID)), slog.String("Relation Name", tableName))
+	p.logger.Debug("InsertMessage",
+		slog.Any("LSN", lsn),
+		slog.Uint64("RelationID", uint64(relID)),
+		slog.String("Relation Name", tableName),
+		slog.Uint64("ColumnCount", uint64(len(msg.Tuple.Columns))))
 
 	rel, ok := p.relationMessageMapping[relID]
 	if !ok {
