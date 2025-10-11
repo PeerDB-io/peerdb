@@ -213,11 +213,19 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		if colType.String == "FIXED" {
 			parsedColType = "NUMBER"
 		}
+		// Only use precision/scale for numeric types. For other types like TIME/TIMESTAMP,
+		// the precision field in SHOW COLUMNS refers to fractional seconds, not numeric precision.
+		precision := numericPrecision.Int32
+		scale := numericScale.Int32
+		if parsedColType != "NUMBER" {
+			precision = 0
+			scale = 0
+		}
 		cols = append(cols, SnowflakeTableColumn{
 			ColumnName:       colName.String,
 			ColumnType:       parsedColType,
-			NumericPrecision: numericPrecision.Int32,
-			NumericScale:     numericScale.Int32,
+			NumericPrecision: precision,
+			NumericScale:     scale,
 		})
 	}
 
