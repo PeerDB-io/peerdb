@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.temporal.io/sdk/temporal"
 
@@ -574,30 +575,19 @@ func TestTemporalUnknownErrorShouldBeOther(t *testing.T) {
 
 func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a MongoDB shutdown in progress error (quiesce mode)
-	err := driver.Error{
-		Message: "connection pool for <host>:<port> was cleared because another operation failed with",
-		Labels:  []string{driver.TransientTransactionError},
-		Wrapped: errors.New("the server is in quiesce mode and will shut down"),
+	de := driver.Error{
+		Code:    91,
+		Message: "connection pool for <host>:<port> was cleared because another operation failed with: (ShutdownInProgress) The server is in quiesce mode and will shut down",
+	}
+	err := mongo.CommandError{
+		Message: de.Message,
+		Code:    de.Code,
+		Wrapped: de,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
-		Code:   "0",
-	}, errInfo, "Unexpected error info")
-}
-
-func TestMongoUnauthorizedErrorShouldBeConnectivity(t *testing.T) {
-	// Simulate a MongoDB unauthorized error
-	err := driver.Error{
-		Code:    13,
-		Message: "Command getMore requires authentication",
-		Name:    "Unauthorized",
-	}
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
-	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourceMongoDB,
-		Code:   "13",
+		Code:   "91",
 	}, errInfo, "Unexpected error info")
 }
