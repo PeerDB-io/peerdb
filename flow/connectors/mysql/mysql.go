@@ -8,6 +8,7 @@ import (
 	"iter"
 	"log/slog"
 	"net"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -475,4 +476,37 @@ func (c *MySqlConnector) StatActivity(
 	return &protos.PeerStatResponse{
 		StatData: statInfoRows,
 	}, nil
+}
+
+func (c *MySqlConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
+	query := `SHOW VARIABLES WHERE Variable_name IN ('aurora_version', 'cloudsql_iam_authentication', 'azure_server_name', 'basedir')`
+
+	rs, err := c.Execute(ctx, query)
+	if err != nil {
+		c.logger.Error("failed to execute SHOW VARIABLES for getting database variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+
+	var basedirValue string
+	for _, row := range rs.Values {
+		varName := string(row[0].AsString())
+		varValue := string(row[1].AsString())
+		switch varName {
+		case "aurora_version":
+			return protos.DatabaseVariant_AWS_AURORA, nil
+		case "cloudsql_iam_authentication":
+			return protos.DatabaseVariant_GOOGLE_CLOUD_SQL, nil
+		case "azure_server_name":
+			return protos.DatabaseVariant_AZURE_DATABASE, nil
+		case "basedir":
+			basedirValue = varValue
+		}
+	}
+
+	// true for RDS and Aurora, but we check for Aurora via aurora_version above
+	if strings.Contains(basedirValue, "/rdsdbbin/") {
+		return protos.DatabaseVariant_AWS_RDS, nil
+	}
+
+	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
 }
