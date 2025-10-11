@@ -9,11 +9,9 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	tEnums "go.temporal.io/api/enums/v1"
-	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/proto"
@@ -59,14 +57,8 @@ func (h *FlowRequestHandler) getPeerID(ctx context.Context, peerName string) (in
 	return id.Int32, nil
 }
 
-func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName string) (bool, error) {
-	var exists bool
-	err := h.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM flows WHERE name = $1)`, flowJobName).Scan(&exists)
-	return exists, err
-}
-
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
-	req *protos.CreateCDCFlowRequest, workflowID string, idempotent bool,
+	req *protos.CreateCDCFlowRequest, workflowID string,
 ) error {
 	sourcePeerID, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.SourceName)
 	if srcErr != nil {
@@ -85,11 +77,11 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
 
-	if _, err = h.pool.Exec(ctx,
-		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,	description)
-		VALUES ($1,$2,$3,$4,$5,$6,'gRPC')`,
+	if _, err := h.pool.Exec(ctx,
+		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,
+		description, source_table_identifier, destination_table_identifier) VALUES ($1,$2,$3,$4,$5,$6,'gRPC','','')`,
 		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
-	); err != nil && !(idempotent && shared.IsSQLStateError(err, pgerrcode.UniqueViolation)) {
+	); err != nil {
 		return fmt.Errorf("unable to insert into flows table for flow %s: %w",
 			req.ConnectionConfigs.FlowJobName, err)
 	}
@@ -136,84 +128,36 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.CreateCDCFlowResponse, APIError) {
 	cfg := req.ConnectionConfigs
-	if cfg == nil {
-		// todo(@iamKunalGupta): add a panic recovery handler with metric and alert for it
-		return nil, NewInvalidArgumentApiError(errors.New("connection configs cannot be nil"))
-	}
 	internalVersion, err := internal.PeerDBForceInternalVersion(ctx, req.ConnectionConfigs.Env)
 	if err != nil {
 		return nil, NewInternalApiError(fmt.Errorf("failed to get internal version: %w", err))
 	}
 	cfg.Version = internalVersion
 
-	if !req.AttachToExisting {
-		if exists, err := h.cdcJobEntryExists(ctx, cfg.FlowJobName); err != nil {
-			return nil, NewInternalApiError(fmt.Errorf("unable to check flow job entry: %w", err))
-		} else if exists {
-			return nil, NewAlreadyExistsApiError(fmt.Errorf("flow already exists: %s", cfg.FlowJobName))
+	// For resync, we validate the mirror before dropping it and getting to this step.
+	// There is no point validating again here if it's a resync - the mirror is dropped already
+	if !cfg.Resync {
+		if _, err := h.ValidateCDCMirror(ctx, req); err != nil {
+			slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
+			return nil, err
 		}
 	}
 
-	workflowID := getWorkflowID(cfg.FlowJobName)
-	var errNotFound *serviceerror.NotFound
-	desc, err := h.temporalClient.DescribeWorkflow(ctx, workflowID, "")
-	if err != nil && !errors.As(err, &errNotFound) {
-		return nil, NewInternalApiError(fmt.Errorf("failed to query the workflow execution: %w", err))
-	} else if err == nil {
-		// If workflow is actively running, handle based on AttachToExisting
-		// Workflows in terminal states are fine
-		if desc.WorkflowExecutionMetadata.Status == tEnums.WORKFLOW_EXECUTION_STATUS_RUNNING ||
-			desc.WorkflowExecutionMetadata.Status == tEnums.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW {
-			if req.AttachToExisting {
-				// Idempotent attach to running workflow
-				return &protos.CreateCDCFlowResponse{
-					WorkflowId: workflowID,
-				}, nil
-			} else {
-				// Can't create duplicate of running workflow
-				return nil, NewAlreadyExistsApiError(fmt.Errorf("workflow already exists for flow: %s", cfg.FlowJobName))
-			}
-		}
-	}
-	// No running workflow, do the validations and start a new one
-
-	// Use idempotent validation that skips mirror existence check
-	if _, err := h.validateCDCMirrorImpl(ctx, req, true); err != nil {
-		slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
-		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
-	}
-
-	if resp, err := h.createCDCFlow(ctx, req, workflowID); err != nil {
-		return nil, NewInternalApiError(err)
-	} else {
-		return resp, nil
-	}
-}
-
-func getWorkflowID(flowName string) string {
-	return flowName + "-peerflow"
-}
-
-func (h *FlowRequestHandler) createCDCFlow(
-	ctx context.Context, req *protos.CreateCDCFlowRequest, workflowID string,
-) (*protos.CreateCDCFlowResponse, error) {
-	cfg := req.ConnectionConfigs
+	workflowID := fmt.Sprintf("%s-peerflow-%s", cfg.FlowJobName, uuid.New())
 	workflowOptions := client.StartWorkflowOptions{
-		ID:                       workflowID,
-		TaskQueue:                h.peerflowTaskQueueID,
-		TypedSearchAttributes:    shared.NewSearchAttributes(cfg.FlowJobName),
-		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, // two racing requests end up with the same workflow
-		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // but creating the same id as a completed one is allowed
+		ID:                    workflowID,
+		TaskQueue:             h.peerflowTaskQueueID,
+		TypedSearchAttributes: shared.NewSearchAttributes(cfg.FlowJobName),
 	}
 
-	if err := h.createCdcJobEntry(ctx, req, workflowID, true); err != nil {
+	if err := h.createCdcJobEntry(ctx, req, workflowID); err != nil {
 		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
+		return nil, NewInternalApiError(fmt.Errorf("unable to create flow job entry: %w", err))
 	}
 
 	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
 		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
+		return nil, NewInternalApiError(fmt.Errorf("unable to start PeerFlow workflow: %w", err))
 	}
 
 	return &protos.CreateCDCFlowResponse{
@@ -629,11 +573,9 @@ func (h *FlowRequestHandler) resyncCompletedSnapshot(
 		return err
 	}
 
-	workflowID := getWorkflowID(config.FlowJobName)
-	if _, err := h.createCDCFlow(ctx,
-		&protos.CreateCDCFlowRequest{ConnectionConfigs: config},
-		workflowID,
-	); err != nil {
+	if _, err := h.CreateCDCFlow(ctx, &protos.CreateCDCFlowRequest{
+		ConnectionConfigs: config,
+	}); err != nil {
 		return err
 	}
 	return nil
