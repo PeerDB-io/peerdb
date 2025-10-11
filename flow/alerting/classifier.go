@@ -617,6 +617,12 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorRetryRecoverable, mongoErrorInfo
 		}
 
+		// this often happens on Mongo Atlas as part of maintenance, and should recover, but we notify if exceed default threshold
+		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
+		if mongoCmdErr.HasErrorMessage("(ShutdownInProgress) The server is in quiesce mode and will shut down") {
+			return ErrorNotifyConnectivity, mongoErrorInfo
+		}
+
 		// This should recover, but we notify if exceed default threshold
 		if mongoCmdErr.HasErrorLabel(driver.TransientTransactionError) {
 			return ErrorNotifyConnectivity, mongoErrorInfo
@@ -627,7 +633,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case 13: // Unauthorized
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 91: // ShutdownInProgress
-			// this often happens on Mongo Atlas as part of maintenance, and should recover, but we notify if exceed default threshold
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 286: // ChangeStreamHistoryLost
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo

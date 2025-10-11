@@ -576,7 +576,8 @@ func TestTemporalUnknownErrorShouldBeOther(t *testing.T) {
 func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a MongoDB shutdown in progress error (quiesce mode)
 	de := driver.Error{
-		Code:    91,
+		Code: 0,
+		//nolint:lll
 		Message: "connection pool for <host>:<port> was cleared because another operation failed with: (ShutdownInProgress) The server is in quiesce mode and will shut down",
 	}
 	err := mongo.CommandError{
@@ -588,6 +589,6 @@ func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
-		Code:   "91",
+		Code:   "0",
 	}, errInfo, "Unexpected error info")
 }
