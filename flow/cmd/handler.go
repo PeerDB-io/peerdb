@@ -287,7 +287,7 @@ func (h *FlowRequestHandler) dropFlow(
 		}
 	}
 
-	dropFlowWorkflowID := fmt.Sprintf("%s-dropflow-%s", flowJobName, uuid.New())
+	dropFlowWorkflowID := flowJobName + "-peerflow"
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                    dropFlowWorkflowID,
 		TaskQueue:             h.peerflowTaskQueueID,
@@ -345,7 +345,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 			return fmt.Errorf("unable to get cdc config from catalog: %w", err)
 		}
 	}
-	dropFlowWorkflowID := fmt.Sprintf("%s-dropflow-%s", flowJobName, uuid.New())
+	dropFlowWorkflowID := flowJobName + "-peerflow"
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                    dropFlowWorkflowID,
 		TaskQueue:             h.peerflowTaskQueueID,
