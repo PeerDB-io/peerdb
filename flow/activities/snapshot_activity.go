@@ -65,6 +65,14 @@ func (a *SnapshotActivity) SetupReplication(
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
 
+	configCtx := context.Background()
+	defer configCtx.Done()
+	cfg, err := internal.FetchConfigFromDB(config.FlowJobName, configCtx)
+	if err != nil {
+		return nil, err
+	}
+	config.TableNameMapping = internal.TableNameMapping(cfg.TableMappings, cfg.Resync)
+
 	logger.Info("waiting for slot to be created...")
 	slotInfo, err := conn.SetupReplication(ctx, config)
 
@@ -180,8 +188,12 @@ func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	}
 	defer connectors.CloseConnector(ctx, connector)
 
+	cfg, err := internal.FetchConfigFromDB(input.FlowJobName, ctx)
+	if err != nil {
+		return nil, err
+	}
 	output, err := connector.GetDefaultPartitionKeyForTables(ctx, &protos.GetDefaultPartitionKeyForTablesInput{
-		TableMappings: input.TableMappings,
+		TableMappings: cfg.TableMappings,
 	})
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowJobName, fmt.Errorf("failed to check if tables can parallel load: %w", err))

@@ -1,6 +1,7 @@
 package peerflow
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -55,15 +56,10 @@ func (s *SnapshotFlowExecution) setupReplication(
 		},
 	})
 
-	tblNameMapping := make(map[string]string, len(s.config.TableMappings))
-	for _, v := range s.config.TableMappings {
-		tblNameMapping[v.SourceTableIdentifier] = v.DestinationTableIdentifier
-	}
-
 	setupReplicationInput := &protos.SetupReplicationInput{
-		PeerName:                    s.config.SourceName,
-		FlowJobName:                 flowName,
-		TableNameMapping:            tblNameMapping,
+		PeerName:    s.config.SourceName,
+		FlowJobName: flowName,
+		// TableNameMapping:            tblNameMapping,
 		DoInitialSnapshot:           s.config.DoInitialSnapshot,
 		ExistingPublicationName:     s.config.PublicationName,
 		ExistingReplicationSlotName: s.config.ReplicationSlotName,
@@ -284,7 +280,14 @@ func (s *SnapshotFlowExecution) cloneTables(
 		return err
 	}
 
-	for _, v := range s.config.TableMappings {
+	configCtx := context.Background()
+	defer configCtx.Done()
+	cfg, err := internal.FetchConfigFromDB(s.config.FlowJobName, configCtx)
+	if err != nil {
+		return err
+	}
+
+	for _, v := range cfg.TableMappings {
 		source := v.SourceTableIdentifier
 		destination := v.DestinationTableIdentifier
 		s.logger.Info(

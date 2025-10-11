@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -125,6 +127,13 @@ func (a *FlowableActivity) EnsurePullability(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
+	// We can fetch from the DB, as we are in the activity
+	cfg, err := internal.FetchConfigFromDB(config.FlowJobName, ctx)
+	if err != nil {
+		return nil, err
+	}
+	config.SourceTableIdentifiers = slices.Sorted(maps.Keys(internal.TableNameMapping(cfg.TableMappings, cfg.Resync)))
+
 	output, err := srcConn.EnsurePullability(ctx, config)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to ensure pullability: %w", err))
@@ -144,6 +153,12 @@ func (a *FlowableActivity) CreateRawTable(
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
+
+	cfg, err := internal.FetchConfigFromDB(config.FlowJobName, ctx)
+	if err != nil {
+		return nil, err
+	}
+	config.TableNameMapping = internal.TableNameMapping(cfg.TableMappings, cfg.Resync)
 
 	res, err := dstConn.CreateRawTable(ctx, config)
 	if err != nil {
@@ -174,11 +189,15 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, config.TableMappings)
+	cfg, err := internal.FetchConfigFromDB(config.FlowName, ctx)
+	if err != nil {
+		return err
+	}
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, cfg.TableMappings)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}
-	processed := internal.BuildProcessedSchemaMapping(config.TableMappings, tableNameSchemaMapping, logger)
+	processed := internal.BuildProcessedSchemaMapping(cfg.TableMappings, tableNameSchemaMapping, logger)
 
 	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -243,9 +262,13 @@ func (a *FlowableActivity) CreateNormalizedTable(
 		return nil, err
 	}
 
+	cfg, err := internal.FetchConfigFromDB(config.FlowName, ctx)
+	if err != nil {
+		return nil, err
+	}
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
-	for _, tableMapping := range config.TableMappings {
+	for _, tableMapping := range cfg.TableMappings {
 		tableIdentifier := tableMapping.DestinationTableIdentifier
 		tableSchema := tableNameSchemaMapping[tableIdentifier]
 		existing, err := conn.SetupNormalizedTable(
@@ -292,6 +315,16 @@ func (a *FlowableActivity) SyncFlow(
 	var normalizeWaiting atomic.Bool
 	var syncingBatchID atomic.Int64
 	var syncState atomic.Pointer[string]
+
+	cfg, err := internal.FetchConfigFromDB(config.FlowJobName, ctx)
+	if err != nil {
+		return err
+	}
+
+	// Override config with DB values to deal with the large fields.
+	config = cfg
+	options.TableMappings = cfg.TableMappings
+
 	syncState.Store(shared.Ptr("setup"))
 	shutdown := heartbeatRoutine(ctx, func() string {
 		// Must load Waiting after BatchID to avoid race saying we're waiting on currently processing batch
