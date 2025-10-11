@@ -67,14 +67,32 @@ func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *proto
 	return &state
 }
 
+func syncStatusToCatalogWithFlowName(ctx workflow.Context, logger log.Logger, status protos.FlowStatus, flowName string) {
+	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+		StartToCloseTimeout: 1 * time.Minute,
+	})
+
+	if err := workflow.ExecuteLocalActivity(
+		updateCtx,
+		updateFlowStatusWithNameInCatalogActivity,
+		flowName,
+		status,
+	).Get(updateCtx, nil); err != nil {
+		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
+	}
+}
+
 func syncStatusToCatalog(ctx workflow.Context, logger log.Logger, status protos.FlowStatus) {
 	updateCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
 		StartToCloseTimeout: 1 * time.Minute,
 	})
 
-	updateFuture := workflow.ExecuteLocalActivity(updateCtx,
-		updateFlowStatusInCatalogActivity, workflow.GetInfo(ctx).WorkflowExecution.ID, status)
-	if err := updateFuture.Get(updateCtx, nil); err != nil {
+	if err := workflow.ExecuteLocalActivity(
+		updateCtx,
+		updateFlowStatusInCatalogActivity,
+		workflow.GetInfo(ctx).WorkflowExecution.ID,
+		status,
+	).Get(updateCtx, nil); err != nil {
 		logger.Error("Failed to update flow status in catalog", slog.Any("error", err), slog.String("flowStatus", status.String()))
 	}
 }
