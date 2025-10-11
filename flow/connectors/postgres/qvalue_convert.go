@@ -15,6 +15,8 @@ import (
 	"github.com/pgvector/pgvector-go"
 	"github.com/shopspring/decimal"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
@@ -394,6 +396,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 	oid uint32,
 	typmod int32,
 	nullable bool,
+	dstType protos.DBType,
 	value any,
 	customTypeMapping map[uint32]shared.CustomDataType,
 	version uint32,
@@ -412,7 +415,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			if nullable {
 				return types.QValueNull(qvalueKind), nil
 			} else {
-				return types.QValueTimestamp{}, nil
+				return types.QValueTimestamp{Val: qvalue.DefaultTime(dstType)}, nil
 			}
 		}
 	case types.QValueKindTimestampTZ:
@@ -423,7 +426,7 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			if nullable {
 				return types.QValueNull(qvalueKind), nil
 			} else {
-				return types.QValueTimestampTZ{}, nil
+				return types.QValueTimestampTZ{Val: qvalue.DefaultTime(dstType)}, nil
 			}
 		}
 	case types.QValueKindInterval:
@@ -464,13 +467,17 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			if nullable {
 				return types.QValueNull(qvalueKind), nil
 			} else {
-				return types.QValueDate{}, nil
+				return types.QValueDate{Val: qvalue.DefaultTime(dstType)}, nil
 			}
 		}
 	case types.QValueKindTime:
 		timeVal := value.(pgtype.Time)
 		if timeVal.Valid {
 			return types.QValueTime{Val: time.Duration(timeVal.Microseconds) * time.Microsecond}, nil
+		} else if nullable {
+			return types.QValueNull(types.QValueKindTime), nil
+		} else {
+			return types.QValueTime{}, nil
 		}
 	case types.QValueKindTimeTZ:
 		timeVal := value.(string)

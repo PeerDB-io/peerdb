@@ -11,6 +11,7 @@ import (
 	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -18,6 +19,7 @@ import (
 
 type RecordStreamSink struct {
 	*model.QRecordStream
+	DestinationType protos.DBType
 }
 
 func (stream RecordStreamSink) ExecuteQueryWithTx(
@@ -70,7 +72,8 @@ func (stream RecordStreamSink) ExecuteQueryWithTx(
 	var totalNumRows int64
 	var totalNumBytes int64
 	for {
-		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.FetchAndChannelSize, stream.QRecordStream)
+		numRows, numBytes, err := qe.processFetchedRows(ctx, query, tx, cursorName, shared.FetchAndChannelSize,
+			stream.DestinationType, stream.QRecordStream)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to process fetched rows", slog.Any("error", err))
 			return totalNumRows, totalNumBytes, err

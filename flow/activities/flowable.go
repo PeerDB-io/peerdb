@@ -553,8 +553,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID)
-	if err != nil {
+	if err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID); err != nil {
 		return fmt.Errorf("failed to update start time for qrep run: %w", err)
 	}
 
@@ -873,9 +872,9 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 
 	if _, err = pgx.ForEachRow(rows, []any{
 		&tableName,
-		&(operationValueMapping[0].count),
-		&(operationValueMapping[1].count),
-		&(operationValueMapping[2].count),
+		&operationValueMapping[0].count,
+		&operationValueMapping[1].count,
+		&operationValueMapping[2].count,
 		&scannedFlow,
 	}, func() error {
 		if flowData, ok := flowsMap[scannedFlow]; ok {
