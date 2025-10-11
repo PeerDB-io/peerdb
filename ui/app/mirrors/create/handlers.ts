@@ -12,6 +12,7 @@ import {
 import { DBType, dBTypeToJSON } from '@/grpc_generated/peers';
 import {
   AllTablesResponse,
+  ColumnsTypeConversionResponse,
   CreateCDCFlowRequest,
   CreateQRepFlowRequest,
   PeerPublicationsResponse,
@@ -50,6 +51,13 @@ export function IsPostgresPeer(peerType?: DBType): boolean {
   return (
     (!!peerType && peerType === DBType.POSTGRES) ||
     peerType?.toString() === DBType[DBType.POSTGRES]
+  );
+}
+
+export function IsClickHousePeer(peerType?: DBType): boolean {
+  return (
+    (!!peerType && peerType === DBType.CLICKHOUSE) ||
+    peerType?.toString() === DBType[DBType.CLICKHOUSE]
   );
 }
 
@@ -185,6 +193,9 @@ export function reformattedTableMapping(
       exclude: Array.from(row.exclude),
       columns: row.columns,
       engine: row.engine,
+      shardingKey: row.shardingKey,
+      policyName: row.policyName,
+      partitionByExpr: row.partitionByExpr,
     }));
 }
 
@@ -257,8 +268,7 @@ export async function handleCreateCDC(
     } as CreateCDCFlowRequest),
   });
   if (!res.ok) {
-    // I don't know why but if the order is reversed the error message is not
-    // shown
+    // don't know why but if order is reversed the error message is not shown
     setLoading(false);
     notifyErr((await res.json()).message || 'Unable to create mirror.');
     return;
@@ -351,7 +361,6 @@ export async function handleCreateQRep(
     method: 'POST',
     body: JSON.stringify({
       qrepConfig: config,
-      createCatalogEntry: true,
     } as CreateQRepFlowRequest),
   });
   if (!res.ok) {
@@ -434,8 +443,6 @@ export async function fetchTables(
   const tableRes = tablesRes.tables;
   if (tableRes) {
     for (const tableObject of tableRes) {
-      // setting defaults:
-      // for bigquery, tables are not schema-qualified
       const dstName = getDefaultDestinationTable(
         peerType!,
         targetSchemaName,
@@ -453,6 +460,9 @@ export async function fetchTables(
         editingDisabled: false,
         columns: [],
         engine: TableEngine.CH_ENGINE_REPLACING_MERGE_TREE,
+        shardingKey: '',
+        policyName: '',
+        partitionByExpr: '',
       });
     }
   }
@@ -488,6 +498,16 @@ export async function fetchAllTables(peerName: string) {
     }
   ).then((res) => res.json());
   return tablesRes.tables;
+}
+
+export async function fetchAllTypeConversions(peerType: DBType) {
+  const typeConversionsRes: ColumnsTypeConversionResponse = await fetch(
+    `/api/v1/peers/columns/all_type_conversions?destination_peer_type=${encodeURIComponent(peerType)}`,
+    {
+      cache: 'no-store',
+    }
+  ).then((res) => res.json());
+  return typeConversionsRes.conversions;
 }
 
 export async function handleValidateCDC(

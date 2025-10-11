@@ -1,12 +1,19 @@
 version: "2"
 linters:
   enable:
+    - asasalint
+    - asciicheck
+    - bidichk
+    - canonicalheader
     - containedctx
     - copyloopvar
     - dogsled
     - durationcheck
+    - errchkjson
+    - errname
     - exptostd
     - forbidigo
+    - funcorder
     - gocritic
     - gosec
     - iface
@@ -22,16 +29,20 @@ linters:
     - prealloc
     - recvcheck
     - rowserrcheck
+    - sloglint
     - sqlclosecheck
     - staticcheck
     - testifylint
     - thelper
     - unconvert
     - unparam
+    - usestdlibvars
     - usetesting
     - wastedassign
     - whitespace
   settings:
+    funcorder:
+      struct-method: false
     gocritic:
       disabled-checks:
         - ifElseChain
@@ -48,7 +59,7 @@ linters:
         - style
       settings:
         hugeParam:
-          sizeThreshold: 512
+          sizeThreshold: 1024
     gosec:
       excludes:
         - G115
@@ -64,6 +75,8 @@ linters:
     lll:
       line-length: 144
       tab-width: 4
+    sloglint:
+      context: all
     staticcheck:
       checks:
         - all

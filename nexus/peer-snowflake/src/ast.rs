@@ -1,29 +1,29 @@
 use std::ops::ControlFlow;
 
 use sqlparser::ast::{
-    visit_expressions_mut, visit_relations_mut, visit_statements_mut, DataType, Expr, Function,
-    FunctionArg, FunctionArgExpr, Ident, JsonOperator, ObjectName, Query, Statement, TimezoneInfo,
+    DataType, Expr, Function, FunctionArg, FunctionArgExpr, Ident, JsonOperator, ObjectName, Query,
+    Statement, TimezoneInfo, visit_expressions_mut, visit_relations_mut, visit_statements_mut,
 };
 
 pub struct SnowflakeAst;
 
 impl SnowflakeAst {
     pub fn rewrite(&self, query: &mut Query) -> anyhow::Result<()> {
-        visit_relations_mut(query, |table| {
+        let _ = visit_relations_mut(query, |table| {
             if table.0.len() > 1 {
                 table.0.remove(0);
             }
             ControlFlow::<()>::Continue(())
         });
 
-        visit_expressions_mut(query, |expr: &mut Expr| {
+        let _ = visit_expressions_mut(query, |expr: &mut Expr| {
             self.rewrite_json_access(expr);
             self.rewrite_timestamp_for_cast(expr);
             self.rewrite_timestamp_for_at_time_zone(expr);
             ControlFlow::<()>::Continue(())
         });
 
-        visit_statements_mut(query, |stmt: &mut Statement| {
+        let _ = visit_statements_mut(query, |stmt: &mut Statement| {
             self.rewrite_timestamp_for_create(stmt);
             ControlFlow::<()>::Continue(())
         });
@@ -39,16 +39,16 @@ impl SnowflakeAst {
 
     // TODO: Snowflake does not support the Postgres INTERVAL type. In future, encode this better [via a BackendMessage]
     fn rewrite_timestamp_for_cast(&self, expr: &mut Expr) {
-        if let sqlparser::ast::Expr::Cast { data_type, .. } = expr {
-            if *data_type == DataType::Timestamp(None, TimezoneInfo::None) {
-                *data_type = DataType::SnowflakeTimestamp
-            }
+        if let sqlparser::ast::Expr::Cast { data_type, .. } = expr
+            && *data_type == DataType::Timestamp(None, TimezoneInfo::None)
+        {
+            *data_type = DataType::SnowflakeTimestamp
         }
 
-        if let sqlparser::ast::Expr::TryCast { data_type, .. } = expr {
-            if *data_type == DataType::Timestamp(None, TimezoneInfo::None) {
-                *data_type = DataType::SnowflakeTimestamp
-            }
+        if let sqlparser::ast::Expr::TryCast { data_type, .. } = expr
+            && *data_type == DataType::Timestamp(None, TimezoneInfo::None)
+        {
+            *data_type = DataType::SnowflakeTimestamp
         }
     }
 

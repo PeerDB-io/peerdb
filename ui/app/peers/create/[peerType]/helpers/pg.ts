@@ -1,4 +1,11 @@
-import { PostgresConfig } from '@/grpc_generated/peers';
+import {
+  AwsAuthenticationConfig,
+  AwsIAMAuthConfigType,
+  awsIAMAuthConfigTypeFromJSON,
+  PostgresAuthType,
+  postgresAuthTypeFromJSON,
+  PostgresConfig,
+} from '@/grpc_generated/peers';
 
 import { PeerSetting } from './common';
 
@@ -59,14 +66,132 @@ export const postgresSetting: PeerSetting[] = [
       if (!value) {
         // remove key from state if empty
         setter((curr) => {
-          delete (curr as PostgresConfig)['rootCa'];
-          return curr;
+          const newCurr = { ...curr } as PostgresConfig;
+          delete newCurr.rootCa;
+          return newCurr;
         });
       } else setter((curr) => ({ ...curr, rootCa: value as string }));
     },
     type: 'file',
     optional: true,
     tips: 'If not provided, host CA roots will be used.',
+  },
+  {
+    label: 'TLS Hostname',
+    field: 'tlsHost',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({ ...curr, tlsHost: value as string })),
+    tips: 'Overrides expected hostname during tls cert verification.',
+    optional: true,
+  },
+  {
+    label: 'Authentication type',
+    field: 'authType',
+    default: 'POSTGRES_PASSWORD',
+    stateHandler: (value, setter) =>
+      setter((curr) => ({
+        ...(curr as PostgresConfig),
+        authType: postgresAuthTypeFromJSON(value),
+      })),
+    type: 'select',
+    placeholder: 'Select authentication mechanism',
+    options: [
+      { value: 'POSTGRES_PASSWORD', label: 'Password' },
+      { value: 'POSTGRES_IAM_AUTH', label: 'AWS IAM Auth' },
+    ],
+    tips: 'AWS IAM Auth is supported for Initial-Load-Only Mirrors. It is NOT SUPPORTED for CDC',
+  },
+  {
+    label: 'AWS IAM Auth Mechanism',
+    field: 'awsAuth.authType',
+    default: 'IAM_AUTH_AUTOMATIC',
+    stateHandler: (value, setter) =>
+      setter((curr) => {
+        let cfg = curr as PostgresConfig;
+        let awsAuth: AwsAuthenticationConfig = {
+          region: '',
+          authType: awsIAMAuthConfigTypeFromJSON(value),
+        };
+        switch (awsAuth.authType) {
+          case AwsIAMAuthConfigType.IAM_AUTH_STATIC_CREDENTIALS:
+            awsAuth = {
+              ...awsAuth,
+              staticCredentials: {
+                accessKeyId: '',
+                secretAccessKey: '',
+              },
+            };
+            break;
+          case AwsIAMAuthConfigType.IAM_AUTH_ASSUME_ROLE:
+            awsAuth = {
+              ...awsAuth,
+              role: {
+                assumeRoleArn: '',
+              },
+            };
+            break;
+        }
+        const newCfg = {
+          ...cfg,
+          awsAuth: awsAuth,
+        };
+        return newCfg;
+      }),
+    type: 'select',
+    placeholder: 'Select authentication mechanism',
+    options: [
+      { value: 'IAM_AUTH_AUTOMATIC', label: 'Automatic' },
+      { value: 'IAM_AUTH_STATIC_CREDENTIALS', label: 'Static Credentials' },
+      { value: 'IAM_AUTH_ASSUME_ROLE', label: 'IAM Role Chaining' },
+    ],
+    tips: 'Automatic uses the default AWS credentials provider chain. Static Credentials uses the static credentials you provide. IAM Role Chaining uses the role you provide to assume a different role (along with a chained role if provided).',
+  },
+  {
+    label: 'IAM Role to Assume',
+    field: 'awsAuth.role.assumeIamRole',
+    stateHandler: (value, setter) =>
+      setter((curr) => {
+        let pgConfig = curr as PostgresConfig;
+        pgConfig.awsAuth!.role!.assumeRoleArn = value as string;
+        return { ...pgConfig };
+      }),
+    tips: 'AWS IAM Role to assume.',
+  },
+  {
+    label: 'Chained IAM Role to Assume',
+    field: 'awsAuth.role.chainedIamRole',
+    stateHandler: (value, setter) =>
+      setter((curr) => {
+        let pgConfig = curr as PostgresConfig;
+        pgConfig.awsAuth!.role!.chainedRoleArn = value as string;
+        return { ...curr };
+      }),
+    tips: 'Additional Chained AWS IAM Role to assume after assuming the first role.',
+    optional: true,
+  },
+  {
+    label: 'IAM Auth: AWS Access Key ID',
+    field: 'awsAuth.staticCredentials.accessKeyId',
+    stateHandler: (value, setter) =>
+      setter((curr) => {
+        let pgConfig = curr as PostgresConfig;
+        pgConfig.awsAuth!.staticCredentials!.accessKeyId = value as string;
+        return { ...curr };
+      }),
+    type: 'password',
+    tips: 'AWS Access key ID',
+  },
+  {
+    label: 'IAM Auth: AWS Secret Access Key',
+    field: 'awsAuth.staticCredentials.secretAccessKey',
+    stateHandler: (value, setter) =>
+      setter((curr) => {
+        let pgConfig = curr as PostgresConfig;
+        pgConfig.awsAuth!.staticCredentials!.secretAccessKey = value as string;
+        return { ...curr };
+      }),
+    type: 'password',
+    tips: 'AWS Secret Access Key',
   },
 ];
 
@@ -77,4 +202,10 @@ export const blankPostgresSetting: PostgresConfig = {
   password: '',
   database: '',
   requireTls: false,
+  authType: PostgresAuthType.POSTGRES_PASSWORD,
+  awsAuth: {
+    region: '',
+    authType: AwsIAMAuthConfigType.IAM_AUTH_AUTOMATIC,
+  },
+  tlsHost: '',
 };

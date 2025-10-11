@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 
@@ -25,7 +24,7 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int, error) {
+) (int64, shared.QRepWarnings, error) {
 	// Ensure the destination table is available.
 	destTable := config.DestinationTableIdentifier
 	flowLog := slog.Group("sync_metadata",
@@ -33,41 +32,27 @@ func (c *ClickHouseConnector) SyncQRepRecords(
 		slog.String("destinationTable", destTable),
 	)
 
-	tblSchema, err := c.getTableSchema(ctx, destTable)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
-	}
-	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
+	c.logger.Info("Called QRep sync function", flowLog)
 
 	avroSync := NewClickHouseAvroSyncMethod(config, c)
 
-	return avroSync.SyncQRepRecords(ctx, config, partition, tblSchema, stream)
+	return avroSync.SyncQRepRecords(ctx, config, partition, stream)
 }
 
-func (c *ClickHouseConnector) getTableSchema(ctx context.Context, tableName string) ([]driver.ColumnType, error) {
-	queryString := fmt.Sprintf("SELECT * FROM `%s` LIMIT 0", tableName)
-	rows, err := c.query(ctx, queryString)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
-	}
-	defer rows.Close()
-
-	return rows.ColumnTypes(), nil
-}
-
+// We need to implement QRepConsolidateConnector interface so CleanQRepFlow is called
+// Otherwise we could have skipped this
 func (c *ClickHouseConnector) ConsolidateQRepPartitions(_ context.Context, config *protos.QRepConfig) error {
-	c.logger.Info("Consolidating partitions noop")
+	c.logger.Info("ConsolidateQRepPartitions is a stub for ClickHouse")
 	return nil
 }
 
 // CleanupQRepFlow function for clickhouse connector
 func (c *ClickHouseConnector) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
-	c.logger.Info("Cleaning up flow job")
-	return c.dropStage(ctx, config.StagingPath, config.FlowJobName)
-}
+	flowName := config.FlowJobName
+	stagingPath := config.StagingPath
+	c.logger.Info("Cleaning up stage after QRepFlow",
+		slog.String("stagingPath", stagingPath), slog.String("flowName", flowName))
 
-// dropStage drops the stage for the given job.
-func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string, job string) error {
 	// if s3 we need to delete the contents of the bucket
 	if strings.HasPrefix(stagingPath, "s3://") {
 		s3o, err := utils.NewS3BucketAndPrefix(stagingPath)
@@ -76,7 +61,7 @@ func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string,
 			return fmt.Errorf("failed to create S3 bucket and prefix: %w", err)
 		}
 
-		prefix := fmt.Sprintf("%s/%s", s3o.Prefix, job)
+		prefix := fmt.Sprintf("%s/%s", s3o.Prefix, flowName)
 		c.logger.Info("Deleting contents of bucket", slog.String("bucket", s3o.Bucket), slog.String("prefix", prefix))
 
 		// deleting the contents of the bucket with prefix
@@ -113,6 +98,5 @@ func (c *ClickHouseConnector) dropStage(ctx context.Context, stagingPath string,
 		c.logger.Info("Deleted contents of bucket", slog.String("bucket", s3o.Bucket), slog.String("prefix", prefix))
 	}
 
-	c.logger.Info("Dropped stage", slog.String("path", stagingPath))
 	return nil
 }

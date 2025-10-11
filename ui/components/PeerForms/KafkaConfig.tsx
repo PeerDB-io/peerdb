@@ -3,6 +3,7 @@ import { PeerSetter } from '@/app/dto/PeersDTO';
 import { kaSetting } from '@/app/peers/create/[peerType]/helpers/ka';
 import SelectTheme from '@/app/styles/select';
 import InfoPopover from '@/components/InfoPopover';
+import { handleFieldChange } from '@/components/PeerForms/common';
 import { Label } from '@/lib/Label';
 import { RowWithSelect, RowWithSwitch, RowWithTextField } from '@/lib/Layout';
 import { Switch } from '@/lib/Switch/Switch';
@@ -26,7 +27,7 @@ export default function KafkaForm({ setter }: KafkaProps) {
                 {!setting.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -72,7 +73,7 @@ export default function KafkaForm({ setter }: KafkaProps) {
                 {!setting.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -99,7 +100,7 @@ export default function KafkaForm({ setter }: KafkaProps) {
                   type={setting.type}
                   defaultValue={setting.default}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    setting.stateHandler(e.target.value, setter)
+                    handleFieldChange(e, setting, setter)
                   }
                 />
                 {setting.tips && (

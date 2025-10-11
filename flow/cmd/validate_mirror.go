@@ -7,59 +7,66 @@ import (
 	"log/slog"
 	"regexp"
 
-	"github.com/jackc/pgx/v5/pgtype"
-
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-var (
-	CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
-	CustomColumnNameRegex = regexp.MustCompile(`^$|^[a-zA-Z_][a-zA-Z0-9_]*$`)
-)
+var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
-) (*protos.ValidateCDCMirrorResponse, error) {
+) (*protos.ValidateCDCMirrorResponse, APIError) {
+	return h.validateCDCMirrorImpl(ctx, req, false)
+}
+
+func (h *FlowRequestHandler) validateCDCMirrorImpl(
+	ctx context.Context, req *protos.CreateCDCFlowRequest, idempotent bool,
+) (*protos.ValidateCDCMirrorResponse, APIError) {
+	ctx = context.WithValue(ctx, shared.FlowNameKey, req.ConnectionConfigs.FlowJobName)
 	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
-		slog.Error("unable to check maintenance mode", slog.Any("error", err))
-		return nil, fmt.Errorf("unable to load dynamic config: %w", err)
+		slog.ErrorContext(ctx, "unable to check maintenance mode", slog.Any("error", err))
+		return nil, NewInternalApiError(fmt.Errorf("unable to load dynamic config: %w", err))
 	}
 
 	if underMaintenance {
-		slog.Warn("Validate request denied due to maintenance", "flowName", req.ConnectionConfigs.FlowJobName)
-		return nil, errors.New("PeerDB is under maintenance")
+		slog.WarnContext(ctx, "Validate request denied due to maintenance", "flowName", req.ConnectionConfigs.FlowJobName)
+		return nil, NewUnavailableApiError(ErrUnderMaintenance)
 	}
 
-	if !req.ConnectionConfigs.Resync {
-		mirrorExists, existCheckErr := h.CheckIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
+	// Skip mirror existence check when idempotent (for managed creates)
+	if !idempotent && !req.ConnectionConfigs.Resync {
+		mirrorExists, existCheckErr := h.checkIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
 		if existCheckErr != nil {
-			slog.Error("/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
-			return nil, existCheckErr
+			slog.ErrorContext(ctx, "/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
+			return nil, NewInternalApiError(fmt.Errorf("failed to check if mirror name exists: %w", existCheckErr))
 		}
 
 		if mirrorExists {
-			displayErr := fmt.Errorf("mirror with name %s already exists", req.ConnectionConfigs.FlowJobName)
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName, displayErr.Error())
-			return nil, displayErr
+			return nil, NewAlreadyExistsApiError(
+				errors.New("mirror with name %s already exists: "+req.ConnectionConfigs.FlowJobName),
+				NewMirrorErrorInfo(map[string]string{
+					ErrorMetadataOffendingField: "flow_job_name",
+				}))
 		}
 	}
 
 	if req.ConnectionConfigs == nil {
-		slog.Error("/validatecdc connection configs is nil")
-		return nil, errors.New("connection configs is nil")
+		slog.ErrorContext(ctx, "/validatecdc connection configs is nil")
+		return nil, NewInvalidArgumentApiError(errors.New("connection configs is nil"))
+	}
+
+	if !req.ConnectionConfigs.DoInitialSnapshot && req.ConnectionConfigs.InitialSnapshotOnly {
+		return nil, NewInvalidArgumentApiError(
+			errors.New("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
 	for _, tm := range req.ConnectionConfigs.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
-				return nil, fmt.Errorf("invalid custom column type %s", col.DestinationType)
-			}
-			if !CustomColumnNameRegex.MatchString(col.DestinationName) {
-				return nil, fmt.Errorf("invalid custom column name %s", col.DestinationName)
+				return nil, NewInvalidArgumentApiError(errors.New("invalid custom column type " + col.DestinationType))
 			}
 		}
 	}
@@ -69,21 +76,15 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
-			return nil, errors.New("/validatecdc source peer does not support being a source peer")
+			return nil, NewUnimplementedApiError(errors.New("connector is not a supported source type"))
 		}
-		err := fmt.Errorf("failed to create source connector: %w", err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
-		return nil, err
+		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to create source connector: %s", err))
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.ValidateMirrorSource(ctx, req.ConnectionConfigs); err != nil {
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
-		return nil, err
+		return nil, NewFailedPreconditionApiError(
+			fmt.Errorf("failed to validate source connector %s: %w", req.ConnectionConfigs.SourceName, err))
 	}
 
 	dstConn, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
@@ -93,35 +94,32 @@ func (h *FlowRequestHandler) ValidateCDCMirror(
 		if errors.Is(err, errors.ErrUnsupported) {
 			return &protos.ValidateCDCMirrorResponse{}, nil
 		}
-		err := fmt.Errorf("failed to create destination connector: %w", err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
-		return nil, err
+		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to create destination connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
-	res, err := srcConn.GetTableSchema(ctx, nil, req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get source table schema: %w", err)
+	var tableSchemaMap map[string]*protos.TableSchema
+	if !req.ConnectionConfigs.Resync {
+		var getTableSchemaError error
+		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
+			req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
+		if getTableSchemaError != nil {
+			return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get source table schema: %w", getTableSchemaError))
+		}
 	}
-
-	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, res); err != nil {
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreateMirror, req.ConnectionConfigs.FlowJobName,
-			err.Error(),
-		)
-		return nil, err
+	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap); err != nil {
+		return nil, NewFailedPreconditionApiError(
+			fmt.Errorf("failed to validate destination connector %s: %w", req.ConnectionConfigs.DestinationName, err))
 	}
 
 	return &protos.ValidateCDCMirrorResponse{}, nil
 }
 
-func (h *FlowRequestHandler) CheckIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {
-	var nameExists pgtype.Bool
-	err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT * FROM flows WHERE name = $1)", mirrorName).Scan(&nameExists)
-	if err != nil {
-		return false, fmt.Errorf("failed to check if mirror name exists: %v", err)
+func (h *FlowRequestHandler) checkIfMirrorNameExists(ctx context.Context, mirrorName string) (bool, error) {
+	var nameExists bool
+	if err := h.pool.QueryRow(ctx, "SELECT EXISTS(SELECT * FROM flows WHERE name = $1)", mirrorName).Scan(&nameExists); err != nil {
+		return false, fmt.Errorf("failed to check if mirror name exists: %w", err)
 	}
 
-	return nameExists.Bool, nil
+	return nameExists, nil
 }

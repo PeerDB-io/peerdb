@@ -1,4 +1,4 @@
-import { TimeAggregateTypes } from '@/app/utils/graph';
+import { TimeAggregateType } from '@/grpc_generated/route';
 import { NearestMinutes, roundToNearestMinutes } from 'date-fns';
 import moment from 'moment';
 
@@ -9,26 +9,24 @@ type timestampType = {
 
 export default function aggregateCountsByInterval(
   timestamps: timestampType[],
-  interval: TimeAggregateTypes
+  interval: TimeAggregateType
 ): [string, number][] {
   let timeUnit: string = 'YYYY-MM-DD HH:mm';
   let nearestMinutes: NearestMinutes = 1;
   switch (interval) {
-    case TimeAggregateTypes.ONE_MIN:
-      break;
-    case TimeAggregateTypes.FIVE_MIN:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_FIVE_MIN:
       nearestMinutes = 5;
       break;
-    case TimeAggregateTypes.FIFTEEN_MIN:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_FIFTEEN_MIN:
       nearestMinutes = 15;
       break;
-    case TimeAggregateTypes.HOUR:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR:
       timeUnit = 'YYYY-MM-DD HH:00:00';
       break;
-    case TimeAggregateTypes.DAY:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_DAY:
       timeUnit = 'YYYY-MM-DD';
       break;
-    case TimeAggregateTypes.MONTH:
+    case TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_MONTH:
       timeUnit = 'YYYY-MM';
       break;
     default:
@@ -60,17 +58,15 @@ export default function aggregateCountsByInterval(
 
   while (intervals.length < 30) {
     intervals.push(moment(currentTimestamp).format(timeUnit));
-    if (interval === TimeAggregateTypes.ONE_MIN) {
-      currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 1);
-    } else if (interval === TimeAggregateTypes.FIVE_MIN) {
+    if (interval === TimeAggregateType.TIME_AGGREGATE_TYPE_FIVE_MIN) {
       currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 5);
-    } else if (interval === TimeAggregateTypes.FIFTEEN_MIN) {
+    } else if (interval === TimeAggregateType.TIME_AGGREGATE_TYPE_FIFTEEN_MIN) {
       currentTimestamp.setMinutes(currentTimestamp.getMinutes() - 15);
-    } else if (interval === TimeAggregateTypes.HOUR) {
+    } else if (interval === TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR) {
       currentTimestamp.setHours(currentTimestamp.getHours() - 1);
-    } else if (interval === TimeAggregateTypes.DAY) {
+    } else if (interval === TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_DAY) {
       currentTimestamp.setDate(currentTimestamp.getDate() - 1);
-    } else if (interval === TimeAggregateTypes.MONTH) {
+    } else if (interval === TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_MONTH) {
       currentTimestamp.setMonth(currentTimestamp.getMonth() - 1);
     }
   }

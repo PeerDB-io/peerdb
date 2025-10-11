@@ -1,46 +1,38 @@
 package model
 
 import (
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type QRecordStream struct {
-	schemaLatch chan struct{}
-	Records     chan []qvalue.QValue
+	schemaLatch *concurrency.Latch[types.QRecordSchema]
+	Records     chan []types.QValue
 	err         error
-	schema      qvalue.QRecordSchema
-	schemaSet   bool
 }
 
 func NewQRecordStream(buffer int) *QRecordStream {
 	return &QRecordStream{
-		schemaLatch: make(chan struct{}),
-		Records:     make(chan []qvalue.QValue, buffer),
-		schema:      qvalue.QRecordSchema{},
+		schemaLatch: concurrency.NewLatch[types.QRecordSchema](),
+		Records:     make(chan []types.QValue, buffer),
 		err:         nil,
-		schemaSet:   false,
 	}
 }
 
-func (s *QRecordStream) Schema() (qvalue.QRecordSchema, error) {
-	<-s.schemaLatch
-	return s.schema, s.Err()
+func (s *QRecordStream) Schema() (types.QRecordSchema, error) {
+	return s.schemaLatch.Wait(), s.Err()
 }
 
-func (s *QRecordStream) SetSchema(schema qvalue.QRecordSchema) {
-	if !s.schemaSet {
-		s.schema = schema
-		s.schemaSet = true
-		close(s.schemaLatch)
-	}
+func (s *QRecordStream) SetSchema(schema types.QRecordSchema) {
+	s.schemaLatch.Set(schema)
 }
 
 func (s *QRecordStream) IsSchemaSet() bool {
-	return s.schemaSet
+	return s.schemaLatch.IsSet()
 }
 
 func (s *QRecordStream) SchemaChan() <-chan struct{} {
-	return s.schemaLatch
+	return s.schemaLatch.Chan()
 }
 
 func (s *QRecordStream) Err() error {
@@ -55,7 +47,7 @@ func (s *QRecordStream) Close(err error) {
 		s.err = err
 		close(s.Records)
 	}
-	if !s.schemaSet {
-		s.SetSchema(qvalue.QRecordSchema{})
+	if !s.schemaLatch.IsSet() {
+		s.SetSchema(types.QRecordSchema{})
 	}
 }

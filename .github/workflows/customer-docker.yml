@@ -18,7 +18,7 @@ jobs:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
 
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
@@ -26,7 +26,7 @@ jobs:
       - uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3
         with:
           registry: ghcr.io
           username: ${{github.actor}}
@@ -42,7 +42,7 @@ jobs:
           echo "branch=$(echo $GITHUB_REF | sed -e 's/.*customer-//')" >> $GITHUB_OUTPUT
 
       - name: Build (optionally publish) PeerDB Images
-        uses: depot/bake-action@6f9796efa5235be338972e30e7b93977a7f18855 # v1
+        uses: depot/bake-action@2ae2529115bba41de62b77b345de48d57eca7564 # v1
         with:
           token: ${{ secrets.DEPOT_TOKEN }}
           files: ./docker-bake.hcl

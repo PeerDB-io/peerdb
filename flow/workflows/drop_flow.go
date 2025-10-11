@@ -47,7 +47,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !sourceOk {
 				sourceTries += 1
 				var dropSourceFuture workflow.Future
-				if sourceTries < 50 {
+				var applicationError *temporal.ApplicationError
+				if sourceTries < 50 && (!errors.As(sourceError, &applicationError) || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(sourceTries*sourceTries)*time.Second)
 					selector.AddFuture(sleep, sleepSource)
 				} else {
@@ -83,7 +84,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !destinationOk {
 				destinationTries += 1
 				var dropDestinationFuture workflow.Future
-				if destinationTries < 50 {
+				var applicationError *temporal.ApplicationError
+				if destinationTries < 50 && (!errors.As(destinationError, &applicationError) || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(destinationTries*destinationTries)*time.Second)
 					selector.AddFuture(sleep, sleepDestination)
 				} else {
@@ -116,18 +118,7 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			return errors.Join(ctx.Err(), sourceError, destinationError)
 		}
 	}
-	if input.Resync {
-		input.FlowConnectionConfigs.Resync = true
-		input.FlowConnectionConfigs.DoInitialSnapshot = true
 
-		if err := workflow.ExecuteLocalActivity(workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
-			StartToCloseTimeout: 5 * time.Minute,
-		}), updateCDCConfigInCatalogActivity, logger, input.FlowConnectionConfigs).Get(ctx, nil); err != nil {
-			logger.Warn("Failed to update CDC config in catalog", slog.Any("error", err))
-		}
-
-		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, input.FlowConnectionConfigs, nil)
-	}
 	return nil
 }
 
@@ -145,22 +136,20 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	}); err != nil {
 		return fmt.Errorf("failed to set `%s` query handler: %w", shared.CDCFlowStateQuery, err)
 	}
-	if err := workflow.SetQueryHandler(ctx, shared.FlowStatusQuery, func() (protos.FlowStatus, error) {
-		if input.Resync {
-			return protos.FlowStatus_STATUS_RESYNC, nil
-		} else {
-			return protos.FlowStatus_STATUS_TERMINATING, nil
-		}
-	}); err != nil {
-		return fmt.Errorf("failed to set `%s` query handler: %w", shared.FlowStatusQuery, err)
+
+	status := protos.FlowStatus_STATUS_TERMINATING
+	if input.Resync {
+		status = protos.FlowStatus_STATUS_RESYNC
 	}
+	logger := workflow.GetLogger(ctx)
+	syncStatusToCatalog(ctx, logger, status)
 
 	ctx = workflow.WithValue(ctx, shared.FlowNameKey, input.FlowJobName)
-	workflow.GetLogger(ctx).Info("performing cleanup for flow",
+	logger.Info("performing cleanup for flow",
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
 	contextMetadataInput := &protos.FlowContextMetadataInput{
 		FlowName: input.FlowJobName,
-		Status:   protos.FlowStatus_STATUS_UNKNOWN,
+		Status:   status,
 		IsResync: false,
 	}
 	if input.FlowConnectionConfigs != nil {
@@ -173,6 +162,13 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	if err != nil {
 		return fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
+
+	// Must be called after GetFlowMetadataContext to build flow context, then
+	// ContextPropagator ensures attributes get propagated from flow to activity
+	_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: time.Minute,
+		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
+	}), flowable.ReportStatusMetric, status).Get(ctx, nil)
 
 	if input.FlowConnectionConfigs != nil {
 		if input.DropFlowStats {
@@ -192,27 +188,32 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		}
 
 		if err := executeCDCDropActivities(ctx, input); err != nil {
-			if !workflow.IsContinueAsNewError(err) {
-				workflow.GetLogger(ctx).Error("failed to drop CDC flow", slog.Any("error", err))
-			}
+			workflow.GetLogger(ctx).Error("failed to drop CDC flow", slog.Any("error", err))
 			return err
 		}
 		workflow.GetLogger(ctx).Info("CDC flow dropped successfully")
 	}
 
-	if !input.Resync {
-		removeFlowEntriesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-			StartToCloseTimeout: 2 * time.Minute,
-			RetryPolicy: &temporal.RetryPolicy{
-				InitialInterval: 1 * time.Minute,
-			},
-		})
-		if err := workflow.ExecuteActivity(
-			removeFlowEntriesCtx, flowable.RemoveFlowEntryFromCatalog, input.FlowJobName,
-		).Get(ctx, nil); err != nil {
-			workflow.GetLogger(ctx).Error("failed to remove flow entries from catalog", slog.Any("error", err))
-			return err
-		}
+	removeFlowEntriesCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+		StartToCloseTimeout: 2 * time.Minute,
+		RetryPolicy: &temporal.RetryPolicy{
+			InitialInterval: 1 * time.Minute,
+		},
+	})
+
+	req := model.RemoveFlowDetailsFromCatalogRequest{
+		FlowName: input.FlowJobName,
+		Resync:   input.Resync,
+	}
+	if err := workflow.ExecuteActivity(
+		removeFlowEntriesCtx, flowable.RemoveFlowDetailsFromCatalog, &req,
+	).Get(ctx, nil); err != nil {
+		workflow.GetLogger(ctx).Error("failed to remove flow details from catalog", slog.Any("error", err))
+		return err
+	}
+
+	if input.Resync {
+		return workflow.NewContinueAsNewError(ctx, CDCFlowWorkflow, input.FlowConnectionConfigs, nil)
 	}
 
 	return nil

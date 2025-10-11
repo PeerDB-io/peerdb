@@ -7,8 +7,17 @@ import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { CDCConfig, TableMapRow } from '../../../dto/MirrorsDTO';
-import { IsEventhubsPeer, IsQueuePeer, fetchPublications } from '../handlers';
-import { AdvancedSettingType, MirrorSetting } from '../helpers/common';
+import {
+  IsClickHousePeer,
+  IsEventhubsPeer,
+  IsQueuePeer,
+  fetchPublications,
+} from '../handlers';
+import {
+  AdvancedSettingType,
+  MirrorSetting,
+  SOFT_DELETE_COLUMN_NAME,
+} from '../helpers/common';
 import CDCField from './fields';
 import TablePicker from './tablemapping';
 
@@ -105,6 +114,8 @@ export default function CDCConfigForm({
           destinationType.toString() === DBType[DBType.BIGQUERY] ||
           destinationType.toString() === DBType[DBType.SNOWFLAKE]
         )) ||
+      (label.includes('hard delete') &&
+        !(destinationType.toString() === DBType[DBType.CLICKHOUSE])) ||
       (!scriptingEnabled &&
         label.includes('script') &&
         destinationType.toString() === DBType[DBType.CLICKHOUSE])
@@ -126,7 +137,26 @@ export default function CDCConfigForm({
     }
     promises.push(getScriptingEnabled());
     Promise.all(promises).then(() => setLoading(false));
-  }, [sourceType, mirrorConfig.sourceName, mirrorConfig.initialSnapshotOnly]);
+    // ClickHouse has soft-delete as default and hard-delete as opt-in.
+    // It is the opposite for SF,BQ and PQ target peers.
+    if (IsClickHousePeer(destinationType)) {
+      setter((curr) => ({
+        ...curr,
+        softDeleteColName: '',
+      }));
+    } else {
+      setter((curr) => ({
+        ...curr,
+        softDeleteColName: curr.softDeleteColName || SOFT_DELETE_COLUMN_NAME,
+      }));
+    }
+  }, [
+    sourceType,
+    mirrorConfig.sourceName,
+    mirrorConfig.initialSnapshotOnly,
+    destinationType,
+    setter,
+  ]);
 
   if (loading) {
     return <ProgressCircle variant='determinate_progress_circle' />;

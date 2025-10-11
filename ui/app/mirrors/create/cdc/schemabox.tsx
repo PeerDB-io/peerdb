@@ -4,6 +4,7 @@ import { TableMapRow } from '@/app/dto/MirrorsDTO';
 import {
   TableEngine,
   tableEngineFromJSON,
+  tableEngineToJSON,
   TableMapping,
 } from '@/grpc_generated/flow';
 import { DBType } from '@/grpc_generated/peers';
@@ -38,8 +39,8 @@ import {
 
 import { Divider } from '@tremor/react';
 import ReactSelect from 'react-select';
+import CustomColumnType from './customColumnType';
 import SelectSortingKeys from './sortingkey';
-
 interface SchemaBoxProps {
   sourcePeer: string;
   schema: string;
@@ -108,10 +109,38 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
+  const updatePartitionKey = (source: string, partitionKey: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], partitionKey };
+    setRows(newRows);
+  };
+
   const updateEngine = (source: string, engine: TableEngine) => {
     const newRows = [...rows];
     const index = newRows.findIndex((row) => row.source === source);
     newRows[index] = { ...newRows[index], engine };
+    setRows(newRows);
+  };
+
+  const updateShardingKey = (source: string, shardingKey: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], shardingKey };
+    setRows(newRows);
+  };
+
+  const updatePolicyName = (source: string, policyName: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], policyName };
+    setRows(newRows);
+  };
+
+  const updatePartitionByExpr = (source: string, partitionByExpr: string) => {
+    const newRows = [...rows];
+    const index = newRows.findIndex((row) => row.source === source);
+    newRows[index] = { ...newRows[index], partitionByExpr };
     setRows(newRows);
   };
 
@@ -166,17 +195,9 @@ export default function SchemaBox({
     setRows(newRows);
   };
 
-  const rowsDoNotHaveSchemaTables = (schema: string) => {
-    return !rows.some((row) => row.schema === schema);
-  };
-
   const handleSchemaClick = (schemaName: string) => {
     if (!schemaIsExpanded(schemaName)) {
       setExpandedSchemas((curr) => [...curr, schemaName]);
-
-      if (rowsDoNotHaveSchemaTables(schemaName)) {
-        fetchTablesForSchema(schemaName);
-      }
     } else {
       setExpandedSchemas((curr) =>
         curr.filter((expandedSchema) => expandedSchema != schemaName)
@@ -196,21 +217,19 @@ export default function SchemaBox({
       ).then((newRows) => {
         if (alreadySelectedTables) {
           for (const row of newRows) {
-            if (
-              alreadySelectedTables
-                .map((tableMap) => tableMap.sourceTableIdentifier)
-                .includes(row.source)
-            ) {
-              const existingRow = alreadySelectedTables.find(
-                (tableMap) => tableMap.sourceTableIdentifier === row.source
-              );
+            const existingRow = alreadySelectedTables.find(
+              (tableMap) => tableMap.sourceTableIdentifier === row.source
+            );
+            if (existingRow) {
               row.selected = true;
-              row.engine =
-                existingRow?.engine ??
-                TableEngine.CH_ENGINE_REPLACING_MERGE_TREE;
               row.editingDisabled = true;
-              row.exclude = new Set(existingRow?.exclude ?? []);
-              row.destination = existingRow?.destinationTableIdentifier ?? '';
+              row.engine = existingRow.engine;
+              row.partitionKey = existingRow.partitionKey;
+              row.shardingKey = existingRow.shardingKey;
+              row.policyName = existingRow.policyName;
+              row.partitionByExpr = existingRow.partitionByExpr;
+              row.exclude = new Set(existingRow.exclude ?? []);
+              row.destination = existingRow.destinationTableIdentifier;
               addTableColumns(row.source);
             }
           }
@@ -238,11 +257,15 @@ export default function SchemaBox({
   const engineOptions = [
     { value: 'CH_ENGINE_REPLACING_MERGE_TREE', label: 'ReplacingMergeTree' },
     { value: 'CH_ENGINE_MERGE_TREE', label: 'MergeTree' },
+    { value: 'CH_ENGINE_COALESCING_MERGE_TREE', label: 'CoalescingMergeTree' },
+    { value: 'CH_ENGINE_NULL', label: 'Null' },
   ];
 
   useEffect(() => {
-    fetchTablesForSchema(schema);
-  }, [schema, fetchTablesForSchema, initialLoadOnly]);
+    if (schemaIsExpanded(schema)) {
+      fetchTablesForSchema(schema);
+    }
+  }, [schema, fetchTablesForSchema, schemaIsExpanded, initialLoadOnly]);
 
   return (
     <div style={schemaBoxStyle}>
@@ -287,7 +310,7 @@ export default function SchemaBox({
         </div>
         {/* TABLE BOX */}
         {schemaIsExpanded(schema) && (
-          <div className='ml-5 mt-3' style={{ width: '90%' }}>
+          <div className='ml-5 mt-3'>
             {searchedTables.length ? (
               searchedTables.map((row) => {
                 const columns = getTableColumns(row.source);
@@ -297,7 +320,6 @@ export default function SchemaBox({
                       className='ml-5'
                       style={{
                         display: 'flex',
-                        //alignItems: 'center',
                         flexDirection: 'column',
                         rowGap: '1rem',
                       }}
@@ -317,7 +339,7 @@ export default function SchemaBox({
                               as='label'
                               style={{
                                 fontSize: 13,
-                                color: row.canMirror ? 'black' : 'gray',
+                                color: row.canMirror ? undefined : 'gray',
                               }}
                             >
                               {row.source}
@@ -344,19 +366,17 @@ export default function SchemaBox({
                       <div
                         style={{
                           rowGap: '0.5rem',
-                          width: '80%',
                           columnGap: '3rem',
                           display: row.selected ? 'flex' : 'none',
+                          flexWrap: 'wrap',
                         }}
                         key={row.source}
                       >
-                        <div style={{ width: '40%' }}>
-                          <p style={{ fontSize: 12 }}>Target Table:</p>
+                        <div style={{ width: '30%', fontSize: 12 }}>
+                          Target Table:
                           <TextField
-                            key={row.source}
                             disabled={row.editingDisabled}
                             style={{
-                              fontSize: 12,
                               marginTop: '0.5rem',
                               cursor: 'pointer',
                             }}
@@ -369,26 +389,108 @@ export default function SchemaBox({
                           />
                         </div>
 
+                        <div style={{ width: '30%', fontSize: 12 }}>
+                          Custom Partitioning Key:
+                          <TextField
+                            disabled={row.editingDisabled}
+                            style={{
+                              marginTop: '0.5rem',
+                              cursor: 'pointer',
+                            }}
+                            variant='simple'
+                            placeholder='Enter optional custom partiton key'
+                            value={row.partitionKey}
+                            onChange={(
+                              e: React.ChangeEvent<HTMLInputElement>
+                            ) => updatePartitionKey(row.source, e.target.value)}
+                          />
+                        </div>
+
                         {peerType?.toString() ===
                           DBType[DBType.CLICKHOUSE].toString() && (
-                          <div style={{ width: '40%' }}>
-                            <p style={{ fontSize: 12, marginBottom: '0.5rem' }}>
+                          <>
+                            <div style={{ width: '30%', fontSize: 12 }}>
                               Engine:
-                            </p>
-                            <ReactSelect
-                              isDisabled={row.editingDisabled}
-                              styles={engineOptionStyles}
-                              options={engineOptions}
-                              placeholder='ReplacingMergeTree (default)'
-                              onChange={(selectedOption) =>
-                                selectedOption &&
-                                updateEngine(
-                                  row.source,
-                                  tableEngineFromJSON(selectedOption.value)
-                                )
-                              }
-                            />
-                          </div>
+                              <ReactSelect
+                                isDisabled={row.editingDisabled}
+                                styles={engineOptionStyles}
+                                options={engineOptions}
+                                value={
+                                  engineOptions.find(
+                                    (x) =>
+                                      x.value ===
+                                      (typeof row.engine === 'string'
+                                        ? row.engine
+                                        : tableEngineToJSON(row.engine))
+                                  ) ?? engineOptions[0]
+                                }
+                                onChange={(selectedOption) =>
+                                  selectedOption &&
+                                  updateEngine(
+                                    row.source,
+                                    tableEngineFromJSON(selectedOption.value)
+                                  )
+                                }
+                              />
+                            </div>
+                            <div style={{ width: '30%', fontSize: 12 }}>
+                              Sharding Key:
+                              <TextField
+                                disabled={row.editingDisabled}
+                                style={{
+                                  marginTop: '0.5rem',
+                                  cursor: 'pointer',
+                                }}
+                                variant='simple'
+                                placeholder='Sharding key expression (optional)'
+                                value={row.shardingKey}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>
+                                ) =>
+                                  updateShardingKey(row.source, e.target.value)
+                                }
+                              />
+                            </div>
+                            <div style={{ width: '30%', fontSize: 12 }}>
+                              Policy Name:
+                              <TextField
+                                disabled={row.editingDisabled}
+                                style={{
+                                  marginTop: '0.5rem',
+                                  cursor: 'pointer',
+                                }}
+                                variant='simple'
+                                placeholder='Policy name (optional)'
+                                value={row.policyName}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>
+                                ) =>
+                                  updatePolicyName(row.source, e.target.value)
+                                }
+                              />
+                            </div>
+                            <div style={{ width: '30%', fontSize: 12 }}>
+                              Partition By Expr:
+                              <TextField
+                                disabled={row.editingDisabled}
+                                style={{
+                                  marginTop: '0.5rem',
+                                  cursor: 'pointer',
+                                }}
+                                variant='simple'
+                                placeholder='Partition By expression (optional)'
+                                value={row.partitionByExpr}
+                                onChange={(
+                                  e: React.ChangeEvent<HTMLInputElement>
+                                ) =>
+                                  updatePartitionByExpr(
+                                    row.source,
+                                    e.target.value
+                                  )
+                                }
+                              />
+                            </div>
+                          </>
                         )}
                       </div>
                     </div>
@@ -431,7 +533,7 @@ export default function SchemaBox({
                               DBType[DBType.CLICKHOUSE].toString() && (
                               <div
                                 style={{
-                                  width: '50%',
+                                  width: '100%',
                                   display: 'flex',
                                   flexDirection: 'column',
                                   rowGap: '0.5rem',
@@ -443,13 +545,22 @@ export default function SchemaBox({
                                     marginTop: '0.5rem',
                                   }}
                                 />
-                                <SelectSortingKeys
-                                  columns={
-                                    columns?.map((column) => column.name) ?? []
-                                  }
-                                  loading={columnsLoading}
+                                <div style={{ width: '50%' }}>
+                                  <SelectSortingKeys
+                                    columns={columns
+                                      .map((column) => column.name)
+                                      .filter((name) => !row.exclude.has(name))}
+                                    loading={columnsLoading}
+                                    tableRow={row}
+                                    setRows={setRows}
+                                  />
+                                </div>
+                                <CustomColumnType
+                                  columns={columns}
                                   tableRow={row}
+                                  rows={rows}
                                   setRows={setRows}
+                                  peerType={peerType}
                                 />
                               </div>
                             )}

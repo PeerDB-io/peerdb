@@ -1,11 +1,11 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
-use base64::prelude::{Engine as _, BASE64_STANDARD};
-use jsonwebtoken::{encode as jwt_encode, Algorithm, EncodingKey, Header};
+use base64::prelude::{BASE64_STANDARD, Engine as _};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode as jwt_encode};
+use rsa::RsaPrivateKey;
 use rsa::pkcs1::EncodeRsaPrivateKey;
 use rsa::pkcs8::{DecodePrivateKey, EncodePublicKey};
-use rsa::RsaPrivateKey;
 use secrecy::SecretString;
 use serde::Serialize;
 use sha2::{Digest, Sha256};

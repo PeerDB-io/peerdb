@@ -75,7 +75,7 @@ func PeerDBCatalogUser() string {
 func PeerDBCatalogPassword(ctx context.Context) string {
 	val, err := GetKmsDecryptedEnvString(ctx, "PEERDB_CATALOG_PASSWORD", "")
 	if err != nil {
-		slog.Error("failed to decrypt PEERDB_CATALOG_PASSWORD", "error", err)
+		slog.ErrorContext(ctx, "failed to decrypt PEERDB_CATALOG_PASSWORD", slog.Any("error", err))
 		panic(err)
 	}
 
@@ -120,7 +120,7 @@ func PeerDBCurrentEncKeyID() string {
 func PeerDBEncKeys(ctx context.Context) shared.PeerDBEncKeys {
 	val, err := GetKmsDecryptedEnvString(ctx, "PEERDB_ENC_KEYS", "")
 	if err != nil {
-		slog.Error("failed to decrypt PEERDB_ENC_KEYS", "error", err)
+		slog.ErrorContext(ctx, "failed to decrypt PEERDB_ENC_KEYS", slog.Any("error", err))
 		panic(err)
 	}
 
@@ -163,6 +163,14 @@ func PeerDBTemporalClientKey(ctx context.Context) ([]byte, error) {
 	return GetKmsDecryptedEnvBase64EncodedBytes(ctx, "TEMPORAL_CLIENT_KEY", nil)
 }
 
+func PeerDBTemporalClientCertPath() string {
+	return GetEnvString("TEMPORAL_CLIENT_CERT_PATH", "")
+}
+
+func PeerDBTemporalClientKeyPath() string {
+	return GetEnvString("TEMPORAL_CLIENT_KEY_PATH", "")
+}
+
 func PeerDBGetIncidentIoUrl() string {
 	return GetEnvString("PEERDB_INCIDENTIO_URL", "")
 }
@@ -171,10 +179,10 @@ func PeerDBGetIncidentIoToken() string {
 	return GetEnvString("PEERDB_INCIDENTIO_TOKEN", "")
 }
 
-func PeerDBRAPIRequestLoggingEnabled() bool {
+func PeerDBRAPIRequestLoggingEnabled(ctx context.Context) bool {
 	requestLoggingEnabled, err := strconv.ParseBool(GetEnvString("PEERDB_API_REQUEST_LOGGING_ENABLED", "false"))
 	if err != nil {
-		slog.Error("failed to parse PEERDB_API_REQUEST_LOGGING_ENABLED to bool", "error", err)
+		slog.ErrorContext(ctx, "failed to parse PEERDB_API_REQUEST_LOGGING_ENABLED to bool", slog.Any("error", err))
 		return false
 	}
 	return requestLoggingEnabled
@@ -185,10 +193,11 @@ func PeerDBMaintenanceModeWaitAlertSeconds() int {
 	return getEnvConvert("PEERDB_MAINTENANCE_MODE_WAIT_ALERT_SECONDS", 600, strconv.Atoi)
 }
 
-func PeerDBTelemetryErrorActionBasedAlertingEnabled() bool {
-	enabled, err := strconv.ParseBool(GetEnvString("PEERDB_TELEMETRY_ERROR_ACTION_BASED_ALERTING_ENABLED", "false"))
+// PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED is whether to send error alerts to the telemetry sender
+func PeerDBTelemetrySenderSendErrorAlertsEnabled(ctx context.Context) bool {
+	enabled, err := strconv.ParseBool(GetEnvString("PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED", "false"))
 	if err != nil {
-		slog.Error("failed to parse PEERDB_TELEMETRY_ERROR_ACTION_BASED_ALERTING_ENABLED to bool", "error", err)
+		slog.ErrorContext(ctx, "failed to parse PEERDB_TELEMETRY_SENDER_SEND_ERROR_ALERTS_ENABLED to bool", slog.Any("error", err))
 		return false
 	}
 	return enabled

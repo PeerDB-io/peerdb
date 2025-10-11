@@ -56,12 +56,12 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 ) error {
 	s.Info("checking connections for CDC flow")
 
-	checkCtx := workflow.WithLocalActivityOptions(ctx, workflow.LocalActivityOptions{
+	checkCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute,
 	})
 
 	// first check the source peer connection
-	srcConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckConnection, &protos.SetupInput{
+	srcConnStatusFuture := workflow.ExecuteActivity(checkCtx, flowable.CheckConnection, &protos.SetupInput{
 		Env:      config.Env,
 		PeerName: config.SourceName,
 		FlowName: config.FlowJobName,
@@ -71,7 +71,7 @@ func (s *SetupFlowExecution) checkConnectionsAndSetupMetadataTables(
 		PeerName: config.DestinationName,
 		FlowName: config.FlowJobName,
 	}
-	destConnStatusFuture := workflow.ExecuteLocalActivity(checkCtx, flowable.CheckMetadataTables, dstSetupInput)
+	destConnStatusFuture := workflow.ExecuteActivity(checkCtx, flowable.CheckMetadataTables, dstSetupInput)
 	if err := srcConnStatusFuture.Get(checkCtx, nil); err != nil {
 		return fmt.Errorf("failed to check source peer connection: %w", err)
 	}
@@ -111,7 +111,7 @@ func (s *SetupFlowExecution) ensurePullability(
 	s.Info("ensuring pullability for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 4 * 24 * time.Hour,
+		StartToCloseTimeout: 4 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 		},
@@ -196,6 +196,7 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		FlowName:      s.cdcFlowName,
 		System:        flowConnectionConfigs.System,
 		Env:           flowConnectionConfigs.Env,
+		Version:       flowConnectionConfigs.Version,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil); err != nil {

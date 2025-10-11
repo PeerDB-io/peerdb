@@ -81,17 +81,16 @@ impl QueryExecutor for MySqlQueryExecutor {
                         querystr.push_str("ANALYZE ");
                     }
                     if let Some(format) = format {
-                        write!(querystr, "FORMAT={} ", format).ok();
+                        write!(querystr, "FORMAT={format} ").ok();
                     }
-                    write!(querystr, "{}", query).ok();
+                    write!(querystr, "{query}").ok();
                     tracing::info!("mysql rewritten query: {}", query);
 
                     let cursor = self.query(querystr).await?;
                     Ok(QueryOutput::Stream(Box::pin(cursor)))
                 } else {
                     let error = format!(
-                        "only EXPLAIN SELECT statements are supported in mysql. got: {}",
-                        statement
+                        "only EXPLAIN SELECT statements are supported in mysql. got: {statement}"
                     );
                     Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                         "ERROR".to_owned(),
@@ -159,7 +158,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                             "ERROR".to_owned(),
                             "fdw_error".to_owned(),
                             "only FORWARD count and COUNT count are supported in FETCH".to_owned(),
-                        ))))
+                        ))));
                     }
                 };
 
@@ -184,10 +183,7 @@ impl QueryExecutor for MySqlQueryExecutor {
                 )))
             }
             _ => {
-                let error = format!(
-                    "only SELECT statements are supported in mysql. got: {}",
-                    stmt
-                );
+                let error = format!("only SELECT statements are supported in mysql. got: {stmt}");
                 Err(PgWireError::UserError(Box::new(ErrorInfo::new(
                     "ERROR".to_owned(),
                     "fdw_error".to_owned(),

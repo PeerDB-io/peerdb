@@ -2,67 +2,67 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared/telemetry"
 )
 
 func (h *FlowRequestHandler) ValidatePeer(
 	ctx context.Context,
 	req *protos.ValidatePeerRequest,
-) (*protos.ValidatePeerResponse, error) {
-	ctx, cancelCtx := context.WithTimeout(ctx, time.Minute)
-	defer cancelCtx()
+) (*protos.ValidatePeerResponse, APIError) {
 	if req.Peer == nil {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer provided",
-		}, nil
+		}, NewInvalidArgumentApiError(errors.New("no peer provided"))
 	}
 
 	if req.Peer.Name == "" {
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
 			Message: "no peer name provided",
-		}, nil
+		}, NewInvalidArgumentApiError(errors.New("no peer name provided"))
 	}
+
+	validatePeerDeadline := 15 * time.Second
+	if req.Peer.Type == protos.DBType_CLICKHOUSE {
+		// if instance is overloaded, DDL can take longer than 15s to execute
+		validatePeerDeadline = 1 * time.Minute
+	}
+
+	ctx, cancelCtx := context.WithTimeout(ctx, validatePeerDeadline)
+	defer cancelCtx()
 
 	conn, err := connectors.GetConnector(ctx, nil, req.Peer)
 	if err != nil {
-		displayErr := fmt.Sprintf("%s peer %s was invalidated: %v", req.Peer.Type, req.Peer.Name, err)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name, displayErr)
+		displayErr := fmt.Errorf("%s peer %s was invalidated: %w", req.Peer.Type, req.Peer.Name, err)
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: displayErr,
-		}, nil
+			Message: displayErr.Error(),
+		}, NewFailedPreconditionApiError(displayErr)
 	}
 	defer conn.Close()
 
 	if validationConn, ok := conn.(connectors.ValidationConnector); ok {
 		if validErr := validationConn.ValidateCheck(ctx); validErr != nil {
-			displayErr := fmt.Sprintf("failed to validate peer %s: %v", req.Peer.Name, validErr)
-			h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
-				displayErr,
-			)
+			displayErr := fmt.Errorf("failed to validate peer %s: %w", req.Peer.Name, validErr)
 			return &protos.ValidatePeerResponse{
 				Status:  protos.ValidatePeerStatus_INVALID,
-				Message: displayErr,
-			}, nil
+				Message: displayErr.Error(),
+			}, NewFailedPreconditionApiError(displayErr)
 		}
 	}
 
 	if connErr := conn.ConnectionActive(ctx); connErr != nil {
-		displayErr := fmt.Sprintf("failed to establish active connection to %s peer %s: %v", req.Peer.Type, req.Peer.Name, connErr)
-		h.alerter.LogNonFlowWarning(ctx, telemetry.CreatePeer, req.Peer.Name,
-			displayErr,
-		)
+		displayErr := fmt.Errorf("failed to establish active connection to %s peer %s: %w", req.Peer.Type, req.Peer.Name, connErr)
 		return &protos.ValidatePeerResponse{
 			Status:  protos.ValidatePeerStatus_INVALID,
-			Message: displayErr,
-		}, nil
+			Message: displayErr.Error(),
+		}, NewFailedPreconditionApiError(displayErr)
 	}
 
 	return &protos.ValidatePeerResponse{

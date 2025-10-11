@@ -16,6 +16,7 @@ func RegisterFlowWorkerWorkflows(w worker.WorkflowRegistry) {
 	w.RegisterWorkflow(GlobalScheduleManagerWorkflow)
 	w.RegisterWorkflow(HeartbeatFlowWorkflow)
 	w.RegisterWorkflow(RecordSlotSizeWorkflow)
+	w.RegisterWorkflow(ScheduledTasksWorkflow)
 
 	w.RegisterWorkflow(StartMaintenanceWorkflow)
 	w.RegisterWorkflow(EndMaintenanceWorkflow)

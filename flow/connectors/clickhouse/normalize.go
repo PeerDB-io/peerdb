@@ -3,31 +3,32 @@ package connclickhouse
 import (
 	"cmp"
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 const (
-	signColName         = "_peerdb_is_deleted"
-	signColType         = "Int8"
+	isDeletedColName    = "_peerdb_is_deleted"
+	isDeletedColType    = "UInt8"
 	versionColName      = "_peerdb_version"
-	versionColType      = "Int64"
+	versionColType      = "UInt64"
 	sourceSchemaColName = "_peerdb_source_schema"
 	sourceSchemaColType = "LowCardinality(String)"
 )
@@ -47,200 +48,361 @@ func (c *ClickHouseConnector) SetupNormalizedTable(
 	ctx context.Context,
 	tx any,
 	config *protos.SetupNormalizedTableBatchInput,
-	tableIdentifier string,
-	tableSchema *protos.TableSchema,
+	destinationTableIdentifier string,
+	sourceTableSchema *protos.TableSchema,
 ) (bool, error) {
-	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.config.Database, tableIdentifier)
+	tableAlreadyExists, err := c.checkIfTableExists(ctx, c.Config.Database, destinationTableIdentifier)
 	if err != nil {
-		return false, fmt.Errorf("error occurred while checking if normalized table exists: %w", err)
+		return false, fmt.Errorf("error occurred while checking if destination ClickHouse table exists: %w", err)
 	}
 	if tableAlreadyExists && !config.IsResync {
-		c.logger.Info("[ch] normalized table already exists, skipping", "table", tableIdentifier)
+		c.logger.Info("[clickhouse] destination ClickHouse table already exists, skipping", "table", destinationTableIdentifier)
 		return true, nil
 	}
 
-	normalizedTableCreateSQL, err := generateCreateTableSQLForNormalizedTable(
+	normalizedTableCreateSQL, err := c.generateCreateTableSQLForNormalizedTable(
 		ctx,
 		config,
-		tableIdentifier,
-		tableSchema,
+		destinationTableIdentifier,
+		sourceTableSchema,
+		c.chVersion,
 	)
 	if err != nil {
-		return false, fmt.Errorf("error while generating create table sql for normalized table: %w", err)
+		return false, fmt.Errorf("error while generating create table sql for destination ClickHouse table: %w", err)
 	}
 
-	if err := c.execWithLogging(ctx, normalizedTableCreateSQL); err != nil {
-		return false, fmt.Errorf("[ch] error while creating normalized table: %w", err)
+	for _, sql := range normalizedTableCreateSQL {
+		if err := c.execWithLogging(ctx, sql); err != nil {
+			return false, fmt.Errorf("[clickhouse] error while creating destination ClickHouse table: %w", err)
+		}
 	}
 	return false, nil
 }
 
-func getColName(overrides map[string]string, name string) string {
-	if newName, ok := overrides[name]; ok {
-		return newName
-	}
-	return name
-}
-
-func generateCreateTableSQLForNormalizedTable(
+func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 	ctx context.Context,
 	config *protos.SetupNormalizedTableBatchInput,
 	tableIdentifier string,
 	tableSchema *protos.TableSchema,
-) (string, error) {
+	chVersion *chproto.Version,
+) ([]string, error) {
+	var engine string
+	tmEngine := protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE
+
 	var tableMapping *protos.TableMapping
 	for _, tm := range config.TableMappings {
 		if tm.DestinationTableIdentifier == tableIdentifier {
+			tmEngine = tm.Engine
 			tableMapping = tm
 			break
 		}
 	}
 
-	var stmtBuilder strings.Builder
-	stmtBuilder.WriteString("CREATE ")
-	if config.IsResync {
-		stmtBuilder.WriteString("OR REPLACE ")
+	isDeletedColumn := isDeletedColName
+	isDeletedColumnPart := ""
+	if config.SoftDeleteColName != "" {
+		isDeletedColumn = config.SoftDeleteColName
+		isDeletedColumnPart = ", " + peerdb_clickhouse.QuoteIdentifier(isDeletedColumn)
 	}
-	stmtBuilder.WriteString("TABLE ")
-	if !config.IsResync {
-		stmtBuilder.WriteString("IF NOT EXISTS ")
-	}
-	fmt.Fprintf(&stmtBuilder, "%s (", peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
 
-	colNameMap := make(map[string]string)
-	for _, column := range tableSchema.Columns {
-		colName := column.Name
-		dstColName := colName
-		colType := qvalue.QValueKind(column.Type)
-		var columnNullableEnabled bool
-		var clickHouseType string
-		if tableMapping != nil {
-			for _, col := range tableMapping.Columns {
-				if col.SourceName == colName {
-					if col.DestinationName != "" {
-						dstColName = col.DestinationName
-						colNameMap[colName] = dstColName
-					}
-					if col.DestinationType != "" {
-						clickHouseType = col.DestinationType
-					}
-					columnNullableEnabled = col.NullableEnabled
-					break
-				}
-			}
-		}
-
-		if clickHouseType == "" {
-			var err error
-			clickHouseType, err = colType.ToDWHColumnType(
-				ctx, config.Env, protos.DBType_CLICKHOUSE, column, tableSchema.NullableEnabled || columnNullableEnabled,
+	switch tmEngine {
+	case protos.TableEngine_CH_ENGINE_REPLACING_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_REPLACING_MERGE_TREE:
+		if c.Config.Replicated {
+			engine = fmt.Sprintf(
+				"ReplicatedReplacingMergeTree('%s%s','{replica}',%s%s)",
+				zooPathPrefix,
+				peerdb_clickhouse.EscapeStr(tableIdentifier),
+				peerdb_clickhouse.QuoteIdentifier(versionColName),
+				isDeletedColumnPart,
 			)
-			if err != nil {
-				return "", fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
-			}
+		} else {
+			engine = fmt.Sprintf("ReplacingMergeTree(%s%s)", peerdb_clickhouse.QuoteIdentifier(versionColName), isDeletedColumnPart)
 		}
-
-		fmt.Fprintf(&stmtBuilder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
+	case protos.TableEngine_CH_ENGINE_MERGE_TREE, protos.TableEngine_CH_ENGINE_REPLICATED_MERGE_TREE:
+		if c.Config.Replicated {
+			engine = fmt.Sprintf(
+				"ReplicatedMergeTree('%s%s','{replica}')",
+				zooPathPrefix,
+				peerdb_clickhouse.EscapeStr(tableIdentifier),
+			)
+		} else {
+			engine = "MergeTree()"
+		}
+	case protos.TableEngine_CH_ENGINE_COALESCING_MERGE_TREE:
+		if c.Config.Replicated {
+			engine = fmt.Sprintf(
+				"ReplicatedCoalescingMergeTree('%s%s','{replica}')",
+				zooPathPrefix,
+				peerdb_clickhouse.EscapeStr(tableIdentifier),
+			)
+		} else {
+			engine = "CoalescingMergeTree()"
+		}
+	case protos.TableEngine_CH_ENGINE_NULL:
+		engine = "Null"
 	}
-	// TODO support soft delete
-	// synced at column will be added to all normalized tables
-	if config.SyncedAtColName != "" {
-		colName := strings.ToLower(config.SyncedAtColName)
-		fmt.Fprintf(&stmtBuilder, "%s DateTime64(9) DEFAULT now64(), ", peerdb_clickhouse.QuoteIdentifier(colName))
-	}
 
-	// add _peerdb_source_schema_name column
 	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
 	if err != nil {
-		return "", err
-	}
-	if sourceSchemaAsDestinationColumn {
-		fmt.Fprintf(&stmtBuilder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName), sourceSchemaColType)
+		return nil, err
 	}
 
-	var engine string
-	if tableMapping == nil {
-		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
-	} else if tableMapping.Engine == protos.TableEngine_CH_ENGINE_MERGE_TREE {
-		engine = "MergeTree()"
+	var stmtBuilder strings.Builder
+	var stmtBuilderDistributed strings.Builder
+	var builders []*strings.Builder
+	if c.Config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL {
+		builders = []*strings.Builder{&stmtBuilder, &stmtBuilderDistributed}
 	} else {
-		engine = fmt.Sprintf("ReplacingMergeTree(%s)", peerdb_clickhouse.QuoteIdentifier(versionColName))
+		builders = []*strings.Builder{&stmtBuilder}
 	}
 
-	// add sign and version columns
-	fmt.Fprintf(&stmtBuilder, "%s %s, %s %s) ENGINE = %s",
-		peerdb_clickhouse.QuoteIdentifier(signColName), signColType, peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType, engine)
-
-	orderByColumns := getOrderedOrderByColumns(tableMapping, tableSchema.PrimaryKeyColumns, colNameMap)
-
-	if sourceSchemaAsDestinationColumn {
-		orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
+	colNameMap := make(map[string]string)
+	shardSuffix := "_shard"
+	if config.IsResync {
+		shardSuffix += strconv.FormatInt(time.Now().Unix(), 10)
 	}
+	for idx, builder := range builders {
+		if config.IsResync {
+			builder.WriteString("CREATE OR REPLACE TABLE ")
+		} else {
+			builder.WriteString("CREATE TABLE IF NOT EXISTS ")
+		}
+		if c.Config.Cluster != "" && tmEngine != protos.TableEngine_CH_ENGINE_NULL && idx == 0 {
+			// distributed table gets destination name, avoid naming conflict
+			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier + shardSuffix))
+		} else {
+			builder.WriteString(peerdb_clickhouse.QuoteIdentifier(tableIdentifier))
+		}
+		if c.Config.Cluster != "" {
+			fmt.Fprintf(builder, " ON CLUSTER %s", peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster))
+		}
+		builder.WriteString(" (")
 
-	if len(orderByColumns) > 0 {
-		orderByStr := strings.Join(orderByColumns, ",")
-
-		fmt.Fprintf(&stmtBuilder, " PRIMARY KEY (%[1]s) ORDER BY (%[1]s)", orderByStr)
-	} else {
-		stmtBuilder.WriteString(" ORDER BY tuple()")
-	}
-
-	if nullable, err := internal.PeerDBNullable(ctx, config.Env); err != nil {
-		return "", err
-	} else if nullable {
-		stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
-	}
-
-	return stmtBuilder.String(), nil
-}
-
-// Returns a list of order by columns ordered by their ordering, and puts the pkeys at the end.
-// pkeys are excluded from the order by columns.
-func getOrderedOrderByColumns(
-	tableMapping *protos.TableMapping,
-	sourcePkeys []string,
-	colNameMap map[string]string,
-) []string {
-	pkeys := make([]string, len(sourcePkeys))
-	for idx, pk := range sourcePkeys {
-		pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(pk)
-	}
-	if len(sourcePkeys) > 0 {
-		if len(colNameMap) > 0 {
-			for idx, pk := range sourcePkeys {
-				pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, pk))
+		for _, column := range tableSchema.Columns {
+			colName := column.Name
+			dstColName := colName
+			colType := types.QValueKind(column.Type)
+			var columnNullableEnabled bool
+			var clickHouseType string
+			if tableMapping != nil {
+				for _, col := range tableMapping.Columns {
+					if col.SourceName == colName {
+						if col.DestinationName != "" {
+							dstColName = col.DestinationName
+							colNameMap[colName] = dstColName
+						}
+						if col.DestinationType != "" {
+							clickHouseType = col.DestinationType
+						}
+						columnNullableEnabled = col.NullableEnabled
+						break
+					}
+				}
 			}
+
+			if clickHouseType == "" {
+				var err error
+				clickHouseType, err = qvalue.ToDWHColumnType(
+					ctx, colType, config.Env, protos.DBType_CLICKHOUSE, chVersion, column, tableSchema.NullableEnabled || columnNullableEnabled,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("error while converting column type to ClickHouse type: %w", err)
+				}
+			} else if (tableSchema.NullableEnabled || columnNullableEnabled) && column.Nullable && !colType.IsArray() {
+				clickHouseType = fmt.Sprintf("Nullable(%s)", clickHouseType)
+			}
+
+			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(dstColName), clickHouseType)
+		}
+
+		// synced at column will be added to all normalized tables
+		if config.SyncedAtColName != "" {
+			colName := strings.ToLower(config.SyncedAtColName)
+			fmt.Fprintf(builder, "%s DateTime64(9) DEFAULT now64(), ", peerdb_clickhouse.QuoteIdentifier(colName))
+		}
+
+		// add _peerdb_source_schema_name column
+		if sourceSchemaAsDestinationColumn {
+			fmt.Fprintf(builder, "%s %s, ", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName), sourceSchemaColType)
+		}
+
+		// add sign and version columns
+		fmt.Fprintf(builder, "%s %s, %s %s)",
+			peerdb_clickhouse.QuoteIdentifier(isDeletedColumn), isDeletedColType,
+			peerdb_clickhouse.QuoteIdentifier(versionColName), versionColType)
+	}
+
+	fmt.Fprintf(&stmtBuilder, " ENGINE = %s", engine)
+
+	if tmEngine != protos.TableEngine_CH_ENGINE_NULL {
+		hasNullableKeyFn := buildIsNullableKeyFn(tableMapping, tableSchema.Columns, tableSchema.NullableEnabled)
+		orderByColumns, allowNullableKey := getOrderedOrderByColumns(
+			tableMapping, colNameMap, tableSchema.PrimaryKeyColumns, hasNullableKeyFn)
+		if sourceSchemaAsDestinationColumn {
+			orderByColumns = append([]string{sourceSchemaColName}, orderByColumns...)
+		}
+
+		if len(orderByColumns) > 0 {
+			orderByStr := strings.Join(orderByColumns, ",")
+			fmt.Fprintf(&stmtBuilder, " PRIMARY KEY (%[1]s) ORDER BY (%[1]s)", orderByStr)
+		} else {
+			stmtBuilder.WriteString(" ORDER BY tuple()")
+		}
+
+		if tableMapping != nil && tableMapping.PartitionByExpr != "" {
+			allowNullableKey = true
+			fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", tableMapping.PartitionByExpr)
+		} else {
+			partitionByColumns, hasNullablePartitionKey := getOrderedPartitionByColumns(tableMapping, colNameMap, hasNullableKeyFn)
+			if hasNullablePartitionKey {
+				allowNullableKey = true
+			}
+			if len(partitionByColumns) > 0 {
+				partitionByStr := strings.Join(partitionByColumns, ",")
+				fmt.Fprintf(&stmtBuilder, " PARTITION BY (%s)", partitionByStr)
+			}
+		}
+
+		if allowNullableKey {
+			stmtBuilder.WriteString(" SETTINGS allow_nullable_key = 1")
+		}
+
+		if c.Config.Cluster != "" {
+			fmt.Fprintf(&stmtBuilderDistributed, " ENGINE = Distributed(%s,%s,%s",
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster),
+				peerdb_clickhouse.QuoteIdentifier(c.Config.Database),
+				peerdb_clickhouse.QuoteIdentifier(tableIdentifier+shardSuffix),
+			)
+			if tableMapping.ShardingKey != "" {
+				stmtBuilderDistributed.WriteByte(',')
+				stmtBuilderDistributed.WriteString(tableMapping.ShardingKey)
+				if tableMapping.PolicyName != "" {
+					stmtBuilderDistributed.WriteByte(',')
+					stmtBuilderDistributed.WriteString(peerdb_clickhouse.QuoteLiteral(tableMapping.PolicyName))
+				}
+			}
+			stmtBuilderDistributed.WriteByte(')')
 		}
 	}
 
-	orderby := make([]*protos.ColumnSetting, 0)
+	result := make([]string, len(builders))
+	for idx, builder := range builders {
+		result[idx] = builder.String()
+	}
+	return result, nil
+}
+
+// getOrderedOrderByColumns returns columns to be used for ordering in destination table operations.
+// If no custom ordering is specified, return the source table's primary key columns as ordering keys.
+// If custom ordering columns are specified, return those columns sorted by their ordering value.
+// The boolean return value indicates whether ordering keys contain nullable keys.
+func getOrderedOrderByColumns(
+	tableMapping *protos.TableMapping,
+	colNameMap map[string]string,
+	sourcePkeys []string,
+	hasNullableKeyFn func(string) bool,
+) ([]string, bool) {
+	columnOrderingMap := make(map[string]int32)
 	if tableMapping != nil {
 		for _, col := range tableMapping.Columns {
 			if col.Ordering > 0 {
-				orderby = append(orderby, col)
+				columnOrderingMap[col.SourceName] = col.Ordering
 			}
 		}
 	}
 
-	if len(orderby) == 0 {
-		return pkeys
+	// Case 1: No custom ordering - use primary keys
+	if len(columnOrderingMap) == 0 {
+		hasNullableKeys := false
+		pkeys := make([]string, len(sourcePkeys))
+		for idx, pk := range sourcePkeys {
+			if !hasNullableKeys && hasNullableKeyFn(pk) {
+				hasNullableKeys = true
+			}
+			pkeys[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, pk))
+		}
+		return pkeys, hasNullableKeys
 	}
 
-	slices.SortStableFunc(orderby, func(a *protos.ColumnSetting, b *protos.ColumnSetting) int {
-		return cmp.Compare(a.Ordering, b.Ordering)
+	// Case 2: Custom ordering specified
+	columnNames := slices.Collect(maps.Keys(columnOrderingMap))
+	slices.SortStableFunc(columnNames, func(a, b string) int {
+		return cmp.Compare(columnOrderingMap[a], columnOrderingMap[b])
 	})
 
-	orderbyColumns := make([]string, len(orderby))
-	for idx, col := range orderby {
-		orderbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col.SourceName))
+	orderbyColumns := make([]string, len(columnNames))
+	hasNullableKeys := false
+	for idx, col := range columnNames {
+		orderbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col))
+		if !hasNullableKeys && hasNullableKeyFn(col) {
+			hasNullableKeys = true
+		}
 	}
-
-	return orderbyColumns
+	return orderbyColumns, hasNullableKeys
 }
 
-type NormalizeInsertQuery struct {
-	query     string
-	tableName string
+// getOrderedPartitionByColumns returns columns to be used for partitioning in destination table operations.
+// If custom partitioning columns are specified, return those columns sorted by their partitioning value.
+// The boolean return value indicates whether partition keys contain nullable keys.
+func getOrderedPartitionByColumns(
+	tableMapping *protos.TableMapping,
+	colNameMap map[string]string,
+	hasNullableKeyFn func(string) bool,
+) ([]string, bool) {
+	columnPartitioningMap := make(map[string]int32)
+	if tableMapping != nil {
+		for _, col := range tableMapping.Columns {
+			if col.Partitioning > 0 {
+				columnPartitioningMap[col.SourceName] = col.Partitioning
+			}
+		}
+	}
+
+	columnNames := slices.Collect(maps.Keys(columnPartitioningMap))
+	slices.SortStableFunc(columnNames, func(a, b string) int {
+		return cmp.Compare(columnPartitioningMap[a], columnPartitioningMap[b])
+	})
+
+	partitionbyColumns := make([]string, len(columnNames))
+	hasNullableKeys := false
+	for idx, col := range columnNames {
+		partitionbyColumns[idx] = peerdb_clickhouse.QuoteIdentifier(getColName(colNameMap, col))
+		if !hasNullableKeys && hasNullableKeyFn(col) {
+			hasNullableKeys = true
+		}
+	}
+
+	return partitionbyColumns, hasNullableKeys
+}
+
+func buildIsNullableKeyFn(
+	tableMapping *protos.TableMapping,
+	sourceColumns []*protos.FieldDescription,
+	tableNullableEnabled bool,
+) func(string) bool {
+	columnNullableMap := make(map[string]bool)
+	for _, col := range sourceColumns {
+		columnNullableMap[col.Name] = col.Nullable
+	}
+
+	columnNullableEnabledMap := make(map[string]bool)
+	if tableMapping != nil {
+		for _, col := range tableMapping.Columns {
+			columnNullableEnabledMap[col.SourceName] = col.NullableEnabled
+		}
+	}
+
+	isNullableEnabledFn := func(colName string) bool {
+		nullable, exists := columnNullableMap[colName]
+		if !exists {
+			return false
+		}
+		nullableEnabled := tableNullableEnabled || columnNullableEnabledMap[colName]
+
+		return nullable && nullableEnabled
+	}
+
+	return isNullableEnabledFn
 }
 
 func (c *ClickHouseConnector) NormalizeRecords(
@@ -249,7 +411,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 ) (model.NormalizeResponse, error) {
 	normBatchID, err := c.GetLastNormalizeBatchID(ctx, req.FlowJobName)
 	if err != nil {
-		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", "error", err)
+		c.logger.Error("[clickhouse] error while getting last sync and normalize batch id", slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 
@@ -261,19 +423,29 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		}, nil
 	}
 
-	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, req.SyncBatchID, req.Env); err != nil {
+	endBatchID := req.SyncBatchID
+	groupBatches, err := internal.PeerDBGroupNormalize(ctx, req.Env)
+	if err != nil {
+		c.logger.Error("failed to lookup PEERDB_GROUP_NORMALIZE, only normalizing 1 batch")
+		groupBatches = 1
+	}
+	if groupBatches > 0 {
+		endBatchID = min(endBatchID, normBatchID+groupBatches)
+	}
+
+	if err := c.copyAvroStagesToDestination(ctx, req.FlowJobName, normBatchID, endBatchID, req.Env, req.Version); err != nil {
 		return model.NormalizeResponse{}, fmt.Errorf("failed to copy avro stages to destination: %w", err)
 	}
 
 	destinationTableNames, err := c.getDistinctTableNamesInBatch(
 		ctx,
 		req.FlowJobName,
-		req.SyncBatchID,
+		endBatchID,
 		normBatchID,
 		req.TableNameSchemaMapping,
 	)
 	if err != nil {
-		c.logger.Error("[clickhouse] error while getting distinct table names in batch", "error", err)
+		c.logger.Error("[clickhouse] error while getting distinct table names in batch", slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 
@@ -292,9 +464,9 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 	parallelNormalize = min(max(parallelNormalize, 1), len(destinationTableNames))
-	c.logger.Info("[clickhouse] normalizing batch",
-		slog.Int64("StartBatchID", normBatchID),
-		slog.Int64("EndBatchID", req.SyncBatchID),
+	c.logger.Info("[clickhouse-cdc] inserting batch...",
+		slog.Int64("startBatchID", normBatchID),
+		slog.Int64("endBatchID", endBatchID),
 		slog.Int("connections", parallelNormalize))
 
 	numParts, err := internal.PeerDBClickHouseNormalizationParts(ctx, req.Env)
@@ -306,17 +478,17 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	// This is for cases where currently normalizing can take a looooong time
 	// there is no other indication of progress, so we log every 5 minutes.
 	periodicLogger := shared.Interval(ctx, 5*time.Minute, func() {
-		c.logger.Info("[clickhouse] normalizing batch...",
-			slog.Int64("StartBatchID", normBatchID),
-			slog.Int64("EndBatchID", req.SyncBatchID),
+		c.logger.Info("[clickhouse-cdc] inserting batch...",
+			slog.Int64("startBatchID", normBatchID),
+			slog.Int64("endBatchID", endBatchID),
 			slog.Int("connections", parallelNormalize))
 	})
 	defer periodicLogger()
 
 	numParts = max(numParts, 1)
 
-	queries := make(chan NormalizeInsertQuery)
-	rawTbl := c.getRawTableName(req.FlowJobName)
+	queries := make(chan NormalizeQueryGenerator)
+	rawTbl := c.GetRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
 	for i := range parallelNormalize {
@@ -326,7 +498,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				chConn = c.database
 			} else {
 				var err error
-				chConn, err = Connect(errCtx, req.Env, c.config)
+				chConn, err = Connect(errCtx, req.Env, c.Config)
 				if err != nil {
 					return err
 				}
@@ -334,228 +506,98 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			}
 
 			for insertIntoSelectQuery := range queries {
-				c.logger.Info("executing normalize query",
-					slog.Int64("syncBatchId", req.SyncBatchID),
-					slog.Int64("normalizeBatchId", normBatchID),
-					slog.String("table", insertIntoSelectQuery.tableName),
-					slog.String("query", insertIntoSelectQuery.query))
+				c.logger.Info("executing INSERT command to ClickHouse table",
+					slog.Int64("syncBatchID", endBatchID),
+					slog.Int64("normalizeBatchID", normBatchID),
+					slog.String("destinationTable", insertIntoSelectQuery.TableName),
+					slog.String("query", insertIntoSelectQuery.Query),
+					slog.Int("parallelWorker", i))
 
-				if err := c.execWithConnection(ctx, chConn, insertIntoSelectQuery.query); err != nil {
-					return fmt.Errorf("error while inserting into normalized table %s: %w", insertIntoSelectQuery.tableName, err)
+				if err := c.execWithConnection(errCtx, chConn, insertIntoSelectQuery.Query); err != nil {
+					c.logger.Error("[clickhouse] error while inserting into target clickhouse table",
+						slog.String("table", insertIntoSelectQuery.TableName),
+						slog.Int64("syncBatchID", endBatchID),
+						slog.Int64("normalizeBatchID", normBatchID),
+						slog.Int("parallelWorker", i),
+						slog.Any("error", err))
+					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", insertIntoSelectQuery.TableName, err)
+				}
+
+				if insertIntoSelectQuery.Part == numParts-1 {
+					c.logger.Info("[clickhouse] set last normalized batch id for table",
+						slog.String("table", insertIntoSelectQuery.TableName),
+						slog.Int64("syncBatchID", endBatchID),
+						slog.Int64("lastNormalizedBatchID", normBatchID),
+						slog.Int("parallelWorker", i))
+					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, insertIntoSelectQuery.TableName, endBatchID)
+					if err != nil {
+						return fmt.Errorf("error while setting last synced batch id for table %s: %w", insertIntoSelectQuery.TableName, err)
+					}
 				}
 			}
+
+			c.logger.Info("executed INSERT commands to ClickHouse",
+				slog.Int64("syncBatchID", req.SyncBatchID),
+				slog.Int64("normalizeBatchID", normBatchID),
+				slog.Int("parallelWorker", i))
 			return nil
 		})
 	}
 
 	for _, tbl := range destinationTableNames {
+		normalizeBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
+		if err != nil {
+			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
+			return model.NormalizeResponse{}, err
+		}
+
+		c.logger.Info("[clickhouse] last normalized batch id for table",
+			"table", tbl, "lastNormalizedBatchID", normalizeBatchIDForTable,
+			"syncBatchID", endBatchID)
+		batchIdToLoadForTable := max(normBatchID, normalizeBatchIDForTable)
+		if batchIdToLoadForTable >= endBatchID {
+			c.logger.Info("[clickhouse] table already synced to destination for this batch, skipping",
+				"table", tbl, "batchIdToLoadForTable", batchIdToLoadForTable, "syncBatchID", endBatchID)
+			continue
+		}
+
 		for numPart := range numParts {
-			// SELECT projection FROM raw_table WHERE _peerdb_batch_id > normalize_batch_id AND _peerdb_batch_id <= sync_batch_id
-			selectQuery := strings.Builder{}
-			selectQuery.WriteString("SELECT ")
-
-			colSelector := strings.Builder{}
-			colSelector.WriteByte('(')
-
-			schema := req.TableNameSchemaMapping[tbl]
-
-			var tableMapping *protos.TableMapping
-			for _, tm := range req.TableMappings {
-				if tm.DestinationTableIdentifier == tbl {
-					tableMapping = tm
-					break
-				}
+			queryGenerator := NewNormalizeQueryGenerator(
+				tbl,
+				numPart,
+				req.TableNameSchemaMapping,
+				req.TableMappings,
+				endBatchID,
+				batchIdToLoadForTable,
+				numParts,
+				enablePrimaryUpdate,
+				sourceSchemaAsDestinationColumn,
+				req.Env,
+				rawTbl,
+				c.chVersion,
+				c.Config.Cluster != "",
+				req.SoftDeleteColName,
+			)
+			insertIntoSelectQuery, err := queryGenerator.BuildQuery(ctx)
+			if err != nil {
+				close(queries)
+				c.logger.Error("[clickhouse] error while building insert into select query",
+					slog.String("table", tbl),
+					slog.Int64("syncBatchID", endBatchID),
+					slog.Int64("normalizeBatchID", normBatchID),
+					slog.Any("error", err))
+				return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
 			}
 
-			var escapedSourceSchemaSelectorFragment string
-			if sourceSchemaAsDestinationColumn {
-				if tableMapping == nil {
-					return model.NormalizeResponse{}, errors.New("could not look up source schema info")
-				}
-				schemaTable, err := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
-				if err != nil {
-					return model.NormalizeResponse{}, err
-				}
-				escapedSourceSchemaSelectorFragment = fmt.Sprintf("%s AS %s,",
-					peerdb_clickhouse.QuoteLiteral(schemaTable.Schema), peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
-			}
-
-			projection := strings.Builder{}
-			projectionUpdate := strings.Builder{}
-
-			for _, column := range schema.Columns {
-				colName := column.Name
-				dstColName := colName
-				colType := qvalue.QValueKind(column.Type)
-
-				var clickHouseType string
-				var columnNullableEnabled bool
-				if tableMapping != nil {
-					for _, col := range tableMapping.Columns {
-						if col.SourceName == colName {
-							if col.DestinationName != "" {
-								dstColName = col.DestinationName
-							}
-							if col.DestinationType != "" {
-								// TODO can we restrict this to avoid injection?
-								clickHouseType = col.DestinationType
-							}
-							columnNullableEnabled = col.NullableEnabled
-							break
-						}
-					}
-				}
-
-				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(dstColName))
-				if clickHouseType == "" {
-					var err error
-					clickHouseType, err = colType.ToDWHColumnType(
-						ctx, req.Env, protos.DBType_CLICKHOUSE, column, schema.NullableEnabled || columnNullableEnabled,
-					)
-					if err != nil {
-						close(queries)
-						return model.NormalizeResponse{}, fmt.Errorf("error while converting column type to clickhouse type: %w", err)
-					}
-				}
-
-				switch clickHouseType {
-				case "Date32", "Nullable(Date32)":
-					fmt.Fprintf(&projection,
-						"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6)) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
-						peerdb_clickhouse.QuoteIdentifier(dstColName),
-					)
-					if enablePrimaryUpdate {
-						fmt.Fprintf(&projectionUpdate,
-							"toDate32(parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6)) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
-							peerdb_clickhouse.QuoteIdentifier(dstColName),
-						)
-					}
-				case "DateTime64(6)", "Nullable(DateTime64(6))":
-					fmt.Fprintf(&projection,
-						"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_data, %s),6) AS %s,",
-						peerdb_clickhouse.QuoteLiteral(colName),
-						peerdb_clickhouse.QuoteIdentifier(dstColName),
-					)
-					if enablePrimaryUpdate {
-						fmt.Fprintf(&projectionUpdate,
-							"parseDateTime64BestEffortOrNull(JSONExtractString(_peerdb_match_data, %s),6) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
-							peerdb_clickhouse.QuoteIdentifier(dstColName),
-						)
-					}
-				default:
-					projLen := projection.Len()
-					if colType == qvalue.QValueKindBytes {
-						format, err := internal.PeerDBBinaryFormat(ctx, req.Env)
-						if err != nil {
-							return model.NormalizeResponse{}, err
-						}
-						switch format {
-						case internal.BinaryFormatRaw:
-							fmt.Fprintf(&projection,
-								"base64Decode(JSONExtractString(_peerdb_data, %s)) AS %s,",
-								peerdb_clickhouse.QuoteLiteral(colName),
-								peerdb_clickhouse.QuoteIdentifier(dstColName),
-							)
-							if enablePrimaryUpdate {
-								fmt.Fprintf(&projectionUpdate,
-									"base64Decode(JSONExtractString(_peerdb_match_data, %s)) AS %s,",
-									peerdb_clickhouse.QuoteLiteral(colName),
-									peerdb_clickhouse.QuoteIdentifier(dstColName),
-								)
-							}
-						case internal.BinaryFormatHex:
-							fmt.Fprintf(&projection, "hex(base64Decode(JSONExtractString(_peerdb_data, %s))) AS %s,",
-								peerdb_clickhouse.QuoteLiteral(colName),
-								peerdb_clickhouse.QuoteIdentifier(dstColName),
-							)
-							if enablePrimaryUpdate {
-								fmt.Fprintf(&projectionUpdate,
-									"hex(base64Decode(JSONExtractString(_peerdb_match_data, %s))) AS %s,",
-									peerdb_clickhouse.QuoteLiteral(colName),
-									peerdb_clickhouse.QuoteIdentifier(dstColName),
-								)
-							}
-						}
-					}
-
-					// proceed with default logic if logic above didn't add any sql
-					if projection.Len() == projLen {
-						fmt.Fprintf(
-							&projection,
-							"JSONExtract(_peerdb_data, %s, %s) AS %s,",
-							peerdb_clickhouse.QuoteLiteral(colName),
-							peerdb_clickhouse.QuoteLiteral(clickHouseType),
-							peerdb_clickhouse.QuoteIdentifier(dstColName),
-						)
-						if enablePrimaryUpdate {
-							fmt.Fprintf(
-								&projectionUpdate,
-								"JSONExtract(_peerdb_match_data, %s, %s) AS %s,",
-								peerdb_clickhouse.QuoteLiteral(colName),
-								peerdb_clickhouse.QuoteLiteral(clickHouseType),
-								peerdb_clickhouse.QuoteIdentifier(dstColName),
-							)
-						}
-					}
-				}
-			}
-
-			if sourceSchemaAsDestinationColumn {
-				projection.WriteString(escapedSourceSchemaSelectorFragment)
-				fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(sourceSchemaColName))
-			}
-
-			// add _peerdb_sign as _peerdb_record_type / 2
-			fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-			fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-
-			// add _peerdb_timestamp as _peerdb_version
-			fmt.Fprintf(&projection, "_peerdb_timestamp AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
-			fmt.Fprintf(&colSelector, "%s) ", peerdb_clickhouse.QuoteIdentifier(versionColName))
-
-			selectQuery.WriteString(projection.String())
-			fmt.Fprintf(&selectQuery,
-				" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-				peerdb_clickhouse.QuoteIdentifier(rawTbl), normBatchID, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
-			if numParts > 1 {
-				fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart)
-			}
-
-			if enablePrimaryUpdate {
-				if sourceSchemaAsDestinationColumn {
-					projectionUpdate.WriteString(escapedSourceSchemaSelectorFragment)
-				}
-
-				// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
-				fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-				// decrement timestamp by 1 so delete is ordered before latest data,
-				// could be same if deletion records were only generated when ordering updated
-				fmt.Fprintf(&projectionUpdate, "_peerdb_timestamp - 1 AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
-
-				selectQuery.WriteString(" UNION ALL SELECT ")
-				selectQuery.WriteString(projectionUpdate.String())
-				fmt.Fprintf(&selectQuery,
-					" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
-						" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
-					peerdb_clickhouse.QuoteIdentifier(rawTbl), normBatchID, req.SyncBatchID, peerdb_clickhouse.QuoteLiteral(tbl))
-				if numParts > 1 {
-					fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", numParts, numPart)
-				}
-			}
-
-			insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
-				peerdb_clickhouse.QuoteIdentifier(tbl), colSelector.String(), selectQuery.String())
 			select {
-			case queries <- NormalizeInsertQuery{
-				query:     insertIntoSelectQuery,
-				tableName: tbl,
+			case queries <- NormalizeQueryGenerator{
+				TableName: tbl,
+				Query:     insertIntoSelectQuery,
+				Part:      numPart,
 			}:
 			case <-errCtx.Done():
 				close(queries)
-				c.logger.Error("[clickhouse] context canceled while normalizing",
+				c.logger.Error("[clickhouse] context canceled while inserting data to ClickHouse",
 					slog.Any("error", errCtx.Err()),
 					slog.Any("cause", context.Cause(errCtx)))
 				return model.NormalizeResponse{}, context.Cause(errCtx)
@@ -567,14 +609,15 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return model.NormalizeResponse{}, err
 	}
 
-	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, req.SyncBatchID); err != nil {
-		c.logger.Error("[clickhouse] error while updating normalize batch id", slog.Int64("BatchID", req.SyncBatchID), slog.Any("error", err))
+	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endBatchID); err != nil {
+		c.logger.Error("[clickhouse] error while updating normalize batch id",
+			slog.Int64("batchID", endBatchID), slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
 
 	return model.NormalizeResponse{
 		StartBatchID: normBatchID + 1,
-		EndBatchID:   req.SyncBatchID,
+		EndBatchID:   endBatchID,
 	}, nil
 }
 
@@ -585,11 +628,11 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	normalizeBatchID int64,
 	tableToSchema map[string]*protos.TableSchema,
 ) ([]string, error) {
-	rawTbl := c.getRawTableName(flowJobName)
+	rawTbl := c.GetRawTableName(flowJobName)
 
 	q := fmt.Sprintf(
 		"SELECT DISTINCT _peerdb_destination_table_name FROM %s WHERE _peerdb_batch_id>%d AND _peerdb_batch_id<=%d",
-		rawTbl, normalizeBatchID, syncBatchID)
+		peerdb_clickhouse.QuoteIdentifier(rawTbl), normalizeBatchID, syncBatchID)
 
 	rows, err := c.query(ctx, q)
 	if err != nil {
@@ -598,19 +641,15 @@ func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
 	defer rows.Close()
 	var tableNames []string
 	for rows.Next() {
-		var tableName sql.NullString
+		var tableName string
 		if err := rows.Scan(&tableName); err != nil {
 			return nil, fmt.Errorf("error while scanning table name: %w", err)
 		}
 
-		if !tableName.Valid {
-			return nil, errors.New("table name is not valid")
-		}
-
-		if _, ok := tableToSchema[tableName.String]; ok {
-			tableNames = append(tableNames, tableName.String)
+		if _, ok := tableToSchema[tableName]; ok {
+			tableNames = append(tableNames, tableName)
 		} else {
-			c.logger.Warn("table not found in table to schema mapping", "table", tableName.String)
+			c.logger.Warn("table not found in table to schema mapping", "table", tableName)
 		}
 	}
 
@@ -626,13 +665,14 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 	flowJobName string,
 	syncBatchID int64,
 	env map[string]string,
+	version uint32,
 ) error {
-	avroSyncMethod := c.avroSyncMethod(flowJobName, env)
+	avroSyncMethod := c.avroSyncMethod(flowJobName, env, version)
 	avroFile, err := GetAvroStage(ctx, flowJobName, syncBatchID)
 	if err != nil {
 		return fmt.Errorf("failed to get avro stage: %w", err)
 	}
-	defer avroFile.Cleanup()
+	defer avroFile.Cleanup(ctx)
 
 	if err := avroSyncMethod.CopyStageToDestination(ctx, avroFile); err != nil {
 		return fmt.Errorf("failed to copy stage to destination: %w", err)
@@ -641,12 +681,36 @@ func (c *ClickHouseConnector) copyAvroStageToDestination(
 }
 
 func (c *ClickHouseConnector) copyAvroStagesToDestination(
-	ctx context.Context, flowJobName string, normBatchID, syncBatchID int64, env map[string]string,
+	ctx context.Context, flowJobName string, normBatchID int64, syncBatchID int64, env map[string]string, version uint32,
 ) error {
-	for s := normBatchID + 1; s <= syncBatchID; s++ {
-		if err := c.copyAvroStageToDestination(ctx, flowJobName, s, env); err != nil {
+	lastSyncedBatchIdInRawTable, err := c.GetLastBatchIDInRawTable(ctx, flowJobName)
+	if err != nil {
+		return fmt.Errorf("failed to get last batch id in raw table: %w", err)
+	}
+
+	batchIdToLoad := max(lastSyncedBatchIdInRawTable, normBatchID)
+	c.logger.Info("[clickhouse] pushing s3 data to raw table",
+		slog.Int64("BatchID", batchIdToLoad),
+		slog.Int64("syncBatchID", syncBatchID))
+
+	for s := batchIdToLoad + 1; s <= syncBatchID; s++ {
+		if err := c.copyAvroStageToDestination(ctx, flowJobName, s, env, version); err != nil {
 			return fmt.Errorf("failed to copy avro stage to destination: %w", err)
+		}
+		c.logger.Info("[clickhouse] setting last batch id in raw table",
+			slog.Int64("BatchID", s))
+		if err := c.SetLastBatchIDInRawTable(ctx, flowJobName, s); err != nil {
+			c.logger.Error("[clickhouse] error while setting last batch id in raw table",
+				slog.Int64("BatchID", s), slog.Any("error", err))
+			return fmt.Errorf("failed to set last batch id in raw table: %w", err)
 		}
 	}
 	return nil
+}
+
+func getColName(overrides map[string]string, name string) string {
+	if newName, ok := overrides[name]; ok {
+		return newName
+	}
+	return name
 }

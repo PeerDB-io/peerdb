@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/PeerDB-io/peerdb/flow/alerting"
 	connbigquery "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connelasticsearch "github.com/PeerDB-io/peerdb/flow/connectors/elasticsearch"
 	conneventhub "github.com/PeerDB-io/peerdb/flow/connectors/eventhub"
 	connkafka "github.com/PeerDB-io/peerdb/flow/connectors/kafka"
+	connmongo "github.com/PeerDB-io/peerdb/flow/connectors/mongo"
 	connmysql "github.com/PeerDB-io/peerdb/flow/connectors/mysql"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connpubsub "github.com/PeerDB-io/peerdb/flow/connectors/pubsub"
@@ -24,6 +25,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type Connector interface {
@@ -51,6 +53,12 @@ type MirrorDestinationValidationConnector interface {
 	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigs, map[string]*protos.TableSchema) error
 }
 
+type StatActivityConnector interface {
+	Connector
+
+	StatActivity(context.Context, *protos.PostgresPeerActivityInfoRequest) (*protos.PeerStatResponse, error)
+}
+
 type GetTableSchemaConnector interface {
 	Connector
 
@@ -58,8 +66,9 @@ type GetTableSchemaConnector interface {
 	GetTableSchema(
 		ctx context.Context,
 		env map[string]string,
+		version uint32,
 		system protos.TypeSystem,
-		tableIdentifiers []*protos.TableMapping,
+		tableMappings []*protos.TableMapping,
 	) (map[string]*protos.TableSchema, error)
 }
 
@@ -67,7 +76,7 @@ type GetSchemaConnector interface {
 	Connector
 
 	GetAllTables(context.Context) (*protos.AllTablesResponse, error)
-	GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error)
+	GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error)
 	GetSchemas(ctx context.Context) (*protos.PeerSchemasResponse, error)
 	GetTablesInSchema(ctx context.Context, schema string, cdcEnabled bool) (*protos.SchemaTablesResponse, error)
 }
@@ -100,24 +109,6 @@ type CDCPullConnectorCore interface {
 
 	// PullFlowCleanup drops both the Postgres publication and replication slot, as a part of DROP MIRROR
 	PullFlowCleanup(ctx context.Context, jobName string) error
-
-	// HandleSlotInfo update monitoring info on slot size etc
-	HandleSlotInfo(
-		ctx context.Context,
-		alerter *alerting.Alerter,
-		catalogPool shared.CatalogPool,
-		alertKeys *alerting.AlertKeys,
-		slotMetricGauges otel_metrics.SlotMetricGauges,
-	) error
-
-	// GetSlotInfo returns the WAL (or equivalent) info of a slot for the connector.
-	GetSlotInfo(ctx context.Context, slotName string) ([]*protos.SlotInfo, error)
-
-	// AddTablesToPublication adds additional tables added to a mirror to the publication also
-	AddTablesToPublication(ctx context.Context, req *protos.AddTablesToPublicationInput) error
-
-	// RemoveTablesFromPublication removes tables from the publication
-	RemoveTablesFromPublication(ctx context.Context, req *protos.RemoveTablesFromPublicationInput) error
 }
 
 type CDCPullConnector interface {
@@ -163,8 +154,8 @@ type NormalizedTablesConnector interface {
 		ctx context.Context,
 		tx any,
 		config *protos.SetupNormalizedTableBatchInput,
-		tableIdentifier string,
-		tableSchema *protos.TableSchema,
+		destinationTableIdentifier string,
+		sourceTableSchema *protos.TableSchema,
 	) (bool, error)
 }
 
@@ -177,12 +168,6 @@ type CDCSyncConnectorCore interface {
 	// SetupMetadataTables creates the metadata table [PEERDB_MIRROR_JOBS] if necessary.
 	SetupMetadataTables(ctx context.Context) error
 
-	// GetLastOffset gets the last offset from the metadata table on the destination
-	GetLastOffset(ctx context.Context, jobName string) (model.CdcCheckpoint, error)
-
-	// SetLastOffset updates the last offset on the metadata table on the destination
-	SetLastOffset(ctx context.Context, jobName string, lastOffset model.CdcCheckpoint) error
-
 	// GetLastSyncBatchID gets the last batch synced to the destination from the metadata table
 	GetLastSyncBatchID(ctx context.Context, jobName string) (int64, error)
 
@@ -193,11 +178,10 @@ type CDCSyncConnectorCore interface {
 	SyncFlowCleanup(ctx context.Context, jobName string) error
 
 	// ReplayTableSchemaDelta changes a destination table to match the schema at source
-	// This could involve adding or dropping multiple columns.
+	// This could involve adding multiple columns.
 	// Connectors which are non-normalizing should implement this as a nop.
-	ReplayTableSchemaDeltas(
-		ctx context.Context, env map[string]string, flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
-	) error
+	ReplayTableSchemaDeltas(ctx context.Context, env map[string]string, flowJobName string,
+		tableMappings []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta) error
 }
 
 type CDCSyncConnector interface {
@@ -236,20 +220,27 @@ type QRepPullConnectorCore interface {
 
 	// GetQRepPartitions returns the partitions for a given table that haven't been synced yet.
 	GetQRepPartitions(ctx context.Context, config *protos.QRepConfig, last *protos.QRepPartition) ([]*protos.QRepPartition, error)
+
+	GetDefaultPartitionKeyForTables(ctx context.Context,
+		input *protos.GetDefaultPartitionKeyForTablesInput) (*protos.GetDefaultPartitionKeyForTablesOutput, error)
 }
 
 type QRepPullConnector interface {
 	QRepPullConnectorCore
 
 	// PullQRepRecords returns the records for a given partition.
-	PullQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream) (int64, int64, error)
+	PullQRepRecords(
+		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, protos.DBType, *protos.QRepPartition, *model.QRecordStream,
+	) (int64, int64, error)
 }
 
 type QRepPullPgConnector interface {
 	QRepPullConnectorCore
 
 	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(context.Context, *protos.QRepConfig, *protos.QRepPartition, connpostgres.PgCopyWriter) (int64, int64, error)
+	PullPgQRepRecords(
+		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, protos.DBType, *protos.QRepPartition, connpostgres.PgCopyWriter,
+	) (int64, int64, error)
 }
 
 type QRepSyncConnectorCore interface {
@@ -266,18 +257,18 @@ type QRepSyncConnector interface {
 	QRepSyncConnectorCore
 
 	// SyncQRepRecords syncs the records for a given partition.
-	// returns the number of records synced.
+	// returns the number of records synced and a slice of warnings to report to the user.
 	SyncQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-		stream *model.QRecordStream) (int, error)
+		stream *model.QRecordStream) (int64, shared.QRepWarnings, error)
 }
 
 type QRepSyncPgConnector interface {
 	QRepSyncConnectorCore
 
 	// SyncPgQRepRecords syncs the records for a given partition.
-	// returns the number of records synced.
+	// returns the number of records synced and a slice of warnings to report to the user.
 	SyncPgQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
-		stream connpostgres.PgCopyReader) (int, error)
+		stream connpostgres.PgCopyReader) (int64, shared.QRepWarnings, error)
 }
 
 type QRepConsolidateConnector interface {
@@ -299,6 +290,12 @@ type RawTableConnector interface {
 type RenameTablesConnector interface {
 	Connector
 
+	RenameTables(context.Context, *protos.RenameTablesInput) (*protos.RenameTablesOutput, error)
+}
+
+type RenameTablesWithSoftDeleteConnector interface {
+	Connector
+
 	RenameTables(context.Context, *protos.RenameTablesInput, map[string]*protos.TableSchema) (*protos.RenameTablesOutput, error)
 }
 
@@ -308,11 +305,23 @@ type GetVersionConnector interface {
 	GetVersion(context.Context) (string, error)
 }
 
+type GetLogRetentionConnector interface {
+	Connector
+
+	GetLogRetentionHours(ctx context.Context) (float64, error)
+}
+
 func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (protos.DBType, error) {
 	row := catalogPool.QueryRow(ctx, "SELECT type FROM peers WHERE name = $1", peerName)
 	var dbtype protos.DBType
 	err := row.Scan(&dbtype)
-	return dbtype, err
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, exceptions.NewNotFoundError(fmt.Errorf("peer not found: %s", peerName))
+		}
+		return 0, exceptions.NewCatalogError(fmt.Errorf("failed to load peer type for %s: %w", peerName, err))
+	}
+	return dbtype, nil
 }
 
 func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerNames []string) (map[string]protos.DBType, error) {
@@ -322,19 +331,31 @@ func LoadPeerTypes(ctx context.Context, catalogPool shared.CatalogPool, peerName
 
 	rows, err := catalogPool.Query(ctx, "SELECT name, type FROM peers WHERE name = ANY($1)", peerNames)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to query peer types: %w", err)
 	}
-	defer rows.Close()
 
-	peerTypes := make(map[string]protos.DBType)
-	for rows.Next() {
-		var peerName string
-		var dbtype protos.DBType
-		if err := rows.Scan(&peerName, &dbtype); err != nil {
-			return nil, err
-		}
+	peerTypes := make(map[string]protos.DBType, len(peerNames))
+	var peerName string
+	var dbtype protos.DBType
+	if _, err := pgx.ForEachRow(rows, []any{&peerName, &dbtype}, func() error {
 		peerTypes[peerName] = dbtype
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("error querying peer rows: %w", err)
 	}
+
+	// Verify all requested peers were found
+	var missingPeers []string
+	for _, peerName := range peerNames {
+		if _, found := peerTypes[peerName]; !found {
+			missingPeers = append(missingPeers, peerName)
+		}
+	}
+
+	if len(missingPeers) > 0 {
+		return nil, fmt.Errorf("peers not found: %v", missingPeers)
+	}
+
 	return peerTypes, nil
 }
 
@@ -348,6 +369,9 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 	var encPeerOptions []byte
 	var encKeyID string
 	if err := row.Scan(&peer.Type, &encPeerOptions, &encKeyID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, exceptions.NewNotFoundError(errors.New("peer not found " + peerName))
+		}
 		return nil, fmt.Errorf("failed to load peer: %w", err)
 	}
 
@@ -369,12 +393,6 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 			return nil, fmt.Errorf("failed to unmarshal Snowflake config: %w", err)
 		}
 		peer.Config = &protos.Peer_SnowflakeConfig{SnowflakeConfig: &config}
-	case protos.DBType_MONGO:
-		var config protos.MongoConfig
-		if err := proto.Unmarshal(peerOptions, &config); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal MongoDB config: %w", err)
-		}
-		peer.Config = &protos.Peer_MongoConfig{MongoConfig: &config}
 	case protos.DBType_POSTGRES:
 		var config protos.PostgresConfig
 		if err := proto.Unmarshal(peerOptions, &config); err != nil {
@@ -393,6 +411,12 @@ func LoadPeer(ctx context.Context, catalogPool shared.CatalogPool, peerName stri
 			return nil, fmt.Errorf("failed to unmarshal SQL Server config: %w", err)
 		}
 		peer.Config = &protos.Peer_SqlserverConfig{SqlserverConfig: &config}
+	case protos.DBType_MONGO:
+		var config protos.MongoConfig
+		if err := proto.Unmarshal(peerOptions, &config); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal MongoDB config: %w", err)
+		}
+		peer.Config = &protos.Peer_MongoConfig{MongoConfig: &config}
 	case protos.DBType_MYSQL:
 		var config protos.MySqlConfig
 		if err := proto.Unmarshal(peerOptions, &config); err != nil {
@@ -448,6 +472,8 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 		return conneventhub.NewEventHubConnector(ctx, inner.EventhubGroupConfig)
 	case *protos.Peer_S3Config:
 		return conns3.NewS3Connector(ctx, inner.S3Config)
+	case *protos.Peer_MongoConfig:
+		return connmongo.NewMongoConnector(ctx, inner.MongoConfig)
 	case *protos.Peer_MysqlConfig:
 		return connmysql.NewMySqlConnector(ctx, inner.MysqlConfig)
 	case *protos.Peer_ClickhouseConfig:
@@ -467,7 +493,7 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 	var none T
 	conn, err := GetConnector(ctx, env, config)
 	if err != nil {
-		return none, err
+		return none, exceptions.NewPeerCreateError(err)
 	}
 
 	if tconn, ok := conn.(T); ok {
@@ -478,13 +504,40 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 	}
 }
 
-func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string) (T, error) {
+func LoadPeerAndGetByNameAs[T Connector](
+	ctx context.Context,
+	env map[string]string,
+	catalogPool shared.CatalogPool,
+	name string,
+) (*protos.Peer, T, error) {
 	peer, err := LoadPeer(ctx, catalogPool, name)
 	if err != nil {
 		var none T
-		return none, err
+		return nil, none, err
 	}
-	return GetAs[T](ctx, env, peer)
+	conn, err := GetAs[T](ctx, env, peer)
+	return peer, conn, err
+}
+
+func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string) (T, error) {
+	_, conn, err := LoadPeerAndGetByNameAs[T](ctx, env, catalogPool, name)
+	return conn, err
+}
+
+func GetPostgresConnectorByName(
+	ctx context.Context,
+	env map[string]string,
+	catalogPool shared.CatalogPool,
+	name string,
+) (*connpostgres.PostgresConnector, error) {
+	peer, err := LoadPeer(ctx, catalogPool, name)
+	if err != nil {
+		return nil, err
+	}
+	if peer.Type != protos.DBType_POSTGRES {
+		return nil, errors.ErrUnsupported
+	}
+	return GetAs[*connpostgres.PostgresConnector](ctx, env, peer)
 }
 
 func CloseConnector(ctx context.Context, conn Connector) {
@@ -497,6 +550,7 @@ func CloseConnector(ctx context.Context, conn Connector) {
 var (
 	_ CDCPullConnector = &connpostgres.PostgresConnector{}
 	_ CDCPullConnector = &connmysql.MySqlConnector{}
+	_ CDCPullConnector = &connmongo.MongoConnector{}
 
 	_ CDCPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -517,6 +571,9 @@ var (
 	_ CDCNormalizeConnector = &connsnowflake.SnowflakeConnector{}
 	_ CDCNormalizeConnector = &connclickhouse.ClickHouseConnector{}
 
+	_ StatActivityConnector = &connpostgres.PostgresConnector{}
+	_ StatActivityConnector = &connmysql.MySqlConnector{}
+
 	_ GetTableSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetTableSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetTableSchemaConnector = &connsnowflake.SnowflakeConnector{}
@@ -524,6 +581,7 @@ var (
 
 	_ GetSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetSchemaConnector = &connmysql.MySqlConnector{}
+	_ GetSchemaConnector = &connmongo.MongoConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
@@ -535,6 +593,7 @@ var (
 
 	_ QRepPullConnector = &connpostgres.PostgresConnector{}
 	_ QRepPullConnector = &connmysql.MySqlConnector{}
+	_ QRepPullConnector = &connmongo.MongoConnector{}
 
 	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}
 
@@ -551,10 +610,10 @@ var (
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickHouseConnector{}
 
-	_ RenameTablesConnector = &connsnowflake.SnowflakeConnector{}
-	_ RenameTablesConnector = &connbigquery.BigQueryConnector{}
-	_ RenameTablesConnector = &connpostgres.PostgresConnector{}
-	_ RenameTablesConnector = &connclickhouse.ClickHouseConnector{}
+	_ RenameTablesWithSoftDeleteConnector = &connsnowflake.SnowflakeConnector{}
+	_ RenameTablesWithSoftDeleteConnector = &connbigquery.BigQueryConnector{}
+	_ RenameTablesWithSoftDeleteConnector = &connpostgres.PostgresConnector{}
+	_ RenameTablesConnector               = &connclickhouse.ClickHouseConnector{}
 
 	_ RawTableConnector = &connclickhouse.ClickHouseConnector{}
 	_ RawTableConnector = &connbigquery.BigQueryConnector{}
@@ -576,4 +635,8 @@ var (
 	_ GetVersionConnector = &connclickhouse.ClickHouseConnector{}
 	_ GetVersionConnector = &connpostgres.PostgresConnector{}
 	_ GetVersionConnector = &connmysql.MySqlConnector{}
+	_ GetVersionConnector = &connmongo.MongoConnector{}
+
+	_ GetLogRetentionConnector = &connmysql.MySqlConnector{}
+	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
 )

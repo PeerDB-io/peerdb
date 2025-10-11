@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"strconv"
 	"sync/atomic"
@@ -33,16 +34,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/pua"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type CheckMetadataTablesResult struct {
 	NeedsSetupMetadataTables bool
-}
-
-type NormalizeBatchRequest struct {
-	Done    chan struct{}
-	BatchID int64
 }
 
 type FlowableActivity struct {
@@ -69,7 +66,7 @@ func (a *FlowableActivity) CheckConnection(
 	config *protos.SetupInput,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	conn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
+	conn, err := connectors.GetByNameAs[connectors.Connector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
 			return nil
@@ -112,12 +109,6 @@ func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *prot
 
 	if err := dstConn.SetupMetadataTables(ctx); err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to setup metadata tables: %w", err))
-	}
-
-	// this should have been done by DropFlowDestination
-	// but edge case due to late context cancellation
-	if err := dstConn.SyncFlowCleanup(ctx, config.FlowName); err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to clean up destination before mirror setup: %w", err))
 	}
 
 	return nil
@@ -183,7 +174,7 @@ func (a *FlowableActivity) SetupTableSchema(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.System, config.TableMappings)
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, config.TableMappings)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}
@@ -254,7 +245,9 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
-	for tableIdentifier, tableSchema := range tableNameSchemaMapping {
+	for _, tableMapping := range config.TableMappings {
+		tableIdentifier := tableMapping.DestinationTableIdentifier
+		tableSchema := tableNameSchemaMapping[tableIdentifier]
 		existing, err := conn.SetupNormalizedTable(
 			ctx,
 			tx,
@@ -271,7 +264,6 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 		numTablesSetup.Add(1)
 		if !existing {
-			logger.Info("created table " + tableIdentifier)
 			a.Alerter.LogFlowInfo(ctx, config.FlowName, "created table "+tableIdentifier+" in destination")
 		} else {
 			logger.Info("table already exists " + tableIdentifier)
@@ -332,12 +324,6 @@ func (a *FlowableActivity) SyncFlow(
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 	}
 
-	normalizeBufferSize, err := internal.PeerDBNormalizeChannelBufferSize(ctx, config.Env)
-	if err != nil {
-		connectors.CloseConnector(ctx, srcConn)
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-	}
-
 	reconnectAfterBatches, err := internal.PeerDBReconnectAfterBatches(ctx, config.Env)
 	if err != nil {
 		connectors.CloseConnector(ctx, srcConn)
@@ -348,13 +334,19 @@ func (a *FlowableActivity) SyncFlow(
 	// whereas normalizeDone will be closed by normalizing goroutine
 	// Wait on normalizeDone at end to not interrupt final normalize
 	syncDone := make(chan struct{})
-	normRequests := make(chan NormalizeBatchRequest, normalizeBufferSize)
+	normRequests := concurrency.NewLastChan()
+	normResponses := concurrency.NewLastChan()
+	normBufferSize, err := internal.PeerDBNormalizeBufferSize(ctx, config.Env)
+	if err != nil {
+		connectors.CloseConnector(ctx, srcConn)
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
 
 	group, groupCtx := errgroup.WithContext(ctx)
 	group.Go(func() error {
 		normalizeCtx := internal.WithOperationContext(groupCtx, protos.FlowOperation_FLOW_OPERATION_NORMALIZE)
 		// returning error signals sync to stop, normalize can recover connections without interrupting sync, so never return error
-		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, &normalizingBatchID, &normalizeWaiting)
+		a.normalizeLoop(normalizeCtx, logger, config, syncDone, normRequests, normResponses, &normalizingBatchID, &normalizeWaiting)
 		return nil
 	})
 	group.Go(func() error {
@@ -373,10 +365,10 @@ func (a *FlowableActivity) SyncFlow(
 		var syncErr error
 		if config.System == protos.TypeSystem_Q {
 			syncResponse, syncErr = a.syncRecords(groupCtx, config, options, srcConn.(connectors.CDCPullConnector),
-				normRequests, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
 		} else {
 			syncResponse, syncErr = a.syncPg(groupCtx, config, options, srcConn.(connectors.CDCPullPgConnector),
-				normRequests, &syncingBatchID, &syncState)
+				normRequests, normResponses, normBufferSize, &syncingBatchID, &syncState)
 		}
 
 		if syncErr != nil {
@@ -387,6 +379,8 @@ func (a *FlowableActivity) SyncFlow(
 			logger.Error("failed to sync records", slog.Any("error", syncErr))
 			syncState.Store(shared.Ptr("cleanup"))
 			close(syncDone)
+			normRequests.Close()
+			normResponses.Close()
 			return errors.Join(syncErr, group.Wait())
 		} else if syncResponse != nil {
 			totalRecordsSynced.Add(syncResponse.NumRecordsSynced)
@@ -397,13 +391,16 @@ func (a *FlowableActivity) SyncFlow(
 			)))
 			a.OtelManager.Metrics.RecordsSyncedCounter.Add(ctx, syncResponse.NumRecordsSynced)
 		}
-		if (options.NumberOfSyncs > 0 && syncNum >= options.NumberOfSyncs) || (reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches) {
+		if reconnectAfterBatches > 0 && syncNum >= reconnectAfterBatches {
 			break
 		}
 	}
 
 	syncState.Store(shared.Ptr("cleanup"))
 	close(syncDone)
+	normRequests.Close()
+	normResponses.Close()
+
 	waitErr := group.Wait()
 	if err := ctx.Err(); err != nil {
 		logger.Info("sync canceled", slog.Any("error", err))
@@ -420,7 +417,9 @@ func (a *FlowableActivity) syncRecords(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
-	normRequests chan<- NormalizeBatchRequest,
+	normRequests *concurrency.LastChan,
+	normResponses *concurrency.LastChan,
+	normBufferSize int64,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
@@ -453,7 +452,8 @@ func (a *FlowableActivity) syncRecords(
 			return stream, nil
 		}
 	}
-	return syncCore(ctx, a, config, options, srcConn, normRequests,
+	return syncCore(ctx, a, config, options, srcConn,
+		normRequests, normResponses, normBufferSize,
 		syncingBatchID, syncWaiting, adaptStream,
 		connectors.CDCPullConnector.PullRecords,
 		connectors.CDCSyncConnector.SyncRecords)
@@ -464,11 +464,14 @@ func (a *FlowableActivity) syncPg(
 	config *protos.FlowConnectionConfigs,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
-	normRequests chan<- NormalizeBatchRequest,
+	normRequests *concurrency.LastChan,
+	normResponses *concurrency.LastChan,
+	normBufferSize int64,
 	syncingBatchID *atomic.Int64,
 	syncWaiting *atomic.Pointer[string],
 ) (*model.SyncResponse, error) {
-	return syncCore(ctx, a, config, options, srcConn, normRequests,
+	return syncCore(ctx, a, config, options, srcConn,
+		normRequests, normResponses, normBufferSize,
 		syncingBatchID, syncWaiting, nil,
 		connectors.CDCPullPgConnector.PullPg,
 		connectors.CDCSyncPgConnector.SyncPg)
@@ -513,7 +516,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 
 	partitions, err := srcConn.GetQRepPartitions(ctx, config, last)
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get partitions from source: %w", err))
+		return nil, a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to get partitions from source", err)
 	}
 	if len(partitions) > 0 {
 		if err := monitoring.InitializeQRepRun(
@@ -550,16 +553,14 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID)
-	if err != nil {
+	if err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID); err != nil {
 		return fmt.Errorf("failed to update start time for qrep run: %w", err)
 	}
 
 	numPartitions := len(partitions.Partitions)
+	logger.Info("replicating partitions for batch",
+		slog.Int64("batchID", int64(partitions.BatchId)), slog.Int("partitions", numPartitions))
 
-	logger.Info(fmt.Sprintf("replicating partitions for batch %d - size: %d",
-		partitions.BatchId, numPartitions),
-	)
 	for _, p := range partitions.Partitions {
 		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
 		var err error
@@ -593,6 +594,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 
 		if err != nil {
+			logger.Error("failed to replicate partition", slog.Any("error", err))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		}
 	}
@@ -642,6 +644,12 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
+		var notFound *exceptions.NotFoundError
+		if errors.As(err, &notFound) {
+			logger := internal.LoggerFromCtx(ctx)
+			logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
+			return nil
+		}
 		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
 			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to get source connector: %w", err)),
 		)
@@ -649,12 +657,18 @@ func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropF
 	defer connectors.CloseConnector(ctx, srcConn)
 
 	if err := srcConn.PullFlowCleanup(ctx, req.FlowJobName); err != nil {
-		pullCleanupErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err))
-		if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
-			// don't alert when PID active
-			_ = a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			a.Alerter.LogFlowWarning(ctx, req.FlowJobName, fmt.Errorf("[DropFlowSource] hostname not found, skipping: %w", err))
+			return nil
+		} else {
+			pullCleanupErr := exceptions.NewDropFlowError(fmt.Errorf("[DropFlowSource] failed to clean up source: %w", err))
+			if !shared.IsSQLStateError(err, pgerrcode.ObjectInUse) {
+				// don't alert when PID active
+				_ = a.Alerter.LogFlowError(ctx, req.FlowJobName, pullCleanupErr)
+			}
+			return pullCleanupErr
 		}
-		return pullCleanupErr
 	}
 
 	a.Alerter.LogFlowInfo(ctx, req.FlowJobName, "Cleaned up source peer replication objects.")
@@ -666,9 +680,21 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
 	dstConn, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
-		return a.Alerter.LogFlowError(ctx, req.FlowJobName,
-			exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err)),
-		)
+		var dnsErr *net.DNSError
+		if errors.As(err, &dnsErr) && dnsErr.IsNotFound {
+			a.Alerter.LogFlowWarning(ctx, req.FlowJobName, fmt.Errorf("[DropFlowDestination] hostname not found, skipping: %w", err))
+			return nil
+		} else {
+			var notFound *exceptions.NotFoundError
+			if errors.As(err, &notFound) {
+				logger := internal.LoggerFromCtx(ctx)
+				logger.Warn("peer missing, skipping", slog.String("peer", req.PeerName))
+				return nil
+			}
+			return a.Alerter.LogFlowError(ctx, req.FlowJobName,
+				exceptions.NewDropFlowError(fmt.Errorf("[DropFlowDestination] failed to get destination connector: %w", err)),
+			)
+		}
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
 
@@ -685,7 +711,7 @@ func (a *FlowableActivity) DropFlowDestination(ctx context.Context, req *protos.
 }
 
 func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
-	logger := internal.LoggerFromCtx(ctx)
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "SendWALHeartbeat"))
 	walHeartbeatEnabled, err := internal.PeerDBEnableWALHeartbeat(ctx, nil)
 	if err != nil {
 		logger.Warn("unable to fetch wal heartbeat config, skipping wal heartbeat send", slog.Any("error", err))
@@ -709,7 +735,6 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 
 	// run above command for each Postgres peer
 	for _, pgPeer := range pgPeers {
-		activity.RecordHeartbeat(ctx, pgPeer.Name)
 		if err := ctx.Err(); err != nil {
 			return err
 		}
@@ -724,7 +749,7 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 			}
 			defer pgConn.Close()
 			if cmdErr := pgConn.ExecuteCommand(ctx, walHeartbeatStatement); cmdErr != nil {
-				logger.Warn(fmt.Sprintf("could not send wal heartbeat to peer %s: %v", pgPeer.Name, cmdErr))
+				logger.Warn("could not send wal heartbeat to peer", slog.String("peer", pgPeer.Name), slog.Any("error", cmdErr))
 			}
 			logger.Info("sent wal heartbeat", slog.String("peer", pgPeer.Name))
 		}()
@@ -733,53 +758,149 @@ func (a *FlowableActivity) SendWALHeartbeat(ctx context.Context) error {
 	return nil
 }
 
-type flowInformation struct {
-	config     *protos.FlowConnectionConfigs
-	workflowID string
-	status     protos.FlowStatus
-	isActive   bool
+func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
+	logger := internal.LoggerFromCtx(ctx)
+	logger.Info("Starting scheduled tasks")
+	defer shared.Interval(ctx, 20*time.Second, func() {
+		activity.RecordHeartbeat(ctx, "Running scheduled tasks")
+	})()
+	wrapWithLog := func(name string, fn func() error) func() {
+		return func() {
+			now := time.Now()
+			logger.Info(name + " starting")
+			if err := fn(); err != nil {
+				logger.Error(name+" failed", slog.Any("error", err))
+			}
+			logger.Info(name+" completed", slog.Duration("duration", time.Since(now)))
+		}
+	}
+	defer shared.Interval(ctx, 10*time.Minute, wrapWithLog("SendWALHeartbeat", func() error {
+		return a.SendWALHeartbeat(ctx)
+	}))()
+	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordMetricsCritical", func() error {
+		timeoutCtx, cancelFunc := context.WithTimeout(ctx, 50*time.Second)
+		defer cancelFunc()
+		return a.RecordMetricsCritical(timeoutCtx)
+	}))()
+	defer shared.Interval(ctx, 2*time.Minute, wrapWithLog("RecordMetricsAggregates", func() error {
+		if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
+			return a.RecordMetricsAggregates(ctx)
+		}
+		logger.Info("metrics aggregates recording is disabled")
+		return nil
+	}))()
+	defer shared.Interval(ctx, 1*time.Minute, wrapWithLog("RecordSlotSizes", func() error {
+		return a.RecordSlotSizes(ctx)
+	}))()
+	<-ctx.Done()
+	logger.Info("Stopping scheduled tasks due to context done", slog.Any("error", ctx.Err()))
+	return nil
 }
 
-func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
-	rows, err := a.CatalogPool.Query(ctx, "SELECT DISTINCT ON (name) name, config_proto, workflow_id FROM flows WHERE query_string IS NULL")
+type flowInformation struct {
+	config     *protos.FlowConnectionConfigs
+	updatedAt  time.Time
+	workflowID string
+}
+
+type metricsFlowMetadata struct {
+	updatedAt           time.Time
+	config              *protos.FlowConnectionConfigs
+	name                string
+	workflowID          string
+	sourcePeerName      string
+	destinationPeerName string
+	status              protos.FlowStatus
+	sourcePeerType      protos.DBType
+	destinationPeerType protos.DBType
+}
+
+func (m *metricsFlowMetadata) toFlowContextMetadata() *protos.FlowContextMetadata {
+	return &protos.FlowContextMetadata{
+		Source: &protos.PeerContextMetadata{
+			Name: m.sourcePeerName,
+			Type: m.sourcePeerType,
+		},
+		Destination: &protos.PeerContextMetadata{
+			Name: m.destinationPeerName,
+			Type: m.destinationPeerType,
+		},
+		FlowName: m.config.FlowJobName,
+		Status:   m.status,
+	}
+}
+
+func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "RecordMetricsAggregates"))
+	logger.Info("Started RecordMetricsAggregates")
+	flows, err := a.getFlowsForMetrics(ctx)
 	if err != nil {
+		logger.Error("Failed to get flows for metrics", slog.Any("error", err))
 		return err
 	}
 
-	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (*flowInformation, error) {
-		var flowName string
-		var configProto []byte
-		var workflowID string
-		if err := rows.Scan(&flowName, &configProto, &workflowID); err != nil {
-			return nil, err
-		}
-
-		var config protos.FlowConnectionConfigs
-		err = proto.Unmarshal(configProto, &config)
-		if err != nil {
-			return nil, err
-		}
-
-		return &flowInformation{
-			config:     &config,
-			workflowID: workflowID,
-		}, nil
-	})
+	flowsMap := make(map[string]*metricsFlowMetadata, len(flows))
+	flowNames := make([]string, 0, len(flows))
+	for idx, flow := range flows {
+		flowsMap[flow.name] = &flows[idx]
+		flowNames = append(flowNames, flow.name)
+	}
+	rows, err := a.CatalogPool.Query(ctx, `
+		SELECT
+			destination_table_name,
+			inserts_count,
+			updates_count,
+			deletes_count,
+			flow_name
+		FROM peerdb_stats.cdc_table_aggregate_counts
+		WHERE flow_name = ANY($1)
+		ORDER BY flow_name, destination_table_name`, flowNames)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to query cdc table total counts: %w", err)
 	}
 
-	logger := internal.LoggerFromCtx(ctx)
-	slotMetricGauges := otel_metrics.SlotMetricGauges{}
-	slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
-	slotMetricGauges.RestartLSNGauge = a.OtelManager.Metrics.RestartLSNGauge
-	slotMetricGauges.ConfirmedFlushLSNGauge = a.OtelManager.Metrics.ConfirmedFlushLSNGauge
+	var scannedFlow string
+	var tableName string
+	operationValueMapping := [3]struct {
+		op    string
+		count int64
+	}{
+		{op: otel_metrics.RecordOperationTypeInsert},
+		{op: otel_metrics.RecordOperationTypeUpdate},
+		{op: otel_metrics.RecordOperationTypeDelete},
+	}
 
-	slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
+	if _, err = pgx.ForEachRow(rows, []any{
+		&tableName,
+		&operationValueMapping[0].count,
+		&operationValueMapping[1].count,
+		&operationValueMapping[2].count,
+		&scannedFlow,
+	}, func() error {
+		if flowData, ok := flowsMap[scannedFlow]; ok {
+			eCtx := context.WithValue(ctx, internal.FlowMetadataKey, flowData.toFlowContextMetadata())
+			for _, opAndValue := range operationValueMapping {
+				a.OtelManager.Metrics.RecordsSyncedPerTableGauge.Record(eCtx, opAndValue.count, metric.WithAttributeSet(attribute.NewSet(
+					attribute.String(otel_metrics.FlowNameKey, scannedFlow),
+					attribute.String(otel_metrics.DestinationTableNameKey, tableName),
+					attribute.String(otel_metrics.RecordOperationTypeKey, opAndValue.op),
+				)))
+			}
+		} else {
+			logger.Error("Flow not found for metrics",
+				slog.String("flow", scannedFlow), slog.String("tableName", tableName))
+		}
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to iterate over cdc table total counts: %w", err)
+	}
 
-	slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
+	return nil
+}
 
-	slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
+func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "RecordMetricsCritical"))
+	logger.Info("Started RecordMetricsCritical")
 
 	maintenanceEnabled, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	instanceStatus := otel_metrics.InstanceStatusReady
@@ -790,122 +911,310 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 	if maintenanceEnabled {
 		instanceStatus = otel_metrics.InstanceStatusMaintenance
 	}
-
+	logger.Info("Emitting Instance Status")
 	a.OtelManager.Metrics.InstanceStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 		attribute.String(otel_metrics.InstanceStatusKey, instanceStatus),
 		attribute.String(otel_metrics.PeerDBVersionKey, internal.PeerDBVersionShaShort()),
 		attribute.String(otel_metrics.DeploymentVersionKey, internal.PeerDBDeploymentVersion()),
 	)))
-	activeFlows := make([]*flowInformation, 0, len(infos))
-	for _, info := range infos {
-		func(ctx context.Context) {
-			flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-				FlowName:        info.config.FlowJobName,
-				SourceName:      info.config.SourceName,
-				DestinationName: info.config.DestinationName,
-			})
-			if err != nil {
-				logger.Error("Failed to get flow metadata", slog.Any("error", err))
-			}
-			ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-			logger = internal.LoggerFromCtx(ctx)
-			status, sErr := internal.GetWorkflowStatus(ctx, a.CatalogPool, a.TemporalClient, info.workflowID)
-			if sErr != nil {
-				logger.Error("Failed to get workflow status", slog.Any("error", sErr), slog.String("status", status.String()))
-			}
-			info.status = status
-			if _, info.isActive = activeFlowStatuses[status]; info.isActive {
-				activeFlows = append(activeFlows, info)
-			}
-			a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
-			a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
-				attribute.String(otel_metrics.FlowStatusKey, status.String()),
-				attribute.Bool(otel_metrics.IsFlowActiveKey, info.isActive),
-			)))
-			srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
-			if err != nil {
-				if !errors.Is(err, errors.ErrUnsupported) {
-					logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
-				}
-				return
-			}
-			defer connectors.CloseConnector(ctx, srcConn)
-
-			slotName := "peerflow_slot_" + info.config.FlowJobName
-			if info.config.ReplicationSlotName != "" {
-				slotName = info.config.ReplicationSlotName
-			}
-			peerName := info.config.SourceName
-
-			activity.RecordHeartbeat(ctx, fmt.Sprintf("checking %s on %s", slotName, peerName))
-			if ctx.Err() != nil {
-				return
-			}
-			if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
-				FlowName: info.config.FlowJobName,
-				PeerName: peerName,
-				SlotName: slotName,
-			}, slotMetricGauges); err != nil {
-				logger.Error("Failed to handle slot info", slog.Any("error", err))
-			}
-		}(ctx)
+	logger.Info("Querying for flows and statuses to emit metrics")
+	queryCtx, cancelFunc := context.WithTimeout(ctx, 20*time.Second)
+	defer cancelFunc()
+	infos, err := a.getFlowsForMetrics(queryCtx)
+	if err != nil {
+		return err
 	}
+	logger.Info("Emitting metrics for flows", slog.Int("flows", len(infos)))
+	activeFlows := make([]metricsFlowMetadata, 0, len(infos))
+	currentTime := time.Now()
+	for _, info := range infos {
+		ctx := context.WithValue(ctx, internal.FlowMetadataKey, info.toFlowContextMetadata())
+		_, isActive := activeFlowStatuses[info.status]
+		if isActive {
+			activeFlows = append(activeFlows, info)
+		}
+		a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
+		a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+			attribute.String(otel_metrics.FlowStatusKey, info.status.String()),
+			attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
+		)))
+		a.OtelManager.Metrics.DurationSinceLastFlowUpdateGauge.Record(ctx, int64(currentTime.Sub(info.updatedAt).Seconds()),
+			metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.FlowStatusKey, info.status.String()),
+			)))
+	}
+	logger.Info("Finished emitting Instance and Flow Status", slog.Int("flows", len(infos)))
+	var totalCpuLimit float64
+	if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
+		totalCpuLimit, err = strconv.ParseFloat(cpuLimitStr, 64)
+		if err != nil {
+			logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
+		}
+	}
+
+	var totalMemoryLimit float64
+	if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
+		totalMemoryLimit, err = strconv.ParseFloat(memLimitStr, 64)
+		if err != nil {
+			logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
+		}
+	}
+
+	var workloadTotalReplicaCount int
+	if workloadTotalReplicaCountStr, ok := os.LookupEnv("CURRENT_WORKLOAD_TOTAL_REPLICAS"); ok {
+		workloadTotalReplicaCount, err = strconv.Atoi(workloadTotalReplicaCountStr)
+		if err != nil {
+			logger.Error("Failed to parse workloadTotalReplicaCount",
+				slog.Any("error", err), slog.String("workloadTotalReplicaCount", workloadTotalReplicaCountStr))
+		}
+	}
+
+	logger.Info("Emitting Workload Compute information")
+	a.OtelManager.Metrics.TotalCPULimitsGauge.Record(ctx, totalCpuLimit)
+	a.OtelManager.Metrics.TotalMemoryLimitsGauge.Record(ctx, totalMemoryLimit)
+	a.OtelManager.Metrics.WorkloadTotalReplicasGauge.Record(ctx, int64(workloadTotalReplicaCount))
+	logger.Info("Finished emitting Workload Compute information")
+	logger.Info("Emitting Active Flow Info", slog.Int("flows", len(activeFlows)))
+	a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(len(activeFlows)))
 	if activeFlowCount := len(activeFlows); activeFlowCount > 0 {
-		var activeFlowCpuLimit float64
-		var totalCpuLimit float64
-		if cpuLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_CPU_LIMIT"); ok {
-			totalCpuLimit, err = strconv.ParseFloat(cpuLimitStr, 64)
-			if err != nil {
-				logger.Error("Failed to parse CPU limit", slog.Any("error", err), slog.String("cpuLimit", cpuLimitStr))
-			}
-		}
-
-		var activeFlowMemoryLimit float64
-		var totalMemoryLimit float64
-		if memLimitStr, ok := os.LookupEnv("CURRENT_CONTAINER_MEMORY_LIMIT"); ok {
-			totalMemoryLimit, err = strconv.ParseFloat(memLimitStr, 64)
-			if err != nil {
-				logger.Error("Failed to parse Memory limit", slog.Any("error", err), slog.String("memLimit", memLimitStr))
-			}
-		}
-
-		activeFlowCpuLimit = totalCpuLimit / float64(activeFlowCount)
-		activeFlowMemoryLimit = totalMemoryLimit / float64(activeFlowCount)
-		a.OtelManager.Metrics.ActiveFlowsGauge.Record(ctx, int64(activeFlowCount))
+		activeFlowCpuLimit := totalCpuLimit / float64(activeFlowCount)
+		activeFlowMemoryLimit := totalMemoryLimit / float64(activeFlowCount)
 		if activeFlowCpuLimit > 0 || activeFlowMemoryLimit > 0 {
 			for _, info := range activeFlows {
-				func(ctx context.Context) {
-					flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-						FlowName:        info.config.FlowJobName,
-						SourceName:      info.config.SourceName,
-						DestinationName: info.config.DestinationName,
-					})
-					if err != nil {
-						logger.Error("Failed to get flow metadata", slog.Any("error", err))
-					}
-					ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
-					logger = internal.LoggerFromCtx(ctx)
-
-					if activeFlowMemoryLimit > 0 {
-						a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
-					}
-					if activeFlowCpuLimit > 0 {
-						a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, activeFlowCpuLimit)
-					}
-				}(ctx)
+				ctx := context.WithValue(ctx, internal.FlowMetadataKey, info.toFlowContextMetadata())
+				if activeFlowMemoryLimit > 0 {
+					a.OtelManager.Metrics.MemoryLimitsPerActiveFlowGauge.Record(ctx, activeFlowMemoryLimit)
+				}
+				if activeFlowCpuLimit > 0 {
+					a.OtelManager.Metrics.CPULimitsPerActiveFlowGauge.Record(ctx, activeFlowCpuLimit)
+				}
 			}
 		}
+	}
+	logger.Info("Finished emitting Active Flow Info", slog.Int("flows", len(activeFlows)))
+	logger.Info("Finished RecordMetricsCritical")
+	return nil
+}
+
+func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlowMetadata, error) {
+	logger := internal.LoggerFromCtx(ctx)
+	rows, err := a.CatalogPool.Query(ctx,
+		`
+			SELECT DISTINCT ON (f.name)
+				f.name AS flow_name,
+				f.status AS status,
+				f.config_proto AS config_proto,
+				f.workflow_id AS workflow_id,
+				f.updated_at AS updated_at,
+				COALESCE(sp.name, '') AS source_peer_name,
+				COALESCE(sp.type, 0) AS source_peer_type,
+				COALESCE(dp.name, '') AS destination_peer_name,
+				COALESCE(dp.type, 0) AS destination_peer_type
+			FROM
+				flows f
+			LEFT JOIN peers sp ON f.source_peer = sp.id
+			LEFT JOIN peers dp ON f.destination_peer = dp.id
+		`)
+	if err != nil {
+		logger.Error("failed to query all flows", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to query all flows for metrics: %w", err)
+	}
+
+	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (metricsFlowMetadata, error) {
+		f := metricsFlowMetadata{
+			config: &protos.FlowConnectionConfigs{},
+		}
+		var configProto []byte
+		if err := rows.Scan(
+			&f.name,
+			&f.status,
+			&configProto,
+			&f.workflowID,
+			&f.updatedAt,
+			&f.sourcePeerName,
+			&f.sourcePeerType,
+			&f.destinationPeerName,
+			&f.destinationPeerType,
+		); err != nil {
+			return metricsFlowMetadata{}, fmt.Errorf("failed to scan row: %w", err)
+		}
+		if f.sourcePeerName == "" || f.destinationPeerName == "" {
+			logger.Error("flow has missing peer information", slog.String("flow_name", f.name))
+			return metricsFlowMetadata{},
+				a.Alerter.LogFlowError(ctx, f.name,
+					exceptions.NewRecordMetricsError(fmt.Errorf("flow has missing peer information %s", f.name)))
+		}
+		if err := proto.Unmarshal(configProto, f.config); err != nil {
+			return metricsFlowMetadata{}, err
+		}
+		return f, nil
+	})
+	if err != nil {
+		logger.Error("failed to collect rows", slog.Any("error", err))
+		return nil, fmt.Errorf("failed to collect rows for metrics: %w", err)
+	}
+	return infos, nil
+}
+
+func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String("scheduledTask", "RecordSlotSizes"))
+	logger.Info("Recording Slot Information")
+	slotMetricGauges := otel_metrics.SlotMetricGauges{}
+	slotMetricGauges.SlotLagGauge = a.OtelManager.Metrics.SlotLagGauge
+	slotMetricGauges.RestartLSNGauge = a.OtelManager.Metrics.RestartLSNGauge
+	slotMetricGauges.ConfirmedFlushLSNGauge = a.OtelManager.Metrics.ConfirmedFlushLSNGauge
+	slotMetricGauges.OpenConnectionsGauge = a.OtelManager.Metrics.OpenConnectionsGauge
+	slotMetricGauges.OpenReplicationConnectionsGauge = a.OtelManager.Metrics.OpenReplicationConnectionsGauge
+	slotMetricGauges.IntervalSinceLastNormalizeGauge = a.OtelManager.Metrics.IntervalSinceLastNormalizeGauge
+
+	logger.Info("Querying for flows to emit slot metrics")
+	rows, err := a.CatalogPool.Query(ctx,
+		"SELECT DISTINCT ON (name) name, config_proto, workflow_id, updated_at FROM flows WHERE query_string IS NULL")
+	if err != nil {
+		logger.Error("failed to query all flows", slog.Any("error", err))
+		return fmt.Errorf("failed to query all flows for metrics: %w", err)
+	}
+
+	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (flowInformation, error) {
+		var flowName string
+		var configProto []byte
+		var workflowID string
+		var updatedAt time.Time
+		if err := rows.Scan(&flowName, &configProto, &workflowID, &updatedAt); err != nil {
+			return flowInformation{}, err
+		}
+
+		var config protos.FlowConnectionConfigs
+		if err := proto.Unmarshal(configProto, &config); err != nil {
+			return flowInformation{}, err
+		}
+
+		return flowInformation{
+			config:     &config,
+			workflowID: workflowID,
+			updatedAt:  updatedAt,
+		}, nil
+	})
+	if err != nil {
+		logger.Error("failed to process result of all flows", slog.Any("error", err))
+		return fmt.Errorf("failed to process result of all flows for metrics: %w", err)
+	}
+
+	logger.Info("Recording slot size and emitting log retention where applicable", slog.Int("flows", len(infos)))
+	for _, info := range infos {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		if err := a.recordSlotInformation(timeoutCtx, info, slotMetricGauges); err != nil {
+			logger.Error("Failed to record slot information", slog.Any("error", err))
+		}
+		if err := a.emitLogRetentionHours(timeoutCtx, info, a.OtelManager.Metrics.LogRetentionGauge); err != nil {
+			logger.Error("Failed to emit log retention hours", slog.Any("error", err))
+		}
+		cancel()
+	}
+	logger.Info("Finished emitting Slot Information", slog.Int("flows", len(infos)))
+	return nil
+}
+
+func (a *FlowableActivity) recordSlotInformation(
+	ctx context.Context,
+	info flowInformation,
+	slotMetricGauges otel_metrics.SlotMetricGauges,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+		FlowName:        info.config.FlowJobName,
+		SourceName:      info.config.SourceName,
+		DestinationName: info.config.DestinationName,
+	})
+	if err != nil {
+		logger.Error("Failed to get flow metadata", slog.Any("error", err))
+		return err
+	}
+
+	if flowMetadata.Source.Type != protos.DBType_POSTGRES {
+		return nil
+	}
+
+	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+	srcConn, err := connectors.GetPostgresConnectorByName(ctx, nil, a.CatalogPool, info.config.SourceName)
+	if err != nil {
+		if !errors.Is(err, errors.ErrUnsupported) {
+			logger.Error("Failed to create connector to handle slot info", slog.Any("error", err))
+		}
+		return err
+	}
+	defer connectors.CloseConnector(ctx, srcConn)
+
+	slotName := "peerflow_slot_" + info.config.FlowJobName
+	if info.config.ReplicationSlotName != "" {
+		slotName = info.config.ReplicationSlotName
+	}
+	peerName := info.config.SourceName
+
+	if err := srcConn.HandleSlotInfo(ctx, a.Alerter, a.CatalogPool, &alerting.AlertKeys{
+		FlowName: info.config.FlowJobName,
+		PeerName: peerName,
+		SlotName: slotName,
+	}, slotMetricGauges); err != nil {
+		logger.Error("Failed to handle slot info", slog.Any("error", err))
 	}
 
 	return nil
 }
 
+func (a *FlowableActivity) emitLogRetentionHours(
+	ctx context.Context,
+	info flowInformation,
+	logRetentionGauge metric.Float64Gauge,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
+		FlowName:        info.config.FlowJobName,
+		SourceName:      info.config.SourceName,
+		DestinationName: info.config.DestinationName,
+	})
+	if err != nil {
+		logger.Error("Failed to get flow metadata", slog.Any("error", err))
+		return err
+	}
+	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
+	srcConn, err := connectors.GetByNameAs[connectors.GetLogRetentionConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
+	if err != nil {
+		if !errors.Is(err, errors.ErrUnsupported) {
+			logger.Error("Failed to create connector to emit log retention", slog.Any("error", err))
+		}
+		return err
+	}
+	defer connectors.CloseConnector(ctx, srcConn)
+
+	peerName := info.config.SourceName
+	logRetentionHours, err := srcConn.GetLogRetentionHours(ctx)
+	if err != nil {
+		logger.Error("Failed to get log retention hours", slog.Any("error", err))
+	}
+
+	if logRetentionHours > 0 {
+		logRetentionGauge.Record(ctx, logRetentionHours)
+		logger.Info("Emitted log retention hours", slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
+		return nil
+	}
+
+	logger.Warn("Log retention hours is not set or is zero, skipping emission",
+		slog.String("peerName", peerName), slog.Float64("logRetentionHours", logRetentionHours))
+	return nil
+}
+
 var activeFlowStatuses = map[protos.FlowStatus]struct{}{
-	protos.FlowStatus_STATUS_RUNNING:  {},
-	protos.FlowStatus_STATUS_PAUSING:  {},
-	protos.FlowStatus_STATUS_SETUP:    {},
-	protos.FlowStatus_STATUS_SNAPSHOT: {},
-	protos.FlowStatus_STATUS_RESYNC:   {},
+	protos.FlowStatus_STATUS_RUNNING:   {},
+	protos.FlowStatus_STATUS_PAUSED:    {},
+	protos.FlowStatus_STATUS_PAUSING:   {},
+	protos.FlowStatus_STATUS_SETUP:     {},
+	protos.FlowStatus_STATUS_SNAPSHOT:  {},
+	protos.FlowStatus_STATUS_RESYNC:    {},
+	protos.FlowStatus_STATUS_MODIFYING: {},
 }
 
 func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
@@ -945,6 +1254,10 @@ func (a *FlowableActivity) QRepHasNewRows(ctx context.Context,
 		if maxValue.(int64) > x.IntRange.End {
 			return true, nil
 		}
+	case *protos.PartitionRange_UintRange:
+		if maxValue.(uint64) > x.UintRange.End {
+			return true, nil
+		}
 	case *protos.PartitionRange_TimestampRange:
 		if maxValue.(time.Time).After(x.TimestampRange.End.AsTime()) {
 			return true, nil
@@ -962,13 +1275,39 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	})
 	defer shutdown()
 
+	var renameOutput *protos.RenameTablesOutput
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	conn, err := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, nil, a.CatalogPool, config.PeerName)
+	renameWithSoftDeleteConn, err := connectors.GetByNameAs[connectors.RenameTablesWithSoftDeleteConnector](
+		ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
-		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
-	}
-	defer connectors.CloseConnector(ctx, conn)
+		if err == errors.ErrUnsupported {
+			// Rename without soft-delete
+			renameConn, renameErr := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, nil, a.CatalogPool, config.PeerName)
+			if renameErr != nil {
+				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get rename connector: %w", renameErr))
+			}
+			defer connectors.CloseConnector(ctx, renameConn)
 
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Renaming tables for resync")
+			renameOutput, err = renameConn.RenameTables(ctx, config)
+			if err != nil {
+				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to rename tables: %w", err))
+			}
+
+			err = a.updateTableSchemaMappingForResync(ctx, config.RenameTableOptions, config.FlowJobName)
+			if err != nil {
+				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName,
+					fmt.Errorf("failed to update table_schema_mapping after resync: %w", err))
+			}
+
+			a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
+			return renameOutput, nil
+		}
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get rename with soft-delete connector: %w", err))
+	}
+	defer connectors.CloseConnector(ctx, renameWithSoftDeleteConn)
+
+	// Rename with soft-delete
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema, len(config.RenameTableOptions))
 	for _, option := range config.RenameTableOptions {
 		schema, err := internal.LoadTableSchemaFromCatalog(
@@ -982,42 +1321,56 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 		}
 		tableNameSchemaMapping[option.CurrentName] = schema
 	}
-
-	renameOutput, err := conn.RenameTables(ctx, config, tableNameSchemaMapping)
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Renaming tables for resync with soft-delete")
+	renameOutput, err = renameWithSoftDeleteConn.RenameTables(ctx, config, tableNameSchemaMapping)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to rename tables: %w", err))
 	}
 
+	err = a.updateTableSchemaMappingForResync(ctx, config.RenameTableOptions, config.FlowJobName)
+	if err != nil {
+		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName,
+			fmt.Errorf("failed to update table_schema_mapping after resync with soft-delete: %w", err))
+	}
+
+	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync with soft-delete completed for all tables")
+	return renameOutput, nil
+}
+
+func (a *FlowableActivity) updateTableSchemaMappingForResync(
+	ctx context.Context,
+	renameOptions []*protos.RenameTableOption,
+	flowJobName string,
+) error {
 	tx, err := a.CatalogPool.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to begin updating table_schema_mapping: %w", err)
+		return fmt.Errorf("failed to begin updating table_schema_mapping: %w", err)
 	}
-	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), flowJobName))
 	defer shared.RollbackTx(tx, logger)
 
-	for _, option := range config.RenameTableOptions {
-		if _, err := tx.Exec(
-			ctx,
-			"delete from table_schema_mapping where flow_name = $1 and table_name = $2",
-			config.FlowJobName,
-			option.NewName,
-		); err != nil {
-			return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+	for _, option := range renameOptions {
+		if option.NewName != option.CurrentName {
+			if _, err := tx.Exec(
+				ctx,
+				"delete from table_schema_mapping where flow_name = $1 and table_name = $2",
+				flowJobName,
+				option.NewName,
+			); err != nil {
+				return fmt.Errorf("failed to delete _resync entries in table_schema_mapping: %w", err)
+			}
 		}
 		if _, err := tx.Exec(
 			ctx,
 			"update table_schema_mapping set table_name = $3 where flow_name = $1 and table_name = $2",
-			config.FlowJobName,
+			flowJobName,
 			option.CurrentName,
 			option.NewName,
 		); err != nil {
-			return nil, fmt.Errorf("failed to update table_schema_mapping: %w", err)
+			return fmt.Errorf("failed to update table_schema_mapping: %w", err)
 		}
 	}
-
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "Resync completed for all tables")
-
-	return renameOutput, tx.Commit(ctx)
+	return tx.Commit(ctx)
 }
 
 func (a *FlowableActivity) DeleteMirrorStats(ctx context.Context, flowName string) error {
@@ -1081,8 +1434,11 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 	additionalTableMappings []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
+	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
 		return fmt.Errorf("failed to get source connector: %w", err)
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
@@ -1106,8 +1462,11 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 	removedTablesMapping []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
+	srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, cfg.Env, a.CatalogPool, cfg.SourceName)
 	if err != nil {
+		if errors.Is(err, errors.ErrUnsupported) {
+			return nil
+		}
 		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, fmt.Errorf("failed to get source connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
@@ -1193,12 +1552,15 @@ func (a *FlowableActivity) RemoveTablesFromCatalog(
 	return err
 }
 
-func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowName string) error {
-	logger := log.With(internal.LoggerFromCtx(ctx),
-		slog.String(string(shared.FlowNameKey), flowName))
+func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
+	ctx context.Context,
+	req *model.RemoveFlowDetailsFromCatalogRequest,
+) error {
+	flowName := req.FlowName
+	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), req.FlowName))
 	tx, err := a.CatalogPool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to begin transaction to remove flow entries from catalog: %w", err)
+		return fmt.Errorf("failed to begin transaction to remove flow details from catalog: %w", err)
 	}
 	defer shared.RollbackTx(tx, logger)
 
@@ -1206,19 +1568,30 @@ func (a *FlowableActivity) RemoveFlowEntryFromCatalog(ctx context.Context, flowN
 		return fmt.Errorf("unable to clear table_schema_mapping in catalog: %w", err)
 	}
 
-	ct, err := tx.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName)
-	if err != nil {
-		return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
+	if !req.Resync {
+		ct, err := tx.Exec(ctx, "DELETE FROM flows WHERE name=$1", flowName)
+		if err != nil {
+			return fmt.Errorf("unable to remove flow entry in catalog: %w", err)
+		}
+		if ct.RowsAffected() == 0 {
+			logger.Warn("flow entry not found in catalog, 0 records deleted")
+		} else {
+			logger.Info("flow entries removed from catalog",
+				slog.Int64("rowsAffected", ct.RowsAffected()))
+		}
 	}
-	if ct.RowsAffected() == 0 {
-		logger.Warn("flow entry not found in catalog, 0 records deleted")
-	} else {
-		logger.Info("flow entries removed from catalog",
-			slog.Int("rowsAffected", int(ct.RowsAffected())))
+
+	if err := connmetadata.SyncFlowCleanupInTx(ctx, tx, flowName); err != nil {
+		return fmt.Errorf("unable to clear metadata for flow cleanup: %w", err)
+	}
+
+	// only for ClickHouse, should be a no-op for other destination connectors
+	if _, err := tx.Exec(ctx, `DELETE FROM ch_s3_stage WHERE flow_job_name = $1`, flowName); err != nil {
+		return fmt.Errorf("failed to clear avro stage for flow %s: %w", flowName, err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("failed to commit transaction to remove flow entries from catalog: %w", err)
+		return fmt.Errorf("failed to commit transaction to remove flow details from catalog: %w", err)
 	}
 
 	return nil
@@ -1229,24 +1602,55 @@ func (a *FlowableActivity) GetFlowMetadata(
 	input *protos.FlowContextMetadataInput,
 ) (*protos.FlowContextMetadata, error) {
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), input.FlowName))
-	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, []string{input.SourceName, input.DestinationName})
+	peerNames := make([]string, 0, 2)
+	if input.SourceName != "" {
+		peerNames = append(peerNames, input.SourceName)
+	}
+	if input.DestinationName != "" {
+		peerNames = append(peerNames, input.DestinationName)
+	}
+	peerTypes, err := connectors.LoadPeerTypes(ctx, a.CatalogPool, peerNames)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, input.FlowName, err)
 	}
-	logger.Info("loaded peer types for flow", slog.String("flowName", input.FlowName),
+	var sourcePeer, destinationPeer *protos.PeerContextMetadata
+	if input.SourceName != "" {
+		sourcePeer = &protos.PeerContextMetadata{
+			Name: input.SourceName,
+			Type: peerTypes[input.SourceName],
+		}
+	}
+	if input.DestinationName != "" {
+		destinationPeer = &protos.PeerContextMetadata{
+			Name: input.DestinationName,
+			Type: peerTypes[input.DestinationName],
+		}
+	}
+	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
 		slog.Any("peerTypes", peerTypes))
 	return &protos.FlowContextMetadata{
-		FlowName: input.FlowName,
-		Source: &protos.PeerContextMetadata{
-			Name: input.SourceName,
-			Type: peerTypes[input.SourceName],
-		},
-		Destination: &protos.PeerContextMetadata{
-			Name: input.DestinationName,
-			Type: peerTypes[input.DestinationName],
-		},
-		Status:   input.Status,
-		IsResync: input.IsResync,
+		FlowName:    input.FlowName,
+		Source:      sourcePeer,
+		Destination: destinationPeer,
+		Status:      input.Status,
+		IsResync:    input.IsResync,
 	}, nil
+}
+
+func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+	return internal.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, internal.LoggerFromCtx(ctx), cfg)
+}
+
+func (a *FlowableActivity) PeerDBFullRefreshOverwriteMode(ctx context.Context, env map[string]string) (bool, error) {
+	return internal.PeerDBFullRefreshOverwriteMode(ctx, env)
+}
+
+func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos.FlowStatus) error {
+	_, isActive := activeFlowStatuses[status]
+	a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
+		attribute.String(otel_metrics.FlowStatusKey, status.String()),
+		attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),
+	)))
+	return nil
 }

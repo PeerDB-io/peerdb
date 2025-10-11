@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"context"
 	"log/slog"
 	"strconv"
 )
@@ -16,12 +17,12 @@ type PeerDBOAuthConfig struct {
 	OAuthDiscoveryEnabled bool `json:"oauth_discovery_enabled"`
 }
 
-func GetPeerDBOAuthConfig() PeerDBOAuthConfig {
+func GetPeerDBOAuthConfig(ctx context.Context) PeerDBOAuthConfig {
 	oauthIssuerUrl := GetEnvString("PEERDB_OAUTH_ISSUER_URL", "")
 	oauthDiscoveryEnabledString := GetEnvString("PEERDB_OAUTH_DISCOVERY_ENABLED", "false")
 	oauthDiscoveryEnabled, err := strconv.ParseBool(oauthDiscoveryEnabledString)
 	if err != nil {
-		slog.Error("failed to parse PEERDB_OAUTH_DISCOVERY_ENABLED to bool", "error", err)
+		slog.ErrorContext(ctx, "failed to parse PEERDB_OAUTH_DISCOVERY_ENABLED to bool", slog.Any("error", err))
 		oauthDiscoveryEnabled = false
 	}
 	oauthKeysetJson := GetEnvString("PEERDB_OAUTH_KEYSET_JSON", "")

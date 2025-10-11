@@ -12,6 +12,7 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type Suite interface {
@@ -32,8 +33,7 @@ func RunSuite[T Suite](t *testing.T, setup func(t *testing.T) T) {
 					subtest.Parallel()
 					suite := setup(subtest)
 					subtest.Cleanup(func() {
-						//nolint
-						ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+						ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 						defer cancel()
 						suite.Teardown(ctx)
 					})
@@ -56,8 +56,7 @@ func RunSuiteNoParallel[T Suite](t *testing.T, setup func(t *testing.T) T) {
 				t.Run(m.Name, func(subtest *testing.T) {
 					suite := setup(subtest)
 					subtest.Cleanup(func() {
-						//nolint
-						ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+						ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
 						defer cancel()
 						suite.Teardown(ctx)
 					})
@@ -79,7 +78,7 @@ func ReadFileToBytes(path string) ([]byte, error) {
 }
 
 // checks if two QRecords are identical
-func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue) bool {
+func CheckQRecordEquality(t *testing.T, q []types.QValue, other []types.QValue) bool {
 	t.Helper()
 
 	if len(q) != len(other) {
@@ -87,10 +86,19 @@ func CheckQRecordEquality(t *testing.T, q []qvalue.QValue, other []qvalue.QValue
 		return false
 	}
 
+	maybeTruncate := func(v types.QValue) string {
+		s := fmt.Sprintf("%+v", v)
+		// truncate log for extremely large documents
+		if len(s) > 1_000_000 {
+			return s[:100] + "...[truncated]"
+		}
+		return s
+	}
+
 	for i, entry := range q {
 		otherEntry := other[i]
 		if !qvalue.Equals(entry, otherEntry) {
-			t.Logf("entry %d: %T %+v != %T %+v", i, entry, entry, otherEntry, otherEntry)
+			t.Logf("entry %d: %T %+v != %T %+v", i, entry, maybeTruncate(entry), otherEntry, maybeTruncate(otherEntry))
 			return false
 		}
 	}

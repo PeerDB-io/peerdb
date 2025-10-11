@@ -51,7 +51,7 @@ type StartMaintenanceResult struct {
 // MaintenanceMain is the entry point for the maintenance command, requires access to Temporal client, will exit after
 // running the requested maintenance workflow
 func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
-	slog.Info("Starting Maintenance Mode CLI")
+	slog.InfoContext(ctx, "Starting Maintenance Mode CLI")
 	clientOptions := client.Options{
 		HostPort:  args.TemporalHostPort,
 		Namespace: args.TemporalNamespace,
@@ -69,7 +69,7 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 
 	if args.Mode == "start" {
 		if args.AssumeSkippedMaintenanceWorkflows {
-			slog.Info("Assuming maintenance workflows were skipped")
+			slog.InfoContext(ctx, "Assuming maintenance workflows were skipped")
 			return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 				Skipped:       true,
 				SkippedReason: ptr.String("Assumed skipped by CLI Flag"),
@@ -83,18 +83,18 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 		if skipped {
 			return nil
 		}
-		slog.Info("Running start maintenance workflow")
+		slog.InfoContext(ctx, "Running start maintenance workflow")
 		workflowRun, err := peerflow.RunStartMaintenanceWorkflow(ctx, tc, &protos.StartMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
-			slog.Error("Error running start maintenance workflow", "error", err)
+			slog.ErrorContext(ctx, "Error running start maintenance workflow", slog.Any("error", err))
 			return err
 		}
 		var output *protos.StartMaintenanceFlowOutput
 		if err := workflowRun.Get(ctx, &output); err != nil {
-			slog.Error("Error in start maintenance workflow", "error", err)
+			slog.ErrorContext(ctx, "Error in start maintenance workflow", slog.Any("error", err))
 			return err
 		}
-		slog.Info("Start maintenance workflow completed", "output", output)
+		slog.InfoContext(ctx, "Start maintenance workflow completed", "output", output)
 		return WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 			Skipped:    false,
 			CLIVersion: internal.PeerDBVersionShaShort(),
@@ -105,39 +105,39 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 			if err != nil {
 				return err
 			}
-			slog.Info("Checking if end maintenance workflow should be skipped", "input", input)
+			slog.InfoContext(ctx, "Checking if end maintenance workflow should be skipped", "input", input)
 			if input.Skipped {
-				slog.Info("Skipping end maintenance workflow as start maintenance was skipped", "reason", input.SkippedReason)
+				slog.InfoContext(ctx, "Skipping end maintenance workflow as start maintenance was skipped", "reason", input.SkippedReason)
 				return nil
 			}
 		}
 		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, tc, &protos.EndMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
-			slog.Error("Error running end maintenance workflow", "error", err)
+			slog.ErrorContext(ctx, "Error running end maintenance workflow", slog.Any("error", err))
 			return err
 		}
 		var output *protos.EndMaintenanceFlowOutput
 		if err := workflowRun.Get(ctx, &output); err != nil {
-			slog.Error("Error in end maintenance workflow", "error", err)
+			slog.ErrorContext(ctx, "Error in end maintenance workflow", slog.Any("error", err))
 			return err
 		}
-		slog.Info("End maintenance workflow completed", "output", output)
+		slog.InfoContext(ctx, "End maintenance workflow completed", "output", output)
 	} else {
 		return fmt.Errorf("unknown flow type %s", args.Mode)
 	}
-	slog.Info("Maintenance workflow completed with type", "type", args.Mode)
+	slog.InfoContext(ctx, "Maintenance workflow completed with type", "type", args.Mode)
 	return nil
 }
 
 func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParams) (bool, error) {
 	if args.SkipIfK8sServiceMissing != "" {
-		slog.Info("Checking if k8s service exists", "service", args.SkipIfK8sServiceMissing)
+		slog.InfoContext(ctx, "Checking if k8s service exists", "service", args.SkipIfK8sServiceMissing)
 		exists, err := CheckK8sServiceExistence(ctx, args.SkipIfK8sServiceMissing)
 		if err != nil {
 			return false, err
 		}
 		if !exists {
-			slog.Info("Skipping maintenance workflow due to missing k8s service", "service", args.SkipIfK8sServiceMissing)
+			slog.InfoContext(ctx, "Skipping maintenance workflow due to missing k8s service", "service", args.SkipIfK8sServiceMissing)
 			return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 				Skipped:          true,
 				SkippedReason:    ptr.String(fmt.Sprintf("K8s service %s missing", args.SkipIfK8sServiceMissing)),
@@ -148,24 +148,24 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 	}
 
 	if args.SkipOnApiVersionMatch || args.SkipOnNoMirrors || args.SkipOnDeploymentVersionMatch {
-		slog.Info("Checking if API version matches")
-		peerFlowClient, err := constructFlowClient(args)
+		slog.InfoContext(ctx, "Checking if API version matches")
+		peerFlowClient, err := constructFlowClient(ctx, args)
 		if err != nil {
 			return false, err
 		}
 		// If there is a match in BOTH PeerDB version and Deployment version, then we skip the maintenance workflow
 		if args.SkipOnApiVersionMatch || args.SkipOnDeploymentVersionMatch {
-			slog.Info("Checking if CLI version matches API version",
+			slog.InfoContext(ctx, "Checking if CLI version matches API version",
 				"cliVersion", internal.PeerDBVersionShaShort(), "cliDeployVersion", internal.PeerDBDeploymentVersion())
 			version, err := peerFlowClient.GetVersion(ctx, &protos.PeerDBVersionRequest{})
 			if err != nil {
 				return false, err
 			}
-			slog.Info("Got version from flow", "version", version)
+			slog.InfoContext(ctx, "Got version from flow", "version", version)
 			skippedReasons := make([]string, 0, 2)
 			apiSkipped := !args.SkipOnApiVersionMatch
 			if args.SkipOnApiVersionMatch && version.Version == internal.PeerDBVersionShaShort() {
-				slog.Info("Flow API Version and Maintenance CLI version matches",
+				slog.InfoContext(ctx, "Flow API Version and Maintenance CLI version matches",
 					"apiVersion", version.Version, "cliVersion", internal.PeerDBVersionShaShort())
 				apiSkipped = true
 				skippedReasons = append(skippedReasons, fmt.Sprintf("CLI version %s matches API version %s", internal.PeerDBVersionShaShort(),
@@ -174,14 +174,14 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			deploySkipped := !args.SkipOnDeploymentVersionMatch
 			if args.SkipOnDeploymentVersionMatch &&
 				(version.DeploymentVersion != nil && *version.DeploymentVersion == internal.PeerDBDeploymentVersion()) {
-				slog.Info("Flow Deployment Version and Maintenance CLI Deployment version matches",
+				slog.InfoContext(ctx, "Flow Deployment Version and Maintenance CLI Deployment version matches",
 					"apiVersion", version.DeploymentVersion, "cliVersion", internal.PeerDBDeploymentVersion())
 				deploySkipped = true
 				skippedReasons = append(skippedReasons, fmt.Sprintf("CLI version %s matches Deployment version %s",
 					internal.PeerDBDeploymentVersion(), *version.DeploymentVersion))
 			}
 			if apiSkipped && deploySkipped {
-				slog.Info("Skipping maintenance workflow due to all versions matching",
+				slog.InfoContext(ctx, "Skipping maintenance workflow due to all versions matching",
 					"apiVersion", version.Version, "cliVersion", internal.PeerDBVersionShaShort(),
 					"deployApiVersion", version.DeploymentVersion, "cliDeployVersion", internal.PeerDBDeploymentVersion())
 				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
@@ -195,14 +195,14 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 			}
 		}
 		if args.SkipOnNoMirrors {
-			slog.Info("Checking if there are any mirrors")
+			slog.InfoContext(ctx, "Checking if there are any mirrors")
 			mirrors, err := peerFlowClient.ListMirrors(ctx, &protos.ListMirrorsRequest{})
 			if err != nil {
 				return false, err
 			}
-			slog.Info("Got mirrors from flow", "mirrors", mirrors.Mirrors)
+			slog.InfoContext(ctx, "Got mirrors from flow", "mirrors", mirrors.Mirrors)
 			if len(mirrors.Mirrors) == 0 {
-				slog.Info("Skipping maintenance workflow due to no mirrors")
+				slog.InfoContext(ctx, "Skipping maintenance workflow due to no mirrors")
 				return true, WriteMaintenanceOutputToCatalog(ctx, StartMaintenanceResult{
 					Skipped:       true,
 					SkippedReason: ptr.String("No mirrors found"),
@@ -213,11 +213,11 @@ func skipStartMaintenanceIfNeeded(ctx context.Context, args *MaintenanceCLIParam
 	return false, nil
 }
 
-func constructFlowClient(args *MaintenanceCLIParams) (protos.FlowServiceClient, error) {
+func constructFlowClient(ctx context.Context, args *MaintenanceCLIParams) (protos.FlowServiceClient, error) {
 	if args.FlowGrpcAddress == "" {
 		return nil, errors.New("flow address is required")
 	}
-	slog.Info("Constructing flow client")
+	slog.InfoContext(ctx, "Constructing flow client")
 	transportCredentials := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS13})
 	if !args.FlowTlsEnabled {
 		transportCredentials = insecure.NewCredentials()

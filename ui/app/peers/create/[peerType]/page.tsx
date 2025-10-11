@@ -4,6 +4,7 @@ import GuideForDestinationSetup from '@/app/mirrors/create/cdc/guide';
 import BigqueryForm from '@/components/PeerForms/BigqueryConfig';
 import ClickHouseForm from '@/components/PeerForms/ClickhouseConfig';
 import KafkaForm from '@/components/PeerForms/KafkaConfig';
+import MongoForm from '@/components/PeerForms/MongoForm';
 import MySqlForm from '@/components/PeerForms/MySqlForm';
 import PostgresForm from '@/components/PeerForms/PostgresForm';
 import PubSubForm from '@/components/PeerForms/PubSubConfig';
@@ -17,6 +18,9 @@ import EventhubsForm from '@/components/PeerForms/Eventhubs/EventhubGroupConfig'
 import {
   ElasticsearchConfig,
   EventHubGroupConfig,
+  MongoConfig,
+  MySqlConfig,
+  PostgresConfig,
 } from '@/grpc_generated/peers';
 import { Button } from '@/lib/Button';
 import { ButtonGroup } from '@/lib/ButtonGroup';
@@ -32,6 +36,7 @@ import { ToastContainer } from 'react-toastify';
 import { handleCreate, handleValidate } from './handlers';
 import { clickhouseSetting } from './helpers/ch';
 import { getBlankSetting } from './helpers/common';
+import { mongoSetting } from './helpers/mo';
 import { mysqlSetting } from './helpers/my';
 import { postgresSetting } from './helpers/pg';
 import { snowflakeSetting } from './helpers/sf';
@@ -47,10 +52,10 @@ export default function CreateConfig({
 }: CreateConfigProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const peerName = searchParams.get('update');
+  const peerName = searchParams?.get('update');
   const blankSetting = getBlankSetting(peerType);
   const [name, setName] = useState<string>(
-    peerName ?? searchParams.get('name') ?? ''
+    peerName ?? searchParams?.get('name') ?? ''
   );
   const [config, setConfig] = useState<PeerConfig>(blankSetting);
   const [loading, setLoading] = useState<boolean>(false);
@@ -60,7 +65,6 @@ export default function CreateConfig({
   const getDBType = () => {
     if (
       peerType.includes('POSTGRES') ||
-      peerType.includes('TEMBO') ||
       peerType.includes('NEON') ||
       peerType.includes('SUPABASE')
     ) {
@@ -72,19 +76,24 @@ export default function CreateConfig({
     return peerType;
   };
 
-  const configComponentMap = (peerType: string) => {
+  const configComponentMap = () => {
     switch (getDBType()) {
       case 'POSTGRES':
         return (
           <PostgresForm
             settings={postgresSetting}
             setter={setConfig}
-            config={config}
-            type={peerType}
+            config={config as PostgresConfig}
           />
         );
       case 'MYSQL':
-        return <MySqlForm settings={mysqlSetting} setter={setConfig} />;
+        return (
+          <MySqlForm
+            settings={mysqlSetting}
+            setter={setConfig}
+            config={config as MySqlConfig}
+          />
+        );
       case 'SNOWFLAKE':
         return <SnowflakeForm settings={snowflakeSetting} setter={setConfig} />;
       case 'BIGQUERY':
@@ -113,6 +122,14 @@ export default function CreateConfig({
             setter={setConfig}
           />
         );
+      case 'MONGO':
+        return (
+          <MongoForm
+            settings={mongoSetting}
+            setter={setConfig}
+            config={config as MongoConfig}
+          />
+        );
       default:
         return <></>;
     }
@@ -123,7 +140,7 @@ export default function CreateConfig({
     if (currentlyTypedPeerName !== '') {
       const peerNameValid = peerNameSchema.safeParse(currentlyTypedPeerName);
       if (!peerNameValid.success) {
-        setNameValidityMessage(peerNameValid.error.errors[0].message);
+        setNameValidityMessage(peerNameValid.error.message);
       } else {
         setNameValidityMessage('');
       }
@@ -198,14 +215,14 @@ export default function CreateConfig({
           Configuration
         </Label>
 
-        <div style={{ minWidth: '40vw' }}>{configComponentMap(peerType)}</div>
+        <div style={{ minWidth: '40vw' }}>{configComponentMap()}</div>
 
         <ButtonGroup>
           <Button as={Link} href='/peers/create'>
             Back
           </Button>
           <Button
-            style={{ backgroundColor: 'wheat' }}
+            variant='warningSolid'
             onClick={() =>
               handleValidate(getDBType(), config, notifyErr, setLoading, name)
             }

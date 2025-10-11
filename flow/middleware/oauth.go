@@ -8,9 +8,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/lestrrat-go/jwx/v2/jwk"
-	"github.com/lestrrat-go/jwx/v2/jws"
-	"github.com/lestrrat-go/jwx/v2/jwt"
+	"github.com/lestrrat-go/httprc/v3"
+	"github.com/lestrrat-go/jwx/v3/jwk"
+	"github.com/lestrrat-go/jwx/v3/jws"
+	"github.com/lestrrat-go/jwx/v3/jwt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -34,8 +35,8 @@ type identityProvider struct {
 	issuer      string
 }
 
-func AuthGrpcMiddleware(unauthenticatedMethods []string) (grpc.UnaryServerInterceptor, error) {
-	oauthConfig := internal.GetPeerDBOAuthConfig()
+func AuthGrpcMiddleware(ctx context.Context, unauthenticatedMethods []string) (grpc.UnaryServerInterceptor, error) {
+	oauthConfig := internal.GetPeerDBOAuthConfig(ctx)
 	oauthJwtClaims := map[string]string{}
 	if oauthConfig.OAuthJwtClaimKey != "" {
 		oauthJwtClaims[oauthConfig.OAuthJwtClaimKey] = oauthConfig.OAuthClaimValue
@@ -48,14 +49,14 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) (grpc.UnaryServerInterc
 		OauthJwtCustomClaims:  oauthJwtClaims,
 	}
 	// load identity providers before checking if authentication is enabled so configuration can be validated
-	ip, err := identityProvidersFromConfig(cfg)
+	ip, err := identityProvidersFromConfig(ctx, cfg)
 
 	if !cfg.Enabled {
 		if err != nil { // if there was an error loading identity providers, warn only if authentication is disabled
-			slog.Warn("OAuth is disabled", slog.Any("error", err))
+			slog.WarnContext(ctx, "OAuth is disabled", slog.Any("error", err))
 		}
 
-		slog.Warn("authentication is disabled")
+		slog.WarnContext(ctx, "authentication is disabled")
 
 		return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 			return handler(ctx, req)
@@ -77,12 +78,11 @@ func AuthGrpcMiddleware(unauthenticatedMethods []string) (grpc.UnaryServerInterc
 			if len(authHeaders) == 1 {
 				authHeader = authHeaders[0]
 			} else if len(authHeaders) > 1 {
-				slog.Warn("Multiple Authorization headers supplied, request rejected", slog.String("method", info.FullMethod))
+				slog.WarnContext(ctx, "Multiple Authorization headers supplied, request rejected", slog.String("method", info.FullMethod))
 				return nil, status.Errorf(codes.Unauthenticated, "multiple Authorization headers supplied, request rejected")
 			}
-			_, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...)
-			if err != nil {
-				slog.Debug("Failed to validate request token", slog.String("method", info.FullMethod), slog.Any("error", err))
+			if _, err := validateRequestToken(authHeader, cfg.OauthJwtCustomClaims, ip...); err != nil {
+				slog.DebugContext(ctx, "Failed to validate request token", slog.String("method", info.FullMethod), slog.Any("error", err))
 				return nil, status.Error(codes.Unauthenticated, err.Error())
 			}
 		}
@@ -118,8 +118,13 @@ func validateRequestToken(authHeader string, claims map[string]string, ip ...ide
 	}
 
 	for key, value := range claims {
-		if token.PrivateClaims()[key] != value {
-			return nil, fmt.Errorf("token claim %s mismatch", key)
+		var tokenValue string
+		if err := token.Get(key, &tokenValue); err != nil || tokenValue != value {
+			if err != nil {
+				return nil, fmt.Errorf("token claim %s mismatch: %w", key, err)
+			} else {
+				return nil, fmt.Errorf("token claim %s mismatch", key)
+			}
 		}
 	}
 
@@ -149,23 +154,22 @@ func identityProviderValidateOpts(provider identityProvider) []jwt.ValidateOptio
 }
 
 func identityProviderByToken(ip []identityProvider, token jwt.Token) (identityProvider, error) {
-	var provider identityProvider
-	for _, p := range ip {
-		if p.issuer == token.Issuer() {
-			provider = p
-			break
+	issuer, hasIssuer := token.Issuer()
+	if hasIssuer {
+		for _, p := range ip {
+			if p.issuer == issuer {
+				return p, nil
+			}
 		}
-	}
 
-	if provider.issuer == "" {
-		return identityProvider{}, fmt.Errorf("identity provider for issuer %s not found", token.Issuer())
+		return identityProvider{}, fmt.Errorf("identity provider for issuer %s not found", issuer)
 	}
-	return provider, nil
+	return identityProvider{}, errors.New("no identity provider on token")
 }
 
-type identityProviderResolver func(cfg AuthenticationConfig) (*identityProvider, error)
+type identityProviderResolver func(ctx context.Context, cfg AuthenticationConfig) (*identityProvider, error)
 
-func identityProvidersFromConfig(cfg AuthenticationConfig) ([]identityProvider, error) {
+func identityProvidersFromConfig(ctx context.Context, cfg AuthenticationConfig) ([]identityProvider, error) {
 	resolvers := []identityProviderResolver{
 		keysetIdentityProvider,
 		openIdIdentityProvider,
@@ -173,7 +177,7 @@ func identityProvidersFromConfig(cfg AuthenticationConfig) ([]identityProvider, 
 
 	ip := make([]identityProvider, 0, len(resolvers))
 	for _, resolver := range resolvers {
-		provider, err := resolver(cfg)
+		provider, err := resolver(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -192,13 +196,13 @@ func identityProvidersFromConfig(cfg AuthenticationConfig) ([]identityProvider, 
 	return ip, nil
 }
 
-func openIdIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error) {
+func openIdIdentityProvider(ctx context.Context, cfg AuthenticationConfig) (*identityProvider, error) {
 	if cfg.OAuthIssuerUrl == "" {
-		slog.Debug("OAuth Issuer Url not configured for identity provider")
+		slog.DebugContext(ctx, "OAuth Issuer Url not configured for identity provider")
 		return nil, nil
 	}
 	if !cfg.OAuthDiscoveryEnabled {
-		slog.Debug("OAuth discovery not enabled for identity provider")
+		slog.DebugContext(ctx, "OAuth discovery not enabled for identity provider")
 		return nil, nil
 	}
 	issuer := cfg.OAuthIssuerUrl
@@ -208,13 +212,19 @@ func openIdIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error)
 		return nil, err
 	}
 
-	cache := jwk.NewCache(context.Background())
-	if err := cache.Register(jwksDiscoveryUrl); err != nil {
+	cache, err := jwk.NewCache(context.Background(), httprc.NewClient())
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize JWK cache: %w", err)
+	}
+	if err := cache.Register(context.Background(), jwksDiscoveryUrl); err != nil {
 		return nil, fmt.Errorf("failed to register JWK key set from Discovery URL %s: %w", jwksDiscoveryUrl, err)
 	}
-	set := jwk.NewCachedSet(cache, jwksDiscoveryUrl)
+	set, err := cache.CachedSet(jwksDiscoveryUrl)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize JWK cache set: %w", err)
+	}
 
-	slog.Info("JWK key set from Discovery Endpoint loaded", slog.String("jwks", jwksDiscoveryUrl), slog.Int("size", set.Len()))
+	slog.InfoContext(ctx, "JWK key set from Discovery Endpoint loaded", slog.String("jwks", jwksDiscoveryUrl), slog.Int("size", set.Len()))
 
 	return &identityProvider{
 		issuer:      issuer,
@@ -223,9 +233,9 @@ func openIdIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error)
 	}, nil
 }
 
-func keysetIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error) {
+func keysetIdentityProvider(ctx context.Context, cfg AuthenticationConfig) (*identityProvider, error) {
 	if cfg.KeySetJSON == "" {
-		slog.Debug("JWK key set JSON not configured for identity provider")
+		slog.DebugContext(ctx, "JWK key set JSON not configured for identity provider")
 		return nil, nil
 	}
 
@@ -234,7 +244,7 @@ func keysetIdentityProvider(cfg AuthenticationConfig) (*identityProvider, error)
 		return nil, fmt.Errorf("failed to parse JWK key set from JSON: %w", err)
 	}
 
-	slog.Info("JWK key set from JSON loaded", slog.Int("size", set.Len()))
+	slog.InfoContext(ctx, "JWK key set from JSON loaded", slog.Int("size", set.Len()))
 
 	return &identityProvider{
 		issuer: cfg.OAuthIssuerUrl,

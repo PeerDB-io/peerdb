@@ -1,3 +1,7 @@
+parsers:
+  go:
+    partials_as_hits: true
+
 ignore:
   - "flow/alerting/email_alert_sender.go"
   - "flow/alerting/slack_alert_sender.go"
@@ -8,8 +12,10 @@ ignore:
   - "flow/connectors/postgres/sanitize"
   - "flow/connectors/pubsub"
   - "flow/connectors/snowflake"
+  - "flow/e2e/eventhub"
   - "flow/middleware"
   - "flow/shared/aws_common"
+  - "flow/shared/telemetry/sns_message_sender.go"
 
 component_management:
   individual_components:
@@ -18,4 +24,4 @@ component_management:
         - flow/datatypes/
         - flow/e2eshared/
       statuses:
-        target: 100%
+        - target: 100%

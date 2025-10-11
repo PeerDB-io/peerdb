@@ -1,11 +1,11 @@
-use crate::{auth::SnowflakeAuth, PartitionResult, ResultSet};
+use crate::{PartitionResult, ResultSet, auth::SnowflakeAuth};
 use chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Utc};
 use futures::Stream;
 use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
     api::{
-        results::{FieldFormat, FieldInfo},
         Type,
+        results::{FieldFormat, FieldInfo},
     },
     error::{PgWireError, PgWireResult},
 };
@@ -150,7 +150,7 @@ impl SnowflakeRecordStreamInner {
                         SnowflakeDataType::Binary => Binary(hex::decode(elem)?.into()),
                         SnowflakeDataType::Boolean => Bool(elem.parse()?),
                         SnowflakeDataType::Date => {
-                            println!("Entered Date. elem: {:#?}", elem);
+                            println!("Entered Date. elem: {elem:#?}");
                             Date(NaiveDate::parse_from_str(elem, DATE_PARSE_FORMAT)?)
                         }
                         SnowflakeDataType::Time => {
@@ -227,11 +227,11 @@ impl SnowflakeRecordStreamInner {
         let secret = self.auth.get_jwt()?.expose_secret();
         let statement_handle = self.result_set.statementHandle.clone();
         let url = self.endpoint_url.clone();
-        println!("Secret: {:#?}", secret);
+        println!("Secret: {secret:#?}");
         let response = reqwest::Client::new()
-            .get(format!("{}/{}", url, statement_handle))
+            .get(format!("{url}/{statement_handle}"))
             .query(&[("partition", partition_number.to_string())])
-            .header("Authorization", format!("Bearer {}", secret))
+            .header("Authorization", format!("Bearer {secret}"))
             .header("X-Snowflake-Authorization-Token-Type", "KEYPAIR_JWT")
             .header("user-agent", "ureq")
             .send()

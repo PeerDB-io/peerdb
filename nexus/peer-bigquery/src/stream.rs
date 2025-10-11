@@ -15,8 +15,8 @@ use gcp_bigquery_client::model::{
 use peer_cursor::{Record, RecordStream, Schema};
 use pgwire::{
     api::{
-        results::{FieldFormat, FieldInfo},
         Type,
+        results::{FieldFormat, FieldInfo},
     },
     error::{PgWireError, PgWireResult},
 };
@@ -122,10 +122,10 @@ impl BqRecordStream {
             let value = match result_set.get_json_value_by_name(&field.name)? {
                 Some(serde_json::Value::Array(mut arr)) => {
                     for item in arr.iter_mut() {
-                        if let Some(obj) = item.as_object_mut() {
-                            if let Some(value) = obj.remove("v") {
-                                *item = value;
-                            }
+                        if let Some(obj) = item.as_object_mut()
+                            && let Some(value) = obj.remove("v")
+                        {
+                            *item = value;
                         }
                     }
 

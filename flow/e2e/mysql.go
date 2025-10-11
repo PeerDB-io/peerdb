@@ -12,7 +12,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type MySqlSource struct {
@@ -97,6 +98,7 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 				"set global gtid_mode=off_permissive",
 				"set global gtid_mode=on_permissive",
 				"set global gtid_mode=on",
+				"set global max_connections=500",
 			} {
 				if _, err := connector.Execute(t.Context(), sql); err != nil {
 					connector.Close()
@@ -113,6 +115,7 @@ func SetupMyCore(t *testing.T, suffix string, isMaria bool, replicationMechanism
 			"set global binlog_format=row",
 			"set binlog_format=row",
 			"set global binlog_row_metadata=full",
+			"set global max_connections=500",
 		} {
 			if _, err := connector.Execute(t.Context(), sql); err != nil {
 				connector.Close()
@@ -167,7 +170,8 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 	}
 
 	tableName := fmt.Sprintf("e2e_test_%s.%s", suffix, table)
-	tableSchemas, err := s.GetTableSchema(ctx, nil, protos.TypeSystem_Q, []*protos.TableMapping{{SourceTableIdentifier: tableName}})
+	tableSchemas, err := s.GetTableSchema(ctx, nil, shared.InternalVersion_Latest, protos.TypeSystem_Q,
+		[]*protos.TableMapping{{SourceTableIdentifier: tableName}})
 	if err != nil {
 		return nil, err
 	}
@@ -183,9 +187,9 @@ func (s *MySqlSource) GetRows(ctx context.Context, suffix string, table string, 
 	}
 
 	for _, row := range rs.Values {
-		record := make([]qvalue.QValue, 0, len(row))
+		record := make([]types.QValue, 0, len(row))
 		for idx, val := range row {
-			qv, err := connmysql.QValueFromMysqlFieldValue(schema.Fields[idx].Type, val)
+			qv, err := connmysql.QValueFromMysqlFieldValue(schema.Fields[idx].Type, rs.Fields[idx].Type, val)
 			if err != nil {
 				return nil, err
 			}

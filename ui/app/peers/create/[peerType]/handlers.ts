@@ -6,6 +6,7 @@ import {
   ElasticsearchConfig,
   EventHubGroupConfig,
   KafkaConfig,
+  MongoConfig,
   MySqlConfig,
   Peer,
   PostgresConfig,
@@ -31,6 +32,7 @@ import {
   ehGroupSchema,
   esSchema,
   kaSchema,
+  mongoSchema,
   mySchema,
   peerNameSchema,
   pgSchema,
@@ -104,6 +106,12 @@ function constructPeer(
         name,
         type: DBType.ELASTICSEARCH,
         elasticsearchConfig: config as ElasticsearchConfig,
+      };
+    case 'MONGO':
+      return {
+        name,
+        type: DBType.MONGO,
+        mongoConfig: config as MongoConfig,
       };
     default:
       return;
@@ -183,6 +191,11 @@ async function validateFields(
       const esConfig = esSchema.safeParse(config);
       if (!esConfig.success) validationErr = esConfig.error.issues[0].message;
       break;
+    case 'MONGO':
+      const mongoConfig = mongoSchema.safeParse(config);
+      if (!mongoConfig.success)
+        validationErr = mongoConfig.error.issues[0].message;
+      break;
     default:
       validationErr = 'Unsupported peer type ' + type;
   }
@@ -244,6 +257,7 @@ export async function handleCreate(
   const req: CreatePeerRequest = {
     peer: constructPeer(name!, type, config),
     allowUpdate: true,
+    disableValidation: false,
   };
   const createdPeer: CreatePeerResponse = await fetch('/api/v1/peers/create', {
     method: 'POST',

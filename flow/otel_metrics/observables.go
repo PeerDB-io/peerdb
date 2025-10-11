@@ -47,14 +47,6 @@ type Int64SyncGauge struct {
 	syncGauge *SyncGauge[int64, metric.Int64ObservableGauge]
 }
 
-func (a *Int64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
-	if a == nil {
-		return
-	}
-	c := metric.NewRecordConfig(options)
-	a.syncGauge.Record(value, c.Attributes())
-}
-
 func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int64ObservableGaugeOption) (*Int64SyncGauge, error) {
 	syncGauge := &SyncGauge[int64, metric.Int64ObservableGauge]{
 		name: gaugeName,
@@ -72,17 +64,17 @@ func NewInt64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Int6
 	return &Int64SyncGauge{syncGauge: syncGauge}, nil
 }
 
-type Float64SyncGauge struct {
-	embedded.Float64Gauge
-	syncGauge *SyncGauge[float64, metric.Float64Observable]
-}
-
-func (a *Float64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
+func (a *Int64SyncGauge) Record(ctx context.Context, value int64, options ...metric.RecordOption) {
 	if a == nil {
 		return
 	}
 	c := metric.NewRecordConfig(options)
 	a.syncGauge.Record(value, c.Attributes())
+}
+
+type Float64SyncGauge struct {
+	embedded.Float64Gauge
+	syncGauge *SyncGauge[float64, metric.Float64Observable]
 }
 
 func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Float64ObservableGaugeOption) (*Float64SyncGauge, error) {
@@ -102,24 +94,35 @@ func NewFloat64SyncGauge(meter metric.Meter, gaugeName string, opts ...metric.Fl
 	return &Float64SyncGauge{syncGauge: syncGauge}, nil
 }
 
+func (a *Float64SyncGauge) Record(ctx context.Context, value float64, options ...metric.RecordOption) {
+	if a == nil {
+		return
+	}
+	c := metric.NewRecordConfig(options)
+	a.syncGauge.Record(value, c.Attributes())
+}
+
 func buildContextualAttributes(ctx context.Context) metric.MeasurementOption {
-	attributes := make([]attribute.KeyValue, 0)
+	attributes := make([]attribute.KeyValue, 0, 12)
 	flowMetadata := internal.GetFlowMetadata(ctx)
 	if flowMetadata != nil {
+		attributes = append(attributes, attribute.String(FlowNameKey, flowMetadata.FlowName))
+		if flowMetadata.Source != nil {
+			attributes = append(attributes,
+				attribute.Stringer(SourcePeerType, flowMetadata.Source.Type),
+				attribute.String(SourcePeerName, flowMetadata.Source.Name))
+		}
+		if flowMetadata.Destination != nil {
+			attributes = append(attributes,
+				attribute.Stringer(DestinationPeerType, flowMetadata.Destination.Type),
+				attribute.String(DestinationPeerName, flowMetadata.Destination.Name))
+		}
 		attributes = append(attributes,
-			attribute.String(FlowNameKey, flowMetadata.FlowName),
-			attribute.Stringer(SourcePeerType, flowMetadata.Source.Type),
-			attribute.Stringer(DestinationPeerType, flowMetadata.Destination.Type),
-			attribute.String(SourcePeerName, flowMetadata.Source.Name),
-			attribute.String(DestinationPeerName, flowMetadata.Destination.Name),
 			attribute.Stringer(FlowStatusKey, flowMetadata.Status),
-			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync),
-		)
+			attribute.Bool(IsFlowResyncKey, flowMetadata.IsResync))
 	}
 	additionalMetadata := internal.GetAdditionalMetadata(ctx)
-	attributes = append(attributes,
-		attribute.Stringer(FlowOperationKey, additionalMetadata.Operation),
-	)
+	attributes = append(attributes, attribute.Stringer(FlowOperationKey, additionalMetadata.Operation))
 
 	if activity.IsActivity(ctx) {
 		activityInfo := activity.GetInfo(ctx)

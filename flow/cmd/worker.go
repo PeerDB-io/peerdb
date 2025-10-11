@@ -2,14 +2,11 @@ package cmd
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"log"
 	"log/slog"
 	"os"
-	"runtime"
+	"time"
 
-	"github.com/grafana/pyroscope-go"
 	"go.temporal.io/sdk/client"
 	temporalotel "go.temporal.io/sdk/contrib/opentelemetry"
 	"go.temporal.io/sdk/worker"
@@ -26,11 +23,9 @@ import (
 
 type WorkerSetupOptions struct {
 	TemporalHostPort                   string
-	PyroscopeServer                    string
 	TemporalNamespace                  string
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
-	EnableProfiling                    bool
 	EnableOtelMetrics                  bool
 	UseMaintenanceTaskQueue            bool
 }
@@ -42,57 +37,17 @@ type WorkerSetupResponse struct {
 }
 
 func (w *WorkerSetupResponse) Close(ctx context.Context) {
-	slog.Info("Shutting down worker")
+	slog.InfoContext(ctx, "Shutting down worker")
 	w.Client.Close()
 	if err := w.OtelManager.Close(ctx); err != nil {
-		slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
-	}
-}
-
-func setupPyroscope(opts *WorkerSetupOptions) {
-	if opts.PyroscopeServer == "" {
-		log.Fatal("pyroscope server address is not set but profiling is enabled")
-	}
-
-	// measure contention
-	runtime.SetMutexProfileFraction(5)
-	runtime.SetBlockProfileRate(5)
-
-	_, err := pyroscope.Start(pyroscope.Config{
-		ApplicationName: "io.peerdb.flow_worker",
-
-		ServerAddress: opts.PyroscopeServer,
-
-		// you can disable logging by setting this to nil
-		Logger: nil,
-
-		// you can provide static tags via a map:
-		Tags: map[string]string{"hostname": os.Getenv("HOSTNAME")},
-
-		ProfileTypes: []pyroscope.ProfileType{
-			// these profile types are enabled by default:
-			pyroscope.ProfileCPU,
-			pyroscope.ProfileAllocObjects,
-			pyroscope.ProfileAllocSpace,
-			pyroscope.ProfileInuseObjects,
-			pyroscope.ProfileInuseSpace,
-
-			// these profile types are optional:
-			pyroscope.ProfileGoroutines,
-			pyroscope.ProfileMutexCount,
-			pyroscope.ProfileMutexDuration,
-			pyroscope.ProfileBlockCount,
-			pyroscope.ProfileBlockDuration,
-		},
-	})
-	if err != nil {
-		log.Fatal(err)
+		slog.ErrorContext(ctx, "Failed to shutdown metrics provider", slog.Any("error", err))
 	}
 }
 
 func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
-	if opts.EnableProfiling {
-		setupPyroscope(opts)
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
 	clientOptions := client.Options{
@@ -114,49 +69,30 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		Meter: metricsProvider.Meter("temporal-sdk-go"),
 	})
 
-	if internal.PeerDBTemporalEnableCertAuth() {
-		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := parseTemporalCertAndKey(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
-		}
-		clientOptions.ConnectionOptions = client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: certs,
-				MinVersion:   tls.VersionTLS13,
-			},
-		}
-	}
-
-	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
-	}
-
-	c, err := client.Dial(clientOptions)
+	c, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
-	slog.Info("Created temporal client")
+	slog.InfoContext(ctx, "Created temporal client")
 	queueId := shared.PeerFlowTaskQueue
 	if opts.UseMaintenanceTaskQueue {
 		queueId = shared.MaintenanceFlowTaskQueue
 	}
 	taskQueue := internal.PeerFlowTaskQueueName(queueId)
-	slog.Info(
-		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",
-			taskQueue,
-			opts.TemporalMaxConcurrentWorkflowTasks,
-			opts.TemporalMaxConcurrentActivities,
-		),
+	slog.InfoContext(ctx,
+		"Creating temporal worker",
+		slog.String("taskQueue", taskQueue),
+		slog.Int("workflowConcurrency", opts.TemporalMaxConcurrentWorkflowTasks),
+		slog.Int("activityConcurrency", opts.TemporalMaxConcurrentActivities),
 	)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker:                    true,
 		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
 		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
 		OnFatalError: func(err error) {
-			slog.Error("Peerflow Worker failed", slog.Any("error", err))
+			slog.ErrorContext(ctx, "Peerflow Worker failed", slog.Any("error", err))
 		},
+		MaxHeartbeatThrottleInterval: 10 * time.Second,
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 

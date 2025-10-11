@@ -30,6 +30,8 @@ export function DBTypeToGoodText(ptype?: DBType) {
       return 'PubSub';
     case DBType.ELASTICSEARCH:
       return 'Elasticsearch';
+    case DBType.MONGO:
+      return 'MongoDB';
     default:
       return 'Unrecognised';
   }

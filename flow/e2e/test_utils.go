@@ -20,6 +20,8 @@ import (
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
 	"go.temporal.io/sdk/temporal"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
@@ -28,8 +30,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
@@ -94,13 +96,27 @@ func EnvTrue(t *testing.T, env WorkflowRun, val bool) {
 }
 
 func RequireEqualTables(suite RowSource, table string, cols string) {
+	RequireEqualTablesWithNames(suite, table, table, cols)
+}
+
+func RequireEmptyDestinationTable(suite RowSource, dstTable string, cols string) {
 	t := suite.T()
 	t.Helper()
 
-	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), table, cols)
+	rows, err := suite.GetRows(dstTable, cols)
 	require.NoError(t, err)
 
-	rows, err := suite.GetRows(table, cols)
+	require.Empty(t, rows.Records)
+}
+
+func RequireEqualTablesWithNames(suite RowSource, srcTable string, dstTable string, cols string) {
+	t := suite.T()
+	t.Helper()
+
+	sourceRows, err := suite.Source().GetRows(t.Context(), suite.Suffix(), srcTable, cols)
+	require.NoError(t, err)
+
+	rows, err := suite.GetRows(dstTable, cols)
 	require.NoError(t, err)
 
 	require.True(t, e2eshared.CheckEqualRecordBatches(t, sourceRows, rows))
@@ -241,17 +257,19 @@ func RequireEnvCanceled(t *testing.T, env WorkflowRun) {
 
 func SetupCDCFlowStatusQuery(t *testing.T, env WorkflowRun, config *protos.FlowConnectionConfigs) {
 	t.Helper()
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
+	if err != nil {
+		env.Cancel(t.Context())
+		t.Fatal("could not get catalog connection", err)
+	}
 	// errors expected while PeerFlowStatusQuery is setup
 	counter := 0
 	for {
 		time.Sleep(time.Second)
 		counter++
-		response, err := env.Query(t.Context(), shared.FlowStatusQuery, config.FlowJobName)
+		status, err := internal.GetWorkflowStatus(t.Context(), pool, env.GetID())
 		if err == nil {
-			var status protos.FlowStatus
-			if err := response.Get(&status); err != nil {
-				t.Fatal(err)
-			} else if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
+			if status == protos.FlowStatus_STATUS_RUNNING || status == protos.FlowStatus_STATUS_COMPLETED {
 				return
 			} else if counter > 30 {
 				env.Cancel(t.Context())
@@ -349,7 +367,7 @@ func CreateTableForQRep(ctx context.Context, conn *pgx.Conn, suffix string, tabl
 func generate20MBJson() ([]byte, error) {
 	xn := make(map[string]any, 215000)
 	for range 215000 {
-		xn[uuid.New().String()] = uuid.New().String()
+		xn[uuid.NewString()] = uuid.NewString()
 	}
 
 	v, err := json.Marshal(xn)
@@ -364,7 +382,7 @@ func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tab
 	var id0 string
 	rows := make([]string, 0, rowCount)
 	for i := range rowCount - 1 {
-		id := uuid.New().String()
+		id := uuid.NewString()
 		if i == 0 {
 			id0 = id
 		}
@@ -390,8 +408,8 @@ func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tab
 						pi(), 1, 1.0,
 						'10.0.0.0/32', '1.1.10.2'::cidr, 'a1:b2:c3:d4:e5:f6'
 					)`,
-			id, uuid.New().String(), uuid.New().String(),
-			uuid.New().String(), uuid.New().String(), uuid.New().String(), uuid.New().String())
+			id, uuid.NewString(), uuid.NewString(),
+			uuid.NewString(), uuid.NewString(), uuid.NewString(), uuid.NewString())
 		rows = append(rows, row)
 	}
 
@@ -419,7 +437,7 @@ func PopulateSourceTable(ctx context.Context, conn *pgx.Conn, suffix string, tab
 	) VALUES (
 			'%s', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP,
 			0, 1, false, 12345
-	);`, suffix, tableName, uuid.New().String())); err != nil {
+	);`, suffix, tableName, uuid.NewString())); err != nil {
 		return err
 	}
 
@@ -475,70 +493,76 @@ func CreateQRepWorkflowConfig(
 		SyncedAtColName:                  syncedAtCol,
 		SetupWatermarkTableOnDestination: setupDst,
 		SoftDeleteColName:                isDeletedCol,
+		Version:                          shared.InternalVersion_Latest,
 	}
 }
 
-func RunQRepFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(ctx, tc, peerflow.QRepFlowWorkflow, config, nil)
+func RunQRepFlowWorkflow(t *testing.T, tc client.Client, config *protos.QRepConfig) WorkflowRun {
+	t.Helper()
+
+	client, err := NewApiClient()
+	require.NoError(t, err)
+	res, err := client.CreateQRepFlow(t.Context(), &protos.CreateQRepFlowRequest{QrepConfig: config})
+	require.NoError(t, err)
+	return WorkflowRun{
+		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
+		c:           tc,
+	}
 }
 
-func RunXminFlowWorkflow(ctx context.Context, tc client.Client, config *protos.QRepConfig) WorkflowRun {
-	return ExecutePeerflow(ctx, tc, peerflow.XminFlowWorkflow, config, nil)
-}
-
-func GetOwnersSchema() *qvalue.QRecordSchema {
-	return &qvalue.QRecordSchema{
-		Fields: []qvalue.QField{
-			{Name: "id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "card_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "from", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "price", Type: qvalue.QValueKindNumeric, Nullable: true},
-			{Name: "created_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "updated_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "transaction_hash", Type: qvalue.QValueKindBytes, Nullable: true},
-			{Name: "ownerable_type", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "ownerable_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "user_nonce", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "transfer_type", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "blockchain", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "deal_type", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "deal_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "ethereum_transaction_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "ignore_price", Type: qvalue.QValueKindBoolean, Nullable: true},
-			{Name: "card_eth_value", Type: qvalue.QValueKindFloat64, Nullable: true},
-			{Name: "paid_eth_price", Type: qvalue.QValueKindFloat64, Nullable: true},
-			{Name: "card_bought_notified", Type: qvalue.QValueKindBoolean, Nullable: true},
-			{Name: "address", Type: qvalue.QValueKindNumeric, Nullable: true},
-			{Name: "account_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "asset_id", Type: qvalue.QValueKindNumeric, Nullable: true},
-			{Name: "status", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "transaction_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "settled_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "reference_id", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "settle_at", Type: qvalue.QValueKindTimestamp, Nullable: true},
-			{Name: "settlement_delay_reason", Type: qvalue.QValueKindInt64, Nullable: true},
-			{Name: "f1", Type: qvalue.QValueKindArrayString, Nullable: true},
-			{Name: "f2", Type: qvalue.QValueKindArrayInt64, Nullable: true},
-			{Name: "f3", Type: qvalue.QValueKindArrayInt32, Nullable: true},
-			{Name: "f4", Type: qvalue.QValueKindArrayString, Nullable: true},
-			{Name: "f5", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f6", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f7", Type: qvalue.QValueKindJSON, Nullable: true},
-			{Name: "f8", Type: qvalue.QValueKindInt16, Nullable: true},
-			{Name: "f13", Type: qvalue.QValueKindArrayInt16, Nullable: true},
-			{Name: "my_date", Type: qvalue.QValueKindDate, Nullable: true},
-			{Name: "old_date", Type: qvalue.QValueKindDate, Nullable: true},
-			{Name: "my_time", Type: qvalue.QValueKindTime, Nullable: true},
-			{Name: "my_mood", Type: qvalue.QValueKindString, Nullable: true},
-			{Name: "geometryPoint", Type: qvalue.QValueKindGeometry, Nullable: true},
-			{Name: "geometry_linestring", Type: qvalue.QValueKindGeometry, Nullable: true},
-			{Name: "geometry_polygon", Type: qvalue.QValueKindGeometry, Nullable: true},
-			{Name: "geography_point", Type: qvalue.QValueKindGeography, Nullable: true},
-			{Name: "geography_linestring", Type: qvalue.QValueKindGeography, Nullable: true},
-			{Name: "geography_polygon", Type: qvalue.QValueKindGeography, Nullable: true},
-			{Name: "myreal", Type: qvalue.QValueKindFloat32, Nullable: true},
-			{Name: "myreal2", Type: qvalue.QValueKindFloat32, Nullable: true},
-			{Name: "myreal3", Type: qvalue.QValueKindFloat32, Nullable: true},
+func GetOwnersSchema() *types.QRecordSchema {
+	return &types.QRecordSchema{
+		Fields: []types.QField{
+			{Name: "id", Type: types.QValueKindString, Nullable: true},
+			{Name: "card_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "from", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "price", Type: types.QValueKindNumeric, Nullable: true},
+			{Name: "created_at", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "updated_at", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "transaction_hash", Type: types.QValueKindBytes, Nullable: true},
+			{Name: "ownerable_type", Type: types.QValueKindString, Nullable: true},
+			{Name: "ownerable_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "user_nonce", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "transfer_type", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "blockchain", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "deal_type", Type: types.QValueKindString, Nullable: true},
+			{Name: "deal_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "ethereum_transaction_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "ignore_price", Type: types.QValueKindBoolean, Nullable: true},
+			{Name: "card_eth_value", Type: types.QValueKindFloat64, Nullable: true},
+			{Name: "paid_eth_price", Type: types.QValueKindFloat64, Nullable: true},
+			{Name: "card_bought_notified", Type: types.QValueKindBoolean, Nullable: true},
+			{Name: "address", Type: types.QValueKindNumeric, Nullable: true},
+			{Name: "account_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "asset_id", Type: types.QValueKindNumeric, Nullable: true},
+			{Name: "status", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "transaction_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "settled_at", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "reference_id", Type: types.QValueKindString, Nullable: true},
+			{Name: "settle_at", Type: types.QValueKindTimestamp, Nullable: true},
+			{Name: "settlement_delay_reason", Type: types.QValueKindInt64, Nullable: true},
+			{Name: "f1", Type: types.QValueKindArrayString, Nullable: true},
+			{Name: "f2", Type: types.QValueKindArrayInt64, Nullable: true},
+			{Name: "f3", Type: types.QValueKindArrayInt32, Nullable: true},
+			{Name: "f4", Type: types.QValueKindArrayString, Nullable: true},
+			{Name: "f5", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "f6", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "f7", Type: types.QValueKindJSON, Nullable: true},
+			{Name: "f8", Type: types.QValueKindInt16, Nullable: true},
+			{Name: "f13", Type: types.QValueKindArrayInt16, Nullable: true},
+			{Name: "my_date", Type: types.QValueKindDate, Nullable: true},
+			{Name: "old_date", Type: types.QValueKindDate, Nullable: true},
+			{Name: "my_time", Type: types.QValueKindTime, Nullable: true},
+			{Name: "my_mood", Type: types.QValueKindString, Nullable: true},
+			{Name: "geometryPoint", Type: types.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_linestring", Type: types.QValueKindGeometry, Nullable: true},
+			{Name: "geometry_polygon", Type: types.QValueKindGeometry, Nullable: true},
+			{Name: "geography_point", Type: types.QValueKindGeography, Nullable: true},
+			{Name: "geography_linestring", Type: types.QValueKindGeography, Nullable: true},
+			{Name: "geography_polygon", Type: types.QValueKindGeography, Nullable: true},
+			{Name: "myreal", Type: types.QValueKindFloat32, Nullable: true},
+			{Name: "myreal2", Type: types.QValueKindFloat32, Nullable: true},
+			{Name: "myreal3", Type: types.QValueKindFloat32, Nullable: true},
 		},
 	}
 }
@@ -605,6 +629,14 @@ func NewTemporalClient(t *testing.T) client.Client {
 	return tc
 }
 
+func NewApiClient() (protos.FlowServiceClient, error) {
+	client, err := grpc.NewClient("0.0.0.0:8112", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return nil, err
+	}
+	return protos.NewFlowServiceClient(client), nil
+}
+
 type WorkflowRun struct {
 	client.WorkflowRun
 	c client.Client
@@ -620,8 +652,17 @@ func GetPeerflow(ctx context.Context, catalog *pgx.Conn, tc client.Client, flowN
 	return WorkflowRun{WorkflowRun: tc.GetWorkflow(ctx, workflowID, ""), c: tc}, nil
 }
 
-func ExecutePeerflow(ctx context.Context, tc client.Client, wf any, args ...any) WorkflowRun {
-	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, wf, args...)
+func ExecutePeerflow(t *testing.T, tc client.Client, config *protos.FlowConnectionConfigs) WorkflowRun {
+	t.Helper()
+
+	client, err := NewApiClient()
+	require.NoError(t, err)
+	res, err := client.CreateCDCFlow(t.Context(), &protos.CreateCDCFlowRequest{ConnectionConfigs: config})
+	require.NoError(t, err)
+	return WorkflowRun{
+		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
+		c:           tc,
+	}
 }
 
 func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf any, args ...any) WorkflowRun {
@@ -671,12 +712,11 @@ func (env WorkflowRun) Query(ctx context.Context, queryType string, args ...any)
 
 func (env WorkflowRun) GetFlowStatus(t *testing.T) protos.FlowStatus {
 	t.Helper()
-	res, err := env.c.QueryWorkflow(t.Context(), env.GetID(), "", shared.FlowStatusQuery)
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(t.Context())
 	EnvNoError(t, env, err)
-	var flowStatus protos.FlowStatus
-	err = res.Get(&flowStatus)
+	status, err := internal.GetWorkflowStatus(t.Context(), pool, env.GetID())
 	EnvNoError(t, env, err)
-	return flowStatus
+	return status
 }
 
 func SignalWorkflow[T any](ctx context.Context, env WorkflowRun, signal model.TypedSignal[T], value T) {

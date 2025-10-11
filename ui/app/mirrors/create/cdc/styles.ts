@@ -5,7 +5,6 @@ export const expandableStyle = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  color: 'rgba(0,0,0,0.7)',
   cursor: 'pointer',
 };
 

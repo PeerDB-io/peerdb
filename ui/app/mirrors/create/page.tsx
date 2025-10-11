@@ -70,9 +70,9 @@ export default function CreateMirrors() {
   const [validating, setValidating] = useState<boolean>(false);
   const [qrepConfig, setQrepConfig] = useState<QRepConfig>(blankQRepSetting);
   const [cdcConfig, setCdcConfig] = useState<CDCConfig>(blankCDCSetting);
-  const [sourceType, setSourceType] = useState<DBType>(DBType.UNRECOGNIZED);
+  const [sourceType, setSourceType] = useState<DBType>(DBType.DBTYPE_UNKNOWN);
   const [destinationType, setDestinationType] = useState<DBType>(
-    DBType.UNRECOGNIZED
+    DBType.DBTYPE_UNKNOWN
   );
   const [sourcePeers, setSourcePeers] = useState<PeerListItem[]>([]);
   const [destinationPeers, setDestinationPeers] = useState<PeerListItem[]>([]);
@@ -123,7 +123,7 @@ export default function CreateMirrors() {
     if (currentlyTypedMirrorName !== '') {
       const flowNameValid = flowNameSchema.safeParse(currentlyTypedMirrorName);
       if (!flowNameValid.success) {
-        setNameValidityMessage(flowNameValid.error.errors[0].message);
+        setNameValidityMessage(flowNameValid.error.message);
       } else {
         setNameValidityMessage('');
       }
@@ -292,6 +292,7 @@ export default function CreateMirrors() {
             <QRepConfigForm
               settings={qrepSettings}
               mirrorConfig={qrepConfig}
+              sourceType={sourceType}
               destinationType={destinationType}
               setter={setQrepConfig}
               xmin={mirrorType === MirrorType.XMin}

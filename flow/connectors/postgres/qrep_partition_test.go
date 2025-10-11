@@ -65,6 +65,7 @@ func newTestCaseForCTID(schema string, name string, rows uint32, expectedNum int
 }
 
 func TestGetQRepPartitions(t *testing.T) {
+	t.Parallel()
 	connStr := internal.GetCatalogConnectionStringFromEnv(t.Context())
 
 	// Setup the DB
@@ -79,7 +80,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 	defer tunnel.Close()
 
-	conn, err := NewPostgresConnFromConfig(t.Context(), config, tunnel)
+	conn, err := NewPostgresConnFromConfig(t.Context(), config, "", nil, tunnel)
 	if err != nil {
 		t.Fatalf("Failed to create connection: %v", err)
 	}
@@ -203,8 +204,7 @@ func TestGetQRepPartitions(t *testing.T) {
 	}
 
 	// Drop the schema at the end
-	_, err = conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName))
-	if err != nil {
+	if _, err := conn.Exec(t.Context(), fmt.Sprintf(`DROP SCHEMA %s CASCADE;`, schemaName)); err != nil {
 		t.Fatalf("Failed to drop schema: %v", err)
 	}
 }
