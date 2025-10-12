@@ -501,6 +501,74 @@ func (DBType) EnumDescriptor() ([]byte, []int) {
 	return file_peers_proto_rawDescGZIP(), []int{8}
 }
 
+type DatabaseVariant int32
+
+const (
+	// either vanilla or something not listed here
+	DatabaseVariant_VARIANT_UNKNOWN  DatabaseVariant = 0
+	DatabaseVariant_AWS_RDS          DatabaseVariant = 2
+	DatabaseVariant_AWS_AURORA       DatabaseVariant = 3
+	DatabaseVariant_GOOGLE_CLOUD_SQL DatabaseVariant = 4
+	DatabaseVariant_AZURE_DATABASE   DatabaseVariant = 5
+	// only Postgres
+	DatabaseVariant_NEON DatabaseVariant = 6
+	// has Vitess, but only Postgres for now
+	DatabaseVariant_PLANETSCALE DatabaseVariant = 7
+	// only Postgres
+	DatabaseVariant_SUPABASE DatabaseVariant = 8
+)
+
+// Enum value maps for DatabaseVariant.
+var (
+	DatabaseVariant_name = map[int32]string{
+		0: "VARIANT_UNKNOWN",
+		2: "AWS_RDS",
+		3: "AWS_AURORA",
+		4: "GOOGLE_CLOUD_SQL",
+		5: "AZURE_DATABASE",
+		6: "NEON",
+		7: "PLANETSCALE",
+		8: "SUPABASE",
+	}
+	DatabaseVariant_value = map[string]int32{
+		"VARIANT_UNKNOWN":  0,
+		"AWS_RDS":          2,
+		"AWS_AURORA":       3,
+		"GOOGLE_CLOUD_SQL": 4,
+		"AZURE_DATABASE":   5,
+		"NEON":             6,
+		"PLANETSCALE":      7,
+		"SUPABASE":         8,
+	}
+)
+
+func (x DatabaseVariant) Enum() *DatabaseVariant {
+	p := new(DatabaseVariant)
+	*p = x
+	return p
+}
+
+func (x DatabaseVariant) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (DatabaseVariant) Descriptor() protoreflect.EnumDescriptor {
+	return file_peers_proto_enumTypes[9].Descriptor()
+}
+
+func (DatabaseVariant) Type() protoreflect.EnumType {
+	return &file_peers_proto_enumTypes[9]
+}
+
+func (x DatabaseVariant) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use DatabaseVariant.Descriptor instead.
+func (DatabaseVariant) EnumDescriptor() ([]byte, []int) {
+	return file_peers_proto_rawDescGZIP(), []int{9}
+}
+
 type SSHConfig struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -3076,20 +3144,29 @@ var file_peers_proto_rawDesc = []byte{
 	0x10, 0x0b, 0x12, 0x11, 0x0a, 0x0d, 0x45, 0x4c, 0x41, 0x53, 0x54, 0x49, 0x43, 0x53, 0x45, 0x41,
 	0x52, 0x43, 0x48, 0x10, 0x0c, 0x12, 0x1b, 0x0a, 0x0e, 0x44, 0x42, 0x54, 0x59, 0x50, 0x45, 0x5f,
 	0x55, 0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x10, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-	0xff, 0x01, 0x3a, 0x4c, 0x0a, 0x0f, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x72, 0x65, 0x64,
-	0x61, 0x63, 0x74, 0x65, 0x64, 0x12, 0x1d, 0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70,
-	0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66, 0x2e, 0x46, 0x69, 0x65, 0x6c, 0x64, 0x4f, 0x70, 0x74,
-	0x69, 0x6f, 0x6e, 0x73, 0x18, 0xa2, 0x9f, 0xf2, 0x07, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0e, 0x70,
-	0x65, 0x65, 0x72, 0x64, 0x62, 0x52, 0x65, 0x64, 0x61, 0x63, 0x74, 0x65, 0x64, 0x88, 0x01, 0x01,
-	0x42, 0x7c, 0x0a, 0x10, 0x63, 0x6f, 0x6d, 0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x70,
-	0x65, 0x65, 0x72, 0x73, 0x42, 0x0a, 0x50, 0x65, 0x65, 0x72, 0x73, 0x50, 0x72, 0x6f, 0x74, 0x6f,
-	0x50, 0x01, 0x5a, 0x10, 0x67, 0x65, 0x6e, 0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x2f, 0x70, 0x72,
-	0x6f, 0x74, 0x6f, 0x73, 0xa2, 0x02, 0x03, 0x50, 0x58, 0x58, 0xaa, 0x02, 0x0b, 0x50, 0x65, 0x65,
-	0x72, 0x64, 0x62, 0x50, 0x65, 0x65, 0x72, 0x73, 0xca, 0x02, 0x0b, 0x50, 0x65, 0x65, 0x72, 0x64,
-	0x62, 0x50, 0x65, 0x65, 0x72, 0x73, 0xe2, 0x02, 0x17, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x50,
-	0x65, 0x65, 0x72, 0x73, 0x5c, 0x47, 0x50, 0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61,
-	0xea, 0x02, 0x0b, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x50, 0x65, 0x65, 0x72, 0x73, 0x62, 0x06,
-	0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0xff, 0x01, 0x2a, 0x96, 0x01, 0x0a, 0x0f, 0x44, 0x61, 0x74, 0x61, 0x62, 0x61, 0x73, 0x65, 0x56,
+	0x61, 0x72, 0x69, 0x61, 0x6e, 0x74, 0x12, 0x13, 0x0a, 0x0f, 0x56, 0x41, 0x52, 0x49, 0x41, 0x4e,
+	0x54, 0x5f, 0x55, 0x4e, 0x4b, 0x4e, 0x4f, 0x57, 0x4e, 0x10, 0x00, 0x12, 0x0b, 0x0a, 0x07, 0x41,
+	0x57, 0x53, 0x5f, 0x52, 0x44, 0x53, 0x10, 0x02, 0x12, 0x0e, 0x0a, 0x0a, 0x41, 0x57, 0x53, 0x5f,
+	0x41, 0x55, 0x52, 0x4f, 0x52, 0x41, 0x10, 0x03, 0x12, 0x14, 0x0a, 0x10, 0x47, 0x4f, 0x4f, 0x47,
+	0x4c, 0x45, 0x5f, 0x43, 0x4c, 0x4f, 0x55, 0x44, 0x5f, 0x53, 0x51, 0x4c, 0x10, 0x04, 0x12, 0x12,
+	0x0a, 0x0e, 0x41, 0x5a, 0x55, 0x52, 0x45, 0x5f, 0x44, 0x41, 0x54, 0x41, 0x42, 0x41, 0x53, 0x45,
+	0x10, 0x05, 0x12, 0x08, 0x0a, 0x04, 0x4e, 0x45, 0x4f, 0x4e, 0x10, 0x06, 0x12, 0x0f, 0x0a, 0x0b,
+	0x50, 0x4c, 0x41, 0x4e, 0x45, 0x54, 0x53, 0x43, 0x41, 0x4c, 0x45, 0x10, 0x07, 0x12, 0x0c, 0x0a,
+	0x08, 0x53, 0x55, 0x50, 0x41, 0x42, 0x41, 0x53, 0x45, 0x10, 0x08, 0x3a, 0x4c, 0x0a, 0x0f, 0x70,
+	0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x72, 0x65, 0x64, 0x61, 0x63, 0x74, 0x65, 0x64, 0x12, 0x1d,
+	0x2e, 0x67, 0x6f, 0x6f, 0x67, 0x6c, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x62, 0x75, 0x66,
+	0x2e, 0x46, 0x69, 0x65, 0x6c, 0x64, 0x4f, 0x70, 0x74, 0x69, 0x6f, 0x6e, 0x73, 0x18, 0xa2, 0x9f,
+	0xf2, 0x07, 0x20, 0x01, 0x28, 0x08, 0x52, 0x0e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x52, 0x65,
+	0x64, 0x61, 0x63, 0x74, 0x65, 0x64, 0x88, 0x01, 0x01, 0x42, 0x7c, 0x0a, 0x10, 0x63, 0x6f, 0x6d,
+	0x2e, 0x70, 0x65, 0x65, 0x72, 0x64, 0x62, 0x5f, 0x70, 0x65, 0x65, 0x72, 0x73, 0x42, 0x0a, 0x50,
+	0x65, 0x65, 0x72, 0x73, 0x50, 0x72, 0x6f, 0x74, 0x6f, 0x50, 0x01, 0x5a, 0x10, 0x67, 0x65, 0x6e,
+	0x65, 0x72, 0x61, 0x74, 0x65, 0x64, 0x2f, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x73, 0xa2, 0x02, 0x03,
+	0x50, 0x58, 0x58, 0xaa, 0x02, 0x0b, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x50, 0x65, 0x65, 0x72,
+	0x73, 0xca, 0x02, 0x0b, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x50, 0x65, 0x65, 0x72, 0x73, 0xe2,
+	0x02, 0x17, 0x50, 0x65, 0x65, 0x72, 0x64, 0x62, 0x50, 0x65, 0x65, 0x72, 0x73, 0x5c, 0x47, 0x50,
+	0x42, 0x4d, 0x65, 0x74, 0x61, 0x64, 0x61, 0x74, 0x61, 0xea, 0x02, 0x0b, 0x50, 0x65, 0x65, 0x72,
+	0x64, 0x62, 0x50, 0x65, 0x65, 0x72, 0x73, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -3104,7 +3181,7 @@ func file_peers_proto_rawDescGZIP() []byte {
 	return file_peers_proto_rawDescData
 }
 
-var file_peers_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
+var file_peers_proto_enumTypes = make([]protoimpl.EnumInfo, 10)
 var file_peers_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
 var file_peers_proto_goTypes = []interface{}{
 	(ReadPreference)(0),                    // 0: peerdb_peers.ReadPreference
@@ -3116,62 +3193,63 @@ var file_peers_proto_goTypes = []interface{}{
 	(MySqlAuthType)(0),                     // 6: peerdb_peers.MySqlAuthType
 	(ElasticsearchAuthType)(0),             // 7: peerdb_peers.ElasticsearchAuthType
 	(DBType)(0),                            // 8: peerdb_peers.DBType
-	(*SSHConfig)(nil),                      // 9: peerdb_peers.SSHConfig
-	(*SnowflakeConfig)(nil),                // 10: peerdb_peers.SnowflakeConfig
-	(*GcpServiceAccount)(nil),              // 11: peerdb_peers.GcpServiceAccount
-	(*BigqueryConfig)(nil),                 // 12: peerdb_peers.BigqueryConfig
-	(*PubSubConfig)(nil),                   // 13: peerdb_peers.PubSubConfig
-	(*MongoConfig)(nil),                    // 14: peerdb_peers.MongoConfig
-	(*AwsAuthStaticCredentialsConfig)(nil), // 15: peerdb_peers.AwsAuthStaticCredentialsConfig
-	(*AWSAuthAssumeRoleConfig)(nil),        // 16: peerdb_peers.AWSAuthAssumeRoleConfig
-	(*AwsAuthenticationConfig)(nil),        // 17: peerdb_peers.AwsAuthenticationConfig
-	(*PostgresConfig)(nil),                 // 18: peerdb_peers.PostgresConfig
-	(*EventHubConfig)(nil),                 // 19: peerdb_peers.EventHubConfig
-	(*EventHubGroupConfig)(nil),            // 20: peerdb_peers.EventHubGroupConfig
-	(*S3Config)(nil),                       // 21: peerdb_peers.S3Config
-	(*ClickhouseConfig)(nil),               // 22: peerdb_peers.ClickhouseConfig
-	(*SqlServerConfig)(nil),                // 23: peerdb_peers.SqlServerConfig
-	(*MySqlConfig)(nil),                    // 24: peerdb_peers.MySqlConfig
-	(*KafkaConfig)(nil),                    // 25: peerdb_peers.KafkaConfig
-	(*ElasticsearchConfig)(nil),            // 26: peerdb_peers.ElasticsearchConfig
-	(*Peer)(nil),                           // 27: peerdb_peers.Peer
-	nil,                                    // 28: peerdb_peers.EventHubGroupConfig.EventhubsEntry
-	(*descriptorpb.FieldOptions)(nil),      // 29: google.protobuf.FieldOptions
+	(DatabaseVariant)(0),                   // 9: peerdb_peers.DatabaseVariant
+	(*SSHConfig)(nil),                      // 10: peerdb_peers.SSHConfig
+	(*SnowflakeConfig)(nil),                // 11: peerdb_peers.SnowflakeConfig
+	(*GcpServiceAccount)(nil),              // 12: peerdb_peers.GcpServiceAccount
+	(*BigqueryConfig)(nil),                 // 13: peerdb_peers.BigqueryConfig
+	(*PubSubConfig)(nil),                   // 14: peerdb_peers.PubSubConfig
+	(*MongoConfig)(nil),                    // 15: peerdb_peers.MongoConfig
+	(*AwsAuthStaticCredentialsConfig)(nil), // 16: peerdb_peers.AwsAuthStaticCredentialsConfig
+	(*AWSAuthAssumeRoleConfig)(nil),        // 17: peerdb_peers.AWSAuthAssumeRoleConfig
+	(*AwsAuthenticationConfig)(nil),        // 18: peerdb_peers.AwsAuthenticationConfig
+	(*PostgresConfig)(nil),                 // 19: peerdb_peers.PostgresConfig
+	(*EventHubConfig)(nil),                 // 20: peerdb_peers.EventHubConfig
+	(*EventHubGroupConfig)(nil),            // 21: peerdb_peers.EventHubGroupConfig
+	(*S3Config)(nil),                       // 22: peerdb_peers.S3Config
+	(*ClickhouseConfig)(nil),               // 23: peerdb_peers.ClickhouseConfig
+	(*SqlServerConfig)(nil),                // 24: peerdb_peers.SqlServerConfig
+	(*MySqlConfig)(nil),                    // 25: peerdb_peers.MySqlConfig
+	(*KafkaConfig)(nil),                    // 26: peerdb_peers.KafkaConfig
+	(*ElasticsearchConfig)(nil),            // 27: peerdb_peers.ElasticsearchConfig
+	(*Peer)(nil),                           // 28: peerdb_peers.Peer
+	nil,                                    // 29: peerdb_peers.EventHubGroupConfig.EventhubsEntry
+	(*descriptorpb.FieldOptions)(nil),      // 30: google.protobuf.FieldOptions
 }
 var file_peers_proto_depIdxs = []int32{
-	11, // 0: peerdb_peers.PubSubConfig.service_account:type_name -> peerdb_peers.GcpServiceAccount
+	12, // 0: peerdb_peers.PubSubConfig.service_account:type_name -> peerdb_peers.GcpServiceAccount
 	0,  // 1: peerdb_peers.MongoConfig.read_preference:type_name -> peerdb_peers.ReadPreference
-	9,  // 2: peerdb_peers.MongoConfig.ssh_config:type_name -> peerdb_peers.SSHConfig
+	10, // 2: peerdb_peers.MongoConfig.ssh_config:type_name -> peerdb_peers.SSHConfig
 	1,  // 3: peerdb_peers.AwsAuthenticationConfig.auth_type:type_name -> peerdb_peers.AwsIAMAuthConfigType
-	15, // 4: peerdb_peers.AwsAuthenticationConfig.static_credentials:type_name -> peerdb_peers.AwsAuthStaticCredentialsConfig
-	16, // 5: peerdb_peers.AwsAuthenticationConfig.role:type_name -> peerdb_peers.AWSAuthAssumeRoleConfig
-	9,  // 6: peerdb_peers.PostgresConfig.ssh_config:type_name -> peerdb_peers.SSHConfig
+	16, // 4: peerdb_peers.AwsAuthenticationConfig.static_credentials:type_name -> peerdb_peers.AwsAuthStaticCredentialsConfig
+	17, // 5: peerdb_peers.AwsAuthenticationConfig.role:type_name -> peerdb_peers.AWSAuthAssumeRoleConfig
+	10, // 6: peerdb_peers.PostgresConfig.ssh_config:type_name -> peerdb_peers.SSHConfig
 	2,  // 7: peerdb_peers.PostgresConfig.auth_type:type_name -> peerdb_peers.PostgresAuthType
-	17, // 8: peerdb_peers.PostgresConfig.aws_auth:type_name -> peerdb_peers.AwsAuthenticationConfig
-	28, // 9: peerdb_peers.EventHubGroupConfig.eventhubs:type_name -> peerdb_peers.EventHubGroupConfig.EventhubsEntry
+	18, // 8: peerdb_peers.PostgresConfig.aws_auth:type_name -> peerdb_peers.AwsAuthenticationConfig
+	29, // 9: peerdb_peers.EventHubGroupConfig.eventhubs:type_name -> peerdb_peers.EventHubGroupConfig.EventhubsEntry
 	3,  // 10: peerdb_peers.S3Config.codec:type_name -> peerdb_peers.AvroCodec
-	21, // 11: peerdb_peers.ClickhouseConfig.s3:type_name -> peerdb_peers.S3Config
+	22, // 11: peerdb_peers.ClickhouseConfig.s3:type_name -> peerdb_peers.S3Config
 	4,  // 12: peerdb_peers.MySqlConfig.flavor:type_name -> peerdb_peers.MySqlFlavor
-	9,  // 13: peerdb_peers.MySqlConfig.ssh_config:type_name -> peerdb_peers.SSHConfig
+	10, // 13: peerdb_peers.MySqlConfig.ssh_config:type_name -> peerdb_peers.SSHConfig
 	5,  // 14: peerdb_peers.MySqlConfig.replication_mechanism:type_name -> peerdb_peers.MySqlReplicationMechanism
 	6,  // 15: peerdb_peers.MySqlConfig.auth_type:type_name -> peerdb_peers.MySqlAuthType
-	17, // 16: peerdb_peers.MySqlConfig.aws_auth:type_name -> peerdb_peers.AwsAuthenticationConfig
+	18, // 16: peerdb_peers.MySqlConfig.aws_auth:type_name -> peerdb_peers.AwsAuthenticationConfig
 	7,  // 17: peerdb_peers.ElasticsearchConfig.auth_type:type_name -> peerdb_peers.ElasticsearchAuthType
 	8,  // 18: peerdb_peers.Peer.type:type_name -> peerdb_peers.DBType
-	10, // 19: peerdb_peers.Peer.snowflake_config:type_name -> peerdb_peers.SnowflakeConfig
-	12, // 20: peerdb_peers.Peer.bigquery_config:type_name -> peerdb_peers.BigqueryConfig
-	14, // 21: peerdb_peers.Peer.mongo_config:type_name -> peerdb_peers.MongoConfig
-	18, // 22: peerdb_peers.Peer.postgres_config:type_name -> peerdb_peers.PostgresConfig
-	21, // 23: peerdb_peers.Peer.s3_config:type_name -> peerdb_peers.S3Config
-	23, // 24: peerdb_peers.Peer.sqlserver_config:type_name -> peerdb_peers.SqlServerConfig
-	20, // 25: peerdb_peers.Peer.eventhub_group_config:type_name -> peerdb_peers.EventHubGroupConfig
-	22, // 26: peerdb_peers.Peer.clickhouse_config:type_name -> peerdb_peers.ClickhouseConfig
-	25, // 27: peerdb_peers.Peer.kafka_config:type_name -> peerdb_peers.KafkaConfig
-	13, // 28: peerdb_peers.Peer.pubsub_config:type_name -> peerdb_peers.PubSubConfig
-	26, // 29: peerdb_peers.Peer.elasticsearch_config:type_name -> peerdb_peers.ElasticsearchConfig
-	24, // 30: peerdb_peers.Peer.mysql_config:type_name -> peerdb_peers.MySqlConfig
-	19, // 31: peerdb_peers.EventHubGroupConfig.EventhubsEntry.value:type_name -> peerdb_peers.EventHubConfig
-	29, // 32: peerdb_peers.peerdb_redacted:extendee -> google.protobuf.FieldOptions
+	11, // 19: peerdb_peers.Peer.snowflake_config:type_name -> peerdb_peers.SnowflakeConfig
+	13, // 20: peerdb_peers.Peer.bigquery_config:type_name -> peerdb_peers.BigqueryConfig
+	15, // 21: peerdb_peers.Peer.mongo_config:type_name -> peerdb_peers.MongoConfig
+	19, // 22: peerdb_peers.Peer.postgres_config:type_name -> peerdb_peers.PostgresConfig
+	22, // 23: peerdb_peers.Peer.s3_config:type_name -> peerdb_peers.S3Config
+	24, // 24: peerdb_peers.Peer.sqlserver_config:type_name -> peerdb_peers.SqlServerConfig
+	21, // 25: peerdb_peers.Peer.eventhub_group_config:type_name -> peerdb_peers.EventHubGroupConfig
+	23, // 26: peerdb_peers.Peer.clickhouse_config:type_name -> peerdb_peers.ClickhouseConfig
+	26, // 27: peerdb_peers.Peer.kafka_config:type_name -> peerdb_peers.KafkaConfig
+	14, // 28: peerdb_peers.Peer.pubsub_config:type_name -> peerdb_peers.PubSubConfig
+	27, // 29: peerdb_peers.Peer.elasticsearch_config:type_name -> peerdb_peers.ElasticsearchConfig
+	25, // 30: peerdb_peers.Peer.mysql_config:type_name -> peerdb_peers.MySqlConfig
+	20, // 31: peerdb_peers.EventHubGroupConfig.EventhubsEntry.value:type_name -> peerdb_peers.EventHubConfig
+	30, // 32: peerdb_peers.peerdb_redacted:extendee -> google.protobuf.FieldOptions
 	33, // [33:33] is the sub-list for method output_type
 	33, // [33:33] is the sub-list for method input_type
 	33, // [33:33] is the sub-list for extension type_name
@@ -3446,7 +3524,7 @@ func file_peers_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_peers_proto_rawDesc,
-			NumEnums:      9,
+			NumEnums:      10,
 			NumMessages:   20,
 			NumExtensions: 1,
 			NumServices:   0,
