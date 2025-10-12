@@ -323,6 +323,10 @@ func (p *PostgresCDCSource) decodeColumnData(
 				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
+			if parsedData == nil {
+				// avoid confusing SQL null & JSON null by using struct{} as json null sentinel
+				parsedData = model.JsonNull{}
+			}
 			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
 				parsedData, customTypeMapping, p.internalVersion)
 		}

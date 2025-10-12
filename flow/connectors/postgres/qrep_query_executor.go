@@ -379,7 +379,8 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
 			if values[i] == nil {
-				values[i] = "null"
+				// avoid confusing SQL null & JSON null by using struct{} as json null sentinel
+				values[i] = model.JsonNull{}
 			}
 		case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
 			var textArr pgtype.FlatArray[pgtype.Text]
