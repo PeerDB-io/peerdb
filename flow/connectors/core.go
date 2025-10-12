@@ -311,6 +311,12 @@ type GetLogRetentionConnector interface {
 	GetLogRetentionHours(ctx context.Context) (float64, error)
 }
 
+type DatabaseVariantConnector interface {
+	Connector
+
+	GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error)
+}
+
 func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (protos.DBType, error) {
 	row := catalogPool.QueryRow(ctx, "SELECT type FROM peers WHERE name = $1", peerName)
 	var dbtype protos.DBType
@@ -639,4 +645,7 @@ var (
 
 	_ GetLogRetentionConnector = &connmysql.MySqlConnector{}
 	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
+
+	_ DatabaseVariantConnector = &connpostgres.PostgresConnector{}
+	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}
 )

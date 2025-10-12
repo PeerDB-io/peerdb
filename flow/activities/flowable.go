@@ -1626,6 +1626,21 @@ func (a *FlowableActivity) GetFlowMetadata(
 			Type: peerTypes[input.DestinationName],
 		}
 	}
+
+	// Detect source database variant
+	if input.SourceName != "" {
+		if srcConn, err := connectors.GetByNameAs[connectors.DatabaseVariantConnector](ctx, nil, a.CatalogPool, input.SourceName); err == nil {
+			if variant, variantErr := srcConn.GetDatabaseVariant(ctx); variantErr == nil {
+				sourcePeer.Variant = variant
+			} else {
+				logger.Warn("failed to get source database variant", slog.Any("error", variantErr))
+			}
+			connectors.CloseConnector(ctx, srcConn)
+		} else {
+			logger.Warn("failed to get source connector to detect database variant", slog.Any("error", err))
+		}
+	}
+
 	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
 		slog.Any("peerTypes", peerTypes))
