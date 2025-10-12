@@ -1388,6 +1388,80 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 	RequireEnvCanceled(s.t, env)
 }
 
+func (s ClickHouseSuite) Test_JSON_Null() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_json_null"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_json_null"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id INT PRIMARY KEY,
+			j_null JSON NULL,
+			j_notnull JSON NOT NULL,
+			jb_null JSONB NULL,
+			jb_notnull JSONB NOT NULL
+		);
+	`, srcFullName)))
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,jb_null,jb_notnull)
+		VALUES (1,'null'::json,'null'::json,'null'::jsonb,'null'::jsonb)`,
+		srcFullName)))
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("ch_json_null"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,jb_null,jb_notnull)
+		VALUES (2,'null'::json,'null'::json,'null'::jsonb,'null'::jsonb)`,
+		srcFullName)))
+
+	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
+
+	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
+	require.NoError(s.t, err)
+	rows, err := ch.Query(s.t.Context(),
+		fmt.Sprintf("select id,j_null,j_notnull,jb_null,jb_notnull from %s order by id", dstTableName))
+	require.NoError(s.t, err)
+	defer rows.Close()
+	numRows := 0
+	for rows.Next() {
+		numRows++
+		var id int32
+		var jNull *string
+		var jbNull *string
+		var jNotNull string
+		var jbNotNull string
+		require.NoError(s.t, rows.Scan(&id, &jNull, &jNotNull, &jbNull, &jbNotNull))
+		s.t.Log(id, jNull, jbNull, jNotNull, jbNotNull)
+		require.NotNil(s.t, jNull)
+		require.NotNil(s.t, jbNull)
+		require.Equal(s.t, *jNull, "null")
+		require.Equal(s.t, jNotNull, "null")
+		require.Equal(s.t, *jbNull, "null")
+		require.Equal(s.t, jbNotNull, "null")
+	}
+	require.NoError(s.t, rows.Err())
+	require.Equal(s.t, 2, numRows)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
 func (s ClickHouseSuite) Test_JSON_CH() {
 	if mySource, ok := s.source.(*MySqlSource); ok && mySource.Config.Flavor == protos.MySqlFlavor_MYSQL_MARIA {
 		s.t.Skip("skip maria, where JSON is not a supported data type")
