@@ -13,12 +13,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
-type JsonNull struct{}
-
-func (JsonNull) MarshalJSON() ([]byte, error) {
-	return []byte("null"), nil
-}
-
 type NameAndExclude struct {
 	Exclude map[string]struct{}
 	Name    string

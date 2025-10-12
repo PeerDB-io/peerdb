@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -379,8 +380,8 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
 			if values[i] == nil {
-				// avoid confusing SQL null & JSON null by using struct{} as json null sentinel
-				values[i] = model.JsonNull{}
+				// avoid confusing SQL null & JSON null by using pre-marshaled value
+				values[i] = json.RawMessage("null")
 			}
 		case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
 			var textArr pgtype.FlatArray[pgtype.Text]

@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -324,8 +325,8 @@ func (p *PostgresCDCSource) decodeColumnData(
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
 			if parsedData == nil {
-				// avoid confusing SQL null & JSON null by using struct{} as json null sentinel
-				parsedData = model.JsonNull{}
+				// avoid confusing SQL null & JSON null by using pre-marshaled value
+				parsedData = json.RawMessage("null")
 			}
 			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
 				parsedData, customTypeMapping, p.internalVersion)
