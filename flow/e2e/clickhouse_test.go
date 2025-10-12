@@ -1409,9 +1409,10 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 		);
 	`, srcFullName)))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,j_nullnull,jb_null,jb_notnull,jb_nullnull)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,j_nullnull,jb_null,jb_notnull,jb_nullnull)
 		VALUES (1,'null'::json,'null'::json,NULL,'null'::jsonb,'null'::jsonb,NULL)`,
-		srcFullName)))
+			srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName:      s.attachSuffix("ch_json_null"),
@@ -1428,9 +1429,10 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,j_nullnull,jb_null,jb_notnull,jb_nullnull)
+	require.NoError(s.t, s.source.Exec(s.t.Context(),
+		fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,j_nullnull,jb_null,jb_notnull,jb_nullnull)
 		VALUES (2,'null'::json,'null'::json,NULL,'null'::jsonb,'null'::jsonb,NULL)`,
-		srcFullName)))
+			srcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
 
@@ -1454,10 +1456,10 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 		s.t.Log(id, jNull, jbNull, jNotNull, jbNotNull)
 		require.NotNil(s.t, jNull)
 		require.NotNil(s.t, jbNull)
-		require.Equal(s.t, *jNull, "null")
-		require.Equal(s.t, jNotNull, "null")
-		require.Equal(s.t, *jbNull, "null")
-		require.Equal(s.t, jbNotNull, "null")
+		require.Equal(s.t, "null", *jNull)
+		require.Equal(s.t, "null", jNotNull)
+		require.Equal(s.t, "null", *jbNull)
+		require.Equal(s.t, "null", jbNotNull)
 		require.Nil(s.t, jNullNull)
 		require.Nil(s.t, jbNullNull)
 	}
