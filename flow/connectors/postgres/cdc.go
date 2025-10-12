@@ -323,19 +323,23 @@ func (p *PostgresCDCSource) decodeColumnData(
 				p.logger.Error("[pg_cdc] failed to unmarshal json", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
+			if parsedData == nil {
+				// avoid confusing SQL null & JSON null by using struct{} as json null sentinel
+				parsedData = model.JsonNull{}
+			}
 			return p.parseFieldFromPostgresOID(dataType, typmod, true, protos.DBType_DBTYPE_UNKNOWN,
 				parsedData, customTypeMapping, p.internalVersion)
 		}
 		return types.QValueNull(types.QValueKindJSON), nil
 	} else if dataType == pgtype.JSONArrayOID || dataType == pgtype.JSONBArrayOID {
-		textArr := &pgtype.FlatArray[pgtype.Text]{}
-		if err := p.typeMap.Scan(dataType, formatCode, data, textArr); err != nil {
+		textArr := pgtype.FlatArray[pgtype.Text]{}
+		if err := p.typeMap.Scan(dataType, formatCode, data, &textArr); err != nil {
 			p.logger.Error("[pg_cdc] failed to scan json array", slog.Any("error", err))
 			return nil, fmt.Errorf("failed to scan json array: %w", err)
 		}
 
-		arr := make([]any, len(*textArr))
-		for j, text := range *textArr {
+		arr := make([]any, len(textArr))
+		for j, text := range textArr {
 			if text.Valid {
 				if err := p.jsonApi.UnmarshalFromString(text.String, &arr[j]); err != nil {
 					p.logger.Error("[pg_cdc] failed to unmarshal json array element", slog.Any("error", err))

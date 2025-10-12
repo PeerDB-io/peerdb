@@ -378,6 +378,10 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 				qe.logger.Error("[pg_query_executor] failed to unmarshal json", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 			}
+			if values[i] == nil {
+				// avoid confusing SQL null & JSON null by using struct{} as json null sentinel
+				values[i] = model.JsonNull{}
+			}
 		case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
 			var textArr pgtype.FlatArray[pgtype.Text]
 			if err := qe.conn.TypeMap().Scan(fd.DataTypeOID, fd.Format, buf, &textArr); err != nil {
