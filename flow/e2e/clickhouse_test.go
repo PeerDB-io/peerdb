@@ -1402,13 +1402,15 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 			id INT PRIMARY KEY,
 			j_null JSON NULL,
 			j_notnull JSON NOT NULL,
+			j_nullnull JSON NULL,
 			jb_null JSONB NULL,
-			jb_notnull JSONB NOT NULL
+			jb_notnull JSONB NOT NULL,
+			jb_nullnull JSONB NULL
 		);
 	`, srcFullName)))
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,jb_null,jb_notnull)
-		VALUES (1,'null'::json,'null'::json,'null'::jsonb,'null'::jsonb)`,
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,j_nullnull,jb_null,jb_notnull,jb_nullnull)
+		VALUES (1,'null'::json,'null'::json,NULL,'null'::jsonb,'null'::jsonb,NULL)`,
 		srcFullName)))
 
 	connectionGen := FlowConnectionGenerationConfig{
@@ -1426,8 +1428,8 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on initial", srcTableName, dstTableName, "id")
 
-	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,jb_null,jb_notnull)
-		VALUES (2,'null'::json,'null'::json,'null'::jsonb,'null'::jsonb)`,
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`INSERT INTO %s (id,j_null,j_notnull,j_nullnull,jb_null,jb_notnull,jb_nullnull)
+		VALUES (2,'null'::json,'null'::json,NULL,'null'::jsonb,'null'::jsonb,NULL)`,
 		srcFullName)))
 
 	EnvWaitForEqualTablesWithNames(env, s, "waiting on cdc", srcTableName, dstTableName, "id")
@@ -1435,7 +1437,7 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 	ch, err := connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
 	require.NoError(s.t, err)
 	rows, err := ch.Query(s.t.Context(),
-		fmt.Sprintf("select id,j_null,j_notnull,jb_null,jb_notnull from %s order by id", dstTableName))
+		fmt.Sprintf("select id,j_null,j_notnull,j_nullnull,jb_null,jb_notnull,jb_nullnull from %s order by id", dstTableName))
 	require.NoError(s.t, err)
 	defer rows.Close()
 	numRows := 0
@@ -1446,7 +1448,9 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 		var jbNull *string
 		var jNotNull string
 		var jbNotNull string
-		require.NoError(s.t, rows.Scan(&id, &jNull, &jNotNull, &jbNull, &jbNotNull))
+		var jNullNull *string
+		var jbNullNull *string
+		require.NoError(s.t, rows.Scan(&id, &jNull, &jNotNull, &jNullNull, &jbNull, &jbNotNull, &jbNullNull))
 		s.t.Log(id, jNull, jbNull, jNotNull, jbNotNull)
 		require.NotNil(s.t, jNull)
 		require.NotNil(s.t, jbNull)
@@ -1454,6 +1458,8 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 		require.Equal(s.t, jNotNull, "null")
 		require.Equal(s.t, *jbNull, "null")
 		require.Equal(s.t, jbNotNull, "null")
+		require.Nil(s.t, jNullNull)
+		require.Nil(s.t, jbNullNull)
 	}
 	require.NoError(s.t, rows.Err())
 	require.Equal(s.t, 2, numRows)
