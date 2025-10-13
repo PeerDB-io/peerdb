@@ -25,14 +25,6 @@ func TableNameMapping(tableMappings []*protos.TableMapping, resync bool) map[str
 	return tblNameMapping
 }
 
-func MinimizeFlowConfiguration(cfg *protos.FlowConnectionConfigs) *protos.FlowConnectionConfigs {
-	if cfg == nil {
-		return nil
-	}
-	cfg.TableMappings = nil
-	return cfg
-}
-
 func FetchConfigFromDB(flowName string, ctx context.Context) (*protos.FlowConnectionConfigs, error) {
 	var configBytes sql.RawBytes
 	pool, _ := GetCatalogConnectionPoolFromEnv(ctx)

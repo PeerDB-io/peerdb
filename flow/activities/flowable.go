@@ -1688,3 +1688,34 @@ func (a *FlowableActivity) ReportStatusMetric(ctx context.Context, status protos
 	)))
 	return nil
 }
+
+func (a *FlowableActivity) MigrateTableMappingsToCatalog(
+	ctx context.Context,
+	flowJobName string, tableMappings []*protos.TableMapping, version uint32,
+) error {
+	logger := internal.LoggerFromCtx(ctx)
+	tx, err := a.CatalogPool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction to migrate table mappings to catalog: %w", err)
+	}
+	defer shared.RollbackTx(tx, logger)
+
+	tableMappingsBytes := [][]byte{}
+	for _, tableMapping := range tableMappings {
+		tableMappingBytes, err := proto.Marshal(tableMapping)
+		if err != nil {
+			return fmt.Errorf("failed to marshal table mapping to migrate to catalog: %w", err)
+		}
+		tableMappingsBytes = append(tableMappingsBytes, tableMappingBytes)
+	}
+
+	stmt := `INSERT INTO table_mappings (flow_name, version, table_mapping) VALUES ($1, $2, $3)
+	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mapping = EXCLUDED.table_mapping`
+	_, err = tx.Exec(ctx, stmt, flowJobName, version, tableMappingsBytes)
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction to migrate table mappings to catalog: %w", err)
+	}
+
+	return nil
+}
