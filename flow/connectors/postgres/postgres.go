@@ -1727,14 +1727,18 @@ func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
 }
 
 func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
-	// First check for Aurora by trying to call aurora_version()
-	var auroraVersion string
-	err := c.conn.QueryRow(ctx, "SELECT aurora_version()").Scan(&auroraVersion)
-	if err == nil && auroraVersion != "" {
+	// First check for Aurora by trying to look up aurora_version()
+	var isAurora bool
+	err := c.conn.QueryRow(ctx, "SELECT to_regproc('pg_catalog.aurora_version') IS NOT NULL").Scan(&isAurora)
+	if err != nil {
+		c.logger.Error("failed to query to_regproc for determining variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+	if isAurora {
 		return protos.DatabaseVariant_AWS_AURORA, nil
 	}
 
-	// If aurora_version() fails, it's not Aurora - continue checking other variants
+	// It's not Aurora - continue checking other variants
 	settingsQuery := `
 		SELECT name, setting
 		FROM pg_settings
