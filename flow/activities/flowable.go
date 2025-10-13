@@ -1182,10 +1182,10 @@ func (a *FlowableActivity) emitLogRetentionHours(
 	}
 	ctx = context.WithValue(ctx, internal.FlowMetadataKey, flowMetadata)
 	srcConn, err := connectors.GetByNameAs[connectors.GetLogRetentionConnector](ctx, nil, a.CatalogPool, info.config.SourceName)
-	if err != nil {
-		if !errors.Is(err, errors.ErrUnsupported) {
-			logger.Error("Failed to create connector to emit log retention", slog.Any("error", err))
-		}
+	if errors.Is(err, errors.ErrUnsupported) {
+		return nil
+	} else if err != nil {
+		logger.Error("Failed to create connector to emit log retention", slog.Any("error", err))
 		return err
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
