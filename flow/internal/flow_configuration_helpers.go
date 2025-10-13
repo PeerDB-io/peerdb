@@ -41,3 +41,49 @@ func FetchConfigFromDB(flowName string, ctx context.Context) (*protos.FlowConnec
 
 	return &cfgFromDB, nil
 }
+
+func TableMappingsToBytes(tableMappings []*protos.TableMapping) ([][]byte, error) {
+	tableMappingsBytes := [][]byte{}
+	for _, tableMapping := range tableMappings {
+		tableMappingBytes, err := proto.Marshal(tableMapping)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal table mapping to migrate to catalog: %w", err)
+		}
+		tableMappingsBytes = append(tableMappingsBytes, tableMappingBytes)
+	}
+	return tableMappingsBytes, nil
+}
+
+func FetchTableMappingsFromDB(ctx context.Context, flowJobName string, version uint32) ([]*protos.TableMapping, error) {
+	pool, err := GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := pool.Query(ctx,
+		"select table_mapping from table_mappings where flow_name = $1 AND version = $2",
+		flowJobName, version,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var tableMappingsBytes [][]byte
+	var tableMappings []*protos.TableMapping = []*protos.TableMapping{}
+
+	err = rows.Scan([]any{&tableMappingsBytes})
+	if err != nil {
+		return nil, fmt.Errorf("failed to deserialize table mapping schema proto: %w", err)
+	}
+
+	for _, tableMappingBytes := range tableMappingsBytes {
+
+		var tableMapping *protos.TableMapping
+		if err := proto.Unmarshal(tableMappingBytes, tableMapping); err != nil {
+			return nil, err
+		}
+
+		tableMappings = append(tableMappings, tableMapping)
+	}
+
+	return tableMappings, nil
+}

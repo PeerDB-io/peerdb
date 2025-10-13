@@ -44,13 +44,13 @@ type ValidationConnector interface {
 type MirrorSourceValidationConnector interface {
 	GetTableSchemaConnector
 
-	ValidateMirrorSource(context.Context, *protos.FlowConnectionConfigs) error
+	ValidateMirrorSource(context.Context, *protos.FlowConnectionConfigs, []*protos.TableMapping) error
 }
 
 type MirrorDestinationValidationConnector interface {
 	Connector
 
-	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigs, map[string]*protos.TableSchema) error
+	ValidateMirrorDestination(context.Context, *protos.FlowConnectionConfigs, map[string]*protos.TableSchema, []*protos.TableMapping) error
 }
 
 type StatActivityConnector interface {

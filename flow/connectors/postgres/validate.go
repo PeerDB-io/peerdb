@@ -213,7 +213,7 @@ func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Cont
 	return nil
 }
 
-func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs, tableMappings []*protos.TableMapping) error {
 	noCDC := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
 	if !noCDC {
 		// Check replication connectivity
@@ -227,8 +227,8 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
-	for _, tableMapping := range cfg.TableMappings {
+	sourceTables := make([]*utils.SchemaTable, 0, len(tableMappings))
+	for _, tableMapping := range tableMappings {
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
@@ -249,7 +249,7 @@ func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *proto
 		}
 	}
 
-	if err := c.CheckSourceTables(ctx, sourceTables, cfg.TableMappings, pubName, noCDC); err != nil {
+	if err := c.CheckSourceTables(ctx, sourceTables, tableMappings, pubName, noCDC); err != nil {
 		return fmt.Errorf("provided source tables invalidated: %w", err)
 	}
 

@@ -1700,13 +1700,9 @@ func (a *FlowableActivity) MigrateTableMappingsToCatalog(
 	}
 	defer shared.RollbackTx(tx, logger)
 
-	tableMappingsBytes := [][]byte{}
-	for _, tableMapping := range tableMappings {
-		tableMappingBytes, err := proto.Marshal(tableMapping)
-		if err != nil {
-			return fmt.Errorf("failed to marshal table mapping to migrate to catalog: %w", err)
-		}
-		tableMappingsBytes = append(tableMappingsBytes, tableMappingBytes)
+	tableMappingsBytes, err := internal.TableMappingsToBytes(tableMappings)
+	if err != nil {
+		return fmt.Errorf("unable to marshal table mappings: %w", err)
 	}
 
 	stmt := `INSERT INTO table_mappings (flow_name, version, table_mapping) VALUES ($1, $2, $3)

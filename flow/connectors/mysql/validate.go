@@ -75,9 +75,9 @@ func (c *MySqlConnector) CheckBinlogSettings(ctx context.Context, requireRowMeta
 	return errors.New("failed to connect to MySQL server")
 }
 
-func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
-	sourceTables := make([]*utils.SchemaTable, 0, len(cfg.TableMappings))
-	for _, tableMapping := range cfg.TableMappings {
+func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs, tableMappings []*protos.TableMapping) error {
+	sourceTables := make([]*utils.SchemaTable, 0, len(tableMappings))
+	for _, tableMapping := range tableMappings {
 		parsedTable, parseErr := utils.ParseSchemaTable(tableMapping.SourceTableIdentifier)
 		if parseErr != nil {
 			return fmt.Errorf("invalid source table identifier: %w", parseErr)
@@ -110,7 +110,7 @@ func (c *MySqlConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.F
 	}
 
 	requireRowMetadata := false
-	for _, tm := range cfg.TableMappings {
+	for _, tm := range tableMappings {
 		if len(tm.Exclude) > 0 {
 			requireRowMetadata = true
 			break
