@@ -82,7 +82,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	if err := srcConn.ValidateMirrorSource(ctx, req.ConnectionConfigs); err != nil {
+	if err := srcConn.ValidateMirrorSource(ctx, req.ConnectionConfigs, req.TableMappings); err != nil {
 		return nil, NewFailedPreconditionApiError(
 			fmt.Errorf("failed to validate source connector %s: %w", req.ConnectionConfigs.SourceName, err))
 	}
@@ -107,7 +107,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get source table schema: %w", getTableSchemaError))
 		}
 	}
-	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap); err != nil {
+	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap, req.TableMappings); err != nil {
 		return nil, NewFailedPreconditionApiError(
 			fmt.Errorf("failed to validate destination connector %s: %w", req.ConnectionConfigs.DestinationName, err))
 	}

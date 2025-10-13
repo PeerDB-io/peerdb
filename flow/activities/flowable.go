@@ -132,7 +132,12 @@ func (a *FlowableActivity) EnsurePullability(
 	if err != nil {
 		return nil, err
 	}
-	config.SourceTableIdentifiers = slices.Sorted(maps.Keys(internal.TableNameMapping(cfg.TableMappings, cfg.Resync)))
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return nil, err
+	}
+
+	config.SourceTableIdentifiers = slices.Sorted(maps.Keys(internal.TableNameMapping(tableMappings, cfg.Resync)))
 
 	output, err := srcConn.EnsurePullability(ctx, config)
 	if err != nil {
@@ -153,12 +158,6 @@ func (a *FlowableActivity) CreateRawTable(
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
 	defer connectors.CloseConnector(ctx, dstConn)
-
-	cfg, err := internal.FetchConfigFromDB(config.FlowJobName, ctx)
-	if err != nil {
-		return nil, err
-	}
-	config.TableNameMapping = internal.TableNameMapping(cfg.TableMappings, cfg.Resync)
 
 	res, err := dstConn.CreateRawTable(ctx, config)
 	if err != nil {
@@ -193,11 +192,15 @@ func (a *FlowableActivity) SetupTableSchema(
 	if err != nil {
 		return err
 	}
-	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, cfg.TableMappings)
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return err
+	}
+	tableNameSchemaMapping, err := srcConn.GetTableSchema(ctx, config.Env, config.Version, config.System, tableMappings)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get GetTableSchemaConnector: %w", err))
 	}
-	processed := internal.BuildProcessedSchemaMapping(cfg.TableMappings, tableNameSchemaMapping, logger)
+	processed := internal.BuildProcessedSchemaMapping(tableMappings, tableNameSchemaMapping, logger)
 
 	tx, err := a.CatalogPool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -266,9 +269,13 @@ func (a *FlowableActivity) CreateNormalizedTable(
 	if err != nil {
 		return nil, err
 	}
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return nil, err
+	}
 	numTablesToSetup.Store(int32(len(tableNameSchemaMapping)))
 	tableExistsMapping := make(map[string]bool, len(tableNameSchemaMapping))
-	for _, tableMapping := range cfg.TableMappings {
+	for _, tableMapping := range tableMappings {
 		tableIdentifier := tableMapping.DestinationTableIdentifier
 		tableSchema := tableNameSchemaMapping[tableIdentifier]
 		existing, err := conn.SetupNormalizedTable(
@@ -321,9 +328,14 @@ func (a *FlowableActivity) SyncFlow(
 		return err
 	}
 
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return err
+	}
+
 	// Override config with DB values to deal with the large fields.
 	config = cfg
-	options.TableMappings = cfg.TableMappings
+	options.TableMappings = tableMappings
 
 	syncState.Store(shared.Ptr("setup"))
 	shutdown := heartbeatRoutine(ctx, func() string {
@@ -967,7 +979,8 @@ func (a *FlowableActivity) RecordMetricsCritical(ctx context.Context) error {
 		if isActive {
 			activeFlows = append(activeFlows, info)
 		}
-		a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
+		//TODO: this will need a special query as we can extract this straight from the DB.
+		//a.OtelManager.Metrics.SyncedTablesGauge.Record(ctx, int64(len(info.config.TableMappings)))
 		a.OtelManager.Metrics.FlowStatusGauge.Record(ctx, 1, metric.WithAttributeSet(attribute.NewSet(
 			attribute.String(otel_metrics.FlowStatusKey, info.status.String()),
 			attribute.Bool(otel_metrics.IsFlowActiveKey, isActive),

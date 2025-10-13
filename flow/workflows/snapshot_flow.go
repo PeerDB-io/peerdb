@@ -287,7 +287,14 @@ func (s *SnapshotFlowExecution) cloneTables(
 		return err
 	}
 
-	for _, v := range cfg.TableMappings {
+	tableMappingsCtx := context.Background()
+	defer tableMappingsCtx.Done()
+	tableMappings, err := internal.FetchTableMappingsFromDB(tableMappingsCtx, cfg.FlowJobName, cfg.TableMappingVersion)
+	if err != nil {
+		return err
+	}
+
+	for _, v := range tableMappings {
 		source := v.SourceTableIdentifier
 		destination := v.DestinationTableIdentifier
 		s.logger.Info(

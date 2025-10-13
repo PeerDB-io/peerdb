@@ -305,7 +305,11 @@ func processTableAdditions(
 			additionalTablesCfg := proto.CloneOf(cfg)
 			additionalTablesCfg.DoInitialSnapshot = !flowConfigUpdate.SkipInitialSnapshotForTableAdditions
 			additionalTablesCfg.InitialSnapshotOnly = true
-			additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
+			// TODO: thought - maybe we need to pass additionalTables and then in the
+			// CDCWorkflow we persist them to the DB and send an incremented `tableMappingVersion`
+			// to the new workflow?
+			//additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
+
 			additionalTablesCfg.Resync = false
 			if state.SnapshotNumRowsPerPartition > 0 {
 				additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition

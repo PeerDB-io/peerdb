@@ -468,8 +468,7 @@ func (h *FlowRequestHandler) FlowStateChange(
 				if err != nil {
 					return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 				}
-				tableMappings, err := internal.FetchTableMappingsFromDB(ctx, h.pool, req.FlowJobName)
-
+				tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
 				if err != nil {
 					return nil, NewInternalApiError(fmt.Errorf("unable to get table mappings: %w", err))
 				}
