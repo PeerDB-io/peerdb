@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"maps"
@@ -13,6 +14,7 @@ import (
 	jsoniter "github.com/json-iterator/go"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -127,6 +129,7 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 func (qe *QRepQueryExecutor) processRowsStream(
 	ctx context.Context,
 	cursorName string,
+	dstType protos.DBType,
 	stream *model.QRecordStream,
 	rows pgx.Rows,
 	fieldDescriptions []pgconn.FieldDescription,
@@ -153,7 +156,7 @@ func (qe *QRepQueryExecutor) processRowsStream(
 			return numRows, numBytes, err
 		}
 
-		record, err := qe.mapRowToQRecord(rows, nullableFields, fieldDescriptions, jsonApi)
+		record, err := qe.mapRowToQRecord(rows, dstType, nullableFields, fieldDescriptions, jsonApi)
 		if err != nil {
 			qe.logger.Error("[pg_query_executor] failed to map row to QRecord", slog.Any("error", err))
 			return numRows, numBytes, fmt.Errorf("failed to map row to QRecord: %w", err)
@@ -187,6 +190,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	tx pgx.Tx,
 	cursorName string,
 	fetchSize int,
+	dstType protos.DBType,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	qe.logger.Info("[pg_query_executor] fetching from cursor", slog.String("cursor", cursorName))
@@ -200,7 +204,7 @@ func (qe *QRepQueryExecutor) processFetchedRows(
 	defer rows.Close()
 
 	fieldDescriptions := rows.FieldDescriptions()
-	numRows, numBytes, err := qe.processRowsStream(ctx, cursorName, stream, rows, fieldDescriptions)
+	numRows, numBytes, err := qe.processRowsStream(ctx, cursorName, dstType, stream, rows, fieldDescriptions)
 	if err != nil {
 		qe.logger.Error("[pg_query_executor] failed to process rows", slog.Any("error", err))
 		return numRows, numBytes, fmt.Errorf("failed to process rows: %w", err)
@@ -228,7 +232,7 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 	// must wait on errors to close before returning to maintain qe.conn exclusion
 	go func() {
 		defer close(errors)
-		if _, _, err := qe.ExecuteAndProcessQueryStream(ctx, stream, query, args...); err != nil {
+		if _, _, err := qe.ExecuteAndProcessQueryStream(ctx, stream, protos.DBType_DBTYPE_UNKNOWN, query, args...); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to execute and process query stream", slog.Any("error", err))
 			errorsError = err
 		}
@@ -278,12 +282,13 @@ func (qe *QRepQueryExecutor) ExecuteAndProcessQuery(
 func (qe *QRepQueryExecutor) ExecuteAndProcessQueryStream(
 	ctx context.Context,
 	stream *model.QRecordStream,
+	dstType protos.DBType,
 	query string,
 	args ...any,
 ) (int64, int64, error) {
 	return qe.ExecuteQueryIntoSink(
 		ctx,
-		RecordStreamSink{QRecordStream: stream},
+		RecordStreamSink{QRecordStream: stream, DestinationType: dstType},
 		query,
 		args...,
 	)
@@ -352,6 +357,7 @@ func (qe *QRepQueryExecutor) ExecuteQueryIntoSinkGettingCurrentSnapshotXmin(
 
 func (qe *QRepQueryExecutor) mapRowToQRecord(
 	row pgx.Rows,
+	dstType protos.DBType,
 	nullableFields map[string]struct{},
 	fds []pgconn.FieldDescription,
 	jsonApi jsoniter.API,
@@ -372,6 +378,10 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			if err := jsonApi.Unmarshal(buf, &values[i]); err != nil {
 				qe.logger.Error("[pg_query_executor] failed to unmarshal json", slog.Any("error", err))
 				return nil, fmt.Errorf("failed to unmarshal json: %w", err)
+			}
+			if values[i] == nil {
+				// avoid confusing SQL null & JSON null by using pre-marshaled value
+				values[i] = json.RawMessage("null")
 			}
 		case pgtype.JSONArrayOID, pgtype.JSONBArrayOID:
 			var textArr pgtype.FlatArray[pgtype.Text]
@@ -425,6 +435,7 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			fd.DataTypeOID,
 			fd.TypeModifier,
 			nullable,
+			dstType,
 			values[i],
 			qe.customTypeMapping,
 			qe.version,

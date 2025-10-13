@@ -74,9 +74,9 @@ export default function CreateMirrors() {
   const [validating, setValidating] = useState<boolean>(false);
   const [qrepConfig, setQrepConfig] = useState<QRepConfig>(blankQRepSetting);
   const [cdcConfig, setCdcConfig] = useState<CDCConfig>(blankCDCSetting);
-  const [sourceType, setSourceType] = useState<DBType>(DBType.UNRECOGNIZED);
+  const [sourceType, setSourceType] = useState<DBType>(DBType.DBTYPE_UNKNOWN);
   const [destinationType, setDestinationType] = useState<DBType>(
-    DBType.UNRECOGNIZED
+    DBType.DBTYPE_UNKNOWN
   );
   const [sourcePeers, setSourcePeers] = useState<PeerListItem[]>([]);
   const [destinationPeers, setDestinationPeers] = useState<PeerListItem[]>([]);

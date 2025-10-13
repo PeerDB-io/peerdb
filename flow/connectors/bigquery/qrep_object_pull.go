@@ -28,6 +28,7 @@ func (c *BigQueryConnector) PullQRepObjects(
 	ctx context.Context,
 	_ *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	_ protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QObjectStream,
 ) (int64, int64, error) {

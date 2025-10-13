@@ -1729,3 +1729,66 @@ func (c *PostgresConnector) GetVersion(ctx context.Context) (string, error) {
 	c.logger.Info("[postgres] version", slog.String("version", version))
 	return version, nil
 }
+
+func (c *PostgresConnector) GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error) {
+	// First check for Aurora by trying to look up aurora_version()
+	var isAurora bool
+	err := c.conn.QueryRow(ctx, "SELECT to_regproc('pg_catalog.aurora_version') IS NOT NULL").Scan(&isAurora)
+	if err != nil {
+		c.logger.Error("failed to query to_regproc for determining variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+	if isAurora {
+		return protos.DatabaseVariant_AWS_AURORA, nil
+	}
+
+	// It's not Aurora - continue checking other variants
+	settingsQuery := `
+		SELECT name, setting
+		FROM pg_settings
+		WHERE name IN (
+			'rds.extensions',
+			'cloudsql.logical_decoding',
+			'azure.extensions',
+			'neon.endpoint_id',
+			'extwlist.pscale_allowed_extensions',
+			'supautils.privileged_extensions'
+		) AND setting IS NOT NULL AND setting != ''`
+
+	rows, err := c.conn.Query(ctx, settingsQuery)
+	if err != nil {
+		c.logger.Error("failed to query pg_settings for determining variant", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var name, setting string
+		if err := rows.Scan(&name, &setting); err != nil {
+			c.logger.Warn("failed to scan from pg_settings", slog.Any("error", err))
+			continue
+		}
+
+		switch name {
+		case "rds.extensions":
+			return protos.DatabaseVariant_AWS_RDS, nil
+		case "cloudsql.logical_decoding":
+			return protos.DatabaseVariant_GOOGLE_CLOUD_SQL, nil
+		case "azure.extensions":
+			return protos.DatabaseVariant_AZURE_DATABASE, nil
+		case "neon.endpoint_id":
+			return protos.DatabaseVariant_NEON, nil
+		case "extwlist.pscale_allowed_extensions":
+			return protos.DatabaseVariant_PLANETSCALE, nil
+		case "supautils.privileged_extensions":
+			return protos.DatabaseVariant_SUPABASE, nil
+		}
+	}
+
+	if err := rows.Err(); err != nil {
+		c.logger.Error("error iterating pg_settings rows", slog.Any("error", err))
+		return protos.DatabaseVariant_VARIANT_UNKNOWN, err
+	}
+
+	return protos.DatabaseVariant_VARIANT_UNKNOWN, nil
+}

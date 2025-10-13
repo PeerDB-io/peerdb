@@ -16,6 +16,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5/pgconn"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology"
 	"go.temporal.io/sdk/temporal"
@@ -90,11 +91,6 @@ type ErrorInfo struct {
 type ErrorClass struct {
 	Class  string
 	action ErrorAction
-}
-
-type RetryableError interface {
-	error
-	Retryable() bool
 }
 
 var (
@@ -610,33 +606,33 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
-	var mongoErr driver.Error
-	if errors.As(err, &mongoErr) {
-		// https://www.mongodb.com/docs/manual/reference/error-codes/
+	var mongoCmdErr mongo.CommandError
+	if errors.As(err, &mongoCmdErr) {
 		mongoErrorInfo := ErrorInfo{
 			Source: ErrorSourceMongoDB,
-			Code:   strconv.Itoa(int(mongoErr.Code)),
+			Code:   strconv.Itoa(int(mongoCmdErr.Code)),
 		}
 
-		if mongoErr.RetryableRead() {
+		if mongoCmdErr.HasErrorMessage("connection reset by peer") {
+			return ErrorRetryRecoverable, mongoErrorInfo
+		}
+
+		// this often happens on Mongo Atlas as part of maintenance, and should recover, but we notify if exceed default threshold
+		// (ShutdownInProgress code should be 91, but we have observed 0 in the past, so string match to be safe)
+		if mongoCmdErr.HasErrorMessage("(ShutdownInProgress) The server is in quiesce mode and will shut down") {
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		}
 
-		// some driver errors do not provide error code, such as `poolClearedError`, so we check label instead
-		for _, label := range mongoErr.Labels {
-			if label == driver.TransientTransactionError {
-				return ErrorNotifyConnectivity, mongoErrorInfo
-			}
-		}
-
-		// some error codes are defined to be retryable by the driver, so we retry them
-		var retryableError RetryableError
-		if errors.As(mongoErr, &retryableError) && retryableError.Retryable() {
+		// This should recover, but we notify if exceed default threshold
+		if mongoCmdErr.HasErrorLabel(driver.TransientTransactionError) {
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		}
 
-		switch mongoErr.Code {
+		// https://www.mongodb.com/docs/manual/reference/error-codes/
+		switch mongoCmdErr.Code {
 		case 13: // Unauthorized
+			return ErrorNotifyConnectivity, mongoErrorInfo
+		case 91: // ShutdownInProgress
 			return ErrorNotifyConnectivity, mongoErrorInfo
 		case 286: // ChangeStreamHistoryLost
 			return ErrorNotifyChangeStreamHistoryLost, mongoErrorInfo
@@ -645,11 +641,35 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var mongoMarshalErr mongo.MarshalError
+	if errors.As(err, &mongoMarshalErr) {
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "MARSHAL_ERROR",
+		}
+	}
+
+	var mongoEncryptError mongo.MongocryptError
+	if errors.As(err, &mongoEncryptError) {
+		return ErrorOther, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "MONGOCRYPT_ERROR",
+		}
+	}
+
 	var mongoServerError topology.ServerSelectionError
 	if errors.As(err, &mongoServerError) {
 		return ErrorNotifyConnectivity, ErrorInfo{
 			Source: ErrorSourceMongoDB,
 			Code:   "SERVER_SELECTION_ERROR",
+		}
+	}
+
+	var mongoConnError topology.ConnectionError
+	if errors.As(err, &mongoConnError) {
+		return ErrorNotifyConnectivity, ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   "CONNECTION_ERROR",
 		}
 	}
 

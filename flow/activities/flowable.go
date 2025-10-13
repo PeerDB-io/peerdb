@@ -553,8 +553,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
-	err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID)
-	if err != nil {
+	if err := monitoring.UpdateStartTimeForQRepRun(ctx, a.CatalogPool, runUUID); err != nil {
 		return fmt.Errorf("failed to update start time for qrep run: %w", err)
 	}
 
@@ -568,7 +567,12 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	}
 	defer connectors.CloseConnector(ctx, qRepPullCoreConn)
 
-	qRepSyncCoreConn, err := connectors.GetByNameAs[connectors.QRepSyncConnectorCore](ctx, config.Env, a.CatalogPool, config.DestinationName)
+	dstPeer, qRepSyncCoreConn, err := connectors.LoadPeerAndGetByNameAs[connectors.QRepSyncConnectorCore](
+		ctx,
+		config.Env,
+		a.CatalogPool,
+		config.DestinationName,
+	)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep destination connector: %w", err))
 	}
@@ -604,7 +608,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		}
 
 		return func(partition *protos.QRepPartition) error {
-			return replicateQRepPartition(ctx, a, srcConn, destConn, config, partition, runUUID, stream, outstream,
+			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, outstream,
 				connectors.QRepPullConnector.PullQRepRecords,
 				connectors.QRepSyncConnector.SyncQRepRecords,
 			)
@@ -628,7 +632,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		stream := model.NewQObjectStream(shared.FetchAndChannelSize)
 
 		return func(partition *protos.QRepPartition) error {
-			return replicateQRepPartition(ctx, a, srcConn, destConn, config, partition, runUUID, stream, stream,
+			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
 				connectors.QRepPullObjectsConnector.PullQRepObjects,
 				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
 			)
@@ -649,7 +653,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		read, write := connpostgres.NewPgCopyPipe()
 
 		return func(partition *protos.QRepPartition) error {
-			return replicateQRepPartition(ctx, a, srcConn, destConn, config, partition, runUUID, write, read,
+			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, write, read,
 				(*connpostgres.PostgresConnector).PullPgQRepRecords,
 				(*connpostgres.PostgresConnector).SyncPgQRepRecords,
 			)
@@ -966,9 +970,9 @@ func (a *FlowableActivity) RecordMetricsAggregates(ctx context.Context) error {
 
 	if _, err = pgx.ForEachRow(rows, []any{
 		&tableName,
-		&(operationValueMapping[0].count),
-		&(operationValueMapping[1].count),
-		&(operationValueMapping[2].count),
+		&operationValueMapping[0].count,
+		&operationValueMapping[1].count,
+		&operationValueMapping[2].count,
 		&scannedFlow,
 	}, func() error {
 		if flowData, ok := flowsMap[scannedFlow]; ok {
@@ -1720,6 +1724,21 @@ func (a *FlowableActivity) GetFlowMetadata(
 			Type: peerTypes[input.DestinationName],
 		}
 	}
+
+	// Detect source database variant
+	if input.SourceName != "" {
+		if srcConn, err := connectors.GetByNameAs[connectors.DatabaseVariantConnector](ctx, nil, a.CatalogPool, input.SourceName); err == nil {
+			if variant, variantErr := srcConn.GetDatabaseVariant(ctx); variantErr == nil {
+				sourcePeer.Variant = variant
+			} else {
+				logger.Warn("failed to get source database variant", slog.Any("error", variantErr))
+			}
+			connectors.CloseConnector(ctx, srcConn)
+		} else {
+			logger.Warn("failed to get source connector to detect database variant", slog.Any("error", err))
+		}
+	}
+
 	logger.Debug("loaded peer types for flow", slog.String("flowName", input.FlowName),
 		slog.String("sourceName", input.SourceName), slog.String("destinationName", input.DestinationName),
 		slog.Any("peerTypes", peerTypes))

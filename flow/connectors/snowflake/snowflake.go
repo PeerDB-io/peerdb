@@ -60,9 +60,12 @@ const (
 	 ARRAY_AGG(DISTINCT _PEERDB_UNCHANGED_TOAST_COLUMNS) FROM %s.%s WHERE
 	 _PEERDB_BATCH_ID = %d AND _PEERDB_RECORD_TYPE != 2
 	 GROUP BY _PEERDB_DESTINATION_TABLE_NAME`
-	getTableSchemaSQL = `SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE FROM INFORMATION_SCHEMA.COLUMNS
-	 WHERE UPPER(TABLE_SCHEMA)=? AND UPPER(TABLE_NAME)=? ORDER BY ORDINAL_POSITION`
-
+	getTableColumnListSQL = `SHOW COLUMNS IN TABLE IDENTIFIER(?)`
+	getTableSchemaSQL     = `SELECT "column_name",
+		parse_json("data_type"):type::string AS type,
+		parse_json("data_type"):precision::string AS precision,
+		parse_json("data_type"):scale::string AS scale
+		FROM table(result_scan(?))`
 	checkIfTableExistsSQL = `SELECT TO_BOOLEAN(COUNT(1)) FROM INFORMATION_SCHEMA.TABLES
 	 WHERE TABLE_SCHEMA=? and TABLE_NAME=?`
 	dropTableIfExistsSQL = "DROP TABLE IF EXISTS %s.%s"

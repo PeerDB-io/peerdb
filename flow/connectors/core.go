@@ -234,7 +234,7 @@ type QRepPullConnector interface {
 
 	// PullQRepRecords returns the records for a given partition.
 	PullQRepRecords(
-		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, *protos.QRepPartition, *model.QRecordStream,
+		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, protos.DBType, *protos.QRepPartition, *model.QRecordStream,
 	) (int64, int64, error)
 }
 
@@ -264,6 +264,7 @@ type QRepPullObjectsConnector interface {
 		context.Context,
 		*otel_metrics.OtelManager,
 		*protos.QRepConfig,
+		protos.DBType,
 		*protos.QRepPartition,
 		*model.QObjectStream,
 	) (int64, int64, error)
@@ -322,6 +323,12 @@ type GetLogRetentionConnector interface {
 	Connector
 
 	GetLogRetentionHours(ctx context.Context) (float64, error)
+}
+
+type DatabaseVariantConnector interface {
+	Connector
+
+	GetDatabaseVariant(ctx context.Context) (protos.DatabaseVariant, error)
 }
 
 func LoadPeerType(ctx context.Context, catalogPool shared.CatalogPool, peerName string) (protos.DBType, error) {
@@ -517,13 +524,24 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 	}
 }
 
-func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string) (T, error) {
+func LoadPeerAndGetByNameAs[T Connector](
+	ctx context.Context,
+	env map[string]string,
+	catalogPool shared.CatalogPool,
+	name string,
+) (*protos.Peer, T, error) {
 	peer, err := LoadPeer(ctx, catalogPool, name)
 	if err != nil {
 		var none T
-		return none, err
+		return nil, none, err
 	}
-	return GetAs[T](ctx, env, peer)
+	conn, err := GetAs[T](ctx, env, peer)
+	return peer, conn, err
+}
+
+func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string) (T, error) {
+	_, conn, err := LoadPeerAndGetByNameAs[T](ctx, env, catalogPool, name)
+	return conn, err
 }
 
 func GetPostgresConnectorByName(
@@ -645,4 +663,7 @@ var (
 
 	_ GetLogRetentionConnector = &connmysql.MySqlConnector{}
 	_ GetLogRetentionConnector = &connmongo.MongoConnector{}
+
+	_ DatabaseVariantConnector = &connpostgres.PostgresConnector{}
+	_ DatabaseVariantConnector = &connmysql.MySqlConnector{}
 )

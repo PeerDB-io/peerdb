@@ -271,6 +271,22 @@ enum DBType {
   PUBSUB = 10;
   EVENTHUBS = 11;
   ELASTICSEARCH = 12;
+  DBTYPE_UNKNOWN = -1;
+}
+
+enum DatabaseVariant {
+  // either vanilla or something not listed here
+  VARIANT_UNKNOWN = 0;
+  AWS_RDS = 2;
+  AWS_AURORA = 3;
+  GOOGLE_CLOUD_SQL = 4;
+  AZURE_DATABASE = 5;
+  // only Postgres
+  NEON = 6;
+  // has Vitess, but only Postgres for now
+  PLANETSCALE = 7;
+  // only Postgres
+  SUPABASE = 8;
 }
 
 message Peer {
