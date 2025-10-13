@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -75,6 +76,8 @@ var trips1kExpectedQValueColumns = map[string]types.QValueKind{
 	"dropoff_date":      types.QValueKindDate,
 }
 
+var stagingTestBucket = "gs://peerdb_bigquery_source_test_do_not_remove"
+
 func TestBigQueryClickhouseSuite(t *testing.T) {
 	e2eshared.RunSuite(t, SetupBigQueryClickhouseSuite)
 }
@@ -91,13 +94,16 @@ func SetupBigQueryClickhouseSuite(t *testing.T) BigQueryClickhouseSuite {
 
 // setupBigQuerySource initializes the BigQuery source for testing
 // This assumes BigQuery config will be provided with access to:
-// - `ch-integrations` project
 // - `do_not_remove_peerdb_source_test_dataset` dataset
 // - tables: `trips_1k` (more will be added as needed)
-// - `gs://do_not_remove_peerdb_source_test_bucket` bucket is accessible
+// - `gs://peerdb_bigquery_source_test_do_not_remove` bucket is accessible
 // with sufficient permissions
 func setupBigQuerySource(t *testing.T) (*bigQuerySource, error) {
 	t.Helper()
+
+	if v, ok := os.LookupEnv("PEERDB_BIGQUERY_TEST_STAGING_BUCKET"); ok {
+		stagingTestBucket = v
+	}
 
 	helper, err := NewBigQueryTestHelper(t, "do_not_remove_peerdb_source_test_dataset")
 	if err != nil {
@@ -165,7 +171,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Not_Supported() {
 				Engine:                     protos.TableEngine_CH_ENGINE_MERGE_TREE,
 			},
 		},
-		SnapshotStagingPath: "gs://do_not_remove_peerdb_source_test_bucket/test",
+		SnapshotStagingPath: stagingTestBucket + "/test",
 	}
 
 	t.Run("CDC Not Supported", func(t *testing.T) {
@@ -287,7 +293,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Invalid_Table_Mappings() {
 				DestinationTableIdentifier: "nonexistent_dst",
 			},
 		},
-		SnapshotStagingPath: "gs://do_not_remove_peerdb_source_test_bucket/test",
+		SnapshotStagingPath: stagingTestBucket + "/test",
 	}
 
 	err := bqConn.ValidateMirrorSource(ctx, flowConfig)
@@ -311,7 +317,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_ValidateMirrorSource_Succe
 				DestinationTableIdentifier: "trips_1k_dst",
 			},
 		},
-		SnapshotStagingPath: "gs://do_not_remove_peerdb_source_test_bucket/test",
+		SnapshotStagingPath: stagingTestBucket + "/test",
 	}
 
 	err := bqConn.ValidateMirrorSource(ctx, flowConfig)
@@ -422,7 +428,7 @@ func (s BigQueryClickhouseSuite) Test_Trips_Flow() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = "gs://do_not_remove_peerdb_source_test_bucket/test"
+	flowConnConfig.SnapshotStagingPath = stagingTestBucket + "/test"
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -624,7 +630,7 @@ func (s BigQueryClickhouseSuite) Test_Types() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = "gs://do_not_remove_peerdb_source_test_bucket/test_types"
+	flowConnConfig.SnapshotStagingPath = stagingTestBucket + "/test_types"
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -759,7 +765,7 @@ func (s BigQueryClickhouseSuite) Test_JSON_Support() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.InitialSnapshotOnly = true
-	flowConnConfig.SnapshotStagingPath = "gs://do_not_remove_peerdb_source_test_bucket/test_json"
+	flowConnConfig.SnapshotStagingPath = stagingTestBucket + "/test_json"
 
 	tc := NewTemporalClient(t)
 	env := ExecutePeerflow(t, tc, flowConnConfig)
@@ -847,7 +853,7 @@ func (s BigQueryClickhouseSuite) Test_GCS_Cleanup_After_Initial_Load() {
 	require.Equal(t, len(testData), count, "should have inserted all test rows")
 	t.Logf("Inserted %d rows into source table", count)
 
-	gcsStagingPath := "gs://do_not_remove_peerdb_source_test_bucket/test_cleanup/" + srcTable
+	gcsStagingPath := fmt.Sprintf("%s/test_cleanup/%s", stagingTestBucket, srcTable)
 
 	connectionGen := FlowConnectionGenerationConfig{
 		FlowJobName: AddSuffix(s, srcTable),
