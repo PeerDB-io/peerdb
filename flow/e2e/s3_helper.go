@@ -58,13 +58,13 @@ func NewS3TestHelper(ctx context.Context, s3environment S3Environment) (*S3TestH
 		bucketName = "peerdb_staging"
 		endpoint = "https://storage.googleapis.com"
 	case Minio:
-		bucketName = "peerdbbucket"
+		bucketName = "peerdb"
 		endpoint = os.Getenv("AWS_ENDPOINT_URL_S3")
 		config.AccessKeyID = os.Getenv("AWS_ACCESS_KEY_ID")
 		config.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")
 		config.Region = os.Getenv("AWS_REGION")
 	case MinioTls:
-		bucketName = "peerdbbucket"
+		bucketName = "peerdb"
 		endpoint = os.Getenv("AWS_ENDPOINT_URL_S3_TLS")
 		config.AccessKeyID = os.Getenv("AWS_ACCESS_KEY_ID")
 		config.SecretAccessKey = os.Getenv("AWS_SECRET_ACCESS_KEY")

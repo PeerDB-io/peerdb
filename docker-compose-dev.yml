@@ -7,7 +7,7 @@ x-minio-config: &minio-config
   MINIO_ROOT_PASSWORD: _peerdb_minioadmin
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
   PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://host.docker.internal:9001
-  PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdbbucket
+  PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdb
 
 x-catalog-config: &catalog-config
   PEERDB_CATALOG_HOST: catalog
