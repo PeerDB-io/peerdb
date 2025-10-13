@@ -86,7 +86,7 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	}
 
 	if _, err = h.pool.Exec(ctx,
-		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,	description)
+		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status, description)
 		VALUES ($1,$2,$3,$4,$5,$6,'gRPC')`,
 		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
 	); err != nil && !(idempotent && shared.IsSQLStateError(err, pgerrcode.UniqueViolation)) {
@@ -211,7 +211,7 @@ func (h *FlowRequestHandler) createCDCFlow(
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
+	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg.FlowJobName, nil); err != nil {
 		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
