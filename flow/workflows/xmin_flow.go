@@ -77,7 +77,7 @@ func XminFlowWorkflow(
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        30 * time.Minute,
+			MaximumInterval:        20 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
