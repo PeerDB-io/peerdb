@@ -164,14 +164,14 @@ impl Catalog {
             return Err(anyhow!("ciphertext too short"));
         }
 
-        let nonce = XNonce::from_slice(&payload[..NONCE_SIZE]);
+        let nonce = XNonce::try_from(&payload[..NONCE_SIZE])?;
         let ciphertext = &payload[NONCE_SIZE..];
 
         let cipher = XChaCha20Poly1305::new_from_slice(&key)
             .map_err(|e| anyhow!("Failed to create ChaCha20Poly1305 cipher: {}", e))?;
 
         cipher
-            .decrypt(nonce, ciphertext)
+            .decrypt(&nonce, ciphertext)
             .map_err(|e| anyhow!("Decryption failed: {}", e))
     }
 
