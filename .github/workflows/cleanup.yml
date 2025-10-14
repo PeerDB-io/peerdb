@@ -14,7 +14,7 @@ jobs:
 
       - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
         with:
-          go-version: '1.25.1'
+          go-version: '1.25.2'
           cache-dependency-path: e2e_cleanup/go.sum
 
       - name: download go modules

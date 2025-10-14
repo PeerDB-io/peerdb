@@ -48,7 +48,7 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:f8473678d20fef8f432c25238334ede220cd65db0cff2c8d5481989a11669970
+        image: redpandadata/redpanda@sha256:bd6c35647153a4dbc19507c8037dcca0802484c23e6e5fbb97591a62539e313a
         ports:
           - 9092:9092
           - 9644:9644
@@ -74,7 +74,7 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:3b7f68f5c59835c56b20b1b47f1ac23f1d9d50ab190d5bab8b7619fddcdadce8
+        image: linuxserver/openssh-server:latest@sha256:018068747bc2463b4031420752c487c79d40ddf1c17f2138a3faeef187a1128e
         ports:
           - 2222:2222
         env:
@@ -95,7 +95,7 @@ jobs:
 
       - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
         with:
-          go-version: '1.25.1'
+          go-version: '1.25.2'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
