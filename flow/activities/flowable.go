@@ -119,7 +119,7 @@ func (a *FlowableActivity) EnsurePullability(
 	config *protos.EnsurePullabilityBatchInput,
 ) (*protos.EnsurePullabilityBatchOutput, error) {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, config.PeerName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get connector: %w", err))
 	}
@@ -508,7 +508,7 @@ func (a *FlowableActivity) GetQRepPartitions(ctx context.Context,
 	if err := monitoring.InitializeQRepRun(ctx, logger, a.CatalogPool, config, runUUID, nil, config.ParentMirrorName); err != nil {
 		return nil, err
 	}
-	srcConn, err := connectors.GetByNameAs[connectors.QRepPullConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
+	srcConn, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep pull connector: %w", err))
 	}
@@ -561,45 +561,152 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	logger.Info("replicating partitions for batch",
 		slog.Int64("batchID", int64(partitions.BatchId)), slog.Int("partitions", numPartitions))
 
-	for _, p := range partitions.Partitions {
-		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, p.PartitionId))
-		var err error
-		switch config.System {
-		case protos.TypeSystem_Q:
+	qRepPullCoreConn, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep source connector: %w", err))
+	}
+	defer connectors.CloseConnector(ctx, qRepPullCoreConn)
+
+	dstPeer, qRepSyncCoreConn, err := connectors.LoadPeerAndGetByNameAs[connectors.QRepSyncConnectorCore](
+		ctx,
+		config.Env,
+		a.CatalogPool,
+		config.DestinationName,
+	)
+	if err != nil {
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep destination connector: %w", err))
+	}
+
+	var replicatePartition func(partition *protos.QRepPartition) error
+
+	qRecordReplication := func() (func(partition *protos.QRepPartition) error, error) {
+		srcConn, ok := qRepPullCoreConn.(connectors.QRepPullConnector)
+		if !ok {
+			return nil, fmt.Errorf("source connector is not QRepPullConnector, got %T", qRepPullCoreConn)
+		}
+
+		destConn, ok := qRepSyncCoreConn.(connectors.QRepSyncConnector)
+		if !ok {
+			return nil, fmt.Errorf(
+				"source connector is QRepPullConnector but destination connector is not QRepSyncConnector, got %T",
+				qRepSyncCoreConn,
+			)
+		}
+
+		var luaScript *lua.LFunction
+		var luaState *lua.LState
+
+		if config.Script != "" {
+			ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
+			}))
+			if err != nil {
+				return nil, err
+			}
+			if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
+				luaState = ls
+				luaScript = fn
+			}
+		}
+
+		return func(partition *protos.QRepPartition) error {
 			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
 			outstream := stream
-			if config.Script != "" {
-				ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
-					a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
-				}))
-				if err != nil {
-					return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
-				}
-				if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
-					outstream = pua.AttachToStream(ls, fn, stream)
-				}
+
+			if luaScript != nil {
+				outstream = pua.AttachToStream(luaState, luaScript, stream)
 			}
-			err = replicateQRepPartition(ctx, a, config, p, runUUID, stream, outstream,
+
+			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, outstream,
 				connectors.QRepPullConnector.PullQRepRecords,
 				connectors.QRepSyncConnector.SyncQRepRecords,
 			)
-		case protos.TypeSystem_PG:
-			read, write := connpostgres.NewPgCopyPipe()
-			err = replicateQRepPartition(ctx, a, config, p, runUUID, write, read,
-				connectors.QRepPullPgConnector.PullPgQRepRecords,
-				connectors.QRepSyncPgConnector.SyncPgQRepRecords,
+		}, nil
+	}
+
+	qObjectReplication := func() (func(partition *protos.QRepPartition) error, error) {
+		srcConn, ok := qRepPullCoreConn.(connectors.QRepPullObjectsConnector)
+		if !ok {
+			return nil, fmt.Errorf("source connector is not QRepPullObjectsConnector, got %T", qRepPullCoreConn)
+		}
+
+		destConn, ok := qRepSyncCoreConn.(connectors.QRepSyncObjectsConnector)
+		if !ok {
+			return nil, fmt.Errorf(
+				"source connector is QRepPullObjectsConnector but destination connector is not QRepSyncObjectsConnector, got %T",
+				qRepSyncCoreConn,
 			)
+		}
+
+		return func(partition *protos.QRepPartition) error {
+			stream := model.NewQObjectStream(shared.FetchAndChannelSize)
+
+			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
+				connectors.QRepPullObjectsConnector.PullQRepObjects,
+				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
+			)
+		}, nil
+	}
+
+	pgReplication := func() (func(partition *protos.QRepPartition) error, error) {
+		srcConn, ok := qRepPullCoreConn.(*connpostgres.PostgresConnector)
+		if !ok {
+			return nil, fmt.Errorf("source connector is not PostgresConnector, got %T", qRepPullCoreConn)
+		}
+
+		destConn, ok := qRepSyncCoreConn.(*connpostgres.PostgresConnector)
+		if !ok {
+			return nil, fmt.Errorf("source connector is PostgresConnector but destination connector is not, got %T", qRepSyncCoreConn)
+		}
+
+		return func(partition *protos.QRepPartition) error {
+			read, write := connpostgres.NewPgCopyPipe()
+
+			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, write, read,
+				(*connpostgres.PostgresConnector).PullPgQRepRecords,
+				(*connpostgres.PostgresConnector).SyncPgQRepRecords,
+			)
+		}, nil
+	}
+
+	switch qRepPullCoreConn.(type) {
+	case *connpostgres.PostgresConnector:
+		switch config.System {
+		case protos.TypeSystem_Q:
+			replicatePartition, err = qRecordReplication()
+		case protos.TypeSystem_PG:
+			replicatePartition, err = pgReplication()
 		default:
 			err = fmt.Errorf("unknown type system %d", config.System)
 		}
+	case connectors.QRepPullConnector:
+		replicatePartition, err = qRecordReplication()
+	case connectors.QRepPullObjectsConnector:
+		replicatePartition, err = qObjectReplication()
+	default:
+		err = fmt.Errorf("unsupported QRepSyncConnectorCore type %T", qRepPullCoreConn)
+	}
 
+	if err != nil {
+		logger.Error("failed to initialize replication method", slog.Any("error", err))
+		return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
+	}
+
+	for _, partition := range partitions.Partitions {
+		logger.Info(fmt.Sprintf("batch-%d - replicating partition - %s", partitions.BatchId, partition.PartitionId))
+
+		err := replicatePartition(partition)
 		if err != nil {
 			logger.Error("failed to replicate partition", slog.Any("error", err))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, err)
 		}
 	}
 
-	a.Alerter.LogFlowInfo(ctx, config.FlowJobName, "replicated all rows to destination for table "+config.DestinationTableIdentifier)
+	a.Alerter.LogFlowInfo(
+		ctx,
+		config.FlowJobName,
+		"replicated all rows to destination for table "+config.DestinationTableIdentifier,
+	)
 	return nil
 }
 
@@ -642,7 +749,7 @@ func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.Q
 
 func (a *FlowableActivity) DropFlowSource(ctx context.Context, req *protos.DropFlowActivityInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, req.FlowJobName)
-	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnector](ctx, nil, a.CatalogPool, req.PeerName)
+	srcConn, err := connectors.GetByNameAs[connectors.CDCPullConnectorCore](ctx, nil, a.CatalogPool, req.PeerName)
 	if err != nil {
 		var notFound *exceptions.NotFoundError
 		if errors.As(err, &notFound) {

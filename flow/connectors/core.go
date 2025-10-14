@@ -90,7 +90,11 @@ type CDCPullConnectorCore interface {
 
 	// For InitialSnapshotOnly correctness without replication slot
 	// `any` is for returning transaction if necessary
-	ExportTxSnapshot(context.Context, map[string]string) (*protos.ExportTxSnapshotOutput, any, error)
+	ExportTxSnapshot(
+		ctx context.Context,
+		flowName string,
+		env map[string]string,
+	) (*protos.ExportTxSnapshotOutput, any, error)
 
 	// `any` from ExportSnapshot passed here when done, allowing transaction to commit
 	FinishExport(any) error
@@ -234,15 +238,6 @@ type QRepPullConnector interface {
 	) (int64, int64, error)
 }
 
-type QRepPullPgConnector interface {
-	QRepPullConnectorCore
-
-	// PullPgQRepRecords returns the records for a given partition.
-	PullPgQRepRecords(
-		context.Context, *otel_metrics.OtelManager, *protos.QRepConfig, protos.DBType, *protos.QRepPartition, connpostgres.PgCopyWriter,
-	) (int64, int64, error)
-}
-
 type QRepSyncConnectorCore interface {
 	Connector
 
@@ -260,6 +255,25 @@ type QRepSyncConnector interface {
 	// returns the number of records synced and a slice of warnings to report to the user.
 	SyncQRepRecords(ctx context.Context, config *protos.QRepConfig, partition *protos.QRepPartition,
 		stream *model.QRecordStream) (int64, shared.QRepWarnings, error)
+}
+
+type QRepPullObjectsConnector interface {
+	QRepPullConnectorCore
+
+	PullQRepObjects(
+		context.Context,
+		*otel_metrics.OtelManager,
+		*protos.QRepConfig,
+		protos.DBType,
+		*protos.QRepPartition,
+		*model.QObjectStream,
+	) (int64, int64, error)
+}
+
+type QRepSyncObjectsConnector interface {
+	QRepSyncConnectorCore
+
+	SyncQRepObjects(context.Context, *protos.QRepConfig, *protos.QRepPartition, *model.QObjectStream) (int64, shared.QRepWarnings, error)
 }
 
 type QRepSyncPgConnector interface {
@@ -588,6 +602,7 @@ var (
 	_ GetSchemaConnector = &connpostgres.PostgresConnector{}
 	_ GetSchemaConnector = &connmysql.MySqlConnector{}
 	_ GetSchemaConnector = &connmongo.MongoConnector{}
+	_ GetSchemaConnector = &connbigquery.BigQueryConnector{}
 
 	_ NormalizedTablesConnector = &connpostgres.PostgresConnector{}
 	_ NormalizedTablesConnector = &connbigquery.BigQueryConnector{}
@@ -601,8 +616,6 @@ var (
 	_ QRepPullConnector = &connmysql.MySqlConnector{}
 	_ QRepPullConnector = &connmongo.MongoConnector{}
 
-	_ QRepPullPgConnector = &connpostgres.PostgresConnector{}
-
 	_ QRepSyncConnector = &connpostgres.PostgresConnector{}
 	_ QRepSyncConnector = &connbigquery.BigQueryConnector{}
 	_ QRepSyncConnector = &connsnowflake.SnowflakeConnector{}
@@ -612,6 +625,9 @@ var (
 	_ QRepSyncConnector = &connelasticsearch.ElasticsearchConnector{}
 
 	_ QRepSyncPgConnector = &connpostgres.PostgresConnector{}
+
+	_ QRepPullObjectsConnector = &connbigquery.BigQueryConnector{}
+	_ QRepSyncObjectsConnector = &connclickhouse.ClickHouseConnector{}
 
 	_ QRepConsolidateConnector = &connsnowflake.SnowflakeConnector{}
 	_ QRepConsolidateConnector = &connclickhouse.ClickHouseConnector{}
@@ -635,6 +651,8 @@ var (
 
 	_ MirrorSourceValidationConnector = &connpostgres.PostgresConnector{}
 	_ MirrorSourceValidationConnector = &connmysql.MySqlConnector{}
+	_ MirrorSourceValidationConnector = &connmongo.MongoConnector{}
+	_ MirrorSourceValidationConnector = &connbigquery.BigQueryConnector{}
 
 	_ MirrorDestinationValidationConnector = &connclickhouse.ClickHouseConnector{}
 

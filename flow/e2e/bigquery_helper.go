@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	"math/rand/v2"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -14,10 +15,12 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"cloud.google.com/go/civil"
+	"cloud.google.com/go/storage"
 	"github.com/shopspring/decimal"
 	"google.golang.org/api/iterator"
 
 	peer_bq "github.com/PeerDB-io/peerdb/flow/connectors/bigquery"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -25,21 +28,49 @@ import (
 )
 
 type BigQueryTestHelper struct {
-	// config is the BigQuery config.
-	Config *protos.BigqueryConfig
-	// client to talk to BigQuery
-	client *bigquery.Client
-	// runID uniquely identifies the test run to namespace stateful schemas.
-	runID uint64
+	Config         *protos.BigqueryConfig
+	client         *bigquery.Client
+	serviceAccount *utils.GcpServiceAccount
+	runID          uint64
 }
 
 // NewBigQueryTestHelper creates a new BigQueryTestHelper.
-func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
+func NewBigQueryTestHelper(t *testing.T, datasetID string) (*BigQueryTestHelper, error) {
 	t.Helper()
 	// random 64 bit int to namespace stateful schemas.
 	//nolint:gosec // number has no cryptographic significance
 	runID := rand.Uint64()
 
+	config, err := bigQueryConfigFromEnv()
+	if err != nil {
+		return nil, err
+	}
+
+	if datasetID == "" {
+		// suffix the dataset with the runID to namespace stateful schemas.
+		datasetID = fmt.Sprintf("%s_%d", config.DatasetId, runID)
+	}
+	config.DatasetId = datasetID
+
+	bqsa, err := peer_bq.NewBigQueryServiceAccount(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
+	}
+
+	client, err := bqsa.CreateBigQueryClient(t.Context())
+	if err != nil {
+		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
+	}
+
+	return &BigQueryTestHelper{
+		runID:          runID,
+		Config:         config,
+		serviceAccount: bqsa,
+		client:         client,
+	}, nil
+}
+
+func bigQueryConfigFromEnv() (*protos.BigqueryConfig, error) {
 	jsonPath := os.Getenv("TEST_BQ_CREDS")
 	if jsonPath == "" {
 		return nil, errors.New("TEST_BQ_CREDS env var not set")
@@ -54,25 +85,7 @@ func NewBigQueryTestHelper(t *testing.T) (*BigQueryTestHelper, error) {
 	if err := json.Unmarshal(content, &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal json: %w", err)
 	}
-
-	// suffix the dataset with the runID to namespace stateful schemas.
-	config.DatasetId = fmt.Sprintf("%s_%d", config.DatasetId, runID)
-
-	bqsa, err := peer_bq.NewBigQueryServiceAccount(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create BigQueryServiceAccount: %v", err)
-	}
-
-	client, err := bqsa.CreateBigQueryClient(t.Context())
-	if err != nil {
-		return nil, fmt.Errorf("failed to create helper BigQuery client: %v", err)
-	}
-
-	return &BigQueryTestHelper{
-		runID:  runID,
-		Config: config,
-		client: client,
-	}, nil
+	return config, nil
 }
 
 // datasetExists checks if the dataset exists.
@@ -383,4 +396,44 @@ func (b *BigQueryTestHelper) RunInt64Query(ctx context.Context, query string) (i
 		return v.Val, nil
 	}
 	return 0, fmt.Errorf("non-integer result: %T", recordBatch.Records[0][0])
+}
+
+// CountObjectsInGCSPath counts the number of objects in a GCS path (gs://bucket/path/prefix)
+func (b *BigQueryTestHelper) CountObjectsInGCSPath(ctx context.Context, gcsPath string) (int, error) {
+	u, err := url.Parse(gcsPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to parse GCS path: %w", err)
+	}
+
+	if u.Scheme != "gs" {
+		return 0, fmt.Errorf("invalid GCS path scheme: %s", u.Scheme)
+	}
+
+	bucketName := u.Host
+	prefix := strings.TrimPrefix(u.Path, "/")
+
+	storageClient, err := b.serviceAccount.CreateStorageClient(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("failed to create storage client: %w", err)
+	}
+	defer storageClient.Close()
+
+	// List objects with the prefix
+	bucket := storageClient.Bucket(bucketName)
+	query := &storage.Query{Prefix: prefix}
+	it := bucket.Objects(ctx, query)
+
+	count := 0
+	for {
+		_, err := it.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return 0, fmt.Errorf("failed to iterate over GCS objects: %w", err)
+		}
+		count++
+	}
+
+	return count, nil
 }

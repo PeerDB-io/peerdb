@@ -1208,7 +1208,11 @@ func (c *PostgresConnector) EnsurePullability(
 	return &protos.EnsurePullabilityBatchOutput{TableIdentifierMapping: tableIdentifierMapping}, nil
 }
 
-func (c *PostgresConnector) ExportTxSnapshot(ctx context.Context, env map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *PostgresConnector) ExportTxSnapshot(
+	ctx context.Context,
+	_ string,
+	env map[string]string,
+) (*protos.ExportTxSnapshotOutput, any, error) {
 	skipSnapshotExport, err := internal.PeerDBSkipSnapshotExport(ctx, env)
 	if err != nil {
 		c.logger.Error("failed to check PEERDB_SKIP_SNAPSHOT_EXPORT, proceeding with export snapshot", slog.Any("error", err))

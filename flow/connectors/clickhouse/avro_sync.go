@@ -15,7 +15,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -266,52 +265,16 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	columnNameAvroFieldMap map[string]string,
 	config *protos.QRepConfig,
 ) error {
-	sourceSchemaAsDestinationColumn, err := internal.PeerDBSourceSchemaAsDestinationColumn(ctx, config.Env)
-	if err != nil {
-		return err
+	insertConfig := &insertFromTableFunctionConfig{
+		destinationTable: config.DestinationTableIdentifier,
+		schema:           schema,
+		columnNameMap:    columnNameAvroFieldMap,
+		excludedColumns:  config.Exclude,
+		config:           config,
+		connector:        s.ClickHouseConnector,
+		logger:           s.logger,
 	}
 
-	selectedColumnNames := make([]string, 0, len(schema.Fields))
-	insertedColumnNames := make([]string, 0, len(schema.Fields))
-	for _, field := range schema.Fields {
-		colName := field.Name
-		for _, excludedColumn := range config.Exclude {
-			if colName == excludedColumn {
-				continue
-			}
-		}
-		avroColName, ok := columnNameAvroFieldMap[colName]
-		if !ok {
-			s.logger.Error("destination column not found in avro schema",
-				slog.String("columnName", colName),
-				slog.String("avroFieldName", avroColName))
-			return fmt.Errorf("destination column %s not found in avro schema", colName)
-		}
-
-		avroColName = peerdb_clickhouse.QuoteIdentifier(avroColName)
-
-		if (field.Type == types.QValueKindJSON || field.Type == types.QValueKindJSONB) &&
-			qvalue.ShouldUseNativeJSONType(ctx, config.Env, s.ClickHouseConnector.chVersion) {
-			avroColName = fmt.Sprintf("CAST(%s, 'JSON')", avroColName)
-		}
-
-		selectedColumnNames = append(selectedColumnNames, avroColName)
-		insertedColumnNames = append(insertedColumnNames, peerdb_clickhouse.QuoteIdentifier(colName))
-	}
-	if sourceSchemaAsDestinationColumn {
-		schemaTable, err := utils.ParseSchemaTable(config.WatermarkTable)
-		if err != nil {
-			return err
-		}
-
-		selectedColumnNames = append(selectedColumnNames, peerdb_clickhouse.QuoteLiteral(schemaTable.Schema))
-		insertedColumnNames = append(insertedColumnNames, sourceSchemaColName)
-	}
-
-	selectorStr := strings.Join(selectedColumnNames, ",")
-	insertedStr := strings.Join(insertedColumnNames, ",")
-
-	hashColName := columnNameAvroFieldMap[schema.Fields[0].Name]
 	numParts, err := internal.PeerDBClickHouseInitialLoadPartsPerPartition(ctx, s.config.Env)
 	if err != nil {
 		s.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
@@ -340,19 +303,36 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 				return fmt.Errorf("failed to build S3 table function: %w", err)
 			}
 
-			var whereClause string
+			var query string
 			if numParts > 1 {
-				whereClause = fmt.Sprintf(" WHERE cityHash64(%s) %% %d = %d", peerdb_clickhouse.QuoteIdentifier(hashColName), numParts, i)
+				query, err = buildInsertFromTableFunctionQueryWithPartitioning(
+					ctx, insertConfig, s3TableFunction, i, numParts)
+			} else {
+				baseQuery, buildErr := buildInsertFromTableFunctionQuery(ctx, insertConfig, s3TableFunction)
+				if buildErr != nil {
+					err = buildErr
+				} else {
+					query = baseQuery + " SETTINGS throw_on_max_partitions_per_insert_block = 0"
+				}
 			}
 
-			query := fmt.Sprintf(
-				"INSERT INTO %s(%s) SELECT %s FROM %s%s SETTINGS throw_on_max_partitions_per_insert_block = 0",
-				peerdb_clickhouse.QuoteIdentifier(config.DestinationTableIdentifier), insertedStr, selectorStr, s3TableFunction, whereClause)
+			if err != nil {
+				s.logger.Error("failed to build insert query",
+					slog.String("avroFilePath", avroFile.FilePath),
+					slog.Any("error", err),
+					slog.Uint64("part", i),
+					slog.Uint64("numParts", numParts),
+					slog.Int("chunkIdx", chunkIdx),
+				)
+				return fmt.Errorf("failed to build insert query: %w", err)
+			}
+
 			s.logger.Info("inserting part",
 				slog.Uint64("part", i),
 				slog.Uint64("numParts", numParts),
 				slog.Int("chunkIdx", chunkIdx),
 				slog.Int("totalChunks", len(avroFiles)))
+
 			if err := s.exec(ctx, query); err != nil {
 				s.logger.Error("failed to insert part",
 					slog.Uint64("part", i),
@@ -361,6 +341,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 					slog.Any("error", err))
 				return exceptions.NewQRepSyncError(err, config.DestinationTableIdentifier, s.ClickHouseConnector.Config.Database)
 			}
+
 			s.logger.Info("inserted part",
 				slog.Uint64("part", i),
 				slog.Uint64("numParts", numParts),
@@ -429,4 +410,14 @@ func (s *ClickHouseAvroSyncMethod) writeToAvroFile(
 	}
 
 	return avroFile, nil
+}
+
+func (s *ClickHouseAvroSyncMethod) SyncQRepObjects(
+	ctx context.Context,
+	config *protos.QRepConfig,
+	partition *protos.QRepPartition,
+	stream *model.QObjectStream,
+) (int64, shared.QRepWarnings, error) {
+	// Delegate to the ClickHouse connector's implementation
+	return s.ClickHouseConnector.SyncQRepObjects(ctx, config, partition, stream)
 }

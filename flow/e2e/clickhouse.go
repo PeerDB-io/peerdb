@@ -232,6 +232,10 @@ func (s ClickHouseSuite) GetRows(table string, cols string) (*model.QRecordBatch
 				qrow = append(qrow, types.QValueInt32{Val: *v})
 			case *[]int32:
 				qrow = append(qrow, types.QValueArrayInt32{Val: *v})
+			case *[]int64:
+				qrow = append(qrow, types.QValueArrayInt64{Val: *v})
+			case *[]bool:
+				qrow = append(qrow, types.QValueArrayBoolean{Val: *v})
 			case **int64:
 				if *v == nil {
 					qrow = append(qrow, types.QValueNull(types.QValueKindInt64))
