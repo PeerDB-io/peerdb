@@ -142,6 +142,9 @@ var (
 	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
 		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
 	}
+	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
+		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
+	}
 	ErrorNotifyTerminate = ErrorClass{
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
@@ -515,6 +518,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
+			if strings.Contains(pgErr.Message,
+				`specified in parameter "synchronized_standby_slots" does not have active_pid`) {
+				return ErrorRetryRecoverable, pgErrorInfo
+			}
+
 			// this can't happen for slots we created
 			// from our perspective, the slot is missing
 			if strings.Contains(pgErr.Message, "was not created in this database") {
@@ -524,6 +532,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
+			}
+
+			if strings.Contains(pgErr.Message, "synchronized_standby_slots") {
+				return ErrorNotifyInvalidSynchronizedStandbySlots, pgErrorInfo
 			}
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?
