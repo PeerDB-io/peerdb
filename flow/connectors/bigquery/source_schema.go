@@ -29,18 +29,19 @@ func (c *BigQueryConnector) GetAllTables(ctx context.Context) (*protos.AllTables
 			return nil, fmt.Errorf("failed to list datasets: %w", err)
 		}
 
-		// Get all tables in this dataset
 		tablesIter := dataset.Tables(ctx)
 		for {
 			table, err := tablesIter.Next()
-			if errors.Is(err, iterator.Done) {
+			if errors.Is(err, iterator.Done) || c.isApiErrorWithStatusCode(err, 404) {
+				// in rare cases, like in e2e tests, a dataset may be deleted
+				// between the time we list datasets and list tables
 				break
 			}
+
 			if err != nil {
 				return nil, fmt.Errorf("failed to list tables in dataset %s: %w", dataset.DatasetID, err)
 			}
 
-			// Format as dataset.table for BigQuery
 			fullTableName := fmt.Sprintf("%s.%s", dataset.DatasetID, table.TableID)
 			allTables = append(allTables, fullTableName)
 		}

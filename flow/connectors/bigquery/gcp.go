@@ -9,6 +9,7 @@ import (
 
 	"cloud.google.com/go/auth"
 	"cloud.google.com/go/auth/credentials/downscope"
+	"google.golang.org/api/googleapi"
 )
 
 func (c *BigQueryConnector) storageDownScopedToken(ctx context.Context, bucketName string, prefix string) (*auth.Token, error) {
@@ -32,6 +33,14 @@ func (c *BigQueryConnector) storageDownScopedToken(ctx context.Context, bucketNa
 		return nil, fmt.Errorf("failed to generate downscoped token: %w", err)
 	}
 	return token, nil
+}
+
+func (c *BigQueryConnector) isApiErrorWithStatusCode(err error, code int) bool {
+	var apiErr *googleapi.Error
+	if errors.As(err, &apiErr) && apiErr.Code == code {
+		return true
+	}
+	return false
 }
 
 type gcsPath struct {
