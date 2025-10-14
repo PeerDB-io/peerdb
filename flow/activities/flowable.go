@@ -1334,14 +1334,16 @@ func (a *FlowableActivity) RemoveTablesFromCatalog(
 		removedTables = append(removedTables, tm.DestinationTableIdentifier)
 	}
 
-	_, err := a.CatalogPool.Exec(
+	if _, err := a.CatalogPool.Exec(
 		ctx,
 		"delete from table_schema_mapping where flow_name = $1 and table_name = ANY($2)",
 		cfg.FlowJobName,
 		removedTables,
-	)
+	); err != nil {
+		return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	}
 
-	return a.Alerter.LogFlowError(ctx, cfg.FlowJobName, err)
+	return nil
 }
 
 func (a *FlowableActivity) RemoveFlowDetailsFromCatalog(
