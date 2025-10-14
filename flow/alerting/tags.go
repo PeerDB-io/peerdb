@@ -16,7 +16,7 @@ func GetTags(ctx context.Context, catalogPool shared.CatalogPool, flowName strin
 	if err := catalogPool.QueryRow(
 		ctx, "SELECT tags FROM flows WHERE name = $1", flowName,
 	).Scan(&tags); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		slog.Error("error getting flow tags", slog.Any("error", err))
+		slog.ErrorContext(ctx, "error getting flow tags", slog.Any("error", err))
 		return nil, err
 	}
 

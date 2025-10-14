@@ -17,7 +17,7 @@ export default function MirrorInfo({ configs }: InfoPopoverProps) {
       noInteract={false}
       size='large'
       triggerButton={
-        <Button style={{ backgroundColor: 'white', border: '1px solid gray' }}>
+        <Button variant='normal'>
           <Label variant='body'>View More</Label>
         </Button>
       }

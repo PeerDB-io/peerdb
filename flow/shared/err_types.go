@@ -1,10 +1,19 @@
 package shared
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+
+	"go.temporal.io/sdk/temporal"
+
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
+)
 
 var (
-	ErrSlotAlreadyExists error = errors.New("slot already exists")
-	ErrTableDoesNotExist error = errors.New("table does not exist")
+	ErrSlotAlreadyExists = temporal.NewNonRetryableApplicationError("slot already exists",
+		exceptions.ApplicationErrorTypeIrrecoverableExistingSlot.String(), nil)
+	ErrTableDoesNotExist = temporal.NewNonRetryableApplicationError("table does not exist",
+		exceptions.ApplicationErrorTypeIrrecoverableMissingTables.String(), nil)
 )
 
 type ErrType string
@@ -28,4 +37,16 @@ func SkipSendingToIncidentIo(errTags []string) bool {
 		}
 	}
 	return false
+}
+
+type QRepWarnings []error
+
+func WrapError(s string, err error) error {
+	var applicationError *temporal.ApplicationError
+
+	if errors.As(err, &applicationError) {
+		return temporal.NewNonRetryableApplicationError(s, applicationError.Type(), applicationError)
+	} else {
+		return fmt.Errorf("%s: %w", s, err)
+	}
 }

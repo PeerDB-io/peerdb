@@ -3,6 +3,7 @@ package model
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
@@ -40,6 +41,12 @@ func (r PgItems) UpdateIfNotExists(input_ Items) []string {
 		}
 	}
 	return updatedCols
+}
+
+func (r PgItems) UpdateWithBaseRecord(baseRecord BaseRecord) {
+	r.AddColumn("_peerdb_origin_transaction_id", []byte(strconv.FormatUint(baseRecord.GetTransactionID(), 10)))
+	r.AddColumn("_peerdb_origin_checkpoint_id", []byte(strconv.FormatInt(baseRecord.GetCheckpointID(), 10)))
+	r.AddColumn("_peerdb_origin_commit_time_nano", []byte(strconv.FormatInt(baseRecord.GetCommitTime().UnixNano(), 10)))
 }
 
 func (r PgItems) GetBytesByColName(colName string) ([]byte, error) {

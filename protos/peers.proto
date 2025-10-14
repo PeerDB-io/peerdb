@@ -62,12 +62,26 @@ message PubSubConfig {
   GcpServiceAccount service_account = 1;
 }
 
+enum ReadPreference {
+  PREFERENCE_UNKNOWN = 0;
+  PRIMARY = 1;
+  PRIMARY_PREFERRED = 2;
+  SECONDARY = 3;
+  SECONDARY_PREFERRED = 4;
+  NEAREST = 5;
+}
+
 message MongoConfig {
-  string username = 1;
-  string password = 2 [(peerdb_redacted) = true];
-  string clusterurl = 3;
-  int32 clusterport = 4;
-  string database = 5;
+  // can be a mongodb:// URI mapping to discrete hosts or a mongodb+srv:// URI
+  // mapping to a DNS SRV record.
+  string uri = 1;
+  string username = 2;
+  string password = 3 [(peerdb_redacted) = true];
+  bool disable_tls = 4;
+  string tls_host = 5;
+  optional string root_ca = 6 [(peerdb_redacted) = true];
+  ReadPreference read_preference = 7;
+  optional SSHConfig ssh_config = 8;
 }
 
 message AwsAuthStaticCredentialsConfig {
@@ -134,6 +148,13 @@ message EventHubGroupConfig {
   repeated string unnest_columns = 3;
 }
 
+enum AvroCodec {
+  Null = 0;
+  Deflate = 1;
+  Snappy = 2;
+  ZStandard = 3;
+}
+
 message S3Config {
   string url = 1;
   optional string access_key_id = 2 [(peerdb_redacted) = true];
@@ -141,6 +162,9 @@ message S3Config {
   optional string role_arn = 4;
   optional string region = 5;
   optional string endpoint = 6;
+  optional string root_ca = 7 [(peerdb_redacted) = true];
+  string tls_host = 8;
+  AvroCodec codec = 9;
 }
 
 message ClickhouseConfig{
@@ -149,7 +173,7 @@ message ClickhouseConfig{
   string user = 3;
   string password = 4 [(peerdb_redacted) = true];
   string database = 5;
-  string s3_path = 6; // path to S3 bucket which will store avro files
+  string s3_path = 6;
   string access_key_id = 7 [(peerdb_redacted) = true];
   string secret_access_key = 8 [(peerdb_redacted) = true];
   string region = 9;
@@ -159,6 +183,9 @@ message ClickhouseConfig{
   optional string private_key = 13 [(peerdb_redacted) = true];
   optional string root_ca = 14 [(peerdb_redacted) = true];
   string tls_host = 15;
+  optional S3Config s3 = 16;
+  string cluster = 17;
+  bool replicated = 18;
 }
 
 message SqlServerConfig {
@@ -210,6 +237,9 @@ message KafkaConfig {
   string sasl = 4;
   bool disable_tls = 5;
   string partitioner = 6;
+  optional string certificate = 7 [(peerdb_redacted) = true];
+  optional string private_key = 8 [(peerdb_redacted) = true];
+  optional string root_ca = 9 [(peerdb_redacted) = true];
 }
 
 enum ElasticsearchAuthType {
@@ -241,6 +271,22 @@ enum DBType {
   PUBSUB = 10;
   EVENTHUBS = 11;
   ELASTICSEARCH = 12;
+  DBTYPE_UNKNOWN = -1;
+}
+
+enum DatabaseVariant {
+  // either vanilla or something not listed here
+  VARIANT_UNKNOWN = 0;
+  AWS_RDS = 2;
+  AWS_AURORA = 3;
+  GOOGLE_CLOUD_SQL = 4;
+  AZURE_DATABASE = 5;
+  // only Postgres
+  NEON = 6;
+  // has Vitess, but only Postgres for now
+  PLANETSCALE = 7;
+  // only Postgres
+  SUPABASE = 8;
 }
 
 message Peer {

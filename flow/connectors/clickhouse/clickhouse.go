@@ -22,17 +22,18 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	chvalidate "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 type ClickHouseConnector struct {
 	*metadataStore.PostgresMetadata
 	database      clickhouse.Conn
 	logger        log.Logger
-	config        *protos.ClickhouseConfig
+	Config        *protos.ClickhouseConfig
 	credsProvider *utils.ClickHouseS3Credentials
+	chVersion     *chproto.Version
 }
 
 func NewClickHouseConnector(
@@ -48,23 +49,32 @@ func NewClickHouseConnector(
 
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
-		logger.Error("failed to create postgres metadata store", "error", err)
+		logger.Error("failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
 	}
 
-	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", utils.PeerAWSCredentials{
-		Credentials: aws.Credentials{
-			AccessKeyID:     config.AccessKeyId,
-			SecretAccessKey: config.SecretAccessKey,
-		},
-		EndpointUrl: config.Endpoint,
-		Region:      config.Region,
-	})
+	var awsConfig utils.PeerAWSCredentials
+	var awsBucketPath string
+	if config.S3 != nil {
+		awsConfig = utils.NewPeerAWSCredentials(config.S3)
+		awsBucketPath = config.S3.Url
+	} else {
+		awsConfig = utils.PeerAWSCredentials{
+			Credentials: aws.Credentials{
+				AccessKeyID:     config.AccessKeyId,
+				SecretAccessKey: config.SecretAccessKey,
+			},
+			EndpointUrl: config.Endpoint,
+			Region:      config.Region,
+		}
+		awsBucketPath = config.S3Path
+	}
+
+	credentialsProvider, err := utils.GetAWSCredentialsProvider(ctx, "clickhouse", awsConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	awsBucketPath := config.S3Path
 	if awsBucketPath == "" {
 		deploymentUID := internal.PeerDBDeploymentUID()
 		flowName, _ := ctx.Value(shared.FlowNameKey).(string)
@@ -86,24 +96,25 @@ func NewClickHouseConnector(
 		return nil, err
 	}
 
+	clickHouseVersion, err := database.ServerVersion()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
+	}
 	connector := &ClickHouseConnector{
 		database:         database,
 		PostgresMetadata: pgMetadata,
-		config:           config,
+		Config:           config,
 		logger:           logger,
 		credsProvider: &utils.ClickHouseS3Credentials{
 			Provider:   credentialsProvider,
 			BucketPath: awsBucketPath,
 		},
+		chVersion: &clickHouseVersion.Version,
 	}
 
 	if credentials.AWS.SessionToken != "" {
 		// 24.3.1 is minimum version of ClickHouse that actually supports session token
 		// https://github.com/ClickHouse/ClickHouse/issues/61230
-		clickHouseVersion, err := database.ServerVersion()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get ClickHouse version: %w", err)
-		}
 		if !chproto.CheckMinVersion(
 			chproto.Version{Major: 24, Minor: 3, Patch: 1},
 			clickHouseVersion.Version,
@@ -152,16 +163,14 @@ func ValidateClickHouseHost(ctx context.Context, chHost string, allowedDomainStr
 func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 	// validate clickhouse host
 	allowedDomains := internal.PeerDBClickHouseAllowedDomains()
-	if err := ValidateClickHouseHost(ctx, c.config.Host, allowedDomains); err != nil {
+	if err := ValidateClickHouseHost(ctx, c.Config.Host, allowedDomains); err != nil {
 		return err
 	}
 	validateDummyTableName := "peerdb_validation_" + shared.RandomString(4)
 	// create a table
-	err := c.exec(ctx, fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
-		id UInt64
-	) ENGINE = ReplacingMergeTree ORDER BY id;`,
-		validateDummyTableName))
-	if err != nil {
+	if err := c.exec(ctx,
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id UInt64) ENGINE = ReplacingMergeTree ORDER BY id;`, validateDummyTableName),
+	); err != nil {
 		return fmt.Errorf("failed to create validation table %s: %w", validateDummyTableName, err)
 	}
 	defer func() {
@@ -174,21 +183,21 @@ func (c *ClickHouseConnector) ValidateCheck(ctx context.Context) error {
 
 	// add a column
 	if err := c.exec(ctx,
-		fmt.Sprintf("ALTER TABLE `%s` ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
+		fmt.Sprintf("ALTER TABLE %s ADD COLUMN updated_at DateTime64(9) DEFAULT now64()", validateDummyTableName),
 	); err != nil {
 		return fmt.Errorf("failed to add column to validation table %s: %w", validateDummyTableName, err)
 	}
 
 	// rename the table
 	if err := c.exec(ctx,
-		fmt.Sprintf("RENAME TABLE `%s` TO `%s`", validateDummyTableName, validateDummyTableName+"_renamed"),
+		fmt.Sprintf("RENAME TABLE %s TO %s", validateDummyTableName, validateDummyTableName+"_renamed"),
 	); err != nil {
 		return fmt.Errorf("failed to rename validation table %s: %w", validateDummyTableName, err)
 	}
 	validateDummyTableName += "_renamed"
 
 	// insert a row
-	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO `%s` VALUES (1, now64())", validateDummyTableName)); err != nil {
+	if err := c.exec(ctx, fmt.Sprintf("INSERT INTO %s VALUES (1, now64())", validateDummyTableName)); err != nil {
 		return fmt.Errorf("failed to insert into validation table %s: %w", validateDummyTableName, err)
 	}
 
@@ -236,15 +245,22 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 		"select_sequential_consistency": uint64(1),
 		// broken downstream views should not interrupt ingestion
 		"ignore_materialized_views_with_dropped_target_table": true,
+		// avoid "there is no metadata of table ..."
+		"alter_sync": uint64(1),
+		// to handle JSON like "{"key": []}"
+		"input_format_json_infer_incomplete_types_as_strings": uint64(1),
 	}
 	if maxInsertThreads, err := internal.PeerDBClickHouseMaxInsertThreads(ctx, env); err != nil {
 		return nil, fmt.Errorf("failed to load max_insert_threads config: %w", err)
 	} else if maxInsertThreads != 0 {
 		settings["max_insert_threads"] = maxInsertThreads
 	}
+	if config.Cluster != "" {
+		settings["insert_distributed_sync"] = uint64(1)
+	}
 
 	conn, err := clickhouse.Open(&clickhouse.Options{
-		Addr: []string{fmt.Sprintf("%s:%d", config.Host, config.Port)},
+		Addr: []string{shared.JoinHostPort(config.Host, config.Port)},
 		Auth: clickhouse.Auth{
 			Database: config.Database,
 			Username: config.User,
@@ -276,21 +292,20 @@ func Connect(ctx context.Context, env map[string]string, config *protos.Clickhou
 	return conn, nil
 }
 
-//nolint:unparam
-func (c *ClickHouseConnector) exec(ctx context.Context, query string, args ...any) error {
-	return chvalidate.Exec(ctx, c.logger, c.database, query, args...)
+func (c *ClickHouseConnector) exec(ctx context.Context, query string) error {
+	return peerdb_clickhouse.Exec(ctx, c.logger, c.database, query)
 }
 
-func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string, args ...any) error {
-	return chvalidate.Exec(ctx, c.logger, conn, query, args...)
+func (c *ClickHouseConnector) execWithConnection(ctx context.Context, conn clickhouse.Conn, query string) error {
+	return peerdb_clickhouse.Exec(ctx, c.logger, conn, query)
 }
 
-func (c *ClickHouseConnector) query(ctx context.Context, query string, args ...any) (driver.Rows, error) {
-	return chvalidate.Query(ctx, c.logger, c.database, query, args...)
+func (c *ClickHouseConnector) query(ctx context.Context, query string) (driver.Rows, error) {
+	return peerdb_clickhouse.Query(ctx, c.logger, c.database, query)
 }
 
-func (c *ClickHouseConnector) queryRow(ctx context.Context, query string, args ...any) driver.Row {
-	return chvalidate.QueryRow(ctx, c.logger, c.database, query, args...)
+func (c *ClickHouseConnector) queryRow(ctx context.Context, query string) driver.Row {
+	return peerdb_clickhouse.QueryRow(ctx, c.logger, c.database, query)
 }
 
 func (c *ClickHouseConnector) Close() error {
@@ -313,7 +328,7 @@ func (c *ClickHouseConnector) execWithLogging(ctx context.Context, query string)
 }
 
 func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSchema *protos.TableSchema,
-	dstSchema []chvalidate.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
+	dstSchema []peerdb_clickhouse.ClickHouseColumn, peerDBColumns []string, tableMapping *protos.TableMapping,
 ) error {
 	for _, srcField := range srcSchema.Columns {
 		colName := srcField.Name
@@ -331,6 +346,11 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 		for _, dstField := range dstSchema {
 			// not doing type checks for now
 			if dstField.Name == colName {
+				if dstField.DefaultKind == "ALIAS" || dstField.DefaultKind == "MATERIALIZED" {
+					return fmt.Errorf("field %s in destination table %s is %s and doesn't support INSERTs",
+						srcField.Name, dstTableName, dstField.DefaultKind)
+				}
+
 				found = true
 				break
 			}
@@ -353,11 +373,15 @@ func (c *ClickHouseConnector) processTableComparison(dstTableName string, srcSch
 }
 
 func (c *ClickHouseConnector) GetVersion(ctx context.Context) (string, error) {
+	if c.chVersion != nil {
+		return c.chVersion.String(), nil
+	}
+
 	clickhouseVersion, err := c.database.ServerVersion()
 	if err != nil {
 		return "", fmt.Errorf("failed to get ClickHouse version: %w", err)
 	}
-	c.logger.Info("[clickhouse] version", slog.Any("version", clickhouseVersion.DisplayName))
+	c.logger.Info("[clickhouse] version", slog.String("version", clickhouseVersion.DisplayName))
 	return clickhouseVersion.Version.String(), nil
 }
 
@@ -368,51 +392,69 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			continue
 		}
 
-		var qkind qvalue.QValueKind
+		var qkind types.QValueKind
 		switch column.DatabaseTypeName() {
 		case "String", "Nullable(String)", "LowCardinality(String)", "LowCardinality(Nullable(String))":
-			qkind = qvalue.QValueKindString
+			qkind = types.QValueKindString
 		case "Bool", "Nullable(Bool)":
-			qkind = qvalue.QValueKindBoolean
+			qkind = types.QValueKindBoolean
 		case "Int8", "Nullable(Int8)":
-			qkind = qvalue.QValueKindInt8
+			qkind = types.QValueKindInt8
 		case "Int16", "Nullable(Int16)":
-			qkind = qvalue.QValueKindInt16
+			qkind = types.QValueKindInt16
 		case "Int32", "Nullable(Int32)":
-			qkind = qvalue.QValueKindInt32
+			qkind = types.QValueKindInt32
 		case "Int64", "Nullable(Int64)":
-			qkind = qvalue.QValueKindInt64
+			qkind = types.QValueKindInt64
+		case "Int256", "Nullable(Int256)":
+			qkind = types.QValueKindInt256
 		case "UInt8", "Nullable(UInt8)":
-			qkind = qvalue.QValueKindUInt8
+			qkind = types.QValueKindUInt8
 		case "UInt16", "Nullable(UInt16)":
-			qkind = qvalue.QValueKindUInt16
+			qkind = types.QValueKindUInt16
 		case "UInt32", "Nullable(UInt32)":
-			qkind = qvalue.QValueKindUInt32
+			qkind = types.QValueKindUInt32
 		case "UInt64", "Nullable(UInt64)":
-			qkind = qvalue.QValueKindUInt64
+			qkind = types.QValueKindUInt64
+		case "UInt256", "Nullable(UInt256)":
+			qkind = types.QValueKindUInt256
 		case "UUID", "Nullable(UUID)":
-			qkind = qvalue.QValueKindUUID
+			qkind = types.QValueKindUUID
 		case "DateTime64(6)", "Nullable(DateTime64(6))", "DateTime64(9)", "Nullable(DateTime64(9))":
-			qkind = qvalue.QValueKindTimestamp
+			qkind = types.QValueKindTimestamp
 		case "Date32", "Nullable(Date32)":
-			qkind = qvalue.QValueKindDate
+			qkind = types.QValueKindDate
 		case "Float32", "Nullable(Float32)":
-			qkind = qvalue.QValueKindFloat32
+			qkind = types.QValueKindFloat32
 		case "Float64", "Nullable(Float64)":
-			qkind = qvalue.QValueKindFloat64
+			qkind = types.QValueKindFloat64
 		case "Array(Int32)":
-			qkind = qvalue.QValueKindArrayInt32
+			qkind = types.QValueKindArrayInt32
 		case "Array(Float32)":
-			qkind = qvalue.QValueKindArrayFloat32
+			qkind = types.QValueKindArrayFloat32
 		case "Array(Float64)":
-			qkind = qvalue.QValueKindArrayFloat64
+			qkind = types.QValueKindArrayFloat64
 		case "Array(String)", "Array(LowCardinality(String))":
-			qkind = qvalue.QValueKindArrayString
+			qkind = types.QValueKindArrayString
 		case "Array(UUID)":
-			qkind = qvalue.QValueKindArrayUUID
+			qkind = types.QValueKindArrayUUID
+		case "Array(DateTime64(6))":
+			qkind = types.QValueKindArrayTimestamp
+		case "Array(Int64)":
+			qkind = types.QValueKindArrayInt64
+		case "Array(Bool)":
+			qkind = types.QValueKindArrayBoolean
+		case "Array(Date)":
+			qkind = types.QValueKindArrayDate
+		case "JSON":
+			qkind = types.QValueKindJSON
 		default:
 			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
-				qkind = qvalue.QValueKindNumeric
+				if strings.HasPrefix(column.DatabaseTypeName(), "Array(") {
+					qkind = types.QValueKindArrayNumeric
+				} else {
+					qkind = types.QValueKindNumeric
+				}
 			} else {
 				return nil, fmt.Errorf("failed to resolve QValueKind for %s", column.DatabaseTypeName())
 			}
@@ -436,6 +478,7 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 func (c *ClickHouseConnector) GetTableSchema(
 	ctx context.Context,
 	_env map[string]string,
+	_version uint32,
 	_system protos.TypeSystem,
 	tableMappings []*protos.TableMapping,
 ) (map[string]*protos.TableSchema, error) {
@@ -455,4 +498,11 @@ func (c *ClickHouseConnector) GetTableSchema(
 	}
 
 	return res, nil
+}
+
+func (c *ClickHouseConnector) onCluster() string {
+	if c.Config.Cluster != "" {
+		return " ON CLUSTER " + peerdb_clickhouse.QuoteIdentifier(c.Config.Cluster)
+	}
+	return ""
 }

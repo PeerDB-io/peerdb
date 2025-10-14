@@ -2,6 +2,7 @@ package exceptions
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgproto3"
 )
@@ -54,4 +55,35 @@ func (e *PostgresWalError) Error() string {
 
 func (e *PostgresWalError) UnderlyingError() *pgproto3.ErrorResponse {
 	return e.Msg
+}
+
+type TablesNotInPublicationError struct {
+	publicationName string
+	tables          []string
+}
+
+func NewTablesNotInPublicationError(tables []string, publicationName string) *TablesNotInPublicationError {
+	return &TablesNotInPublicationError{publicationName, tables}
+}
+
+func (e *TablesNotInPublicationError) Error() string {
+	return fmt.Sprintf("some additional tables not present in user-provided publication %s: %s",
+		e.publicationName,
+		strings.Join(e.tables, ","))
+}
+
+type PostgresLogicalMessageProcessingError struct {
+	error
+}
+
+func NewPostgresLogicalMessageProcessingError(err error) *PostgresLogicalMessageProcessingError {
+	return &PostgresLogicalMessageProcessingError{err}
+}
+
+func (e *PostgresLogicalMessageProcessingError) Error() string {
+	return "Logical message processing error: " + e.error.Error()
+}
+
+func (e *PostgresLogicalMessageProcessingError) Unwrap() error {
+	return e.error
 }

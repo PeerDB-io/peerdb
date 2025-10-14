@@ -87,6 +87,20 @@ export const cdcSettings: MirrorSetting[] = [
     advanced: AdvancedSettingType.ALL,
   },
   {
+    label: 'Snapshot Number of Partitions Override',
+    stateHandler: (value, setter) =>
+      setter(
+        (curr: CDCConfig): CDCConfig => ({
+          ...curr,
+          snapshotNumPartitionsOverride: parseInt(value as string, 10) || 0,
+        })
+      ),
+    tips: 'Set this to avoid COUNT(*) necessary when using Snapshot Number of Rows Per Partition. This should only be used when ingesting billions of rows.',
+    default: '0',
+    type: 'number',
+    advanced: AdvancedSettingType.ALL,
+  },
+  {
     label: 'Parallelism for Initial Load',
     stateHandler: (value, setter) =>
       setter((curr: CDCConfig) => ({
@@ -151,6 +165,23 @@ export const cdcSettings: MirrorSetting[] = [
     default: true,
     type: 'switch',
     required: true,
+  },
+  {
+    label: 'Hard delete',
+    stateHandler: (value, setter) =>
+      setter(
+        (curr: CDCConfig): CDCConfig => ({
+          ...curr,
+          softDeleteColName: (value as boolean)
+            ? curr.softDeleteColName ||
+              blankCDCSetting.softDeleteColName.toLowerCase()
+            : '',
+        })
+      ),
+    tips: 'Places the is_deleted column inside the ReplacingMergeTree syntax - allowing FINAL and merges to remove records marked as deleted',
+    default: false,
+    type: 'switch',
+    required: false,
   },
   {
     label: 'Initial Copy Only',

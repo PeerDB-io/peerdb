@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/go-logr/logr"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
@@ -14,7 +16,6 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
@@ -26,51 +27,79 @@ const (
 )
 
 const (
-	SlotLagGaugeName                    = "cdc_slot_lag"
-	CurrentBatchIdGaugeName             = "current_batch_id"
-	LastNormalizedBatchIdGaugeName      = "last_normalized_batch_id"
-	OpenConnectionsGaugeName            = "open_connections"
-	OpenReplicationConnectionsGaugeName = "open_replication_connections"
-	CommittedLSNGaugeName               = "committed_lsn"
-	RestartLSNGaugeName                 = "restart_lsn"
-	ConfirmedFlushLSNGaugeName          = "confirmed_flush_lsn"
-	IntervalSinceLastNormalizeGaugeName = "interval_since_last_normalize"
-	FetchedBytesCounterName             = "fetched_bytes"
-	CommitLagGaugeName                  = "commit_lag"
-	ErrorEmittedGaugeName               = "error_emitted"
-	ErrorsEmittedCounterName            = "errors_emitted"
-	RecordsSyncedGaugeName              = "records_synced"
-	RecordsSyncedCounterName            = "records_synced_counter"
-	SyncedTablesGaugeName               = "synced_tables"
-	InstanceStatusGaugeName             = "instance_status"
-	MaintenanceStatusGaugeName          = "maintenance_status"
-	FlowStatusGaugeName                 = "flow_status"
-	ActiveFlowsGaugeName                = "active_flows"
+	SlotLagGaugeName                     = "cdc_slot_lag"
+	CurrentBatchIdGaugeName              = "current_batch_id"
+	LastNormalizedBatchIdGaugeName       = "last_normalized_batch_id"
+	OpenConnectionsGaugeName             = "open_connections"
+	OpenReplicationConnectionsGaugeName  = "open_replication_connections"
+	CommittedLSNGaugeName                = "committed_lsn"
+	RestartLSNGaugeName                  = "restart_lsn"
+	ConfirmedFlushLSNGaugeName           = "confirmed_flush_lsn"
+	IntervalSinceLastNormalizeGaugeName  = "interval_since_last_normalize"
+	AllFetchedBytesCounterName           = "all_fetched_bytes"
+	FetchedBytesCounterName              = "fetched_bytes"
+	CommitLagGaugeName                   = "commit_lag"
+	ErrorEmittedGaugeName                = "error_emitted"
+	ErrorsEmittedCounterName             = "errors_emitted"
+	WarningEmittedGaugeName              = "warning_emitted"
+	WarningsEmittedCounterName           = "warnings_emitted"
+	RecordsSyncedGaugeName               = "records_synced"
+	RecordsSyncedCounterName             = "records_synced_counter"
+	RecordsSyncedPerTableGaugeName       = "records_synced_per_table"
+	RecordsSyncedPerTableCounterName     = "records_synced_per_table_counter"
+	SyncedTablesGaugeName                = "synced_tables"
+	SyncedTablesPerBatchGaugeName        = "synced_tables_per_batch"
+	InstanceStatusGaugeName              = "instance_status"
+	MaintenanceStatusGaugeName           = "maintenance_status"
+	FlowStatusGaugeName                  = "flow_status"
+	DurationSinceLastFlowUpdateGaugeName = "duration_since_last_flow_update"
+	ActiveFlowsGaugeName                 = "active_flows"
+	CPULimitsPerActiveFlowGaugeName      = "cpu_limits_per_active_flow_vcores"
+	MemoryLimitsPerActiveFlowGaugeName   = "memory_limits_per_active_flow"
+	TotalCPULimitsGaugeName              = "total_cpu_limits_vcores"
+	TotalMemoryLimitsGaugeName           = "total_memory_limits"
+	WorkloadTotalReplicasGaugeName       = "workload_total_replicas"
+	LogRetentionGaugeName                = "log_retention"
+	LatestConsumedLogEventGaugeName      = "latest_consumed_log_event"
+	UnchangedToastValuesCounterName      = "unchanged_toast_values"
 )
 
 type Metrics struct {
-	SlotLagGauge                    metric.Float64Gauge
-	CurrentBatchIdGauge             metric.Int64Gauge
-	LastNormalizedBatchIdGauge      metric.Int64Gauge
-	OpenConnectionsGauge            metric.Int64Gauge
-	OpenReplicationConnectionsGauge metric.Int64Gauge
-	CommittedLSNGauge               metric.Int64Gauge
-	RestartLSNGauge                 metric.Int64Gauge
-	ConfirmedFlushLSNGauge          metric.Int64Gauge
-	IntervalSinceLastNormalizeGauge metric.Float64Gauge
-	FetchedBytesCounter             metric.Int64Counter
-	CommitLagGauge                  metric.Int64Gauge
-	ErrorEmittedGauge               metric.Int64Gauge
-	ErrorsEmittedCounter            metric.Int64Counter
-	RecordsSyncedGauge              metric.Int64Gauge
-	RecordsSyncedCounter            metric.Int64Counter
-	SyncedTablesGauge               metric.Int64Gauge
-	InstanceStatusGauge             metric.Int64Gauge
-	MaintenanceStatusGauge          metric.Int64Gauge
-	FlowStatusGauge                 metric.Int64Gauge
-	ActiveFlowsGauge                metric.Int64Gauge
-	CPULimitsPerActiveFlowGauge     metric.Float64Gauge
-	MemoryLimitsPerActiveFlowGauge  metric.Float64Gauge
+	SlotLagGauge                     metric.Float64Gauge
+	CurrentBatchIdGauge              metric.Int64Gauge
+	LastNormalizedBatchIdGauge       metric.Int64Gauge
+	OpenConnectionsGauge             metric.Int64Gauge
+	OpenReplicationConnectionsGauge  metric.Int64Gauge
+	CommittedLSNGauge                metric.Int64Gauge
+	RestartLSNGauge                  metric.Int64Gauge
+	ConfirmedFlushLSNGauge           metric.Int64Gauge
+	IntervalSinceLastNormalizeGauge  metric.Float64Gauge
+	AllFetchedBytesCounter           metric.Int64Counter
+	FetchedBytesCounter              metric.Int64Counter
+	CommitLagGauge                   metric.Int64Gauge
+	ErrorEmittedGauge                metric.Int64Gauge
+	ErrorsEmittedCounter             metric.Int64Counter
+	WarningsEmittedGauge             metric.Int64Gauge
+	WarningEmittedCounter            metric.Int64Counter
+	RecordsSyncedGauge               metric.Int64Gauge
+	RecordsSyncedCounter             metric.Int64Counter
+	RecordsSyncedPerTableGauge       metric.Int64Gauge
+	RecordsSyncedPerTableCounter     metric.Int64Counter
+	SyncedTablesGauge                metric.Int64Gauge
+	SyncedTablesPerBatchGauge        metric.Int64Gauge
+	InstanceStatusGauge              metric.Int64Gauge
+	MaintenanceStatusGauge           metric.Int64Gauge
+	FlowStatusGauge                  metric.Int64Gauge
+	DurationSinceLastFlowUpdateGauge metric.Int64Gauge
+	ActiveFlowsGauge                 metric.Int64Gauge
+	CPULimitsPerActiveFlowGauge      metric.Float64Gauge
+	MemoryLimitsPerActiveFlowGauge   metric.Float64Gauge
+	TotalCPULimitsGauge              metric.Float64Gauge
+	TotalMemoryLimitsGauge           metric.Float64Gauge
+	WorkloadTotalReplicasGauge       metric.Int64Gauge
+	LatestConsumedLogEventGauge      metric.Int64Gauge
+	LogRetentionGauge                metric.Float64Gauge
+	UnchangedToastValuesCounter      metric.Int64Counter
 }
 
 type SlotMetricGauges struct {
@@ -113,7 +142,7 @@ func NewOtelManager(ctx context.Context, serviceName string, enabled bool) (*Ote
 		Int64GaugesCache:   make(map[string]metric.Int64Gauge),
 		Int64CountersCache: make(map[string]metric.Int64Counter),
 	}
-	if err := otelManager.setupMetrics(); err != nil {
+	if err := otelManager.setupMetrics(ctx); err != nil {
 		return nil, err
 	}
 	return &otelManager, nil
@@ -160,8 +189,8 @@ func (om *OtelManager) GetOrInitInt64Counter(name string, opts ...metric.Int64Co
 	return getOrInitMetric(NewContextAwareInt64Counter, om.Meter, om.Int64CountersCache, name, opts...)
 }
 
-func (om *OtelManager) setupMetrics() error {
-	slog.Debug("Setting up all metrics")
+func (om *OtelManager) setupMetrics(ctx context.Context) error {
+	slog.DebugContext(ctx, "Setting up all metrics")
 	var err error
 	if om.Metrics.SlotLagGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(SlotLagGaugeName),
 		metric.WithUnit("MiBy"),
@@ -215,9 +244,16 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
+	if om.Metrics.AllFetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(AllFetchedBytesCounterName),
+		metric.WithUnit("By"),
+		metric.WithDescription("Bytes received of CopyData over replication protocol for all tables"),
+	); err != nil {
+		return err
+	}
+
 	if om.Metrics.FetchedBytesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(FetchedBytesCounterName),
 		metric.WithUnit("By"),
-		metric.WithDescription("Bytes received of CopyData over replication slot"),
+		metric.WithDescription("Bytes received of CopyData over replication protocol for mapped tables only"),
 	); err != nil {
 		return err
 	}
@@ -225,6 +261,20 @@ func (om *OtelManager) setupMetrics() error {
 	if om.Metrics.CommitLagGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(CommitLagGaugeName),
 		metric.WithUnit("us"),
 		metric.WithDescription("Microseconds between source commit & time received"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LatestConsumedLogEventGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(LatestConsumedLogEventGaugeName),
+		metric.WithUnit("s"),
+		metric.WithDescription("Latest consumed replication log event timestamp in epoch seconds"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.LogRetentionGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(LogRetentionGaugeName),
+		metric.WithUnit("h"),
+		metric.WithDescription("Log retention in hours for the source data store"),
 	); err != nil {
 		return err
 	}
@@ -237,8 +287,22 @@ func (om *OtelManager) setupMetrics() error {
 	}
 
 	if om.Metrics.ErrorsEmittedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(ErrorsEmittedCounterName),
-		// This the actual counter for errors emitted, used for alerting based on error rate/more detailed error analysis
+		// This the actual counter for errors emitted, used for alerting based on error rate, or using more detailed error analysis
 		metric.WithDescription("Counter of errors emitted"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.WarningsEmittedGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(WarningEmittedGaugeName),
+		// This mostly tells whether warning is emitted or not, used for hooking up event based alerting
+		metric.WithDescription("Whether warning was emitted, 1 if emitted, 0 otherwise"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.WarningEmittedCounter, err = om.GetOrInitInt64Counter(BuildMetricName(WarningsEmittedCounterName),
+		// This the actual counter for warnings emitted, used for alerting based on warning rate, or using more detailed error analysis
+		metric.WithDescription("Counter of warnings emitted"),
 	); err != nil {
 		return err
 	}
@@ -255,8 +319,26 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
+	if om.Metrics.RecordsSyncedPerTableGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(RecordsSyncedPerTableGaugeName),
+		metric.WithDescription("Number of records synced per table. Note that this should be monotonically increasing"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.RecordsSyncedPerTableCounter, err = om.GetOrInitInt64Counter(BuildMetricName(RecordsSyncedPerTableCounterName),
+		metric.WithDescription("Counter of records synced per table (all time)"),
+	); err != nil {
+		return err
+	}
+
 	if om.Metrics.SyncedTablesGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SyncedTablesGaugeName),
 		metric.WithDescription("Number of tables synced"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.SyncedTablesPerBatchGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(SyncedTablesPerBatchGaugeName),
+		metric.WithDescription("Number of tables synced for every Sync batch"),
 	); err != nil {
 		return err
 	}
@@ -272,10 +354,17 @@ func (om *OtelManager) setupMetrics() error {
 	); err != nil {
 		return err
 	}
-	slog.Debug("Finished setting up all metrics")
+	slog.DebugContext(ctx, "Finished setting up all metrics")
 
 	if om.Metrics.FlowStatusGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(FlowStatusGaugeName),
 		metric.WithDescription("Status of the flow, always emits a 1 metric with different `flowStatus` value for different statuses"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.DurationSinceLastFlowUpdateGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(DurationSinceLastFlowUpdateGaugeName),
+		metric.WithUnit("s"),
+		metric.WithDescription("Duration since last flow update in seconds"),
 	); err != nil {
 		return err
 	}
@@ -287,7 +376,7 @@ func (om *OtelManager) setupMetrics() error {
 	}
 
 	// Appending unit since UCUM does not support `vcores` as a unit
-	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("cpu_limits_per_active_flow_vcores"),
+	if om.Metrics.CPULimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(CPULimitsPerActiveFlowGaugeName),
 		metric.WithDescription(
 			"CPU limits per active flow. To get total CPU limits, multiply by number of active flows or do sum over all flows",
 		),
@@ -295,11 +384,37 @@ func (om *OtelManager) setupMetrics() error {
 		return err
 	}
 
-	if om.Metrics.MemoryLimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName("memory_limits_per_active_flow"),
+	if om.Metrics.MemoryLimitsPerActiveFlowGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(MemoryLimitsPerActiveFlowGaugeName),
 		metric.WithDescription(
 			"Memory per active flow. To get total memory limits, multiply by number of active flows or do sum over all flows",
 		),
 		metric.WithUnit("By"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.TotalCPULimitsGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(TotalCPULimitsGaugeName),
+		metric.WithDescription("Total CPU limits for the current workload"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.TotalMemoryLimitsGauge, err = om.GetOrInitFloat64Gauge(BuildMetricName(TotalMemoryLimitsGaugeName),
+		metric.WithDescription("Total memory limits for the current workload"),
+		metric.WithUnit("By"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.WorkloadTotalReplicasGauge, err = om.GetOrInitInt64Gauge(BuildMetricName(WorkloadTotalReplicasGaugeName),
+		metric.WithDescription("Total number of replicas for the current workload"),
+	); err != nil {
+		return err
+	}
+
+	if om.Metrics.UnchangedToastValuesCounter, err = om.GetOrInitInt64Counter(BuildMetricName(UnchangedToastValuesCounterName),
+		metric.WithDescription(
+			"Counter of unchanged TOAST values (Postgres only), with `backfilled` indicating whether the original was found in the CDC store"),
 	); err != nil {
 		return err
 	}
@@ -310,22 +425,19 @@ func (om *OtelManager) setupMetrics() error {
 // newOtelResource returns a resource describing this application.
 func newOtelResource(otelServiceName string, attrs ...attribute.KeyValue) (*resource.Resource, error) {
 	allAttrs := append([]attribute.KeyValue{
-		semconv.ServiceNameKey.String(otelServiceName),
+		attribute.Key("service.name").String(otelServiceName),
 		attribute.String(DeploymentUidKey, internal.PeerDBDeploymentUID()),
-		semconv.ServiceVersion(internal.PeerDBVersionShaShort()),
+		attribute.Key("service.version").String(internal.PeerDBVersionShaShort()),
 	}, attrs...)
 	return resource.Merge(
 		resource.Default(),
-		resource.NewWithAttributes(
-			semconv.SchemaURL,
-			allAttrs...,
-		),
+		resource.NewWithAttributes("", allAttrs...),
 	)
 }
 
-func temporalMetricsFilteringView() sdkmetric.View {
+func temporalMetricsFilteringView(ctx context.Context) sdkmetric.View {
 	exportListString := internal.GetPeerDBOtelTemporalMetricsExportListEnv()
-	slog.Info("Found export list for temporal metrics", slog.String("exportList", exportListString))
+	slog.InfoContext(ctx, "Found export list for temporal metrics", slog.String("exportList", exportListString))
 	// Special case for exporting all metrics
 	if exportListString == "__ALL__" {
 		return func(instrument sdkmetric.Instrument) (sdkmetric.Stream, bool) {
@@ -414,7 +526,7 @@ func setupExporter(ctx context.Context) (sdkmetric.Exporter, error) {
 	return metricExporter, err
 }
 
-func setupMetricsProvider(
+func setupMetricsAndProvider(
 	ctx context.Context,
 	otelResource *resource.Resource,
 	enabled bool,
@@ -427,7 +539,7 @@ func setupMetricsProvider(
 	if err != nil {
 		return nil, err
 	}
-
+	setupOtelHandlers(ctx)
 	meterProvider := sdkmetric.NewMeterProvider(
 		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExporter)),
 		sdkmetric.WithResource(otelResource),
@@ -441,7 +553,7 @@ func SetupPeerDBMetricsProvider(ctx context.Context, otelServiceName string, ena
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, enabled)
+	return setupMetricsAndProvider(ctx, otelResource, enabled)
 }
 
 func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, enabled bool) (metric.MeterProvider, error) {
@@ -449,7 +561,7 @@ func SetupTemporalMetricsProvider(ctx context.Context, otelServiceName string, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, enabled, temporalMetricsFilteringView())
+	return setupMetricsAndProvider(ctx, otelResource, enabled, temporalMetricsFilteringView(ctx))
 }
 
 func SetupComponentMetricsProvider(
@@ -462,5 +574,25 @@ func SetupComponentMetricsProvider(
 	if err != nil {
 		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
-	return setupMetricsProvider(ctx, otelResource, enabled, componentMetricsRenamingView(componentName))
+	return setupMetricsAndProvider(ctx, otelResource, enabled, componentMetricsRenamingView(componentName))
+}
+
+type LoggingErrorHandler struct {
+	logger *slog.Logger
+}
+
+func NewLoggingErrorHandler(logger *slog.Logger) *LoggingErrorHandler {
+	return &LoggingErrorHandler{
+		logger: logger.With("component", "global-otel-error-handler"),
+	}
+}
+
+func (l *LoggingErrorHandler) Handle(err error) {
+	l.logger.Error("otel error", slog.Any("error", err)) //nolint:sloglint
+}
+
+func setupOtelHandlers(ctx context.Context) {
+	logger := internal.SlogLoggerFromCtx(ctx)
+	otel.SetErrorHandler(NewLoggingErrorHandler(logger))
+	otel.SetLogger(logr.FromSlogHandler(logger.With("component", "global-otel-logger-handler").Handler()))
 }

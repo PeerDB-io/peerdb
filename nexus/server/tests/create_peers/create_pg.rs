@@ -24,10 +24,7 @@ pub fn create(nexus: &mut Client) {
         env::var("PEERDB_CATALOG_PASSWORD").expect("PEERDB_CATALOG_PASSWORD not set");
 
     // Hydrate peer first
-    let peer_conn_str = format!(
-        "postgresql://{}:{}@{}:{}",
-        peer_user, peer_password, peer_host, peer_port
-    );
+    let peer_conn_str = format!("postgresql://{peer_user}:{peer_password}@{peer_host}:{peer_port}");
     let mut pg_client =
         Client::connect(&peer_conn_str, NoTls).expect("failed to connect to pg peer");
     hydrate(&mut pg_client);

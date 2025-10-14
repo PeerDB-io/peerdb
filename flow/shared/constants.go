@@ -1,13 +1,37 @@
 package shared
 
 import (
+	"time"
+
 	"go.temporal.io/sdk/temporal"
+)
+
+var Year0000 = time.Date(0, 1, 1, 0, 0, 0, 0, time.UTC)
+
+const (
+	MoneyOID        uint32 = 790
+	TxidSnapshotOID uint32 = 2970
+	TsvectorOID     uint32 = 3614
+	TsqueryOID      uint32 = 3615
+)
+
+const (
+	InternalVersion_First uint32 = iota
+	InternalVersion_PgVectorAsFloatArray
+	IntervalVersion_MongoDBFullDocumentColumnToDoc
+
+	TotalNumberOfInternalVersions
+	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
 )
 
 type (
 	ContextKey  string
 	TaskQueueID string
 )
+
+func (c ContextKey) String() string {
+	return string(c)
+}
 
 const (
 	// Task Queues
@@ -18,7 +42,6 @@ const (
 	// Queries
 	CDCFlowStateQuery  = "q-cdc-flow-state"
 	QRepFlowStateQuery = "q-qrep-flow-state"
-	FlowStatusQuery    = "q-flow-status"
 )
 
 var MirrorNameSearchAttribute = temporal.NewSearchAttributeKeyString("MirrorName")
@@ -31,9 +54,10 @@ const (
 	FlowNameKey      ContextKey = "flowName"
 	PartitionIDKey   ContextKey = "partitionId"
 	DeploymentUIDKey ContextKey = "deploymentUid"
+	RequestIdKey     ContextKey = "x-peerdb-request-id"
 )
 
-const FetchAndChannelSize = 256 * 1024
+const FetchAndChannelSize = 1024
 
 func Ptr[T any](x T) *T {
 	return &x

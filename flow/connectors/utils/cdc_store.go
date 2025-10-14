@@ -12,14 +12,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cockroachdb/pebble"
+	"github.com/cockroachdb/pebble/v2"
 	"github.com/shopspring/decimal"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func encVal(val any) ([]byte, error) {
@@ -33,6 +33,7 @@ func encVal(val any) ([]byte, error) {
 }
 
 type cdcStore[Items model.Items] struct {
+	logger                    log.Logger
 	inMemoryRecords           map[model.TableWithPkey]model.Record[Items]
 	pebbleDB                  *pebble.DB
 	flowJobName               string
@@ -40,8 +41,8 @@ type cdcStore[Items model.Items] struct {
 	thresholdReason           string
 	memStats                  []metrics.Sample
 	memThresholdBytes         uint64
-	numRecords                atomic.Int32
 	numRecordsSwitchThreshold int
+	numRecords                atomic.Int32
 }
 
 func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, flowJobName string) (*cdcStore[Items], error) {
@@ -70,6 +71,7 @@ func NewCDCStore[Items model.Items](ctx context.Context, env map[string]string, 
 		}(),
 		thresholdReason: "",
 		memStats:        []metrics.Sample{{Name: "/memory/classes/heap/objects:bytes"}},
+		logger:          internal.LoggerFromCtx(ctx),
 	}, nil
 }
 
@@ -77,52 +79,55 @@ func init() {
 	// register future record classes here as well, if they are passed/stored as interfaces
 	gob.Register(time.Time{})
 	gob.Register(decimal.Decimal{})
-	gob.Register(qvalue.QValueNull(""))
-	gob.Register(qvalue.QValueInvalid{})
-	gob.Register(qvalue.QValueFloat32{})
-	gob.Register(qvalue.QValueFloat64{})
-	gob.Register(qvalue.QValueInt8{})
-	gob.Register(qvalue.QValueInt16{})
-	gob.Register(qvalue.QValueInt32{})
-	gob.Register(qvalue.QValueInt64{})
-	gob.Register(qvalue.QValueUInt8{})
-	gob.Register(qvalue.QValueUInt16{})
-	gob.Register(qvalue.QValueUInt32{})
-	gob.Register(qvalue.QValueUInt64{})
-	gob.Register(qvalue.QValueBoolean{})
-	gob.Register(qvalue.QValueQChar{})
-	gob.Register(qvalue.QValueString{})
-	gob.Register(qvalue.QValueEnum{})
-	gob.Register(qvalue.QValueTimestamp{})
-	gob.Register(qvalue.QValueTimestampTZ{})
-	gob.Register(qvalue.QValueDate{})
-	gob.Register(qvalue.QValueTime{})
-	gob.Register(qvalue.QValueTimeTZ{})
-	gob.Register(qvalue.QValueInterval{})
-	gob.Register(qvalue.QValueNumeric{})
-	gob.Register(qvalue.QValueBytes{})
-	gob.Register(qvalue.QValueUUID{})
-	gob.Register(qvalue.QValueJSON{})
-	gob.Register(qvalue.QValueHStore{})
-	gob.Register(qvalue.QValueGeography{})
-	gob.Register(qvalue.QValueGeometry{})
-	gob.Register(qvalue.QValuePoint{})
-	gob.Register(qvalue.QValueCIDR{})
-	gob.Register(qvalue.QValueINET{})
-	gob.Register(qvalue.QValueMacaddr{})
-	gob.Register(qvalue.QValueArrayFloat32{})
-	gob.Register(qvalue.QValueArrayFloat64{})
-	gob.Register(qvalue.QValueArrayInt16{})
-	gob.Register(qvalue.QValueArrayInt32{})
-	gob.Register(qvalue.QValueArrayInt64{})
-	gob.Register(qvalue.QValueArrayString{})
-	gob.Register(qvalue.QValueArrayEnum{})
-	gob.Register(qvalue.QValueArrayDate{})
-	gob.Register(qvalue.QValueArrayTimestamp{})
-	gob.Register(qvalue.QValueArrayTimestampTZ{})
-	gob.Register(qvalue.QValueArrayBoolean{})
-	gob.Register(qvalue.QValueTSTZRange{})
-	gob.Register(qvalue.QValueArrayUUID{})
+	gob.Register(types.QValueNull(""))
+	gob.Register(types.QValueInvalid{})
+	gob.Register(types.QValueFloat32{})
+	gob.Register(types.QValueFloat64{})
+	gob.Register(types.QValueInt8{})
+	gob.Register(types.QValueInt16{})
+	gob.Register(types.QValueInt32{})
+	gob.Register(types.QValueInt64{})
+	gob.Register(types.QValueInt256{})
+	gob.Register(types.QValueUInt8{})
+	gob.Register(types.QValueUInt16{})
+	gob.Register(types.QValueUInt32{})
+	gob.Register(types.QValueUInt64{})
+	gob.Register(types.QValueUInt256{})
+	gob.Register(types.QValueBoolean{})
+	gob.Register(types.QValueQChar{})
+	gob.Register(types.QValueString{})
+	gob.Register(types.QValueEnum{})
+	gob.Register(types.QValueTimestamp{})
+	gob.Register(types.QValueTimestampTZ{})
+	gob.Register(types.QValueDate{})
+	gob.Register(types.QValueTime{})
+	gob.Register(types.QValueTimeTZ{})
+	gob.Register(types.QValueInterval{})
+	gob.Register(types.QValueNumeric{})
+	gob.Register(types.QValueBytes{})
+	gob.Register(types.QValueUUID{})
+	gob.Register(types.QValueJSON{})
+	gob.Register(types.QValueHStore{})
+	gob.Register(types.QValueGeography{})
+	gob.Register(types.QValueGeometry{})
+	gob.Register(types.QValuePoint{})
+	gob.Register(types.QValueCIDR{})
+	gob.Register(types.QValueINET{})
+	gob.Register(types.QValueMacaddr{})
+	gob.Register(types.QValueArrayFloat32{})
+	gob.Register(types.QValueArrayFloat64{})
+	gob.Register(types.QValueArrayInt16{})
+	gob.Register(types.QValueArrayInt32{})
+	gob.Register(types.QValueArrayInt64{})
+	gob.Register(types.QValueArrayString{})
+	gob.Register(types.QValueArrayEnum{})
+	gob.Register(types.QValueArrayDate{})
+	gob.Register(types.QValueArrayInterval{})
+	gob.Register(types.QValueArrayTimestamp{})
+	gob.Register(types.QValueArrayTimestampTZ{})
+	gob.Register(types.QValueArrayBoolean{})
+	gob.Register(types.QValueArrayUUID{})
+	gob.Register(types.QValueArrayNumeric{})
 }
 
 func (c *cdcStore[T]) initPebbleDB() error {
@@ -167,14 +172,15 @@ func (c *cdcStore[T]) diskSpillThresholdsExceeded() bool {
 	return false
 }
 
-func (c *cdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.Record[T]) error {
+// TODO remove logger from here and use c.logger instead
+func (c *cdcStore[T]) Set(key model.TableWithPkey, rec model.Record[T]) error {
 	if key.TableName != "" {
 		_, ok := c.inMemoryRecords[key]
 		if ok || !c.diskSpillThresholdsExceeded() {
 			c.inMemoryRecords[key] = rec
 		} else {
 			if c.pebbleDB == nil {
-				logger.Info(c.thresholdReason,
+				c.logger.Info(c.thresholdReason,
 					slog.String(string(shared.FlowNameKey), c.flowJobName))
 				if err := c.initPebbleDB(); err != nil {
 					return err
@@ -192,10 +198,9 @@ func (c *cdcStore[T]) Set(logger log.Logger, key model.TableWithPkey, rec model.
 				return err
 			}
 			// we're using Pebble as a cache, no need for durability here.
-			err = c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
+			if err := c.pebbleDB.Set(encodedKey, encodedRec, &pebble.WriteOptions{
 				Sync: false,
-			})
-			if err != nil {
+			}); err != nil {
 				return fmt.Errorf("unable to store value in Pebble: %w", err)
 			}
 		}
@@ -225,7 +230,7 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 		}
 		defer func() {
 			if err := closer.Close(); err != nil {
-				slog.Warn("failed to close database",
+				c.logger.Warn("failed to close database",
 					slog.Any("error", err),
 					slog.String("flowName", c.flowJobName))
 			}
@@ -233,8 +238,7 @@ func (c *cdcStore[T]) Get(key model.TableWithPkey) (model.Record[T], bool, error
 
 		dec := gob.NewDecoder(bytes.NewReader(encodedRec))
 		var rec model.Record[T]
-		err = dec.Decode(&rec)
-		if err != nil {
+		if err := dec.Decode(&rec); err != nil {
 			return nil, false, fmt.Errorf("failed to decode record: %w", err)
 		}
 

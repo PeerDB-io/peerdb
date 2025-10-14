@@ -196,7 +196,7 @@ impl Value {
                             arr.iter().filter_map(|v| v.as_bool()).collect(),
                         )),
                         _ty => {
-                            let err = format!("unsupported array type: {:?}", _ty);
+                            let err = format!("unsupported array type: {_ty:?}");
                             panic!("{}", err)
                         }
                     }
@@ -266,7 +266,7 @@ impl Value {
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.to_string() {
-            Ok(s) => write!(f, "{}", s),
+            Ok(s) => write!(f, "{s}"),
             Err(_) => write!(f, "Error converting value to string"),
         }
     }

@@ -87,13 +87,19 @@ func CreatePeerNoValidate(
 			return wrongConfigResponse, nil
 		}
 		innerConfig = esConfigObject.ElasticsearchConfig
+	case protos.DBType_MONGO:
+		mongoConfigObject, ok := config.(*protos.Peer_MongoConfig)
+		if !ok {
+			return wrongConfigResponse, nil
+		}
+		innerConfig = mongoConfigObject.MongoConfig
 	default:
 		return wrongConfigResponse, nil
 	}
 
 	encodedConfig, encodingErr := proto.Marshal(innerConfig)
 	if encodingErr != nil {
-		slog.Error(fmt.Sprintf("failed to encode peer configuration for %s peer %s : %v",
+		slog.ErrorContext(ctx, fmt.Sprintf("failed to encode peer configuration for %s peer %s : %v",
 			peer.Type, peer.Name, encodingErr))
 		return nil, encodingErr
 	}

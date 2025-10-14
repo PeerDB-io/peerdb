@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	pgvectorpgx "github.com/pgvector/pgvector-go/pgx"
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
@@ -25,6 +26,7 @@ const (
 	POSTGRES_14 PGVersion = 140000
 	POSTGRES_15 PGVersion = 150000
 	POSTGRES_16 PGVersion = 160000
+	POSTGRES_17 PGVersion = 170000
 )
 
 type CustomDataType struct {
@@ -59,17 +61,33 @@ func GetCustomDataTypes(ctx context.Context, conn *pgx.Conn) (map[uint32]CustomD
 	return customTypeMap, nil
 }
 
-func RegisterHStore(ctx context.Context, conn *pgx.Conn) error {
-	var hstoreOID uint32
-	if err := conn.QueryRow(ctx, `select oid from pg_type where typname = 'hstore'`).Scan(&hstoreOID); err != nil {
-		// hstore isn't present, just proceed
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
+func RegisterExtensions(ctx context.Context, conn *pgx.Conn, version uint32) error {
+	var hstoreOID *uint32
+	var vectorOID *uint32
+	var halfvecOID *uint32
+	var sparsevecOID *uint32
+	if err := conn.QueryRow(
+		ctx, "select to_regtype('hstore')::oid,to_regtype('vector')::oid,to_regtype('halfvec')::oid,to_regtype('sparsevec')::oid",
+	).Scan(&hstoreOID, &vectorOID, &halfvecOID, &sparsevecOID); err != nil {
 		return err
 	}
 
-	conn.TypeMap().RegisterType(&pgtype.Type{Name: "hstore", OID: hstoreOID, Codec: pgtype.HstoreCodec{}})
+	typeMap := conn.TypeMap()
+	if hstoreOID != nil {
+		typeMap.RegisterType(&pgtype.Type{Name: "hstore", OID: *hstoreOID, Codec: pgtype.HstoreCodec{}})
+	}
+
+	if version >= InternalVersion_PgVectorAsFloatArray {
+		if vectorOID != nil {
+			typeMap.RegisterType(&pgtype.Type{Name: "vector", OID: *vectorOID, Codec: pgvectorpgx.VectorCodec{}})
+			if halfvecOID != nil {
+				typeMap.RegisterType(&pgtype.Type{Name: "halfvec", OID: *halfvecOID, Codec: pgvectorpgx.HalfVectorCodec{}})
+			}
+			if sparsevecOID != nil {
+				typeMap.RegisterType(&pgtype.Type{Name: "sparsevec", OID: *sparsevecOID, Codec: pgvectorpgx.SparseVectorCodec{}})
+			}
+		}
+	}
 
 	return nil
 }
@@ -273,6 +291,10 @@ const (
 	psQuotedEscape
 	psUnquoted
 	psUnquotedEscape
+	psN
+	psNU
+	psNUL
+	psNULL
 )
 
 // see array_in from postgres
@@ -285,6 +307,7 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 	var sb []byte
 	ps := psSearch2
 	for _, ch := range data {
+	retry:
 		switch ps {
 		case psSearch:
 			if ch == delim {
@@ -295,6 +318,8 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 				ps = psQuoted
 			} else if ch == '\\' {
 				ps = psUnquotedEscape
+			} else if ch == 'N' {
+				ps = psN
 			} else if ch != '{' && ch != ' ' && ch != '\t' && ch != '\n' && ch != '\v' && ch != '\f' && ch != '\r' {
 				sb = append(sb, ch)
 				ps = psUnquoted
@@ -333,6 +358,43 @@ func ParsePgArrayToStringSlice(data []byte, delim byte) []string {
 		case psUnquotedEscape:
 			sb = append(sb, ch)
 			ps = psUnquoted
+		case psN:
+			if ch == 'U' {
+				ps = psNU
+			} else {
+				sb = append(sb, 'N')
+				ps = psUnquoted
+				goto retry
+			}
+		case psNU:
+			if ch == 'L' {
+				ps = psNUL
+			} else {
+				sb = append(sb, 'N', 'U')
+				ps = psUnquoted
+				goto retry
+			}
+		case psNUL:
+			if ch == 'L' {
+				ps = psNULL
+			} else {
+				sb = append(sb, 'N', 'U', 'L')
+				ps = psUnquoted
+				goto retry
+			}
+		case psNULL:
+			if ch == delim || ch == '}' {
+				result = append(result, "")
+				if ch == '}' {
+					ps = psSearch2
+				} else {
+					ps = psSearch
+				}
+			} else {
+				sb = append(sb, 'N', 'U', 'L', 'L')
+				ps = psUnquoted
+				goto retry
+			}
 		}
 	}
 	return result

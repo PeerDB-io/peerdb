@@ -63,7 +63,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
         };
 
         // Necessary as visit_relations fails to deeply visit some structures.
-        visit_statements(statement, |stmt| {
+        let _ = visit_statements(statement, |stmt| {
             match stmt {
                 Statement::Drop { names, .. } => {
                     for name in names {
@@ -73,7 +73,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
                 Statement::Declare { stmts } => {
                     for stmt in stmts {
                         if let Some(ref query) = stmt.for_query {
-                            visit_relations(query, |relation| {
+                            let _ = visit_relations(query, |relation| {
                                 analyze_name(&relation.0[0].value);
                                 ControlFlow::<()>::Continue(())
                             });
@@ -85,7 +85,7 @@ impl StatementAnalyzer for PeerExistanceAnalyzer<'_> {
             ControlFlow::<()>::Continue(())
         });
 
-        visit_relations(statement, |relation| {
+        let _ = visit_relations(statement, |relation| {
             analyze_name(&relation.0[0].value);
             ControlFlow::<()>::Continue(())
         });
@@ -257,6 +257,13 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             _ => None,
                         };
 
+                        let snapshot_num_partitions_override: Option<u32> = match raw_options
+                            .remove("snapshot_num_partitions_override")
+                        {
+                            Some(Expr::Value(ast::Value::Number(n, _))) => Some(n.parse::<u32>()?),
+                            _ => None,
+                        };
+
                         let snapshot_num_tables_in_parallel: Option<u32> = match raw_options
                             .remove("snapshot_num_tables_in_parallel")
                         {
@@ -278,7 +285,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
 
                         let cdc_staging_path = match raw_options.remove("cdc_staging_path") {
                             Some(Expr::Value(ast::Value::SingleQuotedString(s))) => Some(s.clone()),
-                            _ => Some("".to_string()),
+                            _ => None,
                         };
 
                         let max_batch_size: Option<u32> = match raw_options.remove("max_batch_size")
@@ -335,6 +342,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             do_initial_copy,
                             publication_name,
                             snapshot_num_rows_per_partition,
+                            snapshot_num_partitions_override,
                             snapshot_max_parallel_workers,
                             snapshot_num_tables_in_parallel,
                             snapshot_staging_path,
@@ -385,7 +393,7 @@ impl StatementAnalyzer for PeerDDLAnalyzer {
                             target_peer: select.target_peer.to_string().to_lowercase(),
                             query_string: select.query_string.to_string(),
                             flow_options: processed_options,
-                            description: "".to_string(), // TODO: add description
+                            description: String::new(), // TODO: add description
                             disabled,
                         };
 
@@ -603,11 +611,6 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             Config::BigqueryConfig(bq_config)
         }
         DbType::Snowflake => {
-            let s3_int = opts
-                .get("s3_integration")
-                .map(|s| s.to_string())
-                .unwrap_or_default();
-
             let snowflake_config = SnowflakeConfig {
                 account_id: opts
                     .get("account_id")
@@ -637,12 +640,16 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .context("unable to parse query_timeout")?,
                 password: opts.get("password").map(|s| s.to_string()),
                 metadata_schema: opts.get("metadata_schema").map(|s| s.to_string()),
-                s3_integration: s3_int,
+                s3_integration: opts
+                    .get("s3_integration")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
             };
             Config::SnowflakeConfig(snowflake_config)
         }
         DbType::Mongo => {
             let mongo_config = MongoConfig {
+                uri: opts.get("uri").context("no uri specified")?.to_string(),
                 username: opts
                     .get("username")
                     .context("no username specified")?
@@ -651,19 +658,21 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("password")
                     .context("no password specified")?
                     .to_string(),
-                clusterurl: opts
-                    .get("clusterurl")
-                    .context("no clusterurl specified")?
-                    .to_string(),
-                database: opts
-                    .get("database")
-                    .context("no default database specified")?
-                    .to_string(),
-                clusterport: opts
-                    .get("clusterport")
-                    .context("no cluster port specified")?
+                disable_tls: opts
+                    .get("disable_tls")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                tls_host: opts
+                    .get("tls_host")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                read_preference: opts
+                    .get("read_preference")
+                    .context("no read preference specified")?
                     .parse::<i32>()
-                    .context("unable to parse port as valid int")?,
+                    .context("unable to parse read preference as valid int")?,
+                ssh_config: None,
             };
             Config::MongoConfig(mongo_config)
         }
@@ -728,6 +737,16 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                 region: opts.get("region").map(|s| s.to_string()),
                 role_arn: opts.get("role_arn").map(|s| s.to_string()),
                 endpoint: opts.get("endpoint").map(|s| s.to_string()),
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
+                tls_host: opts
+                    .get("tls_host")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                codec: opts
+                    .get("codec")
+                    .and_then(|s| pt::peerdb_peers::AvroCodec::from_str_name(s))
+                    .map(|codec| codec.into())
+                    .unwrap_or_default(),
             };
             Config::S3Config(s3_config)
         }
@@ -800,6 +819,15 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("tls_host")
                     .map(|s| s.to_string())
                     .unwrap_or_default(),
+                cluster: opts
+                    .get("cluster")
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+                replicated: opts
+                    .get("replicated")
+                    .map(|s| s.parse::<bool>().unwrap_or_default())
+                    .unwrap_or_default(),
+                s3: None,
             };
             Config::ClickhouseConfig(clickhouse_config)
         }
@@ -831,6 +859,9 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
                     .get("disable_tls")
                     .and_then(|s| s.parse::<bool>().ok())
                     .unwrap_or_default(),
+                certificate: opts.get("certificate").map(|s| s.to_string()),
+                private_key: opts.get("private_key").map(|s| s.to_string()),
+                root_ca: opts.get("root_ca").map(|s| s.to_string()),
             };
             Config::KafkaConfig(kafka_config)
         }
@@ -1023,5 +1054,6 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             .into(),
             aws_auth: None,
         }),
+        DbType::DbtypeUnknown => return Ok(None),
     }))
 }

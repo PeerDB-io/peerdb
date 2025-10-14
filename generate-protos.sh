@@ -10,3 +10,6 @@ then
 fi
 
 buf generate protos
+
+# Generate typed gRPC handler wrapper
+cd flow && go generate

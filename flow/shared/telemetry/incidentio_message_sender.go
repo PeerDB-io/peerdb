@@ -146,8 +146,7 @@ func (i *IncidentIoMessageSender) SendMessage(
 	}
 
 	var incidentResponse IncidentIoResponse
-	err = json.Unmarshal(respBody, &incidentResponse)
-	if err != nil {
+	if err := json.Unmarshal(respBody, &incidentResponse); err != nil {
 		return "", fmt.Errorf("deserializing incident.io failed: %w", err)
 	}
 

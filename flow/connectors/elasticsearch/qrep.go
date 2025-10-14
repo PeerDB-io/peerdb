@@ -16,8 +16,8 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
-	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
 func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,
@@ -26,7 +26,7 @@ func (esc *ElasticsearchConnector) SetupQRepMetadataTables(ctx context.Context,
 	return nil
 }
 
-func upsertKeyColsHash(qRecord []qvalue.QValue, upsertColIndices []int) string {
+func upsertKeyColsHash(qRecord []types.QValue, upsertColIndices []int) string {
 	hasher := sha256.New()
 
 	for _, upsertColIndex := range upsertColIndices {
@@ -39,12 +39,12 @@ func upsertKeyColsHash(qRecord []qvalue.QValue, upsertColIndices []int) string {
 
 func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *protos.QRepConfig,
 	partition *protos.QRepPartition, stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	startTime := time.Now()
 
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 
 	var bulkIndexFatalError error
@@ -77,13 +77,13 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		FlushInterval: 10 * time.Second,
 	})
 	if err != nil {
-		esc.logger.Error("[es] failed to initialize bulk indexer", slog.Any("error", err))
-		return 0, fmt.Errorf("[es] failed to initialize bulk indexer: %w", err)
+		esc.logger.Error("[elasticsearch] failed to initialize bulk indexer", slog.Any("error", err))
+		return 0, nil, fmt.Errorf("[elasticsearch] failed to initialize bulk indexer: %w", err)
 	}
 	defer func() {
 		if !bulkIndexerHasShutdown {
 			if err := esBulkIndexer.Close(context.Background()); err != nil {
-				esc.logger.Error("[es] failed to close bulk indexer", slog.Any("error", err))
+				esc.logger.Error("[elasticsearch] failed to close bulk indexer", slog.Any("error", err))
 			}
 		}
 	}()
@@ -100,7 +100,7 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 			docId = upsertKeyColsHash(qRecord, upsertKeyColIndices)
 		}
 		for i, field := range schema.Fields {
-			if r, ok := qRecord[i].(qvalue.QValueJSON); ok { // JSON is stored as a string, fix that
+			if r, ok := qRecord[i].(types.QValueJSON); ok { // JSON is stored as a string, fix that
 				qRecordJsonMap[field.Name] = json.RawMessage(
 					shared.UnsafeFastStringToReadOnlyBytes(r.Val))
 			} else {
@@ -109,11 +109,11 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 		}
 		qRecordJsonBytes, err := json.Marshal(qRecordJsonMap)
 		if err != nil {
-			esc.logger.Error("[es] failed to json.Marshal record", slog.Any("error", err))
-			return 0, fmt.Errorf("[es] failed to json.Marshal record: %w", err)
+			esc.logger.Error("[elasticsearch] failed to json.Marshal record", slog.Any("error", err))
+			return 0, nil, fmt.Errorf("[elasticsearch] failed to json.Marshal record: %w", err)
 		}
 
-		err = esBulkIndexer.Add(ctx, esutil.BulkIndexerItem{
+		if err := esBulkIndexer.Add(ctx, esutil.BulkIndexerItem{
 			Action:     actionIndex,
 			DocumentID: docId,
 			Body:       bytes.NewReader(qRecordJsonBytes),
@@ -139,14 +139,13 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 					}
 				}
 			},
-		})
-		if err != nil {
-			esc.logger.Error("[es] failed to add record to bulk indexer", slog.Any("error", err))
-			return 0, fmt.Errorf("[es] failed to add record to bulk indexer: %w", err)
+		}); err != nil {
+			esc.logger.Error("[elasticsearch] failed to add record to bulk indexer", slog.Any("error", err))
+			return 0, nil, fmt.Errorf("[elasticsearch] failed to add record to bulk indexer: %w", err)
 		}
 		if bulkIndexFatalError != nil {
-			esc.logger.Error("[es] fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
-			return 0, fmt.Errorf("[es] fatal error while indexing record: %w", bulkIndexFatalError)
+			esc.logger.Error("[elasticsearch] fatal error while indexing record", slog.Any("error", bulkIndexFatalError))
+			return 0, nil, fmt.Errorf("[elasticsearch] fatal error while indexing record: %w", bulkIndexFatalError)
 		}
 
 		// update here instead of OnSuccess, if we close successfully it should match
@@ -154,23 +153,23 @@ func (esc *ElasticsearchConnector) SyncQRepRecords(ctx context.Context, config *
 	}
 
 	if err := stream.Err(); err != nil {
-		esc.logger.Error("[es] failed to get record from stream", slog.Any("error", err))
-		return 0, fmt.Errorf("[es] failed to get record from stream: %w", err)
+		esc.logger.Error("[elasticsearch] failed to get record from stream", slog.Any("error", err))
+		return 0, nil, fmt.Errorf("[elasticsearch] failed to get record from stream: %w", err)
 	}
 	if err := esBulkIndexer.Close(ctx); err != nil {
-		esc.logger.Error("[es] failed to close bulk indexer", slog.Any("error", err))
-		return 0, fmt.Errorf("[es] failed to close bulk indexer: %w", err)
+		esc.logger.Error("[elasticsearch] failed to close bulk indexer", slog.Any("error", err))
+		return 0, nil, fmt.Errorf("[elasticsearch] failed to close bulk indexer: %w", err)
 	}
 	bulkIndexerHasShutdown = true
 	if len(bulkIndexErrors) > 0 {
 		for _, err := range bulkIndexErrors {
-			esc.logger.Error("[es] failed to index record", slog.Any("err", err))
+			esc.logger.Error("[elasticsearch] failed to index record", slog.Any("err", err))
 		}
 	}
 
 	if err := esc.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-		esc.logger.Error("[es] failed to log partition info", slog.Any("error", err))
-		return 0, fmt.Errorf("[es] failed to log partition info: %w", err)
+		esc.logger.Error("[elasticsearch] failed to log partition info", slog.Any("error", err))
+		return 0, nil, fmt.Errorf("[elasticsearch] failed to log partition info: %w", err)
 	}
-	return numRecords, nil
+	return numRecords, nil, nil
 }

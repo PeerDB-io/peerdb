@@ -3,7 +3,6 @@ import { PeerSetter } from '@/app/dto/PeersDTO';
 import { PeerSetting } from '@/app/peers/create/[peerType]/helpers/common';
 import {
   blankSSHConfig,
-  SSHSetting,
   sshSetting,
 } from '@/app/peers/create/[peerType]/helpers/ssh';
 import SelectTheme from '@/app/styles/select';
@@ -22,78 +21,22 @@ import { Tooltip } from '@/lib/Tooltip';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import ReactSelect from 'react-select';
+import { handleFieldChange, handleSSHParam } from './common';
 
 interface PostgresProps {
   settings: PeerSetting[];
   setter: PeerSetter;
   config: PostgresConfig;
-  type: string;
 }
 
 export default function PostgresForm({
   settings,
   config,
   setter,
-  type,
 }: PostgresProps) {
   const searchParams = useSearchParams();
   const [showSSH, setShowSSH] = useState(false);
   const [sshConfig, setSSHConfig] = useState(blankSSHConfig);
-
-  const handleCa = (
-    file: File,
-    setFile: (value: string, setter: PeerSetter) => void
-  ) => {
-    if (file) {
-      const reader = new FileReader();
-      reader.readAsText(file);
-      reader.onload = () => {
-        setFile(reader.result as string, setter);
-      };
-      reader.onerror = (error) => {
-        console.log(error);
-      };
-    }
-  };
-
-  const handleTextFieldChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    setting: PeerSetting
-  ) => {
-    if (setting.type === 'file') {
-      if (e.target.files) handleCa(e.target.files[0], setting.stateHandler);
-    } else {
-      setting.stateHandler(e.target.value, setter);
-    }
-  };
-
-  const handleSSHParam = (
-    e: React.ChangeEvent<HTMLInputElement>,
-    setting: SSHSetting
-  ) => {
-    if (setting.type === 'file') {
-      if (e.target.files) {
-        const file = e.target.files[0];
-        if (file) {
-          const reader = new FileReader();
-          reader.readAsText(file);
-          reader.onload = () => {
-            const fileContents = reader.result as string;
-            const base64EncodedContents = Buffer.from(
-              fileContents,
-              'utf-8'
-            ).toString('base64');
-            setting.stateHandler(base64EncodedContents, setSSHConfig);
-          };
-          reader.onerror = (error) => {
-            console.log(error);
-          };
-        }
-      }
-    } else {
-      setting.stateHandler(e.target.value, setSSHConfig);
-    }
-  };
 
   useEffect(() => {
     const host = searchParams?.get('host');
@@ -121,7 +64,7 @@ export default function PostgresForm({
                 {!setting.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -190,7 +133,7 @@ export default function PostgresForm({
                     {!setting.optional && (
                       <Tooltip
                         style={{ width: '100%' }}
-                        content={'This is a required field.'}
+                        content='This is a required field.'
                       >
                         <Label colorName='lowContrast' colorSet='destructive'>
                           *
@@ -217,7 +160,7 @@ export default function PostgresForm({
                       type={setting.type}
                       defaultValue={setting.default}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        handleTextFieldChange(e, setting)
+                        handleFieldChange(e, setting, setter)
                       }
                     />
                     {setting.tips && (
@@ -259,7 +202,7 @@ export default function PostgresForm({
                 {!sshParam.optional && (
                   <Tooltip
                     style={{ width: '100%' }}
-                    content={'This is a required field.'}
+                    content='This is a required field.'
                   >
                     <Label colorName='lowContrast' colorSet='destructive'>
                       *
@@ -276,26 +219,34 @@ export default function PostgresForm({
                   alignItems: 'center',
                 }}
               >
-                <TextField
-                  variant={'simple'}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    handleSSHParam(e, sshParam)
-                  }
-                  style={{
-                    border: sshParam.type === 'file' ? 'none' : 'auto',
-                    height: sshParam.type === 'textarea' ? '15rem' : 'auto',
-                  }}
-                  type={sshParam.type}
-                  defaultValue={
-                    (sshConfig as SSHConfig)[
-                      sshParam.label === 'SSH Private Key'
-                        ? 'privateKey'
-                        : sshParam.label === "Host's Public Key"
+                {sshParam.label === 'SSH Private Key' ? (
+                  <TextField
+                    variant='simple'
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      handleSSHParam(e, sshParam, setSSHConfig)
+                    }
+                    style={{ border: 'none' }}
+                    type={sshParam.type}
+                  />
+                ) : (
+                  <TextField
+                    variant='simple'
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      handleSSHParam(e, sshParam, setSSHConfig)
+                    }
+                    style={{
+                      height: sshParam.type === 'textarea' ? '15rem' : 'auto',
+                    }}
+                    type={sshParam.type}
+                    value={
+                      (sshConfig as SSHConfig)[
+                        sshParam.label === "Host's Public Key"
                           ? 'hostKey'
                           : (sshParam.label.toLowerCase() as keyof SSHConfig)
-                    ] || ''
-                  }
-                />
+                      ] ?? ''
+                    }
+                  />
+                )}
                 {sshParam.tips && <InfoPopover tips={sshParam.tips} />}
               </div>
             }

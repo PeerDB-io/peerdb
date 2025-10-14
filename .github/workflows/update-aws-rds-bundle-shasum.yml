@@ -1,0 +1,52 @@
+name: Update RDS Certificate Bundle shasum
+
+on:
+  schedule:
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+    inputs: {}
+    
+permissions:
+  issues: write
+  pull-requests: write
+  contents: write
+
+
+env:
+  PR_BRANCH: automated/aws-rds-bundle-shasum-update
+  PR_LABEL: dependencies
+  PR_TITLE: "feat: update `aws-rds-bundle-shasum` in Dockerfile"
+
+jobs:
+  update-docker-compose-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
+        with:
+          ref: main
+      - name: create-PR-if-needed
+        shell: bash
+        run: |
+          set -eou pipefail
+          latest_sha="$(curl -v -fsS "https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem" | sha256sum | cut -d' ' -f1)"
+          sed -i -E 's|(ADD --checksum=sha256:)(\w+)( https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem /usr/local/share/ca-certificates/global-aws-rds-bundle.pem)|\1'"${latest_sha}"'\3|g' stacks/flow.Dockerfile
+          git config --global user.name "${GITHUB_ACTOR}"
+          git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+          git checkout -b "${PR_BRANCH}"
+          git fetch || true
+          git diff --exit-code && exit 0
+          git add -u
+
+          git commit -m 'chore(automated): update `aws-rds-bundle-shasum` in Dockerfile'
+          
+          git push -u origin "${PR_BRANCH}" --force-with-lease
+
+          PR_ID=$(gh pr list --label "${PR_LABEL}" --head "${PR_BRANCH}" --json number | jq -r '.[0].number // ""')
+          if [ "$PR_ID" == "" ]; then
+            PR_ID=$(gh pr create -l "$PR_LABEL" -t "$PR_TITLE" --body "")
+          fi
+
+          
+          gh pr merge --auto --squash
+        env:
+          GH_TOKEN: ${{ github.token }}

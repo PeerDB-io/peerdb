@@ -1,10 +1,7 @@
 'use client';
 import SelectTheme from '@/app/styles/select';
-import {
-  formatGraphLabel,
-  TimeAggregateTypes,
-  timeOptions,
-} from '@/app/utils/graph';
+import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
+import { TimeAggregateType } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { BarChart } from '@tremor/react';
 import { useEffect, useState } from 'react';
@@ -13,8 +10,8 @@ import ReactSelect from 'react-select';
 type CdcGraphProps = { mirrorName: string };
 
 export default function CdcGraph({ mirrorName }: CdcGraphProps) {
-  const [aggregateType, setAggregateType] = useState<TimeAggregateTypes>(
-    TimeAggregateTypes.HOUR
+  const [aggregateType, setAggregateType] = useState<TimeAggregateType>(
+    TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
   const [graphValues, setGraphValues] = useState<
     { name: string; 'Rows synced at a point in time': number }[]
@@ -48,7 +45,7 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
     <div>
       <div className='float-right'>
         <ReactSelect
-          id={aggregateType}
+          id={aggregateType.toString()}
           placeholder='Select a timeframe'
           options={timeOptions}
           defaultValue={timeOptions.at(3)}

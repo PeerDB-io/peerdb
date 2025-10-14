@@ -5,7 +5,7 @@ import (
 	"slices"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
-	"github.com/PeerDB-io/peerdb/flow/shared/mysql"
+	"github.com/PeerDB-io/peerdb/flow/pkg/mysql"
 )
 
 func (c *MySqlConnector) GetAllTables(ctx context.Context) (*protos.AllTablesResponse, error) {
@@ -73,7 +73,7 @@ func (c *MySqlConnector) GetTablesInSchema(
 	return &protos.SchemaTablesResponse{Tables: tables}, nil
 }
 
-func (c *MySqlConnector) GetColumns(ctx context.Context, schema string, table string) (*protos.TableColumnsResponse, error) {
+func (c *MySqlConnector) GetColumns(ctx context.Context, version uint32, schema string, table string) (*protos.TableColumnsResponse, error) {
 	rs, err := c.Execute(ctx, `select column_name, column_type, column_key
 		from information_schema.columns where table_schema = ? and table_name = ? order by column_name`,
 		schema, table)
@@ -95,10 +95,15 @@ func (c *MySqlConnector) GetColumns(ctx context.Context, schema string, table st
 		if err != nil {
 			return nil, err
 		}
+		qkind, err := QkindFromMysqlColumnType(columnType)
+		if err != nil {
+			return nil, err
+		}
 		columns = append(columns, &protos.ColumnsItem{
 			Name:  columnName,
 			Type:  columnType,
 			IsKey: columnKey == "PRI",
+			Qkind: string(qkind),
 		})
 	}
 	return &protos.TableColumnsResponse{Columns: columns}, nil

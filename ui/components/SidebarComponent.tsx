@@ -3,7 +3,9 @@
 import { fetcher } from '@/app/utils/swr';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import Logout from '@/components/Logout';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import {
+  GetDynamicSettingsResponse,
   InstanceInfoResponse,
   InstanceStatus,
   PeerDBVersionResponse,
@@ -55,10 +57,30 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
     isLoading: boolean;
   } = useSWR('/api/v1/instance/info', fetcher);
 
+  const {
+    data: dynamicSettings,
+    error: dynamicSettingsError,
+    isLoading: isDynamicSettingsLoading,
+  }: {
+    data: GetDynamicSettingsResponse;
+    error: any;
+    isLoading: boolean;
+  } = useSWR('/api/v1/dynamic_settings', fetcher);
+
   const [sidebarState, setSidebarState] = useLocalStorage(
     'peerdb-sidebar',
     'open'
   );
+
+  const isMaintenanceTabEnabled = (): boolean => {
+    if (isDynamicSettingsLoading || dynamicSettingsError || !dynamicSettings) {
+      return false;
+    }
+    const maintenanceSetting = dynamicSettings.settings?.find(
+      (setting) => setting.name === 'PEERDB_UI_MAINTENANCE_TAB_ENABLED'
+    );
+    return maintenanceSetting?.value === 'true';
+  };
 
   function getInstanceInfoDisplay(): instanceInfoDisplay {
     if (isInstanceInfoLoading) {
@@ -117,6 +139,9 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
       bottomRow={
         sidebarState === 'open' ? (
           <>
+            <div style={centerFlexStyle}>
+              <ThemeToggle />
+            </div>
             <div style={centerFlexStyle}>
               <RowWithSelect
                 label={<Label>Timezone:</Label>}
@@ -205,6 +230,15 @@ export default function SidebarComponent(props: { showLogout: boolean }) {
       >
         {sidebarState === 'open' && 'Logs'}
       </SidebarItem>
+      {isMaintenanceTabEnabled() && (
+        <SidebarItem
+          as={Link}
+          href={'/maintenance'}
+          leadingIcon={<Icon name='build' />}
+        >
+          {sidebarState === 'open' && 'Maintenance'}
+        </SidebarItem>
+      )}
       <SidebarItem
         as={Link}
         href={'/settings'}

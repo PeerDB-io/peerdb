@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"go.temporal.io/sdk/log"
 
@@ -22,6 +21,7 @@ type S3Connector struct {
 	credentialsProvider utils.AWSCredentialsProvider
 	client              s3.Client
 	url                 string
+	codec               protos.AvroCodec
 }
 
 func NewS3Connector(
@@ -30,15 +30,7 @@ func NewS3Connector(
 ) (*S3Connector, error) {
 	logger := internal.LoggerFromCtx(ctx)
 
-	provider, err := utils.GetAWSCredentialsProvider(ctx, "s3", utils.PeerAWSCredentials{
-		Credentials: aws.Credentials{
-			AccessKeyID:     config.GetAccessKeyId(),
-			SecretAccessKey: config.GetSecretAccessKey(),
-		},
-		RoleArn:     config.RoleArn,
-		EndpointUrl: config.Endpoint,
-		Region:      config.GetRegion(),
-	})
+	provider, err := utils.GetAWSCredentialsProvider(ctx, "s3", utils.NewPeerAWSCredentials(config))
 	if err != nil {
 		return nil, err
 	}
@@ -53,11 +45,12 @@ func NewS3Connector(
 		return nil, err
 	}
 	return &S3Connector{
-		url:                 config.Url,
 		PostgresMetadata:    pgMetadata,
 		client:              *s3Client,
 		credentialsProvider: provider,
 		logger:              logger,
+		url:                 config.Url,
+		codec:               config.Codec,
 	}, nil
 }
 
@@ -85,8 +78,10 @@ func (c *S3Connector) ConnectionActive(ctx context.Context) error {
 
 func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsRequest[model.RecordItems]) (*model.SyncResponse, error) {
 	tableNameRowsMapping := utils.InitialiseTableRowsMap(req.TableMappings)
-	streamReq := model.NewRecordsToStreamRequest(req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID)
-	recordStream, err := utils.RecordsToRawTableStream(streamReq)
+	streamReq := model.NewRecordsToStreamRequest(
+		req.Records.GetRecords(), tableNameRowsMapping, req.SyncBatchID, false, protos.DBType_S3,
+	)
+	recordStream, err := utils.RecordsToRawTableStream(streamReq, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
 	}
@@ -94,19 +89,19 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 		FlowJobName:                req.FlowJobName,
 		DestinationTableIdentifier: "raw_table_" + req.FlowJobName,
 		Env:                        req.Env,
+		Version:                    req.Version,
 	}
 	partition := &protos.QRepPartition{
 		PartitionId: strconv.FormatInt(req.SyncBatchID, 10),
 	}
-	numRecords, err := c.SyncQRepRecords(ctx, qrepConfig, partition, recordStream)
+	numRecords, _, err := c.SyncQRepRecords(ctx, qrepConfig, partition, recordStream)
 	if err != nil {
 		return nil, err
 	}
 	c.logger.Info(fmt.Sprintf("Synced %d records", numRecords))
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
-	err = c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint)
-	if err != nil {
+	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
 		c.logger.Error("failed to increment id", "error", err)
 		return nil, err
 	}
@@ -114,14 +109,14 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 	return &model.SyncResponse{
 		LastSyncedCheckpoint: lastCheckpoint,
 		NumRecordsSynced:     numRecords,
+		CurrentSyncBatchID:   req.SyncBatchID,
 		TableNameRowsMapping: tableNameRowsMapping,
 		TableSchemaDeltas:    req.Records.SchemaDeltas,
 	}, nil
 }
 
 func (c *S3Connector) ReplayTableSchemaDeltas(_ context.Context, _ map[string]string,
-	flowJobName string, schemaDeltas []*protos.TableSchemaDelta,
+	flowJobName string, _ []*protos.TableMapping, schemaDeltas []*protos.TableSchemaDelta,
 ) error {
-	c.logger.Info("ReplayTableSchemaDeltas for S3 is a no-op")
 	return nil
 }

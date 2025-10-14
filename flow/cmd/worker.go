@@ -2,15 +2,9 @@ package cmd
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
-	"log"
 	"log/slog"
-	"net/http"
-	//nolint:gosec
-	_ "net/http/pprof"
 	"os"
-	"runtime"
 	"time"
 
 	"go.temporal.io/sdk/client"
@@ -32,10 +26,8 @@ type WorkerSetupOptions struct {
 	TemporalNamespace                  string
 	TemporalMaxConcurrentActivities    int
 	TemporalMaxConcurrentWorkflowTasks int
-	EnableProfiling                    bool
 	EnableOtelMetrics                  bool
 	UseMaintenanceTaskQueue            bool
-	PprofPort                          int // Port for pprof HTTP server
 }
 
 type WorkerSetupResponse struct {
@@ -45,40 +37,17 @@ type WorkerSetupResponse struct {
 }
 
 func (w *WorkerSetupResponse) Close(ctx context.Context) {
-	slog.Info("Shutting down worker")
+	slog.InfoContext(ctx, "Shutting down worker")
 	w.Client.Close()
 	if err := w.OtelManager.Close(ctx); err != nil {
-		slog.Error("Failed to shutdown metrics provider", slog.Any("error", err))
+		slog.ErrorContext(ctx, "Failed to shutdown metrics provider", slog.Any("error", err))
 	}
 }
 
-func setupPprof(opts *WorkerSetupOptions) {
-	// Set default pprof port if not specified
-	pprofPort := opts.PprofPort
-
-	// Enable mutex and block profiling
-	runtime.SetMutexProfileFraction(5)
-	runtime.SetBlockProfileRate(5)
-
-	// Start HTTP server with pprof endpoints
-	go func() {
-		pprofAddr := fmt.Sprintf(":%d", pprofPort)
-		slog.Info("Starting pprof HTTP server on " + pprofAddr)
-		server := &http.Server{
-			Addr:         pprofAddr,
-			ReadTimeout:  1 * time.Minute,
-			WriteTimeout: 11 * time.Minute,
-		}
-
-		if err := server.ListenAndServe(); err != nil {
-			log.Fatalf("Failed to start pprof HTTP server: %v", err)
-		}
-	}()
-}
-
 func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupResponse, error) {
-	if opts.EnableProfiling {
-		setupPprof(opts)
+	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
 	}
 
 	clientOptions := client.Options{
@@ -100,49 +69,30 @@ func WorkerSetup(ctx context.Context, opts *WorkerSetupOptions) (*WorkerSetupRes
 		Meter: metricsProvider.Meter("temporal-sdk-go"),
 	})
 
-	if internal.PeerDBTemporalEnableCertAuth() {
-		slog.Info("Using temporal certificate/key for authentication")
-		certs, err := parseTemporalCertAndKey(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to process certificate and key: %w", err)
-		}
-		clientOptions.ConnectionOptions = client.ConnectionOptions{
-			TLS: &tls.Config{
-				Certificates: certs,
-				MinVersion:   tls.VersionTLS13,
-			},
-		}
-	}
-
-	conn, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create catalog connection pool: %w", err)
-	}
-
-	c, err := client.Dial(clientOptions)
+	c, err := setupTemporalClient(ctx, clientOptions)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create Temporal client: %w", err)
 	}
-	slog.Info("Created temporal client")
+	slog.InfoContext(ctx, "Created temporal client")
 	queueId := shared.PeerFlowTaskQueue
 	if opts.UseMaintenanceTaskQueue {
 		queueId = shared.MaintenanceFlowTaskQueue
 	}
 	taskQueue := internal.PeerFlowTaskQueueName(queueId)
-	slog.Info(
-		fmt.Sprintf("Creating temporal worker for queue %v: %v workflow workers %v activity workers",
-			taskQueue,
-			opts.TemporalMaxConcurrentWorkflowTasks,
-			opts.TemporalMaxConcurrentActivities,
-		),
+	slog.InfoContext(ctx,
+		"Creating temporal worker",
+		slog.String("taskQueue", taskQueue),
+		slog.Int("workflowConcurrency", opts.TemporalMaxConcurrentWorkflowTasks),
+		slog.Int("activityConcurrency", opts.TemporalMaxConcurrentActivities),
 	)
 	w := worker.New(c, taskQueue, worker.Options{
 		EnableSessionWorker:                    true,
 		MaxConcurrentActivityExecutionSize:     opts.TemporalMaxConcurrentActivities,
 		MaxConcurrentWorkflowTaskExecutionSize: opts.TemporalMaxConcurrentWorkflowTasks,
 		OnFatalError: func(err error) {
-			slog.Error("Peerflow Worker failed", slog.Any("error", err))
+			slog.ErrorContext(ctx, "Peerflow Worker failed", slog.Any("error", err))
 		},
+		MaxHeartbeatThrottleInterval: 10 * time.Second,
 	})
 	peerflow.RegisterFlowWorkerWorkflows(w)
 

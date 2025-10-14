@@ -104,7 +104,7 @@ export default function EventhubsConfig({
                   {!setting.optional && (
                     <Tooltip
                       style={{ width: '100%' }}
-                      content={'This is a required field.'}
+                      content='This is a required field.'
                     >
                       <Label colorName='lowContrast' colorSet='destructive'>
                         *

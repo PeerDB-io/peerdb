@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/snowflakedb/gosnowflake"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -29,7 +30,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	ctx = c.withMirrorNameQueryTag(ctx, config.FlowJobName)
 
 	// Ensure the destination table is available.
@@ -40,7 +41,7 @@ func (c *SnowflakeConnector) SyncQRepRecords(
 	)
 	tblSchema, err := c.getTableSchema(ctx, destTable)
 	if err != nil {
-		return 0, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
+		return 0, nil, fmt.Errorf("failed to get schema of table %s: %w", destTable, err)
 	}
 	c.logger.Info("Called QRep sync function and obtained table schema", flowLog)
 
@@ -75,8 +76,7 @@ func (c *SnowflakeConnector) SetupQRepMetadataTables(ctx context.Context, config
 	if schemaExists, err := c.checkIfRawSchemaExists(ctx); err != nil {
 		return fmt.Errorf("error while checking if schema %s for raw table exists: %w", c.rawSchema, err)
 	} else if !schemaExists {
-		_, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema))
-		if err != nil {
+		if _, err := c.execWithLogging(ctx, fmt.Sprintf(createSchemaSQL, c.rawSchema)); err != nil {
 			return err
 		}
 	}
@@ -104,21 +104,16 @@ func (c *SnowflakeConnector) createStage(ctx context.Context, stageName string, 
 		}
 		createStageStmt = stmt
 	} else {
-		stageStatement := `
-			CREATE OR REPLACE STAGE %s
-			FILE_FORMAT = (TYPE = AVRO);
-			`
-		createStageStmt = fmt.Sprintf(stageStatement, stageName)
+		createStageStmt = fmt.Sprintf(`CREATE OR REPLACE STAGE %s FILE_FORMAT = (TYPE = AVRO)`, stageName)
 	}
 
 	// Execute the query
-	_, err := c.execWithLogging(ctx, createStageStmt)
-	if err != nil {
-		c.logger.Error("failed to create stage "+stageName, slog.Any("error", err))
+	if _, err := c.execWithLogging(ctx, createStageStmt); err != nil {
+		c.logger.Error("failed to create stage", slog.String("stage", stageName), slog.Any("error", err))
 		return fmt.Errorf("failed to create stage %s: %w", stageName, err)
 	}
 
-	c.logger.Info("Created stage " + stageName)
+	c.logger.Info("Created stage", slog.String("stage", stageName))
 	return nil
 }
 
@@ -131,7 +126,6 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 
 	cleanURL := fmt.Sprintf("s3://%s/%s/%s", s3o.Bucket, s3o.Prefix, config.FlowJobName)
 
-	s3Int := c.config.S3Integration
 	provider, err := utils.GetAWSCredentialsProvider(ctx, "snowflake", utils.PeerAWSCredentials{})
 	if err != nil {
 		return "", err
@@ -141,7 +135,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 	if err != nil {
 		return "", err
 	}
-	if s3Int == "" {
+	if c.config.S3Integration == "" {
 		credsStr := fmt.Sprintf("CREDENTIALS=(AWS_KEY_ID='%s' AWS_SECRET_KEY='%s' AWS_TOKEN='%s')",
 			creds.AWS.AccessKeyID, creds.AWS.SecretAccessKey, creds.AWS.SessionToken)
 		stageStatement := `
@@ -156,7 +150,7 @@ func (c *SnowflakeConnector) createExternalStage(ctx context.Context, stageName 
 		URL = '%s'
 		STORAGE_INTEGRATION = %s
 		FILE_FORMAT = (TYPE = AVRO);`
-		return fmt.Sprintf(stageStatement, stageName, cleanURL, s3Int), nil
+		return fmt.Sprintf(stageStatement, stageName, cleanURL, c.config.S3Integration), nil
 	}
 }
 
@@ -189,14 +183,22 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
-	rows, err := c.QueryContext(
-		ctx,
-		getTableSchemaSQL,
-		strings.ToUpper(schemaTable.Schema),
-		strings.ToUpper(schemaTable.Table),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+	fq := fmt.Sprintf("%s.%s", strings.ToUpper(schemaTable.Schema), strings.ToUpper(schemaTable.Table))
+
+	channel := make(chan string, 1)
+	ctxWithOpt := gosnowflake.WithQueryIDChan(ctx, channel)
+	rows, err := c.QueryContext(ctxWithOpt, getTableColumnListSQL, fq)
+	if err != nil || rows.Err() != nil {
+		return nil, fmt.Errorf("failed to run getTableColumnList query: %w", err)
+	}
+	defer rows.Close()
+
+	qid := <-channel
+
+	rows, err = c.QueryContext(ctx, getTableSchemaSQL, qid)
+
+	if err != nil || rows.Err() != nil {
+		return nil, fmt.Errorf("failed to run getTableSchema query: %w", err)
 	}
 	defer rows.Close()
 
@@ -207,11 +209,23 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		if err := rows.Scan(&colName, &colType, &numericPrecision, &numericScale); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
+		parsedColType := colType.String
+		if colType.String == "FIXED" {
+			parsedColType = "NUMBER"
+		}
+		// Only use precision/scale for numeric types. For other types like TIME/TIMESTAMP,
+		// the precision field in SHOW COLUMNS refers to fractional seconds, not numeric precision.
+		precision := numericPrecision.Int32
+		scale := numericScale.Int32
+		if parsedColType != "NUMBER" {
+			precision = 0
+			scale = 0
+		}
 		cols = append(cols, SnowflakeTableColumn{
 			ColumnName:       colName.String,
-			ColumnType:       colType.String,
-			NumericPrecision: numericPrecision.Int32,
-			NumericScale:     numericScale.Int32,
+			ColumnType:       parsedColType,
+			NumericPrecision: precision,
+			NumericScale:     scale,
 		})
 	}
 
@@ -231,8 +245,7 @@ func (c *SnowflakeConnector) dropStage(ctx context.Context, stagingPath string, 
 	stageName := c.getStageNameForJob(job)
 	stmt := "DROP STAGE IF EXISTS " + stageName
 
-	_, err := c.ExecContext(ctx, stmt)
-	if err != nil {
+	if _, err := c.ExecContext(ctx, stmt); err != nil {
 		return fmt.Errorf("failed to drop stage %s: %w", stageName, err)
 	}
 

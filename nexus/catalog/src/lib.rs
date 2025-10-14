@@ -34,7 +34,7 @@ pub struct Catalog {
 
 pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
     let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
-    let config = aws_config::defaults(BehaviorVersion::v2025_01_17())
+    let config = aws_config::defaults(BehaviorVersion::v2025_08_07())
         .region(region_provider)
         .load()
         .await;
@@ -164,14 +164,14 @@ impl Catalog {
             return Err(anyhow!("ciphertext too short"));
         }
 
-        let nonce = XNonce::from_slice(&payload[..NONCE_SIZE]);
+        let nonce = XNonce::try_from(&payload[..NONCE_SIZE])?;
         let ciphertext = &payload[NONCE_SIZE..];
 
         let cipher = XChaCha20Poly1305::new_from_slice(&key)
             .map_err(|e| anyhow!("Failed to create ChaCha20Poly1305 cipher: {}", e))?;
 
         cipher
-            .decrypt(nonce, ciphertext)
+            .decrypt(&nonce, ciphertext)
             .map_err(|e| anyhow!("Decryption failed: {}", e))
     }
 
@@ -190,24 +190,6 @@ impl Catalog {
             .await?
             .map(|row| row.get(0))
             .context("Failed to get peer id")
-    }
-
-    // get the database type for a given peer id
-    pub async fn get_peer_type_for_id(&self, peer_id: i32) -> anyhow::Result<DbType> {
-        let stmt = self
-            .pg
-            .prepare_typed(
-                "SELECT type FROM public.peers WHERE id = $1",
-                &[types::Type::INT4],
-            )
-            .await?;
-
-        self.pg
-            .query_opt(&stmt, &[&peer_id])
-            .await?
-            .map(|row| row.get::<usize, i32>(0))
-            .and_then(|r#type| DbType::try_from(r#type).ok()) // if row was inserted properly, this should never fail
-            .context("Failed to get peer type")
     }
 
     pub async fn get_peers(&self) -> anyhow::Result<HashMap<String, Peer>> {
@@ -270,51 +252,6 @@ impl Catalog {
             Ok(peer)
         } else {
             Err(anyhow::anyhow!("No peer with name {} found", peer_name))
-        }
-    }
-
-    pub async fn get_peer_name_by_id(&self, peer_id: i32) -> anyhow::Result<String> {
-        let stmt = self
-            .pg
-            .prepare_typed("SELECT name FROM public.peers WHERE id = $1", &[])
-            .await?;
-
-        let row = self.pg.query_opt(&stmt, &[&peer_id]).await?;
-        if let Some(row) = row {
-            let name: String = row.get(0);
-            Ok(name)
-        } else {
-            Err(anyhow::anyhow!("No peer with id {} found", peer_id))
-        }
-    }
-
-    pub async fn get_peer_by_id(&self, peer_id: i32) -> anyhow::Result<Peer> {
-        let stmt = self
-            .pg
-            .prepare_typed(
-                "SELECT name, type, options, enc_key_id FROM public.peers WHERE id = $1",
-                &[],
-            )
-            .await?;
-
-        let row = self.pg.query_opt(&stmt, &[&peer_id]).await?;
-        if let Some(row) = row {
-            let name: &str = row.get(0);
-            let peer_type: i32 = row.get(1);
-            let options: &[u8] = row.get(2);
-            let enc_key_id: &str = row.get(3);
-            let db_type = DbType::try_from(peer_type).ok();
-            let config = self.get_config(db_type, name, options, enc_key_id).await?;
-
-            let peer = Peer {
-                name: name.to_lowercase(),
-                r#type: peer_type,
-                config,
-            };
-
-            Ok(peer)
-        } else {
-            Err(anyhow::anyhow!("No peer with id {} found", peer_id))
         }
     }
 
@@ -398,6 +335,7 @@ impl Catalog {
                         pt::peerdb_peers::MySqlConfig::decode(&options[..]).with_context(err)?;
                     Config::MysqlConfig(mysql_config)
                 }
+                DbType::DbtypeUnknown => return Ok(None),
             })
         } else {
             None
@@ -451,15 +389,11 @@ impl Catalog {
             .pg
             .prepare_typed(
                 "INSERT INTO flows (name, source_peer, destination_peer, description,
-                     destination_table_identifier, query_string, flow_metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                     query_string, flow_metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)",
                 &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT,
-                 types::Type::TEXT, types::Type::TEXT, types::Type::JSONB],
+                 types::Type::TEXT, types::Type::JSONB],
             )
             .await?;
-
-        let Some(destination_table_name) = job.flow_options.get("destination_table_name") else {
-            return Err(anyhow!("destination_table_name not found in flow options"));
-        };
 
         let _rows = self
             .pg
@@ -470,7 +404,6 @@ impl Catalog {
                     &source_peer_id,
                     &destination_peer_id,
                     &job.description,
-                    &destination_table_name.as_str().unwrap(),
                     &job.query_string,
                     &serde_json::to_value(job.flow_options.clone())
                         .context("unable to serialize flow options")?,
@@ -512,20 +445,6 @@ impl Catalog {
         Ok(exists)
     }
 
-    pub async fn delete_flow_job_entry(&self, flow_job_name: &str) -> anyhow::Result<()> {
-        let rows = self
-            .pg
-            .execute(
-                "DELETE FROM public.flows WHERE name = $1",
-                &[&flow_job_name],
-            )
-            .await?;
-        if rows == 0 {
-            return Err(anyhow!("unable to delete flow job metadata"));
-        }
-        Ok(())
-    }
-
     pub async fn check_peer_entry(&self, peer_name: &str) -> anyhow::Result<i64> {
         let peer_check = self
             .pg
@@ -536,26 +455,6 @@ impl Catalog {
             .await?;
         let peer_count: i64 = peer_check.get(0);
         Ok(peer_count)
-    }
-
-    pub async fn get_qrep_config_proto(
-        &self,
-        flow_job_name: &str,
-    ) -> anyhow::Result<Option<pt::peerdb_flow::QRepConfig>> {
-        let row = self
-            .pg
-            .query_opt(
-                "SELECT config_proto FROM public.flows WHERE name = $1 AND query_string IS NOT NULL",
-                &[&flow_job_name],
-            )
-            .await?;
-
-        Ok(match row {
-            Some(row) => Some(pt::peerdb_flow::QRepConfig::decode(
-                row.get::<&str, &[u8]>("config_proto"),
-            )?),
-            None => None,
-        })
     }
 }
 

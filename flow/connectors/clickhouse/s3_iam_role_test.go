@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	avro "github.com/PeerDB-io/peerdb/flow/connectors/utils/avro"
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
@@ -56,9 +56,9 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	avroSync := NewClickHouseAvroSyncMethod(&protos.QRepConfig{
 		DestinationTableIdentifier: table.TableIdentifier,
 	}, conn)
-	require.NoError(t, avroSync.CopyStageToDestination(ctx, &avro.AvroFile{
+	require.NoError(t, avroSync.CopyStageToDestination(ctx, utils.AvroFile{
 		FilePath:        "test-iam-role-can-issue-select-from-s3/datafile.avro.zst",
-		StorageLocation: avro.AvroS3Storage,
+		StorageLocation: utils.AvroS3Storage,
 		NumRecords:      3,
 	}))
 
@@ -66,8 +66,7 @@ func TestIAMRoleCanIssueSelectFromS3(t *testing.T) {
 	require.NoError(t, err)
 	for query.Next() {
 		var count uint64
-		err = query.Scan(&count)
-		require.NoError(t, err)
+		require.NoError(t, query.Scan(&count))
 		require.Equal(t, uint64(3), count)
 	}
 }

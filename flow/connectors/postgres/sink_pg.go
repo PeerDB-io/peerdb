@@ -7,18 +7,20 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
+	"go.temporal.io/sdk/temporal"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/postgres/sanitize"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/concurrency"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type PgCopyShared struct {
-	schemaLatch chan struct{}
+	schemaLatch *concurrency.Latch[[]string]
 	err         error
-	schema      []string
-	schemaSet   bool
 }
 
 type PgCopyWriter struct {
@@ -33,17 +35,13 @@ type PgCopyReader struct {
 
 func NewPgCopyPipe() (PgCopyReader, PgCopyWriter) {
 	read, write := io.Pipe()
-	schema := PgCopyShared{schemaLatch: make(chan struct{})}
+	schema := PgCopyShared{schemaLatch: concurrency.NewLatch[[]string]()}
 	return PgCopyReader{PipeReader: read, schema: &schema},
 		PgCopyWriter{PipeWriter: write, schema: &schema}
 }
 
 func (p PgCopyWriter) SetSchema(schema []string) {
-	if !p.schema.schemaSet {
-		p.schema.schema = schema
-		close(p.schema.schemaLatch)
-		p.schema.schemaSet = true
-	}
+	p.schema.schemaLatch.Set(schema)
 }
 
 func (p PgCopyWriter) ExecuteQueryWithTx(
@@ -59,6 +57,10 @@ func (p PgCopyWriter) ExecuteQueryWithTx(
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(qe.snapshot)); err != nil {
 			qe.logger.Error("[pg_query_executor] failed to set snapshot",
 				slog.Any("error", err), slog.String("query", query))
+			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
+				return 0, 0, temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
+					exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(), err)
+			}
 			return 0, 0, fmt.Errorf("[pg_query_executor] failed to set snapshot: %w", err)
 		}
 	}
@@ -109,8 +111,7 @@ func (p PgCopyWriter) Close(err error) {
 }
 
 func (p PgCopyReader) GetColumnNames() ([]string, error) {
-	<-p.schema.schemaLatch
-	return p.schema.schema, p.schema.err
+	return p.schema.schemaLatch.Wait(), p.schema.err
 }
 
 func (p PgCopyReader) CopyInto(ctx context.Context, c *PostgresConnector, tx pgx.Tx, table pgx.Identifier) (int64, error) {

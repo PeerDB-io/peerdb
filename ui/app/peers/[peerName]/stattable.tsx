@@ -113,7 +113,9 @@ export default function StatTable({ peerName }: { peerName: string }) {
                 </Label>
               </TableCell>
               <TableCell>
-                <TimeLabel timeVal={stat.queryStart} fontSize={14} />
+                {stat.queryStart && (
+                  <TimeLabel timeVal={stat.queryStart} fontSize={14} />
+                )}
               </TableCell>
               <TableCell variant='extended'>
                 <div

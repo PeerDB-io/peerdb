@@ -6,12 +6,14 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cloud.google.com/go/pubsub"
+	"cloud.google.com/go/pubsub/v2"
+	pubsubpb "cloud.google.com/go/pubsub/v2/apiv1/pubsubpb"
 	lua "github.com/yuin/gopher-lua"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/pua"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
 func (*PubSubConnector) SetupQRepMetadataTables(_ context.Context, _ *protos.QRepConfig) error {
@@ -23,13 +25,13 @@ func (c *PubSubConnector) SyncQRepRecords(
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
-) (int64, error) {
+) (int64, shared.QRepWarnings, error) {
 	startTime := time.Now()
 	schema, err := stream.Schema()
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	topiccache := topicCache{cache: make(map[string]*pubsub.Topic)}
+	topiccache := c.NewTopicCache()
 	publish := make(chan publishResult, 32)
 	waitChan := make(chan struct{})
 	numRecords := atomic.Int64{}
@@ -37,7 +39,7 @@ func (c *PubSubConnector) SyncQRepRecords(
 	queueCtx, queueErr := context.WithCancelCause(ctx)
 	pool, err := c.createPool(queueCtx, config.Env, config.Script, config.FlowJobName, &topiccache, publish, queueErr)
 	if err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	defer pool.Close()
 
@@ -116,18 +118,20 @@ Loop:
 	}
 
 	if err := pool.Wait(queueCtx); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
 	close(publish)
-	topiccache.Stop(queueCtx)
+	topiccache.ForEach(queueCtx, func(_ *pubsubpb.Topic, publisher *pubsub.Publisher) {
+		publisher.Stop()
+	})
 	select {
 	case <-queueCtx.Done():
-		return 0, queueCtx.Err()
+		return 0, nil, queueCtx.Err()
 	case <-waitChan:
 	}
 
 	if err := c.FinishQRepPartition(ctx, partition, config.FlowJobName, startTime); err != nil {
-		return 0, err
+		return 0, nil, err
 	}
-	return numRecords.Load(), nil
+	return numRecords.Load(), nil, nil
 }
