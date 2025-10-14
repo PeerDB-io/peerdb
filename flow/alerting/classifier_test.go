@@ -10,6 +10,7 @@ import (
 
 	chproto "github.com/ClickHouse/ch-go/proto"
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -590,5 +591,35 @@ func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
 		Code:   "0",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestAuroraMySQLZeroDowntimePatchErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate Aurora MySQL Zero Downtime Patch error
+	mysqlErr := &mysql.MyError{
+		Code:    1105, // ER_UNKNOWN_ERROR
+		State:   "HY000",
+		Message: "The last transaction was aborted due to Zero Downtime Patch. Please retry.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql error: %w", mysqlErr))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1105",
+	}, errInfo, "Unexpected error info")
+}
+
+func TestAuroraMySQLZeroDowntimeRestartErrorShouldBeRecoverable(t *testing.T) {
+	// Simulate Aurora MySQL Zero Downtime Restart error
+	mysqlErr := &mysql.MyError{
+		Code:    1105, // ER_UNKNOWN_ERROR
+		State:   "HY000",
+		Message: "The last transaction was aborted due to Zero Downtime Restart. Please retry.",
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("mysql errors: %w", mysqlErr))
+	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourceMySQL,
+		Code:   "1105",
 	}, errInfo, "Unexpected error info")
 }
