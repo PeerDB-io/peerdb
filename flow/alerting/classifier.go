@@ -518,11 +518,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				return ErrorRetryRecoverable, pgErrorInfo
 			}
 
-			if strings.Contains(pgErr.Message,
-				`specified in parameter "synchronized_standby_slots" does not have active_pid`) {
-				return ErrorRetryRecoverable, pgErrorInfo
-			}
-
 			// this can't happen for slots we created
 			// from our perspective, the slot is missing
 			if strings.Contains(pgErr.Message, "was not created in this database") {
