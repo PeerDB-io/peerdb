@@ -598,9 +598,11 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			1373: // ER_UNKNOWN_TARGET_BINLOG
 			return ErrorNotifyBinlogInvalid, myErrorInfo
 		case 1105: // ER_UNKNOWN_ERROR
+			// RDS Aurora MySQL specific errors due to "Zero Downtime Patch" or "Zero Downtime Restart"
+			// https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraMySQL.Updates.ZDP.html
 			if myErr.State == "HY000" &&
 				strings.HasPrefix(myErr.Message, "The last transaction was aborted due to") &&
-				strings.HasSuffix(myErr.Message, "Please Retry.") {
+				strings.HasSuffix(myErr.Message, "Please retry.") {
 				return ErrorRetryRecoverable, myErrorInfo
 			}
 			return ErrorOther, myErrorInfo
