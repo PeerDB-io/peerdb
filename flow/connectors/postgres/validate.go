@@ -165,11 +165,9 @@ func (c *PostgresConnector) CheckReplicationPermissions(ctx context.Context, use
 		return fmt.Errorf("failed to get server version: %w", err)
 	}
 
-	var recoveryRes bool
-	if err := c.conn.QueryRow(ctx, "SELECT pg_is_in_recovery()").Scan(&recoveryRes); err != nil {
+	if recoveryRes, err := c.IsInRecovery(ctx); err != nil {
 		return fmt.Errorf("failed to check if Postgres is in recovery: %w", err)
-	}
-	if recoveryRes {
+	} else if recoveryRes {
 		if serverVersion < shared.POSTGRES_16 {
 			return errors.New("cannot create replication slots on a standby server with version <16")
 		}

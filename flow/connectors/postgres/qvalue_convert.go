@@ -15,9 +15,10 @@ import (
 	"github.com/pgvector/pgvector-go"
 	"github.com/shopspring/decimal"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
-	"github.com/PeerDB-io/peerdb/flow/shared/postgres"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -53,7 +54,7 @@ func (c *PostgresConnector) postgresOIDToQValueKind(
 	customTypeMapping map[uint32]shared.CustomDataType,
 	version uint32,
 ) types.QValueKind {
-	colType, err := postgres.PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, version)
+	colType, err := PostgresOIDToQValueKind(recvOID, customTypeMapping, c.typeMap, version)
 	if err != nil {
 		if _, warned := c.hushWarnOID[recvOID]; !warned {
 			c.logger.Warn(
@@ -392,7 +393,13 @@ func convertToArray[T any](kind types.QValueKind, value any) ([]T, error) {
 }
 
 func (c *PostgresConnector) parseFieldFromPostgresOID(
-	oid uint32, typmod int32, value any, customTypeMapping map[uint32]shared.CustomDataType, version uint32,
+	oid uint32,
+	typmod int32,
+	nullable bool,
+	dstType protos.DBType,
+	value any,
+	customTypeMapping map[uint32]shared.CustomDataType,
+	version uint32,
 ) (types.QValue, error) {
 	qvalueKind := c.postgresOIDToQValueKind(oid, customTypeMapping, version)
 	if value == nil {
@@ -405,14 +412,22 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		case time.Time:
 			return types.QValueTimestamp{Val: val}, nil
 		case pgtype.InfinityModifier:
-			return types.QValueNull(qvalueKind), nil
+			if nullable {
+				return types.QValueNull(qvalueKind), nil
+			} else {
+				return types.QValueTimestamp{Val: qvalue.DefaultTime(dstType)}, nil
+			}
 		}
 	case types.QValueKindTimestampTZ:
 		switch val := value.(type) {
 		case time.Time:
 			return types.QValueTimestampTZ{Val: val}, nil
 		case pgtype.InfinityModifier:
-			return types.QValueNull(qvalueKind), nil
+			if nullable {
+				return types.QValueNull(qvalueKind), nil
+			} else {
+				return types.QValueTimestampTZ{Val: qvalue.DefaultTime(dstType)}, nil
+			}
 		}
 	case types.QValueKindInterval:
 		if interval, ok := value.(pgtype.Interval); ok {
@@ -449,12 +464,20 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		case time.Time:
 			return types.QValueDate{Val: val}, nil
 		case pgtype.InfinityModifier:
-			return types.QValueNull(qvalueKind), nil
+			if nullable {
+				return types.QValueNull(qvalueKind), nil
+			} else {
+				return types.QValueDate{Val: qvalue.DefaultTime(dstType)}, nil
+			}
 		}
 	case types.QValueKindTime:
 		timeVal := value.(pgtype.Time)
 		if timeVal.Valid {
 			return types.QValueTime{Val: time.Duration(timeVal.Microseconds) * time.Microsecond}, nil
+		} else if nullable {
+			return types.QValueNull(types.QValueKindTime), nil
+		} else {
+			return types.QValueTime{}, nil
 		}
 	case types.QValueKindTimeTZ:
 		timeVal := value.(string)
@@ -563,7 +586,11 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 		if numVal.Valid {
 			num, ok := validNumericToDecimal(numVal)
 			if !ok {
-				return types.QValueNull(types.QValueKindNumeric), nil
+				if nullable {
+					return types.QValueNull(types.QValueKindNumeric), nil
+				} else {
+					return types.QValueNumeric{}, nil
+				}
 			}
 			precision, scale := datatypes.ParseNumericTypmod(typmod)
 			return types.QValueNumeric{
@@ -727,7 +754,11 @@ func (c *PostgresConnector) parseFieldFromPostgresOID(
 			if err != nil {
 				c.logger.Warn("failure during GeoValidate", slog.Any("error", err))
 			}
-			return types.QValueNull(types.QValueKindGeography), nil
+			if nullable {
+				return types.QValueNull(types.QValueKindGeography), nil
+			} else {
+				return types.QValueGeography{}, nil
+			}
 		} else if qvalueKind == types.QValueKindGeography {
 			return types.QValueGeography{Val: wkt}, nil
 		} else {

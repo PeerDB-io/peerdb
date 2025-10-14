@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver"
 	"go.temporal.io/sdk/temporal"
 
@@ -32,8 +33,8 @@ func TestPostgresDNSErrorShouldBeConnectivity(t *testing.T) {
 	errorClass, errInfo := GetErrorClass(t.Context(), err)
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourcePostgres,
-		Code:   "UNKNOWN",
+		Source: ErrorSourceNet,
+		Code:   "net.DNSError",
 	}, errInfo, "Unexpected error info")
 }
 
@@ -206,7 +207,7 @@ func TestClickHousePushingToViewShouldBeMvError(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
+func TestPostgresQueryCancelledErrorShouldBeNotifyConnectivity(t *testing.T) {
 	t.Parallel()
 
 	connectionString := internal.GetCatalogConnectionStringFromEnv(t.Context())
@@ -219,7 +220,7 @@ func TestPostgresQueryCancelledErrorShouldBeRecoverable(t *testing.T) {
 	_, err = connectConfig.Exec(t.Context(), "SELECT pg_sleep(2)")
 
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed querying: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.QueryCanceled,
@@ -272,6 +273,20 @@ func TestPostgresSnapshotDoesNotExistErrorShouldBeInvalidSnapshot(t *testing.T) 
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.UndefinedObject,
+	}, errInfo, "Unexpected error info")
+}
+
+func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InvalidParameterValue,
+		Message:  `"synchronized_standby_slots"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to query for total rows: %w", err))
+	assert.Equal(t, ErrorNotifyInvalidSynchronizedStandbySlots, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InvalidParameterValue,
 	}, errInfo, "Unexpected error info")
 }
 
@@ -341,7 +356,7 @@ func TestUndefinedObjectWithoutPublicationErrorIsNotifyConnectivity(t *testing.T
 	}, errInfo, "Unexpected error info")
 }
 
-func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
+func TestPostgresQueryCancelledDuringWalShouldBeNotifyConnectivity(t *testing.T) {
 	// Simulate a query cancelled error during WAL
 	err := exceptions.NewPostgresWalError(errors.New("testing query cancelled during WAL"), &pgproto3.ErrorResponse{
 		Severity: "ERROR",
@@ -349,7 +364,7 @@ func TestPostgresQueryCancelledDuringWalShouldBeRecoverable(t *testing.T) {
 		Message:  "canceling statement due to user request",
 	})
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("error in WAL: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourcePostgres,
 		Code:   pgerrcode.QueryCanceled,
@@ -426,8 +441,8 @@ func TestPostgresConnectionRefusedErrorShouldBeConnectivity(t *testing.T) {
 			errorClass, errInfo := GetErrorClass(t.Context(), err)
 			assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 			assert.Equal(t, ErrorInfo{
-				Source: ErrorSourcePostgres,
-				Code:   "UNKNOWN",
+				Source: ErrorSourceNet,
+				Code:   "connect: connection refused",
 			}, errInfo, "Unexpected error info")
 		})
 	}
@@ -523,14 +538,21 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 			errorClass: ErrorNotifyReplicationSlotMissing,
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "REPLICATION_SLOT_DOES_NOT_EXIST",
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableSlotMissing.String(),
 			},
 		},
 		exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing: {
 			errorClass: ErrorNotifyPublicationMissing,
 			errInfo: ErrorInfo{
 				Source: ErrorSourcePostgres,
-				Code:   "PUBLICATION_DOES_NOT_EXIST",
+				Code:   exceptions.ApplicationErrorTypeIrrecoverablePublicationMissing.String(),
+			},
+		},
+		exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot: {
+			errorClass: ErrorNotifyInvalidSnapshotIdentifier,
+			errInfo: ErrorInfo{
+				Source: ErrorSourcePostgres,
+				Code:   exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(),
 			},
 		},
 	} {
@@ -546,6 +568,16 @@ func TestTemporalKnownErrorsShouldBeCorrectlyClassified(t *testing.T) {
 	}
 }
 
+func TestTemporalKnownIrrecoverableErrorTypesHaveCorrectClassification(t *testing.T) {
+	for _, code := range exceptions.IrrecoverableApplicationErrorTypesList {
+		t.Run(code, func(t *testing.T) {
+			errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError("unknown", code, nil))
+			assert.NotEqual(t, ErrorOther, errorClass, "Error class should not be other")
+			assert.NotEqual(t, ErrorSourceTemporal, errInfo.Source)
+		})
+	}
+}
+
 func TestTemporalUnknownErrorShouldBeOther(t *testing.T) {
 	errorClass, errInfo := GetErrorClass(t.Context(), temporal.NewNonRetryableApplicationError("irrecoverable error", "UNKNOWN_ERROR", nil))
 	assert.Equal(t, ErrorOther, errorClass, "Unexpected error class")
@@ -557,30 +589,20 @@ func TestTemporalUnknownErrorShouldBeOther(t *testing.T) {
 
 func TestMongoShutdownInProgressErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a MongoDB shutdown in progress error (quiesce mode)
-	err := driver.Error{
-		Message: "connection pool for <host>:<port> was cleared because another operation failed with",
-		Labels:  []string{driver.TransientTransactionError},
-		Wrapped: errors.New("the server is in quiesce mode and will shut down"),
+	de := driver.Error{
+		Code: 0,
+		//nolint:lll
+		Message: "connection pool for <host>:<port> was cleared because another operation failed with: (ShutdownInProgress) The server is in quiesce mode and will shut down",
 	}
-	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
-	assert.Equal(t, ErrorRetryRecoverable, errorClass, "Unexpected error class")
-	assert.Equal(t, ErrorInfo{
-		Source: ErrorSourceMongoDB,
-		Code:   "0",
-	}, errInfo, "Unexpected error info")
-}
-
-func TestMongoUnauthorizedErrorShouldBeConnectivity(t *testing.T) {
-	// Simulate a MongoDB unauthorized error
-	err := driver.Error{
-		Code:    13,
-		Message: "Command getMore requires authentication",
-		Name:    "Unauthorized",
+	err := mongo.CommandError{
+		Message: de.Message,
+		Code:    de.Code,
+		Wrapped: de,
 	}
 	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("change stream error: %w", err))
 	assert.Equal(t, ErrorNotifyConnectivity, errorClass, "Unexpected error class")
 	assert.Equal(t, ErrorInfo{
 		Source: ErrorSourceMongoDB,
-		Code:   "13",
+		Code:   "0",
 	}, errInfo, "Unexpected error info")
 }

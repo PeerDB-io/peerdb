@@ -1,7 +1,14 @@
 syntax = "proto3";
 
 import "google/protobuf/timestamp.proto";
+import "google/protobuf/descriptor.proto";
 import "peers.proto";
+
+extend google.protobuf.EnumValueOptions {
+  // If the flow is in this state, then maintenance should wait for it to transition to another non-wait state
+  // This is to make sure we have only either terminal states or running state which we can pause
+  optional bool peerdb_maintenance_wait = 16551843;
+}
 
 package peerdb_flow;
 
@@ -400,20 +407,20 @@ message GetOpenConnectionsForUserResult {
 // UI reads current workflow status and also requests status changes using same enum
 // see flow/cmd/handler.go FlowStateChange
 enum FlowStatus {
-  STATUS_UNKNOWN = 0;
+  STATUS_UNKNOWN = 0 [(peerdb_maintenance_wait) = true];
   STATUS_RUNNING = 1;
   STATUS_PAUSED = 2;
-  STATUS_PAUSING = 3;
+  STATUS_PAUSING = 3 [(peerdb_maintenance_wait) = true];;
   // not reachable in QRep mirrors
-  STATUS_SETUP = 4;
+  STATUS_SETUP = 4 [(peerdb_maintenance_wait) = true];
   // not reachable in QRep mirrors
-  STATUS_SNAPSHOT = 5;
+  STATUS_SNAPSHOT = 5 [(peerdb_maintenance_wait) = true];;
   STATUS_TERMINATING = 6;
   STATUS_TERMINATED = 7;
   STATUS_COMPLETED = 8;
-  STATUS_RESYNC = 9;
+  STATUS_RESYNC = 9 [(peerdb_maintenance_wait) = true];;
   STATUS_FAILED = 10;
-  STATUS_MODIFYING = 11;
+  STATUS_MODIFYING = 11 [(peerdb_maintenance_wait) = true];;
 }
 
 message CDCFlowConfigUpdate {
@@ -428,6 +435,7 @@ message CDCFlowConfigUpdate {
   uint32 snapshot_num_partitions_override = 10;
   uint32 snapshot_max_parallel_workers = 8;
   uint32 snapshot_num_tables_in_parallel = 9;
+  bool skip_initial_snapshot_for_table_additions = 11;
 }
 
 message QRepFlowConfigUpdate {
@@ -533,6 +541,7 @@ message MaintenanceMirrors {
 message PeerContextMetadata {
   string name = 1;
   peerdb_peers.DBType type = 2;
+  peerdb_peers.DatabaseVariant variant = 3;
 }
 
 message FlowContextMetadataInput {

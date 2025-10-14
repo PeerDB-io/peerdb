@@ -133,6 +133,9 @@ func BigQueryTypeToQValueKind(fieldSchema *bigquery.FieldSchema) types.QValueKin
 		return types.QValueKindGeography
 	case bigquery.JSONFieldType:
 		return types.QValueKindJSON
+	case bigquery.RecordFieldType:
+		// RECORD/STRUCT types are represented as String in ClickHouse
+		return types.QValueKindString
 	default:
 		return types.QValueKindInvalid
 	}

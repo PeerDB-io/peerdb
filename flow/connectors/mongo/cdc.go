@@ -475,7 +475,7 @@ func (c *MongoConnector) EnsurePullability(ctx context.Context, req *protos.Ensu
 	return nil, nil
 }
 
-func (c *MongoConnector) ExportTxSnapshot(context.Context, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
+func (c *MongoConnector) ExportTxSnapshot(context.Context, string, map[string]string) (*protos.ExportTxSnapshotOutput, any, error) {
 	return nil, nil, nil
 }
 

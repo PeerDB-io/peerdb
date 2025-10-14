@@ -116,6 +116,10 @@ func LoggerFromCtx(ctx context.Context) log.Logger {
 	}
 	logger = log.With(logger, string(AdditionalMetadataKey), GetAdditionalMetadata(ctx))
 
+	if requestId, hasId := ctx.Value(shared.RequestIdKey).(string); hasId {
+		logger = log.With(logger, shared.RequestIdKey.String(), requestId)
+	}
+
 	return logger
 }
 
@@ -130,28 +134,13 @@ func SlogLoggerFromCtx(ctx context.Context) *slog.Logger {
 	}
 	logger = logger.With(slog.Any(string(AdditionalMetadataKey), GetAdditionalMetadata(ctx)))
 
-	if activity.IsActivity(ctx) {
-		activityInfo := activity.GetInfo(ctx)
-		var workflowTypeName string
-		if activityInfo.WorkflowType != nil {
-			workflowTypeName = activityInfo.WorkflowType.Name
-		}
-		logger = logger.With(
-			slog.String("ActivityID", activityInfo.ActivityID),
-			slog.String("ActivityType", activityInfo.ActivityType.Name),
-			slog.Int64("Attempt", int64(activityInfo.Attempt)),
-			slog.String("RunID", activityInfo.WorkflowExecution.RunID),
-			slog.String("WorkflowID", activityInfo.WorkflowExecution.ID),
-			slog.String("Namespace", activityInfo.WorkflowNamespace),
-			slog.String("TaskQueue", activityInfo.TaskQueue),
-			slog.String("WorkflowType", workflowTypeName),
-		)
+	if requestId, hasId := ctx.Value(shared.RequestIdKey).(string); hasId {
+		logger = logger.With(shared.RequestIdKey.String(), requestId)
 	}
 
 	if activity.IsActivity(ctx) {
 		activityInfo := activity.GetInfo(ctx)
-
-		workflowTypeName := ""
+		var workflowTypeName string
 		if activityInfo.WorkflowType != nil {
 			workflowTypeName = activityInfo.WorkflowType.Name
 		}

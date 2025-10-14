@@ -10,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/snowflakedb/gosnowflake"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -182,14 +183,22 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		return nil, fmt.Errorf("failed to parse table name: %w", err)
 	}
 
-	rows, err := c.QueryContext(
-		ctx,
-		getTableSchemaSQL,
-		strings.ToUpper(schemaTable.Schema),
-		strings.ToUpper(schemaTable.Table),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute query: %w", err)
+	fq := fmt.Sprintf("%s.%s", strings.ToUpper(schemaTable.Schema), strings.ToUpper(schemaTable.Table))
+
+	channel := make(chan string, 1)
+	ctxWithOpt := gosnowflake.WithQueryIDChan(ctx, channel)
+	rows, err := c.QueryContext(ctxWithOpt, getTableColumnListSQL, fq)
+	if err != nil || rows.Err() != nil {
+		return nil, fmt.Errorf("failed to run getTableColumnList query: %w", err)
+	}
+	defer rows.Close()
+
+	qid := <-channel
+
+	rows, err = c.QueryContext(ctx, getTableSchemaSQL, qid)
+
+	if err != nil || rows.Err() != nil {
+		return nil, fmt.Errorf("failed to run getTableSchema query: %w", err)
 	}
 	defer rows.Close()
 
@@ -200,11 +209,23 @@ func (c *SnowflakeConnector) getColsFromTable(ctx context.Context, tableName str
 		if err := rows.Scan(&colName, &colType, &numericPrecision, &numericScale); err != nil {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
+		parsedColType := colType.String
+		if colType.String == "FIXED" {
+			parsedColType = "NUMBER"
+		}
+		// Only use precision/scale for numeric types. For other types like TIME/TIMESTAMP,
+		// the precision field in SHOW COLUMNS refers to fractional seconds, not numeric precision.
+		precision := numericPrecision.Int32
+		scale := numericScale.Int32
+		if parsedColType != "NUMBER" {
+			precision = 0
+			scale = 0
+		}
 		cols = append(cols, SnowflakeTableColumn{
 			ColumnName:       colName.String,
-			ColumnType:       colType.String,
-			NumericPrecision: numericPrecision.Int32,
-			NumericScale:     numericScale.Int32,
+			ColumnType:       parsedColType,
+			NumericPrecision: precision,
+			NumericScale:     scale,
 		})
 	}
 

@@ -14,6 +14,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 type QRepFlowExecution struct {
@@ -77,7 +78,7 @@ func (q *QRepFlowExecution) SetupMetadataTables(ctx workflow.Context) error {
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        20 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -99,7 +100,7 @@ func (q *QRepFlowExecution) setupTableSchema(ctx workflow.Context, tableName str
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        20 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -131,7 +132,7 @@ func (q *QRepFlowExecution) setupWatermarkTableOnDestination(ctx workflow.Contex
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        time.Hour,
+				MaximumInterval:        20 * time.Minute,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -210,7 +211,7 @@ func (q *QRepPartitionFlowExecution) replicatePartitions(ctx workflow.Context,
 			BackoffCoefficient:     2.,
 			MaximumInterval:        10 * time.Minute,
 			MaximumAttempts:        0,
-			NonRetryableErrorTypes: []string{"snapshot"},
+			NonRetryableErrorTypes: exceptions.IrrecoverableApplicationErrorTypesList,
 		},
 	})
 
@@ -292,7 +293,7 @@ func (q *QRepFlowExecution) consolidatePartitions(ctx workflow.Context) error {
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        20 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -357,7 +358,7 @@ func (q *QRepFlowExecution) handleTableCreationForResync(ctx workflow.Context, s
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        time.Hour,
+				MaximumInterval:        20 * time.Minute,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -403,7 +404,7 @@ func (q *QRepFlowExecution) handleTableRenameForResync(ctx workflow.Context, sta
 			RetryPolicy: &temporal.RetryPolicy{
 				InitialInterval:        time.Minute,
 				BackoffCoefficient:     2.,
-				MaximumInterval:        time.Hour,
+				MaximumInterval:        20 * time.Minute,
 				MaximumAttempts:        0,
 				NonRetryableErrorTypes: nil,
 			},
@@ -439,12 +440,12 @@ func QRepWaitForNewRowsWorkflow(ctx workflow.Context, config *protos.QRepConfig,
 	logger := log.With(workflow.GetLogger(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 16 * 365 * 24 * time.Hour, // 16 years
+		StartToCloseTimeout: 4 * time.Hour, // 4 hours
 		HeartbeatTimeout:    time.Minute,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval:        time.Minute,
 			BackoffCoefficient:     2.,
-			MaximumInterval:        time.Hour,
+			MaximumInterval:        20 * time.Minute,
 			MaximumAttempts:        0,
 			NonRetryableErrorTypes: nil,
 		},
@@ -616,8 +617,8 @@ func QRepFlowWorkflow(
 	}
 
 	q.logger.Info("Continuing as new workflow",
-		slog.Any("Last Partition", state.LastPartition),
-		slog.Uint64("Number of Partitions Processed", state.NumPartitionsProcessed))
+		slog.Any("lastPartition", state.LastPartition),
+		slog.Uint64("numPartitionsProcessed", state.NumPartitionsProcessed))
 
 	if q.activeSignal == model.PauseSignal {
 		updateStatus(ctx, q.logger, state, protos.FlowStatus_STATUS_PAUSED)

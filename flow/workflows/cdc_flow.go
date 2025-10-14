@@ -289,7 +289,7 @@ func processTableAdditions(
 			additionalTablesUUID := GetUUID(ctx)
 			childAdditionalTablesCDCFlowID := GetChildWorkflowID("additional-cdc-flow", cfg.FlowJobName, additionalTablesUUID)
 			additionalTablesCfg := proto.CloneOf(cfg)
-			additionalTablesCfg.DoInitialSnapshot = true
+			additionalTablesCfg.DoInitialSnapshot = !flowConfigUpdate.SkipInitialSnapshotForTableAdditions
 			additionalTablesCfg.InitialSnapshotOnly = true
 			additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
 			additionalTablesCfg.Resync = false
@@ -409,7 +409,7 @@ func processTableRemovals(
 				cfg, state.FlowConfigUpdate.RemovedTables)
 			removeTablesSelector.AddFuture(removeTablesFromCatalogFuture, func(f workflow.Future) {
 				if err := f.Get(ctx, nil); err != nil {
-					logger.Error("failed to clean up raw table for removed tables", "error", err)
+					logger.Error("failed to clean up raw table for removed tables", slog.Any("error", err))
 					removeTablesFlowErr = err
 					return
 				}
@@ -476,6 +476,7 @@ func addCdcPropertiesSignalListener(
 			slog.Uint64("SnapshotNumPartitionsOverride", uint64(cdcConfigUpdate.SnapshotNumPartitionsOverride)),
 			slog.Uint64("SnapshotMaxParallelWorkers", uint64(cdcConfigUpdate.SnapshotMaxParallelWorkers)),
 			slog.Uint64("SnapshotNumTablesInParallel", uint64(cdcConfigUpdate.SnapshotNumTablesInParallel)),
+			slog.Bool("SkipInitialSnapshotForTableAdditions", cdcConfigUpdate.SkipInitialSnapshotForTableAdditions),
 		)
 	})
 }
@@ -839,7 +840,8 @@ func CDCFlowWorkflow(
 			var sleepFor time.Duration
 			var panicErr *temporal.PanicError
 			if errors.As(err, &panicErr) {
-				sleepFor = time.Duration(10+min(state.ErrorCount, 3)*15) * time.Minute
+				// linear backoff starting at 10 minutes, up to 55 minutes in steps of 5 minutes
+				sleepFor = time.Duration(10+min(state.ErrorCount, 9)*5) * time.Minute
 				logger.Error(
 					"panic in sync flow",
 					slog.Any("error", panicErr.Error()),
@@ -847,6 +849,7 @@ func CDCFlowWorkflow(
 					slog.Any("sleepFor", sleepFor),
 				)
 			} else {
+				// linear backoff from 1 minute up to 10 minutes
 				sleepFor = time.Duration(1+min(state.ErrorCount, 9)) * time.Minute
 				logger.Error("error in sync flow", slog.Any("error", err), slog.Any("sleepFor", sleepFor))
 			}

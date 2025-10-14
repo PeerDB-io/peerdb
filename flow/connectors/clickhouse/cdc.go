@@ -14,8 +14,8 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -118,7 +118,7 @@ func (c *ClickHouseConnector) syncRecordsViaAvro(
 		req.Records.GetRecords(), tableNameRowsMapping, syncBatchID, unboundedNumericAsString,
 		protos.DBType_CLICKHOUSE,
 	)
-	numericTruncator := model.NewStreamNumericTruncator(req.TableMappings, peerdb_clickhouse.NumericDestinationTypes)
+	numericTruncator := model.NewStreamNumericTruncator(req.TableMappings, NumericDestinationTypes)
 	stream, err := utils.RecordsToRawTableStream(streamReq, numericTruncator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert records to raw table stream: %w", err)
@@ -226,7 +226,6 @@ func (c *ClickHouseConnector) ReplayTableSchemaDeltas(
 func (c *ClickHouseConnector) RenameTables(
 	ctx context.Context,
 	req *protos.RenameTablesInput,
-	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) (*protos.RenameTablesOutput, error) {
 	onCluster := c.onCluster()
 	for _, renameRequest := range req.RenameTableOptions {

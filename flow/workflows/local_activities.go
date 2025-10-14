@@ -8,6 +8,12 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 )
 
+// Do not rename this local activity, unless you know exactly what you are doing.
+//
+// Currently, when flow is signaled to pause during upgrades, we clear flow history
+// in Temporal with Continue-As-New, leaving only `updateFlowStatusInCatalogActivity`
+// in event history. Renaming this method will lead to Temporal failure to replay and
+// cause workflow to panic [TMPRL1100].
 func updateFlowStatusInCatalogActivity(
 	ctx context.Context,
 	workflowID string,

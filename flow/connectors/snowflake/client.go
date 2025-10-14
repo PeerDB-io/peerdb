@@ -70,47 +70,42 @@ func (c *SnowflakeConnector) processRows(rows *sql.Rows) (*model.QRecordBatch, e
 		qfields[i] = qfield
 	}
 
+	values := make([]any, len(dbColTypes))
+	for i := range values {
+		switch qfields[i].Type {
+		case types.QValueKindTimestamp, types.QValueKindTimestampTZ, types.QValueKindTime, types.QValueKindDate:
+			var t sql.NullTime
+			values[i] = &t
+		case types.QValueKindInt32:
+			var n sql.NullInt32
+			values[i] = &n
+		case types.QValueKindInt64:
+			var n sql.NullInt64
+			values[i] = &n
+		case types.QValueKindFloat64:
+			var f sql.NullFloat64
+			values[i] = &f
+		case types.QValueKindBoolean:
+			var b sql.NullBool
+			values[i] = &b
+		case types.QValueKindString, types.QValueKindHStore:
+			var s sql.NullString
+			values[i] = &s
+		case types.QValueKindBytes:
+			values[i] = new([]byte)
+		case types.QValueKindNumeric:
+			var s sql.Null[decimal.Decimal]
+			values[i] = &s
+		default:
+			values[i] = new(any)
+		}
+	}
+
 	var records [][]types.QValue
 	totalRowsProcessed := 0
 	const logEveryNumRows = 50000
 
 	for rows.Next() {
-		columns, err := rows.Columns()
-		if err != nil {
-			return nil, err
-		}
-
-		values := make([]any, len(columns))
-		for i := range values {
-			switch qfields[i].Type {
-			case types.QValueKindTimestamp, types.QValueKindTimestampTZ, types.QValueKindTime, types.QValueKindDate:
-				var t sql.NullTime
-				values[i] = &t
-			case types.QValueKindInt32:
-				var n sql.NullInt32
-				values[i] = &n
-			case types.QValueKindInt64:
-				var n sql.NullInt64
-				values[i] = &n
-			case types.QValueKindFloat64:
-				var f sql.NullFloat64
-				values[i] = &f
-			case types.QValueKindBoolean:
-				var b sql.NullBool
-				values[i] = &b
-			case types.QValueKindString, types.QValueKindHStore:
-				var s sql.NullString
-				values[i] = &s
-			case types.QValueKindBytes:
-				values[i] = new([]byte)
-			case types.QValueKindNumeric:
-				var s sql.Null[decimal.Decimal]
-				values[i] = &s
-			default:
-				values[i] = new(any)
-			}
-		}
-
 		if err := rows.Scan(values...); err != nil {
 			return nil, err
 		}

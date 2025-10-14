@@ -11,15 +11,17 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/log"
 
+	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
+	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	shared_mongo "github.com/PeerDB-io/peerdb/flow/shared/mongo"
-	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 )
 
 type CDCBatchInfo struct {
@@ -112,19 +114,45 @@ func UpdateEndTimeForCDCBatch(
 	return nil
 }
 
-func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flowJobName string,
-	batchID int64, tableNameRowsMapping map[string]*model.RecordTypeCounts,
+func AddCDCBatchTablesForFlow(
+	ctx context.Context,
+	pool shared.CatalogPool,
+	flowJobName string,
+	batchID int64,
+	tableNameRowsMapping map[string]*model.RecordTypeCounts,
+	otelManager *otel_metrics.OtelManager,
 ) error {
+	var recordAggregateMetrics bool
+	if enabled, err := internal.PeerDBMetricsRecordAggregatesEnabled(ctx, nil); err == nil && enabled {
+		recordAggregateMetrics = true
+	}
+
 	insertBatchTablesTx, err := pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("error while beginning transaction for inserting statistics: %w", err)
 	}
 	defer shared.RollbackTx(insertBatchTablesTx, internal.LoggerFromCtx(ctx))
+	type opWithValue struct {
+		op    string
+		count int32
+	}
 
+	var syncedTablesCount int64
+	tableNameOperations := make(map[string][3]opWithValue, len(tableNameRowsMapping))
 	for destinationTableName, rowCounts := range tableNameRowsMapping {
 		inserts := rowCounts.InsertCount.Load()
 		updates := rowCounts.UpdateCount.Load()
 		deletes := rowCounts.DeleteCount.Load()
+		if inserts+updates+deletes > 0 {
+			syncedTablesCount++
+		}
+		if recordAggregateMetrics {
+			tableNameOperations[destinationTableName] = [3]opWithValue{
+				{op: otel_metrics.RecordOperationTypeInsert, count: inserts},
+				{op: otel_metrics.RecordOperationTypeUpdate, count: updates},
+				{op: otel_metrics.RecordOperationTypeDelete, count: deletes},
+			}
+		}
 		totalRows := inserts + updates + deletes
 
 		// Update the aggregated counts table
@@ -174,6 +202,18 @@ func AddCDCBatchTablesForFlow(ctx context.Context, pool shared.CatalogPool, flow
 	}
 	if err := insertBatchTablesTx.Commit(ctx); err != nil {
 		return fmt.Errorf("error while committing transaction for inserting and updating statistics: %w", err)
+	}
+
+	otelManager.Metrics.SyncedTablesPerBatchGauge.Record(ctx, syncedTablesCount, metric.WithAttributeSet(attribute.NewSet(
+		attribute.Int64(otel_metrics.BatchIdKey, batchID))))
+
+	for destinationTableName, operations := range tableNameOperations {
+		for _, opAndCount := range operations {
+			otelManager.Metrics.RecordsSyncedPerTableCounter.Add(ctx, int64(opAndCount.count), metric.WithAttributeSet(attribute.NewSet(
+				attribute.String(otel_metrics.DestinationTableNameKey, destinationTableName),
+				attribute.String(otel_metrics.RecordOperationTypeKey, opAndCount.op),
+			)))
+		}
 	}
 	return nil
 }
@@ -261,8 +301,7 @@ func supportsStatsForFullTablePartition(partition *protos.QRepPartition) bool {
 	if partition == nil {
 		return false
 	}
-	return partition.PartitionId == shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID ||
-		partition.PartitionId == shared_mongo.MongoFullTablePartitionId
+	return partition.PartitionId == utils.FullTablePartitionID
 }
 
 func addPartitionToQRepRun(ctx context.Context, tx pgx.Tx, flowJobName string,

@@ -10,7 +10,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
-	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/shared/clickhouse"
+	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -21,6 +21,7 @@ type NormalizeQueryGenerator struct {
 	Query                           string
 	TableName                       string
 	rawTableName                    string
+	isDeletedColName                string
 	tableMappings                   []*protos.TableMapping
 	Part                            uint64
 	batchIDToLoadForTable           int64
@@ -46,7 +47,12 @@ func NewNormalizeQueryGenerator(
 	rawTableName string,
 	chVersion *chproto.Version,
 	cluster bool,
+	configuredSoftDeleteColName string,
 ) *NormalizeQueryGenerator {
+	isDeletedColumn := isDeletedColName
+	if configuredSoftDeleteColName != "" {
+		isDeletedColumn = configuredSoftDeleteColName
+	}
 	return &NormalizeQueryGenerator{
 		TableName:                       tableName,
 		Part:                            part,
@@ -61,6 +67,7 @@ func NewNormalizeQueryGenerator(
 		rawTableName:                    rawTableName,
 		chVersion:                       chVersion,
 		cluster:                         cluster,
+		isDeletedColName:                isDeletedColumn,
 	}
 }
 
@@ -260,8 +267,8 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	}
 
 	// add _peerdb_sign as _peerdb_record_type / 2
-	fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
-	fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(signColName))
+	fmt.Fprintf(&projection, "intDiv(_peerdb_record_type, 2) AS %s,", peerdb_clickhouse.QuoteIdentifier(isDeletedColName))
+	fmt.Fprintf(&colSelector, "%s,", peerdb_clickhouse.QuoteIdentifier(isDeletedColName))
 
 	// add _peerdb_timestamp as _peerdb_version
 	fmt.Fprintf(&projection, "_peerdb_timestamp AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
@@ -281,7 +288,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		}
 
 		// projectionUpdate generates delete on previous record, so _peerdb_record_type is filled in as 2
-		fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(signColName))
+		fmt.Fprintf(&projectionUpdate, "1 AS %s,", peerdb_clickhouse.QuoteIdentifier(isDeletedColName))
 		// decrement timestamp by 1 so delete is ordered before latest data,
 		// could be same if deletion records were only generated when ordering updated
 		fmt.Fprintf(&projectionUpdate, "_peerdb_timestamp - 1 AS %s", peerdb_clickhouse.QuoteIdentifier(versionColName))
@@ -299,9 +306,10 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	}
 
 	if t.cluster {
-		colSelector.WriteString(" SETTINGS parallel_distributed_insert_select=0")
+		colSelector.WriteString(" SETTINGS throw_on_max_partitions_per_insert_block = 0, parallel_distributed_insert_select=0")
+	} else {
+		colSelector.WriteString(" SETTINGS throw_on_max_partitions_per_insert_block = 0")
 	}
-
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
 		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String())
 

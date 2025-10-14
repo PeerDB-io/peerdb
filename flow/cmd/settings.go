@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 
 	"github.com/jackc/pgx/v5"
@@ -11,19 +12,24 @@ import (
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
-	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 func (h *FlowRequestHandler) GetDynamicSettings(
 	ctx context.Context,
 	req *protos.GetDynamicSettingsRequest,
-) (*protos.GetDynamicSettingsResponse, error) {
+) (*protos.GetDynamicSettingsResponse, APIError) {
 	rows, err := h.pool.Query(ctx, "select config_name,config_value from dynamic_settings")
 	if err != nil {
 		slog.ErrorContext(ctx, "[GetDynamicConfigs] failed to query settings", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to query settings: %w", err))
+		return nil, NewInternalApiError(fmt.Errorf("failed to query settings: %w", err))
 	}
 	settings := slices.Clone(internal.DynamicSettings[:])
+	for idx := range settings {
+		if value, found := os.LookupEnv(settings[idx].Name); found {
+			settings[idx].Value = &value
+		}
+	}
+
 	var name string
 	var value string
 	if _, err := pgx.ForEachRow(rows, []any{&name, &value}, func() error {
@@ -35,7 +41,7 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 		return nil
 	}); err != nil {
 		slog.ErrorContext(ctx, "[GetDynamicConfigs] failed to collect rows", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to collect rows: %w", err))
+		return nil, NewInternalApiError(fmt.Errorf("failed to collect rows: %w", err))
 	}
 
 	if internal.PeerDBOnlyClickHouseAllowed() {
@@ -55,11 +61,11 @@ func (h *FlowRequestHandler) GetDynamicSettings(
 func (h *FlowRequestHandler) PostDynamicSetting(
 	ctx context.Context,
 	req *protos.PostDynamicSettingRequest,
-) (*protos.PostDynamicSettingResponse, error) {
+) (*protos.PostDynamicSettingResponse, APIError) {
 	err := internal.UpdateDynamicSetting(ctx, h.pool, req.Name, req.Value)
 	if err != nil {
 		slog.ErrorContext(ctx, "[PostDynamicConfig] failed to execute update setting", slog.Any("error", err))
-		return nil, exceptions.NewInternalApiError(fmt.Errorf("failed to update setting: %w", err))
+		return nil, NewInternalApiError(fmt.Errorf("failed to update setting: %w", err))
 	}
 	return &protos.PostDynamicSettingResponse{}, nil
 }

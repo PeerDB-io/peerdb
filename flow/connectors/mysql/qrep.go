@@ -18,7 +18,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	shared_mysql "github.com/PeerDB-io/peerdb/flow/shared/mysql"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -40,7 +39,7 @@ func (c *MySqlConnector) GetQRepPartitions(
 		// if no watermark column is specified, return a single partition
 		return []*protos.QRepPartition{
 			{
-				PartitionId:        shared_mysql.MYSQL_FULL_TABLE_PARTITION_ID,
+				PartitionId:        utils.FullTablePartitionID,
 				Range:              nil,
 				FullTablePartition: true,
 			},
@@ -175,6 +174,7 @@ func (c *MySqlConnector) PullQRepRecords(
 	ctx context.Context,
 	otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {

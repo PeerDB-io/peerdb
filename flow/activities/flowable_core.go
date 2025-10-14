@@ -322,7 +322,7 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	}
 	if res.TableNameRowsMapping != nil {
 		if err := monitoring.AddCDCBatchTablesForFlow(
-			ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, res.TableNameRowsMapping,
+			ctx, a.CatalogPool, flowName, res.CurrentSyncBatchID, res.TableNameRowsMapping, a.OtelManager,
 		); err != nil {
 			return nil, err
 		}
@@ -392,6 +392,9 @@ func (a *FlowableActivity) getPostgresPeerConfigs(ctx context.Context) ([]*proto
 func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRepSyncConnectorCore, TPull connectors.QRepPullConnectorCore](
 	ctx context.Context,
 	a *FlowableActivity,
+	srcConn TPull,
+	dstConn TSync,
+	dstType protos.DBType,
 	config *protos.QRepConfig,
 	partition *protos.QRepPartition,
 	runUUID string,
@@ -402,6 +405,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 		context.Context,
 		*otel_metrics.OtelManager,
 		*protos.QRepConfig,
+		protos.DBType,
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, error),
@@ -409,12 +413,6 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
 	logger := log.With(internal.LoggerFromCtx(ctx), slog.String(string(shared.FlowNameKey), config.FlowJobName))
-
-	dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
-	if err != nil {
-		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep destination connector: %w", err))
-	}
-	defer connectors.CloseConnector(ctx, dstConn)
 
 	done, err := dstConn.IsQRepPartitionSynced(ctx, &protos.IsQRepPartitionSyncedInput{
 		FlowJobName: config.FlowJobName,
@@ -438,14 +436,7 @@ func replicateQRepPartition[TRead any, TWrite StreamCloser, TSync connectors.QRe
 	var rowsSynced int64
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	errGroup.Go(func() error {
-		srcConn, err := connectors.GetByNameAs[TPull](ctx, config.Env, a.CatalogPool, config.SourceName)
-		if err != nil {
-			stream.Close(err)
-			return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep source connector: %w", err))
-		}
-		defer connectors.CloseConnector(ctx, srcConn)
-
-		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, partition, stream)
+		numRecords, numBytes, err := pullRecords(srcConn, errCtx, a.OtelManager, config, dstType, partition, stream)
 		if err != nil {
 			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "[qrep] failed to pull records", err)
 		}
@@ -503,6 +494,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		*connpostgres.PostgresConnector,
 		context.Context,
 		*protos.QRepConfig,
+		protos.DBType,
 		*protos.QRepPartition,
 		TWrite,
 	) (int64, int64, int64, error),
@@ -513,6 +505,12 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	logger.Info("replicating xmin")
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	startTime := time.Now()
+
+	dstPeer, dstConn, err := connectors.LoadPeerAndGetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+	if err != nil {
+		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
+	}
+	defer connectors.CloseConnector(ctx, dstConn)
 
 	var currentSnapshotXmin int64
 	var rowsSynced int64
@@ -526,7 +524,7 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 		var pullErr error
 		var numRecords int64
 		var numBytes int64
-		numRecords, numBytes, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, partition, stream)
+		numRecords, numBytes, currentSnapshotXmin, pullErr = pullRecords(srcConn, ctx, config, dstPeer.Type, partition, stream)
 		if pullErr != nil {
 			logger.Warn("[xmin] failed to pull records", slog.Any("error", pullErr))
 			return a.Alerter.LogFlowError(ctx, config.FlowJobName, pullErr)
@@ -572,13 +570,8 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	})
 
 	errGroup.Go(func() error {
-		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
-		if err != nil {
-			return fmt.Errorf("failed to get qrep destination connector: %w", err)
-		}
-		defer connectors.CloseConnector(ctx, dstConn)
-
 		var warnings shared.QRepWarnings
+		var err error
 		rowsSynced, warnings, err = syncRecords(dstConn, ctx, config, partition, outstream)
 		if err != nil {
 			return a.Alerter.LogFlowWrappedError(ctx, config.FlowJobName, "failed to sync records", err)

@@ -47,7 +47,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !sourceOk {
 				sourceTries += 1
 				var dropSourceFuture workflow.Future
-				if sourceTries < 50 {
+				var applicationError *temporal.ApplicationError
+				if sourceTries < 50 && (!errors.As(sourceError, &applicationError) || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(sourceTries*sourceTries)*time.Second)
 					selector.AddFuture(sleep, sleepSource)
 				} else {
@@ -83,7 +84,8 @@ func executeCDCDropActivities(ctx workflow.Context, input *protos.DropFlowInput)
 			if !destinationOk {
 				destinationTries += 1
 				var dropDestinationFuture workflow.Future
-				if destinationTries < 50 {
+				var applicationError *temporal.ApplicationError
+				if destinationTries < 50 && (!errors.As(destinationError, &applicationError) || !applicationError.NonRetryable()) {
 					sleep := model.SleepFuture(ctx, time.Duration(destinationTries*destinationTries)*time.Second)
 					selector.AddFuture(sleep, sleepDestination)
 				} else {
@@ -147,7 +149,7 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
 	contextMetadataInput := &protos.FlowContextMetadataInput{
 		FlowName: input.FlowJobName,
-		Status:   protos.FlowStatus_STATUS_UNKNOWN,
+		Status:   status,
 		IsResync: false,
 	}
 	if input.FlowConnectionConfigs != nil {
@@ -161,6 +163,8 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 		return fmt.Errorf("failed to get flow metadata context: %w", err)
 	}
 
+	// Must be called after GetFlowMetadataContext to build flow context, then
+	// ContextPropagator ensures attributes get propagated from flow to activity
 	_ = workflow.ExecuteActivity(workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: time.Minute,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},

@@ -1054,5 +1054,6 @@ fn parse_db_options(db_type: DbType, with_options: &[SqlOption]) -> anyhow::Resu
             .into(),
             aws_auth: None,
         }),
+        DbType::DbtypeUnknown => return Ok(None),
     }))
 }

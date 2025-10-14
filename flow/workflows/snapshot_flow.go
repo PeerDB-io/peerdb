@@ -48,7 +48,7 @@ func (s *SnapshotFlowExecution) setupReplication(
 	s.logger.Info("setting up replication on source for peer flow")
 
 	ctx = workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
-		StartToCloseTimeout: 4 * 24 * time.Hour,
+		StartToCloseTimeout: 4 * time.Hour,
 		RetryPolicy: &temporal.RetryPolicy{
 			InitialInterval: 1 * time.Minute,
 			MaximumAttempts: 20,
@@ -106,6 +106,8 @@ func (s *SnapshotFlowExecution) cloneTable(
 	boundSelector *shared.BoundSelector,
 	snapshotName string,
 	mapping *protos.TableMapping,
+	sourcePeerType protos.DBType,
+	destinationPeerType protos.DBType,
 ) error {
 	flowName := s.config.FlowJobName
 	cloneLog := slog.Group("clone-log",
@@ -173,9 +175,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 	// usually MySQL supports double quotes with ANSI_QUOTES, but Vitess doesn't
 	// Vitess currently only supports initial load so change here is enough
 	srcTableEscaped := parsedSrcTable.String()
-	if dbtype, err := getPeerType(ctx, s.config.SourceName); err != nil {
-		return err
-	} else if dbtype == protos.DBType_MYSQL {
+	if sourcePeerType == protos.DBType_MYSQL {
 		srcTableEscaped = parsedSrcTable.MySQL()
 	}
 
@@ -208,9 +208,7 @@ func (s *SnapshotFlowExecution) cloneTable(
 
 	// ensure document IDs are synchronized across initial load and CDC
 	// for the same document
-	if dbtype, err := getPeerType(ctx, s.config.DestinationName); err != nil {
-		return err
-	} else if dbtype == protos.DBType_ELASTICSEARCH {
+	if destinationPeerType == protos.DBType_ELASTICSEARCH {
 		if err := initTableSchema(); err != nil {
 			return err
 		}
@@ -277,6 +275,15 @@ func (s *SnapshotFlowExecution) cloneTables(
 
 	boundSelector := shared.NewBoundSelector(ctx, "CloneTablesSelector", maxParallelClones)
 
+	sourcePeerType, err := getPeerType(ctx, s.config.SourceName)
+	if err != nil {
+		return err
+	}
+	destinationPeerType, err := getPeerType(ctx, s.config.DestinationName)
+	if err != nil {
+		return err
+	}
+
 	for _, v := range s.config.TableMappings {
 		source := v.SourceTableIdentifier
 		destination := v.DestinationTableIdentifier
@@ -287,14 +294,14 @@ func (s *SnapshotFlowExecution) cloneTables(
 		if v.PartitionKey == "" {
 			v.PartitionKey = res.TableDefaultPartitionKeyMapping[source]
 		}
-		if err := s.cloneTable(ctx, boundSelector, snapshotName, v); err != nil {
+		if err := s.cloneTable(ctx, boundSelector, snapshotName, v, sourcePeerType, destinationPeerType); err != nil {
 			s.logger.Error("failed to start clone child workflow", slog.Any("error", err))
 			return err
 		}
 	}
 
 	if err := boundSelector.Wait(ctx); err != nil {
-		s.logger.Error("failed to clone some tables", "error", err)
+		s.logger.Error("failed to clone some tables", slog.Any("error", err))
 		return err
 	}
 
@@ -363,7 +370,7 @@ func SnapshotFlowWorkflow(
 	}
 	defer workflow.CompleteSession(sessionCtx)
 
-	if !config.DoInitialSnapshot {
+	if !config.DoInitialSnapshot && !config.InitialSnapshotOnly {
 		if _, err := se.setupReplication(sessionCtx); err != nil {
 			return fmt.Errorf("failed to setup replication: %w", err)
 		}
@@ -375,7 +382,7 @@ func SnapshotFlowWorkflow(
 		return nil
 	}
 
-	if config.InitialSnapshotOnly {
+	if config.InitialSnapshotOnly && config.DoInitialSnapshot {
 		sessionInfo := workflow.GetSessionInfo(sessionCtx)
 
 		exportCtx := workflow.WithActivityOptions(sessionCtx, workflow.ActivityOptions{
@@ -391,6 +398,7 @@ func SnapshotFlowWorkflow(
 			exportCtx,
 			snapshot.MaintainTx,
 			sessionInfo.SessionID,
+			config.FlowJobName,
 			config.SourceName,
 			config.Env,
 		)
@@ -428,8 +436,10 @@ func SnapshotFlowWorkflow(
 		); err != nil {
 			return fmt.Errorf("failed to clone tables: %w", err)
 		}
-	} else if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
-		return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+	} else if config.DoInitialSnapshot {
+		if err := se.cloneTablesWithSlot(ctx, sessionCtx, numTablesInParallel); err != nil {
+			return fmt.Errorf("failed to clone slots and create replication slot: %w", err)
+		}
 	}
 
 	return nil

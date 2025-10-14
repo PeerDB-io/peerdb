@@ -86,12 +86,12 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 		slog.InfoContext(ctx, "Running start maintenance workflow")
 		workflowRun, err := peerflow.RunStartMaintenanceWorkflow(ctx, tc, &protos.StartMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
-			slog.ErrorContext(ctx, "Error running start maintenance workflow", "error", err)
+			slog.ErrorContext(ctx, "Error running start maintenance workflow", slog.Any("error", err))
 			return err
 		}
 		var output *protos.StartMaintenanceFlowOutput
 		if err := workflowRun.Get(ctx, &output); err != nil {
-			slog.ErrorContext(ctx, "Error in start maintenance workflow", "error", err)
+			slog.ErrorContext(ctx, "Error in start maintenance workflow", slog.Any("error", err))
 			return err
 		}
 		slog.InfoContext(ctx, "Start maintenance workflow completed", "output", output)
@@ -113,12 +113,12 @@ func MaintenanceMain(ctx context.Context, args *MaintenanceCLIParams) error {
 		}
 		workflowRun, err := peerflow.RunEndMaintenanceWorkflow(ctx, tc, &protos.EndMaintenanceFlowInput{}, taskQueueId)
 		if err != nil {
-			slog.ErrorContext(ctx, "Error running end maintenance workflow", "error", err)
+			slog.ErrorContext(ctx, "Error running end maintenance workflow", slog.Any("error", err))
 			return err
 		}
 		var output *protos.EndMaintenanceFlowOutput
 		if err := workflowRun.Get(ctx, &output); err != nil {
-			slog.ErrorContext(ctx, "Error in end maintenance workflow", "error", err)
+			slog.ErrorContext(ctx, "Error in end maintenance workflow", slog.Any("error", err))
 			return err
 		}
 		slog.InfoContext(ctx, "End maintenance workflow completed", "output", output)

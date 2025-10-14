@@ -5,6 +5,8 @@ on:
     branches: [main]
   push:
     branches: [main]
+  pull_request_target:
+    branches: [main]
 
 permissions:
   id-token: write
@@ -12,6 +14,11 @@ permissions:
 
 jobs:
   flow_test:
+    if: |
+      (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) ||
+      github.event_name == 'push'
+    environment: ${{ (github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository) && 'external-contributor' || null }}
     strategy:
       fail-fast: false
       matrix:
@@ -41,42 +48,54 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:bc53f37c580d25cde8c6a9081ee45478d9405cabe47e2f224ad5dfd15017e8ea
+        image: redpandadata/redpanda@sha256:bd6c35647153a4dbc19507c8037dcca0802484c23e6e5fbb97591a62539e313a
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.1.3@sha256:05069ffdf546dbb8d1e3f1b9fcf0d8d7e9aa9164d4b85153936e356a4173aba9
+        image: elasticsearch:9.1.5@sha256:9dac882b67afe5161f8988a7ede0e9890145182af83e4e1d4d10631c2f66656f
         ports:
           - 9200:9200
         env:
           discovery.type: single-node
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
-      minio:
-        image: bitnamilegacy/minio:2025.7.23@sha256:8935e75fa5d11295c17171e4aa49efe390a1193cd7f12e4d21b92af9ffef09d7
-        ports:
-          - 9999:9999
-        env:
-          MINIO_ROOT_USER: minio
-          MINIO_ROOT_PASSWORD: miniosecret
-          MINIO_API_PORT_NUMBER: 9999
-          AWS_EC2_METADATA_DISABLED: true
-          MINIO_DEFAULT_BUCKETS: peerdb
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.134.1@sha256:440197291e082dcd225339cc7caabfa8d13414e29779e8b493716cfea385fd9c
+        image: otel/opentelemetry-collector-contrib:0.137.0@sha256:886722fe0f37af9d1fe24d29529253ec59fbf263b3b1df4facaf221373e19d23
         ports:
           - 4317:4317
+      toxiproxy:
+        image: ghcr.io/shopify/toxiproxy:2.12.0@sha256:9378ed52a28bc50edc1350f936f518f31fa95f0d15917d6eb40b8e376d1a214e
+        ports:
+          - 18474:8474
+          - 9902:9902
+          - 9903:9903
+          - 42001:42001
+          - 42002:42002
+          - 42003:42003
+      openssh:
+        image: linuxserver/openssh-server:latest@sha256:018068747bc2463b4031420752c487c79d40ddf1c17f2138a3faeef187a1128e
+        ports:
+          - 2222:2222
+        env:
+          PUID: 1000
+          PGID: 1000
+          TZ: Etc/UTC
+          USER_NAME: testuser
+          USER_PASSWORD: testpass
+          PASSWORD_ACCESS: true
+          DOCKER_MODS: linuxserver/mods:openssh-server-ssh-tunnel
 
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
-
+        with:
+          ref: ${{ github.event_name == 'pull_request_target' && github.event.pull_request.head.sha || github.ref }}
       - name: generate or hydrate protos
         uses: ./.github/actions/genprotos
 
       - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
         with:
-          go-version: '1.25.1'
+          go-version: '1.25.2'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
@@ -117,7 +136,7 @@ jobs:
           json: ${{ secrets.EH_CREDS }}
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@a03048d87541d1d9fcf2ecf528a4a65ba9bd7838 # v5
+        uses: aws-actions/configure-aws-credentials@00943011d9042930efac3dcd3a170e4273319bc8 # v5
         id: setup-aws
         with:
           audience: sts.amazonaws.com
@@ -165,14 +184,43 @@ jobs:
               roles: ["readAnyDatabase", "clusterMonitor"]
             })'
 
-      - name: MinIO TLS
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: cache-minio
+        with:
+          path: ./minio
+          key: ${{ runner.os }}-minio
+
+      - name: Install MinIO Server
+        if: steps.cache-minio.outputs.cache-hit != 'true'
+        run: |
+          curl -O https://dl.min.io/server/minio/release/linux-amd64/minio && chmod +x minio
+
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: cache-minio-client
+        with:
+          path: ./mc
+          key: ${{ runner.os }}-minio-client
+
+      - name: Install MinIO Client
+        if: steps.cache-minio-client.outputs.cache-hit != 'true'
+        run: |
+          curl -O https://dl.min.io/client/mc/release/linux-amd64/mc && chmod +x mc
+
+      - name: MinIO
         run: >
-          mkdir -p certs &&
+          mkdir -p certs minio-data &&
           openssl genrsa -out certs/cert.key 2048 &&
           openssl req -new -key certs/cert.key -out certs/cert.csr -subj /CN=minio.local &&
           openssl x509 -req -days 3650 -in certs/cert.csr -signkey certs/cert.key -out certs/cert.crt &&
           chown -R 1001 certs &&
-          docker run -d --rm --name miniotls -p 9998:9998 -v "$PWD/certs:/certs" -e MINIO_SCHEME=https bitnamilegacy/minio:latest
+          ./minio server ./minio-data --certs-dir ./certs --address :9999 &
+          sleep 2 &&
+          ./mc alias set myminiopeerdb http://localhost:9999 minio miniosecret &&
+          ./mc mb myminiopeerdb/peerdb
+        env:
+          MINIO_ROOT_USER: minio
+          MINIO_ROOT_PASSWORD: miniosecret
+          AWS_EC2_METADATA_DISABLED: true
 
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
@@ -189,7 +237,7 @@ jobs:
         env:
           PGPASSWORD: postgres
 
-      - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         id: cache-clickhouse
         with:
           path: ./clickhouse
@@ -352,7 +400,9 @@ jobs:
           curl -fsSL -o aws-global-bundle.pem "$URL"
           sudo csplit -b '%02d.crt' -s -z -f /usr/local/share/ca-certificates/aws-global-split-- aws-global-bundle.pem '/-----BEGIN CERTIFICATE-----/' '{*}'
           sudo update-ca-certificates
-
+      - name: Install gotestsum
+        run: |
+          go install gotest.tools/gotestsum@latest
       - name: run tests
         run: |
           temporal server start-dev --namespace default --headless &
@@ -362,7 +412,7 @@ jobs:
           ./peer-flow worker &
           ./peer-flow snapshot-worker &
           ./peer-flow api --port 8112 --gateway-port 8113 &
-          go test -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
+          gotestsum --format standard-quiet --no-color --junitfile ../test-results.xml -- -cover -coverpkg github.com/PeerDB-io/peerdb/flow/... -p 32 ./... -timeout 900s -args -test.gocoverdir="$PWD/coverage"
           killall peer-flow
           sleep 1
           go tool covdata textfmt -i=coverage -o ../coverage.out
@@ -408,6 +458,7 @@ jobs:
           CI_MONGO_URI: mongodb://localhost:27017
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
+          TOXIPROXY_POSTGRES_HOST: catalog
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
@@ -432,6 +483,13 @@ jobs:
           FLOW_TESTS_AWS_SECRET_ACCESS_KEY: ${{ steps.setup-aws.outputs.aws-secret-access-key }}
           FLOW_TESTS_AWS_SESSION_TOKEN: ${{ steps.setup-aws.outputs.aws-session-token }}
 
+      - name: Upload test results to Codecov
+        if: success() || failure()
+        uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
+        with:
+          report_type: test_results
+          files: test-results.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
         with:

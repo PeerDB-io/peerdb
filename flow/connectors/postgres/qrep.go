@@ -23,6 +23,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/otel_metrics"
 	"github.com/PeerDB-io/peerdb/flow/shared"
+	"github.com/PeerDB-io/peerdb/flow/shared/exceptions"
 )
 
 const qRepMetadataTableName = "_peerdb_query_replication_metadata"
@@ -135,7 +136,8 @@ func (c *PostgresConnector) setTransactionSnapshot(ctx context.Context, tx pgx.T
 	if snapshot != "" {
 		if _, err := tx.Exec(ctx, "SET TRANSACTION SNAPSHOT "+utils.QuoteLiteral(snapshot)); err != nil {
 			if shared.IsSQLStateError(err, pgerrcode.UndefinedObject, pgerrcode.InvalidParameterValue) {
-				return temporal.NewNonRetryableApplicationError("failed to set transaction snapshot", "snapshot", err)
+				return temporal.NewNonRetryableApplicationError("failed to set transaction snapshot",
+					exceptions.ApplicationErrorTypeIrrecoverableInvalidSnapshot.String(), err)
 			}
 			return fmt.Errorf("failed to set transaction snapshot: %w", err)
 		}
@@ -384,11 +386,13 @@ func (c *PostgresConnector) PullQRepRecords(
 	ctx context.Context,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, error) {
 	return corePullQRepRecords(c, ctx, config, partition, &RecordStreamSink{
-		QRecordStream: stream,
+		QRecordStream:   stream,
+		DestinationType: dstType,
 	})
 }
 
@@ -396,6 +400,7 @@ func (c *PostgresConnector) PullPgQRepRecords(
 	ctx context.Context,
 	_otelManager *otel_metrics.OtelManager,
 	config *protos.QRepConfig,
+	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream PgCopyWriter,
 ) (int64, int64, error) {
@@ -479,7 +484,8 @@ func (c *PostgresConnector) SyncQRepRecords(
 	stream *model.QRecordStream,
 ) (int64, shared.QRepWarnings, error) {
 	return syncQRepRecords(c, ctx, config, partition, RecordStreamSink{
-		QRecordStream: stream,
+		QRecordStream:   stream,
+		DestinationType: protos.DBType_POSTGRES,
 	})
 }
 
@@ -709,17 +715,20 @@ func (c *PostgresConnector) SetupQRepMetadataTables(ctx context.Context, config 
 func (c *PostgresConnector) PullXminRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
+	dstType protos.DBType,
 	partition *protos.QRepPartition,
 	stream *model.QRecordStream,
 ) (int64, int64, int64, error) {
 	return pullXminRecordStream(c, ctx, config, partition, RecordStreamSink{
-		QRecordStream: stream,
+		QRecordStream:   stream,
+		DestinationType: dstType,
 	})
 }
 
 func (c *PostgresConnector) PullXminPgRecordStream(
 	ctx context.Context,
 	config *protos.QRepConfig,
+	_dstType protos.DBType,
 	partition *protos.QRepPartition,
 	pipe PgCopyWriter,
 ) (int64, int64, int64, error) {

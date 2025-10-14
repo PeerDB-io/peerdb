@@ -15,6 +15,8 @@ import (
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
+	proto2 "google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/PeerDB-io/peerdb/flow/alerting"
@@ -74,32 +76,69 @@ func (a *MaintenanceActivity) WaitForRunningSnapshotsAndIntermediateStates(
 	if err != nil {
 		return nil, err
 	}
+	for {
+		checkStartTime := time.Now()
+		slog.InfoContext(ctx, "Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
 
-	slog.InfoContext(ctx, "Found mirrors for snapshot check", "mirrors", mirrors, "len", len(mirrors.Mirrors))
-
-	for _, mirror := range mirrors.Mirrors {
-		if _, shouldSkip := skippedFlows[mirror.MirrorName]; shouldSkip {
-			slog.WarnContext(ctx, "Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
-			continue
+		for _, mirror := range mirrors.Mirrors {
+			if _, shouldSkip := skippedFlows[mirror.MirrorName]; shouldSkip {
+				slog.WarnContext(ctx, "Skipping wait for mirror as it was in the skippedFlows", "mirror", mirror.MirrorName)
+				continue
+			}
+			lastStatus, err := a.checkAndWaitIfNeeded(ctx, mirror, 2*time.Minute)
+			if err != nil {
+				return nil, err
+			}
+			slog.InfoContext(ctx, "Finished checking and waiting for snapshot",
+				"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
 		}
-		lastStatus, err := a.checkAndWaitIfNeeded(ctx, mirror, 2*time.Minute)
+		slog.InfoContext(ctx, "Finished checking and waiting for all mirrors to finish snapshot")
+
+		// New mirrors can come in while we wait, so we check for new ones and retry waiting if we find any
+		mirrors, err = a.GetAllMirrors(ctx)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("failed to get mirrors during new mirror check: %w", err)
 		}
-		slog.InfoContext(ctx, "Finished checking and waiting for snapshot",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "lastStatus", lastStatus.String())
+		allMirrorsChecked := true
+		for _, mirror := range mirrors.Mirrors {
+			if mirror.MirrorCreatedAt.AsTime().After(checkStartTime) || mirror.MirrorUpdatedAt.AsTime().After(checkStartTime) {
+				slog.WarnContext(ctx, "Found a new mirror while checking for snapshots",
+					slog.String("mirror", mirror.MirrorName), slog.Any("info", mirror))
+				allMirrorsChecked = false
+				break
+			}
+		}
+		if allMirrorsChecked {
+			break
+		}
 	}
-	slog.InfoContext(ctx, "Finished checking and waiting for all mirrors to finish snapshot")
 	return mirrors, nil
 }
 
-var waitStatuses map[protos.FlowStatus]struct{} = map[protos.FlowStatus]struct{}{
-	protos.FlowStatus_STATUS_SNAPSHOT:  {},
-	protos.FlowStatus_STATUS_SETUP:     {},
-	protos.FlowStatus_STATUS_RESYNC:    {},
-	protos.FlowStatus_STATUS_UNKNOWN:   {},
-	protos.FlowStatus_STATUS_PAUSING:   {},
-	protos.FlowStatus_STATUS_MODIFYING: {},
+var waitStatuses = buildWaitStatuses()
+
+func buildWaitStatuses() map[protos.FlowStatus]struct{} {
+	waitStatuses := make(map[protos.FlowStatus]struct{})
+
+	for index := range protos.FlowStatus_name {
+		flowStatus := protos.FlowStatus(index)
+
+		// Get the enum value descriptor
+		enumValueDesc := flowStatus.Descriptor().Values().ByNumber(protoreflect.EnumNumber(index))
+		if enumValueDesc == nil {
+			continue
+		}
+
+		// Get the extension value from the enum value options
+		if proto2.HasExtension(enumValueDesc.Options(), protos.E_PeerdbMaintenanceWait) {
+			waitValue := proto2.GetExtension(enumValueDesc.Options(), protos.E_PeerdbMaintenanceWait)
+			if boolVal, ok := waitValue.(bool); ok && boolVal {
+				waitStatuses[flowStatus] = struct{}{}
+			}
+		}
+	}
+
+	return waitStatuses
 }
 
 func (a *MaintenanceActivity) checkAndWaitIfNeeded(
@@ -163,87 +202,87 @@ func (a *MaintenanceActivity) PauseMirrorIfRunning(ctx context.Context, mirror *
 	logger := slog.With("mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId)
 	mirrorStatus, err := a.getMirrorStatus(ctx, mirror)
 	if err != nil {
-		logger.Warn("Error getting mirror status", "error", err)
+		logger.WarnContext(ctx, "Error getting mirror status", slog.Any("error", err))
 		var notFoundErr *serviceerror.NotFound
 		if errors.As(err, &notFoundErr) && workflowNotFoundMessageRe.MatchString(notFoundErr.Message) {
-			logger.Warn("Received a workflow not found error, checking if the workflow is missing and if it is older than 90 days",
+			logger.WarnContext(ctx, "Received a workflow not found error, checking if the workflow is missing and if it is older than 90 days",
 				"error", err, "temporalCertAuth", internal.PeerDBTemporalEnableCertAuth())
 			// This is max temporal retention period, but this is mirror update time, not deletion time, so it is not accurate
 			if mirror.MirrorUpdatedAt.AsTime().Before(time.Now().Add(-90*24*time.Hour)) &&
 				// We are in Temporal Cloud
 				internal.PeerDBTemporalEnableCertAuth() {
 				// workflow not found for ID: mirror_d1e3f532__8adb__4f79__9d00__01e44b6bcbfb-peerflow-27144d2c-06ce-4552-87e5-696b3a909702
-				logger.Warn("Workflow not found in Temporal Cloud and mirror update_at is older than 90 days, checking for existing workflows")
+				logger.WarnContext(ctx, "Workflow not found in Temporal Cloud and mirror is old, checking for existing workflows")
 				response, wErr := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
 					Query: fmt.Sprintf("`MirrorName`=\"%s\"",
 						mirror.MirrorName),
 				})
 				if wErr != nil {
-					logger.Error("Error checking for ANY existing Workflows", "error", wErr)
+					logger.ErrorContext(ctx, "Error checking for ANY existing Workflows", "error", wErr)
 					return false, wErr
 				}
-				logger.Info("Received response for ANY existing Workflows check", "len(executions)", len(response.Executions))
+				logger.InfoContext(ctx, "Received response for ANY existing Workflows check", "len(executions)", len(response.Executions))
 				if len(response.Executions) == 0 {
-					logger.Warn("No existing workflows found, skipping pause")
+					logger.WarnContext(ctx, "No existing workflows found, skipping pause")
 					return false, nil
 				}
 				foundWorkflowIds := make([]string, len(response.Executions))
 				for i, exec := range response.Executions {
-					logger.Info("Found existing CDCFlow", "workflowId", exec.GetExecution().GetWorkflowId())
+					logger.InfoContext(ctx, "Found existing CDCFlow", "workflowId", exec.GetExecution().GetWorkflowId())
 					foundWorkflowIds[i] = exec.GetExecution().GetWorkflowId()
 				}
-				logger.Warn("Found some existing CDCFlow, this is unexpected and should be investigated",
+				logger.WarnContext(ctx, "Found some existing CDCFlow, this is unexpected and should be investigated",
 					"foundWorkflows", foundWorkflowIds)
 			}
 		}
 		return false, err
 	}
 
-	logger.Info("Checking if mirror is running", "status", mirrorStatus.String())
+	logger.InfoContext(ctx, "Checking if mirror is running", "status", mirrorStatus.String())
 
 	if mirrorStatus != protos.FlowStatus_STATUS_RUNNING {
 		return false, nil
 	}
 
-	logger.Info("Pausing mirror for maintenance")
+	logger.InfoContext(ctx, "Pausing mirror for maintenance")
 
 	if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.PauseSignal); err != nil {
-		logger.Error("Error signaling mirror to pause for maintenance", "error", err)
+		logger.ErrorContext(ctx, "Error signaling mirror to pause for maintenance", slog.Any("error", err))
 		// Is the CDC flow missing?
 		var notFoundErr *serviceerror.NotFound
 		if errors.As(err, &notFoundErr) && notFoundErr.Message == "workflow execution already completed" {
-			logger.Info("Workflow execution already completed, checking for existing DropFlow")
+			logger.InfoContext(ctx, "Workflow execution already completed, checking for existing DropFlow")
 			// Check if we are actively trying to drop the mirror
 			response, wErr := a.TemporalClient.ListWorkflow(ctx, &workflowservice.ListWorkflowExecutionsRequest{
 				Query: fmt.Sprintf("`MirrorName`=\"%s\" AND `WorkflowType`=\"DropFlowWorkflow\" AND `ExecutionStatus`=\"Running\"",
 					mirror.MirrorName),
 			})
 			if wErr != nil {
-				logger.Error("Error checking for existing DropFlow", "error", wErr)
+				logger.ErrorContext(ctx, "Error checking for existing DropFlow", "error", wErr)
 				return false, wErr
 			}
-			logger.Info("Received response for DropFlow check", "len(executions)", len(response.Executions))
+			logger.InfoContext(ctx, "Received response for DropFlow check", "len(executions)", len(response.Executions))
 			if len(response.Executions) > 0 {
 				// We can skip if we find a running DropFlow
 				foundWorkflowIds := make([]string, len(response.Executions))
 				for i, exec := range response.Executions {
 					foundWorkflowIds[i] = exec.GetExecution().GetWorkflowId()
 				}
-				logger.Warn("Found existing DropFlow, skipping pause", "foundDropFlows", foundWorkflowIds,
+				logger.WarnContext(ctx, "Found existing DropFlow, skipping pause", "foundDropFlows", foundWorkflowIds,
 					"len(foundDropFlows)", len(foundWorkflowIds),
 				)
 				return false, nil
 			} else {
 				// Maybe the drop flow is already completed, but relying on a completed state can be error-prone, so we check flows table
-				logger.Warn("No running DropFlow found, checking if mirror exists in flows table")
+				logger.WarnContext(ctx, "No running DropFlow found, checking if mirror exists in flows table")
 				var exists bool
 				err := a.CatalogPool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM flows WHERE name = $1)", mirror.MirrorName).Scan(&exists)
 				if err != nil {
-					logger.Error("Error checking if flow exists", "error", err)
+					logger.ErrorContext(ctx, "Error checking if flow exists", slog.Any("error", err))
 					return false, err
 				}
 				if !exists {
-					logger.Warn("Mirror does not exist in flows table, skipping pause")
+					logger.WarnContext(ctx, "Mirror does not exist in flows table, skipping pause")
 					return false, nil
 				}
 			}
@@ -320,7 +359,7 @@ func (a *MaintenanceActivity) ResumeMirror(ctx context.Context, mirror *protos.M
 	// There can also be "workflow already completed" errors, what should we do in that case?
 	if err := model.FlowSignal.SignalClientWorkflow(ctx, a.TemporalClient, mirror.WorkflowId, "", model.NoopSignal); err != nil {
 		slog.ErrorContext(ctx, "Error signaling mirror to resume for maintenance",
-			"mirror", mirror.MirrorName, "workflowId", mirror.WorkflowId, "error", err)
+			slog.String("mirror", mirror.MirrorName), slog.String("workflowId", mirror.WorkflowId), slog.Any("error", err))
 		return err
 	}
 	return nil

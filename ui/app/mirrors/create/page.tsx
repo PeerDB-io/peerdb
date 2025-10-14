@@ -30,7 +30,11 @@ import {
   handleValidateCDC,
 } from './handlers';
 import { cdcSettings } from './helpers/cdc';
-import { blankCDCSetting, blankQRepSetting } from './helpers/common';
+import {
+  blankCDCSetting,
+  blankQRepSetting,
+  cdcSourceDefaults,
+} from './helpers/common';
 import { qrepSettings } from './helpers/qrep';
 import MirrorCards from './mirrorcards';
 import QRepConfigForm from './qrep/qrep';
@@ -70,9 +74,9 @@ export default function CreateMirrors() {
   const [validating, setValidating] = useState<boolean>(false);
   const [qrepConfig, setQrepConfig] = useState<QRepConfig>(blankQRepSetting);
   const [cdcConfig, setCdcConfig] = useState<CDCConfig>(blankCDCSetting);
-  const [sourceType, setSourceType] = useState<DBType>(DBType.UNRECOGNIZED);
+  const [sourceType, setSourceType] = useState<DBType>(DBType.DBTYPE_UNKNOWN);
   const [destinationType, setDestinationType] = useState<DBType>(
-    DBType.UNRECOGNIZED
+    DBType.DBTYPE_UNKNOWN
   );
   const [sourcePeers, setSourcePeers] = useState<PeerListItem[]>([]);
   const [destinationPeers, setDestinationPeers] = useState<PeerListItem[]>([]);
@@ -99,6 +103,14 @@ export default function CreateMirrors() {
       sourceName: peer.name,
     }));
     setSourceType(peer.type);
+
+    const typeDefaults = cdcSourceDefaults[peer.type];
+    if (typeDefaults) {
+      setCdcConfig((curr) => ({
+        ...curr,
+        ...typeDefaults,
+      }));
+    }
   }, []);
 
   const setDestinationPeer = useCallback((peer: SingleValue<PeerListItem>) => {
