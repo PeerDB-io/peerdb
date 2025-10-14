@@ -593,8 +593,9 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			)
 		}
 
-		stream := model.NewQRecordStream(shared.FetchAndChannelSize)
-		outstream := stream
+		var luaScript *lua.LFunction
+		var luaState *lua.LState
+
 		if config.Script != "" {
 			ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
 				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
@@ -603,11 +604,19 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 				return nil, err
 			}
 			if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
-				outstream = pua.AttachToStream(ls, fn, stream)
+				luaState = ls
+				luaScript = fn
 			}
 		}
 
 		return func(partition *protos.QRepPartition) error {
+			stream := model.NewQRecordStream(shared.FetchAndChannelSize)
+			outstream := stream
+
+			if luaScript != nil {
+				outstream = pua.AttachToStream(luaState, luaScript, stream)
+			}
+
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, outstream,
 				connectors.QRepPullConnector.PullQRepRecords,
 				connectors.QRepSyncConnector.SyncQRepRecords,
@@ -629,9 +638,9 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			)
 		}
 
-		stream := model.NewQObjectStream(shared.FetchAndChannelSize)
-
 		return func(partition *protos.QRepPartition) error {
+			stream := model.NewQObjectStream(shared.FetchAndChannelSize)
+
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, stream, stream,
 				connectors.QRepPullObjectsConnector.PullQRepObjects,
 				connectors.QRepSyncObjectsConnector.SyncQRepObjects,
@@ -650,9 +659,9 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 			return nil, fmt.Errorf("source connector is PostgresConnector but destination connector is not, got %T", qRepSyncCoreConn)
 		}
 
-		read, write := connpostgres.NewPgCopyPipe()
-
 		return func(partition *protos.QRepPartition) error {
+			read, write := connpostgres.NewPgCopyPipe()
+
 			return replicateQRepPartition(ctx, a, srcConn, destConn, dstPeer.Type, config, partition, runUUID, write, read,
 				(*connpostgres.PostgresConnector).PullPgQRepRecords,
 				(*connpostgres.PostgresConnector).SyncPgQRepRecords,
