@@ -142,6 +142,9 @@ var (
 	ErrorNotifyInvalidSnapshotIdentifier = ErrorClass{
 		Class: "NOTIFY_INVALID_SNAPSHOT_IDENTIFIER", action: NotifyUser,
 	}
+	ErrorNotifyInvalidSynchronizedStandbySlots = ErrorClass{
+		Class: "NOTIFY_INVALID_SYNCHRONIZED_STANDBY_SLOTS", action: NotifyUser,
+	}
 	ErrorNotifyTerminate = ErrorClass{
 		Class: "NOTIFY_TERMINATE", action: NotifyUser,
 	}
@@ -524,6 +527,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		case pgerrcode.InvalidParameterValue:
 			if strings.Contains(pgErr.Message, "invalid snapshot identifier") {
 				return ErrorNotifyInvalidSnapshotIdentifier, pgErrorInfo
+			}
+
+			if strings.Contains(pgErr.Message, "synchronized_standby_slots") {
+				return ErrorNotifyInvalidSynchronizedStandbySlots, pgErrorInfo
 			}
 
 		case pgerrcode.TooManyConnections, // Maybe we can return something else?

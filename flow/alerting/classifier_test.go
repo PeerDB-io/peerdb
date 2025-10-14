@@ -276,6 +276,20 @@ func TestPostgresSnapshotDoesNotExistErrorShouldBeInvalidSnapshot(t *testing.T) 
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InvalidParameterValue,
+		Message:  `"synchronized_standby_slots"`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("failed to query for total rows: %w", err))
+	assert.Equal(t, ErrorNotifyInvalidSynchronizedStandbySlots, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InvalidParameterValue,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresStaleFileHandleErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a stale file handle error
 	err := &exceptions.PostgresWalError{
