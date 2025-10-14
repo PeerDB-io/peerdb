@@ -63,7 +63,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 			errors.New("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
-	for _, tm := range req.ConnectionConfigs.TableMappings {
+	for _, tm := range req.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
 				return nil, NewInvalidArgumentApiError(errors.New("invalid custom column type " + col.DestinationType))
@@ -82,7 +82,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	if err := srcConn.ValidateMirrorSource(ctx, req.ConnectionConfigs); err != nil {
+	if err := srcConn.ValidateMirrorSource(ctx, req.ConnectionConfigs, req.TableMappings); err != nil {
 		return nil, NewFailedPreconditionApiError(
 			fmt.Errorf("failed to validate source connector %s: %w", req.ConnectionConfigs.SourceName, err))
 	}
@@ -102,12 +102,12 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	if !req.ConnectionConfigs.Resync {
 		var getTableSchemaError error
 		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
-			req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
+			req.ConnectionConfigs.System, req.TableMappings)
 		if getTableSchemaError != nil {
 			return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get source table schema: %w", getTableSchemaError))
 		}
 	}
-	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap); err != nil {
+	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap, req.TableMappings); err != nil {
 		return nil, NewFailedPreconditionApiError(
 			fmt.Errorf("failed to validate destination connector %s: %w", req.ConnectionConfigs.DestinationName, err))
 	}

@@ -55,6 +55,33 @@ func heartbeatRoutine(
 	)
 }
 
+//func (a *FlowableActivity) getTableMappings(ctx context.Context, flowName string, version uint) ([]*protos.TableMapping, error) {
+//rows, err := a.CatalogPool.Query(ctx, "select table_mapping from table_mappings where flow_name = $1 AND version = $2", flowName, version)
+//if err != nil {
+//return nil, err
+//}
+
+//var tableMappingsBytes [][]byte
+//var tableMappings []*protos.TableMapping = []*protos.TableMapping{}
+
+//err = rows.Scan([]any{&tableMappingsBytes})
+//if err != nil {
+//return nil, fmt.Errorf("failed to deserialize table mapping schema proto: %w", err)
+//}
+
+//for _, tableMappingBytes := range tableMappingsBytes {
+
+//var tableMapping *protos.TableMapping
+//if err := proto.Unmarshal(tableMappingBytes, tableMapping); err != nil {
+//return nil, err
+//}
+
+//tableMappings = append(tableMappings, tableMapping)
+//}
+
+//return tableMappings, nil
+//}
+
 func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowName string) (map[string]*protos.TableSchema, error) {
 	rows, err := a.CatalogPool.Query(ctx, "select table_name, table_schema from table_schema_mapping where flow_name = $1", flowName)
 	if err != nil {
@@ -658,13 +685,18 @@ func (a *FlowableActivity) startNormalize(
 		return fmt.Errorf("failed to get table name schema mapping: %w", err)
 	}
 
+	tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
+	if err != nil {
+		return err
+	}
+
 	for {
 		logger.Info("normalizing batch", slog.Int64("syncBatchID", batchID))
 		res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 			FlowJobName:            config.FlowJobName,
 			Env:                    config.Env,
 			TableNameSchemaMapping: tableNameSchemaMapping,
-			TableMappings:          config.TableMappings,
+			TableMappings:          tableMappings,
 			SoftDeleteColName:      config.SoftDeleteColName,
 			SyncedAtColName:        config.SyncedAtColName,
 			SyncBatchID:            batchID,
