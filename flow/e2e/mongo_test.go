@@ -296,6 +296,7 @@ func (s MongoClickhouseSuite) Test_Document_With_Dots_In_Keys() {
 	}
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
 
 	adminClient := s.Source().(*MongoSource).AdminClient()
 	collection := adminClient.Database(srcDatabase).Collection(srcTable)
@@ -338,6 +339,7 @@ func (s MongoClickhouseSuite) Test_Document_With_Dots_In_Keys() {
 	flowConnConfigOld := connectionGenOld.GenerateFlowConnectionConfigs(s)
 	flowConnConfigOld.DoInitialSnapshot = true
 	flowConnConfigOld.Env = map[string]string{
+		"PEERDB_CLICKHOUSE_ENABLE_JSON": "true",
 		"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(shared.IntervalVersion_MongoDBFullDocumentColumnToDoc), 10),
 	}
 	flowConnConfigOld.Version = shared.IntervalVersion_MongoDBFullDocumentColumnToDoc
