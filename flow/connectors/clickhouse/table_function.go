@@ -150,7 +150,6 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 	query.WriteString(baseQuery)
 
 	if totalPartitions > 1 {
-
 		// Get the first field for hash partitioning
 		if len(config.schema.Fields) == 0 {
 			return "", errors.New("schema has no fields for partitioning")

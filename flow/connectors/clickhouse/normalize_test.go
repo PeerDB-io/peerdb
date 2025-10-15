@@ -3,10 +3,10 @@ package connclickhouse
 import (
 	"testing"
 
-	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 

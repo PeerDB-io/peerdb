@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
+
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
