@@ -135,7 +135,7 @@ func CleanupBQ(ctx context.Context) {
 		if handleIteratorError(err) {
 			break
 		}
-		if strings.HasPrefix(topic.Name, "e2e") {
+		if strings.Contains(topic.Name, "/topics/e2e") {
 			if err := psclient.TopicAdminClient.DeleteTopic(ctx, &pubsubpb.DeleteTopicRequest{Topic: topic.Name}); err != nil {
 				panic(err)
 			}
@@ -148,7 +148,7 @@ func CleanupBQ(ctx context.Context) {
 		if handleIteratorError(err) {
 			break
 		}
-		if strings.HasPrefix(subscription.Name, "e2e") {
+		if strings.Contains(subscription.Name, "/subscriptions/e2e") {
 			if err := psclient.SubscriptionAdminClient.DeleteSubscription(ctx, &pubsubpb.DeleteSubscriptionRequest{
 				Subscription: subscription.Name,
 			}); err != nil {
