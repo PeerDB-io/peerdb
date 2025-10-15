@@ -66,5 +66,5 @@ func TestBuildSettingsStr(t *testing.T) {
 		"max_block_size": "65536",
 	}
 	result = buildSettingsStr(settings)
-	require.Equal(t, " SETTINGS max_threads=8, max_block_size=65536", result)
+	require.Equal(t, " SETTINGS max_block_size=65536, max_threads=8", result)
 }
