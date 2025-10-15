@@ -8,7 +8,7 @@ import (
 	"regexp"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
-	"github.com/PeerDB-io/peerdb/flow/generated/conversions"
+	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -19,7 +19,8 @@ var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
-	return h.validateCDCMirrorImpl(ctx, conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs), false)
+	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
+	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
 }
 
 func (h *FlowRequestHandler) validateCDCMirrorImpl(

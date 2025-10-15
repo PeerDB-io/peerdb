@@ -18,7 +18,6 @@ import (
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
-	"github.com/PeerDB-io/peerdb/flow/generated/conversions"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -26,7 +25,6 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 //go:embed test_data/*
@@ -502,11 +500,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 
-	env = ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
-		FlowJobName:           flowConnConfig.FlowJobName,
-		DropFlowStats:         false,
-		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(flowConnConfig),
-	})
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
 	// now test weird names with rename based resync
@@ -525,11 +519,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 
-	env = ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
-		FlowJobName:           flowConnConfig.FlowJobName,
-		DropFlowStats:         false,
-		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(flowConnConfig),
-	})
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	// now test weird names with exchange based resync
 	ch, err = connclickhouse.Connect(s.t.Context(), nil, s.Peer().GetClickhouseConfig())
@@ -2459,11 +2449,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
-	env = ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
-		FlowJobName:           flowConnConfig.FlowJobName,
-		DropFlowStats:         false,
-		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(flowConnConfig),
-	})
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf("ALTER TABLE %s DROP COLUMN val", srcFullName)))

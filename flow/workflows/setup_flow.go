@@ -178,7 +178,7 @@ func (s *SetupFlowExecution) createRawTable(
 // fetchTableSchemaAndSetupNormalizedTables fetches the table schema for the source table and
 // sets up the normalized tables on the destination peer.
 func (s *SetupFlowExecution) setupNormalizedTables(
-	ctx workflow.Context, FlowConnectionConfigsCore *protos.FlowConnectionConfigsCore,
+	ctx workflow.Context, flowConnectionConfigs *protos.FlowConnectionConfigsCore,
 ) error {
 	s.Info("fetching table schema for peer flow")
 
@@ -191,12 +191,12 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 	})
 
 	tableSchemaInput := &protos.SetupTableSchemaBatchInput{
-		PeerName:      FlowConnectionConfigsCore.SourceName,
-		TableMappings: FlowConnectionConfigsCore.TableMappings,
+		PeerName:      flowConnectionConfigs.SourceName,
+		TableMappings: flowConnectionConfigs.TableMappings,
 		FlowName:      s.cdcFlowName,
-		System:        FlowConnectionConfigsCore.System,
-		Env:           FlowConnectionConfigsCore.Env,
-		Version:       FlowConnectionConfigsCore.Version,
+		System:        flowConnectionConfigs.System,
+		Env:           flowConnectionConfigs.Env,
+		Version:       flowConnectionConfigs.Version,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.SetupTableSchema, tableSchemaInput).Get(ctx, nil); err != nil {
@@ -204,15 +204,15 @@ func (s *SetupFlowExecution) setupNormalizedTables(
 		return fmt.Errorf("failed to fetch schema for source tables: %w", err)
 	}
 
-	s.Info("setting up normalized tables on destination peer", slog.String("destination", FlowConnectionConfigsCore.DestinationName))
+	s.Info("setting up normalized tables on destination peer", slog.String("destination", flowConnectionConfigs.DestinationName))
 	setupConfig := &protos.SetupNormalizedTableBatchInput{
-		PeerName:          FlowConnectionConfigsCore.DestinationName,
-		TableMappings:     FlowConnectionConfigsCore.TableMappings,
-		SoftDeleteColName: FlowConnectionConfigsCore.SoftDeleteColName,
-		SyncedAtColName:   FlowConnectionConfigsCore.SyncedAtColName,
-		FlowName:          FlowConnectionConfigsCore.FlowJobName,
-		Env:               FlowConnectionConfigsCore.Env,
-		IsResync:          FlowConnectionConfigsCore.Resync,
+		PeerName:          flowConnectionConfigs.DestinationName,
+		TableMappings:     flowConnectionConfigs.TableMappings,
+		SoftDeleteColName: flowConnectionConfigs.SoftDeleteColName,
+		SyncedAtColName:   flowConnectionConfigs.SyncedAtColName,
+		FlowName:          flowConnectionConfigs.FlowJobName,
+		Env:               flowConnectionConfigs.Env,
+		IsResync:          flowConnectionConfigs.Resync,
 	}
 
 	if err := workflow.ExecuteActivity(ctx, flowable.CreateNormalizedTable, setupConfig).Get(ctx, nil); err != nil {

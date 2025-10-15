@@ -22,7 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
-	"github.com/PeerDB-io/peerdb/flow/generated/conversions"
+	pconv "github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -179,7 +179,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// No running workflow, do the validations and start a new one
 
 	// Use idempotent validation that skips mirror existence check
-	connectionConfigsCore := conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs)
+	connectionConfigsCore := pconv.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
 	if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
 		slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
@@ -299,7 +299,7 @@ func (h *FlowRequestHandler) dropFlow(
 	if dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowJobName,
 		DropFlowStats:         deleteStats,
-		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(cdcConfig),
+		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig, 0),
 		SkipDestinationDrop:   true,
 		SkipSourceDrop:        true,
 	}); err != nil {
@@ -357,7 +357,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowJobName,
 		DropFlowStats:         deleteStats,
-		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(cdcConfig),
+		FlowConnectionConfigs: pconv.FlowConnectionConfigsToCore(cdcConfig, 0),
 		SkipDestinationDrop:   skipDestinationDrop,
 		// NOTE: Resync is false here during snapshot-only resync
 	})

@@ -50,6 +50,7 @@ message SetupInput {
 }
 
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
+// When adding fields here, add them to FlowConnectionConfigsCore too
 message FlowConnectionConfigs {
   reserved 2,3,17;
   string flow_job_name = 1;
@@ -92,9 +93,10 @@ message FlowConnectionConfigs {
   uint32 version = 25;
 }
 
-// FlowConnectionConfigsCore is used internally in the codebase,
-// it is safe to remove fields from it.
-// Equivalence between the two is enforced by a test
+// FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
+// It still needs to be a proto because Temporal
+// When adding fields here, add them to FlowConnectionConfigs too
+// Equivalence with FlowConnectionConfigs is enforced during codegen
 message FlowConnectionConfigsCore {
   reserved 2,3,17;
   string flow_job_name = 1;

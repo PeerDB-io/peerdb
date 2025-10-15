@@ -11,11 +11,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/PeerDB-io/peerdb/flow/generated/conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
-	peerflow "github.com/PeerDB-io/peerdb/flow/workflows"
 )
 
 func (s PeerFlowE2ETestSuitePG) attachSchemaSuffix(tableName string) string {
@@ -1278,11 +1276,7 @@ func (s PeerFlowE2ETestSuitePG) TestResync(tableName string) {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 
-	env = ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
-		FlowJobName:           flowConnConfig.FlowJobName,
-		DropFlowStats:         false,
-		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(flowConnConfig),
-	})
+	env = ExecuteDropFlow(s.t.Context(), tc, flowConnConfig, 0)
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
 	flowConnConfig.Resync = true
