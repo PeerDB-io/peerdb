@@ -282,6 +282,14 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	}
 	numParts = max(numParts, 1)
 
+	settings := map[string]string{
+		"throw_on_max_partitions_per_insert_block": "0",
+		"type_json_skip_duplicated_paths":          "1",
+	}
+	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
+		settings["json_type_escape_dots_in_keys"] = "1"
+	}
+
 	// Process each chunk file individually
 	for chunkIdx, avroFile := range avroFiles {
 		s.logger.Info("processing chunk",
@@ -305,17 +313,10 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 
 			var query string
 			if numParts > 1 {
-				query, err = buildInsertFromTableFunctionQueryWithPartitioning(
-					ctx, insertConfig, s3TableFunction, i, numParts)
+				query, err = buildInsertFromTableFunctionQueryWithPartitioning(ctx, insertConfig, s3TableFunction, i, numParts, settings)
 			} else {
-				baseQuery, buildErr := buildInsertFromTableFunctionQuery(ctx, insertConfig, s3TableFunction)
-				if buildErr != nil {
-					err = buildErr
-				} else {
-					query = baseQuery + " SETTINGS throw_on_max_partitions_per_insert_block = 0"
-				}
+				query, err = buildInsertFromTableFunctionQuery(ctx, insertConfig, s3TableFunction, settings)
 			}
-
 			if err != nil {
 				s.logger.Error("failed to build insert query",
 					slog.String("avroFilePath", avroFile.FilePath),
