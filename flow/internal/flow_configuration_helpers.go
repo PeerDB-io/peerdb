@@ -11,7 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/shared"
 )
 
-func FetchConfigFromDB(ctx context.Context, catalogPool shared.CatalogPool, flowName string) (*protos.FlowConnectionConfigs, error) {
+func FetchConfigFromDB(ctx context.Context, catalogPool shared.CatalogPool, flowName string) (*protos.FlowConnectionConfigsCore, error) {
 	var configBytes sql.RawBytes
 	if err := catalogPool.QueryRow(ctx,
 		"SELECT config_proto FROM flows WHERE name = $1 LIMIT 1", flowName,
@@ -19,7 +19,7 @@ func FetchConfigFromDB(ctx context.Context, catalogPool shared.CatalogPool, flow
 		return nil, fmt.Errorf("unable to query flow config from catalog: %w", err)
 	}
 
-	var cfgFromDB protos.FlowConnectionConfigs
+	var cfgFromDB protos.FlowConnectionConfigsCore
 	if err := proto.Unmarshal(configBytes, &cfgFromDB); err != nil {
 		return nil, fmt.Errorf("unable to unmarshal flow config: %w", err)
 	}

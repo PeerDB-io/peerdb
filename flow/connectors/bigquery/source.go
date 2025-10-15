@@ -11,7 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 )
 
-func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+func (c *BigQueryConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	if !cfg.InitialSnapshotOnly || !cfg.DoInitialSnapshot {
 		return errors.New("BigQuery source connector only supports initial snapshot flows. CDC is not supported")
 	}

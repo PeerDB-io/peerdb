@@ -1,6 +1,6 @@
 package main
 
-//go:generate go run cmd/gen-grpc-wrapper/main.go
+//go:generate go run ./cmd/codegen
 
 import (
 	"context"

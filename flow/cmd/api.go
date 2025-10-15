@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
+	"github.com/PeerDB-io/peerdb/flow/generated/grpc_handler"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/middleware"
@@ -259,7 +260,7 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		return fmt.Errorf("unable to start scheduler workflow: %w", err)
 	}
 
-	protos.RegisterFlowServiceServer(grpcServer, NewFlowServiceAdapter(flowHandler))
+	protos.RegisterFlowServiceServer(grpcServer, grpc_handler.NewFlowServiceAdapter(flowHandler))
 	grpc_health_v1.RegisterHealthServer(grpcServer, health.NewServer())
 	reflection.Register(grpcServer)
 

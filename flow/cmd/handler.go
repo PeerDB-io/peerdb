@@ -22,6 +22,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/alerting"
 	"github.com/PeerDB-io/peerdb/flow/connectors"
 	"github.com/PeerDB-io/peerdb/flow/connectors/utils"
+	"github.com/PeerDB-io/peerdb/flow/generated/conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -178,7 +179,8 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 	// No running workflow, do the validations and start a new one
 
 	// Use idempotent validation that skips mirror existence check
-	if _, err := h.validateCDCMirrorImpl(ctx, req, true); err != nil {
+	connectionConfigsCore := conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs)
+	if _, err := h.validateCDCMirrorImpl(ctx, connectionConfigsCore, true); err != nil {
 		slog.ErrorContext(ctx, "validate mirror error", slog.Any("error", err))
 		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 	}
@@ -297,7 +299,7 @@ func (h *FlowRequestHandler) dropFlow(
 	if dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowJobName,
 		DropFlowStats:         deleteStats,
-		FlowConnectionConfigs: cdcConfig,
+		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(cdcConfig),
 		SkipDestinationDrop:   true,
 		SkipSourceDrop:        true,
 	}); err != nil {
@@ -355,7 +357,7 @@ func (h *FlowRequestHandler) shutdownFlow(
 	dropFlowHandle, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowJobName,
 		DropFlowStats:         deleteStats,
-		FlowConnectionConfigs: cdcConfig,
+		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(cdcConfig),
 		SkipDestinationDrop:   skipDestinationDrop,
 		// NOTE: Resync is false here during snapshot-only resync
 	})

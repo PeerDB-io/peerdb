@@ -163,7 +163,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_CDC_Not_Supported() {
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
-	flowConfig := &protos.FlowConnectionConfigs{
+	flowConfig := &protos.FlowConnectionConfigsCore{
 		TableMappings: []*protos.TableMapping{
 			{
 				SourceTableIdentifier:      source.config.DatasetId + ".trips_1k",
@@ -200,7 +200,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Required() {
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
-	flowConfig := &protos.FlowConnectionConfigs{
+	flowConfig := &protos.FlowConnectionConfigsCore{
 		InitialSnapshotOnly: true,
 		DoInitialSnapshot:   true,
 		TableMappings: []*protos.TableMapping{
@@ -234,7 +234,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Invalid_Forma
 
 	for _, invalidPath := range invalidPaths {
 		t.Run("Invalid Staging Path: "+invalidPath, func(t *testing.T) {
-			flowConfig := &protos.FlowConnectionConfigs{
+			flowConfig := &protos.FlowConnectionConfigsCore{
 				InitialSnapshotOnly: true,
 				DoInitialSnapshot:   true,
 				TableMappings: []*protos.TableMapping{
@@ -260,7 +260,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Staging_Path_Inaccessible(
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
-	flowConfig := &protos.FlowConnectionConfigs{
+	flowConfig := &protos.FlowConnectionConfigsCore{
 		InitialSnapshotOnly: true,
 		DoInitialSnapshot:   true,
 		TableMappings: []*protos.TableMapping{
@@ -284,7 +284,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_Invalid_Table_Mappings() {
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
-	flowConfig := &protos.FlowConnectionConfigs{
+	flowConfig := &protos.FlowConnectionConfigsCore{
 		InitialSnapshotOnly: true,
 		DoInitialSnapshot:   true,
 		TableMappings: []*protos.TableMapping{
@@ -308,7 +308,7 @@ func (s BigQueryClickhouseSuite) Test_BigQuery_Source_ValidateMirrorSource_Succe
 	source := s.Source().(*bigQuerySource)
 	bqConn := source.conn
 
-	flowConfig := &protos.FlowConnectionConfigs{
+	flowConfig := &protos.FlowConnectionConfigsCore{
 		InitialSnapshotOnly: true,
 		DoInitialSnapshot:   true,
 		TableMappings: []*protos.TableMapping{

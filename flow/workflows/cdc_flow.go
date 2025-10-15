@@ -44,7 +44,7 @@ type CDCFlowWorkflowState struct {
 }
 
 // returns a new empty PeerFlowState
-func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigs) *CDCFlowWorkflowState {
+func NewCDCFlowWorkflowState(ctx workflow.Context, logger log.Logger, cfg *protos.FlowConnectionConfigsCore) *CDCFlowWorkflowState {
 	tableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
 	for _, tableMapping := range cfg.TableMappings {
 		tableMappings = append(tableMappings, proto.CloneOf(tableMapping))
@@ -99,9 +99,9 @@ func GetChildWorkflowID(
 }
 
 func updateFlowConfigWithLatestSettings(
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
-) *protos.FlowConnectionConfigs {
+) *protos.FlowConnectionConfigsCore {
 	cloneCfg := proto.CloneOf(cfg)
 	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
@@ -126,9 +126,9 @@ type CDCFlowWorkflowResult = CDCFlowWorkflowState
 
 func syncStateToConfigProtoInCatalog(
 	ctx workflow.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
-) *protos.FlowConnectionConfigs {
+) *protos.FlowConnectionConfigsCore {
 	cloneCfg := updateFlowConfigWithLatestSettings(cfg, state)
 	uploadConfigToCatalog(ctx, cloneCfg)
 	return cloneCfg
@@ -136,7 +136,7 @@ func syncStateToConfigProtoInCatalog(
 
 func uploadConfigToCatalog(
 	ctx workflow.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 ) {
 	updateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: 5 * time.Minute,
@@ -151,7 +151,7 @@ func uploadConfigToCatalog(
 func processCDCFlowConfigUpdate(
 	ctx workflow.Context,
 	logger log.Logger,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 	mirrorNameSearch temporal.SearchAttributes,
 ) error {
@@ -209,7 +209,7 @@ func processCDCFlowConfigUpdate(
 
 func handleFlowSignalStateChange(
 	ctx workflow.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 	logger log.Logger,
 	op string,
@@ -250,7 +250,7 @@ func handleFlowSignalStateChange(
 func processTableAdditions(
 	ctx workflow.Context,
 	logger log.Logger,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 	mirrorNameSearch temporal.SearchAttributes,
 ) error {
@@ -360,7 +360,7 @@ func processTableAdditions(
 func processTableRemovals(
 	ctx workflow.Context,
 	logger log.Logger,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 ) error {
 	state.updateStatus(ctx, logger, protos.FlowStatus_STATUS_MODIFYING)
@@ -483,7 +483,7 @@ func addCdcPropertiesSignalListener(
 
 func CDCFlowWorkflow(
 	ctx workflow.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	state *CDCFlowWorkflowState,
 ) (*CDCFlowWorkflowResult, error) {
 	if cfg == nil {

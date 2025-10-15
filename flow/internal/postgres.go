@@ -36,7 +36,7 @@ func GetPGConnectionString(pgConfig *protos.PostgresConfig, flowName string) str
 }
 
 func UpdateCDCConfigInCatalog(ctx context.Context, pool shared.CatalogPool,
-	logger log.Logger, cfg *protos.FlowConnectionConfigs,
+	logger log.Logger, cfg *protos.FlowConnectionConfigsCore,
 ) error {
 	logger.Info("syncing state to catalog: updating config_proto in flows", slog.String("flowName", cfg.FlowJobName))
 

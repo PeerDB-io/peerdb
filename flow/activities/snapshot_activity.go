@@ -172,7 +172,7 @@ func (a *SnapshotActivity) GetPeerType(ctx context.Context, name string) (protos
 
 func (a *SnapshotActivity) GetDefaultPartitionKeyForTables(
 	ctx context.Context,
-	input *protos.FlowConnectionConfigs,
+	input *protos.FlowConnectionConfigsCore,
 ) (*protos.GetDefaultPartitionKeyForTablesOutput, error) {
 	connector, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, nil, a.CatalogPool, input.SourceName)
 	if err != nil {

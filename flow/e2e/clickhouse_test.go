@@ -18,6 +18,7 @@ import (
 
 	connclickhouse "github.com/PeerDB-io/peerdb/flow/connectors/clickhouse"
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
+	"github.com/PeerDB-io/peerdb/flow/generated/conversions"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -504,7 +505,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	env = ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowConnConfig.FlowJobName,
 		DropFlowStats:         false,
-		FlowConnectionConfigs: flowConnConfig,
+		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(flowConnConfig),
 	})
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 
@@ -527,7 +528,7 @@ func (s ClickHouseSuite) WeirdTable(tableName string) {
 	env = ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowConnConfig.FlowJobName,
 		DropFlowStats:         false,
-		FlowConnectionConfigs: flowConnConfig,
+		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(flowConnConfig),
 	})
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 	// now test weird names with exchange based resync
@@ -2461,7 +2462,7 @@ func (s ClickHouseSuite) Test_NullEngine() {
 	env = ExecuteWorkflow(s.t.Context(), tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
 		FlowJobName:           flowConnConfig.FlowJobName,
 		DropFlowStats:         false,
-		FlowConnectionConfigs: flowConnConfig,
+		FlowConnectionConfigs: conversions.FlowConnectionConfigsToCore(flowConnConfig),
 	})
 	EnvWaitForFinished(s.t, env, 3*time.Minute)
 

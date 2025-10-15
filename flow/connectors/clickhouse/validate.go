@@ -14,7 +14,7 @@ import (
 
 func (c *ClickHouseConnector) ValidateMirrorDestination(
 	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
 	if internal.PeerDBOnlyClickHouseAllowed() {

@@ -146,7 +146,7 @@ func (c *BigQueryConnector) ValidateCheck(ctx context.Context) error {
 
 func (c *BigQueryConnector) ValidateMirrorDestination(
 	ctx context.Context,
-	_ *protos.FlowConnectionConfigs,
+	_ *protos.FlowConnectionConfigsCore,
 	_ map[string]*protos.TableSchema,
 ) error {
 	dummyTable := "peerdb_validate_dummy_" + shared.RandomString(4)

@@ -8,15 +8,13 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/protoadapt"
+
+	"github.com/PeerDB-io/peerdb/flow/generated/grpc_handler"
 )
 
 // APIError is a strongly-typed error that must be a gRPC status error.
 // All handler methods should return this type instead of the generic error interface.
-type APIError interface {
-	error
-	GRPCStatus() *status.Status
-	Code() codes.Code
-}
+type APIError = grpc_handler.APIError
 
 type apiError struct {
 	status *status.Status

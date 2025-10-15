@@ -27,7 +27,7 @@ const (
 )
 
 type SnapshotFlowExecution struct {
-	config *protos.FlowConnectionConfigs
+	config *protos.FlowConnectionConfigsCore
 	logger log.Logger
 }
 
@@ -348,7 +348,7 @@ func (s *SnapshotFlowExecution) cloneTablesWithSlot(
 
 func SnapshotFlowWorkflow(
 	ctx workflow.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 ) error {
 	se := &SnapshotFlowExecution{
 		config: config,
