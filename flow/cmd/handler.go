@@ -67,21 +67,21 @@ func (h *FlowRequestHandler) cdcJobEntryExists(ctx context.Context, flowJobName 
 }
 
 func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
-	req *protos.CreateCDCFlowRequest, workflowID string, idempotent bool,
+	connectionConfigs *protos.FlowConnectionConfigsCore, workflowID string, idempotent bool,
 ) error {
-	sourcePeerID, srcErr := h.getPeerID(ctx, req.ConnectionConfigs.SourceName)
+	sourcePeerID, srcErr := h.getPeerID(ctx, connectionConfigs.SourceName)
 	if srcErr != nil {
 		return fmt.Errorf("unable to get peer id for source peer %s: %w",
-			req.ConnectionConfigs.SourceName, srcErr)
+			connectionConfigs.SourceName, srcErr)
 	}
 
-	destinationPeerID, dstErr := h.getPeerID(ctx, req.ConnectionConfigs.DestinationName)
+	destinationPeerID, dstErr := h.getPeerID(ctx, connectionConfigs.DestinationName)
 	if dstErr != nil {
 		return fmt.Errorf("unable to get peer id for target peer %s: %w",
-			req.ConnectionConfigs.DestinationName, dstErr)
+			connectionConfigs.DestinationName, dstErr)
 	}
 
-	cfgBytes, err := proto.Marshal(req.ConnectionConfigs)
+	cfgBytes, err := proto.Marshal(connectionConfigs)
 	if err != nil {
 		return fmt.Errorf("unable to marshal flow config: %w", err)
 	}
@@ -89,10 +89,10 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 	if _, err = h.pool.Exec(ctx,
 		`INSERT INTO flows (workflow_id, name, source_peer, destination_peer, config_proto, status,	description)
 		VALUES ($1,$2,$3,$4,$5,$6,'gRPC')`,
-		workflowID, req.ConnectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
+		workflowID, connectionConfigs.FlowJobName, sourcePeerID, destinationPeerID, cfgBytes, protos.FlowStatus_STATUS_SETUP,
 	); err != nil && !(idempotent && shared.IsSQLStateError(err, pgerrcode.UniqueViolation)) {
 		return fmt.Errorf("unable to insert into flows table for flow %s: %w",
-			req.ConnectionConfigs.FlowJobName, err)
+			connectionConfigs.FlowJobName, err)
 	}
 
 	return nil
@@ -185,7 +185,7 @@ func (h *FlowRequestHandler) CreateCDCFlow(
 		return nil, NewInternalApiError(fmt.Errorf("invalid mirror: %w", err))
 	}
 
-	if resp, err := h.createCDCFlow(ctx, req, workflowID); err != nil {
+	if resp, err := h.createCDCFlow(ctx, connectionConfigsCore, workflowID); err != nil {
 		return nil, NewInternalApiError(err)
 	} else {
 		return resp, nil
@@ -197,23 +197,22 @@ func getWorkflowID(flowName string) string {
 }
 
 func (h *FlowRequestHandler) createCDCFlow(
-	ctx context.Context, req *protos.CreateCDCFlowRequest, workflowID string,
+	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, workflowID string,
 ) (*protos.CreateCDCFlowResponse, error) {
-	cfg := req.ConnectionConfigs
 	workflowOptions := client.StartWorkflowOptions{
 		ID:                       workflowID,
 		TaskQueue:                h.peerflowTaskQueueID,
-		TypedSearchAttributes:    shared.NewSearchAttributes(cfg.FlowJobName),
+		TypedSearchAttributes:    shared.NewSearchAttributes(connectionConfigs.FlowJobName),
 		WorkflowIDConflictPolicy: tEnums.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING, // two racing requests end up with the same workflow
 		WorkflowIDReusePolicy:    tEnums.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE, // but creating the same id as a completed one is allowed
 	}
 
-	if err := h.createCdcJobEntry(ctx, req, workflowID, true); err != nil {
+	if err := h.createCdcJobEntry(ctx, connectionConfigs, workflowID, true); err != nil {
 		slog.ErrorContext(ctx, "unable to create flow job entry", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to create flow job entry: %w", err)
 	}
 
-	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, cfg, nil); err != nil {
+	if _, err := h.temporalClient.ExecuteWorkflow(ctx, workflowOptions, peerflow.CDCFlowWorkflow, connectionConfigs, nil); err != nil {
 		slog.ErrorContext(ctx, "unable to start PeerFlow workflow", slog.Any("error", err))
 		return nil, fmt.Errorf("unable to start PeerFlow workflow: %w", err)
 	}
@@ -632,10 +631,8 @@ func (h *FlowRequestHandler) resyncCompletedSnapshot(
 	}
 
 	workflowID := getWorkflowID(config.FlowJobName)
-	if _, err := h.createCDCFlow(ctx,
-		&protos.CreateCDCFlowRequest{ConnectionConfigs: config},
-		workflowID,
-	); err != nil {
+	configCore := pconv.FlowConnectionConfigsToCore(config, 0)
+	if _, err := h.createCDCFlow(ctx, configCore, workflowID); err != nil {
 		return err
 	}
 	return nil
