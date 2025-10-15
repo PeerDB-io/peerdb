@@ -650,6 +650,19 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 		}
 	}
 
+	var mongoDriverError driver.Error
+	if errors.As(err, &mongoDriverError) {
+		mongoErrorInfo := ErrorInfo{
+			Source: ErrorSourceMongoDB,
+			Code:   strconv.Itoa(int(mongoDriverError.Code)),
+		}
+
+		// This should recover, but we notify if exceed default threshold
+		if mongoDriverError.HasErrorLabel(driver.TransientTransactionError) {
+			return ErrorNotifyConnectivity, mongoErrorInfo
+		}
+	}
+
 	var mongoMarshalErr mongo.MarshalError
 	if errors.As(err, &mongoMarshalErr) {
 		return ErrorOther, ErrorInfo{
