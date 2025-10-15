@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
+	"sort"
 	"strings"
 
 	"go.temporal.io/sdk/log"
@@ -179,9 +182,13 @@ func buildSettingsStr(settings map[string]string) string {
 		return ""
 	}
 
+	// sort keys alphabetically for consistent output
+	keys := slices.Collect(maps.Keys(settings))
+	sort.Strings(keys)
+
 	first := true
 	var builder strings.Builder
-	for k, v := range settings {
+	for _, k := range keys {
 		if first {
 			builder.WriteString(" SETTINGS ")
 			first = false
@@ -190,7 +197,7 @@ func buildSettingsStr(settings map[string]string) string {
 		}
 		builder.WriteString(k)
 		builder.WriteString("=")
-		builder.WriteString(v)
+		builder.WriteString(settings[k])
 	}
 	return builder.String()
 }
