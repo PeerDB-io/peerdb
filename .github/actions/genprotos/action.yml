@@ -9,9 +9,7 @@ runs:
       uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
       with:
         path: |
-          ./flow/generated/protos
-          ./flow/generated/grpc_handler
-          ./flow/generated/proto_conversions
+          ./flow/generated
           ./nexus/pt/src/gen
           ./ui/grpc_generated
         key: ${{ runner.os }}-build-genprotos-${{ hashFiles('buf.gen.yaml', './protos/peers.proto', './protos/flow.proto', './protos/route.proto', './flow/cmd/codegen/*.go') }}
