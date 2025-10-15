@@ -179,9 +179,18 @@ func buildSettingsStr(settings map[string]string) string {
 		return ""
 	}
 
-	settingsList := make([]string, 0, len(settings))
+	first := true
+	var builder strings.Builder
 	for k, v := range settings {
-		settingsList = append(settingsList, fmt.Sprintf("%s = %s", k, v))
+		if first {
+			builder.WriteString(" SETTINGS ")
+			first = false
+		} else {
+			builder.WriteString(", ")
+		}
+		builder.WriteString(k)
+		builder.WriteString("=")
+		builder.WriteString(v)
 	}
-	return " SETTINGS " + strings.Join(settingsList, ", ")
+	return builder.String()
 }
