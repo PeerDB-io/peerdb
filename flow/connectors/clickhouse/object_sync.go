@@ -139,7 +139,7 @@ func (c *ClickHouseConnector) insertFromURLWithMapping(
 		fieldExpressionConverters: fieldExpressionConverters,
 	}
 
-	query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, urlTableFunction)
+	query, err := buildInsertFromTableFunctionQuery(ctx, insertConfig, urlTableFunction, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to build insert query: %w", err)
 	}
