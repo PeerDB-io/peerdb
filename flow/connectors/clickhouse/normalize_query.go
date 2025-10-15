@@ -11,6 +11,7 @@ import (
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model/qvalue"
 	peerdb_clickhouse "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -30,6 +31,7 @@ type NormalizeQueryGenerator struct {
 	enablePrimaryUpdate             bool
 	sourceSchemaAsDestinationColumn bool
 	cluster                         bool
+	version                         uint32
 }
 
 // NewTableNormalizeQuery constructs a TableNormalizeQuery with required fields.
@@ -48,6 +50,7 @@ func NewNormalizeQueryGenerator(
 	chVersion *chproto.Version,
 	cluster bool,
 	configuredSoftDeleteColName string,
+	version uint32,
 ) *NormalizeQueryGenerator {
 	isDeletedColumn := isDeletedColName
 	if configuredSoftDeleteColName != "" {
@@ -68,6 +71,7 @@ func NewNormalizeQueryGenerator(
 		chVersion:                       chVersion,
 		cluster:                         cluster,
 		isDeletedColName:                isDeletedColumn,
+		version:                         version,
 	}
 }
 
@@ -191,13 +195,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 			}
 		case "JSON", "Nullable(JSON)":
 			fmt.Fprintf(&projection,
-				"JSONExtractString(_peerdb_data, %s) AS %s,",
+				"JSONExtractString(_peerdb_data, %s)::JSON AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					"JSONExtractString(_peerdb_match_data, %s) AS %s,",
+					"JSONExtractString(_peerdb_match_data, %s)::JSON AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
@@ -305,13 +309,20 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		}
 	}
 
-	if t.cluster {
-		colSelector.WriteString(" SETTINGS throw_on_max_partitions_per_insert_block = 0, parallel_distributed_insert_select=0")
-	} else {
-		colSelector.WriteString(" SETTINGS throw_on_max_partitions_per_insert_block = 0")
+	settings := map[string]string{
+		"throw_on_max_partitions_per_insert_block": "0",
+		"type_json_skip_duplicated_paths":          "1",
 	}
-	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s",
-		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String())
+	if t.cluster {
+		settings["parallel_distributed_insert_select"] = "0"
+	}
+	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
+		settings["json_type_escape_dots_in_keys"] = "1"
+	}
+	settingsStr := buildSettingsStr(settings)
+
+	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
+		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String(), settingsStr)
 
 	t.Query = insertIntoSelectQuery
 

@@ -2,8 +2,11 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -233,6 +236,133 @@ func (s MongoClickhouseSuite) Test_CDC() {
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
+}
+
+func (s MongoClickhouseSuite) Test_Document_With_Dots_In_Keys() {
+	t := s.T()
+
+	envWaitForDocument := func(env WorkflowRun, dstTable string, expectedCount int, expectedDoc map[string]any, reason string) {
+		EnvWaitFor(t, env, 3*time.Minute, reason, func() bool {
+			clickhouseRows, err := s.GetRows(dstTable, "doc")
+			if err != nil {
+				t.Log(err)
+				return false
+			}
+			if len(clickhouseRows.Records) < expectedCount {
+				t.Logf("record count mismatch: expected %d, got %d", expectedCount, len(clickhouseRows.Records))
+				return false
+			}
+			for i := range clickhouseRows.Records {
+				clickhouseDocJsonStr := clickhouseRows.Records[i][0].Value().(string)
+				var clickhouseDoc map[string]any
+				if err := json.Unmarshal([]byte(clickhouseDocJsonStr), &clickhouseDoc); err != nil {
+					t.Logf("failed to unmarshal clickhouse doc: %v", err)
+					return false
+				}
+				// remove _id to keep comparison logic simple
+				delete(clickhouseDoc, "_id")
+				if !reflect.DeepEqual(clickhouseDoc, expectedDoc) {
+					t.Logf("record %d doc mismatch: expected %v, got %v", i, expectedDoc, clickhouseDoc)
+					return false
+				}
+			}
+			return true
+		})
+	}
+
+	doc := bson.D{
+		bson.E{Key: "a", Value: bson.D{bson.E{Key: "b.c", Value: 1}}},
+		bson.E{Key: "a.b", Value: bson.D{bson.E{Key: "c", Value: 1}}},
+	}
+
+	// Test current version should escape dots
+	expectedDocWithEscapedDots := map[string]any{
+		"a": map[string]any{
+			"b%2Ec": float64(1),
+		},
+		"a%2Eb": map[string]any{
+			"c": float64(1),
+		},
+	}
+
+	srcDatabase := GetTestDatabase(s.Suffix())
+	srcTable := "test_document_key_containing_dot"
+	dstTable := "test_document_key_containing_dot_dst"
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTable),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.Env = map[string]string{"PEERDB_CLICKHOUSE_ENABLE_JSON": "true"}
+
+	adminClient := s.Source().(*MongoSource).AdminClient()
+	collection := adminClient.Database(srcDatabase).Collection(srcTable)
+
+	res, err := collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+	envWaitForDocument(env, dstTable, 1, expectedDocWithEscapedDots, "initial load should match")
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	res, err = collection.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+	envWaitForDocument(env, dstTable, 2, expectedDocWithEscapedDots, "insert events should match")
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+
+	// Test older version should expand dots into nested structures
+	expectedDocWithExpandedDots := map[string]any{
+		"a": map[string]any{
+			"b": map[string]any{
+				"c": float64(1),
+			},
+		},
+	}
+
+	srcTableOld := "test_document_key_containing_dot_old"
+	dstTableOld := "test_document_key_containing_dot_dst_old"
+
+	connectionGenOld := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, srcTableOld),
+		TableMappings: TableMappings(s, srcTableOld, dstTableOld),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfigOld := connectionGenOld.GenerateFlowConnectionConfigs(s)
+	flowConnConfigOld.DoInitialSnapshot = true
+	flowConnConfigOld.Env = map[string]string{
+		"PEERDB_CLICKHOUSE_ENABLE_JSON": "true",
+		"PEERDB_FORCE_INTERNAL_VERSION": strconv.FormatUint(uint64(shared.IntervalVersion_MongoDBFullDocumentColumnToDoc), 10),
+	}
+	flowConnConfigOld.Version = shared.IntervalVersion_MongoDBFullDocumentColumnToDoc
+
+	collectionOld := adminClient.Database(srcDatabase).Collection(srcTableOld)
+
+	res, err = collectionOld.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	envOld := ExecutePeerflow(t, tc, flowConnConfigOld)
+	envWaitForDocument(envOld, dstTableOld, 1, expectedDocWithExpandedDots, "initial load should expand dots")
+
+	SetupCDCFlowStatusQuery(t, envOld, flowConnConfigOld)
+
+	res, err = collectionOld.InsertOne(t.Context(), doc, options.InsertOne())
+	require.NoError(t, err)
+	require.True(t, res.Acknowledged)
+
+	envWaitForDocument(envOld, dstTableOld, 2, expectedDocWithExpandedDots, "insert events should expand dots")
+
+	envOld.Cancel(t.Context())
+	RequireEnvCanceled(t, envOld)
 }
 
 func (s MongoClickhouseSuite) Test_Nested_Document_At_Limit() {

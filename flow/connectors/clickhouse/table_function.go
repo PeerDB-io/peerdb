@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
+	"sort"
 	"strings"
 
 	"go.temporal.io/sdk/log"
@@ -62,6 +65,7 @@ func buildInsertFromTableFunctionQuery(
 	ctx context.Context,
 	config *insertFromTableFunctionConfig,
 	tableFunctionExpr string,
+	settings map[string]string,
 ) (string, error) {
 	fieldExpressionConverters := defaultFieldExpressionConverters
 	fieldExpressionConverters = append(fieldExpressionConverters, config.fieldExpressionConverters...)
@@ -125,9 +129,10 @@ func buildInsertFromTableFunctionQuery(
 
 	selectorStr := strings.Join(selectedColumnNames, ",")
 	insertedStr := strings.Join(insertedColumnNames, ",")
+	settingsStr := buildSettingsStr(settings)
 
-	return fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM %s",
-		peerdb_clickhouse.QuoteIdentifier(config.destinationTable), insertedStr, selectorStr, tableFunctionExpr), nil
+	return fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM %s%s",
+		peerdb_clickhouse.QuoteIdentifier(config.destinationTable), insertedStr, selectorStr, tableFunctionExpr, settingsStr), nil
 }
 
 // buildInsertFromTableFunctionQueryWithPartitioning builds an INSERT query with hash-based partitioning
@@ -137,31 +142,62 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 	tableFunctionExpr string,
 	partitionIndex uint64,
 	totalPartitions uint64,
+	settings map[string]string,
 ) (string, error) {
-	baseQuery, err := buildInsertFromTableFunctionQuery(ctx, config, tableFunctionExpr)
+	var query strings.Builder
+
+	baseQuery, err := buildInsertFromTableFunctionQuery(ctx, config, tableFunctionExpr, nil)
 	if err != nil {
 		return "", err
 	}
+	query.WriteString(baseQuery)
 
-	if totalPartitions <= 1 {
-		return baseQuery + " SETTINGS throw_on_max_partitions_per_insert_block = 0", nil
-	}
-
-	// Get the first field for hash partitioning
-	if len(config.schema.Fields) == 0 {
-		return "", errors.New("schema has no fields for partitioning")
-	}
-
-	hashFieldName := config.schema.Fields[0].Name
-	if config.columnNameMap != nil {
-		if mappedName, ok := config.columnNameMap[hashFieldName]; ok {
-			hashFieldName = mappedName
+	if totalPartitions > 1 {
+		// Get the first field for hash partitioning
+		if len(config.schema.Fields) == 0 {
+			return "", errors.New("schema has no fields for partitioning")
 		}
+
+		hashFieldName := config.schema.Fields[0].Name
+		if config.columnNameMap != nil {
+			if mappedName, ok := config.columnNameMap[hashFieldName]; ok {
+				hashFieldName = mappedName
+			}
+		}
+
+		whereClause := fmt.Sprintf(" WHERE cityHash64(%s) %% %d = %d",
+			peerdb_clickhouse.QuoteIdentifier(hashFieldName), totalPartitions, partitionIndex)
+
+		query.WriteString(whereClause)
 	}
 
-	whereClause := fmt.Sprintf(" WHERE cityHash64(%s) %% %d = %d",
-		peerdb_clickhouse.QuoteIdentifier(hashFieldName), totalPartitions, partitionIndex)
+	query.WriteString(buildSettingsStr(settings))
 
-	// Insert the WHERE clause before SETTINGS
-	return baseQuery + whereClause + " SETTINGS throw_on_max_partitions_per_insert_block = 0", nil
+	return query.String(), nil
+}
+
+// helper function to generate settings string ' SETTINGS <key1> = <val1>, <key2> = <val2>, ...'
+func buildSettingsStr(settings map[string]string) string {
+	if len(settings) == 0 {
+		return ""
+	}
+
+	// sort keys alphabetically for consistent output
+	keys := slices.Collect(maps.Keys(settings))
+	sort.Strings(keys)
+
+	first := true
+	var builder strings.Builder
+	for _, k := range keys {
+		if first {
+			builder.WriteString(" SETTINGS ")
+			first = false
+		} else {
+			builder.WriteString(", ")
+		}
+		builder.WriteString(k)
+		builder.WriteString("=")
+		builder.WriteString(settings[k])
+	}
+	return builder.String()
 }

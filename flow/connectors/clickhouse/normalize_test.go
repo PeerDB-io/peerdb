@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/types"
 )
 
@@ -260,6 +261,7 @@ func TestBuildQuery_Basic(t *testing.T) {
 		nil,
 		false,
 		"",
+		shared.InternalVersion_Latest,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -317,6 +319,7 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		nil,
 		false,
 		"",
+		shared.InternalVersion_Latest,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -371,6 +374,7 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		nil,
 		true,
 		"",
+		shared.InternalVersion_Latest,
 	)
 
 	query, err := g.BuildQuery(ctx)
@@ -423,6 +427,7 @@ func TestBuildQuery_WithNumParts(t *testing.T) {
 		nil,
 		false,
 		"",
+		shared.InternalVersion_Latest,
 	)
 
 	query, err := g.BuildQuery(ctx)

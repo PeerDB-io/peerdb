@@ -19,6 +19,7 @@ const (
 	InternalVersion_First uint32 = iota
 	InternalVersion_PgVectorAsFloatArray
 	IntervalVersion_MongoDBFullDocumentColumnToDoc
+	InternalVersion_JsonEscapeDotsInKeys
 
 	TotalNumberOfInternalVersions
 	InternalVersion_Latest = TotalNumberOfInternalVersions - 1
