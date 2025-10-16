@@ -316,7 +316,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	if t.cluster {
 		settings["parallel_distributed_insert_select"] = "0"
 	}
-	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
+	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys && ShouldUseJSONEscapeDotsInKeys(ctx, t.chVersion) {
 		settings["json_type_escape_dots_in_keys"] = "1"
 	}
 	settingsStr := buildSettingsStr(settings)
