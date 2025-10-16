@@ -279,6 +279,15 @@ func processTuple[Items model.Items](
 	items := processor.NewItems(len(tuple.Columns))
 	var unchangedToastColumns map[string]struct{}
 
+	var none Items
+	if len(tuple.Columns) > len(rel.Columns) {
+		return none, nil, fmt.Errorf(
+			"tuple has more columns than the last RelationMessage: %d > %d. "+
+				"One known occurrence of this was due to a bug with replication column lists in PG 15-15.1. "+
+				"https://www.postgresql.org/message-id/CADGJaX9kiRZ-OH0EpWF5Fkyh1ZZYofoNRCrhapBfdk02tj5EKg@mail.gmail.com",
+			len(tuple.Columns), len(rel.Columns))
+	}
+
 	for idx, tcol := range tuple.Columns {
 		rcol := rel.Columns[idx]
 		if _, ok := nameAndExclude.Exclude[rcol.Name]; ok {
@@ -290,7 +299,6 @@ func processTuple[Items model.Items](
 			}
 			unchangedToastColumns[rcol.Name] = struct{}{}
 		} else if err := processor.Process(items, p, tcol, rcol, customTypeMapping); err != nil {
-			var none Items
 			return none, nil, err
 		}
 	}
