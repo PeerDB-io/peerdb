@@ -308,6 +308,22 @@ func TestPostgresInvalidValueForSynchronizedStandbySlots(t *testing.T) {
 	}, errInfo, "Unexpected error info")
 }
 
+func TestPostgresCreatingSlotOnReader(t *testing.T) {
+	err := &pgconn.PgError{
+		Severity: "ERROR",
+		Code:     pgerrcode.InternalError,
+		Message: `ERROR: Creating logical replication slot peerflow_slot_mirror_1cd7f87b__d143__4cea__a247__a2acc5f5b746
+		is not supported on the Multi-AZ DB cluster reader node.
+		Create the replication slot from the writer node instead. (SQLSTATE XX000)`,
+	}
+	errorClass, errInfo := GetErrorClass(t.Context(), fmt.Errorf("slot error: [slot] error creating replication slot: %w", err))
+	assert.Equal(t, ErrNotifyPostgresCreatingSlotOnReader, errorClass, "Unexpected error class")
+	assert.Equal(t, ErrorInfo{
+		Source: ErrorSourcePostgres,
+		Code:   pgerrcode.InternalError,
+	}, errInfo, "Unexpected error info")
+}
+
 func TestPostgresStaleFileHandleErrorShouldBeRecoverable(t *testing.T) {
 	// Simulate a stale file handle error
 	err := &exceptions.PostgresWalError{
