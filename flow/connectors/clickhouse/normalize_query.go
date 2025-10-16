@@ -328,12 +328,3 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	return t.Query, nil
 }
-
-func ShouldUseJSONEscapeDotsInKeys(ctx context.Context, chVersion *chproto.Version) bool {
-	if chVersion == nil {
-		return false
-	}
-	// https://clickhouse.com/docs/operations/settings/formats#json_type_escape_dots_in_keys
-	// Available in ClickHouse 25.8 and later
-	return chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 8, Patch: 0}, *chVersion)
-}

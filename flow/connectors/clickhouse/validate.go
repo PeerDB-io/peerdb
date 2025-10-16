@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	chvalidate "github.com/PeerDB-io/peerdb/flow/pkg/clickhouse"
@@ -84,4 +85,13 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		}
 	}
 	return nil
+}
+
+func ShouldUseJSONEscapeDotsInKeys(ctx context.Context, chVersion *chproto.Version) bool {
+	if chVersion == nil {
+		return false
+	}
+	// https://clickhouse.com/docs/operations/settings/formats#json_type_escape_dots_in_keys
+	// Available in ClickHouse 25.8 and later
+	return chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 8, Patch: 0}, *chVersion)
 }

@@ -286,7 +286,7 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 		"throw_on_max_partitions_per_insert_block": "0",
 		"type_json_skip_duplicated_paths":          "1",
 	}
-	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
+	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys && ShouldUseJSONEscapeDotsInKeys(ctx, s.chVersion) {
 		settings["json_type_escape_dots_in_keys"] = "1"
 	}
 
