@@ -15,6 +15,7 @@ import (
 	"go.temporal.io/sdk/log"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
+	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
 	"github.com/PeerDB-io/peerdb/flow/shared"
 	"github.com/PeerDB-io/peerdb/flow/shared/datatypes"
@@ -24,19 +25,20 @@ import (
 type QRepQueryExecutor struct {
 	*PostgresConnector
 	logger      log.Logger
+	env         map[string]string
 	snapshot    string
 	flowJobName string
 	partitionID string
 	version     uint32
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, version uint32,
+func (c *PostgresConnector) NewQRepQueryExecutor(ctx context.Context, env map[string]string, version uint32,
 	flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
-	return c.NewQRepQueryExecutorSnapshot(ctx, version, "", flowJobName, partitionID)
+	return c.NewQRepQueryExecutorSnapshot(ctx, env, version, "", flowJobName, partitionID)
 }
 
-func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, version uint32,
+func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, env map[string]string, version uint32,
 	snapshot string, flowJobName string, partitionID string,
 ) (*QRepQueryExecutor, error) {
 	if _, err := c.fetchCustomTypeMapping(ctx); err != nil {
@@ -49,6 +51,7 @@ func (c *PostgresConnector) NewQRepQueryExecutorSnapshot(ctx context.Context, ve
 		flowJobName:       flowJobName,
 		partitionID:       partitionID,
 		logger:            log.With(c.logger, slog.String(string(shared.PartitionIDKey), partitionID)),
+		env:               env,
 		version:           version,
 	}, nil
 }
@@ -73,13 +76,21 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 		num   uint16
 	}
 
+	strictNullable, err := internal.PeerDBNullableStrict(ctx, qe.env)
+	if err != nil {
+		return types.QRecordSchema{}, err
+	}
+
 	rows, err := tx.Query(ctx, "FETCH 0 FROM "+cursorName)
 	if err != nil {
 		return types.QRecordSchema{}, fmt.Errorf("failed to fetch 0 for field descriptions: %w", err)
 	}
 	fds := rows.FieldDescriptions()
 	tableOIDset := make(map[uint32]struct{})
-	nullPointers := make(map[attId]*bool, len(fds))
+	var nullPointers map[attId]*bool
+	if strictNullable {
+		nullPointers = make(map[attId]*bool, len(fds))
+	}
 	qfields := make([]types.QField, len(fds))
 	for i, fd := range fds {
 		tableOIDset[fd.TableOID] = struct{}{}
@@ -89,7 +100,7 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 			qfields[i] = types.QField{
 				Name:      fd.Name,
 				Type:      ctype,
-				Nullable:  false,
+				Nullable:  !strictNullable,
 				Precision: precision,
 				Scale:     scale,
 			}
@@ -97,30 +108,34 @@ func (qe *QRepQueryExecutor) cursorToSchema(
 			qfields[i] = types.QField{
 				Name:     fd.Name,
 				Type:     ctype,
-				Nullable: false,
+				Nullable: !strictNullable,
 			}
 		}
-		nullPointers[attId{
-			relid: fd.TableOID,
-			num:   fd.TableAttributeNumber,
-		}] = &qfields[i].Nullable
+		if nullPointers != nil {
+			nullPointers[attId{
+				relid: fd.TableOID,
+				num:   fd.TableAttributeNumber,
+			}] = &qfields[i].Nullable
+		}
 	}
 	rows.Close()
-	tableOIDs := slices.Collect(maps.Keys(tableOIDset))
 
-	rows, err = tx.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
-	if err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to query schema for field descriptions: %w", err)
-	}
-
-	var att attId
-	if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
-		if nullPointer, ok := nullPointers[att]; ok {
-			*nullPointer = true
+	if nullPointers != nil {
+		tableOIDs := slices.Collect(maps.Keys(tableOIDset))
+		rows, err = tx.Query(ctx, "SELECT a.attrelid,a.attnum FROM pg_attribute a WHERE a.attrelid = ANY($1) AND NOT a.attnotnull", tableOIDs)
+		if err != nil {
+			return types.QRecordSchema{}, fmt.Errorf("failed to query schema for field descriptions: %w", err)
 		}
-		return nil
-	}); err != nil {
-		return types.QRecordSchema{}, fmt.Errorf("failed to process schema for field descriptions: %w", err)
+
+		var att attId
+		if _, err := pgx.ForEachRow(rows, []any{&att.relid, &att.num}, func() error {
+			if nullPointer, ok := nullPointers[att]; ok {
+				*nullPointer = true
+			}
+			return nil
+		}); err != nil {
+			return types.QRecordSchema{}, fmt.Errorf("failed to process schema for field descriptions: %w", err)
+		}
 	}
 
 	return types.NewQRecordSchema(qfields), nil
