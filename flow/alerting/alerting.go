@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -465,7 +464,6 @@ func (a *Alerter) logFlowErrorInternal(
 	errError := inErr.Error()
 	loggerFunc(errError,
 		slog.String("stack", inErrWithStack),
-		slog.String("type", reflect.TypeOf(inErr).String()),
 		slog.String("spew", errSpew.Sdump(inErr)))
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
