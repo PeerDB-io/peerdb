@@ -88,9 +88,11 @@ require (
 	github.com/gogo/googleapis v1.4.1
 )
 
+require github.com/quasilyte/go-ruleguard/dsl v0.3.23
+
 require (
 	cel.dev/expr v0.24.0 // indirect
-	cloud.google.com/go/auth v0.17.0 // indirect
+	cloud.google.com/go/auth v0.17.0
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	cloud.google.com/go/iam v1.5.3 // indirect
