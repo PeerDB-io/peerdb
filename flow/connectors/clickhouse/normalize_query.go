@@ -316,7 +316,7 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	if t.cluster {
 		settings["parallel_distributed_insert_select"] = "0"
 	}
-	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
+	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys && ShouldUseJSONEscapeDotsInKeys(ctx, t.chVersion) {
 		settings["json_type_escape_dots_in_keys"] = "1"
 	}
 	settingsStr := buildSettingsStr(settings)
@@ -327,4 +327,13 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 	t.Query = insertIntoSelectQuery
 
 	return t.Query, nil
+}
+
+func ShouldUseJSONEscapeDotsInKeys(ctx context.Context, chVersion *chproto.Version) bool {
+	if chVersion == nil {
+		return false
+	}
+	// https://clickhouse.com/docs/operations/settings/formats#json_type_escape_dots_in_keys
+	// Available in ClickHouse 25.8 and later
+	return chproto.CheckMinVersion(chproto.Version{Major: 25, Minor: 8, Patch: 0}, *chVersion)
 }
