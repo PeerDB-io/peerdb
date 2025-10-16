@@ -197,6 +197,7 @@ var (
 	ErrorNotifyPostgresSlotMemalloc = ErrorClass{
 		Class: "NOTIFY_POSTGRES_SLOT_MEMALLOC", action: NotifyUser,
 	}
+	// This RDS specific error is seen when we try to create a replication slot on a read-replica
 	ErrNotifyPostgresCreatingSlotOnReader = ErrorClass{
 		Class: "NOTIFY_POSTGRES_CREATING_SLOT_ON_READER", action: NotifyUser,
 	}
