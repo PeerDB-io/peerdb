@@ -213,7 +213,7 @@ func (c *PostgresConnector) CheckPublicationCreationPermissions(ctx context.Cont
 	return nil
 }
 
-func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+func (c *PostgresConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	noCDC := cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly
 	if !noCDC {
 		// Check replication connectivity

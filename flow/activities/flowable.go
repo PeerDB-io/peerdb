@@ -283,7 +283,7 @@ func (a *FlowableActivity) CreateNormalizedTable(
 
 func (a *FlowableActivity) SyncFlow(
 	ctx context.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 ) error {
 	var currentSyncFlowNum atomic.Int32
@@ -414,7 +414,7 @@ func (a *FlowableActivity) SyncFlow(
 
 func (a *FlowableActivity) syncRecords(
 	ctx context.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullConnector,
 	normRequests *concurrency.LastChan,
@@ -461,7 +461,7 @@ func (a *FlowableActivity) syncRecords(
 
 func (a *FlowableActivity) syncPg(
 	ctx context.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn connectors.CDCPullPgConnector,
 	normRequests *concurrency.LastChan,
@@ -905,14 +905,14 @@ func (a *FlowableActivity) ScheduledTasks(ctx context.Context) error {
 }
 
 type flowInformation struct {
-	config     *protos.FlowConnectionConfigs
+	config     *protos.FlowConnectionConfigsCore
 	updatedAt  time.Time
 	workflowID string
 }
 
 type metricsFlowMetadata struct {
 	updatedAt           time.Time
-	config              *protos.FlowConnectionConfigs
+	config              *protos.FlowConnectionConfigsCore
 	name                string
 	workflowID          string
 	sourcePeerName      string
@@ -1129,7 +1129,7 @@ func (a *FlowableActivity) getFlowsForMetrics(ctx context.Context) ([]metricsFlo
 
 	infos, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (metricsFlowMetadata, error) {
 		f := metricsFlowMetadata{
-			config: &protos.FlowConnectionConfigs{},
+			config: &protos.FlowConnectionConfigsCore{},
 		}
 		var configProto []byte
 		if err := rows.Scan(
@@ -1191,7 +1191,7 @@ func (a *FlowableActivity) RecordSlotSizes(ctx context.Context) error {
 			return flowInformation{}, err
 		}
 
-		var config protos.FlowConnectionConfigs
+		var config protos.FlowConnectionConfigsCore
 		if err := proto.Unmarshal(configProto, &config); err != nil {
 			return flowInformation{}, err
 		}
@@ -1543,7 +1543,7 @@ func (a *FlowableActivity) ReplicateXminPartition(ctx context.Context,
 	}
 }
 
-func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigs,
+func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *protos.FlowConnectionConfigsCore,
 	additionalTableMappings []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
@@ -1571,7 +1571,7 @@ func (a *FlowableActivity) AddTablesToPublication(ctx context.Context, cfg *prot
 
 func (a *FlowableActivity) RemoveTablesFromPublication(
 	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	removedTablesMapping []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
@@ -1599,7 +1599,7 @@ func (a *FlowableActivity) RemoveTablesFromPublication(
 
 func (a *FlowableActivity) RemoveTablesFromRawTable(
 	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	tablesToRemove []*protos.TableMapping,
 ) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, cfg.FlowJobName)
@@ -1647,7 +1647,7 @@ func (a *FlowableActivity) RemoveTablesFromRawTable(
 
 func (a *FlowableActivity) RemoveTablesFromCatalog(
 	ctx context.Context,
-	cfg *protos.FlowConnectionConfigs,
+	cfg *protos.FlowConnectionConfigsCore,
 	tablesToRemove []*protos.TableMapping,
 ) error {
 	removedTables := make([]string, 0, len(tablesToRemove))
@@ -1768,7 +1768,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 	}, nil
 }
 
-func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+func (a *FlowableActivity) UpdateCDCConfigInCatalogActivity(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	return internal.UpdateCDCConfigInCatalog(ctx, a.CatalogPool, internal.LoggerFromCtx(ctx), cfg)
 }
 

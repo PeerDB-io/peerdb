@@ -79,7 +79,7 @@ func (a *FlowableActivity) getTableNameSchemaMapping(ctx context.Context, flowNa
 
 func (a *FlowableActivity) applySchemaDeltas(
 	ctx context.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	schemaDeltas []*protos.TableSchemaDelta,
 ) error {
@@ -111,7 +111,7 @@ func (a *FlowableActivity) applySchemaDeltas(
 func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncConnectorCore, Items model.Items](
 	ctx context.Context,
 	a *FlowableActivity,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 	options *protos.SyncFlowOptions,
 	srcConn TPull,
 	normRequests *concurrency.LastChan,
@@ -624,7 +624,7 @@ func (a *FlowableActivity) maintainReplConn(
 
 func (a *FlowableActivity) startNormalize(
 	ctx context.Context,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 	batchID int64,
 	normalizeResponses *concurrency.LastChan,
 ) error {
@@ -683,7 +683,7 @@ func (a *FlowableActivity) startNormalize(
 func (a *FlowableActivity) normalizeLoop(
 	ctx context.Context,
 	logger log.Logger,
-	config *protos.FlowConnectionConfigs,
+	config *protos.FlowConnectionConfigsCore,
 	syncDone <-chan struct{},
 	normalizeRequests *concurrency.LastChan,
 	normalizeResponses *concurrency.LastChan,

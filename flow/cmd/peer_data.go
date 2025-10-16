@@ -34,7 +34,7 @@ func redactProto(message proto.Message) {
 	})
 }
 
-func wrapErrorAsFailedPrecondition[T any](value T, err error) (T, APIError) { //nolint:iface
+func wrapErrorAsFailedPrecondition[T any](value T, err error) (T, APIError) {
 	if err != nil {
 		return value, NewFailedPreconditionApiError(err)
 	}

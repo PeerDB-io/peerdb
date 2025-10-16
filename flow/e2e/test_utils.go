@@ -27,6 +27,7 @@ import (
 	connpostgres "github.com/PeerDB-io/peerdb/flow/connectors/postgres"
 	connsnowflake "github.com/PeerDB-io/peerdb/flow/connectors/snowflake"
 	"github.com/PeerDB-io/peerdb/flow/e2eshared"
+	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/model"
@@ -663,6 +664,14 @@ func ExecutePeerflow(t *testing.T, tc client.Client, config *protos.FlowConnecti
 		WorkflowRun: tc.GetWorkflow(t.Context(), res.WorkflowId, ""),
 		c:           tc,
 	}
+}
+
+func ExecuteDropFlow(ctx context.Context, tc client.Client, config *protos.FlowConnectionConfigs, tableMappingsVersion int64) WorkflowRun {
+	return ExecuteWorkflow(ctx, tc, shared.PeerFlowTaskQueue, peerflow.DropFlowWorkflow, &protos.DropFlowInput{
+		FlowJobName:           config.FlowJobName,
+		DropFlowStats:         false,
+		FlowConnectionConfigs: proto_conversions.FlowConnectionConfigsToCore(config, tableMappingsVersion),
+	})
 }
 
 func ExecuteWorkflow(ctx context.Context, tc client.Client, taskQueueID shared.TaskQueueID, wf any, args ...any) WorkflowRun {

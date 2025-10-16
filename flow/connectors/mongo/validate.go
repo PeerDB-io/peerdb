@@ -19,7 +19,7 @@ func (c *MongoConnector) ValidateCheck(ctx context.Context) error {
 	return nil
 }
 
-func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigs) error {
+func (c *MongoConnector) ValidateMirrorSource(ctx context.Context, cfg *protos.FlowConnectionConfigsCore) error {
 	if cfg.DoInitialSnapshot && cfg.InitialSnapshotOnly {
 		return nil
 	}

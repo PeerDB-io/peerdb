@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	"github.com/PeerDB-io/peerdb/flow/connectors"
+	"github.com/PeerDB-io/peerdb/flow/generated/proto_conversions"
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
 	"github.com/PeerDB-io/peerdb/flow/internal"
 	"github.com/PeerDB-io/peerdb/flow/shared"
@@ -18,13 +19,14 @@ var CustomColumnTypeRegex = regexp.MustCompile(`^$|^[a-zA-Z][a-zA-Z0-9(),]*$`)
 func (h *FlowRequestHandler) ValidateCDCMirror(
 	ctx context.Context, req *protos.CreateCDCFlowRequest,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
-	return h.validateCDCMirrorImpl(ctx, req, false)
+	flowConnectionConfigsCore := proto_conversions.FlowConnectionConfigsToCore(req.ConnectionConfigs, 0)
+	return h.validateCDCMirrorImpl(ctx, flowConnectionConfigsCore, false)
 }
 
 func (h *FlowRequestHandler) validateCDCMirrorImpl(
-	ctx context.Context, req *protos.CreateCDCFlowRequest, idempotent bool,
+	ctx context.Context, connectionConfigs *protos.FlowConnectionConfigsCore, idempotent bool,
 ) (*protos.ValidateCDCMirrorResponse, APIError) {
-	ctx = context.WithValue(ctx, shared.FlowNameKey, req.ConnectionConfigs.FlowJobName)
+	ctx = context.WithValue(ctx, shared.FlowNameKey, connectionConfigs.FlowJobName)
 	underMaintenance, err := internal.PeerDBMaintenanceModeEnabled(ctx, nil)
 	if err != nil {
 		slog.ErrorContext(ctx, "unable to check maintenance mode", slog.Any("error", err))
@@ -32,13 +34,13 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	if underMaintenance {
-		slog.WarnContext(ctx, "Validate request denied due to maintenance", "flowName", req.ConnectionConfigs.FlowJobName)
+		slog.WarnContext(ctx, "Validate request denied due to maintenance", "flowName", connectionConfigs.FlowJobName)
 		return nil, NewUnavailableApiError(ErrUnderMaintenance)
 	}
 
 	// Skip mirror existence check when idempotent (for managed creates)
-	if !idempotent && !req.ConnectionConfigs.Resync {
-		mirrorExists, existCheckErr := h.checkIfMirrorNameExists(ctx, req.ConnectionConfigs.FlowJobName)
+	if !idempotent && !connectionConfigs.Resync {
+		mirrorExists, existCheckErr := h.checkIfMirrorNameExists(ctx, connectionConfigs.FlowJobName)
 		if existCheckErr != nil {
 			slog.ErrorContext(ctx, "/validatecdc failed to check if mirror name exists", slog.Any("error", existCheckErr))
 			return nil, NewInternalApiError(fmt.Errorf("failed to check if mirror name exists: %w", existCheckErr))
@@ -46,24 +48,24 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 
 		if mirrorExists {
 			return nil, NewAlreadyExistsApiError(
-				errors.New("mirror with name %s already exists: "+req.ConnectionConfigs.FlowJobName),
+				errors.New("mirror with name %s already exists: "+connectionConfigs.FlowJobName),
 				NewMirrorErrorInfo(map[string]string{
 					ErrorMetadataOffendingField: "flow_job_name",
 				}))
 		}
 	}
 
-	if req.ConnectionConfigs == nil {
+	if connectionConfigs == nil {
 		slog.ErrorContext(ctx, "/validatecdc connection configs is nil")
 		return nil, NewInvalidArgumentApiError(errors.New("connection configs is nil"))
 	}
 
-	if !req.ConnectionConfigs.DoInitialSnapshot && req.ConnectionConfigs.InitialSnapshotOnly {
+	if !connectionConfigs.DoInitialSnapshot && connectionConfigs.InitialSnapshotOnly {
 		return nil, NewInvalidArgumentApiError(
 			errors.New("invalid config: initial_snapshot_only is true but do_initial_snapshot is false"))
 	}
 
-	for _, tm := range req.ConnectionConfigs.TableMappings {
+	for _, tm := range connectionConfigs.TableMappings {
 		for _, col := range tm.Columns {
 			if !CustomColumnTypeRegex.MatchString(col.DestinationType) {
 				return nil, NewInvalidArgumentApiError(errors.New("invalid custom column type " + col.DestinationType))
@@ -72,7 +74,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 
 	srcConn, err := connectors.GetByNameAs[connectors.MirrorSourceValidationConnector](
-		ctx, req.ConnectionConfigs.Env, h.pool, req.ConnectionConfigs.SourceName,
+		ctx, connectionConfigs.Env, h.pool, connectionConfigs.SourceName,
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -82,13 +84,13 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	}
 	defer connectors.CloseConnector(ctx, srcConn)
 
-	if err := srcConn.ValidateMirrorSource(ctx, req.ConnectionConfigs); err != nil {
+	if err := srcConn.ValidateMirrorSource(ctx, connectionConfigs); err != nil {
 		return nil, NewFailedPreconditionApiError(
-			fmt.Errorf("failed to validate source connector %s: %w", req.ConnectionConfigs.SourceName, err))
+			fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
 	}
 
 	dstConn, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
-		ctx, req.ConnectionConfigs.Env, h.pool, req.ConnectionConfigs.DestinationName,
+		ctx, connectionConfigs.Env, h.pool, connectionConfigs.DestinationName,
 	)
 	if err != nil {
 		if errors.Is(err, errors.ErrUnsupported) {
@@ -99,17 +101,17 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 	defer connectors.CloseConnector(ctx, dstConn)
 
 	var tableSchemaMap map[string]*protos.TableSchema
-	if !req.ConnectionConfigs.Resync {
+	if !connectionConfigs.Resync {
 		var getTableSchemaError error
-		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, req.ConnectionConfigs.Env, req.ConnectionConfigs.Version,
-			req.ConnectionConfigs.System, req.ConnectionConfigs.TableMappings)
+		tableSchemaMap, getTableSchemaError = srcConn.GetTableSchema(ctx, connectionConfigs.Env, connectionConfigs.Version,
+			connectionConfigs.System, connectionConfigs.TableMappings)
 		if getTableSchemaError != nil {
 			return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to get source table schema: %w", getTableSchemaError))
 		}
 	}
-	if err := dstConn.ValidateMirrorDestination(ctx, req.ConnectionConfigs, tableSchemaMap); err != nil {
+	if err := dstConn.ValidateMirrorDestination(ctx, connectionConfigs, tableSchemaMap); err != nil {
 		return nil, NewFailedPreconditionApiError(
-			fmt.Errorf("failed to validate destination connector %s: %w", req.ConnectionConfigs.DestinationName, err))
+			fmt.Errorf("failed to validate destination connector %s: %w", connectionConfigs.DestinationName, err))
 	}
 
 	return &protos.ValidateCDCMirrorResponse{}, nil

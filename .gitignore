@@ -13,7 +13,7 @@ flow/peer-flow
 go.work
 go.work.sum
 
-# generated protobuf files
+# generated protobuf files and go generate
 ui/grpc_generated
 flow/generated
 nexus/pt/src/gen
