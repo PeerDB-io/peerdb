@@ -7,6 +7,7 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1"
+base64 = "0.22"
 futures-util = { version = "0.3", default-features = false, features = ["io"] }
 pt = { path = "../pt" }
 rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
@@ -18,4 +19,4 @@ tokio-util = { version = "0.7", features = ["compat"] }
 tokio-stream = "0.1"
 tracing.workspace = true
 urlencoding = "2"
-base64 = "0.22"
+
