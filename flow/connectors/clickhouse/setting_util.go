@@ -47,8 +47,8 @@ func GetMinVersion(name CHSetting) (chproto.Version, bool) {
 	return chproto.Version{}, false
 }
 
-// NewChSettingsString is a one-liner method to generate an immutable settings string
-func NewChSettingsString(version *chproto.Version, settings ...CHSettingEntry) string {
+// NewCHSettingsString is a one-liner method to generate an immutable settings string
+func NewCHSettingsString(version *chproto.Version, settings ...CHSettingEntry) string {
 	sg := NewCHSettings(version)
 	for _, setting := range settings {
 		sg.Add(setting.key, setting.val)
