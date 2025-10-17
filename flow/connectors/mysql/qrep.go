@@ -22,7 +22,8 @@ import (
 )
 
 func (c *MySqlConnector) tableRowEstimate(ctx context.Context, schema string, table string) (int64, error) {
-	rs, err := c.Execute(ctx, "select table_rows from information_schema.tables where table_schema=? and table_name=?", schema, table)
+	rs, err := c.Execute(ctx, fmt.Sprintf("select table_rows from information_schema.tables where table_schema='%s' and table_name='%s'",
+		mysql.Escape(schema), mysql.Escape(table)))
 	if err != nil {
 		return 0, fmt.Errorf("failed to query information schema for row count estimate: %w", err)
 	}
@@ -61,12 +62,13 @@ func (c *MySqlConnector) GetQRepPartitions(
 	var minmaxQuery string
 	var minmaxHasCount bool
 	if last != nil && last.Range != nil {
+		// partial query, append minVal later
 		if numPartitions == 0 {
 			minmaxHasCount = true
-			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`),COUNT(*) FROM %[1]s WHERE `%[2]s` > ?",
+			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`),COUNT(*) FROM %[1]s WHERE `%[2]s` > ",
 				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
 		} else {
-			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s WHERE `%[2]s` > ?",
+			minmaxQuery = fmt.Sprintf("SELECT MIN(`%[2]s`),MAX(`%[2]s`) FROM %[1]s WHERE `%[2]s` > ",
 				parsedWatermarkTable.MySQL(), config.WatermarkColumn)
 		}
 	} else if numPartitions == 0 {
@@ -94,20 +96,20 @@ func (c *MySqlConnector) GetQRepPartitions(
 		}
 	}
 
-	var minVal any
 	var rs *mysql.Result
 	if last != nil && last.Range != nil {
+		var minVal string
 		switch lastRange := last.Range.Range.(type) {
 		case *protos.PartitionRange_IntRange:
-			minVal = lastRange.IntRange.End
+			minVal = strconv.FormatInt(lastRange.IntRange.End, 10)
 		case *protos.PartitionRange_UintRange:
-			minVal = lastRange.UintRange.End
+			minVal = strconv.FormatUint(lastRange.UintRange.End, 10)
 		case *protos.PartitionRange_TimestampRange:
-			minVal = lastRange.TimestampRange.End.AsTime().String()
+			minVal = "'" + lastRange.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
 		}
 
-		c.logger.Info("querying min/max", slog.String("query", minmaxQuery), slog.Any("minVal", minVal))
-		rs, err = c.Execute(ctx, minmaxQuery, minVal)
+		c.logger.Info("querying min/max", slog.String("query", minmaxQuery), slog.String("minVal", minVal))
+		rs, err = c.Execute(ctx, minmaxQuery+minVal)
 	} else {
 		c.logger.Info("querying min/max", slog.String("query", minmaxQuery))
 		rs, err = c.Execute(ctx, minmaxQuery)
