@@ -15,10 +15,30 @@ const (
 	TsqueryOID      uint32 = 3615
 )
 
+// PeerDB Internal Version System
+//
+// This versioning system allows PeerDB to introduce breaking changes to data formats,
+// connector behavior, and destination-specific settings in a backward-compatible way.
+//
+// ## How it works:
+//   - Each mirror is created with an internal version number stored in the
+//     FlowConnectionConfigsCore.Version field in the catalog database
+//   - The version is set once when a mirror is created and persists for the lifetime of that mirror
+//   - New mirrors are created with InternalVersion_Latest
+//   - Existing mirrors continue using their original version, ensuring stable behavior across upgrades
+//
+// ## How to add a new version:
+//  1. Add a new constant below with a descriptive name and a comment explaining the change
+//  2. Add version checks in the relevant connector code (e.g., if version >= InternalVersion_MyFeature)
+//  3. Add e2e test to verify both old and new versions work correctly (old mirrors keep old behavior, new mirrors get new behavior)
+
 const (
 	InternalVersion_First uint32 = iota
+	// Postgres: vector types ("vector", "halfvec", "sparsevec") replicated as float arrays instead of string
 	InternalVersion_PgVectorAsFloatArray
+	// MongoDB: rename `fullDocument` column to `doc`
 	IntervalVersion_MongoDBFullDocumentColumnToDoc
+	// All: setting json_type_escape_dots_in_keys = true when inserting JSON column to ClickHouse (only impact MongoDB today)
 	InternalVersion_JsonEscapeDotsInKeys
 
 	TotalNumberOfInternalVersions

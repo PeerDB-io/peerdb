@@ -282,12 +282,11 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 	}
 	numParts = max(numParts, 1)
 
-	settings := map[string]string{
-		"throw_on_max_partitions_per_insert_block": "0",
-		"type_json_skip_duplicated_paths":          "1",
-	}
-	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys && ShouldUseJSONEscapeDotsInKeys(ctx, s.chVersion) {
-		settings["json_type_escape_dots_in_keys"] = "1"
+	settingGenerator := NewSettingGenerator(s.chVersion)
+	settingGenerator.AddSetting(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	settingGenerator.AddSetting(SettingTypeJsonSkipDuplicatedPaths, "1")
+	if config.Version >= shared.InternalVersion_JsonEscapeDotsInKeys {
+		settingGenerator.AddSetting(SettingJsonTypeEscapeDotsInKeys, "1")
 	}
 
 	// Process each chunk file individually
@@ -313,9 +312,10 @@ func (s *ClickHouseAvroSyncMethod) pushS3DataToClickHouse(
 
 			var query string
 			if numParts > 1 {
-				query, err = buildInsertFromTableFunctionQueryWithPartitioning(ctx, insertConfig, s3TableFunction, i, numParts, settings)
+				query, err = buildInsertFromTableFunctionQueryWithPartitioning(
+					ctx, insertConfig, s3TableFunction, i, numParts, settingGenerator)
 			} else {
-				query, err = buildInsertFromTableFunctionQuery(ctx, insertConfig, s3TableFunction, settings)
+				query, err = buildInsertFromTableFunctionQuery(ctx, insertConfig, s3TableFunction, settingGenerator)
 			}
 			if err != nil {
 				s.logger.Error("failed to build insert query",
