@@ -25,3 +25,15 @@ func updateFlowStatusInCatalogActivity(
 	}
 	return internal.UpdateFlowStatusInCatalog(ctx, pool, workflowID, status)
 }
+
+func updateFlowStatusWithNameInCatalogActivity(
+	ctx context.Context,
+	flowName string,
+	status protos.FlowStatus,
+) (protos.FlowStatus, error) {
+	pool, err := internal.GetCatalogConnectionPoolFromEnv(ctx)
+	if err != nil {
+		return status, fmt.Errorf("failed to get catalog connection pool: %w", err)
+	}
+	return internal.UpdateFlowStatusWithNameInCatalog(ctx, pool, flowName, status)
+}
