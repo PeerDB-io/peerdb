@@ -10,8 +10,11 @@ import (
 
 type CHSetting string
 
-// when adding a new clickhouse setting to this list, check if the setting is relatively new to ClickHouse,
-// add a corresponding minimum version below to ensure queries on older versions are not impacted.
+// When adding a new clickhouse setting to this list, check when the setting is introduced to ClickHouse
+// and if applicable, add a corresponding minimum supported version below to ensure queries on older versions
+// of ClickHouse servers are not impacted.
+// Important: if the setting causes breaking changes to existing PeerDB flows (not just ClickHouse compatibility),
+// it must also be gated by PeerDB's internal version.
 const (
 	SettingAllowNullableKey                   CHSetting = "allow_nullable_key"
 	SettingJsonTypeEscapeDotsInKeys           CHSetting = "json_type_escape_dots_in_keys"
@@ -52,7 +55,7 @@ func (sg *SettingGenerator) AddSetting(name CHSetting, value string) *SettingGen
 }
 
 // ToString generates settings string ' SETTINGS <key1> = <val1>, <key2> = <val2>, ...';
-// If ClickHouse version is set in the SettingGenerator, settings that do not meet CH versio
+// If ClickHouse version is set in the SettingGenerator, settings that do not meet CH version
 // requirement will be filtered out. Otherwise, all settings are included.
 func (sg *SettingGenerator) ToString() string {
 	if len(sg.settings) == 0 {
