@@ -4,9 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
-	"slices"
-	"sort"
 	"strings"
 
 	"go.temporal.io/sdk/log"
@@ -65,7 +62,7 @@ func buildInsertFromTableFunctionQuery(
 	ctx context.Context,
 	config *insertFromTableFunctionConfig,
 	tableFunctionExpr string,
-	settings map[string]string,
+	chSettings *CHSettings,
 ) (string, error) {
 	fieldExpressionConverters := defaultFieldExpressionConverters
 	fieldExpressionConverters = append(fieldExpressionConverters, config.fieldExpressionConverters...)
@@ -129,7 +126,10 @@ func buildInsertFromTableFunctionQuery(
 
 	selectorStr := strings.Join(selectedColumnNames, ",")
 	insertedStr := strings.Join(insertedColumnNames, ",")
-	settingsStr := buildSettingsStr(settings)
+	settingsStr := ""
+	if chSettings != nil {
+		settingsStr = chSettings.String()
+	}
 
 	return fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM %s%s",
 		peerdb_clickhouse.QuoteIdentifier(config.destinationTable), insertedStr, selectorStr, tableFunctionExpr, settingsStr), nil
@@ -142,7 +142,7 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 	tableFunctionExpr string,
 	partitionIndex uint64,
 	totalPartitions uint64,
-	settings map[string]string,
+	chSettings *CHSettings,
 ) (string, error) {
 	var query strings.Builder
 
@@ -171,33 +171,9 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 		query.WriteString(whereClause)
 	}
 
-	query.WriteString(buildSettingsStr(settings))
+	if chSettings != nil {
+		query.WriteString(chSettings.String())
+	}
 
 	return query.String(), nil
-}
-
-// helper function to generate settings string ' SETTINGS <key1> = <val1>, <key2> = <val2>, ...'
-func buildSettingsStr(settings map[string]string) string {
-	if len(settings) == 0 {
-		return ""
-	}
-
-	// sort keys alphabetically for consistent output
-	keys := slices.Collect(maps.Keys(settings))
-	sort.Strings(keys)
-
-	first := true
-	var builder strings.Builder
-	for _, k := range keys {
-		if first {
-			builder.WriteString(" SETTINGS ")
-			first = false
-		} else {
-			builder.WriteString(", ")
-		}
-		builder.WriteString(k)
-		builder.WriteString("=")
-		builder.WriteString(settings[k])
-	}
-	return builder.String()
 }

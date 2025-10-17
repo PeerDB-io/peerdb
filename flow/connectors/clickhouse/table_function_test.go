@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"testing"
 
+	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/PeerDB-io/peerdb/flow/generated/protos"
@@ -32,39 +33,22 @@ func TestBuildInsertFromTableFunctionQuery(t *testing.T) {
 	}
 
 	tableFunctionExpr := "s3('s3://bucket/key', 'format')"
-	settings := map[string]string{"key": "val"}
+	chSettings := NewCHSettings(&chproto.Version{Major: 25, Minor: 8})
+	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
 
 	// without partitioning
-	query, err := buildInsertFromTableFunctionQuery(ctx, config, tableFunctionExpr, settings)
+	query, err := buildInsertFromTableFunctionQuery(ctx, config, tableFunctionExpr, chSettings)
 	require.NoError(t, err)
-	require.Equal(t, "INSERT INTO `t1`(`id`,`name`) SELECT `id`,`name` FROM s3('s3://bucket/key', 'format') SETTINGS key=val", query)
+	require.Equal(t, fmt.Sprintf("INSERT INTO `t1`(`id`,`name`) SELECT `id`,`name` FROM s3('s3://bucket/key', 'format') SETTINGS %s=%s",
+		string(SettingTypeJsonSkipDuplicatedPaths), "1"), query)
 
 	// with partitioning
 	totalPartitions := uint64(8)
 	for idx := range totalPartitions {
-		query, err := buildInsertFromTableFunctionQueryWithPartitioning(ctx, config, tableFunctionExpr, idx, totalPartitions, settings)
+		query, err := buildInsertFromTableFunctionQueryWithPartitioning(ctx, config, tableFunctionExpr, idx, totalPartitions, chSettings)
 		require.NoError(t, err)
 		require.Equal(t, query,
 			"INSERT INTO `t1`(`id`,`name`) SELECT `id`,`name` FROM s3('s3://bucket/key', 'format')"+
-				fmt.Sprintf(" WHERE cityHash64(`id`) %% 8 = %d SETTINGS key=val", idx))
+				fmt.Sprintf(" WHERE cityHash64(`id`) %% 8 = %d SETTINGS %s=%s", idx, string(SettingTypeJsonSkipDuplicatedPaths), "1"))
 	}
-}
-
-func TestBuildSettingsStr(t *testing.T) {
-	settings := map[string]string{}
-	result := buildSettingsStr(settings)
-	require.Empty(t, result)
-
-	settings = map[string]string{
-		"max_threads": "8",
-	}
-	result = buildSettingsStr(settings)
-	require.Equal(t, " SETTINGS max_threads=8", result)
-
-	settings = map[string]string{
-		"max_threads":    "8",
-		"max_block_size": "65536",
-	}
-	result = buildSettingsStr(settings)
-	require.Equal(t, " SETTINGS max_block_size=65536, max_threads=8", result)
 }
