@@ -264,9 +264,7 @@ func (c *ClickHouseConnector) generateCreateTableSQLForNormalizedTable(
 		}
 
 		if allowNullableKey {
-			settingGenerator := NewSettingGenerator(chVersion)
-			settingGenerator.AddSetting(SettingAllowNullableKey, "1")
-			stmtBuilder.WriteString(settingGenerator.ToString())
+			stmtBuilder.WriteString(NewChSettingsString(chVersion, CHSettingEntry{SettingAllowNullableKey, "1"}))
 		}
 
 		if c.Config.Cluster != "" {

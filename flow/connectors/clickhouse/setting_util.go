@@ -8,8 +8,6 @@ import (
 	chproto "github.com/ClickHouse/clickhouse-go/v2/lib/proto"
 )
 
-type CHSetting string
-
 // When adding a new clickhouse setting to this list, check when the setting is introduced to ClickHouse
 // and if applicable, add a corresponding minimum supported version below to ensure queries on older versions
 // of ClickHouse servers are not impacted.
@@ -23,41 +21,62 @@ const (
 	SettingParallelDistributedInsertSelect    CHSetting = "parallel_distributed_insert_select"
 )
 
-// settingMinVersions maps setting names to their minimum required ClickHouse versions
+// CHSettingMinVersions maps setting names to their minimum required ClickHouse versions
 // If minimum version is not specified, we assume the setting is available to all ClickHouse versions
-var settingMinVersions = map[CHSetting]chproto.Version{
+var CHSettingMinVersions = map[CHSetting]chproto.Version{
 	SettingJsonTypeEscapeDotsInKeys:    {Major: 25, Minor: 8, Patch: 0},
 	SettingTypeJsonSkipDuplicatedPaths: {Major: 24, Minor: 8, Patch: 0},
 }
 
+type CHSetting string
+
+type CHSettings struct {
+	settings  map[CHSetting]string
+	chVersion *chproto.Version
+}
+
+type CHSettingEntry struct {
+	key CHSetting
+	val string
+}
+
 func GetMinVersion(name CHSetting) (chproto.Version, bool) {
-	if minVersion, exists := settingMinVersions[name]; exists {
+	if minVersion, exists := CHSettingMinVersions[name]; exists {
 		return minVersion, true
 	}
 	return chproto.Version{}, false
 }
 
-type SettingGenerator struct {
-	settings  map[CHSetting]string
-	chVersion *chproto.Version
+// NewChSettingsString is a one-liner method to generate an immutable settings string
+func NewChSettingsString(version *chproto.Version, settings ...CHSettingEntry) string {
+	sg := NewCHSettings(version)
+	for _, setting := range settings {
+		sg.Add(setting.key, setting.val)
+	}
+	return sg.String()
 }
 
-func NewSettingGenerator(version *chproto.Version) *SettingGenerator {
-	return &SettingGenerator{
-		settings:  make(map[CHSetting]string),
+func NewCHSettings(version *chproto.Version, settings ...CHSettingEntry) *CHSettings {
+	newSettings := make(map[CHSetting]string)
+	for _, s := range settings {
+		newSettings[s.key] = s.val
+	}
+	chSettings := &CHSettings{
+		settings:  newSettings,
 		chVersion: version,
 	}
+	return chSettings
 }
 
-func (sg *SettingGenerator) AddSetting(name CHSetting, value string) *SettingGenerator {
-	sg.settings[name] = value
+func (sg *CHSettings) Add(key CHSetting, val string) *CHSettings {
+	sg.settings[key] = val
 	return sg
 }
 
-// ToString generates settings string ' SETTINGS <key1> = <val1>, <key2> = <val2>, ...';
-// If ClickHouse version is set in the SettingGenerator, settings that do not meet CH version
+// String generates settings string ' SETTINGS <key1> = <val1>, <key2> = <val2>, ...';
+// If ClickHouse version is set in the CHSettings, settings that do not meet CH version
 // requirement will be filtered out. Otherwise, all settings are included.
-func (sg *SettingGenerator) ToString() string {
+func (sg *CHSettings) String() string {
 	if len(sg.settings) == 0 {
 		return ""
 	}

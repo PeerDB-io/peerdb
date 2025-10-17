@@ -309,18 +309,18 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		}
 	}
 
-	settingGenerator := NewSettingGenerator(t.chVersion)
-	settingGenerator.AddSetting(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
-	settingGenerator.AddSetting(SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := NewCHSettings(t.chVersion)
+	chSettings.Add(SettingThrowOnMaxPartitionsPerInsertBlock, "0")
+	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
 	if t.cluster {
-		settingGenerator.AddSetting(SettingParallelDistributedInsertSelect, "0")
+		chSettings.Add(SettingParallelDistributedInsertSelect, "0")
 	}
 	if t.version >= shared.InternalVersion_JsonEscapeDotsInKeys {
-		settingGenerator.AddSetting(SettingJsonTypeEscapeDotsInKeys, "1")
+		chSettings.Add(SettingJsonTypeEscapeDotsInKeys, "1")
 	}
 
 	insertIntoSelectQuery := fmt.Sprintf("INSERT INTO %s %s %s%s",
-		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String(), settingGenerator.ToString())
+		peerdb_clickhouse.QuoteIdentifier(t.TableName), colSelector.String(), selectQuery.String(), chSettings.String())
 
 	t.Query = insertIntoSelectQuery
 

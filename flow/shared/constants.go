@@ -36,9 +36,9 @@ const (
 	InternalVersion_First uint32 = iota
 	// Postgres: vector types ("vector", "halfvec", "sparsevec") replicated as float arrays instead of string
 	InternalVersion_PgVectorAsFloatArray
-	// MongoDB: rename `fullDocument` column to `doc`
+	// MongoDB: rename `_full_document` column to `doc`
 	IntervalVersion_MongoDBFullDocumentColumnToDoc
-	// All: setting json_type_escape_dots_in_keys = true when inserting JSON column to ClickHouse (only impact MongoDB today)
+	// All: setting json_type_escape_dots_in_keys = true when inserting JSON column to ClickHouse (only impacts MongoDB today)
 	InternalVersion_JsonEscapeDotsInKeys
 
 	TotalNumberOfInternalVersions

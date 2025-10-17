@@ -62,7 +62,7 @@ func buildInsertFromTableFunctionQuery(
 	ctx context.Context,
 	config *insertFromTableFunctionConfig,
 	tableFunctionExpr string,
-	settingGenerator *SettingGenerator,
+	chSettings *CHSettings,
 ) (string, error) {
 	fieldExpressionConverters := defaultFieldExpressionConverters
 	fieldExpressionConverters = append(fieldExpressionConverters, config.fieldExpressionConverters...)
@@ -127,8 +127,8 @@ func buildInsertFromTableFunctionQuery(
 	selectorStr := strings.Join(selectedColumnNames, ",")
 	insertedStr := strings.Join(insertedColumnNames, ",")
 	settingsStr := ""
-	if settingGenerator != nil {
-		settingsStr = settingGenerator.ToString()
+	if chSettings != nil {
+		settingsStr = chSettings.String()
 	}
 
 	return fmt.Sprintf("INSERT INTO %s(%s) SELECT %s FROM %s%s",
@@ -142,7 +142,7 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 	tableFunctionExpr string,
 	partitionIndex uint64,
 	totalPartitions uint64,
-	settingGenerator *SettingGenerator,
+	chSettings *CHSettings,
 ) (string, error) {
 	var query strings.Builder
 
@@ -171,8 +171,8 @@ func buildInsertFromTableFunctionQueryWithPartitioning(
 		query.WriteString(whereClause)
 	}
 
-	if settingGenerator != nil {
-		query.WriteString(settingGenerator.ToString())
+	if chSettings != nil {
+		query.WriteString(chSettings.String())
 	}
 
 	return query.String(), nil

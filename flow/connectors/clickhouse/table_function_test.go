@@ -33,11 +33,11 @@ func TestBuildInsertFromTableFunctionQuery(t *testing.T) {
 	}
 
 	tableFunctionExpr := "s3('s3://bucket/key', 'format')"
-	settingGenerator := NewSettingGenerator(&chproto.Version{Major: 25, Minor: 8})
-	settingGenerator.AddSetting(SettingTypeJsonSkipDuplicatedPaths, "1")
+	chSettings := NewCHSettings(&chproto.Version{Major: 25, Minor: 8})
+	chSettings.Add(SettingTypeJsonSkipDuplicatedPaths, "1")
 
 	// without partitioning
-	query, err := buildInsertFromTableFunctionQuery(ctx, config, tableFunctionExpr, settingGenerator)
+	query, err := buildInsertFromTableFunctionQuery(ctx, config, tableFunctionExpr, chSettings)
 	require.NoError(t, err)
 	require.Equal(t, fmt.Sprintf("INSERT INTO `t1`(`id`,`name`) SELECT `id`,`name` FROM s3('s3://bucket/key', 'format') SETTINGS %s=%s",
 		string(SettingTypeJsonSkipDuplicatedPaths), "1"), query)
@@ -45,7 +45,7 @@ func TestBuildInsertFromTableFunctionQuery(t *testing.T) {
 	// with partitioning
 	totalPartitions := uint64(8)
 	for idx := range totalPartitions {
-		query, err := buildInsertFromTableFunctionQueryWithPartitioning(ctx, config, tableFunctionExpr, idx, totalPartitions, settingGenerator)
+		query, err := buildInsertFromTableFunctionQueryWithPartitioning(ctx, config, tableFunctionExpr, idx, totalPartitions, chSettings)
 		require.NoError(t, err)
 		require.Equal(t, query,
 			"INSERT INTO `t1`(`id`,`name`) SELECT `id`,`name` FROM s3('s3://bucket/key', 'format')"+
