@@ -265,7 +265,7 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		return partitionHelper.GetPartitions(), nil
 	} else {
 		minmaxQuery := fmt.Sprintf("SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s",
-			parsedWatermarkTable.String(), config.WatermarkColumn, whereClause)
+			parsedWatermarkTable.String(), quotedWatermarkColumn, whereClause)
 		var row pgx.Row
 		var minVal any
 		if last != nil && last.Range != nil {
