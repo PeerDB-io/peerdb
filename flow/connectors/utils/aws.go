@@ -188,7 +188,7 @@ func NewAssumeRoleBasedAWSCredentialsProvider(
 	}
 	return &AssumeRoleBasedAWSCredentialsProvider{
 		config:   config,
-		Provider: aws.NewCredentialsCache(provider),
+		Provider: provider,
 	}, nil
 }
 
@@ -276,11 +276,18 @@ func GetAWSCredentialsProvider(ctx context.Context, connectorName string, peerCr
 		if err != nil {
 			return nil, err
 		}
-		awsConfig.Credentials = stscreds.NewAssumeRoleProvider(sts.NewFromConfig(awsConfig), *peerCredentials.RoleArn,
+		provider := stscreds.NewAssumeRoleProvider(
+			sts.NewFromConfig(awsConfig),
+			*peerCredentials.RoleArn,
 			func(options *stscreds.AssumeRoleOptions) {
 				options.RoleSessionName = getAssumedRoleSessionName()
 			},
 		)
+		providerOpts := func(options *aws.CredentialsCacheOptions) {
+			options.ExpiryWindow = time.Hour
+			options.ExpiryWindowJitterFrac = 0
+		}
+		awsConfig.Credentials = aws.NewCredentialsCache(provider, providerOpts)
 		if peerCredentials.ChainedRoleArn != nil && *peerCredentials.ChainedRoleArn != "" {
 			logger.Info("Received AWS credentials with chained role from peer for connector: " + connectorName)
 			return NewAssumeRoleBasedAWSCredentialsProvider(ctx, awsConfig, *peerCredentials.ChainedRoleArn, getChainedRoleSessionName())
