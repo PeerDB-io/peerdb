@@ -451,6 +451,7 @@ var errSpew = spew.ConfigState{
 	DisablePointerAddresses: true,
 	DisableCapacities:       true,
 	ContinueOnMethod:        true,
+	MaxDepth:                15,
 }
 
 // logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
