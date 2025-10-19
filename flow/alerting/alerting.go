@@ -466,13 +466,13 @@ func (a *Alerter) logFlowErrorInternal(
 	errError := inErr.Error()
 	sDump := errSpew.Sdump(inErr)
 	sample := sDump
-	if len(sample) > 50 {
-		sample = sample[:50]
+	if len(sample) > 1400 {
+		sample = sample[:1400]
 	}
-	loggerFunc("about to log spew dump", slog.Int("length", len(sDump)), slog.String("sample", sample))
 	loggerFunc(errError,
 		slog.String("stack", inErrWithStack),
-		slog.String("spew", sDump),
+		slog.Int("spewLength", len(sDump)),
+		slog.String("spewSample", sample),
 	)
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
