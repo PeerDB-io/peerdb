@@ -451,7 +451,7 @@ var errSpew = spew.ConfigState{
 	DisablePointerAddresses: true,
 	DisableCapacities:       true,
 	ContinueOnMethod:        true,
-	MaxDepth:                15,
+	MaxDepth:                5,
 }
 
 // logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
@@ -466,14 +466,10 @@ func (a *Alerter) logFlowErrorInternal(
 	inErrWithStack := fmt.Sprintf("%+v", inErr)
 	errError := inErr.Error()
 	sDump := errSpew.Sdump(inErr)
-	sample := sDump
-	if len(sample) > 1400 {
-		sample = sample[:1400]
-	}
 	loggerFunc(errError,
 		slog.String("stack", inErrWithStack),
 		slog.Int("spewLength", len(sDump)),
-		slog.String("spewSample", sample),
+		slog.String("spew", sDump),
 	)
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
