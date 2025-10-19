@@ -448,8 +448,9 @@ const (
 
 var errSpew = spew.ConfigState{
 	Indent:                  "  ",
-	DisableMethods:          true, // Don't call Error() method, show the actual fields
 	DisablePointerAddresses: true,
+	DisableCapacities:       true,
+	ContinueOnMethod:        true,
 }
 
 // logFlowErrorInternal pushes the error to the errors table and emits a metric as well as a telemetry message
@@ -463,9 +464,15 @@ func (a *Alerter) logFlowErrorInternal(
 	logger := internal.LoggerFromCtx(ctx)
 	inErrWithStack := fmt.Sprintf("%+v", inErr)
 	errError := inErr.Error()
+	sDump := errSpew.Sdump(inErr)
+	sample := sDump
+	if len(sample) > 50 {
+		sample = sample[:50]
+	}
+	loggerFunc("about to log spew dump", slog.Int("length", len(sDump)), slog.String("sample", sample))
 	loggerFunc(errError,
 		slog.String("stack", inErrWithStack),
-		slog.String("spew", errSpew.Sdump(inErr)),
+		slog.String("spew", sDump),
 	)
 	if _, err := a.CatalogPool.Exec(
 		ctx, "INSERT INTO peerdb_stats.flow_errors(flow_name,error_message,error_type) VALUES($1,$2,$3)",
