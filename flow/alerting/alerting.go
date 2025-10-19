@@ -450,7 +450,7 @@ var errSpew = spew.ConfigState{
 	Indent:                  "  ",
 	DisablePointerAddresses: true,
 	DisableCapacities:       true,
-	ContinueOnMethod:        true,
+	DisableMethods:          true,
 	MaxDepth:                5,
 }
 
