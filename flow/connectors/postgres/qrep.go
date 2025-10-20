@@ -264,6 +264,13 @@ func (c *PostgresConnector) getNumRowsPartitions(
 
 		return partitionHelper.GetPartitions(), nil
 	} else {
+		// Special handling for CTID when user wants a fixed number of partitions:
+		// build approximate physical (block-based) TID partitions without sorting or MIN/MAX(ctid).
+		if strings.EqualFold(config.WatermarkColumn, "ctid") {
+			return c.getCTIDBlockPartitions(ctx, tx, *parsedWatermarkTable, numPartitions, last)
+		}
+
+		// Default path for non-CTID watermarks: split the min/max range in memory.
 		minmaxQuery := fmt.Sprintf("SELECT MIN(%[2]s),MAX(%[2]s) FROM %[1]s %[3]s",
 			parsedWatermarkTable.String(), config.WatermarkColumn, whereClause)
 		var row pgx.Row
@@ -293,6 +300,88 @@ func (c *PostgresConnector) getNumRowsPartitions(
 		}
 		return partitionHelper.GetPartitions(), nil
 	}
+}
+
+func (c *PostgresConnector) getCTIDBlockPartitions(
+	ctx context.Context,
+	tx pgx.Tx,
+	parsedWatermarkTable utils.SchemaTable,
+	numPartitions int64,
+	last *protos.QRepPartition,
+) ([]*protos.QRepPartition, error) {
+	// Compute total heap blocks for the table using relation size and block_size.
+	blocksQuery := "SELECT (pg_relation_size(to_regclass($1)) / current_setting('block_size')::int)::bigint"
+	var totalBlocks pgtype.Int8
+	if err := tx.QueryRow(ctx, blocksQuery, parsedWatermarkTable.String()).Scan(&totalBlocks); err != nil {
+		return nil, fmt.Errorf("failed to get relation blocks: %w", err)
+	}
+	if totalBlocks.Int64 <= 0 {
+		return nil, nil
+	}
+
+	type tid struct {
+		b uint32
+		o uint32
+	}
+	cmp := func(a tid, b tid) int {
+		if a.b < b.b {
+			return -1
+		}
+		if a.b > b.b {
+			return 1
+		}
+		if a.o < b.o {
+			return -1
+		}
+		if a.o > b.o {
+			return 1
+		}
+		return 0
+	}
+	inc := func(t tid) tid {
+		if t.o < 0xFFFF {
+			return tid{b: t.b, o: t.o + 1}
+		}
+		return tid{b: t.b + 1, o: 0}
+	}
+
+	makeStart := func(i int64) uint32 {
+		return uint32((i * totalBlocks.Int64) / numPartitions)
+	}
+	makeEndExclusive := func(i int64) uint32 {
+		return uint32(((i + 1) * totalBlocks.Int64) / numPartitions)
+	}
+
+	var resumeFrom *tid
+	if last != nil && last.Range != nil {
+		if lr, ok := last.Range.Range.(*protos.PartitionRange_TidRange); ok {
+			resume := tid{b: lr.TidRange.End.BlockNumber, o: lr.TidRange.End.OffsetNumber}
+			v := inc(resume)
+			resumeFrom = &v
+		}
+	}
+
+	partitionHelper := utils.NewPartitionHelper(c.logger)
+	for i := int64(0); i < numPartitions; i++ {
+		startBlock := makeStart(i)
+		endBlockExclusive := makeEndExclusive(i)
+		if endBlockExclusive == 0 || endBlockExclusive <= startBlock {
+			continue
+		}
+		end := tid{b: endBlockExclusive - 1, o: 0xFFFF}
+		start := tid{b: startBlock, o: 0}
+		if resumeFrom != nil && cmp(end, *resumeFrom) < 0 {
+			continue
+		}
+		if resumeFrom != nil && cmp(start, *resumeFrom) < 0 && cmp(*resumeFrom, end) <= 0 {
+			start = *resumeFrom
+		}
+
+		if err := partitionHelper.AddPartition(pgtype.TID{BlockNumber: start.b, OffsetNumber: uint16(start.o), Valid: true}, pgtype.TID{BlockNumber: end.b, OffsetNumber: uint16(end.o), Valid: true}); err != nil {
+			return nil, fmt.Errorf("failed to add TID partition: %w", err)
+		}
+	}
+	return partitionHelper.GetPartitions(), nil
 }
 
 func (c *PostgresConnector) getMinMaxValues(
