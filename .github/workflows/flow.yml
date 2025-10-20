@@ -53,7 +53,7 @@ jobs:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.1.5@sha256:9dac882b67afe5161f8988a7ede0e9890145182af83e4e1d4d10631c2f66656f
+        image: elasticsearch:9.1.5@sha256:767e028f0bc761d4120487bf36613eecf484dbffd4e62240127e56928a5ef49c
         ports:
           - 9200:9200
         env:
@@ -95,7 +95,7 @@ jobs:
 
       - uses: actions/setup-go@44694675825211faa026b3c33043df3e48a5fa00 # v6
         with:
-          go-version: '1.25.2'
+          go-version: '1.25.3'
           cache-dependency-path: flow/go.sum
 
       - name: install lib-geos
