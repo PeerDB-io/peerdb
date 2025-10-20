@@ -247,7 +247,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		return nil, err
 	}
 
-	if err = c.replayTableSchemaDeltas(ctx, schemaDeltas); err != nil {
+	if err := c.replayTableSchemaDeltas(ctx, schemaDeltas); err != nil {
 		c.logger.Error("[clickhouse] error while replaying table schema deltas", "error", err)
 		return nil, err
 	}
