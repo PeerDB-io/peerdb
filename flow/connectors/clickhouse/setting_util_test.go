@@ -47,8 +47,7 @@ func TestCHSettingsVersionFiltering(t *testing.T) {
 	_, minVersionExist := GetMinVersion(SettingThrowOnMaxPartitionsPerInsertBlock)
 	require.False(t, minVersionExist)
 	require.Equal(t, " SETTINGS throw_on_max_partitions_per_insert_block=0",
-		NewCHSettingsString(&chproto.Version{Major: 25, Minor: 8, Patch: 0},
-			CHSettingEntry{SettingThrowOnMaxPartitionsPerInsertBlock, "0"}))
+		NewCHSettingsString(&chproto.Version{Major: 25, Minor: 8, Patch: 0}, SettingThrowOnMaxPartitionsPerInsertBlock, "0"))
 
 	// setting should be included when ch version is not specified
 	chSettings = NewCHSettings(nil)
