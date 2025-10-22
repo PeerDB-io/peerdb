@@ -362,7 +362,7 @@ func (c *PostgresConnector) getCTIDBlockPartitions(
 	}
 
 	partitionHelper := utils.NewPartitionHelper(c.logger)
-	for i := int64(0); i < numPartitions; i++ {
+	for i := range numPartitions {
 		startBlock := makeStart(i)
 		endBlockExclusive := makeEndExclusive(i)
 		if endBlockExclusive == 0 || endBlockExclusive <= startBlock {
@@ -377,7 +377,10 @@ func (c *PostgresConnector) getCTIDBlockPartitions(
 			start = *resumeFrom
 		}
 
-		if err := partitionHelper.AddPartition(pgtype.TID{BlockNumber: start.b, OffsetNumber: uint16(start.o), Valid: true}, pgtype.TID{BlockNumber: end.b, OffsetNumber: uint16(end.o), Valid: true}); err != nil {
+		if err := partitionHelper.AddPartition(
+		    pgtype.TID{BlockNumber: start.b, OffsetNumber: uint16(start.o), Valid: true},
+		    pgtype.TID{BlockNumber: end.b, OffsetNumber: uint16(end.o), Valid: true},
+		); err != nil {
 			return nil, fmt.Errorf("failed to add TID partition: %w", err)
 		}
 	}
