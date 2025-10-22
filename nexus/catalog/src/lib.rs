@@ -389,9 +389,15 @@ impl Catalog {
             .pg
             .prepare_typed(
                 "INSERT INTO flows (name, source_peer, destination_peer, description,
-                     query_string, flow_metadata) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                &[types::Type::TEXT, types::Type::INT4, types::Type::INT4, types::Type::TEXT,
-                 types::Type::TEXT, types::Type::JSONB],
+                     query_string, flow_metadata) VALUES ($1, $2, $3, $4, $5, $6)",
+                &[
+                    types::Type::TEXT,
+                    types::Type::INT4,
+                    types::Type::INT4,
+                    types::Type::TEXT,
+                    types::Type::TEXT,
+                    types::Type::JSONB,
+                ],
             )
             .await?;
 
