@@ -1744,8 +1744,13 @@ func (a *FlowableActivity) GetFlowMetadata(
 
 	// Detect source database variant
 	if input.SourceName != "" {
-		if srcConn, err := connectors.GetByNameAs[connectors.DatabaseVariantConnector](ctx, nil, a.CatalogPool, input.SourceName); err == nil {
-			if variant, variantErr := srcConn.GetDatabaseVariant(ctx); variantErr == nil {
+		// Use a short timeout for optional variant detection to avoid consuming entire activity timeout
+		variantCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if srcConn, err := connectors.GetByNameAs[connectors.DatabaseVariantConnector](
+			variantCtx, nil, a.CatalogPool, input.SourceName,
+		); err == nil {
+			if variant, variantErr := srcConn.GetDatabaseVariant(variantCtx); variantErr == nil {
 				sourcePeer.Variant = variant
 			} else {
 				logger.Warn("failed to get source database variant", slog.Any("error", variantErr))
