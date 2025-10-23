@@ -1298,6 +1298,14 @@ func (s ClickHouseSuite) Test_Types_CH() {
 }
 
 func (s ClickHouseSuite) Test_InfiniteTimestamp() {
+	s.testInfiniteTimestamp(false)
+}
+
+func (s ClickHouseSuite) Test_InfiniteTimestampStrict() {
+	s.testInfiniteTimestamp(true)
+}
+
+func (s ClickHouseSuite) testInfiniteTimestamp(strictNull bool) {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
 	}
@@ -1330,6 +1338,9 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+	if strictNull {
+		flowConnConfig.Env["PEERDB_NULLABLE_STRICT"] = "true"
+	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
@@ -1380,6 +1391,14 @@ func (s ClickHouseSuite) Test_InfiniteTimestamp() {
 }
 
 func (s ClickHouseSuite) Test_JSON_Null() {
+	s.testJSONNull(false)
+}
+
+func (s ClickHouseSuite) Test_JSON_Null_Strict() {
+	s.testJSONNull(true)
+}
+
+func (s ClickHouseSuite) testJSONNull(strictNull bool) {
 	if _, ok := s.source.(*PostgresSource); !ok {
 		s.t.Skip("only applies to postgres")
 	}
@@ -1413,6 +1432,9 @@ func (s ClickHouseSuite) Test_JSON_Null() {
 	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
 	flowConnConfig.DoInitialSnapshot = true
 	flowConnConfig.Env = map[string]string{"PEERDB_NULLABLE": "true"}
+	if strictNull {
+		flowConnConfig.Env["PEERDB_NULLABLE_STRICT"] = "true"
+	}
 
 	tc := NewTemporalClient(s.t)
 	env := ExecutePeerflow(s.t, tc, flowConnConfig)
