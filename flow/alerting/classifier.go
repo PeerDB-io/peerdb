@@ -702,8 +702,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrUnfinished,
 			chproto.ErrAborted:
 			return ErrorInternalClickHouse, chErrorInfo
-		case chproto.ErrAuthenticationFailed:
-			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrTooManySimultaneousQueries:
 			return ErrorIgnoreConnTemporary, chErrorInfo
 		case chproto.ErrCannotParseUUID, chproto.ErrValueIsOutOfRangeOfDataType: // https://github.com/ClickHouse/ClickHouse/pull/78540
@@ -723,8 +721,6 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.HasSuffix(chException.Message, "is either DETACHED PERMANENTLY or was just created by another replica") {
 				return ErrorRetryRecoverable, chErrorInfo
 			}
-		case 439: // CANNOT_SCHEDULE_TASK
-			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrUnsupportedMethod,
 			chproto.ErrIllegalColumn,
 			chproto.ErrDuplicateColumn,
@@ -741,7 +737,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			chproto.ErrNotAnAggregate,
 			chproto.ErrSizesOfArraysDoesntMatch,
 			chproto.ErrAliasRequired,
-			691, // UNKNOWN_ELEMENT_OF_ENUM
+			chproto.ErrUnknownElementOfEnum,
 			chproto.ErrNoCommonType,
 			chproto.ErrIllegalTypeOfArgument:
 			var qrepSyncError *exceptions.QRepSyncError
@@ -749,15 +745,18 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 				// could cause false positives, but should be rare
 				return ErrorNotifyMVOrView, chErrorInfo
 			}
-		case 529: // NOT_A_LEADER
+		case chproto.ErrNotALeader:
 			if strings.HasPrefix(chException.Message, "Cannot enqueue query on this replica, because it has replication lag") {
 				return ErrorNotifyConnectivity, chErrorInfo
 			}
-		case chproto.ErrQueryWasCancelled,
+		case chproto.ErrAuthenticationFailed,
+			chproto.ErrCannotScheduleTask,
+			chproto.ErrQueryWasCancelled,
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
 			chproto.ErrSocketTimeout,
-			517: // CANNOT_ASSIGN_ALTER
+			chproto.ErrTableIsReadOnly,
+			chproto.ErrCannotAssignAlter:
 			return ErrorRetryRecoverable, chErrorInfo
 		case chproto.ErrTimeoutExceeded:
 			if strings.HasSuffix(chException.Message, "distributed_ddl_task_timeout") {
