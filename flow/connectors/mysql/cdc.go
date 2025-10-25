@@ -68,9 +68,9 @@ func (c *MySqlConnector) getTableSchemaForTable(
 		return nil, err
 	}
 
-	rs, err := c.Execute(ctx, `select column_name, column_type, column_key, is_nullable, numeric_precision, numeric_scale
-	from information_schema.columns
-	where table_schema = ? and table_name = ? order by ordinal_position`, schemaTable.Schema, schemaTable.Table)
+	rs, err := c.Execute(ctx, fmt.Sprintf(`select column_name, column_type, column_key, is_nullable, numeric_precision, numeric_scale
+		from information_schema.columns where table_schema = '%s' and table_name = '%s' order by ordinal_position`,
+		mysql.Escape(schemaTable.Schema), mysql.Escape(schemaTable.Table)))
 	if err != nil {
 		return nil, err
 	}
