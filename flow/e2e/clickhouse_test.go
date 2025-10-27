@@ -2830,3 +2830,84 @@ func (s ClickHouseSuite) Test_PartitionByExpr() {
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
 }
+
+func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_ctid_block_partitions"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_ctid_block_partitions_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			name TEXT,
+			age INT,
+			email TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`, srcFullName)))
+	numRows := 1000
+	deletedRows := 10
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			INSERT INTO %s (name, age, email) VALUES ('user_%d', %d, 'user_%d@example.com')
+		`, srcFullName, i, 20+(i%50), i)))
+	}
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			UPDATE %s SET age = %d WHERE id = %d
+		`, srcFullName, 30+(i%50), i)))
+	}
+	for i := 1; i <= deletedRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			DELETE FROM %s WHERE id = %d
+		`, srcFullName, i)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_partition_by_ctid"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumPartitionsOverride = 3
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForCount(env, s, "wait on initial", dstTableName, "id", numRows-deletedRows)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			INSERT INTO %s (name, age, email) VALUES ('user_%d', %d, 'user_%d@example.com')
+		`, srcFullName, numRows+1, 25, numRows+1)))
+	EnvWaitForCount(env, s, "wait on cdc", dstTableName, "id", numRows-deletedRows)
+
+	rows, err := s.Conn().Query(s.t.Context(),
+		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1 ORDER BY partition_start`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err, "failed to query partition ranges")
+	defer rows.Close()
+
+	var partitionRanges []struct{ start, end string }
+	for rows.Next() {
+		var start, end string
+		require.NoError(s.t, rows.Scan(&start, &end), "failed to scan partition range")
+		partitionRanges = append(partitionRanges, struct{ start, end string }{start, end})
+	}
+	require.NoError(s.t, rows.Err())
+	// Verify partition count matches override
+	require.Len(s.t, partitionRanges, 3, "expected exactly 3 partitions to be created with SnapshotNumPartitionsOverride=3")
+	// Verify all partitions use TID format: "(block,offset)"
+	for i, pr := range partitionRanges {
+		require.Regexp(s.t, `^\(\d+,\d+\)$`, pr.start, "partition %d start should be in TID format (block,offset)", i)
+		require.Regexp(s.t, `^\(\d+,\d+\)$`, pr.end, "partition %d end should be in TID format (block,offset)", i)
+	}
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
