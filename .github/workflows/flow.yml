@@ -48,12 +48,12 @@ jobs:
         env:
           MYSQL_ROOT_PASSWORD: cipass
       redpanda:
-        image: redpandadata/redpanda@sha256:bd6c35647153a4dbc19507c8037dcca0802484c23e6e5fbb97591a62539e313a
+        image: redpandadata/redpanda@sha256:8f9e1e944ba5ba21c5bd60877d0d267d8ac6e4d07e12509424197deb43c0ada5
         ports:
           - 9092:9092
           - 9644:9644
       elasticsearch:
-        image: elasticsearch:9.1.5@sha256:767e028f0bc761d4120487bf36613eecf484dbffd4e62240127e56928a5ef49c
+        image: elasticsearch:9.2.0@sha256:c0e8efbd41e3bdc912293889bae4402f3166f8d5a642f7f4d711b58dd8c2877e
         ports:
           - 9200:9200
         env:
@@ -61,7 +61,7 @@ jobs:
           xpack.security.enabled: false
           xpack.security.enrollment.enabled: false
       otelcol:
-        image: otel/opentelemetry-collector-contrib:0.137.0@sha256:886722fe0f37af9d1fe24d29529253ec59fbf263b3b1df4facaf221373e19d23
+        image: otel/opentelemetry-collector-contrib:0.138.0@sha256:4a951ff0a9772f4fa8e9c7a326434370301b98b2b813933468dcb54aa6a6b5e5
         ports:
           - 4317:4317
       toxiproxy:
@@ -74,7 +74,7 @@ jobs:
           - 42002:42002
           - 42003:42003
       openssh:
-        image: linuxserver/openssh-server:latest@sha256:018068747bc2463b4031420752c487c79d40ddf1c17f2138a3faeef187a1128e
+        image: linuxserver/openssh-server:latest@sha256:d5c9b76a243eb4503914b8e63368677bc25c8ff21f21fe24931118206f8fd933
         ports:
           - 2222:2222
         env:
