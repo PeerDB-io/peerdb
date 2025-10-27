@@ -84,7 +84,9 @@ function QrepGraph({ syncs }: QRepGraphProps) {
         <Label variant='headline'>Partition sync history</Label>
       </div>
 
-      {qrepData && <Bar data={qrepData} options={chartOptions} />}
+      <div style={{ height: '20rem' }}>
+        {qrepData && <Bar data={qrepData} options={chartOptions} />}
+      </div>
     </div>
   );
 }

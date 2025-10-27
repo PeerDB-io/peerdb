@@ -14,7 +14,7 @@ import {
 } from 'chart.js';
 import { useState } from 'react';
 import { Bar } from 'react-chartjs-2';
-import { RowDisplayContainerStyle } from './styles/rowStyles';
+import { RowDisplayContainerStyle, RowsStatStyle } from './styles/rowStyles';
 
 export function RowDataFormatter(number: number) {
   return `${Intl.NumberFormat('en-US').format(number).toString()}`;
@@ -71,10 +71,11 @@ export default function RowsDisplay({
 
   return (
     <div style={RowDisplayContainerStyle}>
-      <h4 className='text-gray-600 dark:text-gray-300'>Rows Synced</h4>
-      <p className='text-gray-900 dark:text-white font-semibold'>
+      <p style={RowsStatStyle}>
         {RowDataFormatter(totalRowsData.totalCount.valueOf())}
       </p>
+      <p>Changes synced</p>
+
       <Button
         aria-label='icon-button'
         onClick={() => setShow((prev) => !prev)}

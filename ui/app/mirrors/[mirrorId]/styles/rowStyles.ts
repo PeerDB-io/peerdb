@@ -6,3 +6,8 @@ export const RowDisplayContainerStyle: CSSProperties = {
   flexDirection: 'column',
   alignItems: 'center',
 };
+
+export const RowsStatStyle: CSSProperties = {
+  fontSize: '1.5rem',
+  fontWeight: '600',
+};
