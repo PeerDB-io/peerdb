@@ -16,7 +16,6 @@ import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
-import { Callout } from '@tremor/react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
@@ -29,6 +28,11 @@ import { blankCDCSetting } from '../../create/helpers/common';
 import { tableMappingSchema } from '../../create/schema';
 import * as styles from '../../create/styles';
 import { getMirrorState } from '../handlers';
+import {
+  notPausedCalloutStyle,
+  tablesSelectedCalloutHeaderStyle,
+  tablesSelectedCalloutStyle,
+} from '../styles/editStyles';
 
 type EditMirrorProps = {
   params: { mirrorId: string };
@@ -127,12 +131,14 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   }
 
   const sendFlowStateChangeRequest = async () => {
-    const tablesValidity = tableMappingSchema.safeParse(
-      reformattedTableMapping(rows)
-    );
-    if (!tablesValidity.success) {
-      notifyErr(tablesValidity.error.issues[0].message);
-      return;
+    if (rows.length > 0) {
+      const tablesValidity = tableMappingSchema.safeParse(
+        reformattedTableMapping(rows)
+      );
+      if (!tablesValidity.success) {
+        notifyErr(tablesValidity.error.issues[0].message);
+        return;
+      }
     }
     setLoading(true);
     const req: FlowStateChangeRequest = {
@@ -297,20 +303,19 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         Adding Tables
       </Label>
       {!isNotPaused && rows.some((row) => row.selected) && (
-        <Callout
-          title='Note on adding tables'
-          color={'gray'}
-          style={{ marginTop: '1rem' }}
-        >
+        <div style={tablesSelectedCalloutStyle}>
+          <div style={tablesSelectedCalloutHeaderStyle}>
+            Note on adding tables
+          </div>
           CDC will be put on hold until initial load for these added tables have
           been completed.
-          <br></br>
+          <br />
           The <b>replication slot will grow</b> during this period.
-          <br></br>
+          <br />
           For custom publications, ensure that the tables are part of the
-          publication you provided. This can be done with ALTER PUBLICATION
-          pubname ADD TABLE table1, table2;
-        </Callout>
+          publication you provided. This can be done with{' '}
+          <code>ALTER PUBLICATION pubname ADD TABLE table1, table2;</code>
+        </div>
       )}
 
       <TablePicker
@@ -323,9 +328,9 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
       />
 
       {isNotPaused && (
-        <Callout title='' color={'rose'} style={{ marginTop: '1rem' }}>
+        <div style={notPausedCalloutStyle}>
           Mirror can only be edited while paused.
-        </Callout>
+        </div>
       )}
 
       <div style={styles.MirrorButtonContainer}>

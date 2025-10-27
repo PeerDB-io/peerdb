@@ -3,15 +3,24 @@ import SelectTheme from '@/app/styles/select';
 import { timeOptions } from '@/app/utils/graph';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import {
-  GetSlotLagHistoryRequest,
   GetSlotLagHistoryResponse,
   TimeAggregateType,
 } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
-import { LineChart } from '@tremor/react';
+import {
+  CategoryScale,
+  Chart as ChartJS,
+  Legend,
+  LinearScale,
+  LineElement,
+  PointElement,
+  Title,
+  Tooltip,
+} from 'chart.js';
 import moment from 'moment';
 import { useCallback, useEffect, useState } from 'react';
+import { Line } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
 import { getSlotData } from './helpers';
 
@@ -73,8 +82,6 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     }
 
     setLoading(true);
-    let timeSinceStr: string;
-
     const pointsRes = await fetch(`/api/v1/peers/slots/lag_history`, {
       method: 'POST',
       cache: 'no-store',
@@ -82,7 +89,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
         peerName,
         slotName: selectedSlot,
         timeSince: stringifyTimeAggregateType(timeSince),
-      } as GetSlotLagHistoryRequest),
+      }),
     });
     if (pointsRes.ok) {
       const points: GetSlotLagHistoryResponse = await pointsRes.json();
@@ -106,11 +113,42 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     setSelectedSlot(val);
   };
 
+  ChartJS.register(
+    LineElement,
+    CategoryScale,
+    LinearScale,
+    Title,
+    Tooltip,
+    Legend,
+    PointElement
+  );
+  const chartOptions = {
+    maintainAspectRatio: false,
+    scales: {
+      x: {
+        display: false,
+        grid: { display: false },
+      },
+    },
+  };
+
   useEffect(() => {
     setMounted(true);
     fetchSlotNames();
     fetchLagPoints();
   }, [fetchLagPoints, fetchSlotNames]);
+  const chartData = {
+    labels: lagPoints.map((point) => point.time),
+    datasets: [
+      {
+        label: 'Lag in GB',
+        data: lagPoints.map((point) => point['Lag in GB']),
+        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+        borderColor: 'rgba(75, 192, 192, 1)',
+        borderWidth: 1,
+      },
+    ],
+  };
 
   if (!mounted) {
     return (
@@ -176,15 +214,9 @@ export default function LagGraph({ peerName }: LagGraphProps) {
           <ProgressCircle variant='determinate_progress_circle' />
         </center>
       ) : (
-        <LineChart
-          index='time'
-          data={lagPoints}
-          categories={
-            showLsn ? ['redoLSN', 'restartLSN', 'confirmedLSN'] : ['Lag in GB']
-          }
-          colors={showLsn ? ['orange', 'red', 'lime'] : ['rose']}
-          showXAxis={false}
-        />
+        <div style={{ height: '20rem' }}>
+          <Line data={chartData} options={chartOptions} />
+        </div>
       )}
     </div>
   );
