@@ -23,6 +23,7 @@ type CDCMirrorStatusProps = {
 };
 export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
   const LocalStorageTabKey = 'cdctab';
+  const theme = useTheme();
   const [selectedTab, setSelectedTab] = useLocalStorage(LocalStorageTabKey, 0);
   const [mounted, setMounted] = useState(false);
   const handleTab = (index: number) => {
@@ -47,8 +48,6 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
       </div>
     );
   }
-
-  const theme = useTheme();
   return (
     <Tabs
       style={TabsRootStyle}

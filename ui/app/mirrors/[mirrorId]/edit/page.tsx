@@ -52,6 +52,7 @@ const defaultSnapshotNumTablesInParallel =
   blankCDCSetting.snapshotNumTablesInParallel;
 
 export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
+  const theme = useTheme();
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [mirrorState, setMirrorState] = useState<MirrorStatusResponse>();
@@ -168,8 +169,6 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   const isNotPaused =
     mirrorState.currentFlowState.toString() !==
     FlowStatus[FlowStatus.STATUS_PAUSED];
-
-  const theme = useTheme();
 
   return (
     <div>
