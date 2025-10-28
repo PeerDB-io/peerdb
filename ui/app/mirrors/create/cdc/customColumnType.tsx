@@ -1,5 +1,4 @@
 'use client';
-import { Divider } from '@tremor/react';
 import {
   Dispatch,
   SetStateAction,
@@ -220,12 +219,7 @@ export default function CustomColumnType({
           rowGap: '0.5rem',
         }}
       >
-        <Divider
-          style={{
-            ...columnBoxDividerStyle,
-            marginTop: '0.5rem',
-          }}
-        />
+        <hr style={{ ...columnBoxDividerStyle, marginTop: '0.5rem' }} />
         <RowWithCheckbox
           label={
             <Label as='label' style={{ fontSize: 13 }}>

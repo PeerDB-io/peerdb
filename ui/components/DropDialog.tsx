@@ -8,7 +8,6 @@ import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import { RowWithCheckbox } from '@/lib/Layout';
-import { Divider } from '@tremor/react';
 import { Dispatch, SetStateAction, useState } from 'react';
 import { BarLoader } from 'react-spinners';
 
@@ -165,7 +164,7 @@ export default function DropDialog({
         <Label as='label' variant='action'>
           Delete {mode.toLowerCase()}
         </Label>
-        <Divider style={{ margin: 0 }} />
+        <hr style={{ margin: 0 }} />
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
           {getDeleteText()}
         </Label>

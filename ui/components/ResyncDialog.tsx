@@ -4,7 +4,6 @@ import { FlowStateChangeRequest } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Dialog, DialogClose } from '@/lib/Dialog';
 import { Label } from '@/lib/Label';
-import { Divider } from '@tremor/react';
 import Link from 'next/link';
 import { useState } from 'react';
 import { BarLoader, DotLoader } from 'react-spinners';
@@ -72,7 +71,7 @@ export default function ResyncDialog({ mirrorName }: ResyncDialogProps) {
         <Label as='label' variant='action'>
           Resync {mirrorName}
         </Label>
-        <Divider style={{ margin: 0 }} />
+        <hr style={{ margin: 0 }} />
         <Label as='label' variant='body' style={{ marginTop: '0.3rem' }}>
           Are you sure you want to resync this mirror?
           <br></br>

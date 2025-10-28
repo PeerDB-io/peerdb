@@ -24,10 +24,13 @@ import {
   useMemo,
   useState,
 } from 'react';
+import ReactSelect from 'react-select';
 import { BarLoader } from 'react-spinners/';
 import { fetchColumns, fetchTables } from '../handlers';
 import ColumnBox from './columnbox';
+import CustomColumnType from './customColumnType';
 import SchemaSettings from './schemasettings';
+import SelectSortingKeys from './sortingkey';
 import {
   columnBoxDividerStyle,
   engineOptionStyles,
@@ -36,11 +39,6 @@ import {
   tableBoxStyle,
   tooltipStyle,
 } from './styles';
-
-import { Divider } from '@tremor/react';
-import ReactSelect from 'react-select';
-import CustomColumnType from './customColumnType';
-import SelectSortingKeys from './sortingkey';
 interface SchemaBoxProps {
   sourcePeer: string;
   schema: string;
@@ -498,8 +496,7 @@ export default function SchemaBox({
                     {/* COLUMN BOX */}
                     {row.selected && (
                       <div className='ml-5 mt-3' style={{ width: '100%' }}>
-                        <Divider style={columnBoxDividerStyle} />
-
+                        <hr style={columnBoxDividerStyle} />
                         <div
                           style={{
                             display: 'flex',
@@ -539,12 +536,7 @@ export default function SchemaBox({
                                   rowGap: '0.5rem',
                                 }}
                               >
-                                <Divider
-                                  style={{
-                                    ...columnBoxDividerStyle,
-                                    marginTop: '0.5rem',
-                                  }}
-                                />
+                                <hr style={columnBoxDividerStyle} />
                                 <div style={{ width: '50%' }}>
                                   <SelectSortingKeys
                                     columns={columns
