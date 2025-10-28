@@ -2890,7 +2890,10 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 	EnvWaitForCount(env, s, "wait on cdc", dstTableName, "id", numRows-deletedRows)
 
 	rows, err := s.Conn().Query(s.t.Context(),
-		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1 ORDER BY partition_start`,
+		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1
+		ORDER BY
+			CAST(split_part(trim(both '()' from partition_start), ',', 1) AS bigint),
+			CAST(split_part(trim(both '()' from partition_start), ',', 2) AS bigint)`,
 		flowConnConfig.FlowJobName)
 	require.NoError(s.t, err, "failed to query partition ranges")
 	defer rows.Close()
@@ -2906,13 +2909,12 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 	require.Len(s.t, partitionRanges, 3, "expected exactly 3 partitions to be created with SnapshotNumPartitionsOverride=3")
 
 	// Verify partitions ranges are contiguous (intentionally ignoring `TID.Valid` field for tests)
-	tidRegex := regexp.MustCompile(`^\((\d+),(\d+)\)$`)
 	tidParse := func(tidStr string) pgtype.TID {
-		matches := tidRegex.FindStringSubmatch(tidStr)
-		require.Len(s.t, matches, 3, "TID should match format (block,offset)")
-		block, err := strconv.ParseUint(matches[1], 10, 32)
+		blockStr, offsetStr, found := strings.Cut(tidStr[1:len(tidStr)-1], ",")
+		require.True(s.t, found, "failed to parse block number")
+		block, err := strconv.ParseUint(blockStr, 10, 32)
 		require.NoError(s.t, err, "failed to parse block number")
-		offset, err := strconv.ParseUint(matches[2], 10, 16)
+		offset, err := strconv.ParseUint(offsetStr, 10, 16)
 		require.NoError(s.t, err, "failed to parse offset number")
 		return pgtype.TID{BlockNumber: uint32(block), OffsetNumber: uint16(offset)}
 	}
@@ -2929,8 +2931,8 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 		startTID := tidParse(pr.start)
 		if i > 0 {
 			prevEndTID := tidParse(partitionRanges[i-1].end)
-			expectedStartTID := tidInc(prevEndTID)
-			require.True(s.t, tidEq(expectedStartTID, startTID), "partitions not contiguous")
+			require.True(s.t, tidEq(tidInc(prevEndTID), startTID),
+				fmt.Sprintf("partitions not contiguous; partition ranges are %v", partitionRanges))
 		} else {
 			require.True(s.t, tidEq(pgtype.TID{}, startTID))
 		}
