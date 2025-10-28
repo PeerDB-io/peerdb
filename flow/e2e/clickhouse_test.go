@@ -3,6 +3,7 @@ package e2e
 import (
 	"embed"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2902,10 +2904,36 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 	require.NoError(s.t, rows.Err())
 	// Verify partition count matches override
 	require.Len(s.t, partitionRanges, 3, "expected exactly 3 partitions to be created with SnapshotNumPartitionsOverride=3")
-	// Verify all partitions use TID format: "(block,offset)"
+
+	// Verify partitions ranges are contiguous (intentionally ignoring `TID.Valid` field for tests)
+	tidRegex := regexp.MustCompile(`^\((\d+),(\d+)\)$`)
+	tidParse := func(tidStr string) pgtype.TID {
+		matches := tidRegex.FindStringSubmatch(tidStr)
+		require.Len(s.t, matches, 3, "TID should match format (block,offset)")
+		block, err := strconv.ParseUint(matches[1], 10, 32)
+		require.NoError(s.t, err, "failed to parse block number")
+		offset, err := strconv.ParseUint(matches[2], 10, 16)
+		require.NoError(s.t, err, "failed to parse offset number")
+		return pgtype.TID{BlockNumber: uint32(block), OffsetNumber: uint16(offset)}
+	}
+	tidInc := func(t pgtype.TID) pgtype.TID {
+		if t.OffsetNumber < math.MaxUint16 {
+			return pgtype.TID{BlockNumber: t.BlockNumber, OffsetNumber: t.OffsetNumber + 1}
+		}
+		return pgtype.TID{BlockNumber: t.BlockNumber + 1, OffsetNumber: 0}
+	}
+	tidEq := func(t1, t2 pgtype.TID) bool {
+		return t1.BlockNumber == t2.BlockNumber && t1.OffsetNumber == t2.OffsetNumber
+	}
 	for i, pr := range partitionRanges {
-		require.Regexp(s.t, `^\(\d+,\d+\)$`, pr.start, "partition %d start should be in TID format (block,offset)", i)
-		require.Regexp(s.t, `^\(\d+,\d+\)$`, pr.end, "partition %d end should be in TID format (block,offset)", i)
+		startTID := tidParse(pr.start)
+		if i > 0 {
+			prevEndTID := tidParse(partitionRanges[i-1].end)
+			expectedStartTID := tidInc(prevEndTID)
+			require.True(s.t, tidEq(expectedStartTID, startTID), "partitions not contiguous")
+		} else {
+			require.True(s.t, tidEq(pgtype.TID{}, startTID))
+		}
 	}
 
 	env.Cancel(s.t.Context())
