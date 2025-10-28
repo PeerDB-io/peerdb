@@ -2887,7 +2887,7 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 			INSERT INTO %s (name, age, email) VALUES ('user_%d', %d, 'user_%d@example.com')
 		`, srcFullName, numRows+1, 25, numRows+1)))
-	EnvWaitForCount(env, s, "wait on cdc", dstTableName, "id", numRows-deletedRows)
+	EnvWaitForCount(env, s, "wait on cdc", dstTableName, "id", numRows-deletedRows+1)
 
 	rows, err := s.Conn().Query(s.t.Context(),
 		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1
