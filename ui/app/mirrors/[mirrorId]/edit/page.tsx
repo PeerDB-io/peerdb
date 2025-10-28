@@ -11,6 +11,7 @@ import {
   FlowStateChangeRequest,
   MirrorStatusResponse,
 } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Button } from '@/lib/Button';
 import { Label } from '@/lib/Label';
 import { RowWithTextField } from '@/lib/Layout';
@@ -29,10 +30,11 @@ import { tableMappingSchema } from '../../create/schema';
 import * as styles from '../../create/styles';
 import { getMirrorState } from '../handlers';
 import {
+  fieldStyle,
   notPausedCalloutStyle,
   tablesSelectedCalloutHeaderStyle,
   tablesSelectedCalloutStyle,
-} from '../styles/editStyles';
+} from '../styles/edit.styles';
 
 type EditMirrorProps = {
   params: { mirrorId: string };
@@ -167,19 +169,15 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
     mirrorState.currentFlowState.toString() !==
     FlowStatus[FlowStatus.STATUS_PAUSED];
 
+  const theme = useTheme();
+
   return (
     <div>
       <RowWithTextField
         key={1}
         label={<Label>{'Pull Batch Size'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -199,13 +197,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         key={2}
         label={<Label>{'Sync Interval (Seconds)'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -225,13 +217,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         key={3}
         label={<Label>{'Snapshot Rows Per Partition'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -251,13 +237,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         key={4}
         label={<Label>{'Snapshot Max Parallel Workers'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -277,13 +257,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         key={5}
         label={<Label>{'Snapshot Tables In Parallel'} </Label>}
         action={
-          <div
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-            }}
-          >
+          <div style={fieldStyle}>
             <TextField
               variant='simple'
               type={'number'}
@@ -303,7 +277,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
         Adding Tables
       </Label>
       {!isNotPaused && rows.some((row) => row.selected) && (
-        <div style={tablesSelectedCalloutStyle}>
+        <div style={tablesSelectedCalloutStyle(theme.theme)}>
           <div style={tablesSelectedCalloutHeaderStyle}>
             Note on adding tables
           </div>
@@ -328,7 +302,7 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
       />
 
       {isNotPaused && (
-        <div style={notPausedCalloutStyle}>
+        <div style={notPausedCalloutStyle(theme.theme)}>
           Mirror can only be edited while paused.
         </div>
       )}

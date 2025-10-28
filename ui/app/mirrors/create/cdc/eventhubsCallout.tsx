@@ -1,13 +1,17 @@
+import { useTheme } from '@/lib/AppTheme';
+
 const EventhubsCallout = () => {
+  const theme = useTheme();
+  const isDarkMode = theme.theme === 'dark';
   return (
     <div
       style={{
         marginTop: '1rem',
-        backgroundColor: '#fef2f2',
-        borderLeft: '4px solid #f87171',
+        backgroundColor: isDarkMode ? '#7f1d1d33' : '#fef2f2',
+        borderLeft: '4px solid' + (isDarkMode ? '#f87171' : '#f87171'),
         padding: '1rem',
         borderRadius: '0.375rem',
-        color: '#991b1b',
+        color: isDarkMode ? '#fca5a5' : '#991b1b',
       }}
     >
       <div style={{ marginBottom: '0.5rem', fontWeight: 'bold' }}>
@@ -22,9 +26,6 @@ const EventhubsCallout = () => {
         <br />
         Messages are sent to partitions based on the values of the partition
         column.
-      </div>
-      <div style={{ marginTop: '1rem' }}>
-        Mirror can only be edited while paused.
       </div>
     </div>
   );

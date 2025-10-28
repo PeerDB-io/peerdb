@@ -1,6 +1,7 @@
 'use client';
 import useLocalStorage from '@/app/utils/useLocalStorage';
 import { MirrorStatusResponse } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@radix-ui/react-tabs';
@@ -8,7 +9,7 @@ import { useEffect, useState } from 'react';
 import styled from 'styled-components';
 import CdcDetails from './cdcDetails';
 import { SnapshotStatusTable } from './snapshot';
-import { TabListStyle, TabsRootStyle } from './styles/tabStyles';
+import { TabListStyle, TabsRootStyle } from './styles/tab.styles';
 
 const StyledTabTrigger = styled(TabsTrigger)`
   &[data-state='active'] {
@@ -46,6 +47,8 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
       </div>
     );
   }
+
+  const theme = useTheme();
   return (
     <Tabs
       style={TabsRootStyle}
@@ -53,7 +56,7 @@ export function CDCMirror({ status, syncStatusChild }: CDCMirrorStatusProps) {
       defaultValue={selectedTab.toString()}
       onValueChange={(value) => handleTab(Number(value))}
     >
-      <TabsList style={TabListStyle} className='TabsList'>
+      <TabsList style={TabListStyle(theme.theme)} className='TabsList'>
         <StyledTabTrigger className='TabsTrigger' value='0'>
           Overview
         </StyledTabTrigger>

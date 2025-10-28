@@ -1,5 +1,6 @@
 'use client';
 import { CDCRowCounts } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import {
@@ -14,7 +15,7 @@ import {
 } from 'chart.js';
 import { useState } from 'react';
 import { Bar } from 'react-chartjs-2';
-import { RowDisplayContainerStyle, RowsStatStyle } from './styles/rowStyles';
+import { RowDisplayContainerStyle, RowsStatStyle } from './styles/row.styles';
 
 export function RowDataFormatter(number: number) {
   return `${Intl.NumberFormat('en-US').format(number).toString()}`;
@@ -25,6 +26,8 @@ export default function RowsDisplay({
 }: {
   totalRowsData: CDCRowCounts;
 }) {
+  const theme = useTheme();
+  const isDarkMode = theme.theme === 'dark';
   ChartJS.register(
     BarElement,
     CategoryScale,
@@ -42,6 +45,11 @@ export default function RowsDisplay({
       x: {
         beginAtZero: true,
         grid: { display: false },
+      },
+      y: {
+        grid: {
+          color: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+        },
       },
     },
     layout: {
@@ -64,7 +72,9 @@ export default function RowsDisplay({
           totalRowsData.updatesCount,
           totalRowsData.deletesCount,
         ],
-        backgroundColor: ['#10B981', '#F59E0B', '#EF4444'],
+        backgroundColor: isDarkMode
+          ? ['#115e44ff', '#ae8744ff', '#953535ff']
+          : ['#10B981', '#F59E0B', '#EF4444'],
       },
     ],
   };

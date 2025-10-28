@@ -2,11 +2,14 @@
 import SelectTheme from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { TimeAggregateType } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
+import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
 import {
   BarElement,
   CategoryScale,
   Chart as ChartJS,
+  ChartOptions,
   Legend,
   LinearScale,
   Title,
@@ -15,7 +18,33 @@ import {
 import { useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
+import { BarLoader } from 'react-spinners';
 import useSWR from 'swr';
+
+const CdcSyncingLoader = () => {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        rowGap: '1rem',
+        flexDirection: 'column',
+        alignItems: 'center',
+      }}
+    >
+      Loading sync data...
+      <BarLoader />
+    </div>
+  );
+};
+
+const CdcSyncHistoryError = () => {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', columnGap: '0.5rem' }}>
+      <Icon name='error' /> Failed to load sync history
+    </div>
+  );
+};
+
 type CdcGraphProps = { mirrorName: string };
 
 export default function CdcGraph({ mirrorName }: CdcGraphProps) {
@@ -31,11 +60,18 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
     Tooltip,
     Legend
   );
-  const chartOptions = {
+  const theme = useTheme();
+  const isDarkMode = theme.theme === 'dark';
+  const chartOptions: ChartOptions<'bar'> = {
     maintainAspectRatio: false,
     scales: {
       x: {
         grid: { display: false },
+      },
+      y: {
+        grid: {
+          color: isDarkMode ? '#333333' : '#e5e7eb',
+        },
       },
     },
   };
@@ -71,7 +107,10 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
     return chartData;
   };
 
-  const { data, error } = useSWR([mirrorName, aggregateType], fetcher);
+  const { data, isLoading, error } = useSWR(
+    [mirrorName, aggregateType],
+    fetcher
+  );
 
   return (
     <div>
@@ -88,8 +127,20 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
       <div style={{ height: '3rem' }}>
         <Label variant='headline'>Sync history</Label>
       </div>
-      <div style={{ height: '320px' }}>
-        {data && <Bar data={data} options={chartOptions} />}
+      <div
+        style={{
+          height: '320px',
+          alignItems: 'center',
+          justifyContent: 'center',
+          display: 'flex',
+          width: '100%',
+        }}
+      >
+        {isLoading && <CdcSyncingLoader />}
+        {error && <CdcSyncHistoryError />}
+        {data && !isLoading && !error && (
+          <Bar data={data} options={chartOptions} />
+        )}
       </div>
     </div>
   );
