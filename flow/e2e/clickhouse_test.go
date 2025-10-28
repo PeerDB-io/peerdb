@@ -3,6 +3,7 @@ package e2e
 import (
 	"embed"
 	"fmt"
+	"math"
 	"math/big"
 	"reflect"
 	"regexp"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgerrcode"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -2826,6 +2828,115 @@ func (s ClickHouseSuite) Test_PartitionByExpr() {
 	)
 	require.NoError(s.t, ch.Close())
 	require.Equal(s.t, "(num % 2, val)", partitionKey)
+
+	env.Cancel(s.t.Context())
+	RequireEnvCanceled(s.t, env)
+}
+
+func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
+	if _, ok := s.source.(*PostgresSource); !ok {
+		s.t.Skip("only applies to postgres")
+	}
+
+	srcTableName := "test_ctid_block_partitions"
+	srcFullName := s.attachSchemaSuffix(srcTableName)
+	dstTableName := "test_ctid_block_partitions_dst"
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+		CREATE TABLE IF NOT EXISTS %s (
+			id SERIAL PRIMARY KEY,
+			name TEXT,
+			age INT,
+			email TEXT,
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+		)
+	`, srcFullName)))
+	numRows := 1000
+	deletedRows := 10
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			INSERT INTO %s (name, age, email) VALUES ('user_%d', %d, 'user_%d@example.com')
+		`, srcFullName, i, 20+(i%50), i)))
+	}
+	for i := 1; i <= numRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			UPDATE %s SET age = %d WHERE id = %d
+		`, srcFullName, 30+(i%50), i)))
+	}
+	for i := 1; i <= deletedRows; i++ {
+		require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			DELETE FROM %s WHERE id = %d
+		`, srcFullName, i)))
+	}
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:      s.attachSuffix("clickhouse_partition_by_ctid"),
+		TableNameMapping: map[string]string{srcFullName: dstTableName},
+		Destination:      s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = true
+	flowConnConfig.SnapshotNumPartitionsOverride = 3
+
+	tc := NewTemporalClient(s.t)
+	env := ExecutePeerflow(s.t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(s.t, env, flowConnConfig)
+	EnvWaitForCount(env, s, "wait on initial", dstTableName, "id", numRows-deletedRows)
+
+	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
+			INSERT INTO %s (name, age, email) VALUES ('user_%d', %d, 'user_%d@example.com')
+		`, srcFullName, numRows+1, 25, numRows+1)))
+	EnvWaitForCount(env, s, "wait on cdc", dstTableName, "id", numRows-deletedRows+1)
+
+	rows, err := s.Conn().Query(s.t.Context(),
+		`SELECT partition_start, partition_end FROM peerdb_stats.qrep_partitions WHERE parent_mirror_name = $1
+		ORDER BY
+			CAST(split_part(trim(both '()' from partition_start), ',', 1) AS bigint),
+			CAST(split_part(trim(both '()' from partition_start), ',', 2) AS bigint)`,
+		flowConnConfig.FlowJobName)
+	require.NoError(s.t, err, "failed to query partition ranges")
+	defer rows.Close()
+
+	var partitionRanges []struct{ start, end string }
+	for rows.Next() {
+		var start, end string
+		require.NoError(s.t, rows.Scan(&start, &end), "failed to scan partition range")
+		partitionRanges = append(partitionRanges, struct{ start, end string }{start, end})
+	}
+	require.NoError(s.t, rows.Err())
+	// Verify partition count matches override
+	require.Len(s.t, partitionRanges, 3, "expected exactly 3 partitions to be created with SnapshotNumPartitionsOverride=3")
+
+	// Verify partitions ranges are contiguous (intentionally ignoring `TID.Valid` field for tests)
+	tidParse := func(tidStr string) pgtype.TID {
+		blockStr, offsetStr, found := strings.Cut(tidStr[1:len(tidStr)-1], ",")
+		require.True(s.t, found, "failed to parse block number")
+		block, err := strconv.ParseUint(blockStr, 10, 32)
+		require.NoError(s.t, err, "failed to parse block number")
+		offset, err := strconv.ParseUint(offsetStr, 10, 16)
+		require.NoError(s.t, err, "failed to parse offset number")
+		return pgtype.TID{BlockNumber: uint32(block), OffsetNumber: uint16(offset)}
+	}
+	tidInc := func(t pgtype.TID) pgtype.TID {
+		if t.OffsetNumber < math.MaxUint16 {
+			return pgtype.TID{BlockNumber: t.BlockNumber, OffsetNumber: t.OffsetNumber + 1}
+		}
+		return pgtype.TID{BlockNumber: t.BlockNumber + 1, OffsetNumber: 0}
+	}
+	tidEq := func(t1, t2 pgtype.TID) bool {
+		return t1.BlockNumber == t2.BlockNumber && t1.OffsetNumber == t2.OffsetNumber
+	}
+	for i, pr := range partitionRanges {
+		startTID := tidParse(pr.start)
+		if i > 0 {
+			prevEndTID := tidParse(partitionRanges[i-1].end)
+			require.True(s.t, tidEq(tidInc(prevEndTID), startTID),
+				"partitions not contiguous; partition ranges are %v", partitionRanges)
+		} else {
+			require.True(s.t, tidEq(pgtype.TID{}, startTID))
+		}
+	}
 
 	env.Cancel(s.t.Context())
 	RequireEnvCanceled(s.t, env)
