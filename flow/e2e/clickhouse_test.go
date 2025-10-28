@@ -2932,7 +2932,7 @@ func (s ClickHouseSuite) Test_Partition_By_CTID_With_Num_Partitions_Override() {
 		if i > 0 {
 			prevEndTID := tidParse(partitionRanges[i-1].end)
 			require.True(s.t, tidEq(tidInc(prevEndTID), startTID),
-				fmt.Sprintf("partitions not contiguous; partition ranges are %v", partitionRanges))
+				"partitions not contiguous; partition ranges are %v", partitionRanges)
 		} else {
 			require.True(s.t, tidEq(pgtype.TID{}, startTID))
 		}
