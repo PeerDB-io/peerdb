@@ -119,13 +119,17 @@ func generateFlowConfigConverter() error {
 
 func extractAndCompareFields(node *ast.File) ([]string, []string, error) {
 	var apiFields, coreFields []string
+	seenFlowConnectionConfigs := false
+	seenFlowConnectionConfigsCore := false
 	// Extract fields from both structs
 	ast.Inspect(node, func(n ast.Node) bool {
 		if typeSpec, ok := n.(*ast.TypeSpec); ok {
 			var targetFields *[]string
 			if typeSpec.Name.Name == "FlowConnectionConfigs" {
+				seenFlowConnectionConfigs = true
 				targetFields = &apiFields
 			} else if typeSpec.Name.Name == "FlowConnectionConfigsCore" {
+				seenFlowConnectionConfigsCore = true
 				targetFields = &coreFields
 			}
 
@@ -154,6 +158,14 @@ func extractAndCompareFields(node *ast.File) ([]string, []string, error) {
 		}
 		return true
 	})
+
+	if !seenFlowConnectionConfigs {
+		return nil, nil, errors.New("couldn't find FlowConnectionConfigs struct, are protos correctly generated?")
+	}
+
+	if !seenFlowConnectionConfigsCore {
+		return nil, nil, errors.New("couldn't find FlowConnectionConfigsCore struct, are protos correctly generated?")
+	}
 
 	// Sort for comparison
 	sort.Strings(apiFields)
