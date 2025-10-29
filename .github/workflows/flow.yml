@@ -30,7 +30,7 @@ jobs:
       catalog:
         image: imresamu/postgis:${{ matrix.db-version.pg }}-3.5-alpine
         ports:
-          - 5432:5432
+          - 9901:5432
         env:
           PGUSER: postgres
           POSTGRES_PASSWORD: postgres
@@ -215,11 +215,11 @@ jobs:
           chown -R 1001 certs &&
           ./minio server ./minio-data --certs-dir ./certs --address :9999 &
           sleep 2 &&
-          ./mc alias set myminiopeerdb http://localhost:9999 minio miniosecret &&
+          ./mc alias set myminiopeerdb http://localhost:9999 _peerdb_minioadmin _peerdb_minioadmin &&
           ./mc mb myminiopeerdb/peerdb
         env:
-          MINIO_ROOT_USER: minio
-          MINIO_ROOT_PASSWORD: miniosecret
+          MINIO_ROOT_USER: _peerdb_minioadmin
+          MINIO_ROOT_PASSWORD: _peerdb_minioadmin
           AWS_EC2_METADATA_DISABLED: true
 
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
@@ -304,7 +304,7 @@ jobs:
                 <shard>
                   <replica>
                     <host>localhost</host>
-                    <port>9001</port>
+                    <port>29001</port>
                   </replica>
                 </shard>
               </cicluster>
@@ -331,7 +331,7 @@ jobs:
             <tmp_path>var/lib/clickhouse/tmp</tmp_path>
             <user_files_path>var/lib/clickhouse/user_files</user_files_path>
             <format_schema_path>var/lib/clickhouse/format_schemas</format_schema_path>
-            <tcp_port>9001</tcp_port>
+            <tcp_port>29001</tcp_port>
             <http_port remove="1"/>
             <postgresql_port remove="1"/>
             <mysql_port remove="1"/>
@@ -359,7 +359,7 @@ jobs:
                 <shard>
                   <replica>
                     <host>localhost</host>
-                    <port>9001</port>
+                    <port>29001</port>
                   </replica>
                 </shard>
               </cicluster>
@@ -425,16 +425,6 @@ jobs:
         working-directory: ./flow
         env:
           GOCOVERDIR: coverage
-          AWS_ENDPOINT_URL_S3: http://localhost:9999
-          AWS_ACCESS_KEY_ID: minio
-          AWS_SECRET_ACCESS_KEY: miniosecret
-          AWS_REGION: us-east-1
-          AWS_ENDPOINT_URL_S3_TLS: https://localhost:9998
-          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
-          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
-          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
-          PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ENDPOINT_URL_S3: http://localhost:9999
-          PEERDB_CLICKHOUSE_AWS_S3_BUCKET_NAME: peerdb
           PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: minio
           PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: miniosecret
           PEERDB_SNOWFLAKE_AWS_CREDENTIALS_AWS_REGION: us-east-1
@@ -449,11 +439,6 @@ jobs:
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          PEERDB_CATALOG_HOST: localhost
-          PEERDB_CATALOG_PORT: 5432
-          PEERDB_CATALOG_USER: postgres
-          PEERDB_CATALOG_PASSWORD: postgres
-          PEERDB_CATALOG_DATABASE: postgres
           PEERDB_QUEUE_FORCE_TOPIC_CREATION: "true"
           ELASTICSEARCH_TEST_ADDRESS: http://localhost:9200
           CI_PG_VERSION: ${{ matrix.db-version.pg }}
@@ -464,7 +449,6 @@ jobs:
           CI_MONGO_URI: mongodb://localhost:27017
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
-          TOXIPROXY_POSTGRES_HOST: catalog
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
