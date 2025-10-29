@@ -409,6 +409,9 @@ jobs:
       - name: Install gotestsum
         run: |
           go install gotest.tools/gotestsum@latest
+      - name: Add host.docker.internal to /etc/hosts
+        run: |
+          echo "127.0.0.1 host.docker.internal" | sudo tee -a /etc/hosts
       - name: run tests
         run: |
           temporal server start-dev --namespace default --headless &
