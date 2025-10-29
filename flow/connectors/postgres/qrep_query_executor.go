@@ -2,6 +2,7 @@ package connpostgres
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -403,33 +404,16 @@ func (qe *QRepQueryExecutor) mapRowToQRecord(
 			}
 			values[i] = arr
 
-		case pgtype.NumericArrayOID:
-			qe.logger.Info("[pg_query_executor] about to decode numeric array",
-				slog.String("column", fd.Name),
-				slog.Int("rawLen", len(buf)))
-
-			if dt, ok := qe.conn.TypeMap().TypeForOID(fd.DataTypeOID); ok {
-				value, err := dt.Codec.DecodeValue(qe.conn.TypeMap(), fd.DataTypeOID, fd.Format, buf)
-				if err != nil {
-					qe.logger.Error("[pg_query_executor] failed to decode numeric array", slog.Any("error", err))
-					return nil, fmt.Errorf("failed to decode numeric array: %w", err)
-				}
-				values[i] = value
-			} else {
-				qe.logger.Error("[pg_query_executor] no codec for numeric array type")
-				return nil, fmt.Errorf("no codec for numeric array type")
-			}
-
-			qe.logger.Info("[pg_query_executor] decoded numeric array",
-				slog.String("column", fd.Name))
-
 		default:
 			if dt, ok := qe.conn.TypeMap().TypeForOID(fd.DataTypeOID); ok {
 				// Log numeric decoding to identify slow columns
 				if fd.DataTypeOID == pgtype.NumericOID {
+					bufText := base64.StdEncoding.EncodeToString(buf)
 					qe.logger.Info("[pg_query_executor] about to decode numeric",
 						slog.String("column", fd.Name),
-						slog.Int("rawLen", len(buf)))
+						slog.Int("rawLen", len(buf)),
+						slog.String("bufTextBase64", bufText),
+					)
 				}
 
 				value, err := dt.Codec.DecodeValue(qe.conn.TypeMap(), fd.DataTypeOID, fd.Format, buf)
