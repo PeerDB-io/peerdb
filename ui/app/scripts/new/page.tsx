@@ -71,10 +71,21 @@ end`,
 
   useEffect(() => {
     if (scriptId) {
-      setInEditMode(true);
-      GetScriptById(scriptId).then((existingScript) => {
-        setNewScript(existingScript!);
-      });
+      const fetchScript = async () => {
+        setInEditMode(true);
+
+        try {
+          const existingScript = await GetScriptById(scriptId);
+          if (existingScript) {
+            setNewScript(existingScript);
+          }
+        } catch (error) {
+          console.error('Error fetching script:', error);
+          notifyErr('Failed to load script');
+        }
+      };
+
+      fetchScript();
     }
   }, [scriptId]);
   return (

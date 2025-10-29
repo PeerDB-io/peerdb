@@ -44,7 +44,7 @@ export function Color<
 
   const childElement = Children.only(children);
   if (asChild && isValidElement<ComponentProps<any>>(childElement)) {
-    return cloneElement(childElement, {
+    return cloneElement(childElement as any, {
       style: { color: colorValue },
     });
   }

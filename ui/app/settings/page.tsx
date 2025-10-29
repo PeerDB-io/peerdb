@@ -197,13 +197,22 @@ export default function SettingsPage() {
   const [searchQuery, setSearchQuery] = useState('');
 
   const fetchSettings = async () => {
-    const response = await fetch('/api/v1/dynamic_settings');
-    const data = await response.json();
-    setSettings(data);
+    try {
+      const response = await fetch('/api/v1/dynamic_settings');
+      const data = await response.json();
+      setSettings(data);
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+      notifyErr('Failed to load settings');
+    }
   };
 
   useEffect(() => {
-    fetchSettings();
+    const loadSettings = async () => {
+      await fetchSettings();
+    };
+
+    loadSettings();
   }, []);
 
   const filteredSettings = useMemo(
