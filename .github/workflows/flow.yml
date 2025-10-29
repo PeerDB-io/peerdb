@@ -428,6 +428,11 @@ jobs:
         working-directory: ./flow
         env:
           GOCOVERDIR: coverage
+          AWS_ENDPOINT_URL_S3: http://localhost:9001
+          AWS_ACCESS_KEY_ID: _peerdb_minioadmin
+          AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
+          AWS_REGION: us-east-1
+          AWS_ENDPOINT_URL_S3_TLS: https://localhost:9003
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_ACCESS_KEY_ID: _peerdb_minioadmin
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_SECRET_ACCESS_KEY: _peerdb_minioadmin
           PEERDB_CLICKHOUSE_AWS_CREDENTIALS_AWS_REGION: us-east-1
