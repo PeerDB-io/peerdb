@@ -467,6 +467,7 @@ jobs:
           CI_MONGO_URI: mongodb://localhost:27017
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
+          TOXIPROXY_HOST: localhost
           TOXIPROXY_POSTGRES_HOST: catalog
           ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317

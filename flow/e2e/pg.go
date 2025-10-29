@@ -305,7 +305,8 @@ func SetupPostgresWithToxiproxy(t *testing.T, suffix string, port uint32) (*Post
 
 	// Create config pointing to proxy
 	config := internal.GetCatalogPostgresConfigFromEnv(t.Context())
-	config.Host = "localhost"
+
+	config.Host = os.Getenv("TOXIPROXY_HOST")
 	config.Port = port
 	// Don't set RequireTls - let it use the default from env
 
