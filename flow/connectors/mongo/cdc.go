@@ -78,8 +78,7 @@ func (c *MongoConnector) GetTableSchema(
 func (c *MongoConnector) SetupReplication(ctx context.Context, input *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream").
-		SetFullDocument(options.UpdateLookup).
-		SetFullDocumentBeforeChange(options.Off)
+		SetFullDocument(options.UpdateLookup)
 
 	pipeline, err := createPipeline(nil)
 	if err != nil {
@@ -134,8 +133,7 @@ func (c *MongoConnector) PullRecords(
 
 	changeStreamOpts := options.ChangeStream().
 		SetComment("PeerDB changeStream for mirror " + req.FlowJobName).
-		SetFullDocument(options.UpdateLookup).
-		SetFullDocumentBeforeChange(options.Off)
+		SetFullDocument(options.UpdateLookup)
 
 	var resumeToken bson.Raw
 	var err error
