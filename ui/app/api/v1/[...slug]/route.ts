@@ -3,8 +3,9 @@ import { NextRequest } from 'next/server';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { slug: string[] } }
+  context: { params: Promise<{ slug: string[] }> }
 ) {
+  const params = await context.params;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   let url = `${flowServiceAddr}/v1/${params.slug
     .map((x) => encodeURIComponent(x))
@@ -19,8 +20,9 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { slug: string[] } }
+  context: { params: Promise<{ slug: string[] }> }
 ) {
+  const params = await context.params;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   return fetch(
     `${flowServiceAddr}/v1/${params.slug
@@ -37,8 +39,9 @@ export async function POST(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { slug: string[] } }
+  context: { params: Promise<{ slug: string[] }> }
 ) {
+  const params = await context.params;
   const flowServiceAddr = GetFlowHttpAddressFromEnv();
   let url = `${flowServiceAddr}/v1/${params.slug
     .map((x) => encodeURIComponent(x))

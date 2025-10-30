@@ -133,9 +133,17 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   };
 
   useEffect(() => {
-    setMounted(true);
-    fetchSlotNames();
-    fetchLagPoints();
+    const initializeComponent = async () => {
+      setMounted(true);
+
+      try {
+        await Promise.all([fetchSlotNames(), fetchLagPoints()]);
+      } catch (error) {
+        console.error('Error initializing component:', error);
+      }
+    };
+
+    initializeComponent();
   }, [fetchLagPoints, fetchSlotNames]);
   const chartData = {
     labels: lagPoints.map((point) => point.time),

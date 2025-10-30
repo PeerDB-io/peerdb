@@ -3,7 +3,6 @@ import { getMirrorState } from '@/app/mirrors/[mirrorId]/handlers';
 import EditButton from '@/components/EditButton';
 import ResyncDialog from '@/components/ResyncDialog';
 import { FlowStatus } from '@/grpc_generated/flow';
-import { MirrorStatusResponse } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
 import { Icon } from '@/lib/Icon';
 import { useEffect, useState } from 'react';
@@ -43,10 +42,18 @@ export default function MirrorActions({
   };
 
   useEffect(() => {
-    getMirrorState(mirrorName).then((res: MirrorStatusResponse) => {
-      setMirrorStatus(res.currentFlowState);
-    });
-    setMounted(true);
+    const fetchMirrorState = async () => {
+      try {
+        const res = await getMirrorState(mirrorName);
+        setMirrorStatus(res.currentFlowState);
+        setMounted(true);
+      } catch (error) {
+        console.error('Error fetching mirror state:', error);
+        setMounted(true); // Still set mounted even on error
+      }
+    };
+
+    fetchMirrorState();
   }, [mirrorName]);
 
   return (

@@ -18,14 +18,18 @@ interface CodeEditorProps {
 }
 
 export default function PeerDBCodeEditor(props: CodeEditorProps) {
-  const [theme, setTheme] = useState<'light' | 'vs-dark'>('light');
+  // Initialize with the correct theme from the start
+  const [theme, setTheme] = useState<'light' | 'vs-dark'>(() => {
+    if (typeof document !== 'undefined') {
+      return document.documentElement.classList.contains('dark')
+        ? 'vs-dark'
+        : 'light';
+    }
+    return 'light';
+  });
 
   useEffect(() => {
-    // Check if the page is in dark mode
-    const isDark = document.documentElement.classList.contains('dark');
-    setTheme(isDark ? 'vs-dark' : 'light');
-
-    // Watch for theme changes
+    // Only watch for theme changes, don't set initial theme here
     const observer = new MutationObserver(() => {
       const isDark = document.documentElement.classList.contains('dark');
       setTheme(isDark ? 'vs-dark' : 'light');

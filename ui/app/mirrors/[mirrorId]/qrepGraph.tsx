@@ -12,7 +12,7 @@ import {
   Title,
   Tooltip,
 } from 'chart.js';
-import { useEffect, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
@@ -25,8 +25,7 @@ function QrepGraph({ syncs }: QRepGraphProps) {
   const [aggregateType, setAggregateType] = useState<TimeAggregateType>(
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
-  const initialCount: [string, number][] = [];
-  const [counts, setCounts] = useState(initialCount);
+
   ChartJS.register(
     BarElement,
     CategoryScale,
@@ -43,14 +42,15 @@ function QrepGraph({ syncs }: QRepGraphProps) {
       },
     },
   };
-  useEffect(() => {
+
+  const counts = useMemo(() => {
     const rows = syncs.map((sync) => ({
       timestamp: sync.startTime!,
       count: Number(sync.rowsInPartition) ?? 0,
     }));
 
-    const counts = aggregateCountsByInterval(rows, aggregateType);
-    setCounts(counts.slice(0, 29).reverse());
+    const aggregatedCounts = aggregateCountsByInterval(rows, aggregateType);
+    return aggregatedCounts.slice(0, 29).reverse();
   }, [aggregateType, syncs]);
 
   const qrepData = {

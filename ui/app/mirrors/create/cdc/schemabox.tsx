@@ -204,15 +204,18 @@ export default function SchemaBox({
   };
 
   const fetchTablesForSchema = useCallback(
-    (schemaName: string) => {
+    async (schemaName: string) => {
       setTablesLoading(true);
-      fetchTables(
-        sourcePeer,
-        schemaName,
-        defaultTargetSchema,
-        peerType,
-        initialLoadOnly
-      ).then((newRows) => {
+
+      try {
+        const newRows = await fetchTables(
+          sourcePeer,
+          schemaName,
+          defaultTargetSchema,
+          peerType,
+          initialLoadOnly
+        );
+
         if (alreadySelectedTables) {
           for (const row of newRows) {
             const existingRow = alreadySelectedTables.find(
@@ -232,23 +235,28 @@ export default function SchemaBox({
             }
           }
         }
+
         setRows((oldRows) => {
           const filteredRows = oldRows.filter(
             (oldRow) => oldRow.schema !== schemaName
           );
           return [...filteredRows, ...newRows];
         });
+      } catch (error) {
+        // Handle error if needed
+        console.error('Error fetching tables:', error);
+      } finally {
         setTablesLoading(false);
-      });
+      }
     },
     [
-      setRows,
       sourcePeer,
       defaultTargetSchema,
       peerType,
       alreadySelectedTables,
       addTableColumns,
       initialLoadOnly,
+      setRows,
     ]
   );
 

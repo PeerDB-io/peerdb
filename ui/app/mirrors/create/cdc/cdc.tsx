@@ -206,19 +206,27 @@ export default function CDCConfigForm({
   };
 
   useEffect(() => {
-    setLoading(true);
-    const promises = [];
-    if (sourceType.toString() === DBType[DBType.POSTGRES]) {
-      promises.push(
-        fetchPublications(mirrorConfig.sourceName ?? '').then((pubs) =>
-          setPublications(pubs)
-        )
-      );
-    }
-    promises.push(getScriptingEnabled());
-    Promise.all(promises).then(() => setLoading(false));
-    // ClickHouse has soft-delete as default and hard-delete as opt-in.
-    // It is the opposite for SF,BQ and PQ target peers.
+    const fetchData = async () => {
+      setLoading(true);
+
+      try {
+        const promises = [];
+        if (sourceType.toString() === DBType[DBType.POSTGRES]) {
+          promises.push(
+            fetchPublications(mirrorConfig.sourceName ?? '').then((pubs) =>
+              setPublications(pubs)
+            )
+          );
+        }
+        promises.push(getScriptingEnabled());
+
+        await Promise.all(promises);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    // Set soft delete configuration synchronously
     if (IsClickHousePeer(destinationType)) {
       setter((curr) => ({
         ...curr,
@@ -230,6 +238,9 @@ export default function CDCConfigForm({
         softDeleteColName: curr.softDeleteColName || SOFT_DELETE_COLUMN_NAME,
       }));
     }
+
+    // Fetch data asynchronously
+    fetchData();
   }, [
     sourceType,
     mirrorConfig.sourceName,

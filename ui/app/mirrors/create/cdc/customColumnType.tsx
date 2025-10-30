@@ -49,9 +49,6 @@ export default function CustomColumnType({
     const columnsWithDstTypes = selectedColumns.filter(
       (col) => destinationTypeMapping[col.name] !== undefined
     );
-    if (columnsWithDstTypes.length === 0) {
-      setUseCustom(false);
-    }
     return columnsWithDstTypes;
   }, [selectedColumns, destinationTypeMapping]);
 

@@ -18,7 +18,7 @@ import { RowWithTextField } from '@/lib/Layout';
 import { ProgressCircle } from '@/lib/ProgressCircle';
 import { TextField } from '@/lib/TextField';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ToastContainer } from 'react-toastify';
 import TablePicker from '../../create/cdc/tablemapping';
 import {
@@ -37,7 +37,7 @@ import {
 } from '../styles/edit.styles';
 
 type EditMirrorProps = {
-  params: { mirrorId: string };
+  params: Promise<{ mirrorId: string }>;
 };
 
 const defaultBatchSize = blankCDCSetting.maxBatchSize;
@@ -51,7 +51,8 @@ const defaultSnapshotMaxParallelWorkers =
 const defaultSnapshotNumTablesInParallel =
   blankCDCSetting.snapshotNumTablesInParallel;
 
-export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
+export default function EditMirror({ params }: EditMirrorProps) {
+  const { mirrorId } = React.use(params);
   const theme = useTheme();
   const [rows, setRows] = useState<TableMapRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -71,41 +72,47 @@ export default function EditMirror({ params: { mirrorId } }: EditMirrorProps) {
   });
   const { push } = useRouter();
 
-  const fetchStateAndUpdateDeps = useCallback(async () => {
-    const res = await getMirrorState(mirrorId);
-    setMirrorState(res);
-
-    setConfig({
-      batchSize:
-        (res as MirrorStatusResponse).cdcStatus?.config?.maxBatchSize ||
-        defaultBatchSize,
-      idleTimeout:
-        (res as MirrorStatusResponse).cdcStatus?.config?.idleTimeoutSeconds ||
-        defaultIdleTimeout,
-      additionalTables: [],
-      removedTables: [],
-      numberOfSyncs: 0,
-      updatedEnv: {},
-      snapshotNumRowsPerPartition:
-        (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotNumRowsPerPartition || defaultSnapshotNumRowsPerPartition,
-      snapshotNumPartitionsOverride:
-        (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotNumPartitionsOverride ||
-        defaultSnapshotNumPartitionsOverride,
-      snapshotMaxParallelWorkers:
-        (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotMaxParallelWorkers || defaultSnapshotMaxParallelWorkers,
-      snapshotNumTablesInParallel:
-        (res as MirrorStatusResponse).cdcStatus?.config
-          ?.snapshotNumTablesInParallel || defaultSnapshotNumTablesInParallel,
-      skipInitialSnapshotForTableAdditions: false,
-    });
-  }, [mirrorId]);
-
   useEffect(() => {
+    const fetchStateAndUpdateDeps = async () => {
+      try {
+        const res = await getMirrorState(mirrorId);
+        setMirrorState(res);
+
+        setConfig({
+          batchSize:
+            (res as MirrorStatusResponse).cdcStatus?.config?.maxBatchSize ||
+            defaultBatchSize,
+          idleTimeout:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.idleTimeoutSeconds || defaultIdleTimeout,
+          additionalTables: [],
+          removedTables: [],
+          numberOfSyncs: 0,
+          updatedEnv: {},
+          snapshotNumRowsPerPartition:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.snapshotNumRowsPerPartition ||
+            defaultSnapshotNumRowsPerPartition,
+          snapshotNumPartitionsOverride:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.snapshotNumPartitionsOverride ||
+            defaultSnapshotNumPartitionsOverride,
+          snapshotMaxParallelWorkers:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.snapshotMaxParallelWorkers || defaultSnapshotMaxParallelWorkers,
+          snapshotNumTablesInParallel:
+            (res as MirrorStatusResponse).cdcStatus?.config
+              ?.snapshotNumTablesInParallel ||
+            defaultSnapshotNumTablesInParallel,
+          skipInitialSnapshotForTableAdditions: false,
+        });
+      } catch (error) {
+        notifyErr('Failed to fetch mirror state');
+      }
+    };
+
     fetchStateAndUpdateDeps();
-  }, [fetchStateAndUpdateDeps]);
+  }, [mirrorId]);
 
   const alreadySelectedTablesMapping: Map<string, TableMapping[]> =
     useMemo(() => {
