@@ -440,18 +440,20 @@ func (c *MySqlConnector) StatActivity(
 	ctx context.Context,
 	req *protos.PostgresPeerActivityInfoRequest,
 ) (*protos.PeerStatResponse, error) {
-	rs, err := c.Execute(ctx, "SELECT ID,COMMAND,STATE,TIME,INFO FROM performance_schema.processlist WHERE USER=?", c.config.User)
+	rs, err := c.Execute(ctx,
+		fmt.Sprintf("SELECT ID,COMMAND,STATE,TIME,INFO FROM performance_schema.processlist WHERE USER='%s'", mysql.Escape(c.config.User)))
 	if err != nil {
 		// 42S02 is ER_NO_SUCH_TABLE
 		var myErr *mysql.MyError
 		if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
 			// mariadb
 			rs, err = c.Execute(ctx,
-				"SELECT PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
-					" FROM performance_schema.threads WHERE USER=?", c.config.User)
+				fmt.Sprintf("SELECT PROCESSLIST_ID,PROCESSLIST_COMMAND,PROCESSLIST_STATE,PROCESSLIST_TIME,PROCESSLIST_INFO"+
+					" FROM performance_schema.threads WHERE USER='%s'", mysql.Escape(c.config.User)))
 			if errors.As(err, &myErr) && myErr.Code == 1146 && myErr.State == "42S02" {
 				rs, err = c.Execute(ctx,
-					"SELECT ID,COMMAND,STATE,TIME,INFO FROM information_schema.processlist WHERE USER=?", c.config.User)
+					fmt.Sprintf("SELECT ID,COMMAND,STATE,TIME,INFO FROM information_schema.processlist WHERE USER='%s'",
+						mysql.Escape(c.config.User)))
 			}
 		}
 
