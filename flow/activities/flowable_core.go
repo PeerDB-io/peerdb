@@ -637,6 +637,7 @@ func (a *FlowableActivity) startNormalize(
 		config.DestinationName,
 	)
 	if errors.Is(err, errors.ErrUnsupported) {
+		normalizeResponses.Update(batchID)
 		return monitoring.UpdateEndTimeForCDCBatch(ctx, a.CatalogPool, config.FlowJobName, batchID)
 	} else if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get normalize connector: %w", err))
