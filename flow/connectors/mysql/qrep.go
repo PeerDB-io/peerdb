@@ -105,7 +105,8 @@ func (c *MySqlConnector) GetQRepPartitions(
 		case *protos.PartitionRange_UintRange:
 			minVal = strconv.FormatUint(lastRange.UintRange.End, 10)
 		case *protos.PartitionRange_TimestampRange:
-			minVal = "'" + lastRange.TimestampRange.End.AsTime().Format("2006-01-02 15:04:05.999999") + "'"
+			time := lastRange.TimestampRange.End.AsTime()
+			minVal = "'" + time.Format("2006-01-02 15:04:05.999999") + "'"
 		}
 
 		c.logger.Info("querying min/max", slog.String("query", minmaxQuery), slog.String("minVal", minVal))
