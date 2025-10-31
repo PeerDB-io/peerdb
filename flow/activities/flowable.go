@@ -1125,9 +1125,10 @@ func (a *FlowableActivity) recordSlotInformation(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-		FlowName:        info.config.FlowJobName,
-		SourceName:      info.config.SourceName,
-		DestinationName: info.config.DestinationName,
+		FlowName:           info.config.FlowJobName,
+		SourceName:         info.config.SourceName,
+		DestinationName:    info.config.DestinationName,
+		FetchSourceVariant: true,
 	})
 	if err != nil {
 		logger.Error("Failed to get flow metadata", slog.Any("error", err))
@@ -1172,9 +1173,10 @@ func (a *FlowableActivity) emitLogRetentionHours(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 	flowMetadata, err := a.GetFlowMetadata(ctx, &protos.FlowContextMetadataInput{
-		FlowName:        info.config.FlowJobName,
-		SourceName:      info.config.SourceName,
-		DestinationName: info.config.DestinationName,
+		FlowName:           info.config.FlowJobName,
+		SourceName:         info.config.SourceName,
+		DestinationName:    info.config.DestinationName,
+		FetchSourceVariant: true,
 	})
 	if err != nil {
 		logger.Error("Failed to get flow metadata", slog.Any("error", err))
@@ -1628,7 +1630,7 @@ func (a *FlowableActivity) GetFlowMetadata(
 	}
 
 	// Detect source database variant
-	if input.SourceName != "" {
+	if input.FetchSourceVariant && input.SourceName != "" {
 		// Use a short timeout for optional variant detection to avoid consuming entire activity timeout
 		variantCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()

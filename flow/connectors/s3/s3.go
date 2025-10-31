@@ -3,6 +3,7 @@ package conns3
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -41,7 +42,7 @@ func NewS3Connector(
 	}
 	pgMetadata, err := metadataStore.NewPostgresMetadata(ctx)
 	if err != nil {
-		logger.Error("failed to create postgres metadata store", "error", err)
+		logger.Error("failed to create postgres metadata store", slog.Any("error", err))
 		return nil, err
 	}
 	return &S3Connector{
@@ -102,7 +103,7 @@ func (c *S3Connector) SyncRecords(ctx context.Context, req *model.SyncRecordsReq
 
 	lastCheckpoint := req.Records.GetLastCheckpoint()
 	if err := c.FinishBatch(ctx, req.FlowJobName, req.SyncBatchID, lastCheckpoint); err != nil {
-		c.logger.Error("failed to increment id", "error", err)
+		c.logger.Error("failed to increment id", slog.Any("error", err))
 		return nil, err
 	}
 
