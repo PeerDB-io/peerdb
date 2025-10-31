@@ -598,6 +598,7 @@ message FlowContextMetadataInput {
   string destination_name = 3;
   FlowStatus status = 4;
   bool is_resync = 5;
+  bool fetch_source_variant = 6;
 }
 
 enum FlowOperation {

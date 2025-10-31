@@ -608,11 +608,12 @@ func CDCFlowWorkflow(
 
 		var err error
 		ctx, err = GetFlowMetadataContext(ctx, &protos.FlowContextMetadataInput{
-			FlowName:        cfg.FlowJobName,
-			SourceName:      cfg.SourceName,
-			DestinationName: cfg.DestinationName,
-			Status:          state.CurrentFlowStatus,
-			IsResync:        cfg.Resync,
+			FlowName:           cfg.FlowJobName,
+			SourceName:         cfg.SourceName,
+			DestinationName:    cfg.DestinationName,
+			Status:             state.CurrentFlowStatus,
+			IsResync:           cfg.Resync,
+			FetchSourceVariant: false,
 		})
 		if err != nil {
 			logger.Error("failed to GetFlowMetadataContext", slog.Any("error", err))

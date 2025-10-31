@@ -148,9 +148,10 @@ func DropFlowWorkflow(ctx workflow.Context, input *protos.DropFlowInput) error {
 	logger.Info("performing cleanup for flow",
 		slog.String(string(shared.FlowNameKey), input.FlowJobName))
 	contextMetadataInput := &protos.FlowContextMetadataInput{
-		FlowName: input.FlowJobName,
-		Status:   status,
-		IsResync: false,
+		FlowName:           input.FlowJobName,
+		Status:             status,
+		IsResync:           false,
+		FetchSourceVariant: false,
 	}
 	if input.FlowConnectionConfigs != nil {
 		contextMetadataInput.SourceName = input.FlowConnectionConfigs.SourceName
