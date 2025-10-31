@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
@@ -15,6 +16,8 @@ const (
 
 	ReplicaSet     = "ReplicaSet"
 	ShardedCluster = "ShardedCluster"
+
+	DocumentDBDomain = "docdb.amazonaws.com"
 )
 
 var RequiredRoles = [...]string{"readAnyDatabase", "clusterMonitor"}
@@ -37,8 +40,10 @@ func ValidateServerCompatibility(ctx context.Context, client *mongo.Client) erro
 			return err
 		}
 
-		if ss.StorageEngine.Name != "wiredTiger" {
-			return errors.New("only wiredTiger storage engine is supported")
+		// DocumentDB does not provide storage engine info, so we skip this validation
+		isDocumentDB := strings.Contains(ss.Host, DocumentDBDomain)
+		if ss.StorageEngine.Name != "wiredTiger" && !isDocumentDB {
+			return fmt.Errorf("storage engine %s is not supported", ss.StorageEngine.Name)
 		}
 		return nil
 	}
@@ -79,8 +84,11 @@ func ValidateOplogRetention(ctx context.Context, client *mongo.Client) error {
 		if err != nil {
 			return err
 		}
-		if ss.OplogTruncation.OplogMinRetentionHours == 0 ||
-			ss.OplogTruncation.OplogMinRetentionHours < MinOplogRetentionHours {
+
+		// DocumentDB does not provide oplog retention hours, so we skip this validation
+		isDocumentDB := strings.Contains(ss.Host, DocumentDBDomain)
+		if (ss.OplogTruncation.OplogMinRetentionHours == 0 ||
+			ss.OplogTruncation.OplogMinRetentionHours < MinOplogRetentionHours) && !isDocumentDB {
 			return fmt.Errorf("oplog retention must be set to >= 24 hours, but got %f",
 				ss.OplogTruncation.OplogMinRetentionHours)
 		}
