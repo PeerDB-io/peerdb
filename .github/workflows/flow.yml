@@ -501,15 +501,15 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  flow_test_complete:
+  finish:
     name: Flow Tests Complete
     needs: [flow_test]
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - name: Check all tests passed
+      - name: check all tests passed
         run: |
-          if [[ "${{ needs.test.result }}" != "success" ]]; then
-            echo "One or more required test jobs failed"
+          if [[ "${{ needs.flow_test.result }}" != "success" ]]; then
+            echo "One or more tests failed"
             exit 1
           fi
