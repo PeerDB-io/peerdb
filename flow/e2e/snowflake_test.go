@@ -15,8 +15,8 @@ import (
 )
 
 func TestPeerFlowE2ETestSuiteSF(t *testing.T) {
-	if val, ok := os.LookupEnv("CI_PG_VERSION"); ok && val != "17" {
-		t.Skip("Only running in PG17 to reduce flakiness from high concurrency")
+	if val, ok := os.LookupEnv("CI_PG_VERSION"); ok && val != "18" {
+		t.Skip("Only running in PG18 to reduce flakiness from high concurrency")
 	}
 
 	e2eshared.RunSuite(t, SetupSnowflakeSuite)
