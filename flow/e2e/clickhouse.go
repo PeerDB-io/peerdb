@@ -70,8 +70,8 @@ func (s ClickHouseSuite) Peer() *protos.Peer {
 			Type: protos.DBType_CLICKHOUSE,
 			Config: &protos.Peer_ClickhouseConfig{
 				ClickhouseConfig: &protos.ClickhouseConfig{
-					Host:       "localhost",
-					Port:       9001,
+					Host:       "host.docker.internal",
+					Port:       29001,
 					Database:   dbname,
 					DisableTls: true,
 					S3:         s.s3Helper.S3Config,
@@ -93,7 +93,7 @@ func (s ClickHouseSuite) PeerForDatabase(dbname string) *protos.Peer {
 		Type: protos.DBType_CLICKHOUSE,
 		Config: &protos.Peer_ClickhouseConfig{
 			ClickhouseConfig: &protos.ClickhouseConfig{
-				Host:       "localhost",
+				Host:       "host.docker.internal",
 				Port:       9000,
 				Database:   dbname,
 				DisableTls: true,

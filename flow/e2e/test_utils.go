@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -37,9 +38,16 @@ import (
 )
 
 func init() {
-	// it's okay if the .env file is not present
-	// we will use the default values
-	_ = godotenv.Load()
+	// First read the environment from .env (gitignored, may not exist)
+	// Then the default one from .env.test
+	envPath := ".env"
+	if _, err := os.Stat(envPath); err == nil {
+		_ = godotenv.Load(".env", ".env.test")
+	} else if errors.Is(err, os.ErrNotExist) {
+		_ = godotenv.Load(".env.test")
+	} else {
+		panic(err)
+	}
 }
 
 type Suite interface {
