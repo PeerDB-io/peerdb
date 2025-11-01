@@ -41,6 +41,7 @@ message TableMapping {
   string sharding_key = 7;
   string policy_name = 8;
   string partition_by_expr = 9;
+  uint32 version = 10;
 }
 
 message SetupInput {
@@ -52,12 +53,12 @@ message SetupInput {
 // FlowConnectionConfigs is for external use by the API, maintaining backwards compatibility
 // When adding fields here, add them to FlowConnectionConfigsCore too
 message FlowConnectionConfigs {
-  reserved 2,3,17;
+  reserved 2,3,17,4;
   string flow_job_name = 1;
 
   // config for the CDC flow itself
   // currently, TableMappings, MaxBatchSize and IdleTimeoutSeconds are dynamic via Temporal signals
-  repeated TableMapping table_mappings = 4;
+  //repeatable TableMapping table_mappings = 4;
   uint32 max_batch_size = 5;
   uint64 idle_timeout_seconds = 6;
   string cdc_staging_path = 7;
@@ -91,6 +92,7 @@ message FlowConnectionConfigs {
 
   map<string, string> env = 24;
   uint32 version = 25;
+  uint32 table_mapping_version = 27;
 }
 
 // FlowConnectionConfigsCore is used internally in the codebase, it is safe to remove (mark reserved) fields from it
@@ -137,6 +139,7 @@ message FlowConnectionConfigsCore {
 
   map<string, string> env = 24;
   uint32 version = 25;
+  uint32 table_mapping_version = 27;
 }
 
 message RenameTableOption {
@@ -181,6 +184,7 @@ message SyncFlowOptions {
   map<uint32, string> src_table_id_name_mapping = 4;
   repeated TableMapping table_mappings = 6;
   int32 number_of_syncs = 7;
+  uint32 table_mapping_version = 8;
 }
 
 message EnsurePullabilityBatchInput {

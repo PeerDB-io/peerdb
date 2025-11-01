@@ -123,7 +123,7 @@ func updateFlowConfigWithLatestSettings(
 	cloneCfg := proto.CloneOf(cfg)
 	cloneCfg.MaxBatchSize = state.SyncFlowOptions.BatchSize
 	cloneCfg.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
-	cloneCfg.TableMappings = state.SyncFlowOptions.TableMappings
+	cloneCfg.TableMappingVersion = state.SyncFlowOptions.TableMappingVersion
 	if state.SnapshotNumRowsPerPartition > 0 {
 		cloneCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
 	}
@@ -221,6 +221,24 @@ func processCDCFlowConfigUpdate(
 		}
 	}
 
+	// MIGRATION: Move `tableMapping` to the DB
+	if len(state.SyncFlowOptions.TableMappings) > 0 {
+		migrateCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+			StartToCloseTimeout: 5 * time.Minute,
+		})
+		if err := workflow.ExecuteActivity(
+			migrateCtx,
+			flowable.MigrateTableMappingsToCatalog,
+			cfg.FlowJobName,
+			state.SyncFlowOptions.TableMappings,
+			1, //hardcoding version as 1 for migration purposes.
+		).Get(migrateCtx, nil); err != nil {
+			return fmt.Errorf("failed to migrate TableMappings: %w", err)
+		}
+		state.SyncFlowOptions.TableMappings = nil
+		state.SyncFlowOptions.TableMappingVersion = 1
+	}
+
 	syncStateToConfigProtoInCatalog(ctx, cfg, state)
 	return nil
 }
@@ -309,7 +327,11 @@ func processTableAdditions(
 			additionalTablesCfg := proto.CloneOf(cfg)
 			additionalTablesCfg.DoInitialSnapshot = !flowConfigUpdate.SkipInitialSnapshotForTableAdditions
 			additionalTablesCfg.InitialSnapshotOnly = true
-			additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
+			// TODO: thought - maybe we need to pass additionalTables and then in the
+			// CDCWorkflow we persist them to the DB and send an incremented `tableMappingVersion`
+			// to the new workflow?
+			//additionalTablesCfg.TableMappings = flowConfigUpdate.AdditionalTables
+
 			additionalTablesCfg.Resync = false
 			if state.SnapshotNumRowsPerPartition > 0 {
 				additionalTablesCfg.SnapshotNumRowsPerPartition = state.SnapshotNumRowsPerPartition
@@ -628,22 +650,6 @@ func CDCFlowWorkflow(
 	// for safety, rely on the idempotency of SetupFlow instead
 	// also, no signals are being handled until the loop starts, so no PAUSE/DROP will take here.
 	if state.CurrentFlowStatus != protos.FlowStatus_STATUS_RUNNING {
-		originalTableMappings := make([]*protos.TableMapping, 0, len(cfg.TableMappings))
-		for _, tableMapping := range cfg.TableMappings {
-			originalTableMappings = append(originalTableMappings, proto.CloneOf(tableMapping))
-		}
-		// if resync is true, alter the table name schema mapping to temporarily add
-		// a suffix to the table names.
-		if cfg.Resync {
-			for _, mapping := range state.SyncFlowOptions.TableMappings {
-				if mapping.Engine != protos.TableEngine_CH_ENGINE_NULL {
-					mapping.DestinationTableIdentifier += "_resync"
-				}
-			}
-			// because we have renamed the tables.
-			cfg.TableMappings = state.SyncFlowOptions.TableMappings
-		}
-
 		// start the SetupFlow workflow as a child workflow, and wait for it to complete
 		// it should return the table schema for the source peer
 		setupFlowID := GetChildWorkflowID("setup-flow", cfg.FlowJobName, originalRunID)
@@ -667,7 +673,6 @@ func CDCFlowWorkflow(
 				state.ActiveSignal = model.ResyncSignal
 				cfg.Resync = true
 				cfg.DoInitialSnapshot = true
-				cfg.TableMappings = originalTableMappings
 				// this is the only place where we can have a resync during a resync
 				// so we need to NOT sync the tableMappings to catalog to preserve original names
 				uploadConfigToCatalog(ctx, cfg)
@@ -691,6 +696,9 @@ func CDCFlowWorkflow(
 			WaitForCancellation:   true,
 		}
 		setupFlowCtx := workflow.WithChildOptions(ctx, childSetupFlowOpts)
+		// Resync will rely rely on the `cfg.Resync` flag to rename the tables
+		// during the snapshot process. This is how we're able to also remove the need
+		// to sync the config back into the DB / not rely on the `state.TableMappings`.
 		setupFlowFuture := workflow.ExecuteChildWorkflow(setupFlowCtx, SetupFlowWorkflow, cfg)
 
 		var setupFlowOutput *protos.SetupFlowOutput
@@ -838,6 +846,7 @@ func CDCFlowWorkflow(
 		WaitForCancellation: true,
 		RetryPolicy:         &temporal.RetryPolicy{MaximumAttempts: 1},
 	}))
+	state.SyncFlowOptions.TableMappings = []*protos.TableMapping{}
 	syncFlowFuture := workflow.ExecuteActivity(syncCtx, flowable.SyncFlow, cfg, state.SyncFlowOptions)
 
 	mainLoopSelector := workflow.NewNamedSelector(ctx, "MainLoop")
