@@ -225,7 +225,7 @@ jobs:
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
           docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
-          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
+          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
           docker exec "${{ job.services.catalog.id }}" sh -c 'cd /tmp/pgvector && make with_llvm=no && make with_llvm=no install' &&
           docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;CREATE EXTENSION vector;"
           -c "ALTER SYSTEM SET wal_level=logical;"
