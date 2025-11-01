@@ -25,9 +25,9 @@ type NormalizeQueryGenerator struct {
 	isDeletedColName                string
 	tableMappings                   []*protos.TableMapping
 	Part                            uint64
-	batchIDToLoadForTable           int64
+	startBatchId                    int64
 	numParts                        uint64
-	syncBatchID                     int64
+	endBatchId                      int64
 	enablePrimaryUpdate             bool
 	sourceSchemaAsDestinationColumn bool
 	cluster                         bool
@@ -40,8 +40,8 @@ func NewNormalizeQueryGenerator(
 	part uint64,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 	tableMappings []*protos.TableMapping,
-	syncBatchID int64,
-	batchIDToLoadForTable int64,
+	endBatchId int64,
+	startBatchId int64,
 	numParts uint64,
 	enablePrimaryUpdate bool,
 	sourceSchemaAsDestinationColumn bool,
@@ -61,8 +61,8 @@ func NewNormalizeQueryGenerator(
 		Part:                            part,
 		tableNameSchemaMapping:          tableNameSchemaMapping,
 		tableMappings:                   tableMappings,
-		syncBatchID:                     syncBatchID,
-		batchIDToLoadForTable:           batchIDToLoadForTable,
+		endBatchId:                      endBatchId,
+		startBatchId:                    startBatchId,
 		numParts:                        numParts,
 		enablePrimaryUpdate:             enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn: sourceSchemaAsDestinationColumn,
@@ -280,8 +280,8 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 
 	selectQuery.WriteString(projection.String())
 	fmt.Fprintf(&selectQuery,
-		" FROM %s WHERE _peerdb_batch_id > %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
-		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.batchIDToLoadForTable, t.syncBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+		" FROM %s WHERE _peerdb_batch_id >= %d AND _peerdb_batch_id <= %d AND  _peerdb_destination_table_name = %s",
+		peerdb_clickhouse.QuoteIdentifier(t.rawTableName), t.startBatchId, t.endBatchId, peerdb_clickhouse.QuoteLiteral(t.TableName))
 	if t.numParts > 1 {
 		fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", t.numParts, t.Part)
 	}
@@ -300,10 +300,10 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 		selectQuery.WriteString(" UNION ALL SELECT ")
 		selectQuery.WriteString(projectionUpdate.String())
 		fmt.Fprintf(&selectQuery,
-			" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id > %d AND _peerdb_batch_id <= %d"+
+			" FROM %s WHERE _peerdb_match_data != '' AND _peerdb_batch_id >= %d AND _peerdb_batch_id <= %d"+
 				" AND  _peerdb_destination_table_name = %s AND _peerdb_record_type = 1",
 			peerdb_clickhouse.QuoteIdentifier(t.rawTableName),
-			t.batchIDToLoadForTable, t.syncBatchID, peerdb_clickhouse.QuoteLiteral(t.TableName))
+			t.startBatchId, t.endBatchId, peerdb_clickhouse.QuoteLiteral(t.TableName))
 		if t.numParts > 1 {
 			fmt.Fprintf(&selectQuery, " AND cityHash64(_peerdb_uid) %% %d = %d", t.numParts, t.Part)
 		}
