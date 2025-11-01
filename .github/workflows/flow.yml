@@ -500,3 +500,16 @@ jobs:
         uses: codecov/codecov-action@5a1091511ad55cbe89839c7260b706298ca349f7 # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  flow_test_complete:
+    name: Flow Tests Complete
+    needs: [flow_test]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all tests passed
+        run: |
+          if [[ "${{ needs.test.result }}" != "success" ]]; then
+            echo "One or more required test jobs failed"
+            exit 1
+          fi
