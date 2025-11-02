@@ -12,13 +12,18 @@ USER node
 WORKDIR /app
 
 # Dependencies stage
-FROM base AS builder
+FROM base AS dependencies
 COPY --chown=node:node ui/package.json ui/package-lock.json ./
-RUN npm ci
+# BuildKit cache mount for npm cache
+RUN --mount=type=cache,target=/home/node/.npm,uid=1000,gid=1000 \
+    npm ci
+
+# Builder stage for production
+FROM dependencies AS builder
 COPY --chown=node:node ui/ .
 RUN npm run build
 
-# Builder stage
+# Runner stage for production
 FROM base AS runner
 ENV NODE_ENV=production
 
@@ -41,3 +46,15 @@ ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "server.js"]
+
+# Dev stage
+FROM dependencies AS dev
+COPY --chown=node:node ui/ .
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+ENV NODE_ENV=development
+ARG PEERDB_VERSION_SHA_SHORT
+ENV PEERDB_VERSION_SHA_SHORT=${PEERDB_VERSION_SHA_SHORT}
+CMD ["npm", "run", "dev"]
+

@@ -187,8 +187,14 @@ services:
     build:
       context: .
       dockerfile: stacks/peerdb-ui.Dockerfile
+      target: dev
     ports:
       - 3000:3000
+    volumes:
+      # Mount local ui/ directory for hot reload
+      - ./ui:/app
+      # Preserve node_modules from container (don't override with local)
+      - /app/node_modules
     env_file:
       - path: ./.env
         required: false
