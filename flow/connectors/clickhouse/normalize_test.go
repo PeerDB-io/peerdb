@@ -221,8 +221,8 @@ func TestBuildQuery_Basic(t *testing.T) {
 	rawTableName := "raw_my_table"
 	part := uint64(0)
 	numParts := uint64(1)
-	syncBatchID := int64(10)
-	batchIDToLoadForTable := int64(5)
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
 	enablePrimaryUpdate := false
 	sourceSchemaAsDestinationColumn := false
 	env := map[string]string{}
@@ -251,8 +251,8 @@ func TestBuildQuery_Basic(t *testing.T) {
 		part,
 		tableNameSchemaMapping,
 		tableMappings,
-		syncBatchID,
-		batchIDToLoadForTable,
+		endBatchID,
+		lastNormBatchID,
 		numParts,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
@@ -281,8 +281,8 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 	rawTableName := "raw_my_table"
 	part := uint64(0)
 	numParts := uint64(1)
-	syncBatchID := int64(10)
-	batchIDToLoadForTable := int64(5)
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
 	enablePrimaryUpdate := true
 	sourceSchemaAsDestinationColumn := false
 	env := map[string]string{}
@@ -309,8 +309,8 @@ func TestBuildQuery_WithPrimaryUpdate(t *testing.T) {
 		part,
 		tableNameSchemaMapping,
 		tableMappings,
-		syncBatchID,
-		batchIDToLoadForTable,
+		endBatchID,
+		lastNormBatchID,
 		numParts,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
@@ -336,8 +336,8 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 	rawTableName := "raw_my_table"
 	part := uint64(0)
 	numParts := uint64(1)
-	syncBatchID := int64(10)
-	batchIDToLoadForTable := int64(5)
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
 	enablePrimaryUpdate := false
 	sourceSchemaAsDestinationColumn := true
 	env := map[string]string{}
@@ -364,8 +364,8 @@ func TestBuildQuery_WithSourceSchemaAsDestinationColumn(t *testing.T) {
 		part,
 		tableNameSchemaMapping,
 		tableMappings,
-		syncBatchID,
-		batchIDToLoadForTable,
+		endBatchID,
+		lastNormBatchID,
 		numParts,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,
@@ -389,8 +389,8 @@ func TestBuildQuery_WithNumParts(t *testing.T) {
 	rawTableName := "raw_my_table"
 	part := uint64(2)
 	numParts := uint64(4)
-	syncBatchID := int64(10)
-	batchIDToLoadForTable := int64(5)
+	endBatchID := int64(10)
+	lastNormBatchID := int64(5)
 	enablePrimaryUpdate := false
 	sourceSchemaAsDestinationColumn := false
 	env := map[string]string{}
@@ -417,8 +417,8 @@ func TestBuildQuery_WithNumParts(t *testing.T) {
 		part,
 		tableNameSchemaMapping,
 		tableMappings,
-		syncBatchID,
-		batchIDToLoadForTable,
+		endBatchID,
+		lastNormBatchID,
 		numParts,
 		enablePrimaryUpdate,
 		sourceSchemaAsDestinationColumn,

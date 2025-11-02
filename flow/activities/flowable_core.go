@@ -650,7 +650,7 @@ func (a *FlowableActivity) startNormalize(
 	}
 
 	for {
-		logger.Info("normalizing batch", slog.Int64("syncBatchID", batchID))
+		logger.Info("normalizing batches", slog.Int64("syncBatchID", batchID))
 		res, err := dstConn.NormalizeRecords(ctx, &model.NormalizeRecordsRequest{
 			FlowJobName:            config.FlowJobName,
 			Env:                    config.Env,
