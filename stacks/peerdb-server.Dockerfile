@@ -17,13 +17,14 @@ WORKDIR /root/nexus
 COPY scripts /root/scripts
 RUN /root/scripts/install-protobuf.sh
 COPY --from=planner /root/nexus/recipe.json .
+ARG CARGO_FLAGS=""
 # Build dependencies with cache mounts for Cargo registry and target directory
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/root/nexus/target \
     sh -eu -c ' \
-      if [ "$BUILD_MODE" = "release" ]; then FLAG="--release"; else FLAG=""; fi; \
-      cargo chef cook $FLAG --recipe-path recipe.json \
+      if [ "$BUILD_MODE" = "release" ]; then FLAGS="--release ${CARGO_FLAGS}"; else FLAGS="${CARGO_FLAGS}"; fi; \
+      cargo chef cook $FLAGS -p peerdb-server --recipe-path recipe.json \
     '
 COPY nexus /root/nexus
 COPY protos /root/protos
@@ -33,8 +34,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/root/nexus/target \
     sh -eu -c ' \
-      if [ "$BUILD_MODE" = "release" ]; then FLAG="--release"; else FLAG=""; fi; \
-      cargo build $FLAG --bin peerdb-server \
+      if [ "$BUILD_MODE" = "release" ]; then FLAGS="--release ${CARGO_FLAGS}"; else FLAGS="${CARGO_FLAGS}"; fi; \
+      cargo build $FLAGS --bin peerdb-server \
     ' && \
     mkdir -p /root/target && \
     cp target/${BUILD_MODE}/peerdb-server /root/target/

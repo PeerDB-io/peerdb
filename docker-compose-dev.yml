@@ -172,6 +172,7 @@ services:
       dockerfile: stacks/peerdb-server.Dockerfile
       args:
         BUILD_MODE: "debug"
+        CARGO_FLAGS: "--no-default-features --features mysql"
     environment:
       <<: *catalog-config
       PEERDB_PASSWORD: peerdb

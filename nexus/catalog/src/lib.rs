@@ -3,7 +3,9 @@ use std::env;
 use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
+#[cfg(feature = "aws")]
 use aws_config::{BehaviorVersion, meta::region::RegionProviderChain};
+#[cfg(feature = "aws")]
 use aws_sdk_kms::{Client as KmsClient, primitives::Blob};
 use base64::prelude::*;
 use chacha20poly1305::{KeyInit, XChaCha20Poly1305, XNonce, aead::Aead};
@@ -32,6 +34,7 @@ pub struct Catalog {
     kms_key_id: Option<Arc<String>>,
 }
 
+#[cfg(feature = "aws")]
 pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::Result<String> {
     let region_provider = RegionProviderChain::default_provider().or_else("us-east-1");
     let config = aws_config::defaults(BehaviorVersion::v2025_08_07())
@@ -55,6 +58,11 @@ pub async fn kms_decrypt(encrypted_payload: &str, kms_key_id: &str) -> anyhow::R
     let bytes = inner.as_ref();
 
     Ok(String::from_utf8(bytes.to_vec()).expect("Could not convert decrypted data to UTF-8"))
+}
+
+#[cfg(not(feature = "aws"))]
+pub async fn kms_decrypt(_encrypted_payload: &str, _kms_key_id: &str) -> anyhow::Result<String> {
+    Err(anyhow::anyhow!("AWS KMS support not compiled in"))
 }
 
 async fn run_migrations(client: &mut Client) -> anyhow::Result<()> {

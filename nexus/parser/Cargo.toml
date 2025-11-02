@@ -8,7 +8,7 @@ authors = ["PeerDB <copyright@peerdb.io>"]
 analyzer = { path = "../analyzer" }
 anyhow = "1"
 async-trait = "0.1"
-catalog = { path = "../catalog" }
+catalog = { path = "../catalog", default-features = false }
 futures = { version = "0.3.28", features = ["executor"] }
 pgwire.workspace = true
 pt = { path = "../pt" }
