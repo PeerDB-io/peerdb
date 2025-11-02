@@ -171,7 +171,7 @@ services:
       context: .
       dockerfile: stacks/peerdb-server.Dockerfile
       args:
-        CARGO_BUILD_FLAGS: ""
+        BUILD_MODE: "debug"
     environment:
       <<: *catalog-config
       PEERDB_PASSWORD: peerdb
