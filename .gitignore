@@ -9,6 +9,7 @@ nexus/server/tests/assets/*.json
 nexus/server/tests/results/actual/
 e2e_cleanup/peer-flow-cleanup
 flow/peer-flow
+target/
 
 go.work
 go.work.sum
