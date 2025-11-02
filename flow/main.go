@@ -278,6 +278,79 @@ func main() {
 					})
 				},
 			},
+			{
+				Name: "pgwire-proxy",
+				Flags: []cli.Flag{
+					&cli.Uint16Flag{
+						Name:    "port",
+						Aliases: []string{"p"},
+						Value:   5432,
+						Usage:   "Port to listen on for PostgreSQL connections",
+						Sources: cli.EnvVars("PGWIRE_PROXY_PORT"),
+					},
+					&cli.StringFlag{
+						Name:     "upstream-dsn",
+						Usage:    "PostgreSQL connection string for upstream database",
+						Sources:  cli.EnvVars("PGWIRE_UPSTREAM_DSN"),
+						Required: true,
+					},
+					&cli.BoolFlag{
+						Name:    "enable-tls",
+						Value:   false,
+						Usage:   "Enable server-side TLS",
+						Sources: cli.EnvVars("PGWIRE_ENABLE_TLS"),
+					},
+					&cli.StringFlag{
+						Name:    "tls-cert",
+						Usage:   "Path to TLS certificate file",
+						Sources: cli.EnvVars("PGWIRE_TLS_CERT"),
+					},
+					&cli.StringFlag{
+						Name:    "tls-key",
+						Usage:   "Path to TLS key file",
+						Sources: cli.EnvVars("PGWIRE_TLS_KEY"),
+					},
+					&cli.IntFlag{
+						Name:    "max-connections",
+						Value:   100,
+						Usage:   "Maximum concurrent client connections",
+						Sources: cli.EnvVars("PGWIRE_MAX_CONNECTIONS"),
+					},
+					&cli.DurationFlag{
+						Name:    "query-timeout",
+						Value:   30 * time.Second,
+						Usage:   "Maximum query execution time",
+						Sources: cli.EnvVars("PGWIRE_QUERY_TIMEOUT"),
+					},
+					&cli.Int64Flag{
+						Name:    "max-rows",
+						Value:   10000,
+						Usage:   "Maximum rows per query result (0 = unlimited)",
+						Sources: cli.EnvVars("PGWIRE_MAX_ROWS"),
+					},
+					&cli.Int64Flag{
+						Name:    "max-bytes",
+						Value:   100 * 1024 * 1024, // 100MB
+						Usage:   "Maximum bytes per query result (0 = unlimited)",
+						Sources: cli.EnvVars("PGWIRE_MAX_BYTES"),
+					},
+					otelMetricsFlag,
+				},
+				Action: func(ctx context.Context, clicmd *cli.Command) error {
+					return cmd.PgWireProxyMain(ctx, &cmd.PgWireProxyParams{
+						Port:              clicmd.Uint16("port"),
+						UpstreamDSN:       clicmd.String("upstream-dsn"),
+						EnableTLS:         clicmd.Bool("enable-tls"),
+						TLSCert:           clicmd.String("tls-cert"),
+						TLSKey:            clicmd.String("tls-key"),
+						MaxConnections:    clicmd.Int("max-connections"),
+						QueryTimeout:      clicmd.Duration("query-timeout"),
+						MaxRows:           clicmd.Int64("max-rows"),
+						MaxBytes:          clicmd.Int64("max-bytes"),
+						EnableOtelMetrics: clicmd.Bool(otelMetricsFlag.Name),
+					})
+				},
+			},
 		},
 	}
 
