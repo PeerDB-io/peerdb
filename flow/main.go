@@ -27,7 +27,7 @@ func main() {
 	appCtx, appClose := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer appClose()
 
-	slog.SetDefault(slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))))
+	slog.SetDefault(slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))))
 
 	temporalHostPortFlag := &cli.StringFlag{
 		Name:    "temporal-host-port",

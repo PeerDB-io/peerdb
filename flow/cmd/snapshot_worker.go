@@ -30,7 +30,7 @@ func SnapshotWorkerMain(ctx context.Context, opts *SnapshotWorkerOptions) (*Work
 	clientOptions := client.Options{
 		HostPort:  opts.TemporalHostPort,
 		Namespace: opts.TemporalNamespace,
-		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, nil))),
+		Logger:    slog.New(shared.NewSlogHandler(slog.NewJSONHandler(os.Stdout, shared.NewSlogHandlerOptions()))),
 		ContextPropagators: []workflow.ContextPropagator{
 			internal.NewContextPropagator[*protos.FlowContextMetadata](internal.FlowMetadataKey),
 		},
