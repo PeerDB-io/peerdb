@@ -16,7 +16,6 @@ use cursor::PeerCursors;
 use dashmap::{DashMap, mapref::entry::Entry as DashEntry};
 use flow_rs::grpc::{FlowGrpcClient, PeerCreationResult};
 use futures::Sink;
-use peer_connections::{PeerConnectionTracker, PeerConnections};
 use peer_cursor::{
     QueryExecutor, QueryOutput, Schema,
     util::{records_to_query_response, sendable_stream_to_query_response},
@@ -82,7 +81,6 @@ impl AuthSource for FixedPasswordAuthSource {
 
 pub struct NexusBackend {
     catalog: Arc<Catalog>,
-    peer_connections: PeerConnectionTracker,
     query_parser: NexusQueryParser,
     peer_cursors: Mutex<PeerCursors>,
     executors: DashMap<String, Arc<dyn QueryExecutor>>,
@@ -93,14 +91,12 @@ pub struct NexusBackend {
 impl NexusBackend {
     pub fn new(
         catalog: Arc<Catalog>,
-        peer_connections: PeerConnectionTracker,
         flow_handler: Option<Arc<Mutex<FlowGrpcClient>>>,
         peerdb_fdw_mode: bool,
     ) -> Self {
         let query_parser = NexusQueryParser::new(catalog.clone());
         Self {
             catalog,
-            peer_connections,
             query_parser,
             peer_cursors: Mutex::new(PeerCursors::new()),
             executors: DashMap::new(),
@@ -642,12 +638,8 @@ impl NexusBackend {
             DashEntry::Vacant(entry) => {
                 let executor: Arc<dyn QueryExecutor> = match &peer.config {
                     Some(Config::BigqueryConfig(c)) => {
-                        let executor = peer_bigquery::BigQueryQueryExecutor::new(
-                            peer.name.clone(),
-                            c,
-                            self.peer_connections.clone(),
-                        )
-                        .await?;
+                        let executor =
+                            peer_bigquery::BigQueryQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
                     Some(Config::MysqlConfig(c)) => {
@@ -1105,12 +1097,6 @@ pub async fn main() -> anyhow::Result<()> {
 
     let tls_acceptor = setup_tls(&args)?;
 
-    let peer_conns = {
-        let conn_str = catalog_config.to_pg_connection_string();
-        let pconns = PeerConnections::new(&conn_str)?;
-        Arc::new(pconns)
-    };
-
     let server_addr = format!("{}:{}", args.host, args.port);
     let listener = TcpListener::bind(&server_addr).await.unwrap();
     tracing::info!("Listening on {}", server_addr);
@@ -1131,7 +1117,6 @@ pub async fn main() -> anyhow::Result<()> {
             v = listener.accept() => v,
         }?;
         let conn_flow_handler = flow_handler.clone();
-        let conn_peer_conns = peer_conns.clone();
         let authenticator = authenticator.clone();
         let pg_config = catalog_config.to_postgres_config();
         let kms_key_id = args.kms_key_id.clone();
@@ -1140,12 +1125,8 @@ pub async fn main() -> anyhow::Result<()> {
         tokio::task::spawn(async move {
             match Catalog::new(pg_config, &kms_key_id).await {
                 Ok(catalog) => {
-                    let conn_uuid = uuid::Uuid::new_v4();
-                    let tracker = PeerConnectionTracker::new(conn_uuid, conn_peer_conns);
-
                     let nexus = Arc::new(NexusBackend::new(
                         Arc::new(catalog),
-                        tracker,
                         conn_flow_handler,
                         args.peerdb_fdw_mode,
                     ));
