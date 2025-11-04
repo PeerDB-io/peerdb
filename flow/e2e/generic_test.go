@@ -791,7 +791,7 @@ func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
 	for i := range 5 {
 		require.NoError(t, s.Source().Exec(t.Context(),
 			fmt.Sprintf(`INSERT INTO %s(name, value) VALUES ('initial_%d', %d)`,
-				srcSchemaTable, i, i*10)))
+				srcSchemaTable, i, i)))
 	}
 	t.Logf("Inserted 5 initial rows before creating replication slot")
 
@@ -800,6 +800,14 @@ func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
 		fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput')`, customSlotName))
 	require.NoError(t, err)
 	t.Logf("Created custom replication slot: %s", customSlotName)
+
+	// Insert more data after creating slot
+	for i := range 5 {
+		require.NoError(t, s.Source().Exec(t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(name, value) VALUES ('initial_%d', %d)`,
+				srcSchemaTable, i*10, i*10)))
+	}
+	t.Logf("Inserted 5 initial rows after creating replication slot")
 
 	// Ensure slot is cleaned up after test
 	t.Cleanup(func() {
@@ -829,7 +837,7 @@ func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
 	}
 	t.Log("Inserted 10 rows during CDC")
 
-	EnvWaitForEqualTablesWithNames(env, s, "tables are equal", srcTable, dstTable, `id,name,value,created_at`)
+	EnvWaitForCount(env, s, "tables are equal", dstTable, `id,name,value,created_at`, 15)
 	// Verify the custom replication slot is being used by checking slot stats
 	var slotName string
 	err = conn.Conn().QueryRow(t.Context(),
