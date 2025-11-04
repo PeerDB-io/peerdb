@@ -189,7 +189,7 @@ services:
     container_name: peerdb-ui
     build:
       context: .
-      dockerfile: stacks/peerdb-ui-dev.Dockerfile
+      dockerfile: stacks/peerdb-ui.Dockerfile
       target: dev
     ports:
       - 3000:3000
