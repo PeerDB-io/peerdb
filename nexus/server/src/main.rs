@@ -679,7 +679,7 @@ impl NexusBackend {
                     Some(Config::SnowflakeConfig(_)) => {
                         return Err(anyhow::anyhow!("Snowflake support not compiled in"));
                     }
-                    _ => return Err(anyhow::anyhow!("Unsupported peer type: {peer:?}")),
+                    _ => return Err(anyhow::anyhow!("Unsupported peer type: {0:?}", peer.r#type)),
                 };
 
                 entry.insert(Arc::clone(&executor));
@@ -754,7 +754,7 @@ impl NexusBackend {
                         }
                         _ => {
                             return Err(PgWireError::ApiError(
-                                format!("Unsupported peer type: {peer:?}").into(),
+                                format!("Unsupported peer type: {0:?}", peer.r#type).into(),
                             ));
                         }
                     },
