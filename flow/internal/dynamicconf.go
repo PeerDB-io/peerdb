@@ -298,19 +298,6 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 	{
-		Name:             "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS",
-		Description:      "Chunk normalization into N queries, can help mitigate OOM issues on ClickHouse",
-		DefaultValue:     "1",
-		ValueType:        protos.DynconfValueType_UINT,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
-		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
-		Deprecated:       true,
-		DeprecateReason: "This introduced a race condition that could result in data loss during replication if used " +
-			"in conjunction with PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE, since 1 or more partitions can fail but offset " +
-			"still can get recorded if the last partition succeeded. This settings is also redundant, instead of tuning " +
-			"this config, use PEERDB_S3_BYTES_PER_AVRO_FILE to manage OOM issues.",
-	},
-	{
 		Name:             "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION",
 		Description:      "Chunk partitions in initial load into N queries, can help mitigate OOM issues on ClickHouse",
 		DefaultValue:     "1",
