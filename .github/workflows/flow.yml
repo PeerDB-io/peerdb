@@ -23,7 +23,7 @@ jobs:
       fail-fast: false
       matrix:
         runner: [ubuntu-latest-16-cores]
-        db-version: [{pg: 15, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 16, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 17, mysql: 'maria', mongo: '8.0'}]
+        db-version: [{pg: 16, mysql: 'mysql-gtid', mongo: '6.0'}, {pg: 17, mysql: 'mysql-pos', mongo: '7.0'}, {pg: 18, mysql: 'maria', mongo: '8.0'}]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     services:
@@ -225,7 +225,7 @@ jobs:
       - name: create postgres extensions, increase logical replication limits, and setup catalog database
         run: >
           docker exec "${{ job.services.catalog.id }}" apk add --no-cache build-base git &&
-          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.0 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
+          docker exec "${{ job.services.catalog.id }}" git clone --branch v0.8.1 https://github.com/pgvector/pgvector.git /tmp/pgvector &&
           docker exec "${{ job.services.catalog.id }}" sh -c 'cd /tmp/pgvector && make with_llvm=no && make with_llvm=no install' &&
           docker exec "${{ job.services.catalog.id }}" psql -U postgres -c "CREATE EXTENSION hstore;CREATE EXTENSION vector;"
           -c "ALTER SYSTEM SET wal_level=logical;"
@@ -465,7 +465,7 @@ jobs:
           CI_MONGO_USERNAME: "csuser"
           CI_MONGO_PASSWORD: "cspass"
           TOXIPROXY_POSTGRES_HOST: catalog
-          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '16' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
+          ENABLE_OTEL_METRICS: ${{ (matrix.db-version.pg == '17' || matrix.db-version.mysql == 'mysql-pos') && 'true' || 'false' }}
           OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://localhost:4317
           OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: grpc
           PEERDB_OTEL_METRICS_NAMESPACE: 'peerdb_ci_tests.'
