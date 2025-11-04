@@ -1,3 +1,4 @@
+use base64::Engine;
 use pt::peerdb_peers::{PostgresConfig, SshConfig};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme};
@@ -94,7 +95,21 @@ pub async fn create_tunnel(
         session.userauth_password(&ssh_config.user, &ssh_config.password)?;
     }
     if !ssh_config.private_key.is_empty() {
-        session.userauth_pubkey_memory(&ssh_config.user, None, &ssh_config.private_key, None)?;
+        let private_key_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&ssh_config.private_key)
+            .map_err(|e| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Failed to decode private key: {e}"),
+                )
+            })?;
+        let private_key = str::from_utf8(private_key_bytes.as_slice()).map_err(|e| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("Invalid UTF-8 in private key: {e}"),
+            )
+        })?;
+        session.userauth_pubkey_memory(&ssh_config.user, None, private_key, None)?;
     }
     if !ssh_config.host_key.is_empty() {
         let mut known_hosts = session.known_hosts()?;
