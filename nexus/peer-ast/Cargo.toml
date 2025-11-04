@@ -7,6 +7,4 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
-pt = { path = "../pt" }
-rust_decimal.workspace = true
 sqlparser.workspace = true

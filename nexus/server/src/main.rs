@@ -1,11 +1,13 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::{Debug, Write},
-    fs::File,
     io,
     sync::Arc,
     time::Duration,
 };
+
+#[cfg(feature = "tls")]
+use std::fs::File;
 
 use analyzer::{PeerDDL, QueryAssociation};
 use async_trait::async_trait;
@@ -45,15 +47,21 @@ use pt::{
     peerdb_peers::{Peer, peer::Config},
 };
 use rand::Rng;
-use rustls_pemfile::{certs, pkcs8_private_keys};
-use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Mutex;
 use tokio::{io::AsyncWriteExt, net::TcpListener};
-use tokio_rustls::TlsAcceptor;
-use tokio_rustls::rustls::ServerConfig;
+
+// Import TlsAcceptor from pgwire (available regardless of tls feature)
+use pgwire::tokio::TlsAcceptor;
+
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
+#[cfg(feature = "tls")]
+use {
+    rustls_pemfile::{certs, pkcs8_private_keys},
+    rustls_pki_types::{CertificateDer, PrivateKeyDer},
+    tokio_rustls::rustls::ServerConfig,
+};
 
 mod cursor;
 
@@ -637,28 +645,41 @@ impl NexusBackend {
             DashEntry::Occupied(entry) => Arc::clone(entry.get()),
             DashEntry::Vacant(entry) => {
                 let executor: Arc<dyn QueryExecutor> = match &peer.config {
+                    #[cfg(feature = "bigquery")]
                     Some(Config::BigqueryConfig(c)) => {
                         let executor =
                             peer_bigquery::BigQueryQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
+                    #[cfg(not(feature = "bigquery"))]
+                    Some(Config::BigqueryConfig(_)) => {
+                        return Err(anyhow::anyhow!("BigQuery support not compiled in"));
+                    }
+                    #[cfg(feature = "mysql")]
                     Some(Config::MysqlConfig(c)) => {
                         let executor =
                             peer_mysql::MySqlQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
+                    }
+                    #[cfg(not(feature = "mysql"))]
+                    Some(Config::MysqlConfig(_)) => {
+                        return Err(anyhow::anyhow!("MySQL support not compiled in"));
                     }
                     Some(Config::PostgresConfig(c)) => {
                         let executor =
                             peer_postgres::PostgresQueryExecutor::new(peer.name.clone(), c).await?;
                         Arc::new(executor)
                     }
+                    #[cfg(feature = "snowflake")]
                     Some(Config::SnowflakeConfig(c)) => {
                         let executor = peer_snowflake::SnowflakeQueryExecutor::new(c).await?;
                         Arc::new(executor)
                     }
-                    _ => {
-                        panic!("peer type not supported: {peer:?}")
+                    #[cfg(not(feature = "snowflake"))]
+                    Some(Config::SnowflakeConfig(_)) => {
+                        return Err(anyhow::anyhow!("Snowflake support not compiled in"));
                     }
+                    _ => return Err(anyhow::anyhow!("Unsupported peer type: {0:?}", peer.r#type)),
                 };
 
                 entry.insert(Arc::clone(&executor));
@@ -678,6 +699,7 @@ impl NexusBackend {
             NexusStatement::PeerQuery { stmt, assoc } => {
                 let schema: Option<Schema> = match assoc {
                     QueryAssociation::Peer(peer) => match &peer.config {
+                        #[cfg(feature = "bigquery")]
                         Some(Config::BigqueryConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
@@ -686,6 +708,13 @@ impl NexusBackend {
                             })?;
                             executor.describe(stmt).await?
                         }
+                        #[cfg(not(feature = "bigquery"))]
+                        Some(Config::BigqueryConfig(_)) => {
+                            return Err(PgWireError::ApiError(
+                                "BigQuery support not compiled in".into(),
+                            ));
+                        }
+                        #[cfg(feature = "mysql")]
                         Some(Config::MysqlConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
@@ -693,6 +722,12 @@ impl NexusBackend {
                                 )
                             })?;
                             executor.describe(stmt).await?
+                        }
+                        #[cfg(not(feature = "mysql"))]
+                        Some(Config::MysqlConfig(_)) => {
+                            return Err(PgWireError::ApiError(
+                                "MySQL support not compiled in".into(),
+                            ));
                         }
                         Some(Config::PostgresConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
@@ -702,6 +737,7 @@ impl NexusBackend {
                             })?;
                             executor.describe(stmt).await?
                         }
+                        #[cfg(feature = "snowflake")]
                         Some(Config::SnowflakeConfig(_)) => {
                             let executor = self.get_peer_executor(peer).await.map_err(|err| {
                                 PgWireError::ApiError(
@@ -710,8 +746,16 @@ impl NexusBackend {
                             })?;
                             executor.describe(stmt).await?
                         }
+                        #[cfg(not(feature = "snowflake"))]
+                        Some(Config::SnowflakeConfig(_)) => {
+                            return Err(PgWireError::ApiError(
+                                "Snowflake support not compiled in".into(),
+                            ));
+                        }
                         _ => {
-                            panic!("peer type not supported: {peer:?}")
+                            return Err(PgWireError::ApiError(
+                                format!("Unsupported peer type: {0:?}", peer.r#type).into(),
+                            ));
                         }
                     },
                     QueryAssociation::Catalog => self.catalog.describe(stmt).await?,
@@ -1022,24 +1066,38 @@ async fn run_migrations(
 }
 
 fn setup_tls(args: &Args) -> Result<Option<TlsAcceptor>, io::Error> {
-    if let (Some(tls_cert), Some(tls_key)) = (args.tls_cert.as_deref(), args.tls_key.as_deref()) {
-        let cert = certs(&mut io::BufReader::new(File::open(tls_cert)?))
-            .collect::<Result<Vec<CertificateDer>, io::Error>>()?;
+    #[cfg(feature = "tls")]
+    {
+        if let (Some(tls_cert), Some(tls_key)) = (args.tls_cert.as_deref(), args.tls_key.as_deref())
+        {
+            let cert = certs(&mut io::BufReader::new(File::open(tls_cert)?))
+                .collect::<Result<Vec<CertificateDer>, io::Error>>()?;
 
-        let key = pkcs8_private_keys(&mut io::BufReader::new(File::open(tls_key)?))
-            .map(|key| key.map(PrivateKeyDer::from))
-            .collect::<Result<Vec<PrivateKeyDer>, io::Error>>()?
-            .remove(0);
+            let key = pkcs8_private_keys(&mut io::BufReader::new(File::open(tls_key)?))
+                .map(|key| key.map(PrivateKeyDer::from))
+                .collect::<Result<Vec<PrivateKeyDer>, io::Error>>()?
+                .remove(0);
 
-        let mut config = ServerConfig::builder()
-            .with_no_client_auth()
-            .with_single_cert(cert, key)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
+            let mut config = ServerConfig::builder()
+                .with_no_client_auth()
+                .with_single_cert(cert, key)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidInput, err))?;
 
-        config.alpn_protocols = vec![b"postgresql".to_vec()];
+            config.alpn_protocols = vec![b"postgresql".to_vec()];
 
-        Ok(Some(TlsAcceptor::from(Arc::new(config))))
-    } else {
+            Ok(Some(TlsAcceptor::from(Arc::new(config))))
+        } else {
+            Ok(None)
+        }
+    }
+    #[cfg(not(feature = "tls"))]
+    {
+        if args.tls_cert.is_some() || args.tls_key.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "TLS certificates provided but TLS support not compiled in",
+            ));
+        }
         Ok(None)
     }
 }
