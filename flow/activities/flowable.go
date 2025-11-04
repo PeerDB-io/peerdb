@@ -597,15 +597,15 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 		var luaState *lua.LState
 
 		if config.Script != "" {
-			ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
+			if ls, err := utils.LoadScript(ctx, config.Script, utils.LuaPrintFn(func(s string) {
 				a.Alerter.LogFlowInfo(ctx, config.FlowJobName, s)
-			}))
-			if err != nil {
+			})); err != nil {
 				return nil, err
-			}
-			if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
-				luaState = ls
-				luaScript = fn
+			} else {
+				if fn, ok := ls.Env.RawGetString("transformRow").(*lua.LFunction); ok {
+					luaState = ls
+					luaScript = fn
+				}
 			}
 		}
 

@@ -503,8 +503,8 @@ jobs:
 
   finish:
     needs: [flow_test]
-    runs-on: ubuntu-latest
     if: always()
+    runs-on: ubuntu-latest
     steps:
       - name: check all tests passed
         run: |
@@ -517,8 +517,8 @@ jobs:
 
   finish_pull_request_target:
     needs: [flow_test]
-    runs-on: ubuntu-latest
     if: always()
+    runs-on: ubuntu-latest
     steps:
       - name: check all tests passed (pull_request_target)
         run: |
