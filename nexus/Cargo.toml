@@ -6,7 +6,6 @@ members = [
   "parser",
   "peer-ast",
   "peer-bigquery",
-  "peer-connections",
   "peer-cursor",
   "peer-mysql",
   "peer-postgres",

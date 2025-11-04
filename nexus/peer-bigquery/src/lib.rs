@@ -6,7 +6,6 @@ use gcp_bigquery_client::{
     model::{query_request::QueryRequest, query_response::QueryResponse},
     yup_oauth2,
 };
-use peer_connections::PeerConnectionTracker;
 use peer_cursor::{CursorManager, CursorModification, QueryExecutor, QueryOutput, Schema};
 use pgwire::error::{ErrorInfo, PgWireError, PgWireResult};
 use pt::peerdb_peers::BigqueryConfig;
@@ -20,7 +19,6 @@ pub struct BigQueryQueryExecutor {
     peer_name: String,
     project_id: String,
     dataset_id: String,
-    peer_connections: PeerConnectionTracker,
     client: Box<Client>,
     cursor_manager: CursorManager,
 }
@@ -46,18 +44,13 @@ pub async fn bq_client_from_config(config: &BigqueryConfig) -> anyhow::Result<Cl
 }
 
 impl BigQueryQueryExecutor {
-    pub async fn new(
-        peer_name: String,
-        config: &BigqueryConfig,
-        peer_connections: PeerConnectionTracker,
-    ) -> anyhow::Result<Self> {
+    pub async fn new(peer_name: String, config: &BigqueryConfig) -> anyhow::Result<Self> {
         let client = bq_client_from_config(config).await?;
 
         Ok(Self {
             peer_name,
             project_id: config.project_id.clone(),
             dataset_id: config.dataset_id.clone(),
-            peer_connections,
             client: Box::new(client),
             cursor_manager: Default::default(),
         })
@@ -67,21 +60,7 @@ impl BigQueryQueryExecutor {
         let mut query_req = QueryRequest::new(query);
         query_req.timeout_ms = Some(Duration::from_secs(120).as_millis() as i32);
 
-        let token = self
-            .peer_connections
-            .track_query(&self.peer_name, query)
-            .await
-            .map_err(|err| {
-                tracing::error!("error tracking query: {}", err);
-                PgWireError::ApiError(err.into())
-            })?;
-
         let result_set = self.client.job().query(&self.project_id, query_req).await;
-
-        token.end().await.map_err(|err| {
-            tracing::error!("error closing tracking token: {}", err);
-            PgWireError::ApiError(err.into())
-        })?;
 
         result_set.map_err(|err| {
             tracing::error!("error running query: {}", err);
