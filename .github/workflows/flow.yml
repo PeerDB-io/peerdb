@@ -503,28 +503,12 @@ jobs:
 
   finish:
     needs: [flow_test]
+    if: always() && needs.flow_test.result != 'skipped'
     runs-on: ubuntu-latest
-    if: always()
     steps:
       - name: check all tests passed
         run: |
-          if [[ "${{ github.event_name }}" != "pull_request_target" ]]; then
-            if [[ "${{ needs.flow_test.result }}" != "success" && "${{ needs.flow_test.result }}" != "skipped" ]]; then
-              echo "One or more tests failed"
-              exit 1
-            fi
-          fi
-
-  finish_pull_request_target:
-    needs: [flow_test]
-    runs-on: ubuntu-latest
-    if: always()
-    steps:
-      - name: check all tests passed (pull_request_target)
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request_target" ]]; then
-            if [[ "${{ needs.flow_test.result }}" != "success" && "${{ needs.flow_test.result }}" != "skipped" ]]; then
-              echo "One or more tests failed"
-              exit 1
-            fi
+          if [[ "${{ needs.flow_test.result }}" != "success" ]]; then
+            echo "Tests did not complete successfully: ${{ needs.flow_test.result }}"
+            exit 1
           fi
