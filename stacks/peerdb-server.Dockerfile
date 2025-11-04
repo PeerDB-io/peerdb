@@ -23,8 +23,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/root/nexus/target \
     sh -eu -c ' \
-      if [ "$BUILD_MODE" = "release" ]; then FLAGS="--release ${CARGO_FLAGS}"; else FLAGS="${CARGO_FLAGS}"; fi; \
-      cargo chef cook $FLAGS -p peerdb-server --recipe-path recipe.json \
+      if [ "$BUILD_MODE" = "release" ]; then RELEASE_FLAG="--release"; else RELEASE_FLAG=""; fi; \
+      cargo chef cook $RELEASE_FLAG $CARGO_FLAGS -p peerdb-server --recipe-path recipe.json \
     '
 COPY nexus /root/nexus
 COPY protos /root/protos
