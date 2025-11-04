@@ -7,12 +7,13 @@ import {
   BarElement,
   CategoryScale,
   Chart as ChartJS,
+  ChartOptions,
   Legend,
   LinearScale,
   Title,
   Tooltip,
 } from 'chart.js';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
 import aggregateCountsByInterval from './aggregatedCountsByInterval';
@@ -26,16 +27,38 @@ function QrepGraph({ syncs }: QRepGraphProps) {
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
 
-  ChartJS.register(
-    BarElement,
-    CategoryScale,
-    LinearScale,
-    Title,
-    Tooltip,
-    Legend
-  );
-  const chartOptions = {
+  // Ref to track the chart instance
+  const chartRef = useRef<ChartJS<'bar'> | null>(null);
+
+  // Register Chart.js components only once
+  useEffect(() => {
+    ChartJS.register(
+      BarElement,
+      CategoryScale,
+      LinearScale,
+      Title,
+      Tooltip,
+      Legend
+    );
+
+    // Cleanup function to destroy chart on unmount
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
+  }, []);
+
+  const chartOptions: ChartOptions<'bar'> = {
     maintainAspectRatio: false,
+    responsive: true,
+    // Add animation configuration to reduce memory usage
+    animation: false,
+    // Optimize performance
+    interaction: {
+      intersect: false,
+    },
     scales: {
       x: {
         grid: { display: false },
@@ -85,7 +108,15 @@ function QrepGraph({ syncs }: QRepGraphProps) {
       </div>
 
       <div style={{ height: '20rem' }}>
-        {qrepData && <Bar data={qrepData} options={chartOptions} />}
+        {qrepData && (
+          <Bar
+            ref={(chart) => {
+              chartRef.current = chart ?? null;
+            }}
+            data={qrepData}
+            options={chartOptions}
+          />
+        )}
       </div>
     </div>
   );
