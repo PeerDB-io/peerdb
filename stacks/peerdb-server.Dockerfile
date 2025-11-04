@@ -30,6 +30,7 @@ COPY nexus /root/nexus
 COPY protos /root/protos
 WORKDIR /root/nexus
 # Build the actual binary with cache mounts
+# TODO: switch to --artifact-dir whenever cargo supports it in stable
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/root/nexus/target \
