@@ -762,3 +762,82 @@ func (s Generic) Test_Inheritance_Table_With_Dynamic_Setting() {
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
 }
+
+func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
+	t := s.T()
+
+	pgSource, ok := s.Source().(*PostgresSource)
+	if !ok {
+		t.Skip("test only applies to postgres")
+	}
+	conn := pgSource.PostgresConnector
+
+	srcTable := "test_custom_slot_cdc"
+	dstTable := "test_custom_slot_cdc_dst"
+	srcSchemaTable := AttachSchema(s, srcTable)
+	customSlotName := fmt.Sprintf("112_custom_slot_%s", strings.ToLower(shared.RandomString(8)))
+
+	// Create table and insert initial data
+	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
+        CREATE TABLE IF NOT EXISTS %s (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            value INTEGER NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT now()
+        );
+    `, srcSchemaTable)))
+
+	// Insert initial data before creating slot
+	for i := range 5 {
+		require.NoError(t, s.Source().Exec(t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(name, value) VALUES ('initial_%d', %d)`,
+				srcSchemaTable, i, i*10)))
+	}
+	t.Logf("Inserted 5 initial rows before creating replication slot")
+
+	// Create custom replication slot
+	_, err := conn.Conn().Exec(t.Context(),
+		fmt.Sprintf(`SELECT pg_create_logical_replication_slot('%s', 'pgoutput')`, customSlotName))
+	require.NoError(t, err)
+	t.Logf("Created custom replication slot: %s", customSlotName)
+
+	// Ensure slot is cleaned up after test
+	t.Cleanup(func() {
+		_, _ = conn.Conn().Exec(t.Context(),
+			fmt.Sprintf(`SELECT pg_drop_replication_slot('%s')`, customSlotName))
+	})
+
+	connectionGen := FlowConnectionGenerationConfig{
+		FlowJobName:   AddSuffix(s, "test_custom_slot_cdc"),
+		TableMappings: TableMappings(s, srcTable, dstTable),
+		Destination:   s.Peer().Name,
+	}
+	flowConnConfig := connectionGen.GenerateFlowConnectionConfigs(s)
+	flowConnConfig.DoInitialSnapshot = false // CDC only mode
+	flowConnConfig.ReplicationSlotName = customSlotName
+
+	tc := NewTemporalClient(t)
+	env := ExecutePeerflow(t, tc, flowConnConfig)
+
+	SetupCDCFlowStatusQuery(t, env, flowConnConfig)
+
+	// Insert data after CDC starts - only these should be replicated
+	for i := range 10 {
+		EnvNoError(t, env, s.Source().Exec(t.Context(),
+			fmt.Sprintf(`INSERT INTO %s(name, value) VALUES ('%s', %d)`,
+				srcSchemaTable, fmt.Sprintf("cdc_test_%d", i), i*100)))
+	}
+	t.Log("Inserted 10 rows during CDC")
+
+	// Verify the custom replication slot is being used by checking slot stats
+	var slotName string
+	err = conn.Conn().QueryRow(t.Context(),
+		"SELECT slot_name FROM pg_replication_slots WHERE slot_name=$1 AND active=true",
+		customSlotName).Scan(&slotName)
+	EnvNoError(t, env, err)
+	t.Logf("Verified custom replication slot %s is active", customSlotName)
+	EnvWaitForEqualTablesWithNames(env, s, "tables equal equally", srcTable, dstTable, `id,name,value,created_at`)
+
+	env.Cancel(t.Context())
+	RequireEnvCanceled(t, env)
+}
