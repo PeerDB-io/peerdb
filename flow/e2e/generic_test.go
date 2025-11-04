@@ -786,7 +786,7 @@ func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
             value INTEGER NOT NULL,
             created_at TIMESTAMP NOT NULL DEFAULT now()
         );
-		CREATE PUBLICATION %[2]s FOR TABLE %[1]s;
+		CREATE PUBLICATION "%[2]s" FOR TABLE %[1]s;
     `, srcSchemaTable, customPubName)))
 
 	// Insert initial data before creating slot
