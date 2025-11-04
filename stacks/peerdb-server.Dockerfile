@@ -35,8 +35,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/usr/local/cargo/git \
     --mount=type=cache,target=/root/nexus/target \
     sh -eu -c ' \
-      if [ "$BUILD_MODE" = "release" ]; then FLAGS="--release ${CARGO_FLAGS}"; else FLAGS="${CARGO_FLAGS}"; fi; \
-      cargo build $FLAGS --bin peerdb-server \
+      if [ "$BUILD_MODE" = "release" ]; then RELEASE_FLAG="--release"; else RELEASE_FLAG=""; fi; \
+      cargo build $RELEASE_FLAG $CARGO_FLAGS --bin peerdb-server \
     ' && \
     mkdir -p /root/target && \
     cp target/${BUILD_MODE}/peerdb-server /root/target/
