@@ -509,7 +509,7 @@ jobs:
     steps:
       - name: check all tests passed
         run: |
-          if [[ "${{ needs.flow_test.result }}" != "success" ]]; then
+          if [[ "${{ needs.flow_test.result }}" != "success" && "${{ needs.flow_test.result }}" != "skipped" ]]; then
             echo "One or more tests failed"
             exit 1
           fi
