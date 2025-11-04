@@ -232,7 +232,7 @@ func (c *PostgresConnector) MaybeStartReplication(
 
 		c.replLock.Lock()
 		defer c.replLock.Unlock()
-		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), slotName, startLSN, replicationOpts); err != nil {
+		if err := pglogrepl.StartReplication(ctx, c.replConn.PgConn(), utils.QuoteIdentifier(slotName), startLSN, replicationOpts); err != nil {
 			c.logger.Error("error starting replication", slog.Any("error", err))
 			return fmt.Errorf("error starting replication at startLsn - %d: %w", startLSN, err)
 		}
