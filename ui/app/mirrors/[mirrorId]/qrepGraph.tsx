@@ -27,10 +27,8 @@ function QrepGraph({ syncs }: QRepGraphProps) {
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
 
-  // Ref to track the chart instance
   const chartRef = useRef<ChartJS<'bar'> | null>(null);
 
-  // Register Chart.js components only once
   useEffect(() => {
     ChartJS.register(
       BarElement,
@@ -40,8 +38,6 @@ function QrepGraph({ syncs }: QRepGraphProps) {
       Tooltip,
       Legend
     );
-
-    // Cleanup function to destroy chart on unmount
     return () => {
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -53,9 +49,7 @@ function QrepGraph({ syncs }: QRepGraphProps) {
   const chartOptions: ChartOptions<'bar'> = {
     maintainAspectRatio: false,
     responsive: true,
-    // Add animation configuration to reduce memory usage
     animation: false,
-    // Optimize performance
     interaction: {
       intersect: false,
     },

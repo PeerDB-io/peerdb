@@ -51,11 +51,9 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
   const [aggregateType, setAggregateType] = useState<TimeAggregateType>(
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
-  
-  // Ref to track the chart instance
+
   const chartRef = useRef<ChartJS<'bar'> | null>(null);
 
-  // Register Chart.js components only once
   useEffect(() => {
     ChartJS.register(
       BarElement,
@@ -66,7 +64,6 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
       Legend
     );
 
-    // Cleanup function to destroy chart on unmount
     return () => {
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -77,13 +74,11 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
 
   const theme = useTheme();
   const isDarkMode = theme.theme === 'dark';
-  
+
   const chartOptions: ChartOptions<'bar'> = {
     maintainAspectRatio: false,
     responsive: true,
-    // Disable animation for better performance
     animation: false,
-    // Optimize performance
     interaction: {
       intersect: false,
     },
@@ -168,11 +163,11 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
         {isLoading && <CdcSyncingLoader />}
         {error && <CdcSyncHistoryError />}
         {data && !isLoading && !error && (
-          <Bar 
+          <Bar
             ref={(chart) => {
               chartRef.current = chart ?? null;
             }}
-            data={data} 
+            data={data}
             options={chartOptions}
           />
         )}

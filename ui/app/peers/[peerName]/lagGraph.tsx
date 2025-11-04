@@ -59,7 +59,13 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   const [slotNames, setSlotNames] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
   const [lagPoints, setLagPoints] = useState<
-    { time: string; 'Lag in GB': number; redoLSN?: number; restartLSN?: number; confirmedLSN?: number }[]
+    {
+      time: string;
+      'Lag in GB': number;
+      redoLSN?: number;
+      restartLSN?: number;
+      confirmedLSN?: number;
+    }[]
   >([]);
   const [defaultSlot, setDefaultSlot] = useLocalStorage(
     `defaultSlot${peerName}`,
@@ -71,11 +77,8 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
   const [showLsn, setShowLsn] = useState(false);
-
-  // Ref to track the chart instance
   const chartRef = useRef<ChartJS<'line'> | null>(null);
 
-  // Register Chart.js components only once
   useEffect(() => {
     ChartJS.register(
       LineElement,
@@ -87,7 +90,6 @@ export default function LagGraph({ peerName }: LagGraphProps) {
       PointElement
     );
 
-    // Cleanup function to destroy chart on unmount
     return () => {
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -147,7 +149,6 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     maintainAspectRatio: false,
     responsive: true,
     animation: false,
-    // Optimize performance
     interaction: {
       intersect: false,
     },
@@ -176,37 +177,39 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   // Create chart data based on showLsn toggle
   const chartData = {
     labels: lagPoints.map((point) => point.time),
-    datasets: showLsn ? [
-      {
-        label: 'Redo LSN',
-        data: lagPoints.map((point) => point.redoLSN || 0),
-        backgroundColor: 'rgba(255, 99, 132, 0.2)',
-        borderColor: 'rgba(255, 99, 132, 1)',
-        borderWidth: 1,
-      },
-      {
-        label: 'Restart LSN',
-        data: lagPoints.map((point) => point.restartLSN || 0),
-        backgroundColor: 'rgba(54, 162, 235, 0.2)',
-        borderColor: 'rgba(54, 162, 235, 1)',
-        borderWidth: 1,
-      },
-      {
-        label: 'Confirmed LSN',
-        data: lagPoints.map((point) => point.confirmedLSN || 0),
-        backgroundColor: 'rgba(75, 192, 192, 0.2)',
-        borderColor: 'rgba(75, 192, 192, 1)',
-        borderWidth: 1,
-      },
-    ] : [
-      {
-        label: 'Lag in GB',
-        data: lagPoints.map((point) => point['Lag in GB']),
-        backgroundColor: 'rgba(75, 192, 192, 0.2)',
-        borderColor: 'rgba(75, 192, 192, 1)',
-        borderWidth: 1,
-      },
-    ],
+    datasets: showLsn
+      ? [
+          {
+            label: 'Redo LSN',
+            data: lagPoints.map((point) => point.redoLSN || 0),
+            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            borderWidth: 1,
+          },
+          {
+            label: 'Restart LSN',
+            data: lagPoints.map((point) => point.restartLSN || 0),
+            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1,
+          },
+          {
+            label: 'Confirmed LSN',
+            data: lagPoints.map((point) => point.confirmedLSN || 0),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1,
+          },
+        ]
+      : [
+          {
+            label: 'Lag in GB',
+            data: lagPoints.map((point) => point['Lag in GB']),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1,
+          },
+        ],
   };
 
   if (!mounted) {
@@ -275,11 +278,11 @@ export default function LagGraph({ peerName }: LagGraphProps) {
         </center>
       ) : (
         <div style={{ height: '20rem' }}>
-          <Line 
+          <Line
             ref={(chart) => {
               chartRef.current = chart ?? null;
             }}
-            data={chartData} 
+            data={chartData}
             options={chartOptions}
           />
         </div>
