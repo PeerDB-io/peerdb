@@ -775,7 +775,7 @@ func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
 	srcTable := "test_custom_slot_cdc"
 	dstTable := "test_custom_slot_cdc_dst"
 	srcSchemaTable := AttachSchema(s, srcTable)
-	customSlotName := fmt.Sprintf("112_custom_slot_%s", strings.ToLower(shared.RandomString(8)))
+	customSlotName := "112_custom_slot_" + strings.ToLower(shared.RandomString(8))
 
 	// Create table and insert initial data
 	require.NoError(t, s.Source().Exec(t.Context(), fmt.Sprintf(`
@@ -829,14 +829,14 @@ func (s Generic) Test_Custom_Replication_Slot_Starting_With_Numbers_CDC_Only() {
 	}
 	t.Log("Inserted 10 rows during CDC")
 
+	EnvWaitForEqualTablesWithNames(env, s, "tables are equal", srcTable, dstTable, `id,name,value,created_at`)
 	// Verify the custom replication slot is being used by checking slot stats
 	var slotName string
 	err = conn.Conn().QueryRow(t.Context(),
-		"SELECT slot_name FROM pg_replication_slots WHERE slot_name=$1 AND active=true",
+		"SELECT slot_name FROM pg_replication_slots WHERE slot_name=$1 AND active='t'",
 		customSlotName).Scan(&slotName)
 	EnvNoError(t, env, err)
 	t.Logf("Verified custom replication slot %s is active", customSlotName)
-	EnvWaitForEqualTablesWithNames(env, s, "tables equal equally", srcTable, dstTable, `id,name,value,created_at`)
 
 	env.Cancel(t.Context())
 	RequireEnvCanceled(t, env)
