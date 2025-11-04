@@ -468,13 +468,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		slog.Int64("endBatchID", endBatchID),
 		slog.Int("connections", parallelNormalize))
 
-	numParts, err := internal.PeerDBClickHouseNormalizationParts(ctx, req.Env)
-	if err != nil {
-		c.logger.Warn("failed to get chunking parts, proceeding without chunking", slog.Any("error", err))
-		numParts = 1
-	}
-	numParts = max(numParts, 1)
-
 	// This is for cases where currently normalizing can take a looooong time
 	// there is no other indication of progress, so we log every 5 minutes.
 	periodicLogger := shared.Interval(ctx, 5*time.Minute, func() {
@@ -488,7 +481,6 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	type queryInfo struct {
 		table           string
 		query           string
-		part            uint64
 		lastNormBatchID int64
 	}
 	queries := make(chan queryInfo)
@@ -527,16 +519,13 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					return fmt.Errorf("error while inserting into target clickhouse table %s: %w", q.table, err)
 				}
 
-				if q.part == numParts-1 {
-					c.logger.Info("[clickhouse] set last normalized batch id for table",
-						slog.String("table", q.table),
-						slog.Int64("endBatchID", endBatchID),
-						slog.Int64("lastNormBatchID", q.lastNormBatchID),
-						slog.Int("parallelWorker", i))
-					err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, q.table, endBatchID)
-					if err != nil {
-						return fmt.Errorf("error while setting last synced batch id for table %s: %w", q.table, err)
-					}
+				c.logger.Info("[clickhouse] set last normalized batch id for table",
+					slog.String("table", q.table),
+					slog.Int64("endBatchID", endBatchID),
+					slog.Int64("lastNormBatchID", q.lastNormBatchID),
+					slog.Int("parallelWorker", i))
+				if err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, q.table, endBatchID); err != nil {
+					return fmt.Errorf("error while setting last synced batch id for table %s: %w", q.table, err)
 				}
 			}
 
@@ -565,49 +554,44 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			continue
 		}
 
-		for numPart := range numParts {
-			queryGenerator := NewNormalizeQueryGenerator(
-				tbl,
-				numPart,
-				req.TableNameSchemaMapping,
-				req.TableMappings,
-				endBatchID,
-				lastNormBatchIDForTable,
-				numParts,
-				enablePrimaryUpdate,
-				sourceSchemaAsDestinationColumn,
-				req.Env,
-				rawTbl,
-				c.chVersion,
-				c.Config.Cluster != "",
-				req.SoftDeleteColName,
-				req.Version,
-			)
-			query, err := queryGenerator.BuildQuery(ctx)
-			if err != nil {
-				close(queries)
-				c.logger.Error("[clickhouse] error while building insert into select query",
-					slog.String("table", tbl),
-					slog.Int64("endBatchID", endBatchID),
-					slog.Int64("lastNormBatchID", lastNormBatchIDForTable),
-					slog.Any("error", err))
-				return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
-			}
+		queryGenerator := NewNormalizeQueryGenerator(
+			tbl,
+			req.TableNameSchemaMapping,
+			req.TableMappings,
+			endBatchID,
+			lastNormBatchIDForTable,
+			enablePrimaryUpdate,
+			sourceSchemaAsDestinationColumn,
+			req.Env,
+			rawTbl,
+			c.chVersion,
+			c.Config.Cluster != "",
+			req.SoftDeleteColName,
+			req.Version,
+		)
+		query, err := queryGenerator.BuildQuery(ctx)
+		if err != nil {
+			close(queries)
+			c.logger.Error("[clickhouse] error while building insert into select query",
+				slog.String("table", tbl),
+				slog.Int64("endBatchID", endBatchID),
+				slog.Int64("lastNormBatchID", lastNormBatchIDForTable),
+				slog.Any("error", err))
+			return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
+		}
 
-			select {
-			case queries <- queryInfo{
-				table:           tbl,
-				query:           query,
-				part:            numPart,
-				lastNormBatchID: lastNormBatchIDForTable,
-			}:
-			case <-errCtx.Done():
-				close(queries)
-				c.logger.Error("[clickhouse] context canceled while inserting data to ClickHouse",
-					slog.Any("error", errCtx.Err()),
-					slog.Any("cause", context.Cause(errCtx)))
-				return model.NormalizeResponse{}, context.Cause(errCtx)
-			}
+		select {
+		case queries <- queryInfo{
+			table:           tbl,
+			query:           query,
+			lastNormBatchID: lastNormBatchIDForTable,
+		}:
+		case <-errCtx.Done():
+			close(queries)
+			c.logger.Error("[clickhouse] context canceled while inserting data to ClickHouse",
+				slog.Any("error", errCtx.Err()),
+				slog.Any("cause", context.Cause(errCtx)))
+			return model.NormalizeResponse{}, context.Cause(errCtx)
 		}
 	}
 	close(queries)

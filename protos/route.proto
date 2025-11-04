@@ -44,6 +44,8 @@ message DynamicSetting {
   peerdb_flow.DynconfValueType value_type = 5;
   peerdb_flow.DynconfApplyMode apply_mode = 6;
   peerdb_flow.DynconfTarget target_for_setting = 7;
+  bool deprecated = 8;
+  string deprecate_reason = 9;
 }
 message GetDynamicSettingsRequest {}
 message GetDynamicSettingsResponse { repeated DynamicSetting settings = 1; }

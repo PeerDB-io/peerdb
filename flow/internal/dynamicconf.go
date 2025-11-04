@@ -304,6 +304,11 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ValueType:        protos.DynconfValueType_UINT,
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_CLICKHOUSE,
+		Deprecated:       true,
+		DeprecateReason: "This introduced a race condition that could result in data loss during replication if used " +
+			"in conjunction with PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE, since 1 or more partitions can fail but offset " +
+			"still can get recorded if the last partition succeeded. This settings is also redundant, instead of tuning " +
+			"this config, use PEERDB_S3_BYTES_PER_AVRO_FILE to manage OOM issues.",
 	},
 	{
 		Name:             "PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION",
@@ -674,10 +679,6 @@ func UpdatePeerDBMaintenanceModeEnabled(ctx context.Context, pool shared.Catalog
 
 func PeerDBPKMEmptyBatchThrottleThresholdSeconds(ctx context.Context, env map[string]string) (int64, error) {
 	return dynamicConfSigned[int64](ctx, env, "PEERDB_PKM_EMPTY_BATCH_THROTTLE_THRESHOLD_SECONDS")
-}
-
-func PeerDBClickHouseNormalizationParts(ctx context.Context, env map[string]string) (uint64, error) {
-	return dynamicConfUnsigned[uint64](ctx, env, "PEERDB_CLICKHOUSE_NORMALIZATION_PARTS")
 }
 
 func PeerDBClickHouseInitialLoadPartsPerPartition(ctx context.Context, env map[string]string) (uint64, error) {

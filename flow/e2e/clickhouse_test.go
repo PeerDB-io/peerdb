@@ -368,10 +368,10 @@ func (s ClickHouseSuite) Test_Update_PKey_Env_Enabled() {
 	RequireEnvCanceled(s.t, env)
 }
 
-func (s ClickHouseSuite) Test_Chunking_Normalize() {
-	srcTableName := "test_update_pkey_chunking_enabled"
+func (s ClickHouseSuite) Test_Chunking_Initial_Load_Parts_Per_Partition() {
+	srcTableName := "test_update_pkey_chunking_initial_load_enabled"
 	srcFullName := s.attachSchemaSuffix(srcTableName)
-	dstTableName := "test_update_pkey_chunking_enabled_dst"
+	dstTableName := "test_update_pkey_chunking_initial_load_enabled_dst"
 
 	require.NoError(s.t, s.source.Exec(s.t.Context(), fmt.Sprintf(`
 		CREATE TABLE IF NOT EXISTS %s (
@@ -393,7 +393,6 @@ func (s ClickHouseSuite) Test_Chunking_Normalize() {
 	flowConnConfig.Env = map[string]string{
 		"PEERDB_CLICKHOUSE_ENABLE_PRIMARY_UPDATE":            "true",
 		"PEERDB_CLICKHOUSE_INITIAL_LOAD_PARTS_PER_PARTITION": "2",
-		"PEERDB_CLICKHOUSE_NORMALIZATION_PARTS":              "3",
 		"PEERDB_S3_BYTES_PER_AVRO_FILE":                      "1",
 	}
 
