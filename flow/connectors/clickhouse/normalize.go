@@ -540,6 +540,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	for _, tbl := range destinationTableNames {
 		lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
 		if err != nil {
+			close(queries)
 			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
 			return model.NormalizeResponse{}, err
 		}
