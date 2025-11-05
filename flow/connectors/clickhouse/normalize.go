@@ -524,15 +524,15 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Int64("endBatchID", endBatchID),
 					slog.Int64("lastNormBatchID", q.lastNormBatchID),
 					slog.Int("parallelWorker", i))
-				if err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, q.table, endBatchID); err != nil {
+				if err := c.SetLastNormalizedBatchIDForTable(errCtx, req.FlowJobName, q.table, endBatchID); err != nil {
 					return fmt.Errorf("error while setting last synced batch id for table %s: %w", q.table, err)
 				}
-			}
 
-			c.logger.Info("executed INSERT commands to ClickHouse",
-				slog.Int64("endBatchID", endBatchID),
-				slog.Int64("lastNormBatchID", lastNormBatchID),
-				slog.Int("parallelWorker", i))
+				c.logger.Info("executed INSERT command to ClickHouse",
+					slog.Int64("endBatchID", endBatchID),
+					slog.Int64("lastNormBatchID", q.lastNormBatchID),
+					slog.Int("parallelWorker", i))
+			}
 			return nil
 		})
 	}
