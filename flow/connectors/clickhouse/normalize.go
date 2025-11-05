@@ -529,6 +529,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				}
 
 				c.logger.Info("executed INSERT command to ClickHouse",
+					slog.String("table", q.table),
 					slog.Int64("endBatchID", endBatchID),
 					slog.Int64("lastNormBatchID", q.lastNormBatchID),
 					slog.Int("parallelWorker", i))
