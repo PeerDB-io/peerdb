@@ -5,16 +5,7 @@ import { TimeAggregateType } from '@/grpc_generated/route';
 import { useTheme } from '@/lib/AppTheme';
 import { Icon } from '@/lib/Icon';
 import { Label } from '@/lib/Label';
-import {
-  BarElement,
-  CategoryScale,
-  Chart as ChartJS,
-  ChartOptions,
-  Legend,
-  LinearScale,
-  Title,
-  Tooltip,
-} from 'chart.js';
+import { Chart as ChartJS, ChartOptions } from 'chart.js';
 import { useEffect, useRef, useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
@@ -55,15 +46,6 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
   const chartRef = useRef<ChartJS<'bar'> | null>(null);
 
   useEffect(() => {
-    ChartJS.register(
-      BarElement,
-      CategoryScale,
-      LinearScale,
-      Title,
-      Tooltip,
-      Legend
-    );
-
     return () => {
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -76,9 +58,6 @@ export default function CdcGraph({ mirrorName }: CdcGraphProps) {
   const isDarkMode = theme.theme === 'dark';
 
   const chartOptions: ChartOptions<'bar'> = {
-    maintainAspectRatio: false,
-    responsive: true,
-    animation: false,
     interaction: {
       intersect: false,
     },

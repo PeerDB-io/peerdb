@@ -8,17 +8,7 @@ import {
 } from '@/grpc_generated/route';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
-import {
-  CategoryScale,
-  Chart as ChartJS,
-  ChartOptions,
-  Legend,
-  LinearScale,
-  LineElement,
-  PointElement,
-  Title,
-  Tooltip,
-} from 'chart.js';
+import { Chart as ChartJS, ChartOptions } from 'chart.js';
 import moment from 'moment';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Line } from 'react-chartjs-2';
@@ -80,16 +70,6 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   const chartRef = useRef<ChartJS<'line'> | null>(null);
 
   useEffect(() => {
-    ChartJS.register(
-      LineElement,
-      CategoryScale,
-      LinearScale,
-      Title,
-      Tooltip,
-      Legend,
-      PointElement
-    );
-
     return () => {
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -146,9 +126,6 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   };
 
   const chartOptions: ChartOptions<'line'> = {
-    maintainAspectRatio: false,
-    responsive: true,
-    animation: false,
     interaction: {
       intersect: false,
     },

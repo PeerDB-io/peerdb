@@ -2,17 +2,9 @@
 import SelectTheme from '@/app/styles/select';
 import { formatGraphLabel, timeOptions } from '@/app/utils/graph';
 import { PartitionStatus, TimeAggregateType } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Label } from '@/lib/Label';
-import {
-  BarElement,
-  CategoryScale,
-  Chart as ChartJS,
-  ChartOptions,
-  Legend,
-  LinearScale,
-  Title,
-  Tooltip,
-} from 'chart.js';
+import { Chart as ChartJS, ChartOptions } from 'chart.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Bar } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
@@ -23,6 +15,8 @@ type QRepGraphProps = {
 };
 
 function QrepGraph({ syncs }: QRepGraphProps) {
+  const theme = useTheme();
+  const isDarkMode = theme.theme === 'dark';
   const [aggregateType, setAggregateType] = useState<TimeAggregateType>(
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
@@ -30,14 +24,6 @@ function QrepGraph({ syncs }: QRepGraphProps) {
   const chartRef = useRef<ChartJS<'bar'> | null>(null);
 
   useEffect(() => {
-    ChartJS.register(
-      BarElement,
-      CategoryScale,
-      LinearScale,
-      Title,
-      Tooltip,
-      Legend
-    );
     return () => {
       if (chartRef.current) {
         chartRef.current.destroy();
@@ -47,15 +33,17 @@ function QrepGraph({ syncs }: QRepGraphProps) {
   }, []);
 
   const chartOptions: ChartOptions<'bar'> = {
-    maintainAspectRatio: false,
-    responsive: true,
-    animation: false,
     interaction: {
       intersect: false,
     },
     scales: {
       x: {
         grid: { display: false },
+      },
+      y: {
+        grid: {
+          color: isDarkMode ? '#333333' : '#e5e7eb',
+        },
       },
     },
   };
