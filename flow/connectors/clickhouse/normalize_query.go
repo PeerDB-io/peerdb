@@ -193,18 +193,29 @@ func (t *NormalizeQueryGenerator) BuildQuery(ctx context.Context) (string, error
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}
-		case "JSON", "Nullable(JSON)":
+		case "JSON":
 			fmt.Fprintf(&projection,
-				"JSONExtract(_peerdb_data, %s, %s) AS %s,",
+				"JSONExtractString(_peerdb_data, %s)::JSON AS %s,",
 				peerdb_clickhouse.QuoteLiteral(colName),
-				peerdb_clickhouse.QuoteLiteral(clickHouseType),
 				peerdb_clickhouse.QuoteIdentifier(dstColName),
 			)
 			if t.enablePrimaryUpdate {
 				fmt.Fprintf(&projectionUpdate,
-					"JSONExtract(_peerdb_match_data, %s, %s) AS %s,",
+					"JSONExtractString(_peerdb_match_data, %s)::JSON AS %s,",
 					peerdb_clickhouse.QuoteLiteral(colName),
-					peerdb_clickhouse.QuoteLiteral(clickHouseType),
+					peerdb_clickhouse.QuoteIdentifier(dstColName),
+				)
+			}
+		case "Nullable(JSON)":
+			fmt.Fprintf(&projection,
+				"JSONExtract(_peerdb_data, %s, 'Nullable(String)')::Nullable(JSON) AS %s,",
+				peerdb_clickhouse.QuoteLiteral(colName),
+				peerdb_clickhouse.QuoteIdentifier(dstColName),
+			)
+			if t.enablePrimaryUpdate {
+				fmt.Fprintf(&projectionUpdate,
+					"JSONExtract(_peerdb_match_data, %s, 'Nullable(String)')::Nullable(JSON) AS %s,",
+					peerdb_clickhouse.QuoteLiteral(colName),
 					peerdb_clickhouse.QuoteIdentifier(dstColName),
 				)
 			}

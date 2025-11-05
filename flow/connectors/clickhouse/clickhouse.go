@@ -446,7 +446,7 @@ func GetTableSchemaForTable(tm *protos.TableMapping, columns []driver.ColumnType
 			qkind = types.QValueKindArrayBoolean
 		case "Array(Date)":
 			qkind = types.QValueKindArrayDate
-		case "JSON":
+		case "JSON", "Nullable(JSON)":
 			qkind = types.QValueKindJSON
 		default:
 			if strings.Contains(column.DatabaseTypeName(), "Decimal") {
