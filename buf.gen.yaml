@@ -6,30 +6,30 @@ managed:
     except:
       - buf.build/googleapis/googleapis
 plugins:
-  - plugin: buf.build/protocolbuffers/go:v1.33.0
+  - plugin: buf.build/protocolbuffers/go:v1.36.10
     out: flow/generated/protos
     opt: paths=source_relative
   - plugin: buf.build/grpc/go:v1.3.0
     out: flow/generated/protos
     opt:
       - paths=source_relative
-  - plugin: buf.build/community/neoeinstein-prost:v0.3.1
+  - plugin: buf.build/community/neoeinstein-prost:v0.4.0
     out: nexus/pt/src/gen
     opt:
       - compile_well_known_types
       - extern_path=.google.protobuf=::pbjson_types
-  - plugin: buf.build/community/neoeinstein-tonic:v0.4.0
+  - plugin: buf.build/community/neoeinstein-tonic:v0.4.1
     out: nexus/pt/src/gen
-  - plugin: buf.build/community/neoeinstein-prost-serde:v0.3.0
+  - plugin: buf.build/community/neoeinstein-prost-serde:v0.3.1
     out: nexus/pt/src/gen
     opt:
       - ignore_unknown_fields=true
-  - plugin: buf.build/community/stephenh-ts-proto:v1.167.9
+  - plugin: buf.build/community/stephenh-ts-proto:v2.6.1
     out: ui/grpc_generated
     opt:
       - esModuleInterop=true
       - outputServices=none
-  - plugin: buf.build/grpc-ecosystem/gateway:v2.19.1
+  - plugin: buf.build/grpc-ecosystem/gateway:v2.27.3
     out: flow/generated/protos
     opt:
       - paths=source_relative
