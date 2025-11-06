@@ -1,5 +1,6 @@
 'use client';
 
+import SelectTheme from '@/app/styles/select';
 import TimeLabel from '@/components/TimeComponent';
 import { PartitionStatus } from '@/grpc_generated/route';
 import { Button } from '@/lib/Button';
@@ -156,6 +157,7 @@ export default function QRepStatusTable({ partitions }: QRepStatusTableProps) {
                   setSortField(sortVal);
                 }}
                 defaultValue={{ value: 'startTime', label: 'Start Time' }}
+                theme={SelectTheme}
               />
             </div>
             <button

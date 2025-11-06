@@ -6,20 +6,12 @@ import {
   GetSlotLagHistoryResponse,
   TimeAggregateType,
 } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
-import {
-  CategoryScale,
-  Chart as ChartJS,
-  Legend,
-  LinearScale,
-  LineElement,
-  PointElement,
-  Title,
-  Tooltip,
-} from 'chart.js';
+import { Chart as ChartJS, ChartOptions } from 'chart.js';
 import moment from 'moment';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import ReactSelect from 'react-select';
 import { getSlotData } from './helpers';
@@ -58,7 +50,13 @@ export default function LagGraph({ peerName }: LagGraphProps) {
   const [slotNames, setSlotNames] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
   const [lagPoints, setLagPoints] = useState<
-    { time: string; 'Lag in GB': number }[]
+    {
+      time: string;
+      'Lag in GB': number;
+      redoLSN?: number;
+      restartLSN?: number;
+      confirmedLSN?: number;
+    }[]
   >([]);
   const [defaultSlot, setDefaultSlot] = useLocalStorage(
     `defaultSlot${peerName}`,
@@ -70,6 +68,18 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
   const [showLsn, setShowLsn] = useState(false);
+  const theme = useTheme();
+  const isDarkMode = theme.theme === 'dark';
+  const chartRef = useRef<ChartJS<'line'> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (chartRef.current) {
+        chartRef.current.destroy();
+        chartRef.current = null;
+      }
+    };
+  }, []);
 
   const fetchSlotNames = useCallback(async () => {
     const slots = await getSlotData(peerName);
@@ -82,30 +92,35 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     }
 
     setLoading(true);
-    const pointsRes = await fetch(`/api/v1/peers/slots/lag_history`, {
-      method: 'POST',
-      cache: 'no-store',
-      body: JSON.stringify({
-        peerName,
-        slotName: selectedSlot,
-        timeSince: stringifyTimeAggregateType(timeSince),
-      }),
-    });
-    if (pointsRes.ok) {
-      const points: GetSlotLagHistoryResponse = await pointsRes.json();
-      setLagPoints(
-        points.data
-          .sort((x, y) => x.time - y.time)
-          .map((data) => ({
-            time: moment(data.time).format('MMM Do HH:mm'),
-            'Lag in GB': data.size,
-            redoLSN: parseLSN(data.redoLSN),
-            restartLSN: parseLSN(data.restartLSN),
-            confirmedLSN: parseLSN(data.confirmedLSN),
-          }))
-      );
+    try {
+      const pointsRes = await fetch(`/api/v1/peers/slots/lag_history`, {
+        method: 'POST',
+        cache: 'no-store',
+        body: JSON.stringify({
+          peerName,
+          slotName: selectedSlot,
+          timeSince: stringifyTimeAggregateType(timeSince),
+        }),
+      });
+      if (pointsRes.ok) {
+        const points: GetSlotLagHistoryResponse = await pointsRes.json();
+        setLagPoints(
+          points.data
+            .sort((x, y) => x.time - y.time)
+            .map((data) => ({
+              time: moment(data.time).format('MMM Do HH:mm'),
+              'Lag in GB': data.size,
+              redoLSN: parseLSN(data.redoLSN),
+              restartLSN: parseLSN(data.restartLSN),
+              confirmedLSN: parseLSN(data.confirmedLSN),
+            }))
+        );
+      }
+    } catch (error) {
+      console.error('Error fetching lag points:', error);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }, [selectedSlot, timeSince, peerName]);
 
   const handleChange = (val: string) => {
@@ -113,21 +128,19 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     setSelectedSlot(val);
   };
 
-  ChartJS.register(
-    LineElement,
-    CategoryScale,
-    LinearScale,
-    Title,
-    Tooltip,
-    Legend,
-    PointElement
-  );
-  const chartOptions = {
-    maintainAspectRatio: false,
+  const chartOptions: ChartOptions<'line'> = {
+    interaction: {
+      intersect: false,
+    },
     scales: {
       x: {
         display: false,
         grid: { display: false },
+      },
+      y: {
+        grid: {
+          color: isDarkMode ? '#333333' : '#e5e7eb',
+        },
       },
     },
   };
@@ -145,17 +158,43 @@ export default function LagGraph({ peerName }: LagGraphProps) {
 
     initializeComponent();
   }, [fetchLagPoints, fetchSlotNames]);
+
+  // Create chart data based on showLsn toggle
   const chartData = {
     labels: lagPoints.map((point) => point.time),
-    datasets: [
-      {
-        label: 'Lag in GB',
-        data: lagPoints.map((point) => point['Lag in GB']),
-        backgroundColor: 'rgba(75, 192, 192, 0.2)',
-        borderColor: 'rgba(75, 192, 192, 1)',
-        borderWidth: 1,
-      },
-    ],
+    datasets: showLsn
+      ? [
+          {
+            label: 'Redo LSN',
+            data: lagPoints.map((point) => point.redoLSN || 0),
+            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            borderWidth: 1,
+          },
+          {
+            label: 'Restart LSN',
+            data: lagPoints.map((point) => point.restartLSN || 0),
+            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+            borderColor: 'rgba(54, 162, 235, 1)',
+            borderWidth: 1,
+          },
+          {
+            label: 'Confirmed LSN',
+            data: lagPoints.map((point) => point.confirmedLSN || 0),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1,
+          },
+        ]
+      : [
+          {
+            label: 'Lag in GB',
+            data: lagPoints.map((point) => point['Lag in GB']),
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1,
+          },
+        ],
   };
 
   if (!mounted) {
@@ -165,6 +204,7 @@ export default function LagGraph({ peerName }: LagGraphProps) {
       </Label>
     );
   }
+
   return (
     <div
       style={{
@@ -223,7 +263,13 @@ export default function LagGraph({ peerName }: LagGraphProps) {
         </center>
       ) : (
         <div style={{ height: '20rem' }}>
-          <Line data={chartData} options={chartOptions} />
+          <Line
+            ref={(chart) => {
+              chartRef.current = chart ?? null;
+            }}
+            data={chartData}
+            options={chartOptions}
+          />
         </div>
       )}
     </div>
