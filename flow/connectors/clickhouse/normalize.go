@@ -540,14 +540,14 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	}
 
 	// wrap query generation logic in a function to ensure queriesCh always closes once
-	response, err := func() (model.NormalizeResponse, error) {
+	if err := func() error {
 		defer close(queriesCh)
 
 		for _, tbl := range destinationTableNames {
 			lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
 			if err != nil {
 				c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
-				return model.NormalizeResponse{}, err
+				return err
 			}
 			c.logger.Info("[clickhouse] last normalized batch id for table",
 				"table", tbl, "lastNormBatchID", lastNormBatchIDForTable, "endBatchID", endBatchID)
@@ -582,7 +582,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Int64("endBatchID", endBatchID),
 					slog.Int64("lastNormBatchID", lastNormBatchIDForTable),
 					slog.Any("error", err))
-				return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
+				return fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
 			}
 
 			select {
@@ -595,14 +595,14 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				c.logger.Error("[clickhouse] context canceled while inserting data to ClickHouse",
 					slog.Any("error", errCtx.Err()),
 					slog.Any("cause", context.Cause(errCtx)))
-				return model.NormalizeResponse{}, context.Cause(errCtx)
+				return context.Cause(errCtx)
 			}
 		}
-		return model.NormalizeResponse{
-			StartBatchID: lastNormBatchID + 1,
-			EndBatchID:   endBatchID,
-		}, nil
-	}()
+		return nil
+	}(); err != nil {
+		return model.NormalizeResponse{}, err
+	}
+
 	if err := group.Wait(); err != nil {
 		return model.NormalizeResponse{}, err
 	}
@@ -611,7 +611,10 @@ func (c *ClickHouseConnector) NormalizeRecords(
 			slog.Int64("batchID", endBatchID), slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
-	return response, err
+	return model.NormalizeResponse{
+		StartBatchID: lastNormBatchID + 1,
+		EndBatchID:   endBatchID,
+	}, nil
 }
 
 func (c *ClickHouseConnector) getDistinctTableNamesInBatch(
