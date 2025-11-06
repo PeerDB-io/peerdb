@@ -487,7 +487,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 	rawTbl := c.GetRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
-	// create len(parallelNormalize) goroutines to process requests from queriesCh
+	// create N=PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE goroutines to process requests from queriesCh
 	for i := range parallelNormalize {
 		group.Go(func() error {
 			var chConn clickhouse.Conn
@@ -539,7 +539,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		})
 	}
 
-	// wrap query generation logic in a function to ensure queriesCh always closed
+	// wrap query generation logic in a function to ensure queriesCh always closes once
 	response, err := func() (model.NormalizeResponse, error) {
 		defer close(queriesCh)
 
