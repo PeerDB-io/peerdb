@@ -6,6 +6,7 @@ import {
   GetSlotLagHistoryResponse,
   TimeAggregateType,
 } from '@/grpc_generated/route';
+import { useTheme } from '@/lib/AppTheme';
 import { Label } from '@/lib/Label';
 import { ProgressCircle } from '@/lib/ProgressCircle/ProgressCircle';
 import { Chart as ChartJS, ChartOptions } from 'chart.js';
@@ -67,6 +68,8 @@ export default function LagGraph({ peerName }: LagGraphProps) {
     TimeAggregateType.TIME_AGGREGATE_TYPE_ONE_HOUR
   );
   const [showLsn, setShowLsn] = useState(false);
+  const theme = useTheme();
+  const isDarkMode = theme.theme === 'dark';
   const chartRef = useRef<ChartJS<'line'> | null>(null);
 
   useEffect(() => {
@@ -133,6 +136,11 @@ export default function LagGraph({ peerName }: LagGraphProps) {
       x: {
         display: false,
         grid: { display: false },
+      },
+      y: {
+        grid: {
+          color: isDarkMode ? '#333333' : '#e5e7eb',
+        },
       },
     },
   };
