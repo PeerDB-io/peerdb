@@ -483,10 +483,11 @@ func (c *ClickHouseConnector) NormalizeRecords(
 		query           string
 		lastNormBatchID int64
 	}
-	queries := make(chan queryInfo)
+	queriesCh := make(chan queryInfo)
 	rawTbl := c.GetRawTableName(req.FlowJobName)
 
 	group, errCtx := errgroup.WithContext(ctx)
+	// create N=PEERDB_CLICKHOUSE_PARALLEL_NORMALIZE goroutines to process requests from queriesCh
 	for i := range parallelNormalize {
 		group.Go(func() error {
 			var chConn clickhouse.Conn
@@ -501,7 +502,7 @@ func (c *ClickHouseConnector) NormalizeRecords(
 				defer chConn.Close()
 			}
 
-			for q := range queries {
+			for q := range queriesCh {
 				c.logger.Info("executing INSERT command to ClickHouse table",
 					slog.String("table", q.table),
 					slog.Int64("endBatchID", endBatchID),
@@ -524,87 +525,92 @@ func (c *ClickHouseConnector) NormalizeRecords(
 					slog.Int64("endBatchID", endBatchID),
 					slog.Int64("lastNormBatchID", q.lastNormBatchID),
 					slog.Int("parallelWorker", i))
-				if err := c.SetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, q.table, endBatchID); err != nil {
+				if err := c.SetLastNormalizedBatchIDForTable(errCtx, req.FlowJobName, q.table, endBatchID); err != nil {
 					return fmt.Errorf("error while setting last synced batch id for table %s: %w", q.table, err)
 				}
-			}
 
-			c.logger.Info("executed INSERT commands to ClickHouse",
-				slog.Int64("endBatchID", endBatchID),
-				slog.Int64("lastNormBatchID", lastNormBatchID),
-				slog.Int("parallelWorker", i))
+				c.logger.Info("executed INSERT command to ClickHouse",
+					slog.String("table", q.table),
+					slog.Int64("endBatchID", endBatchID),
+					slog.Int64("lastNormBatchID", q.lastNormBatchID),
+					slog.Int("parallelWorker", i))
+			}
 			return nil
 		})
 	}
 
-	for _, tbl := range destinationTableNames {
-		lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
-		if err != nil {
-			c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
-			return model.NormalizeResponse{}, err
-		}
-		c.logger.Info("[clickhouse] last normalized batch id for table",
-			"table", tbl, "lastNormBatchID", lastNormBatchIDForTable, "endBatchID", endBatchID)
+	// wrap query generation logic in a function to ensure queriesCh always closes once
+	if err := func() error {
+		defer close(queriesCh)
 
-		// Skip batches already normalized for this table. This can happen if a previous normalization run partially succeeded.
-		lastNormBatchIDForTable = max(lastNormBatchID, lastNormBatchIDForTable)
-		if lastNormBatchIDForTable >= endBatchID {
-			c.logger.Info("[clickhouse] latest batch already synced to destination, skipping",
+		for _, tbl := range destinationTableNames {
+			lastNormBatchIDForTable, err := c.GetLastNormalizedBatchIDForTable(ctx, req.FlowJobName, tbl)
+			if err != nil {
+				c.logger.Error("[clickhouse] error while getting last synced batch id for table", "table", tbl, slog.Any("error", err))
+				return err
+			}
+			c.logger.Info("[clickhouse] last normalized batch id for table",
 				"table", tbl, "lastNormBatchID", lastNormBatchIDForTable, "endBatchID", endBatchID)
-			continue
-		}
 
-		queryGenerator := NewNormalizeQueryGenerator(
-			tbl,
-			req.TableNameSchemaMapping,
-			req.TableMappings,
-			endBatchID,
-			lastNormBatchIDForTable,
-			enablePrimaryUpdate,
-			sourceSchemaAsDestinationColumn,
-			req.Env,
-			rawTbl,
-			c.chVersion,
-			c.Config.Cluster != "",
-			req.SoftDeleteColName,
-			req.Version,
-		)
-		query, err := queryGenerator.BuildQuery(ctx)
-		if err != nil {
-			close(queries)
-			c.logger.Error("[clickhouse] error while building insert into select query",
-				slog.String("table", tbl),
-				slog.Int64("endBatchID", endBatchID),
-				slog.Int64("lastNormBatchID", lastNormBatchIDForTable),
-				slog.Any("error", err))
-			return model.NormalizeResponse{}, fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
-		}
+			// Skip batches already normalized for this table. This can happen if a previous normalization run partially succeeded.
+			lastNormBatchIDForTable = max(lastNormBatchID, lastNormBatchIDForTable)
+			if lastNormBatchIDForTable >= endBatchID {
+				c.logger.Info("[clickhouse] latest batch already synced to destination, skipping",
+					"table", tbl, "lastNormBatchID", lastNormBatchIDForTable, "endBatchID", endBatchID)
+				continue
+			}
 
-		select {
-		case queries <- queryInfo{
-			table:           tbl,
-			query:           query,
-			lastNormBatchID: lastNormBatchIDForTable,
-		}:
-		case <-errCtx.Done():
-			close(queries)
-			c.logger.Error("[clickhouse] context canceled while inserting data to ClickHouse",
-				slog.Any("error", errCtx.Err()),
-				slog.Any("cause", context.Cause(errCtx)))
-			return model.NormalizeResponse{}, context.Cause(errCtx)
+			queryGenerator := NewNormalizeQueryGenerator(
+				tbl,
+				req.TableNameSchemaMapping,
+				req.TableMappings,
+				endBatchID,
+				lastNormBatchIDForTable,
+				enablePrimaryUpdate,
+				sourceSchemaAsDestinationColumn,
+				req.Env,
+				rawTbl,
+				c.chVersion,
+				c.Config.Cluster != "",
+				req.SoftDeleteColName,
+				req.Version,
+			)
+			query, err := queryGenerator.BuildQuery(ctx)
+			if err != nil {
+				c.logger.Error("[clickhouse] error while building insert into select query",
+					slog.String("table", tbl),
+					slog.Int64("endBatchID", endBatchID),
+					slog.Int64("lastNormBatchID", lastNormBatchIDForTable),
+					slog.Any("error", err))
+				return fmt.Errorf("error while building insert into select query for table %s: %w", tbl, err)
+			}
+
+			select {
+			case queriesCh <- queryInfo{
+				table:           tbl,
+				query:           query,
+				lastNormBatchID: lastNormBatchIDForTable,
+			}:
+			case <-errCtx.Done():
+				c.logger.Error("[clickhouse] context canceled while inserting data to ClickHouse",
+					slog.Any("error", errCtx.Err()),
+					slog.Any("cause", context.Cause(errCtx)))
+				return context.Cause(errCtx)
+			}
 		}
-	}
-	close(queries)
-	if err := group.Wait(); err != nil {
+		return nil
+	}(); err != nil {
 		return model.NormalizeResponse{}, err
 	}
 
+	if err := group.Wait(); err != nil {
+		return model.NormalizeResponse{}, err
+	}
 	if err := c.UpdateNormalizeBatchID(ctx, req.FlowJobName, endBatchID); err != nil {
 		c.logger.Error("[clickhouse] error while updating normalize batch id",
 			slog.Int64("batchID", endBatchID), slog.Any("error", err))
 		return model.NormalizeResponse{}, err
 	}
-
 	return model.NormalizeResponse{
 		StartBatchID: lastNormBatchID + 1,
 		EndBatchID:   endBatchID,
