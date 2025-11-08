@@ -576,7 +576,7 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep destination connector: %w", err))
 	}
-	defer qRepSyncCoreConn.Close()
+	defer connectors.CloseConnector(ctx, qRepSyncCoreConn)
 
 	var replicatePartition func(partition *protos.QRepPartition) error
 
