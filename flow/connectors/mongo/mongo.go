@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"sync/atomic"
 	"time"
 
@@ -67,7 +68,7 @@ func NewMongoConnector(ctx context.Context, config *protos.MongoConfig) (*MongoC
 		meteredDialer = utils.NewMeteredDialer(&mc.totalBytesRead, &mc.deltaBytesRead, (&net.Dialer{Timeout: time.Minute}).DialContext, false)
 	}
 
-	clientOptions, err := parseAsClientOptions(config, meteredDialer)
+	clientOptions, err := parseAsClientOptions(config, meteredDialer, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -118,7 +119,7 @@ func (c *MongoConnector) GetVersion(ctx context.Context) (string, error) {
 	return buildInfo.Version, nil
 }
 
-func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.MeteredDialer) (*options.ClientOptions, error) {
+func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.MeteredDialer, logger log.Logger) (*options.ClientOptions, error) {
 	connStr, err := connstring.Parse(config.Uri)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing uri: %w", err)
@@ -165,6 +166,11 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 			return nil, err
 		}
 		clientOptions.SetTLSConfig(tlsConfig)
+	}
+
+	// For debugging only: set env var MONGO_COMMAND_MONITOR to "true" to log all change stream commands
+	if os.Getenv("MONGO_COMMAND_MONITOR") == "true" {
+		clientOptions.SetMonitor(NewCommandMonitor(logger))
 	}
 
 	err = clientOptions.Validate()
