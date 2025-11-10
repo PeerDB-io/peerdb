@@ -17,6 +17,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	cfg *protos.FlowConnectionConfigsCore,
 	tableNameSchemaMapping map[string]*protos.TableSchema,
 ) error {
+	tableMappings := cfg.TableMappings
 	if internal.PeerDBOnlyClickHouseAllowed() {
 		err := chvalidate.CheckIfClickHouseCloudHasSharedMergeTreeEnabled(ctx, c.logger, c.database)
 		if err != nil {
@@ -34,7 +35,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 	}
 
 	// this is for handling column exclusion, processed schema does that in a step
-	processedMapping := internal.BuildProcessedSchemaMapping(cfg.TableMappings, tableNameSchemaMapping, c.logger)
+	processedMapping := internal.BuildProcessedSchemaMapping(tableMappings, tableNameSchemaMapping, c.logger)
 	dstTableNames := slices.Collect(maps.Keys(processedMapping))
 
 	// In the case of resync, we don't need to check the content or structure of the original tables;
@@ -64,7 +65,7 @@ func (c *ClickHouseConnector) ValidateMirrorDestination(
 		return err
 	}
 
-	for _, tableMapping := range cfg.TableMappings {
+	for _, tableMapping := range tableMappings {
 		dstTableName := tableMapping.DestinationTableIdentifier
 		if _, ok := processedMapping[dstTableName]; !ok {
 			// if destination table is not a key, that means source table was not a key in the original schema mapping(?)

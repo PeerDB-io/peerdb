@@ -163,7 +163,8 @@ func (h *FlowRequestHandler) cdcFlowStatus(
 	if state.SyncFlowOptions != nil {
 		config.IdleTimeoutSeconds = state.SyncFlowOptions.IdleTimeoutSeconds
 		config.MaxBatchSize = state.SyncFlowOptions.BatchSize
-		config.TableMappings = state.SyncFlowOptions.TableMappings
+		//TODO: this will need to fetch from the DB?
+		//config.TableMappings = state.SyncFlowOptions.TableMappings
 	}
 
 	srcType, err := connectors.LoadPeerType(ctx, h.pool, config.SourceName)

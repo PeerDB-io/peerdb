@@ -95,6 +95,17 @@ func (h *FlowRequestHandler) createCdcJobEntry(ctx context.Context,
 			connectionConfigs.FlowJobName, err)
 	}
 
+	// Insert the table mappings into the DB
+	tableMappingsBytes, err := internal.TableMappingsToBytes(connectionConfigs.TableMappings)
+	if err != nil {
+		return fmt.Errorf("unable to marshal table mappings: %w", err)
+	}
+
+	stmt := `INSERT INTO table_mappings (flow_name, version, table_mapping) VALUES ($1, $2, $3)
+	 ON CONFLICT (flow_name, version) DO UPDATE SET table_mapping = EXCLUDED.table_mapping`
+	version := 1
+	_, err = h.pool.Exec(ctx, stmt, connectionConfigs.FlowJobName, version, tableMappingsBytes)
+
 	return nil
 }
 
@@ -458,12 +469,17 @@ func (h *FlowRequestHandler) FlowStateChange(
 				if err != nil {
 					return nil, NewInternalApiError(fmt.Errorf("unable to get flow config: %w", err))
 				}
+				tableMappings, err := internal.FetchTableMappingsFromDB(ctx, config.FlowJobName, config.TableMappingVersion)
+				if err != nil {
+					return nil, NewInternalApiError(fmt.Errorf("unable to get table mappings: %w", err))
+				}
 
 				config.Resync = true
 				config.DoInitialSnapshot = true
 				// validate mirror first because once the mirror is dropped, there's no going back
 				if _, err := h.ValidateCDCMirror(ctx, &protos.CreateCDCFlowRequest{
 					ConnectionConfigs: config,
+					TableMappings:     tableMappings,
 				}); err != nil {
 					return nil, NewFailedPreconditionApiError(fmt.Errorf("invalid mirror: %w", err))
 				}
