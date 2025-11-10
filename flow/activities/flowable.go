@@ -1387,7 +1387,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 
 	var renameOutput *protos.RenameTablesOutput
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	renameWithSoftDeleteConn, renameWitSoftDeleteClose, err := connectors.GetByNameAs[connectors.RenameTablesWithSoftDeleteConnector](
+	renameWithSoftDeleteConn, renameWithSoftDeleteClose, err := connectors.GetByNameAs[connectors.RenameTablesWithSoftDeleteConnector](
 		ctx, nil, a.CatalogPool, config.PeerName)
 	if err != nil {
 		if err == errors.ErrUnsupported {
@@ -1415,7 +1415,7 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 		}
 		return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get rename with soft-delete connector: %w", err))
 	}
-	defer renameWitSoftDeleteClose(ctx)
+	defer renameWithSoftDeleteClose(ctx)
 
 	// Rename with soft-delete
 	tableNameSchemaMapping := make(map[string]*protos.TableSchema, len(config.RenameTableOptions))
