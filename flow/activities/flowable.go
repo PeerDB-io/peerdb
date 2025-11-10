@@ -101,11 +101,11 @@ func (a *FlowableActivity) CheckMetadataTables(
 
 func (a *FlowableActivity) SetupMetadataTables(ctx context.Context, config *protos.SetupInput) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowName)
-	dstConn, connClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
+	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCSyncConnector](ctx, config.Env, a.CatalogPool, config.PeerName)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to get connector: %w", err))
 	}
-	defer connClose(ctx)
+	defer dstClose(ctx)
 
 	if err := dstConn.SetupMetadataTables(ctx); err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowName, fmt.Errorf("failed to setup metadata tables: %w", err))
