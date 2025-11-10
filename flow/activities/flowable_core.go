@@ -144,14 +144,14 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 	lastOffset, err := func() (model.CdcCheckpoint, error) {
 		// special case pg-pg replication, where offsets are stored on destination instead of catalog
 		if _, isSourcePg := any(srcConn).(*connpostgres.PostgresConnector); isSourcePg {
-			dstPgConn, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
+			dstPgConn, dstPgClose, err := connectors.GetPostgresConnectorByName(ctx, config.Env, a.CatalogPool, config.DestinationName)
 			if err != nil {
 				if !errors.Is(err, errors.ErrUnsupported) {
 					return model.CdcCheckpoint{}, fmt.Errorf("failed to get destination connector to get last offset: %w", err)
 				}
 				// else fallthrough to loading from catalog
 			} else {
-				defer connectors.CloseConnector(ctx, dstPgConn)
+				defer dstPgClose(ctx)
 				return dstPgConn.GetLastOffset(ctx, config.FlowJobName)
 			}
 		}
@@ -227,11 +227,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 		}
 		logger.Info("no records to push")
 
-		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+		dstConn, dstClose, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to recreate destination connector: %w", err)
 		}
-		defer connectors.CloseConnector(ctx, dstConn)
+		defer dstClose(ctx)
 
 		syncState.Store(shared.Ptr("updating schema"))
 		if err := dstConn.ReplayTableSchemaDeltas(ctx, config.Env, flowName, options.TableMappings, recordBatchSync.SchemaDeltas); err != nil {
@@ -243,11 +243,11 @@ func syncCore[TPull connectors.CDCPullConnectorCore, TSync connectors.CDCSyncCon
 
 	var res *model.SyncResponse
 	errGroup.Go(func() error {
-		dstConn, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+		dstConn, dstClose, err := connectors.GetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 		if err != nil {
 			return fmt.Errorf("failed to recreate destination connector: %w", err)
 		}
-		defer connectors.CloseConnector(ctx, dstConn)
+		defer dstClose(ctx)
 
 		syncBatchID, err := dstConn.GetLastSyncBatchID(errCtx, flowName)
 		if err != nil {
@@ -506,20 +506,20 @@ func replicateXminPartition[TRead any, TWrite any, TSync connectors.QRepSyncConn
 	errGroup, errCtx := errgroup.WithContext(ctx)
 	startTime := time.Now()
 
-	dstPeer, dstConn, err := connectors.LoadPeerAndGetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
+	dstPeer, dstConn, dstClose, err := connectors.LoadPeerAndGetByNameAs[TSync](ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if err != nil {
 		return 0, fmt.Errorf("failed to get qrep destination connector: %w", err)
 	}
-	defer connectors.CloseConnector(ctx, dstConn)
+	defer dstClose(ctx)
 
 	var currentSnapshotXmin int64
 	var rowsSynced int64
 	errGroup.Go(func() error {
-		srcConn, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
+		srcConn, srcClose, err := connectors.GetByNameAs[*connpostgres.PostgresConnector](ctx, config.Env, a.CatalogPool, config.SourceName)
 		if err != nil {
 			return fmt.Errorf("failed to get qrep source connector: %w", err)
 		}
-		defer connectors.CloseConnector(ctx, srcConn)
+		defer srcClose(ctx)
 
 		var pullErr error
 		var numRecords int64
@@ -630,7 +630,7 @@ func (a *FlowableActivity) startNormalize(
 ) error {
 	logger := internal.LoggerFromCtx(ctx)
 
-	dstConn, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
+	dstConn, dstClose, err := connectors.GetByNameAs[connectors.CDCNormalizeConnector](
 		ctx,
 		config.Env,
 		a.CatalogPool,
@@ -642,7 +642,7 @@ func (a *FlowableActivity) startNormalize(
 	} else if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get normalize connector: %w", err))
 	}
-	defer connectors.CloseConnector(ctx, dstConn)
+	defer dstClose(ctx)
 
 	tableNameSchemaMapping, err := a.getTableNameSchemaMapping(ctx, config.FlowJobName)
 	if err != nil {

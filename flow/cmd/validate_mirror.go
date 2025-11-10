@@ -73,7 +73,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 		}
 	}
 
-	srcConn, err := connectors.GetByNameAs[connectors.MirrorSourceValidationConnector](
+	srcConn, srcClose, err := connectors.GetByNameAs[connectors.MirrorSourceValidationConnector](
 		ctx, connectionConfigs.Env, h.pool, connectionConfigs.SourceName,
 	)
 	if err != nil {
@@ -82,14 +82,14 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 		}
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to create source connector: %s", err))
 	}
-	defer connectors.CloseConnector(ctx, srcConn)
+	defer srcClose(ctx)
 
 	if err := srcConn.ValidateMirrorSource(ctx, connectionConfigs); err != nil {
 		return nil, NewFailedPreconditionApiError(
 			fmt.Errorf("failed to validate source connector %s: %w", connectionConfigs.SourceName, err))
 	}
 
-	dstConn, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
+	dstConn, dstClose, err := connectors.GetByNameAs[connectors.MirrorDestinationValidationConnector](
 		ctx, connectionConfigs.Env, h.pool, connectionConfigs.DestinationName,
 	)
 	if err != nil {
@@ -98,7 +98,7 @@ func (h *FlowRequestHandler) validateCDCMirrorImpl(
 		}
 		return nil, NewFailedPreconditionApiError(fmt.Errorf("failed to create destination connector: %w", err))
 	}
-	defer connectors.CloseConnector(ctx, dstConn)
+	defer dstClose(ctx)
 
 	var tableSchemaMap map[string]*protos.TableSchema
 	if !connectionConfigs.Resync {

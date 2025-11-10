@@ -509,61 +509,68 @@ func GetConnector(ctx context.Context, env map[string]string, config *protos.Pee
 	}
 }
 
-func GetAs[T Connector](ctx context.Context, env map[string]string, config *protos.Peer) (T, error) {
+var noopClose = func(context.Context) {}
+
+// Gets typed connector by config. Returns a close function to recruit the compiler into helping us avoid connection leaks.
+func GetAs[T Connector](ctx context.Context, env map[string]string, config *protos.Peer) (T, func(context.Context), error) {
 	var none T
 	conn, err := GetConnector(ctx, env, config)
 	if err != nil {
-		return none, exceptions.NewPeerCreateError(err)
+		return none, noopClose, exceptions.NewPeerCreateError(err)
 	}
 
 	if tconn, ok := conn.(T); ok {
-		return tconn, nil
+		connClose := func(closeCtx context.Context) {
+			if err := conn.Close(); err != nil {
+				internal.LoggerFromCtx(closeCtx).Error("error closing connector", slog.Any("error", err))
+			}
+		}
+		return tconn, connClose, nil
 	} else {
 		conn.Close()
-		return none, errors.ErrUnsupported
+		return none, noopClose, errors.ErrUnsupported
 	}
 }
 
+// Gets peer and connector by name. Returns a close function to recruit the compiler into helping us avoid connection leaks.
 func LoadPeerAndGetByNameAs[T Connector](
 	ctx context.Context,
 	env map[string]string,
 	catalogPool shared.CatalogPool,
 	name string,
-) (*protos.Peer, T, error) {
+) (*protos.Peer, T, func(context.Context), error) {
 	peer, err := LoadPeer(ctx, catalogPool, name)
 	if err != nil {
 		var none T
-		return nil, none, err
+		return nil, none, noopClose, err
 	}
-	conn, err := GetAs[T](ctx, env, peer)
-	return peer, conn, err
+	conn, connClose, err := GetAs[T](ctx, env, peer)
+	return peer, conn, connClose, err
 }
 
-func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string) (T, error) {
-	_, conn, err := LoadPeerAndGetByNameAs[T](ctx, env, catalogPool, name)
-	return conn, err
+// Gets connector by name. Returns a close function to recruit the compiler into helping us avoid connection leaks.
+func GetByNameAs[T Connector](
+	ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string,
+) (T, func(context.Context), error) {
+	_, conn, connClose, err := LoadPeerAndGetByNameAs[T](ctx, env, catalogPool, name)
+	return conn, connClose, err
 }
 
+// Gets Postgres connector by name. Returns a close function to recruit the compiler into helping us avoid connection leaks.
 func GetPostgresConnectorByName(
 	ctx context.Context,
 	env map[string]string,
 	catalogPool shared.CatalogPool,
 	name string,
-) (*connpostgres.PostgresConnector, error) {
+) (*connpostgres.PostgresConnector, func(context.Context), error) {
 	peer, err := LoadPeer(ctx, catalogPool, name)
 	if err != nil {
-		return nil, err
+		return nil, noopClose, err
 	}
 	if peer.Type != protos.DBType_POSTGRES {
-		return nil, errors.ErrUnsupported
+		return nil, noopClose, errors.ErrUnsupported
 	}
 	return GetAs[*connpostgres.PostgresConnector](ctx, env, peer)
-}
-
-func CloseConnector(ctx context.Context, conn Connector) {
-	if err := conn.Close(); err != nil {
-		internal.LoggerFromCtx(ctx).Error("error closing connector", slog.Any("error", err))
-	}
 }
 
 // create type assertions to cause compile time error if connector interface not implemented
