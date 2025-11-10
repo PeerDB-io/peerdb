@@ -520,12 +520,12 @@ func GetAs[T Connector](ctx context.Context, env map[string]string, config *prot
 	}
 
 	if tconn, ok := conn.(T); ok {
-		close := func(closeCtx context.Context) {
+		connClose := func(closeCtx context.Context) {
 			if err := conn.Close(); err != nil {
 				internal.LoggerFromCtx(closeCtx).Error("error closing connector", slog.Any("error", err))
 			}
 		}
-		return tconn, close, nil
+		return tconn, connClose, nil
 	} else {
 		conn.Close()
 		return none, noopClose, errors.ErrUnsupported
@@ -544,14 +544,16 @@ func LoadPeerAndGetByNameAs[T Connector](
 		var none T
 		return nil, none, noopClose, err
 	}
-	conn, close, err := GetAs[T](ctx, env, peer)
-	return peer, conn, close, err
+	conn, connClose, err := GetAs[T](ctx, env, peer)
+	return peer, conn, connClose, err
 }
 
 // Gets connector by name. Returns a close function to recruit the compiler into helping us avoid connection leaks.
-func GetByNameAs[T Connector](ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string) (T, func(context.Context), error) {
-	_, conn, close, err := LoadPeerAndGetByNameAs[T](ctx, env, catalogPool, name)
-	return conn, close, err
+func GetByNameAs[T Connector](
+	ctx context.Context, env map[string]string, catalogPool shared.CatalogPool, name string,
+) (T, func(context.Context), error) {
+	_, conn, connClose, err := LoadPeerAndGetByNameAs[T](ctx, env, catalogPool, name)
+	return conn, connClose, err
 }
 
 // Gets Postgres connector by name. Returns a close function to recruit the compiler into helping us avoid connection leaks.

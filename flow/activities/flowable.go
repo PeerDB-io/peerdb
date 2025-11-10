@@ -561,7 +561,8 @@ func (a *FlowableActivity) ReplicateQRepPartitions(ctx context.Context,
 	logger.Info("replicating partitions for batch",
 		slog.Int64("batchID", int64(partitions.BatchId)), slog.Int("partitions", numPartitions))
 
-	qRepPullCoreConn, qRepPullCoreClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](ctx, config.Env, a.CatalogPool, config.SourceName)
+	qRepPullCoreConn, qRepPullCoreClose, err := connectors.GetByNameAs[connectors.QRepPullConnectorCore](
+		ctx, config.Env, a.CatalogPool, config.SourceName)
 	if err != nil {
 		return a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get qrep source connector: %w", err))
 	}
@@ -720,7 +721,8 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 	defer shutdown()
 
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, dstClose, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
+	dstConn, dstClose, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](
+		ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return monitoring.UpdateEndTimeForQRepRun(ctx, a.CatalogPool, runUUID)
 	} else if err != nil {
@@ -737,7 +739,8 @@ func (a *FlowableActivity) ConsolidateQRepPartitions(ctx context.Context, config
 
 func (a *FlowableActivity) CleanupQRepFlow(ctx context.Context, config *protos.QRepConfig) error {
 	ctx = context.WithValue(ctx, shared.FlowNameKey, config.FlowJobName)
-	dstConn, dstClose, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](ctx, config.Env, a.CatalogPool, config.DestinationName)
+	dstConn, dstClose, err := connectors.GetByNameAs[connectors.QRepConsolidateConnector](
+		ctx, config.Env, a.CatalogPool, config.DestinationName)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return nil
 	} else if err != nil {
@@ -1392,7 +1395,8 @@ func (a *FlowableActivity) RenameTables(ctx context.Context, config *protos.Rena
 	if err != nil {
 		if err == errors.ErrUnsupported {
 			// Rename without soft-delete
-			renameConn, renameClose, renameErr := connectors.GetByNameAs[connectors.RenameTablesConnector](ctx, nil, a.CatalogPool, config.PeerName)
+			renameConn, renameClose, renameErr := connectors.GetByNameAs[connectors.RenameTablesConnector](
+				ctx, nil, a.CatalogPool, config.PeerName)
 			if renameErr != nil {
 				return nil, a.Alerter.LogFlowError(ctx, config.FlowJobName, fmt.Errorf("failed to get rename connector: %w", renameErr))
 			}
