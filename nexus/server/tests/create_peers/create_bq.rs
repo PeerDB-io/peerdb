@@ -3,6 +3,8 @@ use pt::peerdb_peers::BigqueryConfig;
 use std::env;
 use std::fs::File;
 use std::io::Read;
+
+#[cfg(feature = "bigquery")]
 pub fn create(nexus: &mut Client) {
     dotenvy::dotenv().ok();
     let service_file_path = env::var("TEST_BQ_CREDS").expect("TEST_BQ_CREDS not set");
