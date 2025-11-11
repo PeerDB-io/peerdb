@@ -162,6 +162,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	replConfig.Config.RuntimeParams["timezone"] = "UTC"
 	replConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
 	replConfig.Config.RuntimeParams["statement_timeout"] = "0"
+	replConfig.Config.RuntimeParams["wal_sender_timeout"] = "120s"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
@@ -429,12 +430,6 @@ func pullCore[Items model.Items](
 	}
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
-
-	if _, err := c.conn.Exec(ctx, "SET wal_sender_timeout = 120000"); err != nil {
-		return fmt.Errorf("error setting wal_sender_timeout: %w", err)
-	}
-
-	c.logger.Info("PullRecords: set wal_sender_timeout")
 
 	// cached, since this connector is reused
 	pgVersion, err := c.MajorVersion(ctx)
