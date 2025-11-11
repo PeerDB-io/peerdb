@@ -215,11 +215,14 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 	}
 
 	requestLoggingMiddleware := middleware.RequestLoggingMiddleware(ctx)
+	recoveryMiddleware := middleware.RecoveryMiddleware()
 
 	serverOptions := []grpc.ServerOption{
 		// Interceptors are executed in the order they are passed to, so unauthorized requests are not logged
+		// Recovery middleware is placed after auth to catch panics with authentication context
 		grpc.ChainUnaryInterceptor(
 			authGrpcMiddleware,
+			recoveryMiddleware,
 			middleware.RequestIdMiddleware(),
 			requestLoggingMiddleware,
 		),
