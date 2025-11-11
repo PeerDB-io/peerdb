@@ -430,6 +430,12 @@ func pullCore[Items model.Items](
 
 	c.logger.Info("PullRecords: performed checks for slot and publication")
 
+	if _, err := c.conn.Exec(ctx, "SET wal_sender_timeout = 120000"); err != nil {
+		return fmt.Errorf("error setting wal_sender_timeout: %w", err)
+	}
+
+	c.logger.Info("PullRecords: set wal_sender_timeout")
+
 	// cached, since this connector is reused
 	pgVersion, err := c.MajorVersion(ctx)
 	if err != nil {
