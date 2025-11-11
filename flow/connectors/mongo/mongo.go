@@ -168,8 +168,7 @@ func parseAsClientOptions(config *protos.MongoConfig, meteredDialer utils.Metere
 		clientOptions.SetTLSConfig(tlsConfig)
 	}
 
-	// For debugging only: set env var MONGO_COMMAND_MONITOR to "true" to log all change stream commands
-	if os.Getenv("MONGO_COMMAND_MONITOR") == "true" {
+	if level, ok := os.LookupEnv("PEERDB_LOG_LEVEL"); ok && level == "DEBUG" {
 		clientOptions.SetMonitor(NewCommandMonitor(logger))
 	}
 

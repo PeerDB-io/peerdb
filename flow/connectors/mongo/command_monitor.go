@@ -9,12 +9,11 @@ import (
 	"go.temporal.io/sdk/log"
 )
 
-// NewCommandMonitor creates a command monitor for debugging MongoDB operations.
-// To enable, set the environment variable MONGO_COMMAND_MONITOR=true
+// NewCommandMonitor creates a command monitor for debugging MongoDB server/client communication.
 func NewCommandMonitor(logger log.Logger) *event.CommandMonitor {
 	return &event.CommandMonitor{
 		Started: func(ctx context.Context, evt *event.CommandStartedEvent) {
-			logger.Info(fmt.Sprintf("[CommandMonitor] started: command=%s database=%s requestID=%d",
+			logger.Debug(fmt.Sprintf("[CommandMonitor] started: command=%s database=%s requestID=%d",
 				evt.CommandName,
 				evt.DatabaseName,
 				evt.RequestID,
@@ -27,10 +26,10 @@ func NewCommandMonitor(logger log.Logger) *event.CommandMonitor {
 			if err := bson.Unmarshal(evt.Reply, &reply); err == nil {
 				logline += fmt.Sprintf(" reply=%+v", reply)
 			}
-			logger.Info(logline)
+			logger.Debug(logline)
 		},
 		Failed: func(ctx context.Context, evt *event.CommandFailedEvent) {
-			logger.Warn(fmt.Sprintf("[CommandMonitor] failed: command=%s duration=%v error=%v",
+			logger.Debug(fmt.Sprintf("[CommandMonitor] failed: command=%s duration=%v error=%v",
 				evt.CommandName,
 				evt.Duration,
 				evt.Failure,

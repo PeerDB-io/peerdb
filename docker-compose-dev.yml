@@ -37,8 +37,6 @@ x-flow-worker-env: &flow-worker-env
   # enables worker profiling using Go's pprof
   ENABLE_PROFILING: "true"
   PPROF_PORT: "6060"
-  # Uncomment to enable logging mongodb CDC commands
-  # MONGO_COMMAND_MONITOR: "true"
 
 services:
   catalog:

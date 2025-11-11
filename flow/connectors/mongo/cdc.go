@@ -174,7 +174,7 @@ func (c *MongoConnector) PullRecords(
 	defer changeStream.Close(ctx)
 
 	var recordCount uint32
-	var deltaCdcBytesProcessed, cumulativeCdcBytesProcesed atomic.Int64
+	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
 	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
@@ -182,7 +182,7 @@ func (c *MongoConnector) PullRecords(
 		}
 		c.logger.Info("[mongo] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", cumulativeCdcBytesProcesed.Load()),
+			slog.Int64("bytes", cumulativeBytesProcessed.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
@@ -191,7 +191,7 @@ func (c *MongoConnector) PullRecords(
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 
 	reportBytesShutdown := shared.Interval(ctx, time.Second*10, func() {
-		read := deltaCdcBytesProcessed.Swap(0)
+		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 	})
@@ -199,7 +199,7 @@ func (c *MongoConnector) PullRecords(
 	defer func() {
 		cancelTimeout()
 		reportBytesShutdown()
-		read := deltaCdcBytesProcessed.Swap(0)
+		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
 		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 	}()
@@ -263,7 +263,7 @@ func (c *MongoConnector) PullRecords(
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mongo] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
-				slog.Int64("bytes", cumulativeCdcBytesProcesed.Load()),
+				slog.Int64("bytes", cumulativeBytesProcessed.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 		}
@@ -339,8 +339,8 @@ func (c *MongoConnector) PullRecords(
 		}
 
 		changeEventSize := int64(len(changeStream.Current))
-		deltaCdcBytesProcessed.Add(changeEventSize)
-		cumulativeCdcBytesProcesed.Add(changeEventSize)
+		deltaBytesProcessed.Add(changeEventSize)
+		cumulativeBytesProcessed.Add(changeEventSize)
 
 		var changeEvent ChangeEvent
 		if err := changeStream.Decode(&changeEvent); err != nil {
