@@ -696,7 +696,8 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorNotifyDestinationModified, chErrorInfo
 		case chproto.ErrMemoryLimitExceeded:
 			return ErrorNotifyOOM, chErrorInfo
-		case chproto.ErrUnknownDatabase:
+		case chproto.ErrUnknownDatabase,
+			chproto.ErrAuthenticationFailed:
 			return ErrorNotifyConnectivity, chErrorInfo
 		case chproto.ErrKeeperException,
 			chproto.ErrUnfinished,
@@ -749,8 +750,7 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			if strings.HasPrefix(chException.Message, "Cannot enqueue query on this replica, because it has replication lag") {
 				return ErrorNotifyConnectivity, chErrorInfo
 			}
-		case chproto.ErrAuthenticationFailed,
-			chproto.ErrCannotScheduleTask,
+		case chproto.ErrCannotScheduleTask,
 			chproto.ErrQueryWasCancelled,
 			chproto.ErrPocoException,
 			chproto.ErrCannotReadFromSocket,
