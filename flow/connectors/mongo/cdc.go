@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
@@ -153,7 +154,6 @@ func (c *MongoConnector) PullRecords(
 		return err
 	}
 
-	c.totalBytesRead.Store(0)
 	changeStream, err := c.client.Watch(ctx, pipeline, changeStreamOpts)
 	if err != nil {
 		if isResumeTokenNotFoundError(err) && resumeToken != nil {
@@ -174,6 +174,7 @@ func (c *MongoConnector) PullRecords(
 	defer changeStream.Close(ctx)
 
 	var recordCount uint32
+	var deltaBytesProcessed, cumulativeBytesProcessed atomic.Int64
 	pullStart := time.Now()
 	defer func() {
 		if recordCount == 0 {
@@ -181,7 +182,7 @@ func (c *MongoConnector) PullRecords(
 		}
 		c.logger.Info("[mongo] PullRecords finished streaming",
 			slog.Uint64("records", uint64(recordCount)),
-			slog.Int64("bytes", c.totalBytesRead.Load()),
+			slog.Int64("bytes", cumulativeBytesProcessed.Load()),
 			slog.Int("channelLen", req.RecordStream.ChannelLen()),
 			slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 	}()
@@ -190,17 +191,17 @@ func (c *MongoConnector) PullRecords(
 	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, time.Hour)
 
 	reportBytesShutdown := shared.Interval(ctx, time.Second*10, func() {
-		read := c.deltaBytesRead.Swap(0)
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
+		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 	})
 
 	defer func() {
 		cancelTimeout()
 		reportBytesShutdown()
-		read := c.deltaBytesRead.Swap(0)
-		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
+		read := deltaBytesProcessed.Swap(0)
 		otelManager.Metrics.FetchedBytesCounter.Add(ctx, read)
+		otelManager.Metrics.AllFetchedBytesCounter.Add(ctx, read)
 	}()
 
 	checkpoint := func() {
@@ -262,7 +263,7 @@ func (c *MongoConnector) PullRecords(
 		if recordCount%50000 == 0 {
 			c.logger.Info("[mongo] PullRecords streaming",
 				slog.Uint64("records", uint64(recordCount)),
-				slog.Int64("bytes", c.totalBytesRead.Load()),
+				slog.Int64("bytes", cumulativeBytesProcessed.Load()),
 				slog.Int("channelLen", req.RecordStream.ChannelLen()),
 				slog.Float64("elapsedMinutes", time.Since(pullStart).Minutes()))
 		}
@@ -336,6 +337,10 @@ func (c *MongoConnector) PullRecords(
 
 			return fmt.Errorf("change stream error: %w", err)
 		}
+
+		changeEventSize := int64(len(changeStream.Current))
+		deltaBytesProcessed.Add(changeEventSize)
+		cumulativeBytesProcessed.Add(changeEventSize)
 
 		var changeEvent ChangeEvent
 		if err := changeStream.Decode(&changeEvent); err != nil {
