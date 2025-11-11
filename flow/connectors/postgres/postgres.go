@@ -173,10 +173,10 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 		return nil, fmt.Errorf("failed to get wal_sender_timeout override: %w", err)
 	}
 	if strings.ToLower(walSenderTimeout) != "none" {
-		c.logger.Warn("SETTING WAL_SENDER_TIMEOUT = " + walSenderTimeout)
+		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", walSenderTimeout))
 		replConfig.Config.RuntimeParams["wal_sender_timeout"] = walSenderTimeout
 	} else {
-		c.logger.Warn("NOT SETTING WAL_SENDER_TIMEOUT")
+		c.logger.Info("not setting wal_sender_timeout")
 	}
 
 	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
