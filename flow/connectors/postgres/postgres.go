@@ -172,7 +172,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 	if err != nil {
 		return nil, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
 	}
-	if strings.ToLower(walSenderTimeout) != "none" {
+	if !strings.EqualFold(walSenderTimeout, "NONE") {
 		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", walSenderTimeout))
 		replConfig.Config.RuntimeParams["wal_sender_timeout"] = walSenderTimeout
 	} else {
