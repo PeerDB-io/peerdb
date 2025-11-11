@@ -384,7 +384,7 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		Description:      "wal_sender_timeout value passed for Postgres CDC. \"NONE\" means no override, leaving it up to the source DB",
 		DefaultValue:     "120s",
 		ValueType:        protos.DynconfValueType_STRING,
-		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_AFTER_RESUME,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
 }
