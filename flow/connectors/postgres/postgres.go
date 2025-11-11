@@ -170,7 +170,7 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]s
 
 	walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get wal_sender_timeout override: %w", err)
+		return nil, fmt.Errorf("failed to get wal_sender_timeout value: %w", err)
 	}
 	if strings.ToLower(walSenderTimeout) != "none" {
 		c.logger.Info("set wal_sender_timeout", slog.String("wal_sender_timeout", walSenderTimeout))
