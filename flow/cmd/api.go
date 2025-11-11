@@ -222,9 +222,9 @@ func APIMain(ctx context.Context, args *APIServerParams) error {
 		// Recovery middleware is placed after auth to catch panics with authentication context
 		grpc.ChainUnaryInterceptor(
 			authGrpcMiddleware,
-			recoveryMiddleware,
 			middleware.RequestIdMiddleware(),
 			requestLoggingMiddleware,
+			recoveryMiddleware,
 		),
 	}
 
