@@ -151,7 +151,7 @@ func (c *PostgresConnector) fetchCustomTypeMapping(ctx context.Context) (map[uin
 	return c.customTypeMapping, nil
 }
 
-func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, error) {
+func (c *PostgresConnector) CreateReplConn(ctx context.Context, env map[string]string) (*pgx.Conn, error) {
 	// create a separate connection for non-replication queries as replication connections cannot
 	// be used for extended query protocol, i.e. prepared statements
 	replConfig, err := ParseConfig(c.connStr, c.Config)
@@ -162,12 +162,22 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	replConfig.Config.RuntimeParams["timezone"] = "UTC"
 	replConfig.Config.RuntimeParams["idle_in_transaction_session_timeout"] = "0"
 	replConfig.Config.RuntimeParams["statement_timeout"] = "0"
-	replConfig.Config.RuntimeParams["wal_sender_timeout"] = "120s"
 	replConfig.Config.RuntimeParams["replication"] = "database"
 	replConfig.Config.RuntimeParams["bytea_output"] = "hex"
 	replConfig.Config.RuntimeParams["intervalstyle"] = "postgres"
 	replConfig.Config.RuntimeParams["DateStyle"] = "ISO, DMY"
 	replConfig.DefaultQueryExecMode = pgx.QueryExecModeSimpleProtocol
+
+	walSenderTimeout, err := internal.PeerDBPostgresWalSenderTimeout(ctx, env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get wal_sender_timeout override: %w", err)
+	}
+	if strings.ToLower(walSenderTimeout) != "none" {
+		c.logger.Warn("SETTING WAL_SENDER_TIMEOUT = " + walSenderTimeout)
+		replConfig.Config.RuntimeParams["wal_sender_timeout"] = walSenderTimeout
+	} else {
+		c.logger.Warn("NOT SETTING WAL_SENDER_TIMEOUT")
+	}
 
 	conn, err := NewPostgresConnFromConfig(ctx, replConfig, c.Config.TlsHost, c.rdsAuth, c.ssh)
 	if err != nil {
@@ -177,8 +187,8 @@ func (c *PostgresConnector) CreateReplConn(ctx context.Context) (*pgx.Conn, erro
 	return conn, nil
 }
 
-func (c *PostgresConnector) SetupReplConn(ctx context.Context) error {
-	conn, err := c.CreateReplConn(ctx)
+func (c *PostgresConnector) SetupReplConn(ctx context.Context, env map[string]string) error {
+	conn, err := c.CreateReplConn(ctx, env)
 	if err != nil {
 		return err
 	}

@@ -379,6 +379,14 @@ var DynamicSettings = [...]*protos.DynamicSetting{
 		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
 		TargetForSetting: protos.DynconfTarget_ALL,
 	},
+	{
+		Name:             "PEERDB_POSTGRES_WAL_SENDER_TIMEOUT",
+		Description:      "wal_sender_timeout value passed for Postgres CDC. \"NONE\" means no override, leaving it up to the source DB",
+		DefaultValue:     "120s",
+		ValueType:        protos.DynconfValueType_STRING,
+		ApplyMode:        protos.DynconfApplyMode_APPLY_MODE_IMMEDIATE,
+		TargetForSetting: protos.DynconfTarget_ALL,
+	},
 }
 
 var DynamicIndex = func() map[string]int {
@@ -698,6 +706,10 @@ func PeerDBForceInternalVersion(ctx context.Context, env map[string]string) (uin
 
 func PeerDBPostgresEnableFailoverSlots(ctx context.Context, env map[string]string) (bool, error) {
 	return dynamicConfBool(ctx, env, "PEERDB_POSTGRES_ENABLE_FAILOVER_SLOTS")
+}
+
+func PeerDBPostgresWalSenderTimeout(ctx context.Context, env map[string]string) (string, error) {
+	return dynLookup(ctx, env, "PEERDB_POSTGRES_WAL_SENDER_TIMEOUT")
 }
 
 func PeerDBMetricsRecordAggregatesEnabled(ctx context.Context, env map[string]string) (bool, error) {

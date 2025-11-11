@@ -397,22 +397,22 @@ func (c *BigQueryConnector) FinishExport(v any) error {
 	return nil
 }
 
-func (c *BigQueryConnector) SetupReplConn(_ context.Context) error {
+func (c *BigQueryConnector) SetupReplConn(context.Context, map[string]string) error {
 	return nil
 }
 
-func (c *BigQueryConnector) ReplPing(_ context.Context) error {
+func (c *BigQueryConnector) ReplPing(context.Context) error {
 	return nil
 }
 
-func (c *BigQueryConnector) UpdateReplStateLastOffset(_ context.Context, _ model.CdcCheckpoint) error {
+func (c *BigQueryConnector) UpdateReplStateLastOffset(context.Context, model.CdcCheckpoint) error {
 	return nil
 }
 
-func (c *BigQueryConnector) PullFlowCleanup(_ context.Context, _ string) error {
+func (c *BigQueryConnector) PullFlowCleanup(context.Context, string) error {
 	return nil
 }
 
-func (c *BigQueryConnector) SetupReplication(_ context.Context, _ *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
+func (c *BigQueryConnector) SetupReplication(context.Context, *protos.SetupReplicationInput) (model.SetupReplicationResult, error) {
 	return model.SetupReplicationResult{}, nil
 }
