@@ -1161,6 +1161,31 @@ func (c *PostgresConnector) ReplayTableSchemaDeltas(
 	return nil
 }
 
+// MigrateTriggersAndIndexesForPostgresToPostgres migrates triggers and indexes
+// from source to target for Postgres-to-Postgres flows.
+// This should be called after schema deltas are replayed or during initial setup.
+func (c *PostgresConnector) MigrateTriggersAndIndexesForPostgresToPostgres(
+	ctx context.Context,
+	sourceConnector *PostgresConnector,
+	tableMappings []*protos.TableMapping,
+) error {
+	// Migrate triggers
+	if err := MigrateTriggersFromSource(ctx, sourceConnector, c, tableMappings); err != nil {
+		c.logger.Warn("failed to migrate triggers", slog.Any("error", err))
+		// Don't fail the entire flow if trigger migration fails
+		// Triggers are less critical than schema
+	}
+
+	// Migrate indexes
+	if err := MigrateIndexesFromSource(ctx, sourceConnector, c, tableMappings); err != nil {
+		c.logger.Warn("failed to migrate indexes", slog.Any("error", err))
+		// Don't fail the entire flow if index migration fails
+		// Indexes can be recreated manually if needed
+	}
+
+	return nil
+}
+
 // EnsurePullability ensures that a table is pullable, implementing the Connector interface.
 func (c *PostgresConnector) EnsurePullability(
 	ctx context.Context,
