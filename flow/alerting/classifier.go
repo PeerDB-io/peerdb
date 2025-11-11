@@ -608,8 +608,10 @@ func GetErrorClass(ctx context.Context, err error) (ErrorClass, ErrorInfo) {
 			return ErrorOther, myErrorInfo
 		case 1146: // ER_NO_SUCH_TABLE
 			return ErrorNotifySourceTableMissing, myErrorInfo
-		case 1943:
+		case 1943: // ER_DUPLICATE_GTID_DOMAIN (MariaDB)
 			return ErrorNotifyBadGTIDSetup, myErrorInfo
+		case 1317: // ER_QUERY_INTERRUPTED
+			return ErrorRetryRecoverable, myErrorInfo
 		default:
 			return ErrorOther, myErrorInfo
 		}
